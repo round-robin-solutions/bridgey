@@ -64,6 +64,8 @@ should follow device acceptance, not precede it.
 - During a call, revoke Bridgey's notification access, end or change the
   call, then grant access again. Notifications removed meanwhile must
   disappear from the Mac and the call card must match the phone.
+- During a call, turn Android Wi-Fi off and on again. After Bridgey
+  reconnects, the Mac call card must return with the current call state.
 
 Pause-on-call depends on forwarded call state: notification forwarding and the
 optional Android Phone permissions must be enabled. It does not carry call

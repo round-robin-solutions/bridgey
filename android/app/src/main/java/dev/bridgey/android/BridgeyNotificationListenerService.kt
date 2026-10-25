@@ -333,7 +333,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     }
 
     private fun refreshActiveCallNotifications() {
-        val ranking = currentRanking
+        val ranking = currentRanking ?: return
         activeNotifications.orEmpty()
             .filter { it.packageName != packageName && it.notification.category == Notification.CATEGORY_CALL }
             .forEach { onNotificationPosted(it, ranking) }
@@ -404,6 +404,13 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
 
         fun filterChanged(packageName: String, enabled: Boolean) {
             activeService?.get()?.applyApplicationFilter(packageName, enabled)
+        }
+
+        // A new transport session starts with an empty Mac call card, so resend current calls.
+        fun resendActiveCalls() {
+            activeService?.get()?.mainHandler?.post {
+                activeService?.get()?.refreshActiveCallNotifications()
+            }
         }
 
         fun callPermissionsChanged() {
