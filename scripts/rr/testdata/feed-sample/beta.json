@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "app": "in.roundrobin.bridgey",
+  "channel": "beta",
+  "version": "0.6.0-rr.1-beta.1",
+  "build": 262981315,
+  "published": "2026-10-25T13:15:00Z",
+  "tag": "v0.6.0-rr.1-beta.1",
+  "notesUrl": "https://github.com/round-robin-solutions/bridgey/releases/tag/v0.6.0-rr.1-beta.1",
+  "notes": "Adds update channels.\nFixes <tags> & things.",
+  "android": {
+    "versionName": "0.6.0-rr.1-beta.1",
+    "versionCode": 262981315,
+    "url": "https://github.com/round-robin-solutions/bridgey/releases/download/v0.6.0-rr.1-beta.1/Bridgey-RR-0.6.0-rr.1-beta.1-Android.apk",
+    "sha256": "5b42c182b2a90695141796f1ed116361984ec9d67ad9aaf7b7adaf54b6857e88",
+    "size": 900,
+    "minSdk": 26
+  },
+  "macos": {
+    "shortVersion": "0.6.0-rr.1-beta.1",
+    "build": 262981315,
+    "minimumSystemVersion": "13.0",
+    "dmg": {
+      "url": "https://github.com/round-robin-solutions/bridgey/releases/download/v0.6.0-rr.1-beta.1/Bridgey-RR-0.6.0-rr.1-beta.1-macOS.dmg",
+      "sha256": "b85a718141e51de29fe9cc6d4c95546cbbc9ba76ede8cbc75d80f2c6b2d1a8ae",
+      "size": 900
+    },
+    "zip": {
+      "url": "https://github.com/round-robin-solutions/bridgey/releases/download/v0.6.0-rr.1-beta.1/Bridgey-RR-0.6.0-rr.1-beta.1-macOS.zip",
+      "sha256": "d554afb490865762088f2298fc5236f0871734ddd06908d8fa2ecf0c3e1f7c8e",
+      "size": 900
+    },
+    "edSignature": "d2Yvza3O9wjVH4vR3nIKFt5ss8UK1xkQe+YFknNi+luqkOQVqaqMrJMTxiASk9oW4Fp7GlgOrDNMAqnGg7ShBA=="
+  }
+}

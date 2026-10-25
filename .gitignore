@@ -21,3 +21,7 @@ android/**/build/
 .env
 *.jks
 *.keystore
+
+# Round Robin edition release output
+/dist/
+android/.kotlin/
