@@ -95,7 +95,7 @@ class ActivityLogTest {
             .map { it.name }
             .toSet()
         assertEquals(
-            setOf("id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "count", "atMillis"),
+            setOf("id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "automatic", "count", "atMillis"),
             fields,
         )
     }
@@ -107,7 +107,7 @@ class ActivityLogTest {
         ActivityKind.entries.forEach { log.record(it, "mac", "Mac", fileName = "a.txt") }
         val array = JSONArray(file.readText())
         val keys = (0 until array.length()).flatMap { array.getJSONObject(it).keys().asSequence().toList() }.toSet()
-        assertEquals(setOf("id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "count", "at"), keys)
+        assertEquals(setOf("id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "automatic", "count", "at"), keys)
         // File names only on file events.
         (0 until array.length()).map { array.getJSONObject(it) }.forEach { item ->
             val kind = ActivityKind.fromKey(item.getString("kind"))!!
@@ -164,7 +164,7 @@ class ActivityLogTest {
 
     @Test
     fun aClockSetBackDoesNotPinFutureItems() {
-        val items = listOf(ActivityItem(1, ActivityKind.PING_SENT, "mac", "Mac", null, null, null, false, 1, now + 24 * 60 * 60 * 1000L))
+        val items = listOf(ActivityItem(1, ActivityKind.PING_SENT, "mac", "Mac", null, null, null, false, false, 1, now + 24 * 60 * 60 * 1000L))
         assertTrue(ActivityHistory.prune(items, now).isEmpty())
     }
 

@@ -10,6 +10,11 @@
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
     <!-- Round Robin edition: self-update through PackageInstaller after the user taps Install. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Optional background clipboard (off by default). Granted only by a one-time ADB command;
+         an app installed from a download cannot hold READ_LOGS otherwise. SYSTEM_ALERT_WINDOW lets
+         the read activity start from the background once that same command allows it. -->
+    <uses-permission android:name="android.permission.READ_LOGS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <queries>
@@ -78,7 +83,7 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
         <service android:name=".ClipboardTileService" android:exported="true"
-            android:label="Bridgey clipboard" android:icon="@drawable/ic_bridgey_notification"
+            android:label="@string/tile_label" android:icon="@drawable/ic_bridgey_notification"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
         </service>

@@ -18,6 +18,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 class BridgeyConnectionService : Service() {
@@ -86,6 +88,16 @@ class BridgeyConnectionService : Service() {
         }
         serviceScope.launch { bridgey.pairing.fileTransfers.collect(::updateTransferNotifications) }
         serviceScope.launch { bridgey.updater.runPeriodicChecks() }
+        // Optional background clipboard: run the READ_LOGS source only while it is enabled, automatic
+        // clipboard is on, and a device is connected. Stops on disconnect, when off, or when the
+        // service stops.
+        serviceScope.launch {
+            combine(bridgey.settings.state, bridgey.pairing.state) { settings, pairingState ->
+                settings.backgroundClipboardEnabled && settings.autoClipboardGlobal && pairingState is PairingState.Connected
+            }.distinctUntilChanged().collect { active ->
+                if (active) bridgey.backgroundClipboardSource.start() else bridgey.backgroundClipboardSource.stop()
+            }
+        }
         serviceScope.launch {
             bridgey.pairing.phoneRinging.collect { ringing ->
                 if (ringing) notificationManager.notify(FIND_NOTIFICATION_ID, buildFindNotification())
@@ -205,10 +217,20 @@ class BridgeyConnectionService : Service() {
         val pairing = (application as BridgeyApplication).pairing
         val connectedDeviceId = (pairing.state.value as? PairingState.Connected)?.deviceId
         if (connectedDeviceId != null && pairing.isFeatureAvailable(BridgeyFeature.CLIPBOARD)) {
-            notification.addAction(android.R.drawable.ic_menu_send, "Send clipboard", pendingCapture)
+            // One full-width, easy-to-hit "Send copied text" button in a decorated custom view,
+            // rather than the small action chip. The status stays above it; Turn off stays an action.
+            val content = android.widget.RemoteViews(packageName, R.layout.notification_clipboard).apply {
+                setTextViewText(R.id.notification_status, status)
+                setTextViewText(R.id.notification_send, getString(R.string.notification_send_copied_text))
+                setOnClickPendingIntent(R.id.notification_send, pendingCapture)
+            }
+            notification
+                .setStyle(android.app.Notification.DecoratedCustomViewStyle())
+                .setCustomContentView(content)
+                .setCustomBigContentView(content)
         }
         return notification
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Turn off", turnOff)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.notification_turn_off), turnOff)
             .build()
     }
 
@@ -265,6 +287,7 @@ class BridgeyConnectionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        if (supportedProfile) runCatching { (application as BridgeyApplication).backgroundClipboardSource.stop() }
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -289,6 +312,11 @@ class ClipboardCaptureActivity : Activity() {
         window.setDimAmount(0f)
     }
 
+    companion object {
+        /** Set by the optional background clipboard source to auto-send silently (no toasts). */
+        const val EXTRA_AUTOMATIC = "dev.bridgey.android.extra.AUTOMATIC"
+    }
+
     override fun onResume() {
         super.onResume()
         Handler(Looper.getMainLooper()).postDelayed({
@@ -296,6 +324,14 @@ class ClipboardCaptureActivity : Activity() {
             val clipboard = getSystemService(ClipboardManager::class.java)
             val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(this@ClipboardCaptureActivity)?.toString()
             val sensitive = clipboard.primaryClipDescription.isMarkedSensitive()
+            // Background trigger (optional READ_LOGS source): auto-send silently through the same
+            // path as a copy made while Bridgey is open, with the same skip rules.
+            if (intent?.getBooleanExtra(EXTRA_AUTOMATIC, false) == true) {
+                (application as BridgeyApplication).pairing.autoSendClipboard(text, sensitive)
+                finishAndRemoveTask()
+                overridePendingTransition(0, 0)
+                return@postDelayed
+            }
             if (text.isNullOrEmpty()) {
                 Toast.makeText(this@ClipboardCaptureActivity, "Clipboard is empty", Toast.LENGTH_SHORT).show()
             } else {

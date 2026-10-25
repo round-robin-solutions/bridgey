@@ -27,7 +27,7 @@ class ClipboardTileService : TileService() {
                     val ready = app.isBridgeyEnabled && app.pairing.state.value is PairingState.Connected &&
                         app.pairing.isFeatureAvailable(BridgeyFeature.CLIPBOARD)
                     state = if (ready) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-                    label = "Bridgey clipboard"
+                    label = getString(dev.bridgey.android.R.string.tile_label)
                     if (Build.VERSION.SDK_INT >= 29) subtitle = if (ready) "Send to Mac" else "Open Bridgey"
                     updateTile()
                 }

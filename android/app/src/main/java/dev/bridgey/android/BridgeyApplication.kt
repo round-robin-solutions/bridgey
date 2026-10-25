@@ -1,11 +1,16 @@
 package dev.bridgey.android
 
+import android.Manifest
+import android.app.Activity
 import android.app.Application
 import android.content.BroadcastReceiver
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.BatteryManager
+import android.os.Bundle
 import android.os.UserManager
 import android.provider.Settings
 import dev.bridgey.android.activity.ActivityLog
@@ -39,9 +44,17 @@ class BridgeyApplication : Application() {
         private set
     lateinit var uiPreferences: UiPreferences
         private set
+    lateinit var backgroundClipboardSource: ClipboardChangeSource
+        private set
     var isBridgeyEnabled: Boolean = false
         private set
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    // Automatic clipboard, phone to Mac: while any Bridgey activity is in the foreground we may read
+    // the clipboard (Android 10+ forbids it in the background), so a foreground clip change is sent
+    // automatically. The coordinator applies the skip rules, de-duplication and loop prevention.
+    private var startedActivityCount = 0
+    private var clipListenerRegistered = false
+    private val clipboardChangeListener = ClipboardManager.OnPrimaryClipChangedListener { readAndAutoSendClipboard() }
     private var lastBatteryIntent: Intent? = null
     private var batteryReceiverRegistered = false
     private val batteryReceiver = object : BroadcastReceiver() {
@@ -69,6 +82,12 @@ class BridgeyApplication : Application() {
         uiPreferences = UiPreferences(this)
         activityLog = ActivityLog(File(noBackupFilesDir, ActivityLog.FILE_NAME), Executors.newSingleThreadExecutor())
         activity = ActivityRecorder(activityLog, pairing, applicationScope) { uiPreferences.showPreviews.value }.also { it.start() }
+        backgroundClipboardSource = LogcatClipboardSource(
+            this,
+            packageName,
+            hasLogPermission = { checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED },
+            onClipboardChangeDenied = ::launchBackgroundClipboardCapture,
+        )
         applicationScope.launch {
             combine(discovery.peers, pairing.trustedDeviceIds, pairing.state) { peers, trustedIds, state ->
                 Triple(peers, trustedIds, state)
@@ -93,7 +112,61 @@ class BridgeyApplication : Application() {
                 if (features[BridgeyFeature.BATTERY] != false) lastBatteryIntent?.let(::publishBattery)
             }
         }
+        registerForegroundClipboardWatcher()
         if (preferences.getBoolean(PREFERENCE_ENABLED, true)) enableBridgey()
+    }
+
+    private fun registerForegroundClipboardWatcher() {
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: Activity) {
+                if (startedActivityCount++ == 0 && !clipListenerRegistered) {
+                    getSystemService(ClipboardManager::class.java).addPrimaryClipChangedListener(clipboardChangeListener)
+                    clipListenerRegistered = true
+                }
+            }
+
+            override fun onActivityStopped(activity: Activity) {
+                startedActivityCount = (startedActivityCount - 1).coerceAtLeast(0)
+                if (startedActivityCount == 0 && clipListenerRegistered) {
+                    getSystemService(ClipboardManager::class.java).removePrimaryClipChangedListener(clipboardChangeListener)
+                    clipListenerRegistered = false
+                }
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        })
+    }
+
+    /**
+     * Optional background clipboard: a transparent, excluded-from-recents activity reads the
+     * clipboard once it has window focus and auto-sends it. Starting it from the background needs
+     * SYSTEM_ALERT_WINDOW, which the one-time ADB setup grants.
+     */
+    private fun launchBackgroundClipboardCapture() {
+        val intent = Intent(this, ClipboardCaptureActivity::class.java)
+            .putExtra(ClipboardCaptureActivity.EXTRA_AUTOMATIC, true)
+            .addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_NEW_DOCUMENT or
+                    Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
+                    Intent.FLAG_ACTIVITY_NO_ANIMATION,
+            )
+        runCatching { startActivity(intent) }
+    }
+
+    /** Reads the current clipboard (allowed while foreground) and offers it to automatic clipboard. */
+    private fun readAndAutoSendClipboard() {
+        if (!isBridgeyEnabled) return
+        if (pairing.state.value !is PairingState.Connected) return
+        if (!settings.state.value.autoClipboardGlobal) return
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        val item = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0) ?: return
+        val text = item.coerceToText(this).toString()
+        pairing.autoSendClipboard(text, clipboard.primaryClipDescription.isMarkedSensitive())
     }
 
     fun enableBridgey() {

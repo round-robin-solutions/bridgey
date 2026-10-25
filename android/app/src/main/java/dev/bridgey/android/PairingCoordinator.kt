@@ -2,8 +2,10 @@ package dev.bridgey.android
 
 import android.content.Context
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.ContentValues
+import android.os.PersistableBundle
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -93,7 +95,7 @@ data class FileTransferState(
 data class TrustedDevice(val id: String, val name: String)
 
 /** Events reported to the activity stream. Only clipboard events carry text, for the stream's preview. */
-enum class PeerActivity { CLIPBOARD_SENT, CLIPBOARD_RECEIVED, PING_RECEIVED, CALL_STARTED }
+enum class PeerActivity { CLIPBOARD_SENT, CLIPBOARD_RECEIVED, CLIPBOARD_RECEIVE_FAILED, PING_RECEIVED, CALL_STARTED }
 
 data class PeerEvent(
     val activity: PeerActivity,
@@ -103,6 +105,8 @@ data class PeerEvent(
     val clipboardText: String? = null,
     /** The clip was marked sensitive (ClipDescription.EXTRA_IS_SENSITIVE). */
     val sensitive: Boolean = false,
+    /** Automatic clipboard moved this, rather than a manual Send. */
+    val automatic: Boolean = false,
 )
 
 data class RemoteBatteryStatus(val level: Int, val isCharging: Boolean)
@@ -127,6 +131,7 @@ class PairingCoordinator(
     private val mutableClipboardStatus = MutableStateFlow<String?>(null)
     val clipboardStatus: StateFlow<String?> = mutableClipboardStatus.asStateFlow()
     private val pendingClipboardSends = ConcurrentHashMap<String, (ClipboardSendResult) -> Unit>()
+    private val autoClipboardTracker = AutoClipboardTracker()
     private val pendingFileAccepts = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
     private val pendingFileCompletions = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
     private val mutableFileTransferStatus = MutableStateFlow<String?>(null)
@@ -235,6 +240,7 @@ class PairingCoordinator(
     fun forget(deviceId: String) {
         trust.remove(deviceId)
         settings.removeDevice(deviceId)
+        autoClipboardTracker.clear(deviceId)
         if ((mutableState.value as? PairingState.Connected)?.deviceId == deviceId) dismiss()
         android.util.Log.i("Bridgey", "PAIRING revoked peerId=${deviceId.take(8)}")
     }
@@ -263,10 +269,39 @@ class PairingCoordinator(
     fun sendText(text: String, sensitive: Boolean = false, onResult: (ClipboardSendResult) -> Unit = {}) =
         sendClipboardContent(text, html = null, sensitive = sensitive, onResult = onResult)
 
+    /**
+     * Automatic clipboard: offered the current clipboard after a copy (listener, resume, tile or
+     * notification). Applies the skip rules, de-duplication and loop prevention, then sends only
+     * when the clipboard feature and automatic clipboard are on for the connected device. Silent
+     * except for the size limit, which shows one quiet status and is not retried.
+     */
+    fun autoSendClipboard(text: String?, sensitive: Boolean) {
+        val current = session ?: return
+        if (mutableState.value !is PairingState.Connected) return
+        val deviceId = current.remoteDeviceId.takeIf(String::isNotEmpty) ?: return
+        val available = settings.isAutoClipboardEnabled(deviceId) && isFeatureAvailable(BridgeyFeature.CLIPBOARD)
+        when (autoClipboardDecision(text, sensitive, available, autoClipboardTracker.lastHash(deviceId))) {
+            ClipboardAutoDecision.SEND -> {
+                autoClipboardTracker.record(deviceId, clipboardHash(text!!))
+                sendClipboardContent(text, html = null, sensitive = sensitive, automatic = true)
+            }
+            ClipboardAutoDecision.SKIP_TOO_LARGE ->
+                mutableClipboardStatus.value = "Clipboard exceeds 32 KiB. Send large text or diagnostics as a file."
+            else -> Unit
+        }
+    }
+
+    /** Resume path: only offer a clip that is fresh (copied within the last 10 minutes). */
+    fun autoSendClipboardOnResume(text: String?, sensitive: Boolean, timestampMillis: Long) {
+        if (!clipIsFresh(timestampMillis, System.currentTimeMillis())) return
+        autoSendClipboard(text, sensitive)
+    }
+
     private fun sendClipboardContent(
         text: String,
         html: String?,
         sensitive: Boolean = false,
+        automatic: Boolean = false,
         onResult: (ClipboardSendResult) -> Unit = {},
     ) {
         if (!isFeatureAvailable(BridgeyFeature.CLIPBOARD)) {
@@ -300,7 +335,7 @@ class PairingCoordinator(
             val messageId = UUID.randomUUID().toString()
             pendingClipboardSends[messageId] = { result ->
                 if (result == ClipboardSendResult.DELIVERED) {
-                    activityListener?.invoke(PeerEvent(PeerActivity.CLIPBOARD_SENT, current.remoteDeviceId, current.peerName, text, sensitive))
+                    activityListener?.invoke(PeerEvent(PeerActivity.CLIPBOARD_SENT, current.remoteDeviceId, current.peerName, text, sensitive, automatic))
                 }
                 onResult(result)
             }
@@ -1158,20 +1193,42 @@ class PairingCoordinator(
             message.nonce ?: return,
             message.ciphertext ?: return,
         ) ?: return fail("Invalid encrypted clipboard message")
+        // The Mac may one day flag a clip as sensitive in the rich JSON; it does not today, so
+        // we read it only if present and otherwise treat the clip as not sensitive.
+        val text: String
+        val sensitive: Boolean
         val clip = if (rich) {
             val content = RichClipboardContent.decode(plaintext)
                 ?: return fail("Invalid rich clipboard message")
+            text = content.text
+            sensitive = runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)).optBoolean("sensitive", false) }.getOrDefault(false)
             ClipData.newHtmlText("Bridgey", content.text, content.html)
         } else {
-            val text = plaintext.toString(Charsets.UTF_8)
+            text = plaintext.toString(Charsets.UTF_8)
             if (!clipboardTextFits(text)) return fail("Invalid clipboard message")
+            sensitive = false
             ClipData.newPlainText("Bridgey", text)
         }
-        appContext.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+        if (sensitive && android.os.Build.VERSION.SDK_INT >= 33) {
+            clip.description.extras = (clip.description.extras ?: PersistableBundle())
+                .apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
+        }
+        // Writing to the clipboard is allowed from the background and while the screen is off;
+        // only reading is restricted. A write can still fail on some OEMs, so record it, don't swallow.
+        val written = runCatching { appContext.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip) }.isSuccess
+        if (!written) {
+            diagnostics.record("clipboard", if (rich) "rich_received" else "text_received", "write_failed")
+            android.util.Log.w("Bridgey", "PLUGIN clipboard write failed")
+            activityListener?.invoke(PeerEvent(PeerActivity.CLIPBOARD_RECEIVE_FAILED, current.remoteDeviceId, current.peerName, automatic = true))
+            current.send(Message(kind = "clipboard.ack", sessionId = current.id, messageId = messageId))
+            return
+        }
+        // Remember what we wrote so our own clip-change event and the next resume read do not bounce it back.
+        autoClipboardTracker.record(current.remoteDeviceId, clipboardHash(text))
         diagnostics.record("clipboard", if (rich) "rich_received" else "text_received")
         android.util.Log.i("Bridgey", "PLUGIN clipboard received")
         activityListener?.invoke(
-            PeerEvent(PeerActivity.CLIPBOARD_RECEIVED, current.remoteDeviceId, current.peerName, clip.getItemAt(0).text?.toString()),
+            PeerEvent(PeerActivity.CLIPBOARD_RECEIVED, current.remoteDeviceId, current.peerName, text, sensitive, automatic = true),
         )
         current.send(Message(kind = "clipboard.ack", sessionId = current.id, messageId = messageId))
     }

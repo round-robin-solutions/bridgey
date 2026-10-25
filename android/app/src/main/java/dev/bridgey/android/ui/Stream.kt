@@ -101,6 +101,7 @@ class LiveActions(
 /** Icon and tint for a stream item. */
 fun ActivityKind.visual(): Pair<ImageVector, Tint> = when (this) {
     ActivityKind.CLIPBOARD_SENT, ActivityKind.CLIPBOARD_RECEIVED -> BridgeyIcons.ContentPaste to Tint.BLUE
+    ActivityKind.CLIPBOARD_RECEIVE_FAILED -> BridgeyIcons.Error to Tint.NEUTRAL
     ActivityKind.FILE_SENT, ActivityKind.FILE_RECEIVED -> BridgeyIcons.Description to Tint.GREEN
     ActivityKind.FILE_FAILED -> BridgeyIcons.Error to Tint.NEUTRAL
     ActivityKind.LINK_SENT, ActivityKind.LINK_RECEIVED -> BridgeyIcons.Link to Tint.BLUE
@@ -136,6 +137,7 @@ fun itemQuote(item: ActivityItem): String? {
 private fun itemTitleWithoutPreview(item: ActivityItem, device: String): String = when (item.kind) {
     ActivityKind.CLIPBOARD_SENT -> stringResource(R.string.stream_clipboard_sent_title, device)
     ActivityKind.CLIPBOARD_RECEIVED -> stringResource(R.string.stream_clipboard_received_title, device)
+    ActivityKind.CLIPBOARD_RECEIVE_FAILED -> stringResource(R.string.stream_clipboard_failed_title)
     ActivityKind.FILE_SENT, ActivityKind.FILE_RECEIVED, ActivityKind.FILE_FAILED ->
         item.fileName ?: stringResource(R.string.stream_file_unnamed)
     ActivityKind.LINK_SENT -> stringResource(R.string.stream_link_sent_title, device)
@@ -156,8 +158,11 @@ private fun itemTitleWithoutPreview(item: ActivityItem, device: String): String 
 
 @Composable
 fun itemDetail(item: ActivityItem, device: String): String = when (item.kind) {
-    ActivityKind.CLIPBOARD_SENT -> stringResource(R.string.stream_clipboard_sent_detail)
-    ActivityKind.CLIPBOARD_RECEIVED -> stringResource(R.string.stream_clipboard_received_detail)
+    ActivityKind.CLIPBOARD_SENT ->
+        stringResource(if (item.automatic) R.string.stream_clipboard_auto else R.string.stream_clipboard_sent_detail)
+    ActivityKind.CLIPBOARD_RECEIVED ->
+        stringResource(if (item.automatic) R.string.stream_clipboard_received_auto else R.string.stream_clipboard_received_detail)
+    ActivityKind.CLIPBOARD_RECEIVE_FAILED -> stringResource(R.string.stream_clipboard_failed_detail)
     ActivityKind.FILE_SENT -> stringResource(R.string.stream_file_sent_detail, device)
     ActivityKind.FILE_RECEIVED -> stringResource(R.string.stream_file_received_detail, device)
     ActivityKind.FILE_FAILED -> stringResource(R.string.stream_file_failed_detail, device)

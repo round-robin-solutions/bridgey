@@ -73,13 +73,13 @@ class StreamScreenshotTest {
     private val rings get() = deviceRings(trusted, peers, PairingState.Connected("work", "Work MacBook"))
 
     private val activity get() = listOf(
-        ActivityItem(7, ActivityKind.CLIPBOARD_SENT, "work", "Work MacBook", null, "Room 2 at 4, bring the deck", null, false, 1, now - 20_000),
-        ActivityItem(6, ActivityKind.CALL_SHOWN, "work", "Work MacBook", null, "Mum", null, false, 1, at(9, 40)),
-        ActivityItem(5, ActivityKind.FILE_RECEIVED, "personal", "Personal Mac", "invoice-oct.pdf", null, null, false, 1, at(9, 12)),
-        ActivityItem(4, ActivityKind.CLIPBOARD_RECEIVED, "work", "Work MacBook", null, null, null, true, 1, at(9, 5)),
-        ActivityItem(3, ActivityKind.LINK_SENT, "mini", "Mac mini", null, null, null, false, 1, at(8, 58)),
-        ActivityItem(2, ActivityKind.NOTIFICATIONS_SHOWN, "work", "Work MacBook", null, null, "WhatsApp", false, 4, at(8, 55)),
-        ActivityItem(1, ActivityKind.PING_RECEIVED, "work", "Work MacBook", null, null, null, false, 1, at(8, 30) - 24 * 60 * 60 * 1000L),
+        ActivityItem(7, ActivityKind.CLIPBOARD_SENT, "work", "Work MacBook", null, "Room 2 at 4, bring the deck", null, false, false, 1, now - 20_000),
+        ActivityItem(6, ActivityKind.CALL_SHOWN, "work", "Work MacBook", null, "Mum", null, false, false, 1, at(9, 40)),
+        ActivityItem(5, ActivityKind.FILE_RECEIVED, "personal", "Personal Mac", "invoice-oct.pdf", null, null, false, false, 1, at(9, 12)),
+        ActivityItem(4, ActivityKind.CLIPBOARD_RECEIVED, "work", "Work MacBook", null, null, null, true, false, 1, at(9, 5)),
+        ActivityItem(3, ActivityKind.LINK_SENT, "mini", "Mac mini", null, null, null, false, false, 1, at(8, 58)),
+        ActivityItem(2, ActivityKind.NOTIFICATIONS_SHOWN, "work", "Work MacBook", null, null, "WhatsApp", false, false, 4, at(8, 55)),
+        ActivityItem(1, ActivityKind.PING_RECEIVED, "work", "Work MacBook", null, null, null, false, false, 1, at(8, 30) - 24 * 60 * 60 * 1000L),
     )
 
     private fun nameFor(item: ActivityItem) = rings.firstOrNull { it.deviceId == item.deviceId }?.name ?: item.deviceName
@@ -143,6 +143,8 @@ class StreamScreenshotTest {
                 },
                 notificationAccess = true,
                 notificationAppsEnabled = 12,
+                autoClipboard = true,
+                autoClipboardGlobalOn = true,
                 activity = activity,
                 live = emptyList(),
                 now = now,
@@ -154,24 +156,43 @@ class StreamScreenshotTest {
         )
     }
 
+    private fun settingsState() = SettingsState(
+        deviceName = "OnePlus 11",
+        connectionStatus = "Connected to Work MacBook",
+        connected = true,
+        pairedCount = 3,
+        globalFeatures = BridgeyFeature.entries.associateWith { it != BridgeyFeature.MEDIA },
+        directCallsEnabled = true,
+        autoClipboardEnabled = true,
+        backgroundClipboardEnabled = true,
+        backgroundClipboardStatus = dev.bridgey.android.BackgroundClipboardStatus.WAITING_FOR_SETUP,
+        backgroundClipboardCommand = "adb shell pm grant in.roundrobin.bridgey android.permission.READ_LOGS && " +
+            "adb shell appops set in.roundrobin.bridgey SYSTEM_ALERT_WINDOW allow && " +
+            "adb shell am force-stop in.roundrobin.bridgey",
+        tileAddSupported = true,
+        tileAdded = false,
+        notificationAppsEnabled = 12,
+        notificationAppsTotal = 48,
+        appNotificationsEnabled = true,
+        notificationAccessEnabled = true,
+        reduceMotion = false,
+        showPreviews = true,
+        activityCount = 6,
+        update = UpdateUiState(channel = UpdateChannel.STABLE, lastCheckedAt = now - 10 * 60_000),
+        installedVersion = "0.6.0",
+        now = now,
+    )
+
     private fun settings() = capture(if (dark()) "settings-dark" else "settings-light") {
+        SettingsScreen(state = settingsState(), actions = SettingsActions())
+    }
+
+    /** Scrolled so the Clipboard section (its label is item index 4) leads the page. */
+    private fun settingsClipboard() = capture(if (dark()) "settings-clipboard-dark" else "settings-clipboard-light") {
         SettingsScreen(
-            state = SettingsState(
-                deviceName = "OnePlus 11",
-                pairedCount = 3,
-                notificationAppsEnabled = 12,
-                notificationAppsTotal = 48,
-                notificationsFeatureOn = true,
-                appNotificationsEnabled = true,
-                notificationAccessEnabled = true,
-                reduceMotion = false,
-                showPreviews = true,
-                activityCount = 6,
-                update = UpdateUiState(channel = UpdateChannel.STABLE, lastCheckedAt = now - 10 * 60_000),
-                installedVersion = "0.6.0",
-                now = now,
-            ),
+            state = settingsState(),
             actions = SettingsActions(),
+            listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = 4),
         )
     }
 
@@ -194,4 +215,8 @@ class StreamScreenshotTest {
     @Test fun settingsLight() = settings()
 
     @Test @Config(qualifiers = "+night") fun settingsDark() = settings()
+
+    @Test fun settingsClipboardLight() = settingsClipboard()
+
+    @Test @Config(qualifiers = "+night") fun settingsClipboardDark() = settingsClipboard()
 }
