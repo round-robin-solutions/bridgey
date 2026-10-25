@@ -21,9 +21,11 @@ upstream clients.
 | Android clipboard task affinity | `dev.bridgey.android.clipboard_action` | `${applicationId}.clipboard_action` |
 | Updates | none (manual downloads) | Stable, Beta and Nightly channels, in-app updates |
 | Releases | GitHub Actions on `v*` tags | `scripts/rr/release.sh` on our own machines; `release.yml` is manual-only |
+| Android design | Material defaults | Direction B "Stream": device rings, activity stream, send bar (Round Robin theme) |
+| Android activity stream | none | Local, private history of what moved between devices (see below) |
 
 Unchanged on purpose: the wire protocol, the Bonjour service type `_bridgey._tcp`, the default
-port 42458, Kotlin and Swift package names, and the visual design. Because the port is the
+port 42458, Kotlin and Swift package names, and the macOS visual design. Because the port is the
 same, the upstream app and this edition cannot both accept connections on one Mac at the same
 time; quit one of them.
 
@@ -35,6 +37,26 @@ Edition settings live in one file, `rr-edition.properties`: app id, names, the n
 the GitHub repository, the feed base URL and the expected Android certificate fingerprint.
 Gradle, `macos/build-app.sh` and `scripts/rr/*` all read it. The Sparkle public key is in
 `macos/Resources/Info.plist` (`SUPublicEDKey`).
+
+### Android activity stream and privacy
+
+The Android home screen shows what moved between your devices, newest first. It is kept only on
+the phone: at most 200 items for seven days, in an owner-only file (`0600`) in no-backup storage,
+and cleared from Settings > Privacy > Activity. It never goes into diagnostics or logs.
+
+What an item stores: the kind of event, the device, the time, a count, and depending on the kind:
+
+- clipboard sent or received: a one-line preview of the text (whitespace collapsed, at most 80
+  characters). A clip marked sensitive on Android 13+ (`ClipDescription.EXTRA_IS_SENSITIVE`) is
+  stored as "Hidden" with no text. Rich clips preview their plain text;
+- files: the name of the file you sent or received;
+- forwarded notifications: the app's name, grouped per device and app within 15 minutes
+  ("4 WhatsApp alerts"). Never notification titles or text;
+- incoming calls: the caller as shown in the call notification, when there is one.
+
+Link addresses and phone numbers are never stored. Settings > Privacy > "Show previews in
+activity" (on by default) turns previews, app names and callers off: new items then store none,
+and existing previews are hidden.
 
 The About section in Settings on both apps says "Built on Bridgey by Semyon Mikhailov" and
 links to the original project. Keep it, and keep `LICENSE`.

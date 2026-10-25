@@ -331,6 +331,13 @@ creates a new transfer and starts from byte zero so that integrity verification
 remains simple and deterministic. Each client keeps at most 20 completed or
 interrupted entries in memory.
 
+The Round Robin edition's Android app keeps a local activity stream (at most 200
+items for seven days, owner-only, never backed up). Clipboard items keep a
+one-line preview of at most 80 characters ("Hidden" for clips marked sensitive),
+alert items the app name, and incoming calls the caller when the notification
+shows one; Settings > Privacy > "Show previews in activity" turns that off. See
+[the edition notes](docs/rr-edition.md#android-activity-stream-and-privacy).
+
 Settings can export a structured diagnostics JSON file. It contains bounded
 event metadata, application/platform versions, feature states, connection
 state, and transfer counts. It never includes clipboard text, notification

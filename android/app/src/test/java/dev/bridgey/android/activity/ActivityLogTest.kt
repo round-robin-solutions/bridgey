@@ -94,7 +94,10 @@ class ActivityLogTest {
             .filterNot { java.lang.reflect.Modifier.isStatic(it.modifiers) }
             .map { it.name }
             .toSet()
-        assertEquals(setOf("id", "kind", "deviceId", "deviceName", "fileName", "count", "atMillis"), fields)
+        assertEquals(
+            setOf("id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "count", "atMillis"),
+            fields,
+        )
     }
 
     @Test
@@ -104,7 +107,7 @@ class ActivityLogTest {
         ActivityKind.entries.forEach { log.record(it, "mac", "Mac", fileName = "a.txt") }
         val array = JSONArray(file.readText())
         val keys = (0 until array.length()).flatMap { array.getJSONObject(it).keys().asSequence().toList() }.toSet()
-        assertEquals(setOf("id", "kind", "deviceId", "deviceName", "fileName", "count", "at"), keys)
+        assertEquals(setOf("id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "count", "at"), keys)
         // File names only on file events.
         (0 until array.length()).map { array.getJSONObject(it) }.forEach { item ->
             val kind = ActivityKind.fromKey(item.getString("kind"))!!
@@ -161,7 +164,86 @@ class ActivityLogTest {
 
     @Test
     fun aClockSetBackDoesNotPinFutureItems() {
-        val items = listOf(ActivityItem(1, ActivityKind.PING_SENT, "mac", "Mac", null, 1, now + 24 * 60 * 60 * 1000L))
+        val items = listOf(ActivityItem(1, ActivityKind.PING_SENT, "mac", "Mac", null, null, null, false, 1, now + 24 * 60 * 60 * 1000L))
         assertTrue(ActivityHistory.prune(items, now).isEmpty())
+    }
+
+    @Test
+    fun clipboardPreviewIsOneLineOfAtMostEightyCharacters() {
+        assertEquals("Room 2 at 4, bring the deck", clipboardPreview("  Room 2 at 4,\n\n bring\tthe deck  "))
+        assertNull(clipboardPreview(" \n\t "))
+        val long = clipboardPreview("word ".repeat(40))!!
+        assertTrue(long.length <= ActivityHistory.MAX_PREVIEW_LENGTH)
+        assertTrue(long.endsWith("\u2026"))
+        assertFalse(long.contains("\n"))
+        val emoji = clipboardPreview("a".repeat(78) + "\uD83D\uDE00\uD83D\uDE00")!!
+        assertFalse(Character.isHighSurrogate(emoji[emoji.length - 2]))
+    }
+
+    @Test
+    fun clipboardEventsKeepAPreviewThatIsCapped() {
+        val log = log()
+        log.record(ActivityKind.CLIPBOARD_SENT, "mac", "Mac", preview = "x".repeat(5_000))
+        val item = log.items.value.single()
+        assertEquals(ActivityHistory.MAX_PREVIEW_LENGTH, item.preview!!.length)
+        assertFalse(item.sensitive)
+    }
+
+    @Test
+    fun sensitiveClipsStoreNoText() {
+        val file = File(folder.root, ActivityLog.FILE_NAME)
+        val log = log(file)
+        log.record(ActivityKind.CLIPBOARD_SENT, "mac", "Mac", preview = "hunter2-password", sensitive = true)
+        val item = log.items.value.single()
+        assertTrue(item.sensitive)
+        assertNull(item.preview)
+        assertFalse(file.readText().contains("hunter2"))
+    }
+
+    @Test
+    fun onlyClipboardAndCallsKeepPreviewsAndOnlyAlertsKeepAppNames() {
+        val log = log()
+        ActivityKind.entries.forEach { log.record(it, "mac", "Mac", preview = "text", appName = "WhatsApp") }
+        log.items.value.forEach { item ->
+            assertEquals(item.kind.carriesPreview, item.preview != null)
+            assertEquals(item.kind.carriesAppName, item.appName != null)
+        }
+    }
+
+    @Test
+    fun alertsGroupPerDeviceAndPerApp() {
+        val log = log()
+        listOf("WhatsApp", "Gmail", "WhatsApp", "WhatsApp", "Gmail").forEach {
+            now += 10_000
+            log.record(ActivityKind.NOTIFICATIONS_SHOWN, "mac", "Mac", appName = it)
+        }
+        val items = log.items.value
+        assertEquals(listOf("Gmail" to 2, "WhatsApp" to 3), items.map { it.appName to it.count })
+    }
+
+    @Test
+    fun previewsOffStoresNoTextOrAppNames() {
+        val file = File(folder.root, ActivityLog.FILE_NAME)
+        val log = log(file)
+        recordPeerEvent(log, dev.bridgey.android.PeerEvent(dev.bridgey.android.PeerActivity.CLIPBOARD_RECEIVED, "mac", "Mac", "secret note"), previews = false)
+        recordNotification(log, "mac", "Mac", isCall = false, appName = "WhatsApp", caller = null, previews = false)
+        recordNotification(log, "mac", "Mac", isCall = true, appName = "Phone", caller = "Mum", previews = false)
+        assertTrue(log.items.value.all { it.preview == null && it.appName == null })
+        val text = file.readText()
+        listOf("secret", "WhatsApp", "Mum", "Phone").forEach { assertFalse(text.contains(it)) }
+
+        recordPeerEvent(log, dev.bridgey.android.PeerEvent(dev.bridgey.android.PeerActivity.CLIPBOARD_SENT, "mac", "Mac", "visible note"), previews = true)
+        assertEquals("visible note", log.items.value.first().preview)
+    }
+
+    @Test
+    fun diagnosticsNeverIncludePreviews() {
+        // The activity stream is separate from diagnostics: the report is built from BridgeyDiagnostics only.
+        val root = File(System.getProperty("bridgey.repoRoot"), "android/app/src/main/java/dev/bridgey/android")
+        val diagnostics = File(root, "BridgeyDiagnostics.kt").readText()
+        listOf("ActivityLog", "ActivityItem", "preview", "appName").forEach { assertFalse(diagnostics.contains(it)) }
+        val coordinator = File(root, "PairingCoordinator.kt").readText()
+        val report = coordinator.substringAfter("fun diagnosticsReport()").substringBefore("\n    }\n")
+        listOf("activity", "clipboardText", "preview").forEach { assertFalse(report.contains(it, ignoreCase = true)) }
     }
 }

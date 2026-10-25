@@ -69,6 +69,7 @@ data class SettingsState(
     val appNotificationsEnabled: Boolean,
     val notificationAccessEnabled: Boolean,
     val reduceMotion: Boolean,
+    val showPreviews: Boolean,
     val activityCount: Int,
     val update: UpdateUiState,
     val installedVersion: String,
@@ -83,6 +84,7 @@ class SettingsActions(
     val notificationAccess: () -> Unit = {},
     val rename: (String) -> Unit = {},
     val setReduceMotion: (Boolean) -> Unit = {},
+    val setShowPreviews: (Boolean) -> Unit = {},
     val clearActivity: () -> Unit = {},
     val exportDiagnostics: () -> Unit = {},
     val turnOff: () -> Unit = {},
@@ -189,6 +191,12 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions) {
                             enabled = state.activityCount > 0,
                         )
                     }
+                }
+                row { shape ->
+                    SwitchRow(
+                        shape, stringResource(R.string.settings_show_previews), stringResource(R.string.settings_show_previews_detail),
+                        BridgeyIcons.ContentPaste, if (state.showPreviews) Tint.BLUE else Tint.NEUTRAL, state.showPreviews, actions.setShowPreviews,
+                    )
                 }
                 row { shape ->
                     ListRow(

@@ -68,7 +68,7 @@ class BridgeyApplication : Application() {
         discovery = NsdDiscoveryService(this, LocalDiscoveryIdentity(deviceId, deviceName))
         uiPreferences = UiPreferences(this)
         activityLog = ActivityLog(File(noBackupFilesDir, ActivityLog.FILE_NAME), Executors.newSingleThreadExecutor())
-        activity = ActivityRecorder(activityLog, pairing, applicationScope).also { it.start() }
+        activity = ActivityRecorder(activityLog, pairing, applicationScope) { uiPreferences.showPreviews.value }.also { it.start() }
         applicationScope.launch {
             combine(discovery.peers, pairing.trustedDeviceIds, pairing.state) { peers, trustedIds, state ->
                 Triple(peers, trustedIds, state)

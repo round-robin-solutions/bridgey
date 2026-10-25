@@ -4,6 +4,7 @@ import dev.bridgey.android.FileTransferState
 import dev.bridgey.android.PairingCoordinator
 import dev.bridgey.android.PairingState
 import dev.bridgey.android.PeerActivity
+import dev.bridgey.android.PeerEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
@@ -37,23 +38,13 @@ class ActivityRecorder(
     private val log: ActivityLog,
     private val pairing: PairingCoordinator,
     private val scope: CoroutineScope,
+    /** Settings > Privacy > Show previews in activity. Off: no preview text or app names are kept. */
+    private val showPreviews: () -> Boolean = { true },
 ) {
     private val recordedTransfers = LinkedHashSet<String>()
 
     fun start() {
-        pairing.activityListener = { activity, deviceId, deviceName ->
-            val kind = when (activity) {
-                PeerActivity.CLIPBOARD_RECEIVED -> ActivityKind.CLIPBOARD_RECEIVED
-                PeerActivity.PING_RECEIVED -> ActivityKind.PING_RECEIVED
-                PeerActivity.CALL_STARTED -> ActivityKind.CALL_STARTED
-            }
-            log.record(kind, deviceId, deviceName)
-        }
-        scope.launch {
-            pairing.clipboardStatus.drop(1).collect { status ->
-                if (status == "Delivered") connected()?.let { log.record(ActivityKind.CLIPBOARD_SENT, it.deviceId, it.peerName) }
-            }
-        }
+        pairing.activityListener = { event -> recordPeerEvent(log, event, showPreviews()) }
         scope.launch {
             pairing.pingStatus.drop(1).collect { status ->
                 if (status == "Ping delivered") connected()?.let { log.record(ActivityKind.PING_SENT, it.deviceId, it.peerName) }
@@ -114,10 +105,43 @@ class ActivityRecorder(
     }
 
     /** Called by the notification listener after it forwards a notification to the connected device. */
-    fun notificationForwarded(isCall: Boolean) {
+    fun notificationForwarded(isCall: Boolean, appName: String?, caller: String?) {
         val device = connected() ?: return
-        log.record(if (isCall) ActivityKind.CALL_SHOWN else ActivityKind.NOTIFICATIONS_SHOWN, device.deviceId, device.peerName)
+        recordNotification(log, device.deviceId, device.peerName, isCall, appName, caller, showPreviews())
     }
 
     private fun connected(): PairingState.Connected? = pairing.state.value as? PairingState.Connected
+}
+
+/** Records a coordinator event; clipboard text becomes a preview only when previews are on. */
+internal fun recordPeerEvent(log: ActivityLog, event: PeerEvent, previews: Boolean) {
+    val kind = when (event.activity) {
+        PeerActivity.CLIPBOARD_SENT -> ActivityKind.CLIPBOARD_SENT
+        PeerActivity.CLIPBOARD_RECEIVED -> ActivityKind.CLIPBOARD_RECEIVED
+        PeerActivity.PING_RECEIVED -> ActivityKind.PING_RECEIVED
+        PeerActivity.CALL_STARTED -> ActivityKind.CALL_STARTED
+    }
+    log.record(
+        kind,
+        event.deviceId,
+        event.deviceName,
+        preview = if (previews) event.clipboardText else null,
+        sensitive = event.sensitive,
+    )
+}
+
+internal fun recordNotification(
+    log: ActivityLog,
+    deviceId: String,
+    deviceName: String,
+    isCall: Boolean,
+    appName: String?,
+    caller: String?,
+    previews: Boolean,
+) {
+    if (isCall) {
+        log.record(ActivityKind.CALL_SHOWN, deviceId, deviceName, preview = if (previews) caller else null)
+    } else {
+        log.record(ActivityKind.NOTIFICATIONS_SHOWN, deviceId, deviceName, appName = if (previews) appName else null)
+    }
 }

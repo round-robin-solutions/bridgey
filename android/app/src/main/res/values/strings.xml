@@ -78,6 +78,14 @@
         <item quantity="other">%1$d incoming calls</item>
     </plurals>
     <string name="stream_call_title">Incoming call</string>
+    <string name="stream_clipboard_hidden">Hidden</string>
+    <string name="stream_call_from_title">Call from %1$s</string>
+    <plurals name="stream_app_alerts_title">
+        <item quantity="one">%1$d %2$s alert</item>
+        <item quantity="other">%1$d %2$s alerts</item>
+    </plurals>
+    <string name="settings_show_previews">Show previews in activity</string>
+    <string name="settings_show_previews_detail">Clipboard text, app names and callers. Off keeps only what happened.</string>
     <string name="stream_shown_on">Shown on %1$s</string>
     <string name="stream_call_started_title">Call started from %1$s</string>
     <string name="stream_call_started_detail">Placed on this phone</string>
@@ -176,7 +184,7 @@
     <string name="rename_body">Your other devices show this name.</string>
     <string name="settings_privacy">Privacy</string>
     <string name="settings_activity">Activity</string>
-    <string name="settings_activity_detail">Kept on this phone for 7 days. Never the text, only what happened.</string>
+    <string name="settings_activity_detail">Kept only on this phone, for 7 days. Never in diagnostics.</string>
     <string name="settings_diagnostics">Diagnostics</string>
     <string name="settings_diagnostics_detail">Share a log without clipboard text, notification content, file names or addresses</string>
     <string name="settings_turn_off">Turn off Bridgey</string>

@@ -64,6 +64,9 @@ import dev.bridgey.android.ui.theme.BridgeyType
 import kotlinx.coroutines.launch
 import java.util.Date
 
+/** Settings > Privacy > Show previews in activity. Off hides stored previews and app names. */
+val LocalShowPreviews = androidx.compose.runtime.staticCompositionLocalOf { true }
+
 /** Cards at the top of the stream that need an action now. They are new items, so they arrive like one. */
 sealed interface LiveCard {
     val key: String
@@ -109,7 +112,28 @@ fun ActivityKind.visual(): Pair<ImageVector, Tint> = when (this) {
 }
 
 @Composable
-fun itemTitle(item: ActivityItem, device: String): String = when (item.kind) {
+fun itemTitle(item: ActivityItem, device: String): String {
+    val show = LocalShowPreviews.current
+    if (show && item.kind == ActivityKind.NOTIFICATIONS_SHOWN && item.appName != null) {
+        return pluralStringResource(R.plurals.stream_app_alerts_title, item.count, item.count, item.appName)
+    }
+    if (show && item.kind == ActivityKind.CALL_SHOWN && item.preview != null) {
+        return stringResource(R.string.stream_call_from_title, item.preview)
+    }
+    return itemTitleWithoutPreview(item, device)
+}
+
+/** A clipboard item's quoted preview, "Hidden" for sensitive clips, or null to use the plain detail. */
+@Composable
+fun itemQuote(item: ActivityItem): String? {
+    if (item.kind != ActivityKind.CLIPBOARD_SENT && item.kind != ActivityKind.CLIPBOARD_RECEIVED) return null
+    if (item.sensitive) return stringResource(R.string.stream_clipboard_hidden)
+    val preview = item.preview?.takeIf { LocalShowPreviews.current } ?: return null
+    return "\u201C$preview\u201D"
+}
+
+@Composable
+private fun itemTitleWithoutPreview(item: ActivityItem, device: String): String = when (item.kind) {
     ActivityKind.CLIPBOARD_SENT -> stringResource(R.string.stream_clipboard_sent_title, device)
     ActivityKind.CLIPBOARD_RECEIVED -> stringResource(R.string.stream_clipboard_received_title, device)
     ActivityKind.FILE_SENT, ActivityKind.FILE_RECEIVED, ActivityKind.FILE_FAILED ->
@@ -288,7 +312,8 @@ private fun StreamItemRow(row: StreamRow.Item, device: String, now: Long, first:
     val item = row.item
     val (icon, tint) = item.kind.visual()
     val title = itemTitle(item, device)
-    val detail = itemDetail(item, device)
+    val quote = itemQuote(item)
+    val detail = quote ?: itemDetail(item, device)
     val time = timeLabel(item.atMillis, now, row.section)
     Row(
         Modifier
@@ -313,7 +338,14 @@ private fun StreamItemRow(row: StreamRow.Item, device: String, now: Long, first:
                     Text(title, style = BridgeyType.itemTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     Text(time, style = BridgeyType.small, color = colors.onSurfaceVariant, maxLines = 1)
                 }
-                Text(detail, style = BridgeyType.itemBody, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+                Text(
+                    detail,
+                    style = BridgeyType.itemBody,
+                    color = if (quote != null && !item.sensitive) colors.onSurface else colors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
             }
         }
     }

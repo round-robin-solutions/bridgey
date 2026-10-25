@@ -82,6 +82,16 @@
         <item quantity="other">%1$d входящего звонка</item>
     </plurals>
     <string name="stream_call_title">Входящий звонок</string>
+    <string name="stream_clipboard_hidden">Скрыто</string>
+    <string name="stream_call_from_title">Звонок: %1$s</string>
+    <plurals name="stream_app_alerts_title">
+        <item quantity="one">%1$d уведомление %2$s</item>
+        <item quantity="few">%1$d уведомления %2$s</item>
+        <item quantity="many">%1$d уведомлений %2$s</item>
+        <item quantity="other">%1$d уведомления %2$s</item>
+    </plurals>
+    <string name="settings_show_previews">Показывать превью в активности</string>
+    <string name="settings_show_previews_detail">Текст буфера, названия приложений и абоненты. Если выключено, хранятся только события.</string>
     <string name="stream_shown_on">Показано на %1$s</string>
     <string name="stream_call_started_title">Звонок начат с %1$s</string>
     <string name="stream_call_started_detail">Звонок с этого телефона</string>
@@ -184,7 +194,7 @@
     <string name="rename_body">Это имя видят ваши другие устройства.</string>
     <string name="settings_privacy">Конфиденциальность</string>
     <string name="settings_activity">Активность</string>
-    <string name="settings_activity_detail">Хранится на этом телефоне 7 дней. Только события, без текста.</string>
+    <string name="settings_activity_detail">Хранится только на этом телефоне 7 дней. Не попадает в диагностику.</string>
     <string name="settings_diagnostics">Диагностика</string>
     <string name="settings_diagnostics_detail">Журнал без текста буфера, содержимого уведомлений, имён файлов и адресов</string>
     <string name="settings_turn_off">Выключить Bridgey</string>

@@ -71,6 +71,7 @@ import dev.bridgey.android.ui.HomeScreen
 import dev.bridgey.android.ui.HomeState
 import dev.bridgey.android.ui.LiveActions
 import dev.bridgey.android.ui.LiveCard
+import dev.bridgey.android.ui.LocalShowPreviews
 import dev.bridgey.android.ui.MotionNavHost
 import dev.bridgey.android.ui.NotificationAppsScreen
 import dev.bridgey.android.ui.NotificationAppsState
@@ -355,6 +356,7 @@ private fun BridgeyApp(
     val updateState by updater.state.collectAsStateWithLifecycle()
     val activity by activityLog.items.collectAsStateWithLifecycle()
     val reduceMotion by uiPreferences.reduceMotion.collectAsStateWithLifecycle()
+    val showPreviews by uiPreferences.showPreviews.collectAsStateWithLifecycle()
     var permissionPrompt by remember { mutableStateOf<PermissionPrompt?>(null) }
     var pairDialog by rememberSaveable { mutableStateOf(false) }
     var forgetting by remember { mutableStateOf<DeviceRing?>(null) }
@@ -429,7 +431,7 @@ private fun BridgeyApp(
 
     val animatorScale = rememberAnimatorScale()
     val motion = remember(animatorScale, reduceMotion) { resolveMotion(animatorScale, reduceMotion) }
-    CompositionLocalProvider(LocalMotion provides motion) {
+    CompositionLocalProvider(LocalMotion provides motion, LocalShowPreviews provides showPreviews) {
         MotionNavHost(stack) { route ->
             when (route) {
                 Route.Home -> HomeScreen(
@@ -525,6 +527,7 @@ private fun BridgeyApp(
                             appNotificationsEnabled = appNotificationsEnabled,
                             notificationAccessEnabled = notificationAccessEnabled,
                             reduceMotion = reduceMotion,
+                            showPreviews = showPreviews,
                             activityCount = activity.size,
                             update = updateState,
                             installedVersion = updater.installedVersionName,
@@ -544,6 +547,7 @@ private fun BridgeyApp(
                             },
                             rename = onDeviceNameChanged,
                             setReduceMotion = uiPreferences::setReduceMotion,
+                            setShowPreviews = uiPreferences::setShowPreviews,
                             clearActivity = activityLog::clear,
                             exportDiagnostics = onExportDiagnostics,
                             turnOff = onTurnOff,

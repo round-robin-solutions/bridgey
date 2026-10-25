@@ -1,5 +1,7 @@
 package dev.bridgey.android
 
+import android.content.ClipDescription
+import android.os.Build
 import org.json.JSONObject
 
 internal const val MAX_CLIPBOARD_CONTENT_BYTES = 32 * 1024
@@ -29,3 +31,7 @@ internal data class RichClipboardContent(val text: String, val html: String) {
 
 internal fun clipboardTextFits(text: String): Boolean =
     text.isNotEmpty() && text.toByteArray(Charsets.UTF_8).size <= MAX_CLIPBOARD_CONTENT_BYTES
+
+/** Android 13+ lets apps mark a clip as sensitive (passwords, codes). */
+internal fun ClipDescription?.isMarkedSensitive(): Boolean =
+    Build.VERSION.SDK_INT >= 33 && this?.extras?.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE) == true
