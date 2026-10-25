@@ -412,17 +412,22 @@ private fun notificationActionCandidates(
             pendingIntent = pendingIntent,
             remoteInputs = action.remoteInputs.orEmpty().toList(),
         )
-    }.toMutableList()
+    }
     if (callType == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return candidates
 
-    callStyleFallbackActions(callType).forEach { action ->
-        val pendingIntent = notification.extras.pendingIntent(action.extraKey) ?: return@forEach
-        if (candidates.none { it.pendingIntent == pendingIntent }) {
-            candidates += NotificationActionCandidate(action.title, pendingIntent)
-        }
+    val callStyleCandidates = callStyleFallbackActions(callType).mapNotNull { action ->
+        notification.extras.pendingIntent(action.extraKey)?.let { NotificationActionCandidate(action.title, it) }
     }
-    return candidates
+    return prioritizedCallActions(callStyleCandidates, candidates, NotificationActionCandidate::pendingIntent)
 }
+
+// CallStyle Answer, Decline and Hang Up come first so the forwarded action limit never drops them
+// in favour of a dialer's own extra actions. An own action with the same intent is not repeated.
+internal fun <T> prioritizedCallActions(
+    callStyleActions: List<T>,
+    ownActions: List<T>,
+    intentOf: (T) -> Any?,
+): List<T> = (callStyleActions + ownActions).distinctBy(intentOf)
 
 private fun resolvedNotificationCallType(
     notification: Notification,

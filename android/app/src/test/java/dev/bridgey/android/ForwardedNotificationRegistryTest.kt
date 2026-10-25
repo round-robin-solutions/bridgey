@@ -72,6 +72,29 @@ class ForwardedNotificationRegistryTest {
         assertTrue(callStyleFallbackActions("unknown").isEmpty())
     }
 
+    @Test fun callStyleActionsSurviveTheForwardedActionLimit() {
+        val callStyle = listOf("Decline" to "decline-intent", "Answer" to "answer-intent")
+        val own = listOf(
+            "Reply" to "reply-intent",
+            "Message" to "message-intent",
+            "Remind me" to "remind-intent",
+            "Speaker" to "speaker-intent",
+        )
+
+        val actions = prioritizedCallActions(callStyle, own) { it.second }.take(4)
+
+        assertTrue(actions.map { it.first } == listOf("Decline", "Answer", "Reply", "Message"))
+    }
+
+    @Test fun ownActionSharingACallStyleIntentIsNotRepeated() {
+        val callStyle = listOf("Hang Up" to "hang-up-intent")
+        val own = listOf("End call" to "hang-up-intent", "Speaker" to "speaker-intent")
+
+        val actions = prioritizedCallActions(callStyle, own) { it.second }
+
+        assertTrue(actions.map { it.first } == listOf("Hang Up", "Speaker"))
+    }
+
     @Test fun requiredCallIntentsOverrideAnIncorrectReportedCallType() {
         assertTrue(resolvedNotificationCallType("ongoing", hasAnswer = true, hasDecline = true, hasHangUp = false) == "incoming")
         assertTrue(resolvedNotificationCallType("incoming", hasAnswer = false, hasDecline = false, hasHangUp = true) == "ongoing")
