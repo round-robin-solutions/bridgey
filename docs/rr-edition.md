@@ -141,8 +141,34 @@ Never commit any of these, and never print them. `.gitignore` already blocks `*.
 
 Releases build on our machines, not GitHub Actions: Android on rr-dev-1 (inside the shared
 `iieon-slot` build queue), macOS on a Mac over SSH (under `/tmp/app-build-mac.lock`). The
-Sparkle key stays on rr-dev-1, so signing happens there. Each step is a script, so the RR CI
-fleet can run them later.
+Sparkle key stays on rr-dev-1, so signing happens there. RR CI runs them (see below); the
+commands also work by hand.
+
+### With RR CI
+
+The RR CI project `bridgey` (policy in `rbansal42/rr-ci` `examples/app_policies.py`) does this:
+
+- **Checks** on pushes to `rr/main`, `main` and `fix/*` and on pull requests into them, forks
+  included: `android` (lint, unit tests, debug APK on GitHub's Ubuntu runners), `macos`
+  (`swift test -Xswiftc -warnings-as-errors` and `./build-app.sh` on macOS 15 runners) and
+  `python` (`scripts/rr/tests`, where present). They run on GitHub-hosted runners without any
+  secret and post `rr-ci/<task>` statuses.
+- **Nightly** at 21:30 UTC when `rr/main` has a revision without a passing nightly:
+  `scripts/rr/ci-release.sh nightly` on rr-dev-1, with notes from the commits since the previous
+  nightly.
+- **Releases** from annotated tags on `rr/main`: push `v0.6.0-rr.1` for Stable or
+  `v0.6.0-rr.2-beta.1` for Beta; the tag message is the release notes.
+  `scripts/rr/ci-release.sh tag` checks the tag (annotated, on `rr/main`, pointing at the build)
+  and runs `release.sh` with that version; `publish.sh` uses the existing tag.
+
+```sh
+git tag -a v0.6.0-rr.1 -m "Release notes for people, in plain words"
+git push origin v0.6.0-rr.1
+```
+
+Failures of the nightly or a release reach Rahul on Telegram. Release jobs run only on rr-dev-1,
+where the keys are, and need `~/.config/bridgey-rr/github-token` there (a token with write access
+to the fork's releases). They never run on GitHub.
 
 ```sh
 # Dry run into dist/<tag>/ (builds both apps, checksums, feeds, signed appcast; publishes nothing)

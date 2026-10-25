@@ -3,7 +3,8 @@
 # Stable is a normal release marked latest; beta and nightly are prereleases.
 # Then overwrites the channel feed and appcast on the fixed `channels` release and
 # keeps only the newest 7 nightly releases. Requires gh auth (GH_TOKEN) with write access
-# and the release commit already pushed to the fork.
+# and the release commit already pushed to the fork. A tag that already exists (a release
+# started by pushing an annotated tag) is used as it is, if it points at the release commit.
 # Usage: scripts/rr/publish.sh <dist-dir>
 set -eu
 . "$(dirname -- "$0")/common.sh"
@@ -14,7 +15,14 @@ REPO=$(edition_value GITHUB_REPO)
 CHANNELS_TAG=$(edition_value UPDATE_CHANNELS_TAG)
 DISPLAY_NAME=$(edition_value EDITION_DISPLAY_NAME)
 TARGET=$(git -C "$RR_ROOT" rev-parse HEAD)
-git -C "$RR_ROOT" branch -r --contains "$TARGET" | grep -q . || die "HEAD $TARGET is not on any pushed branch; push it first"
+if ! git -C "$RR_ROOT" branch -r --contains "$TARGET" 2>/dev/null | grep -q .; then
+  # A CI checkout has no remote branches: ask GitHub whether the release branch contains it.
+  BRANCH=$(edition_value RELEASE_BRANCH)
+  case "$(gh api "repos/$REPO/compare/$BRANCH...$TARGET" --jq .status 2>/dev/null || true)" in
+    identical|behind) ;;
+    *) die "HEAD $TARGET is not on any pushed branch; push it first" ;;
+  esac
+fi
 
 python3 "$RR_ROOT/scripts/rr/rrrelease.py" verify --dist "$DIST"
 
@@ -28,6 +36,13 @@ if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
   [ "$CHANNEL" = nightly ] || die "release $TAG already exists"
   # A second nightly on the same day replaces the first.
   gh release delete "$TAG" -R "$REPO" --cleanup-tag --yes
+fi
+
+if [ "$CHANNEL" != nightly ] && OBJECT=$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha' 2>/dev/null); then
+  TAGGED=${OBJECT#* }
+  [ "${OBJECT%% *}" = tag ] && TAGGED=$(gh api "repos/$REPO/git/tags/$TAGGED" --jq .object.sha)
+  [ "$TAGGED" = "$TARGET" ] || die "tag $TAG already exists and points at $TAGGED, not $TARGET"
+  echo "using the existing tag $TAG"
 fi
 
 set -- "$DIST"/release/*
