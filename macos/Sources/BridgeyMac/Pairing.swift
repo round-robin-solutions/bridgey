@@ -129,6 +129,11 @@ private struct FeatureStatePayload: Codable {
     let features: [String: Bool]
 }
 
+/// Reads one key of a features.update map without requiring the rest to be booleans.
+private struct ClipboardFeatureProbe: Decodable {
+    let features: [String: Bool]
+}
+
 private func defaultRemoteFeatureState() -> [BridgeyFeature: Bool] {
     Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map { ($0, featureEnabledByLegacyPeer($0)) })
 }
@@ -215,7 +220,18 @@ final class PairingCoordinator: ObservableObject {
     private var pingStatusClearWorkItem: DispatchWorkItem?
     private var pendingCallNumber: String?
     private var pendingCallExpiryWorkItem: DispatchWorkItem?
-    private var remoteFeatureStateReceived = false
+    private var remoteFeatureStateReceived = false {
+        // Every reset of the peer's feature state also forgets its clipboard offer support.
+        didSet { if !remoteFeatureStateReceived { remoteClipboardFiles = false } }
+    }
+    /// The peer advertised `clipboard_files_draft1` in its last features.update.
+    private(set) var remoteClipboardFiles = false
+    private let clipboardCache = ClipboardCache()
+    private lazy var clipboardInbox = ClipboardInbox(cache: clipboardCache)
+    private lazy var clipboardOutbox = ClipboardOutbox(cache: clipboardCache)
+    private var clipboardFilesCancellable: AnyCancellable?
+    /// The outgoing offer waiting for clipboard.ack: its message ID and what the stream records.
+    private var pendingOfferAck: (messageID: String, summary: ClipboardOfferSummary, automatic: Bool, timeout: DispatchWorkItem)?
     private var clipboardSendID: String?
     private var clipboardTimeoutWorkItem: DispatchWorkItem?
     private let notificationPresenter = NotificationPresenter()
@@ -302,10 +318,14 @@ final class PairingCoordinator: ObservableObject {
             }
         }
         shortcuts.register()
-        autoClipboard.onSend = { [weak self] text, html in self?.sendAutomaticClipboard(text: text, html: html) }
-        autoClipboard.onTooLarge = { [weak self] in
-            self?.clipboardStatus = "Clipboard is over 32 KiB, so it was not sent automatically"
-        }
+        autoClipboard.onDecision = { [weak self] decision in self?.handleAutomaticClipboard(decision) }
+        autoClipboard.offersAvailable = { [weak self] in self?.clipboardOffersAvailable == true }
+        configureClipboardOffers()
+        clipboardFilesCancellable = Publishers.CombineLatest(settings.$clipboardFilesEnabled, settings.$clipboardEagerLimit)
+            .dropFirst()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.sendFeatureState() }
+            }
         autoClipboardCancellable = Publishers.CombineLatest(settings.$autoClipboardEnabled, settings.$autoClipboardDevices)
             .dropFirst()
             .sink { [weak self] _ in
@@ -408,6 +428,7 @@ final class PairingCoordinator: ObservableObject {
         current.privateKey = P256.KeyAgreement.PrivateKey()
         current.localEphemeralKey = current.privateKey!.publicKey.x963Representation.base64EncodedString()
         session?.close()
+        clipboardConnectionLost()
         session = current
         remoteBattery = nil
         clearPingStatus()
@@ -461,6 +482,7 @@ final class PairingCoordinator: ObservableObject {
         session = nil
         current?.send(PairingMessage(kind: "pairing.cancel", sessionId: current?.id ?? ""))
         current?.close()
+        clipboardConnectionLost()
         stopMacSound()
         androidRinging = false
         clearRemoteCall()
@@ -482,6 +504,7 @@ final class PairingCoordinator: ObservableObject {
         let current = session
         session = nil
         current?.close()
+        clipboardConnectionLost()
         stopMacSound()
         androidRinging = false
         remoteBattery = nil
@@ -499,6 +522,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func forget(deviceID: String) {
+        clearClipboardCache()
         trustRegistry.remove(deviceID: deviceID)
         trustedDeviceIDs.remove(deviceID)
         settings.removeDevice(deviceID)
@@ -511,7 +535,8 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func sendCallFromClipboard() {
-        guard let value = NSPasteboard.general.string(forType: .string) else {
+        guard !ClipboardOwnWrite.isLazy(NSPasteboard.general.changeCount),
+              let value = NSPasteboard.general.string(forType: .string) else {
             setTransientCallStatus("Copy a phone number first")
             return
         }
@@ -636,6 +661,27 @@ final class PairingCoordinator: ObservableObject {
             clipboardStatus = "Clipboard is turned off on one of your devices"
             return
         }
+        let pasteboard = NSPasteboard.general
+        if ClipboardOwnWrite.matches(pasteboard.changeCount) {
+            // It came from the phone; reading it would fetch it back.
+            clipboardStatus = "This clip came from \(current.peerName)"
+            return
+        }
+        if clipboardOffersAvailable {
+            let snapshot = ClipboardContentReader.snapshot(of: pasteboard, changeCount: pasteboard.changeCount, offersAvailable: true)
+            let decision = AutoClipboardFilter.content(of: snapshot)
+            switch decision {
+            case .offerText, .offerImages, .offerFiles:
+                autoClipboard.noteSent(decision)
+                sendClipboardOffer(decision, sensitive: pasteboardIsConcealed(pasteboard), automatic: false, in: current)
+                return
+            case .skip(.folder):
+                clipboardStatus = "Folders aren\u{2019}t sent yet"
+                return
+            default:
+                break
+            }
+        }
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else {
             clipboardStatus = "Clipboard is empty or unavailable"
             return
@@ -657,8 +703,262 @@ final class PairingCoordinator: ObservableObject {
         sendClipboardContent(text: text, html: html, concealed: false, automatic: true, in: current)
     }
 
+    /// A settled pasteboard change that passed AutoClipboardFilter.
+    private func handleAutomaticClipboard(_ decision: AutoClipboardDecision) {
+        switch decision {
+        case let .send(text, html):
+            sendAutomaticClipboard(text: text, html: html)
+        case .offerText, .offerImages, .offerFiles:
+            guard let current = session, case .connected = state, clipboardOffersAvailable,
+                  settings.isAutoClipboardEnabled(for: current.remoteDeviceID) else { return }
+            sendClipboardOffer(decision, sensitive: false, automatic: true, in: current)
+        case .skip(.tooLarge):
+            clipboardStatus = "Clipboard is over 32 KiB, so it was not sent automatically"
+        case .skip(.folder):
+            clipboardStatus = "Folders aren\u{2019}t sent yet"
+        case .skip:
+            break
+        }
+    }
+
+    /// Clipboard offers (docs/protocol.md) with the connected phone: Clipboard on for both, and
+    /// Copy images and files on here and advertised by the phone.
+    var clipboardOffersAvailable: Bool {
+        guard case .connected = state, session != nil else { return false }
+        return isFeatureAvailable(.clipboard) && settings.clipboardFilesEnabled && remoteClipboardFiles
+    }
+
+    /// Clipboard offers are allowed here for the session's device (what features.update says).
+    private func clipboardOffersEnabledLocally(_ current: Session? = nil) -> Bool {
+        featureEnabled(.clipboard, current: current) && settings.clipboardFilesEnabled
+    }
+
+    private func configureClipboardOffers() {
+        clipboardCache.removePartials()
+        clipboardCache.enforceLimits()
+        clipboardInbox.progress = ClipboardPasteProgressPanel()
+        clipboardInbox.protectedOfferIDs = { [weak self] in
+            self?.clipboardOutbox.current.map { [$0.offer.offerId] } ?? []
+        }
+        clipboardInbox.transport = ClipboardInboxTransport(
+            isConnected: { [weak self] in
+                guard let self, case .connected = self.state else { return false }
+                return self.session != nil
+            },
+            sendFetch: { [weak self] fetch in
+                guard let data = try? JSONEncoder().encode(fetch) else { return false }
+                return self?.sendEncryptedClipboardMessage(kind: "clipboard.fetch", payload: data, transferID: fetch.transferId) == true
+            },
+            sendAccept: { [weak self] in self?.sendTransferControl(kind: "files.accept", transferID: $0) },
+            sendCompleteAck: { [weak self] in self?.sendTransferControl(kind: "files.complete.ack", transferID: $0) },
+            sendCancel: { [weak self] in self?.sendTransferControl(kind: "files.cancel", transferID: $0) }
+        )
+        clipboardInbox.onPasteboardWritten = { [weak self] changeCount, received in
+            self?.autoClipboard.noteOwnWrite(changeCount: changeCount)
+            ClipboardOwnWrite.record(changeCount: changeCount, offer: received.offer, peerName: received.peerName)
+        }
+        clipboardInbox.onPasted = { [weak self] summary, received in
+            self?.diagnostics.record(category: "clipboard", event: "paste_fetched")
+            self?.recordClipActivity(.clipPasted, summary: summary, deviceID: received.deviceID, deviceName: received.peerName)
+        }
+        clipboardInbox.onPasteFailed = { [weak self] failure, received in
+            self?.diagnostics.record(category: "clipboard", event: "paste_failed")
+            self?.recordClipActivity(.clipPasteFailed, summary: ClipboardOfferSummary(received.offer),
+                                     deviceID: received.deviceID, deviceName: received.peerName)
+            self?.postPasteFailure(failure, peerName: received.peerName)
+        }
+        clipboardOutbox.available = { [weak self] in self?.clipboardOffersEnabledLocally() == true }
+        clipboardOutbox.transport = ClipboardOutboxTransport(
+            isConnected: { [weak self] in
+                guard let self, case .connected = self.state else { return false }
+                return self.session != nil
+            },
+            sendEncrypted: { [weak self] kind, payload, transferID in
+                self?.sendEncryptedClipboardMessage(kind: kind, payload: payload, transferID: transferID) == true
+            },
+            sendCancel: { [weak self] in self?.sendTransferControl(kind: "files.cancel", transferID: $0) },
+            chunkSender: { [weak self] in
+                guard let self, let current = self.session, let key = current.pairingKey else { return nil }
+                return ClipboardChunkSender { chunk, sequence, transferID in
+                    guard let sealed = try? encrypt(chunk, key: key) else { return false }
+                    return current.sendAndWait(PairingMessage(
+                        kind: "files.chunk",
+                        sessionId: current.id,
+                        messageId: UUID().uuidString.lowercased(),
+                        nonce: sealed.nonce,
+                        ciphertext: sealed.ciphertext,
+                        transferId: transferID,
+                        sequence: sequence
+                    ))
+                }
+            }
+        )
+    }
+
+    /// Encrypts a clipboard-offer payload for the current session and sends it.
+    @discardableResult
+    private func sendEncryptedClipboardMessage(kind: String, payload: Data, transferID: String?, messageID: String? = nil) -> Bool {
+        guard let current = session, case .connected = state, let key = current.pairingKey,
+              let encrypted = try? encrypt(payload, key: key) else { return false }
+        current.send(PairingMessage(
+            kind: kind,
+            sessionId: current.id,
+            messageId: messageID ?? UUID().uuidString.lowercased(),
+            nonce: encrypted.nonce,
+            ciphertext: encrypted.ciphertext,
+            transferId: transferID
+        ))
+        return true
+    }
+
+    private func sendTransferControl(kind: String, transferID: String) {
+        guard let current = session else { return }
+        current.send(PairingMessage(kind: kind, sessionId: current.id, transferId: transferID))
+    }
+
+    /// Builds and sends a clipboard offer; the stream records it once the phone acknowledges.
+    private func sendClipboardOffer(_ decision: AutoClipboardDecision, sensitive: Bool, automatic: Bool, in current: Session) {
+        let built: (ClipboardOffer, [ClipboardOutgoingSource])?
+        switch decision {
+        case let .offerText(text, html): built = ClipboardOfferBuilder.text(text, html: html, sensitive: sensitive)
+        case let .offerImages(images): built = ClipboardOfferBuilder.images(images, cache: clipboardCache)
+        case let .offerFiles(files, skippedFolders):
+            built = ClipboardOfferBuilder.files(files)
+            if skippedFolders { clipboardStatus = "Folders aren\u{2019}t sent yet" }
+        default: built = nil
+        }
+        guard let (draft, allSources) = built, let (offer, plaintext) = draft.encodedForSending() else {
+            clipboardStatus = "Could not prepare the clipboard"
+            return
+        }
+        let sources = Array(allSources.prefix(offer.items.count))
+        clipboardInbox.supersede()
+        clipboardOutbox.begin(offer: offer, sources: sources, changeCount: NSPasteboard.general.changeCount, deviceID: current.remoteDeviceID)
+        clearClipboardSendStatus()
+        let messageID = UUID().uuidString.lowercased()
+        guard sendEncryptedClipboardMessage(kind: "clipboard.offer", payload: plaintext, transferID: nil, messageID: messageID) else {
+            clipboardStatus = "Encryption failed"
+            return
+        }
+        pendingOfferAck?.timeout.cancel()
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, self.pendingOfferAck?.messageID == messageID else { return }
+            self.pendingOfferAck = nil
+            self.clipboardStatus = "No delivery acknowledgement"
+            self.sendFeatureState()
+        }
+        pendingOfferAck = (messageID, ClipboardOfferSummary(offer), automatic, timeout)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: timeout)
+        clipboardStatus = automatic ? nil : "Sending\u{2026}"
+        diagnostics.record(category: "clipboard", event: "offer_sent")
+        NSLog("PLUGIN clipboard offer sent automatic=%@", String(automatic))
+    }
+
+    private func receiveClipboardOffer(_ message: PairingMessage, in current: Session) {
+        guard clipboardOffersEnabledLocally(current) else {
+            current.send(PairingMessage(kind: "clipboard.rejected", sessionId: current.id, messageId: message.messageId))
+            sendFeatureState()
+            return
+        }
+        guard case .connected = state, session === current, message.sessionId == current.id,
+              let messageID = message.messageId, current.acceptMessageID(messageID),
+              let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
+              let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
+              let offer = ClipboardOffer.decode(plaintext),
+              offer.offerId != clipboardInbox.current?.offer.offerId else { return }
+        clipboardOutbox.supersede()
+        clearClipboardSendStatus()
+        clipboardInbox.accept(offer, deviceID: current.remoteDeviceID, peerName: current.peerName)
+        recordClipActivity(.clipOfferReceived, summary: ClipboardOfferSummary(offer), deviceID: current.remoteDeviceID, deviceName: current.peerName)
+        diagnostics.record(category: "clipboard", event: "offer_received")
+        current.send(PairingMessage(kind: "clipboard.ack", sessionId: current.id, messageId: messageID))
+        NSLog("PLUGIN clipboard offer received")
+    }
+
+    private func receiveClipboardFetch(_ message: PairingMessage, in current: Session) {
+        guard case .connected = state, session === current, message.sessionId == current.id,
+              let messageID = message.messageId, current.acceptMessageID(messageID),
+              let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
+              let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
+              let fetch = (try? JSONDecoder().decode(ClipboardFetchPayload.self, from: plaintext))?.validated(),
+              message.transferId == nil || message.transferId == fetch.transferId else { return }
+        guard clipboardOutbox.current?.deviceID == current.remoteDeviceID else {
+            if let data = try? JSONEncoder().encode(ClipboardErrorPayload(offerId: fetch.offerId, index: fetch.index, transferId: fetch.transferId, code: .expired)) {
+                sendEncryptedClipboardMessage(kind: "clipboard.error", payload: data, transferID: fetch.transferId)
+            }
+            return
+        }
+        diagnostics.record(category: "clipboard", event: "fetch_received")
+        clipboardOutbox.handleFetch(fetch)
+    }
+
+    private func receiveClipboardError(_ message: PairingMessage, in current: Session) {
+        guard case .connected = state, session === current, message.sessionId == current.id,
+              let messageID = message.messageId, current.acceptMessageID(messageID),
+              let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
+              let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
+              let payload = try? JSONDecoder().decode(ClipboardErrorPayload.self, from: plaintext),
+              payload.version == 1 else { return }
+        clipboardInbox.handleError(payload)
+    }
+
+    /// A `files.offer` that belongs to the clipboard: the answer to a fetch, or an eager push.
+    /// Returns false for an ordinary file offer, which then goes through the Files path. The
+    /// message ID is only consumed for clipboard offers, so the Files path still accepts it.
+    private func receiveClipboardTransferOffer(_ message: PairingMessage, in current: Session) -> Bool {
+        guard case .connected = state, session === current, message.sessionId == current.id,
+              let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
+              let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return false }
+        let owned = clipboardInbox.owns(message.transferId)
+        guard owned || (try? JSONDecoder().decode(FileOfferPurposeProbe.self, from: plaintext))?.purpose == "clipboard" else { return false }
+        guard let messageID = message.messageId, current.acceptMessageID(messageID) else { return true }
+        guard let offer = try? JSONDecoder().decode(ClipboardTransferOffer.self, from: plaintext), offer.purpose == "clipboard" else {
+            if let transferID = message.transferId { sendTransferControl(kind: "files.cancel", transferID: transferID) }
+            return true
+        }
+        guard clipboardOffersEnabledLocally(current) else {
+            sendTransferControl(kind: "files.cancel", transferID: offer.transferId)
+            return true
+        }
+        clipboardInbox.handleTransferOffer(offer, outerTransferID: message.transferId)
+        return true
+    }
+
+    private func recordClipActivity(_ kind: ActivityKind, summary: ClipboardOfferSummary, deviceID: String, deviceName: String, automatic: Bool = false) {
+        recordActivity(kind, deviceID: deviceID, deviceName: deviceName, fileName: summary.fileName,
+                       automatic: automatic, count: summary.count, bytes: summary.bytes, content: summary.content)
+    }
+
+    private func postPasteFailure(_ failure: ClipboardPasteFailure, peerName: String) {
+        let content = UNMutableNotificationContent()
+        content.title = failure == .notConnected
+            ? String(format: L10n.text("paste.failed.offline", fallback: "Couldn\u{2019}t paste: %@ is not connected"), peerName)
+            : String(format: L10n.text("paste.failed", fallback: "Couldn\u{2019}t paste from %@"), peerName)
+        content.body = L10n.text("stream.clip.failed.detail", fallback: "Copy it again and paste")
+        let request = UNNotificationRequest(identifier: "bridgey.clipboard.paste-failed", content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    /// The session is gone: clipboard transfers stop; the offers stay for the next connection.
+    private func clipboardConnectionLost() {
+        pendingOfferAck?.timeout.cancel()
+        pendingOfferAck = nil
+        clipboardInbox.connectionLost()
+        clipboardOutbox.connectionLost()
+    }
+
+    /// Clear activity and Forget device delete the clipboard cache.
+    private func clearClipboardCache() {
+        clipboardInbox.clearAll()
+        clipboardOutbox.clearAll()
+        clipboardCache.clear()
+    }
+
     /// Sends through the existing clipboard.update / clipboard.rich messages and acknowledgement.
     private func sendClipboardContent(text: String, html: String?, concealed: Bool, automatic: Bool, in current: Session) {
+        // Any clipboard text supersedes the clipboard offers in both directions.
+        clipboardOutbox.supersede()
+        clipboardInbox.supersede()
         let richContent = RichClipboardContent(text: text, html: html)
         let plaintext = richContent.flatMap { try? JSONEncoder().encode($0) } ?? Data(text.utf8)
         guard let encrypted = try? encrypt(plaintext, key: current.pairingKey!) else {
@@ -1136,6 +1436,7 @@ final class PairingCoordinator: ObservableObject {
 
     private func accept(_ connection: NWConnection) {
         session?.close()
+        clipboardConnectionLost()
         let current = Session(connection: connection, peerName: "Android device")
         current.initiatedLocally = false
         session = current
@@ -1160,6 +1461,7 @@ final class PairingCoordinator: ObservableObject {
             self.connectionTimeoutWorkItem?.cancel()
             self.heartbeatWorkItem?.cancel()
             self.cancelIncomingFiles()
+            self.clipboardConnectionLost()
             self.clearClipboardSendStatus()
             self.clearCallStatus()
             if !self.outgoingFiles.isEmpty {
@@ -1301,6 +1603,7 @@ final class PairingCoordinator: ObservableObject {
                     ($0, payload.features[$0.rawValue] ?? false)
                 })
                 remoteFeatureStateReceived = true
+                remoteClipboardFiles = (try? JSONDecoder().decode(ClipboardFeatureProbe.self, from: plaintext))?.features[clipboardFilesFeatureKey] == true
                 if !isFeatureAvailable(.links) { quickActions.reset() }
                 mediaController.reset()
                 mediaController.refresh()
@@ -1328,6 +1631,12 @@ final class PairingCoordinator: ObservableObject {
                 pingRequestID = nil
                 setTransientPingStatus("Ping delivered")
                 recordActivity(.pingSent, in: current)
+            case "clipboard.offer":
+                receiveClipboardOffer(message, in: current)
+            case "clipboard.fetch":
+                receiveClipboardFetch(message, in: current)
+            case "clipboard.error":
+                receiveClipboardError(message, in: current)
             case "clipboard.update", "clipboard.rich":
                 guard featureEnabled(.clipboard, current: current) else {
                     current.send(PairingMessage(
@@ -1360,16 +1669,31 @@ final class PairingCoordinator: ObservableObject {
                     text = decoded
                     html = nil
                 }
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-                if let html { NSPasteboard.general.setData(Data(html.utf8), forType: .html) }
-                // Automatic clipboard must not send this clip back to the phone.
-                autoClipboard.noteReceived(text: text, changeCount: NSPasteboard.general.changeCount)
+                // Clipboard text from the phone supersedes the clipboard offers in both directions.
+                clipboardOutbox.supersede()
+                clipboardInbox.supersede()
+                // A paste waiting for the phone must not see the pasteboard change under it.
+                clipboardInbox.performPasteboardWrite { [weak self] in
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    if let html { NSPasteboard.general.setData(Data(html.utf8), forType: .html) }
+                    // Automatic clipboard must not send this clip back to the phone.
+                    self?.autoClipboard.noteReceived(text: text, changeCount: NSPasteboard.general.changeCount)
+                }
                 diagnostics.record(category: "clipboard", event: html == nil ? "text_received" : "rich_received")
                 recordActivity(.clipboardReceived, in: current, preview: text)
                 NSLog("PLUGIN clipboard received")
                 current.send(PairingMessage(kind: "clipboard.ack", sessionId: current.id, messageId: messageID))
             case "clipboard.ack":
+                if let pending = pendingOfferAck, message.messageId == pending.messageID {
+                    pending.timeout.cancel()
+                    pendingOfferAck = nil
+                    clipboardStatus = pending.automatic ? nil : "Delivered"
+                    recordClipActivity(.clipOfferSent, summary: pending.summary, deviceID: current.remoteDeviceID,
+                                       deviceName: current.peerName, automatic: pending.automatic)
+                    clipboardOutbox.startEagerPushes(limit: settings.clipboardEagerLimit)
+                    return
+                }
                 guard message.messageId == clipboardSendID else { return }
                 clipboardTimeoutWorkItem?.cancel()
                 clipboardTimeoutWorkItem = nil
@@ -1383,6 +1707,13 @@ final class PairingCoordinator: ObservableObject {
                 pendingClipboardActivity = nil
                 NSLog("PLUGIN clipboard acknowledged")
             case "clipboard.rejected":
+                if let pending = pendingOfferAck, message.messageId == pending.messageID {
+                    pending.timeout.cancel()
+                    pendingOfferAck = nil
+                    clipboardOutbox.supersede()
+                    clipboardStatus = "Copy images and files is turned off on Android"
+                    return
+                }
                 guard message.messageId == clipboardSendID else { return }
                 clipboardTimeoutWorkItem?.cancel()
                 clipboardTimeoutWorkItem = nil
@@ -1452,6 +1783,7 @@ final class PairingCoordinator: ObservableObject {
                 default: setTransientCallStatus("Android rejected the call request")
                 }
             case "files.offer":
+                if receiveClipboardTransferOffer(message, in: current) { return }
                 guard featureEnabled(.files, current: current) else {
                     current.send(PairingMessage(
                         kind: "files.rejected",
@@ -1490,6 +1822,15 @@ final class PairingCoordinator: ObservableObject {
                 ))
                 NSLog("PLUGIN file accepted name=%@ size=%lld", transfer.displayName, offer.size)
             case "files.chunk":
+                if clipboardInbox.owns(message.transferId) {
+                    guard case .connected = state, message.sessionId == current.id,
+                          let messageID = message.messageId, current.acceptMessageID(messageID),
+                          let transferID = message.transferId, let sequence = message.sequence,
+                          let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
+                          let chunk = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return }
+                    clipboardInbox.handleChunk(transferID: transferID, sequence: sequence, data: chunk)
+                    return
+                }
                 if let transferID = message.transferId,
                    incomingFiles[transferID] == nil,
                    cancelledTransferIDs.contains(transferID) { return }
@@ -1511,6 +1852,16 @@ final class PairingCoordinator: ObservableObject {
                     updateFileTransfer(id: transferID, name: transfer.displayName, status: fileTransferStatus!, active: true)
                 }
             case "files.complete":
+                if clipboardInbox.owns(message.transferId) {
+                    guard case .connected = state, message.sessionId == current.id,
+                          let messageID = message.messageId, current.acceptMessageID(messageID),
+                          let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
+                          let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
+                          let completion = try? JSONDecoder().decode(ClipboardTransferComplete.self, from: plaintext),
+                          completion.transferId == message.transferId else { return }
+                    clipboardInbox.handleComplete(transferID: completion.transferId, sha256: completion.sha256)
+                    return
+                }
                 guard case .connected = state,
                       message.sessionId == current.id,
                       let messageID = message.messageId,
@@ -1547,6 +1898,10 @@ final class PairingCoordinator: ObservableObject {
                     throw error
                 }
             case "files.accept":
+                if clipboardOutbox.owns(message.transferId), let transferID = message.transferId {
+                    clipboardOutbox.handleAccept(transferID)
+                    return
+                }
                 if let transferID = message.transferId,
                    outgoingFiles[transferID] == nil,
                    cancelledTransferIDs.contains(transferID) { return }
@@ -1589,6 +1944,10 @@ final class PairingCoordinator: ObservableObject {
                     }
                 )
             case "files.rejected":
+                if clipboardOutbox.owns(message.transferId), let transferID = message.transferId {
+                    clipboardOutbox.handleCancel(transferID)
+                    return
+                }
                 guard let transferID = message.transferId,
                       let transfer = outgoingFiles.removeValue(forKey: transferID) else { return }
                 transfer.cancel()
@@ -1598,6 +1957,10 @@ final class PairingCoordinator: ObservableObject {
                 filePreparationCancellation = nil
                 fileTransferStatus = "File transfer is turned off on Android"
             case "files.complete.ack":
+                if clipboardOutbox.owns(message.transferId), let transferID = message.transferId {
+                    clipboardOutbox.handleCompleteAck(transferID)
+                    return
+                }
                 guard let transferID = message.transferId,
                       let transfer = outgoingFiles.removeValue(forKey: transferID) else { return }
                 outgoingFileSources.removeValue(forKey: transferID)
@@ -1610,6 +1973,12 @@ final class PairingCoordinator: ObservableObject {
                 NSLog("PLUGIN file sent name=%@", transfer.displayName)
             case "files.cancel":
                 guard let transferID = message.transferId else { return }
+                if clipboardInbox.owns(transferID) || clipboardOutbox.owns(transferID) {
+                    clipboardInbox.handleCancel(transferID: transferID)
+                    clipboardOutbox.handleCancel(transferID)
+                    current.send(PairingMessage(kind: "files.cancel.ack", sessionId: current.id, transferId: transferID))
+                    return
+                }
                 markTransferCancelled(transferID)
                 incomingFiles.removeValue(forKey: transferID)?.cancel()
                 outgoingFiles.removeValue(forKey: transferID)?.cancel()
@@ -1619,12 +1988,14 @@ final class PairingCoordinator: ObservableObject {
                 current.send(PairingMessage(kind: "files.cancel.ack", sessionId: current.id, transferId: transferID))
                 NSLog("PLUGIN file cancellation received transfer=%@", String(transferID.prefix(8)))
             case "files.cancel.ack":
+                if clipboardInbox.owns(message.transferId) || clipboardOutbox.owns(message.transferId) { return }
                 if let transferID = message.transferId {
                     markFileTransferFinished(id: transferID, status: "Transfer cancelled")
                 }
             case "files.chunk.ack":
                 if let transferID = message.transferId, let sequence = message.sequence {
                     outgoingFiles[transferID]?.acknowledge(sequence: sequence)
+                    clipboardOutbox.handleChunkAck(transferID, sequence: sequence)
                 }
             default:
                 break
@@ -1653,9 +2024,10 @@ final class PairingCoordinator: ObservableObject {
 
     private func sendFeatureState() {
         guard let current = session, case .connected = state, let key = current.pairingKey else { return }
-        let features = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
+        var features = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
             ($0.rawValue, settings.isEnabled($0, for: current.remoteDeviceID))
         })
+        features[clipboardFilesFeatureKey] = clipboardOffersEnabledLocally(current)
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
               let encrypted = try? encrypt(payload, key: key) else { return }
         current.send(PairingMessage(
@@ -1905,6 +2277,7 @@ final class PairingCoordinator: ObservableObject {
 
     func clearActivity() {
         activity.clear()
+        clearClipboardCache()
     }
 
     private func pasteboardIsConcealed(_ pasteboard: NSPasteboard) -> Bool {
@@ -1934,7 +2307,10 @@ final class PairingCoordinator: ObservableObject {
         preview: String? = nil,
         appName: String? = nil,
         sensitive: Bool = false,
-        automatic: Bool = false
+        automatic: Bool = false,
+        count: Int = 1,
+        bytes: Int64? = nil,
+        content: String? = nil
     ) {
         activity.record(
             kind,
@@ -1945,6 +2321,9 @@ final class PairingCoordinator: ObservableObject {
             appName: appName,
             sensitive: sensitive,
             automatic: automatic,
+            count: count,
+            bytes: bytes,
+            content: content,
             previews: settings.showActivityPreviews
         )
     }

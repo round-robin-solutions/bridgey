@@ -73,6 +73,10 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var autoClipboardEnabled: Bool
     /// Per-device Automatic clipboard; a missing entry follows the global switch.
     @Published private(set) var autoClipboardDevices: [String: Bool]
+    /// Clipboard > Copy images and files (clipboard offers). On by default.
+    @Published private(set) var clipboardFilesEnabled: Bool
+    /// Clipboard > Send right away up to: bytes pushed right after a copy; 0 = always ask when pasting.
+    @Published private(set) var clipboardEagerLimit: Int64
 
     private let defaults = UserDefaults.standard
 
@@ -91,6 +95,10 @@ final class BridgeySettings: ObservableObject {
             if !id.isEmpty, let enabled = value as? Bool { autoDevices[id] = enabled }
         }
         autoClipboardDevices = autoDevices
+        clipboardFilesEnabled = storedDefaults.object(forKey: "settings.clipboardFiles.enabled") as? Bool ?? true
+        clipboardEagerLimit = ClipboardEagerLimit(
+            bytes: (storedDefaults.object(forKey: "settings.clipboardFiles.eagerLimit") as? NSNumber)?.int64Value ?? ClipboardEagerLimit.default.bytes
+        ).bytes
         globalFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
             ($0, storedDefaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media))
         })
@@ -162,6 +170,16 @@ final class BridgeySettings: ObservableObject {
     }
 
     private static let autoClipboardDevicePrefix = "settings.autoClipboard.device."
+
+    func setClipboardFilesEnabled(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.clipboardFiles.enabled")
+        clipboardFilesEnabled = enabled
+    }
+
+    func setClipboardEagerLimit(_ limit: ClipboardEagerLimit) {
+        defaults.set(NSNumber(value: limit.bytes), forKey: "settings.clipboardFiles.eagerLimit")
+        clipboardEagerLimit = limit.bytes
+    }
 
     func setForDevice(_ deviceID: String, feature: BridgeyFeature, enabled: Bool) {
         defaults.set(enabled, forKey: "settings.device.\(deviceID).\(feature.rawValue)")

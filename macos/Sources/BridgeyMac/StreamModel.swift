@@ -183,12 +183,76 @@ enum ActivityText {
         case .findMac: return format("stream.find.mac", "%@ rang this Mac", device)
         case .findPhone: return format("stream.find.phone", "Rang %@", device)
         case .paired: return format("stream.paired", "Paired with %@", device)
+        case .clipOfferSent, .clipOfferReceived, .clipPasted, .clipPasteFailed:
+            return clipTitle(item, device: device, showPreviews: showPreviews)
+        }
+    }
+
+    /// "Copied image (2.1 MB)", "Copied video.mp4 from OnePlus 11 (340 MB)", "Copied 3 files".
+    /// Names show only with previews on.
+    static func clipTitle(_ item: ActivityItem, device: String, showPreviews: Bool) -> String {
+        if item.kind == .clipPasteFailed {
+            return format("stream.clip.failed", "Couldn\u{2019}t paste from %@", device)
+        }
+        let size = ByteCountFormatter.string(fromByteCount: item.bytes ?? 0, countStyle: .file)
+        let name = showPreviews ? item.fileName : nil
+        let content = item.content ?? "file"
+        let prefix: String
+        switch item.kind {
+        case .clipOfferSent: prefix = "stream.clip.sent"
+        case .clipPasted: prefix = "stream.clip.pasted"
+        default: prefix = "stream.clip.received"
+        }
+        let fallbacks = clipFallbacks(item.kind)
+        if item.count > 1 {
+            let key = content == "image" ? "images" : "files"
+            let template = L10n.text("\(prefix).\(key)", fallback: fallbacks[key]!)
+            return item.kind == .clipOfferSent
+                ? String.localizedStringWithFormat(template, item.count)
+                : String.localizedStringWithFormat(template, item.count, device)
+        }
+        let key: String
+        var values: [CVarArg]
+        switch (content, name) {
+        case ("image", _): key = "image"; values = [size]
+        case ("text", _): key = "text"; values = [size]
+        case let (_, name?): key = "named"; values = [name, size]
+        default: key = "file"; values = [size]
+        }
+        if item.kind != .clipOfferSent { values.insert(device, at: key == "named" ? 1 : 0) }
+        return String(format: L10n.text("\(prefix).\(key)", fallback: fallbacks[key]!), arguments: values)
+    }
+
+    private static func clipFallbacks(_ kind: ActivityKind) -> [String: String] {
+        switch kind {
+        case .clipOfferSent:
+            return ["image": "Copied image (%@)", "named": "Copied %1$@ (%2$@)", "file": "Copied a file (%@)",
+                    "text": "Copied text (%@)", "images": "Copied %d images", "files": "Copied %d files"]
+        case .clipPasted:
+            return ["image": "Pasted image from %1$@ (%2$@)", "named": "Pasted %1$@ from %2$@ (%3$@)",
+                    "file": "Pasted a file from %1$@ (%2$@)", "text": "Pasted text from %1$@ (%2$@)",
+                    "images": "Pasted %1$d images from %2$@", "files": "Pasted %1$d files from %2$@"]
+        default:
+            return ["image": "Copied image from %1$@ (%2$@)", "named": "Copied %1$@ from %2$@ (%3$@)",
+                    "file": "Copied a file from %1$@ (%2$@)", "text": "Copied text from %1$@ (%2$@)",
+                    "images": "Copied %1$d images from %2$@", "files": "Copied %1$d files from %2$@"]
         }
     }
 
     /// The second line, or nil for a one-line row: the quoted clipboard preview, "Hidden" for
     /// concealed clips, and "Automatic" for Automatic clipboard.
     static func detail(_ item: ActivityItem, showPreviews: Bool) -> String? {
+        let device = item.deviceName.isEmpty ? L10n.text("stream.device.unknown", fallback: "your phone") : item.deviceName
+        switch item.kind {
+        case .clipOfferSent:
+            return item.automatic
+                ? format("stream.clip.sent.detail.auto", "Automatic, ready to paste on %@", device)
+                : format("stream.clip.sent.detail", "Ready to paste on %@", device)
+        case .clipOfferReceived: return L10n.text("stream.clip.received.detail", fallback: "Ready to paste here")
+        case .clipPasted: return L10n.text("stream.clip.pasted.detail", fallback: "Moved when you pasted")
+        case .clipPasteFailed: return L10n.text("stream.clip.failed.detail", fallback: "Copy it again and paste")
+        default: break
+        }
         guard item.kind.category == .clipboard else { return nil }
         var parts: [String] = []
         if item.automatic { parts.append(L10n.text("stream.automatic", fallback: "Automatic")) }

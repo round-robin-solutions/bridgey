@@ -35,7 +35,8 @@ final class QuickActions: ObservableObject {
     private var sequence = 0
 
     func sendClipboardLink() {
-        guard let link = NSPasteboard.general.string(forType: .string).flatMap(validatedWebLink) else {
+        guard !ClipboardOwnWrite.isLazy(NSPasteboard.general.changeCount),
+              let link = NSPasteboard.general.string(forType: .string).flatMap(validatedWebLink) else {
             status = "Copy a valid http or https link first"; return
         }
         guard available(.links) else { status = "Web links are unavailable on one of your devices"; return }

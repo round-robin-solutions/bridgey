@@ -71,6 +71,8 @@ struct SettingsModel {
     var remoteFeatures: [BridgeyFeature: Bool] = [:]
     var autoClipboard = true
     var autoClipboardDevices: [String: Bool] = [:]
+    var clipboardFiles = true
+    var clipboardEagerLimit: ClipboardEagerLimit = .default
     var launchAtLogin = false
     var loginItemMessage: String?
     var receiveFolderPath = ""
@@ -120,6 +122,8 @@ struct SettingsActions {
     var setForDevice: (String, BridgeyFeature, Bool) -> Void = { _, _, _ in }
     var setAutoClipboard: (Bool) -> Void = { _ in }
     var setAutoClipboardForDevice: (String, Bool) -> Void = { _, _ in }
+    var setClipboardFiles: (Bool) -> Void = { _ in }
+    var setClipboardEagerLimit: (ClipboardEagerLimit) -> Void = { _ in }
     var forget: (String) -> Void = { _ in }
     var pair: (DeviceRing) -> Void = { _ in }
     var enableNotifications: () -> Void = {}
@@ -530,12 +534,38 @@ private struct ClipboardPane: View {
     let actions: SettingsActions
 
     var body: some View {
-        SettingsCard(footnote: L10n.text("settings.autoClipboard.note", fallback: "Works while both devices are connected and Clipboard is on for both. Passwords and other concealed clips are never sent; text over 32 KiB is skipped.")) {
+        let clipboardOn = model.globalFeatures[.clipboard] != false
+        SettingsCard(footnote: L10n.text("settings.autoClipboard.note", fallback: "Works while both devices are connected and Clipboard is on for both. Passwords and other concealed clips are never sent. With an older Bridgey on the other device, or with Copy images and files off, only text up to 32 KiB moves.")) {
             FeatureSwitch(feature: .clipboard, model: model, actions: actions)
             AutoClipboardToggle(isOn: model.autoClipboard, set: actions.setAutoClipboard)
-                .disabled(model.globalFeatures[.clipboard] == false)
+                .disabled(!clipboardOn)
+            SettingsToggle(title: L10n.text("settings.clipboardFiles", fallback: "Copy images and files"),
+                           subtitle: L10n.text("settings.clipboardFiles.detail", fallback: "Images, videos, files and long text. Big items move when you paste."),
+                           isOn: model.clipboardFiles, set: actions.setClipboardFiles)
+                .disabled(!clipboardOn)
+            SettingsRow(title: L10n.text("settings.clipboardEager", fallback: "Send right away up to"),
+                        subtitle: L10n.text("settings.clipboardEager.detail", fallback: "Smaller copies move as soon as you copy, so pasting is instant.")) {
+                ChoiceButton(value: eagerLimitTitle(model.clipboardEagerLimit)) {
+                    ClipboardEagerLimit.allCases.map { limit in
+                        PopUpMenuItem(title: eagerLimitTitle(limit), checked: limit == model.clipboardEagerLimit) {
+                            actions.setClipboardEagerLimit(limit)
+                        }
+                    }
+                }
+            }
+            .disabled(!clipboardOn || !model.clipboardFiles)
+            .opacity(clipboardOn && model.clipboardFiles ? 1 : 0.5)
         }
         ShortcutsCard(model: model, actions: actions, only: [.clipboard])
+    }
+}
+
+func eagerLimitTitle(_ limit: ClipboardEagerLimit) -> String {
+    switch limit {
+    case .fiveMB: L10n.text("settings.clipboardEager.5", fallback: "5 MB")
+    case .twentyFiveMB: L10n.text("settings.clipboardEager.25", fallback: "25 MB")
+    case .hundredMB: L10n.text("settings.clipboardEager.100", fallback: "100 MB")
+    case .askWhenPasting: L10n.text("settings.clipboardEager.ask", fallback: "Always ask when pasting")
     }
 }
 
@@ -1073,6 +1103,8 @@ private struct LiveSettingsView: View {
         model.remoteFeatures = pairing.remoteFeatures
         model.autoClipboard = settings.autoClipboardEnabled
         model.autoClipboardDevices = settings.autoClipboardDevices
+        model.clipboardFiles = settings.clipboardFilesEnabled
+        model.clipboardEagerLimit = ClipboardEagerLimit(bytes: settings.clipboardEagerLimit)
         model.launchAtLogin = settings.launchAtLogin
         model.loginItemMessage = settings.loginItemMessage
         model.receiveFolderPath = settings.receiveFolderPath
@@ -1123,6 +1155,8 @@ private struct LiveSettingsView: View {
         }
         actions.setAutoClipboard = { settings.setAutoClipboard($0) }
         actions.setAutoClipboardForDevice = { deviceID, enabled in settings.setAutoClipboard(enabled, for: deviceID) }
+        actions.setClipboardFiles = { settings.setClipboardFilesEnabled($0) }
+        actions.setClipboardEagerLimit = { settings.setClipboardEagerLimit($0) }
         actions.forget = { pairing.forget(deviceID: $0) }
         actions.pair = { ring in
             guard let host = ring.peer?.host, let port = ring.peer?.port else { return }

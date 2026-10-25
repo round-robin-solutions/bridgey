@@ -36,10 +36,17 @@ enum ActivityKind: String, CaseIterable, Codable {
     /// This Mac rang the phone.
     case findPhone = "find_phone"
     case paired
+    /// Clipboard offers (docs/protocol.md): a copy here is ready on the phone.
+    case clipOfferSent = "clip_offer_sent"
+    /// A copy on the phone is ready to paste here.
+    case clipOfferReceived = "clip_offer_received"
+    /// A paste here moved the data from the phone.
+    case clipPasted = "clip_pasted"
+    case clipPasteFailed = "clip_paste_failed"
 
     var category: ActivityCategory {
         switch self {
-        case .clipboardSent, .clipboardReceived: .clipboard
+        case .clipboardSent, .clipboardReceived, .clipOfferSent, .clipOfferReceived, .clipPasted, .clipPasteFailed: .clipboard
         case .fileSent, .fileReceived, .fileFailed: .files
         case .notificationsShown: .alerts
         case .callShown, .callStarted: .calls
@@ -56,7 +63,9 @@ enum ActivityKind: String, CaseIterable, Codable {
         }
     }
 
-    var carriesFileName: Bool { category == .files }
+    var isClipOffer: Bool { [.clipOfferSent, .clipOfferReceived, .clipPasted, .clipPasteFailed].contains(self) }
+    /// File events and clipboard offers keep a file name (offers: one file, previews on).
+    var carriesFileName: Bool { category == .files || isClipOffer }
     /// Clipboard items carry a text preview; incoming calls the caller.
     var carriesPreview: Bool { self == .clipboardSent || self == .clipboardReceived || self == .callShown }
     var carriesAppName: Bool { self == .notificationsShown }
@@ -77,8 +86,13 @@ struct ActivityItem: Codable, Equatable, Identifiable {
     let sensitive: Bool
     /// Sent or received by Automatic clipboard.
     let automatic: Bool
+    /// Clipboard offers: the number of items. Merged events: how many.
     let count: Int
     let at: Date
+    /// Clipboard offers: total size in bytes.
+    var bytes: Int64? = nil
+    /// Clipboard offers: "text", "image" or "file".
+    var content: String? = nil
 }
 
 enum ActivityHistory {
@@ -124,9 +138,26 @@ enum ActivityHistory {
         appName: String? = nil,
         sensitive: Bool = false,
         automatic: Bool = false,
+        count: Int = 1,
+        bytes: Int64? = nil,
+        content: String? = nil,
         now: Date,
         nextID: Int64
     ) -> [ActivityItem] {
+        let cleanContent = kind.isClipOffer ? cleanContentKind(content) : nil
+        let cleanBytes = kind.isClipOffer ? bytes.map { max(0, $0) } : nil
+        if kind == .clipPasted, let match = items.first, match.kind == .clipPasted,
+           match.deviceID == deviceID.map({ String($0.prefix(64)) }), now >= match.at, now.timeIntervalSince(match.at) <= 60 {
+            // Several files pasted at once read as one event.
+            let merged = ActivityItem(
+                id: match.id, kind: kind, deviceID: match.deviceID, deviceName: cleanName(deviceName), fileName: nil,
+                preview: nil, appName: nil, sensitive: false, automatic: false,
+                count: min(match.count + max(count, 1), 9_999), at: now,
+                bytes: (match.bytes ?? 0) + (cleanBytes ?? 0),
+                content: match.content == "image" && cleanContent == "image" ? "image" : "file"
+            )
+            return prune([merged] + items.dropFirst(), now: now)
+        }
         let isSensitive = sensitive && kind.carriesPreview
         let cleanPreview = kind.carriesPreview && !isSensitive ? Self.preview(preview) : nil
         let cleanApp = kind.carriesAppName ? clean(appName, limit: maximumNameLength) : nil
@@ -152,10 +183,16 @@ enum ActivityHistory {
             appName: cleanApp,
             sensitive: isSensitive,
             automatic: automatic && kind.category == .clipboard,
-            count: 1,
-            at: now
+            count: kind.isClipOffer ? min(max(count, 1), 9_999) : 1,
+            at: now,
+            bytes: cleanBytes,
+            content: cleanContent
         )
         return prune([item] + items, now: now)
+    }
+
+    private static func cleanContentKind(_ value: String?) -> String? {
+        ["text", "image", "file"].contains(value ?? "") ? value : nil
     }
 
     static func encode(_ items: [ActivityItem]) throws -> Data {
@@ -186,7 +223,9 @@ enum ActivityHistory {
                 sensitive: sensitive,
                 automatic: kind.category == .clipboard && value.automatic == true,
                 count: min(max(value.count ?? 1, 1), 9_999),
-                at: at
+                at: at,
+                bytes: kind.isClipOffer ? value.bytes.map { max(0, $0) } : nil,
+                content: kind.isClipOffer ? cleanContentKind(value.content) : nil
             )
         }
         return prune(items, now: now)
@@ -196,8 +235,8 @@ enum ActivityHistory {
     static func withoutPreview(_ item: ActivityItem) -> ActivityItem {
         ActivityItem(
             id: item.id, kind: item.kind, deviceID: item.deviceID, deviceName: item.deviceName,
-            fileName: item.fileName, preview: nil, appName: nil, sensitive: item.sensitive,
-            automatic: item.automatic, count: item.count, at: item.at
+            fileName: item.kind.isClipOffer ? nil : item.fileName, preview: nil, appName: nil, sensitive: item.sensitive,
+            automatic: item.automatic, count: item.count, at: item.at, bytes: item.bytes, content: item.content
         )
     }
 
@@ -222,6 +261,8 @@ enum ActivityHistory {
         let automatic: Bool?
         let count: Int?
         let at: Date?
+        let bytes: Int64?
+        let content: String?
     }
 }
 
@@ -307,6 +348,9 @@ final class ActivityLog: ObservableObject {
         appName: String? = nil,
         sensitive: Bool = false,
         automatic: Bool = false,
+        count: Int = 1,
+        bytes: Int64? = nil,
+        content: String? = nil,
         previews: Bool
     ) {
         let updated = ActivityHistory.add(
@@ -314,11 +358,15 @@ final class ActivityLog: ObservableObject {
             kind: kind,
             deviceID: deviceID,
             deviceName: deviceName,
-            fileName: fileName,
+            // Clipboard offers keep a file name only with previews on.
+            fileName: kind.isClipOffer && !previews ? nil : fileName,
             preview: previews ? preview : nil,
             appName: previews ? appName : nil,
             sensitive: sensitive,
             automatic: automatic,
+            count: count,
+            bytes: bytes,
+            content: content,
             now: clock(),
             nextID: nextID
         )

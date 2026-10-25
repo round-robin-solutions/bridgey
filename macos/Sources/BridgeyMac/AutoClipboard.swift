@@ -1,12 +1,15 @@
 import AppKit
 import CryptoKit
 import Foundation
+import UniformTypeIdentifiers
 
 /*
- * Automatic clipboard, Mac side: copy on one device, paste on the other. No protocol change:
- * changes go out through the existing clipboard.update / clipboard.rich messages, so it also
- * works with upstream peers. The rules are pure and unit tested; the watcher only polls the
- * pasteboard while it is active (connected, clipboard available on both sides, switch on).
+ * Automatic clipboard, Mac side: copy on one device, paste on the other. Text up to 32 KiB goes
+ * through the existing clipboard.update / clipboard.rich messages, so it also works with upstream
+ * peers. With an edition peer that advertises clipboard offers (`clipboard_files_draft1`), longer
+ * text, images and files go out as offers (ClipboardOutbox). The rules are pure and unit tested;
+ * the watcher only polls the pasteboard while it is active (connected, clipboard available on
+ * both sides, switch on), and never reads data before the own-write and secret checks.
  */
 
 /// Content that is secret or short-lived; Automatic clipboard never sends it.
@@ -20,6 +23,13 @@ struct ClipboardSnapshot: Equatable {
     var types: [String]
     var text: String?
     var html: String?
+    /// Read only when clipboard offers are available.
+    var files: [ClipboardFileRef] = []
+    var images: [ClipboardImageClip] = []
+    /// Folders were copied; they are skipped for now.
+    var skippedFolders = false
+    /// Clipboard offers are available with the connected phone.
+    var offersAvailable = false
 }
 
 enum AutoClipboardSkip: Equatable {
@@ -31,12 +41,19 @@ enum AutoClipboardSkip: Equatable {
     case notText
     /// Over the 32 KiB clipboard limit; the user gets one quiet status, no retry.
     case tooLarge
-    /// Same text as the last clip sent or received.
+    /// Same content as the last clip sent or received.
     case duplicate
+    /// Only folders were copied (not sent yet).
+    case folder
 }
 
 enum AutoClipboardDecision: Equatable {
+    /// Text that fits 32 KiB: clipboard.update / clipboard.rich, as before.
     case send(text: String, html: String?)
+    /// Longer text, as a clipboard offer.
+    case offerText(text: String, html: String?)
+    case offerImages([ClipboardImageClip])
+    case offerFiles([ClipboardFileRef], skippedFolders: Bool)
     case skip(AutoClipboardSkip)
 }
 
@@ -47,20 +64,56 @@ struct AutoClipboardFilter {
     private(set) var ownChangeCount: Int?
 
     mutating func decide(_ snapshot: ClipboardSnapshot) -> AutoClipboardDecision {
-        if let ownChangeCount, snapshot.changeCount == ownChangeCount { return .skip(.ownWrite) }
+        if isOwnWrite(snapshot.changeCount) { return .skip(.ownWrite) }
         if snapshot.types.contains(where: skippedClipboardTypes.contains) { return .skip(.secret) }
-        guard let text = snapshot.text else { return .skip(snapshot.types.isEmpty ? .empty : .notText) }
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .skip(.empty) }
-        guard clipboardTextFits(text) else { return .skip(.tooLarge) }
-        let hash = Self.hash(text)
+        let decision = Self.content(of: snapshot)
+        guard let hash = Self.contentHash(decision) else { return decision }
         if hash == lastContentHash { return .skip(.duplicate) }
         lastContentHash = hash
-        return .send(text: text, html: snapshot.html)
+        return decision
+    }
+
+    /// What a snapshot holds, without the own-write, secret and duplicate rules (a manual send).
+    static func content(of snapshot: ClipboardSnapshot) -> AutoClipboardDecision {
+        if snapshot.offersAvailable {
+            if !snapshot.files.isEmpty { return .offerFiles(snapshot.files, skippedFolders: snapshot.skippedFolders) }
+            if !snapshot.images.isEmpty { return .offerImages(snapshot.images) }
+            if snapshot.skippedFolders { return .skip(.folder) }
+        }
+        guard let text = snapshot.text else { return .skip(snapshot.types.isEmpty ? .empty : .notText) }
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .skip(.empty) }
+        if clipboardTextFits(text) { return .send(text: text, html: snapshot.html) }
+        if !snapshot.offersAvailable { return .skip(.tooLarge) }
+        return .offerText(text: text, html: snapshot.html)
+    }
+
+    /// The de-duplication key: text hash, image data hashes, or file path, size and time.
+    static func contentHash(_ decision: AutoClipboardDecision) -> String? {
+        switch decision {
+        case let .send(text, _), let .offerText(text, _): return hash(text)
+        case let .offerImages(images): return hash(images.map(\.hash).joined(separator: "\n"))
+        case let .offerFiles(files, _): return clipboardFileFingerprint(files.map { ($0.url.path, $0.size, $0.modified) })
+        case .skip: return nil
+        }
+    }
+
+    func isOwnWrite(_ changeCount: Int) -> Bool {
+        ownChangeCount == changeCount
     }
 
     /// A clip sent by hand: Automatic clipboard must not send it again.
     mutating func noteSent(text: String) {
         lastContentHash = Self.hash(text)
+    }
+
+    mutating func noteSent(_ decision: AutoClipboardDecision) {
+        if let hash = Self.contentHash(decision) { lastContentHash = hash }
+    }
+
+    /// Bridgey put a clipboard offer on the pasteboard at `changeCount`.
+    mutating func noteOwnWrite(changeCount: Int) {
+        ownChangeCount = changeCount
+        lastContentHash = nil
     }
 
     /// A clip from the phone, written to the pasteboard at `changeCount`: never bounce it back.
@@ -108,8 +161,10 @@ struct ClipboardChangeDebouncer {
 final class AutoClipboardWatcher {
     static let pollInterval: TimeInterval = 0.5
 
-    var onSend: (_ text: String, _ html: String?) -> Void = { _, _ in }
-    var onTooLarge: () -> Void = {}
+    /// What to do with a settled change that passed the rules (and the skips worth a status).
+    var onDecision: (AutoClipboardDecision) -> Void = { _ in }
+    /// Clipboard offers are available with the connected phone.
+    var offersAvailable: () -> Bool = { false }
 
     private let pasteboard: NSPasteboard
     private var filter = AutoClipboardFilter()
@@ -151,6 +206,18 @@ final class AutoClipboardWatcher {
         filter.noteReceived(text: text, changeCount: changeCount)
     }
 
+    func noteSent(_ decision: AutoClipboardDecision) {
+        filter.noteSent(decision)
+    }
+
+    func noteOwnWrite(changeCount: Int) {
+        filter.noteOwnWrite(changeCount: changeCount)
+    }
+
+    func isOwnWrite(_ changeCount: Int) -> Bool {
+        filter.isOwnWrite(changeCount)
+    }
+
     private func tick() {
         guard var debouncer else { return }
         let ready = debouncer.poll(changeCount: pasteboard.changeCount, now: Date())
@@ -171,16 +238,75 @@ final class AutoClipboardWatcher {
     private func process(_ changeCount: Int) {
         // Changed again since it settled: the next poll picks up the newer clip.
         guard pasteboard.changeCount == changeCount else { return }
-        let snapshot = ClipboardSnapshot(
-            changeCount: changeCount,
-            types: (pasteboard.types ?? []).map(\.rawValue),
-            text: pasteboard.string(forType: .string),
-            html: pasteboard.data(forType: .html).flatMap { String(data: $0, encoding: .utf8) }
-        )
-        switch filter.decide(snapshot) {
-        case let .send(text, html): onSend(text, html)
-        case .skip(.tooLarge): onTooLarge()
+        // Never read Bridgey's own clipboard offer: that would fetch it from the phone.
+        if filter.isOwnWrite(changeCount) { return }
+        let types = (pasteboard.types ?? []).map(\.rawValue)
+        if types.contains(where: skippedClipboardTypes.contains) { return }
+        let snapshot = ClipboardContentReader.snapshot(of: pasteboard, changeCount: changeCount, offersAvailable: offersAvailable())
+        let decision = filter.decide(snapshot)
+        switch decision {
+        case .skip(.tooLarge), .skip(.folder), .send, .offerText, .offerImages, .offerFiles: onDecision(decision)
         case .skip: break
         }
+    }
+}
+
+/// Reads what was copied. Images and files only when clipboard offers are available, so an
+/// older peer gets exactly the text it always did.
+enum ClipboardContentReader {
+    /// Preferred first; TIFF only when nothing else is there (it becomes PNG, which Android reads).
+    static let imageTypes: [(type: NSPasteboard.PasteboardType, mime: String)] = [
+        (.png, "image/png"),
+        (NSPasteboard.PasteboardType("public.jpeg"), "image/jpeg"),
+        (NSPasteboard.PasteboardType("public.heic"), "image/heic"),
+        (.tiff, "image/tiff"),
+    ]
+
+    @MainActor
+    static func snapshot(of pasteboard: NSPasteboard, changeCount: Int, offersAvailable: Bool) -> ClipboardSnapshot {
+        let types = (pasteboard.types ?? []).map(\.rawValue)
+        var snapshot = ClipboardSnapshot(changeCount: changeCount, types: types, text: nil, html: nil, offersAvailable: offersAvailable)
+        if offersAvailable {
+            let items = pasteboard.pasteboardItems ?? []
+            for item in items {
+                guard let value = item.string(forType: .fileURL), let url = URL(string: value), url.isFileURL else { continue }
+                if let file = fileReference(url) { snapshot.files.append(file) } else if isFolder(url) { snapshot.skippedFolders = true }
+            }
+            if snapshot.files.isEmpty && !snapshot.skippedFolders {
+                snapshot.images = items.compactMap(image(from:))
+            }
+            if !snapshot.files.isEmpty || !snapshot.images.isEmpty { return snapshot }
+        }
+        snapshot.text = pasteboard.string(forType: .string)
+        snapshot.html = pasteboard.data(forType: .html).flatMap { String(data: $0, encoding: .utf8) }
+        return snapshot
+    }
+
+    static func fileReference(_ url: URL) -> ClipboardFileRef? {
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey, .contentTypeKey, .nameKey]),
+              values.isRegularFile == true, let size = values.fileSize else { return nil }
+        return ClipboardFileRef(
+            url: url,
+            name: values.name ?? url.lastPathComponent,
+            size: Int64(size),
+            modified: values.contentModificationDate ?? .distantPast,
+            mime: values.contentType?.preferredMIMEType ?? "application/octet-stream"
+        )
+    }
+
+    static func isFolder(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+
+    static func image(from item: NSPasteboardItem) -> ClipboardImageClip? {
+        for candidate in imageTypes where item.types.contains(candidate.type) {
+            guard let data = item.data(forType: candidate.type), !data.isEmpty else { continue }
+            if candidate.type == .tiff {
+                guard let png = NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:]) else { return nil }
+                return ClipboardImageClip(data: png, mime: "image/png")
+            }
+            return ClipboardImageClip(data: data, mime: candidate.mime)
+        }
+        return nil
     }
 }

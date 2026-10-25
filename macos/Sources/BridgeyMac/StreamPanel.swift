@@ -751,6 +751,18 @@ func activityVisual(_ kind: ActivityKind) -> (symbol: String, tint: TileTint) {
     case .pingSent, .pingReceived: ("wave.3.right", .blue)
     case .findMac, .findPhone: ("location", .blue)
     case .paired: ("laptopcomputer.and.iphone", .purple)
+    case .clipOfferSent, .clipOfferReceived, .clipPasted: ("doc.on.clipboard", .blue)
+    case .clipPasteFailed: ("exclamationmark.circle", .neutral)
+    }
+}
+
+/// Clipboard offers take their icon from what was copied.
+func activityVisual(_ item: ActivityItem) -> (symbol: String, tint: TileTint) {
+    guard item.kind.isClipOffer, item.kind != .clipPasteFailed else { return activityVisual(item.kind) }
+    switch item.content {
+    case "image": return ("photo", .blue)
+    case "file": return ("doc", .green)
+    default: return ("doc.on.clipboard", .blue)
     }
 }
 
@@ -763,7 +775,7 @@ private struct StreamRowView: View {
     @Environment(\.brand) private var c
 
     var body: some View {
-        let visual = activityVisual(item.kind)
+        let visual = activityVisual(item)
         let detail = ActivityText.detail(item, showPreviews: showPreviews)
         HStack(spacing: 10) {
             IconTile(symbol: visual.symbol, tint: visual.tint, size: 28, corner: 8)
@@ -1139,11 +1151,28 @@ struct PasteboardPreview: Equatable {
     @MainActor static func current(previous: PasteboardPreview? = nil) -> PasteboardPreview {
         let pasteboard = NSPasteboard.general
         if let previous, previous.changeCount == pasteboard.changeCount { return previous }
+        // A clipboard offer from the phone: describe it; reading it would fetch it.
+        if ClipboardOwnWrite.matches(pasteboard.changeCount) {
+            return PasteboardPreview(changeCount: pasteboard.changeCount, line: ClipboardOwnWrite.description(), hidden: false)
+        }
         let types = (pasteboard.types ?? []).map(\.rawValue)
         if clipboardTypesAreSecret(types) {
             return PasteboardPreview(changeCount: pasteboard.changeCount, line: "", hidden: true)
         }
+        if types.contains(NSPasteboard.PasteboardType.fileURL.rawValue) {
+            let names = (pasteboard.pasteboardItems ?? []).compactMap { $0.string(forType: .fileURL).flatMap(URL.init(string:))?.lastPathComponent }
+            if names.count > 1 {
+                let line = String.localizedStringWithFormat(L10n.text("send.own.files", fallback: "%d files"), names.count)
+                return PasteboardPreview(changeCount: pasteboard.changeCount, line: line, hidden: false)
+            }
+            if let name = names.first {
+                return PasteboardPreview(changeCount: pasteboard.changeCount, line: ActivityHistory.preview(name), hidden: false)
+            }
+        }
         let text = pasteboard.string(forType: .string).map { String($0.prefix(2_000)) }
+        if text == nil, ClipboardContentReader.imageTypes.contains(where: { types.contains($0.type.rawValue) }) {
+            return PasteboardPreview(changeCount: pasteboard.changeCount, line: L10n.text("send.own.image", fallback: "Image"), hidden: false)
+        }
         return PasteboardPreview(changeCount: pasteboard.changeCount, line: ActivityHistory.preview(text), hidden: false)
     }
 }
