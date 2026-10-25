@@ -68,31 +68,38 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         val bridgey = application as BridgeyApplication
         if (!bridgey.isPrimaryUser || !bridgey.isBridgeyEnabled || sbn.packageName == packageName) return
 
+        // An update that is no longer forwardable retracts any earlier mirrored state for the same key.
         val notification = sbn.notification
-        if (notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
+        if (notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return retractForwardedNotification(sbn.key)
         val isCall = notification.category == Notification.CATEGORY_CALL
-        if (shouldIgnoreOngoingNotification(notification.flags, notification.category)) return
-        if (notification.visibility == Notification.VISIBILITY_SECRET) return
+        if (shouldIgnoreOngoingNotification(notification.flags, notification.category)) {
+            return retractForwardedNotification(sbn.key)
+        }
+        if (notification.visibility == Notification.VISIBILITY_SECRET) return retractForwardedNotification(sbn.key)
 
         val ranking = Ranking()
-        if (rankingMap.getRanking(sbn.key, ranking) && ranking.importance <= NotificationManager.IMPORTANCE_MIN) return
+        if (rankingMap.getRanking(sbn.key, ranking) && ranking.importance <= NotificationManager.IMPORTANCE_MIN) {
+            return retractForwardedNotification(sbn.key)
+        }
 
         val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
         val text = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim().orEmpty()
-        if (title.isEmpty() && text.isEmpty()) return
+        if (title.isEmpty() && text.isEmpty()) return retractForwardedNotification(sbn.key)
 
         val applicationName = runCatching {
             val info = packageManager.getApplicationInfo(sbn.packageName, 0)
             packageManager.getApplicationLabel(info).toString()
         }.getOrDefault(sbn.packageName)
         bridgey.settings.observeNotificationApplication(sbn.packageName, applicationName)
-        if (!bridgey.settings.isNotificationApplicationEnabled(sbn.packageName)) return
+        if (!bridgey.settings.isNotificationApplicationEnabled(sbn.packageName)) {
+            return retractForwardedNotification(sbn.key)
+        }
         val applicationIcon = applicationIcon(sbn.packageName)
 
         val isTelephonyCall = isCall && isTelephonyCallSource(sbn.packageName)
         val telephonyCallType = if (isTelephonyCall) currentTelephonyCallType() else null
         if (telephonyCallType == "idle") {
-            removeForwardedCall(sbn.key)
+            retractForwardedNotification(sbn.key)
             return
         }
         val notificationId = notificationToken(sbn.key)
@@ -330,10 +337,10 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         activeNotifications.orEmpty()
             .filter { it.packageName != packageName && it.notification.category == Notification.CATEGORY_CALL }
             .filter { isTelephonyCallSource(it.packageName) }
-            .forEach { removeForwardedCall(it.key) }
+            .forEach { retractForwardedNotification(it.key) }
     }
 
-    private fun removeForwardedCall(systemKey: String) {
+    private fun retractForwardedNotification(systemKey: String) {
         val notificationId = forwardedNotifications.removeSystemKey(systemKey) ?: return
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
         removeActions(notificationId)
