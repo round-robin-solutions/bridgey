@@ -1125,7 +1125,10 @@ Storage Access Framework". This design answers those three:
 
 ## Decisions confirmed by Rahul (2026-10-25)
 
-- Hidden files: skipped by default; the send sheet offers "Include hidden files". `.DS_Store` and AppleDouble `._*` files are always skipped.
+- Hidden files and system files are two separate options in the send sheet (and as defaults in Settings, Files), both off by default:
+  - "Include hidden files": user dotfiles and dot-folders (`.gitignore`, `.env`, `.config/`) that are not system files.
+  - "Include system files": operating-system clutter, matched by exact name, never by a broad pattern: `.DS_Store`, AppleDouble `._*`, `.Spotlight-V100`, `.Trashes`, `.fseventsd`, `.TemporaryItems`, `.DocumentRevisions-V100`, `.VolumeIcon.icns`, `.localized`, `Icon\r`, `Thumbs.db`, `ehthumbs.db`, `desktop.ini`, `$RECYCLE.BIN`, `System Volume Information`. The list lives in one shared constant on both platforms with a unit test.
+  - A system file is excluded unless "Include system files" is on, even when "Include hidden files" is on. The skipped counts for each group are shown separately in the summary ("Skipped 12 hidden files, 48 system files").
 - Settings sync: on by default; every change made by a paired device is recorded in the activity stream.
 - Replace safety: a phone-only switch "Allow other devices to replace files here", off by default. Until it is on, a Replace chosen on the Mac asks on the phone first.
 - Ask on the phone: a Bridgey "Save to..." sheet with granted folders and recent destinations, plus "Other folder..." for Android's picker.
