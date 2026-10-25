@@ -9,6 +9,7 @@ import android.app.RemoteInput
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -19,6 +20,7 @@ import android.os.Looper
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.telecom.InCallService
 import android.telecom.TelecomManager
 import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
@@ -87,7 +89,8 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         if (!bridgey.settings.isNotificationApplicationEnabled(sbn.packageName)) return
         val applicationIcon = applicationIcon(sbn.packageName)
 
-        val telephonyCallType = if (isCall) currentTelephonyCallType() else null
+        val isTelephonyCall = isCall && isTelephonyCallSource(sbn.packageName)
+        val telephonyCallType = if (isTelephonyCall) currentTelephonyCallType() else null
         if (telephonyCallType == "idle") {
             removeForwardedCall(sbn.key)
             return
@@ -98,7 +101,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         val callType = if (isCall) resolvedNotificationCallType(notification, telephonyCallType) else null
         val actions = storeActions(
             notificationId,
-            notificationActionCandidates(notification, callType, canControlSystemCalls()),
+            notificationActionCandidates(notification, callType, isTelephonyCall && canControlSystemCalls()),
         )
         val forward = Runnable {
             pendingCallPosts.remove(notificationId)
@@ -268,6 +271,28 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     private fun isCallIntegrationEnabled(): Boolean =
         (application as BridgeyApplication).settings.state.value.directCallsEnabled
 
+    // Phone state and Telecom controls describe the cellular call only. VoIP apps keep their own
+    // CallStyle state and actions; Samsung and Xiaomi post call notifications from a separate
+    // system in-call UI package rather than from the default dialer.
+    private fun isTelephonyCallSource(packageName: String): Boolean {
+        val telecom = runCatching { getSystemService(TelecomManager::class.java) }.getOrNull()
+        val defaultDialer = runCatching { telecom?.defaultDialerPackage }.getOrNull()
+        val systemDialer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching { telecom?.systemDialerPackage }.getOrNull()
+        } else {
+            null
+        }
+        return isTelephonyCallSource(packageName, defaultDialer, systemDialer) { isSystemInCallService(packageName) }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun isSystemInCallService(packageName: String): Boolean = runCatching {
+        val info = packageManager.getApplicationInfo(packageName, 0)
+        if (info.flags and ApplicationInfo.FLAG_SYSTEM == 0) return@runCatching false
+        val intent = Intent(InCallService.SERVICE_INTERFACE).setPackage(packageName)
+        packageManager.queryIntentServices(intent, 0).isNotEmpty()
+    }.getOrDefault(false)
+
     private fun updateTelephonyCallback() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         unregisterTelephonyCallback()
@@ -298,6 +323,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     private fun removeActiveForwardedCalls() {
         activeNotifications.orEmpty()
             .filter { it.packageName != packageName && it.notification.category == Notification.CATEGORY_CALL }
+            .filter { isTelephonyCallSource(it.packageName) }
             .forEach { removeForwardedCall(it.key) }
     }
 
@@ -536,6 +562,13 @@ internal fun notificationToken(systemKey: String): String = MessageDigest.getIns
     .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
 internal fun notificationActionToken(notificationId: String, index: Int): String = notificationToken("$notificationId\u0000$index")
+
+internal fun isTelephonyCallSource(
+    packageName: String,
+    defaultDialerPackage: String?,
+    systemDialerPackage: String?,
+    isSystemInCallService: () -> Boolean,
+): Boolean = packageName == defaultDialerPackage || packageName == systemDialerPackage || isSystemInCallService()
 
 internal fun shouldIgnoreOngoingNotification(flags: Int, category: String?): Boolean =
     flags and Notification.FLAG_ONGOING_EVENT != 0 && category != Notification.CATEGORY_CALL

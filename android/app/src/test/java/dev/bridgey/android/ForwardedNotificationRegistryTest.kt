@@ -132,6 +132,20 @@ class ForwardedNotificationRegistryTest {
         assertTrue(systemCallActionTitles("unknown", 36).isEmpty())
     }
 
+    @Test fun telephonyOverridesApplyOnlyToDialerAndSystemInCallNotifications() {
+        assertTrue(isTelephonyCallSource("com.google.android.dialer", "com.google.android.dialer", null) { false })
+        assertTrue(isTelephonyCallSource("com.android.dialer", "third.party.dialer", "com.android.dialer") { false })
+        assertTrue(isTelephonyCallSource("com.samsung.android.incallui", "com.samsung.android.dialer", null) { true })
+        assertFalse(isTelephonyCallSource("com.whatsapp", "com.google.android.dialer", "com.android.dialer") { false })
+        assertFalse(isTelephonyCallSource("org.thoughtcrime.securesms", null, null) { false })
+    }
+
+    @Test fun dialerMatchSkipsTheInCallServiceLookup() {
+        var lookedUp = false
+        assertTrue(isTelephonyCallSource("com.google.android.dialer", "com.google.android.dialer", null) { lookedUp = true; false })
+        assertFalse(lookedUp)
+    }
+
     @Test fun ongoingCallPostsUseASettleDelayToSuppressTerminalSamsungUpdates() {
         assertTrue(shouldDelayCallPost("ongoing"))
         assertFalse(shouldDelayCallPost("incoming"))

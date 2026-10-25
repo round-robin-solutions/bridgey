@@ -55,6 +55,9 @@ should follow device acceptance, not precede it.
 - Test incoming call from the home screen, from another app's heads-up popup,
   and after opening that popup full-screen. Then test outgoing calls, Answer,
   Decline and Hang Up. Confirm no phantom Incoming/Call in progress afterward.
+- Test an incoming and ongoing VoIP call (WhatsApp or Signal) with call
+  integration on. The Mac card must appear while the phone is otherwise idle,
+  and its buttons must act on the VoIP call, never on a cellular call.
 
 Pause-on-call depends on forwarded call state: notification forwarding and the
 optional Android Phone permissions must be enabled. It does not carry call
