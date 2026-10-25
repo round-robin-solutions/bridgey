@@ -52,22 +52,3 @@ final class ShortcutSettings: ObservableObject {
         }
     }
 }
-
-struct ShortcutSettingsView: View {
-    @ObservedObject var shortcuts: ShortcutSettings
-    var body: some View {
-        Section("Keyboard shortcuts") {
-            Text("Shortcuts use Control + Option and the selected key.")
-                .font(.caption).foregroundStyle(.secondary)
-            Toggle("Also require Shift", isOn: Binding(get: { shortcuts.useShift }, set: shortcuts.setShift))
-            ForEach(ShortcutAction.allCases) { action in
-                Picker(action.title, selection: Binding(
-                    get: { shortcuts.keys[action] ?? "Off" }, set: { shortcuts.setKey($0, for: action) })) {
-                    Text("Off").tag("Off")
-                    ForEach(ShortcutSettings.keys, id: \.0) { Text($0.0).tag($0.0) }
-                }
-            }
-            if let error = shortcuts.error { Text(error).font(.caption).foregroundStyle(.red) }
-        }
-    }
-}

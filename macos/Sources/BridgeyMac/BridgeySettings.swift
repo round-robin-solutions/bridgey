@@ -65,6 +65,10 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var loginItemMessage: String?
     @Published private(set) var hasCompletedOnboarding: Bool
     @Published private(set) var notificationHistoryEnabled: Bool
+    /// Settings > Privacy > Show previews in activity. On by default.
+    @Published private(set) var showActivityPreviews: Bool
+    /// Settings > General > Reduce motion: cross-fades only, like the system setting.
+    @Published private(set) var reduceMotion: Bool
 
     private let defaults = UserDefaults.standard
 
@@ -74,6 +78,8 @@ final class BridgeySettings: ObservableObject {
         deviceName = storedDefaults.string(forKey: "settings.deviceName") ?? systemName
         hasCompletedOnboarding = storedDefaults.bool(forKey: "settings.onboarding.completed")
         notificationHistoryEnabled = storedDefaults.bool(forKey: "settings.notificationHistory.enabled")
+        showActivityPreviews = storedDefaults.object(forKey: "settings.activity.previews") as? Bool ?? true
+        reduceMotion = storedDefaults.bool(forKey: "settings.reduceMotion")
         globalFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
             ($0, storedDefaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media))
         })
@@ -114,6 +120,16 @@ final class BridgeySettings: ObservableObject {
     func setNotificationHistoryEnabled(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.notificationHistory.enabled")
         notificationHistoryEnabled = enabled
+    }
+
+    func setShowActivityPreviews(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.activity.previews")
+        showActivityPreviews = enabled
+    }
+
+    func setReduceMotion(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.reduceMotion")
+        reduceMotion = enabled
     }
 
     func setForDevice(_ deviceID: String, feature: BridgeyFeature, enabled: Bool) {

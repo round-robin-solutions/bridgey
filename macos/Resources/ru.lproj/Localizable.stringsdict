@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Russian plural forms for stream counts; the matching .strings entries are fallbacks. -->
+<plist version="1.0">
+<dict>
+	<key>stream.alerts</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@alerts@</string>
+		<key>alerts</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d уведомление</string>
+			<key>few</key>
+			<string>%d уведомления</string>
+			<key>many</key>
+			<string>%d уведомлений</string>
+			<key>other</key>
+			<string>%d уведомления</string>
+		</dict>
+	</dict>
+	<key>stream.calls</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@calls@</string>
+		<key>calls</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d звонок</string>
+			<key>few</key>
+			<string>%d звонка</string>
+			<key>many</key>
+			<string>%d звонков</string>
+			<key>other</key>
+			<string>%d звонка</string>
+		</dict>
+	</dict>
+	<key>stream.alerts.app</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@alerts@ %2$@</string>
+		<key>alerts</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%1$d уведомление</string>
+			<key>few</key>
+			<string>%1$d уведомления</string>
+			<key>many</key>
+			<string>%1$d уведомлений</string>
+			<key>other</key>
+			<string>%1$d уведомления</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

@@ -24,3 +24,14 @@ struct RichClipboardContent: Codable, Equatable {
 func clipboardTextFits(_ text: String) -> Bool {
     !text.isEmpty && text.utf8.count <= maximumClipboardContentBytes
 }
+
+/// Pasteboard types that password managers and other apps set on content that must not be
+/// kept or shown (nspasteboard.org conventions, plus 1Password's own marker).
+let secretClipboardTypes: Set<String> = [
+    "org.nspasteboard.ConcealedType",
+    "com.agilebits.onepassword",
+]
+
+func clipboardTypesAreSecret(_ types: [String]) -> Bool {
+    types.contains(where: secretClipboardTypes.contains)
+}

@@ -181,6 +181,8 @@ final class PairingCoordinator: ObservableObject {
     @Published private(set) var callStatus: String?
     @Published private(set) var pingStatus: String?
     let quickActions = QuickActions()
+    /// The private local activity stream shown in the panel.
+    let activity: ActivityLog
     let mediaController = MediaController()
     let shortcuts = ShortcutSettings()
 
@@ -227,6 +229,9 @@ final class PairingCoordinator: ObservableObject {
     private var activeRemoteCalls = ActiveRemoteCalls()
     private var hiddenCallOverlayIdentities = Set<String>()
     private var audibleCallIdentities = Set<String>()
+    private var recordedCallIdentities = Set<String>()
+    /// The clipboard being sent, as a stream preview, until the phone acknowledges it.
+    private var pendingClipboardActivity: (preview: String?, sensitive: Bool)?
     private var alertedNotificationIdentifiers = AlertedNotificationIdentifiers()
     private var cancelledTransferIDs = Set<String>()
     private var findDeviceSound: NSSound?
@@ -240,6 +245,7 @@ final class PairingCoordinator: ObservableObject {
         self.settings = settings
         let notificationHistoryStore = NotificationHistoryStore()
         self.notificationHistoryStore = notificationHistoryStore
+        activity = ActivityLog(store: ActivityStore())
         if settings.notificationHistoryEnabled {
             notificationHistory = notificationHistoryStore.load()
         }
@@ -275,6 +281,7 @@ final class PairingCoordinator: ObservableObject {
         startListener()
         quickActions.available = { [weak self] in self?.isFeatureAvailable($0) == true }
         quickActions.send = { [weak self] in self?.sendQuickPayload(kind: $0, payload: $1) == true }
+        quickActions.onActivity = { [weak self] kind in self?.recordConnectedActivity(kind) }
         mediaController.allowed = { [weak self] in
             guard let self, case .connected = self.state else { return false }
             return self.isFeatureAvailable(.media)
@@ -625,6 +632,7 @@ final class PairingCoordinator: ObservableObject {
         }
         let html = NSPasteboard.general.data(forType: .html)
             .flatMap { String(data: $0, encoding: .utf8) }
+        let concealed = pasteboardIsConcealed(NSPasteboard.general)
         let richContent = RichClipboardContent(text: text, html: html)
         let plaintext = richContent.flatMap { try? JSONEncoder().encode($0) } ?? Data(text.utf8)
         guard let encrypted = try? encrypt(plaintext, key: current.pairingKey!) else {
@@ -641,6 +649,7 @@ final class PairingCoordinator: ObservableObject {
         ))
         clipboardTimeoutWorkItem?.cancel()
         clipboardSendID = messageID
+        pendingClipboardActivity = (concealed ? nil : ActivityHistory.preview(text), concealed)
         clipboardStatus = "Sending…"
         let timeout = DispatchWorkItem { [weak self, weak current] in
             guard let self, let current, self.session === current,
@@ -659,6 +668,7 @@ final class PairingCoordinator: ObservableObject {
         clipboardTimeoutWorkItem?.cancel()
         clipboardTimeoutWorkItem = nil
         clipboardSendID = nil
+        pendingClipboardActivity = nil
         clipboardStatus = nil
     }
 
@@ -712,6 +722,7 @@ final class PairingCoordinator: ObservableObject {
               payload.version == 1 else { throw PairingError.invalidMessage }
         NSSound(named: NSSound.Name("Glass"))?.play()
         setTransientPingStatus("Ping from \(current.peerName)")
+        recordActivity(.pingReceived, in: current)
         current.send(PairingMessage(kind: "ping.ack", sessionId: current.id, messageId: messageID))
         NSLog("PLUGIN ping received")
     }
@@ -827,6 +838,7 @@ final class PairingCoordinator: ObservableObject {
               let payload = try? JSONDecoder().decode(FindDevicePayload.self, from: plaintext),
               payload.alertId == "active" else { throw PairingError.invalidMessage }
         if start {
+            if !macRinging && featureEnabled(.findDevice, current: current) { recordActivity(.findMac, in: current) }
             startMacSound()
             _ = sendFindCommand(kind: macRinging ? "find.started" : "find.stopped")
         } else {
@@ -851,6 +863,7 @@ final class PairingCoordinator: ObservableObject {
               let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: current.pairingKey!),
               let payload = try? JSONDecoder().decode(FindDevicePayload.self, from: plaintext),
               payload.alertId == "active" else { throw PairingError.invalidMessage }
+        if started && !androidRinging { recordActivity(.findPhone, in: current) }
         androidRinging = started
     }
 
@@ -871,7 +884,7 @@ final class PairingCoordinator: ObservableObject {
 
     func chooseAndSendFile() {
         guard session != nil, case .connected = state else {
-            fileTransferStatus = "Not connected — file was not sent"
+            fileTransferStatus = "Not connected, so the file was not sent"
             return
         }
         guard isFeatureAvailable(.files) else {
@@ -899,7 +912,7 @@ final class PairingCoordinator: ObservableObject {
     @discardableResult
     func sendDroppedFile(_ url: URL) -> Bool {
         guard session != nil, case .connected = state else {
-            fileTransferStatus = "Not connected — file was not sent"
+            fileTransferStatus = "Not connected, so the file was not sent"
             return false
         }
         guard isFeatureAvailable(.files) else {
@@ -1275,6 +1288,7 @@ final class PairingCoordinator: ObservableObject {
                       message.messageId == pingRequestID else { return }
                 pingRequestID = nil
                 setTransientPingStatus("Ping delivered")
+                recordActivity(.pingSent, in: current)
             case "clipboard.update", "clipboard.rich":
                 guard featureEnabled(.clipboard, current: current) else {
                     current.send(PairingMessage(
@@ -1311,6 +1325,7 @@ final class PairingCoordinator: ObservableObject {
                 NSPasteboard.general.setString(text, forType: .string)
                 if let html { NSPasteboard.general.setData(Data(html.utf8), forType: .html) }
                 diagnostics.record(category: "clipboard", event: html == nil ? "text_received" : "rich_received")
+                recordActivity(.clipboardReceived, in: current, preview: text)
                 NSLog("PLUGIN clipboard received")
                 current.send(PairingMessage(kind: "clipboard.ack", sessionId: current.id, messageId: messageID))
             case "clipboard.ack":
@@ -1319,6 +1334,10 @@ final class PairingCoordinator: ObservableObject {
                 clipboardTimeoutWorkItem = nil
                 clipboardSendID = nil
                 clipboardStatus = "Delivered"
+                if let pending = pendingClipboardActivity {
+                    recordActivity(.clipboardSent, in: current, preview: pending.preview, sensitive: pending.sensitive)
+                }
+                pendingClipboardActivity = nil
                 NSLog("PLUGIN clipboard acknowledged")
             case "clipboard.rejected":
                 guard message.messageId == clipboardSendID else { return }
@@ -1366,6 +1385,9 @@ final class PairingCoordinator: ObservableObject {
                     throw PairingError.invalidMessage
                 }
                 recordNotificationHistory(payload, deviceID: current.remoteDeviceID)
+                if payload.callType == nil {
+                    recordActivity(.notificationsShown, in: current, appName: payload.applicationName)
+                }
                 updateRemoteCall(payload, deviceID: current.remoteDeviceID)
                 if shouldUseSystemNotification(callType: payload.callType) {
                     postNotification(payload, deviceID: current.remoteDeviceID)
@@ -1380,7 +1402,9 @@ final class PairingCoordinator: ObservableObject {
                 callTimeoutWorkItem = nil
                 callRequestID = nil
                 switch message.kind {
-                case "calls.started": setTransientCallStatus("Call started on Android")
+                case "calls.started":
+                    setTransientCallStatus("Call started on Android")
+                    recordActivity(.callStarted, in: current)
                 case "calls.confirmation_required": setTransientCallStatus("Confirm the call from the Android notification")
                 default: setTransientCallStatus("Android rejected the call request")
                 }
@@ -1470,11 +1494,13 @@ final class PairingCoordinator: ObservableObject {
                         sessionId: current.id,
                         transferId: completion.transferId
                     ))
+                    recordActivity(.fileReceived, in: current, fileName: transfer.displayName)
                     NSWorkspace.shared.activateFileViewerSelecting([destination])
                     NSLog("PLUGIN file received name=%@", transfer.displayName)
                 } catch {
                     transfer.cancel()
                     fileTransferStatus = "File verification failed"
+                    recordActivity(.fileFailed, in: current, fileName: transfer.displayName)
                     throw error
                 }
             case "files.accept":
@@ -1533,6 +1559,7 @@ final class PairingCoordinator: ObservableObject {
                       let transfer = outgoingFiles.removeValue(forKey: transferID) else { return }
                 outgoingFileSources.removeValue(forKey: transferID)
                 fileTransferStatus = "\(transfer.displayName) saved on Android"
+                recordActivity(.fileSent, in: current, fileName: transfer.displayName)
                 updateFileTransfer(id: transferID, name: transfer.displayName, status: fileTransferStatus!, active: false)
                 fileTransferActive = fileTransfers.values.contains(where: { $0.active })
                 fileOperationID = nil
@@ -1808,6 +1835,12 @@ final class PairingCoordinator: ObservableObject {
             actions: actions
         ))
         publishRemoteCall()
+        if !recordedCallIdentities.contains(identity) {
+            recordedCallIdentities.insert(identity)
+            let name = trustedDevices.first { $0.id == deviceID }?.name ?? session?.peerName ?? ""
+            let caller = payload.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            recordActivity(.callShown, deviceID: deviceID, deviceName: name, preview: caller.isEmpty ? nil : caller)
+        }
         if callType == "incoming", !audibleCallIdentities.contains(identity) {
             NSSound.beep()
             audibleCallIdentities.insert(identity)
@@ -1823,6 +1856,59 @@ final class PairingCoordinator: ObservableObject {
         } else {
             callOverlayWindow.hide()
         }
+    }
+
+    // MARK: Activity stream
+
+    func clearActivity() {
+        activity.clear()
+    }
+
+    private func pasteboardIsConcealed(_ pasteboard: NSPasteboard) -> Bool {
+        clipboardTypesAreSecret((pasteboard.types ?? []).map(\.rawValue))
+    }
+
+    private func recordActivity(
+        _ kind: ActivityKind,
+        in current: Session,
+        fileName: String? = nil,
+        preview: String? = nil,
+        appName: String? = nil,
+        sensitive: Bool = false,
+        automatic: Bool = false
+    ) {
+        recordActivity(
+            kind, deviceID: current.remoteDeviceID, deviceName: current.peerName,
+            fileName: fileName, preview: preview, appName: appName, sensitive: sensitive, automatic: automatic
+        )
+    }
+
+    private func recordActivity(
+        _ kind: ActivityKind,
+        deviceID: String?,
+        deviceName: String,
+        fileName: String? = nil,
+        preview: String? = nil,
+        appName: String? = nil,
+        sensitive: Bool = false,
+        automatic: Bool = false
+    ) {
+        activity.record(
+            kind,
+            deviceID: deviceID?.isEmpty == false ? deviceID : nil,
+            deviceName: deviceName,
+            fileName: fileName,
+            preview: preview,
+            appName: appName,
+            sensitive: sensitive,
+            automatic: automatic,
+            previews: settings.showActivityPreviews
+        )
+    }
+
+    private func recordConnectedActivity(_ kind: ActivityKind) {
+        guard case let .connected(deviceID, name) = state else { return }
+        recordActivity(kind, deviceID: deviceID, deviceName: name)
     }
 
     func clearNotificationHistory() {
@@ -1973,6 +2059,7 @@ final class PairingCoordinator: ObservableObject {
             let identity = callOverlayIdentity(notificationID, deviceID: deviceID)
             hiddenCallOverlayIdentities.remove(identity)
             audibleCallIdentities.remove(identity)
+            recordedCallIdentities.remove(identity)
             publishRemoteCall()
         }
         let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: notificationID)
@@ -1989,6 +2076,7 @@ final class PairingCoordinator: ObservableObject {
         remoteCall = nil
         hiddenCallOverlayIdentities.removeAll()
         audibleCallIdentities.removeAll()
+        recordedCallIdentities.removeAll()
         guard !calls.isEmpty else { return }
         callOverlayWindow.hide()
         let identifiers = calls.map {
@@ -2011,6 +2099,7 @@ final class PairingCoordinator: ObservableObject {
             identityKey: identityKey
         ) {
             trustedDeviceIDs.insert(current.remoteDeviceID)
+            recordActivity(.paired, in: current)
         }
     }
 

@@ -23,9 +23,11 @@ upstream clients.
 | Releases | GitHub Actions on `v*` tags | `scripts/rr/release.sh` on our own machines; `release.yml` is manual-only |
 | Android design | Material defaults | Direction B "Stream": device rings, activity stream, send bar (Round Robin theme) |
 | Android activity stream | none | Local, private history of what moved between devices (see below) |
+| macOS design | SwiftUI defaults | Direction B "Stream": 360 pt menu-bar panel with device chips, live cards, activity stream, quick actions and send bar; Settings window with a sidebar (Round Robin theme, bundled Space Grotesk and Inter) |
+| macOS activity stream | none | The same private, local history on the Mac (see below) |
 
 Unchanged on purpose: the wire protocol, the Bonjour service type `_bridgey._tcp`, the default
-port 42458, Kotlin and Swift package names, and the macOS visual design. Because the port is the
+port 42458, and the Kotlin and Swift package names. Because the port is the
 same, the upstream app and this edition cannot both accept connections on one Mac at the same
 time; quit one of them.
 
@@ -57,6 +59,21 @@ What an item stores: the kind of event, the device, the time, a count, and depen
 Link addresses and phone numbers are never stored. Settings > Privacy > "Show previews in
 activity" (on by default) turns previews, app names and callers off: new items then store none,
 and existing previews are hidden.
+
+### macOS activity stream and privacy
+
+The Mac panel shows the same kind of stream with the same rules: at most 200 items for seven days,
+one-line clipboard previews of at most 80 characters, alert app names grouped per device and app
+within 15 minutes, callers from forwarded call notifications, file names, and nothing else. It is
+kept in `~/Library/Application Support/in.roundrobin.bridgey/activity-stream.json`, owner-only
+(`0600`), and cleared from Settings > Privacy. Clipboard content that a password
+manager marks as concealed (`org.nspasteboard.ConcealedType`, 1Password's marker) is stored as
+"Hidden". Settings > Privacy > "Show previews in activity" (on by default) works as on Android.
+Nothing from the stream is logged or exported with diagnostics.
+
+The optional notification history (Settings > Notifications, off by default) is a different
+thing and stays separate: it keeps forwarded notifications with their titles and text so you
+can read them later, while the stream only says that "4 WhatsApp alerts" arrived.
 
 The About section in Settings on both apps says "Built on Bridgey by Semyon Mikhailov" and
 links to the original project. Keep it, and keep `LICENSE`.

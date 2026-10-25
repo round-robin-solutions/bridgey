@@ -43,6 +43,6 @@ final class ReliabilityTests: XCTestCase {
         let recovered = recoverInterruptedTransfers([transfer.id: transfer])
 
         XCTAssertFalse(recovered[transfer.id]!.active)
-        XCTAssertEqual(recovered[transfer.id]!.status, "Transfer interrupted — reconnect to retry")
+        XCTAssertEqual(recovered[transfer.id]!.status, "Transfer interrupted; reconnect to retry")
     }
 }

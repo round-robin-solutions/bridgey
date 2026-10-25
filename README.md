@@ -336,7 +336,9 @@ items for seven days, owner-only, never backed up). Clipboard items keep a
 one-line preview of at most 80 characters ("Hidden" for clips marked sensitive),
 alert items the app name, and incoming calls the caller when the notification
 shows one; Settings > Privacy > "Show previews in activity" turns that off. See
-[the edition notes](docs/rr-edition.md#android-activity-stream-and-privacy).
+[the edition notes](docs/rr-edition.md#android-activity-stream-and-privacy). The macOS
+app keeps the same stream under the same rules in its Application Support folder
+([macOS notes](docs/rr-edition.md#macos-activity-stream-and-privacy)).
 
 Settings can export a structured diagnostics JSON file. It contains bounded
 event metadata, application/platform versions, feature states, connection
