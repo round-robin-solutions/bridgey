@@ -320,6 +320,155 @@ number the platform identifies as an emergency number. It does not request
 contacts or call-log access. Local feature policy is checked again immediately
 before any side effect. Number content is not logged.
 
+## Draft: Connect anywhere (edition-only)
+
+Status: **draft, not implemented, edition-only** (Bridgey by Round Robin) until accepted
+upstream. Peers that do not both advertise the capabilities below keep the current wire format
+unchanged. Design, rationale and numbers: [connect-anywhere.md](connect-anywhere.md) and
+[agent-cli.md](agent-cli.md). All identifiers are unbranded so the protocol can be offered upstream.
+
+### Capabilities
+
+`connect.v1` (QUIC tunnel, routes, signalling), `transfer.v1` (resumable transfer) and `agent.v1`
+(notify, ask, clipboard request). They are advertised in the encrypted `features.update` payload
+as an optional `capabilities` array next to `features`; clients that do not know the key ignore
+it. Bonjour TXT may carry the advisory key `cv=1` (attacker-controlled, like all TXT data).
+
+### QUIC tunnel
+
+- **Transport.** UDP, default port 42458 (the TCP listener's number). ALPN `bridgey/1`. TLS 1.3
+  with certificates in both directions: self-signed Ed25519, renewed every 24 hours.
+- **Pin.** The certificate must match `certSha256` (SHA-256 of the DER) whenever signalling
+  supplied one.
+- **Shared socket.** STUN, TURN and QUIC share one socket, demultiplexed by first byte as in
+  RFC 9443, so endpoints must not send `grease_quic_bit`.
+- **Stream 0,** the first client-initiated bidirectional stream, carries the existing
+  newline-delimited JSON session with the 65,536-byte frame limit. The QUIC client sends
+  `pairing.offer`; all pairing fields and checks are unchanged except the signed transcript:
+
+  ```text
+  "bridgey-auth-v2" \0 sessionId \0 initiatorDeviceId \0 responderDeviceId
+    \0 initiatorEphemeralKey \0 responderEphemeralKey \0 base64(exporter) [\0 base64(inviteHash)]
+  exporter = TLS-Exporter("EXPORTER-bridgey-tunnel-v1", "", 32)
+  ```
+
+  `bridgey-auth-v1` remains the transcript on the TCP transport.
+- **Unidirectional streams** carry `transfer.v1` data.
+
+### In-session messages (`connect.v1`)
+
+These are encrypted payloads in the current session format (`kind`, `sessionId`, `messageId`,
+`nonce`, `ciphertext`):
+
+| Message | Payload |
+| --- | --- |
+| `connect.setup` | `version` 1, `contribution` (base64, 32 random bytes), `rotate` (bool). The reply is `connect.setup.ack` `{version}`. `pairSecret = HKDF-SHA256(cLow ‖ cHigh, salt "bridgey-pair-secret-v1", info idLow \0 idHigh, 32)`. |
+| `connect.addresses` | `version`, `port`, `addrs` (at most 16): `a`, `kind` (`lan`, `vpn`, `public6`), `vpn` (`tailscale`, `other`), `net` (8-byte tag) |
+| `connect.offer`, `connect.answer` | `version`, `sid` (base64url 16 bytes), `ufrag` (8 characters), `pwd` (24 characters), `cands` (at most 24), `cert`, optional `rtts` and `net` |
+| `connect.candidates` | `sid`, `cands`, `done` |
+| `connect.restart` | `sid`, `ufrag`, `pwd`, `reason` (`network_change`, `path_failed`, `relay_switch`) |
+| `connect.bye` | `sid`, `reason` |
+| `connect.route` | `version`, `route` (`lan`, `vpn`, `direct`, `relay`), optional `relay`, `rttMs`. Informational only. |
+
+A candidate is `{"k":"host|prflx|srflx|mapped|relay","a":"<ip>","p":<port>,"net":"lan|vpn|public6|cell|wifi","pri":<u32>}`.
+
+### Rendezvous protocol (Bridgey Rendezvous v1)
+
+Any operator can run the service. The edition's is `wss://connect.roundrobin.in/v1/ws`. It uses
+WebSocket text frames, one JSON object of at most 16 KiB each, with the type in `t`.
+
+| Message | Fields |
+| --- | --- |
+| `hello` | `v`, `node` (P-256 SEC1 public key, base64url), `app`, `keepalive` (60 to 270 s) |
+| `challenge` | `nonce` (32 bytes), `pow` (required leading zero bits, 0 to 24) |
+| `auth` | `sig`: DER ECDSA-P256-SHA256 over `"bridgey-rdv-auth-v1\0" ‖ nonce ‖ node`; optional `pow` solution with `SHA-256("bridgey-pow-v1" ‖ nonce ‖ node ‖ solution)` having `pow` leading zero bits |
+| `welcome` | `nodeId` (SHA-256 of node, first 16 bytes), `now`, `limits` |
+| `register`, `registered` | `ids` (at most 64; replaces the set), `online` |
+| `presence` | `rdv`, `online` |
+| `signal`, `undeliverable` | `to` or `rdv`, `side` (0 for the lower device ID), `sid`, `body` (sealed, at most 6 KiB) |
+| `relay.request` | `rdv`, `sid`, `side`, `rtts`, `need` (`udp`, `tls443`), `estBytes`, `exclude` |
+| `relay.claim` | `rdv`, `sid`, `side` |
+| `relay.grant` | `sid`, `relay`: `id`, `kind` (`coturn`, `cloudflare`), `urls`, `username`, `credential`, `spki` (coturn only), `expiresAt`, `maxKbps` |
+| `relay.denied`, `relay.release`, `error` | `code`, `retryAfterMs` |
+
+Derivations and formats:
+
+```text
+rdvId(d) = base64url(HMAC-SHA256(pairSecret, "bridgey-rdv-v1" ‖ d)[0..16]), d = UTC "YYYY-MM-DD"
+sigKey   = HKDF-SHA256(pairSecret, salt "", info "bridgey-signal-v1", 32)
+body     = base64url(0x01 ‖ nonce(12) ‖ AES-256-GCM(sigKey, nonce, plaintext,
+                     aad = "bridgey-signal-v1" \0 rdvId \0 side \0 sid))
+```
+
+- The sealed plaintext is JSON of type `offer`, `answer`, `cand`, `restart` or `bye`. Its fields
+  match the in-session messages, plus `ts` (Unix ms) and `seq`. Receivers reject `ts` more than
+  5 minutes off and non-increasing `seq` per `sid` and `side`.
+- **Relay credentials.** coturn uses the TURN REST style:
+  - `username = "<expiry>:<sid prefix 8>.<side>"`;
+  - `credential = base64(HMAC-SHA1(secret, username))`.
+
+  Cloudflare credentials come from its API. Both last 2 hours and are renewed at 75%.
+
+### Remote pairing invites
+
+- **Invite:** `bridgey://pair#<base64url JSON>`, with `v` 1, `rdv` (16 random bytes), `secret`
+  (32 random bytes), `svc` (control URL), `name` and `exp` (at most 10 minutes). Single use.
+- **Rendezvous:** both sides register `HMAC-SHA256(secret, "bridgey-invite-rdv-v1")[0..16]` and
+  seal signalling with `HKDF-SHA256(secret, "", "bridgey-invite-signal-v1")`.
+- **Pairing** then runs inside the tunnel, with `inviteHash = SHA-256(secret)` added to the
+  transcript and the six-digit code confirmed on both devices.
+
+### Resumable transfer (`transfer.v1`)
+
+**Model:**
+
+- 1 MiB chunks; `H_i = SHA-256(chunk_i)`.
+- `root = SHA-256("bridgey-transfer-v1\0" ‖ u64be(size) ‖ u32be(chunkSize) ‖ H_0 ‖ ... ‖ H_{n-1})`.
+- Files up to 1 TiB; at most 100,000 entries per transfer.
+
+**Control messages** (encrypted session messages):
+
+| Message | Fields |
+| --- | --- |
+| `xfer.offer` | `transferId`, `kind`, `rootName`, `itemCount`, `totalBytes`, `chunkSize`, `pages` |
+| `xfer.manifest` | `page`; `items` (at most 1,000): `i`, `path`, `size`, `mtime`, `mime`, `dir` |
+| `xfer.accept` | `streams` (1 to 8), `destination`, `conflict` (folders spec) |
+| `xfer.reject` | `reason` |
+| `xfer.have` | `files`: `[{i, ranges}]`, durable chunks only |
+| `xfer.file.done` | `i`, `root` |
+| `xfer.file.ok`, `xfer.file.bad` | `i`; `chunks` for `bad` |
+| `xfer.resume`, `xfer.unknown` | `transferId` |
+| `xfer.changed` | `i`, `size`, `mtime` |
+| `xfer.pause`, `xfer.cancel`, `xfer.done`, `xfer.done.ack` | `transferId` |
+
+Paths are relative, `/`-separated and NFC-normalised. No empty, `.` or `..` components, no
+control characters or backslashes. At most 255 bytes per component, 4,096 per path and 32 levels.
+
+**Data streams.** Each QUIC unidirectional stream starts with `"BXT1" | transferId (16) |
+streamNo (u16) | flags (u16)`. Records follow: `type (u8, 1) | fileIndex (u32) | chunkIndex (u32)
+| length (u32) | sha256 (32) | payload`, all big-endian. A hash mismatch stops the stream with
+application error `0x10` and the chunk is re-requested in `xfer.file.bad`.
+
+### Agent messages (`agent.v1`)
+
+Encrypted session messages; the phone enforces per-device grants and rate limits.
+
+| Message | Fields |
+| --- | --- |
+| `notify.post` | `version`, `notifyId`, `title` (at most 120), `body` (at most 1,000), `priority` (`normal`, `high`), `tag` (at most 64), `from` (at most 64). Replies: `notify.posted`, `notify.rejected`. |
+| `ask.request` | `version`, `askId` (UUIDv7, idempotent), `title`, `body`, `options` (1 to 3 of `{id, label}`; id `[a-z0-9_-]{1,32}`, label at most 20; at most 2 when `allowText`), `allowText`, `textHint` (at most 40), `requireUnlock`, `expiresAt` (at most 24 h), `from`. Replies: `ask.posted`, `ask.rejected`. |
+| `ask.answer` | `askId`, `option` or `text` (at most 1,000), `answeredAt` |
+| `ask.dismissed`, `ask.expired`, `ask.cancelled` | `askId` |
+| `ask.cancel` | `askId` |
+| `ask.status` | `askIds` (at most 20). The reply is the latest state of each; answers are kept 24 h. |
+| `clipboard.request` | `version`, `requestId`, `reason` (at most 120) |
+| `clipboard.response` | `requestId`, `status` (`sent`, `declined`, `expired`), `text` and `html` (at most 32 KiB together) |
+
+- **Rejection codes:** `not_granted`, `rate_limited` (with `retryAfterMs`), `disabled`, `invalid`,
+  `busy`.
+- **New optional `features.update` keys:** `notify`, `ask`, `clipboard_request`. Ring uses
+  `find.start` and `find.stop`; battery uses `battery.update`; both exist today.
+
 ## Compatibility
 
 Adding optional fields or message types is backward compatible. Changing field
