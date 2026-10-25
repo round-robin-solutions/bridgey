@@ -50,10 +50,12 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         activeService = java.lang.ref.WeakReference(this)
-        activeNotifications.orEmpty()
-            .filterNot { it.packageName == packageName }
-            .forEach { forwardedNotifications.record(notificationToken(it.key), it.key, it.packageName) }
+        val active = activeNotifications.orEmpty().filterNot { it.packageName == packageName }
+        active.forEach { forwardedNotifications.record(notificationToken(it.key), it.key, it.packageName) }
+        // Removals are not delivered while unbound, so retract anything that disappeared meanwhile.
+        retractStaleForwardedNotifications(active.mapTo(mutableSetOf()) { notificationToken(it.key) })
         updateTelephonyCallback()
+        refreshActiveCallNotifications()
         android.util.Log.i("Bridgey", "PLUGIN notification listener connected")
     }
 
@@ -61,6 +63,10 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         unregisterTelephonyCallback()
         if (activeService?.get() === this) activeService = null
         super.onListenerDisconnected()
+        // The system can unbind a listener (process trim, OEM battery policy) without rebinding it.
+        // A revoked listener stays unbound: the platform only rebinds approved components.
+        runCatching { requestRebind(ComponentName(this, javaClass)) }
+            .onFailure { android.util.Log.w("Bridgey", "PLUGIN notification listener rebind request failed", it) }
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification, rankingMap: RankingMap) {
@@ -340,6 +346,22 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
             .forEach { retractForwardedNotification(it.key) }
     }
 
+    private fun retractStaleForwardedNotifications(activeNotificationIds: Set<String>) {
+        val bridgey = application as BridgeyApplication
+        val tracked = forwardedNotificationIds + pendingCallPosts.keys
+        staleForwardedNotificationIds(tracked, activeNotificationIds).forEach { notificationId ->
+            forwardedNotifications.systemKey(notificationId)?.let(forwardedNotifications::removeSystemKey)
+            pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
+            removeActions(notificationId)
+            if (
+                forwardedNotificationIds.remove(notificationId) &&
+                bridgey.isPrimaryUser && bridgey.isBridgeyEnabled
+            ) {
+                bridgey.pairing.sendNotificationRemoved(notificationId)
+            }
+        }
+    }
+
     private fun retractForwardedNotification(systemKey: String) {
         val notificationId = forwardedNotifications.removeSystemKey(systemKey) ?: return
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
@@ -591,6 +613,11 @@ internal class ForwardedNotificationRegistry(private val limit: Int = 512) {
         return notificationIds
     }
 }
+
+internal fun staleForwardedNotificationIds(
+    trackedNotificationIds: Collection<String>,
+    activeNotificationIds: Set<String>,
+): List<String> = trackedNotificationIds.filterNot(activeNotificationIds::contains)
 
 internal fun notificationToken(systemKey: String): String = MessageDigest.getInstance("SHA-256")
     .digest(systemKey.toByteArray(Charsets.UTF_8))

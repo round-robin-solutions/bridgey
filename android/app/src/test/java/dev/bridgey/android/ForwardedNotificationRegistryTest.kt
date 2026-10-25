@@ -38,6 +38,14 @@ class ForwardedNotificationRegistryTest {
         assertTrue(registry.systemKey("two") == "system-two")
     }
 
+    @Test fun reconnectedListenerRetractsOnlyNotificationsThatAreNoLongerActive() {
+        val tracked = linkedSetOf("one", "two", "three")
+
+        assertTrue(staleForwardedNotificationIds(tracked, setOf("two")) == listOf("one", "three"))
+        assertTrue(staleForwardedNotificationIds(tracked, tracked).isEmpty())
+        assertTrue(staleForwardedNotificationIds(emptySet(), setOf("one")).isEmpty())
+    }
+
     @Test fun createsStableOpaqueNotificationToken() {
         val token = notificationToken("0|package|42|tag|uid")
 
