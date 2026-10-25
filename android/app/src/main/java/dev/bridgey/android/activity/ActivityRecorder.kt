@@ -121,6 +121,24 @@ internal fun recordPeerEvent(log: ActivityLog, event: PeerEvent, previews: Boole
         PeerActivity.CLIPBOARD_RECEIVE_FAILED -> ActivityKind.CLIPBOARD_RECEIVE_FAILED
         PeerActivity.PING_RECEIVED -> ActivityKind.PING_RECEIVED
         PeerActivity.CALL_STARTED -> ActivityKind.CALL_STARTED
+        PeerActivity.CLIP_OFFER_SENT -> ActivityKind.CLIP_OFFER_SENT
+        PeerActivity.CLIP_OFFER_RECEIVED -> ActivityKind.CLIP_OFFER_RECEIVED
+        PeerActivity.CLIP_PASTED -> ActivityKind.CLIP_PASTED
+        PeerActivity.CLIP_PASTE_FAILED -> ActivityKind.CLIP_PASTE_FAILED
+    }
+    if (kind.isClipOffer) {
+        // Names only with previews on, and never for a clip marked sensitive.
+        log.record(
+            kind,
+            event.deviceId,
+            event.deviceName,
+            fileName = event.clipName?.takeIf { previews && !event.sensitive && event.clipCount == 1 },
+            automatic = event.automatic,
+            bytes = event.clipBytes,
+            content = event.clipContent,
+            itemCount = event.clipCount,
+        )
+        return
     }
     log.record(
         kind,

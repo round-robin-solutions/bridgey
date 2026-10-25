@@ -74,6 +74,10 @@ data class SettingsState(
     val backgroundClipboardEnabled: Boolean,
     val backgroundClipboardStatus: dev.bridgey.android.BackgroundClipboardStatus,
     val backgroundClipboardCommand: String,
+    /** Clipboard > Copy images and files. */
+    val clipboardFilesEnabled: Boolean = true,
+    /** Clipboard > Send right away up to, in bytes; 0 is "Always ask when pasting". */
+    val clipboardEagerLimit: Long = dev.bridgey.android.ClipLimits.DEFAULT_EAGER_LIMIT,
     val tileAddSupported: Boolean,
     val tileAdded: Boolean,
     val notificationAppsEnabled: Int,
@@ -101,6 +105,8 @@ class SettingsActions(
     val setDirectCalls: (Boolean) -> Unit = {},
     val setAutoClipboard: (Boolean) -> Unit = {},
     val setBackgroundClipboard: (Boolean) -> Unit = {},
+    val setClipboardFiles: (Boolean) -> Unit = {},
+    val setClipboardEagerLimit: (Long) -> Unit = {},
     val copyCommand: () -> Unit = {},
     val addTile: () -> Unit = {},
     val setReduceMotion: (Boolean) -> Unit = {},
@@ -207,6 +213,14 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
                         state.autoClipboardEnabled, actions.setAutoClipboard,
                     )
                 }
+                row { shape ->
+                    SwitchRow(
+                        shape, stringResource(R.string.clipboard_files_title), stringResource(R.string.clipboard_files_detail),
+                        BridgeyIcons.Image, if (state.clipboardFilesEnabled) Tint.BLUE else Tint.NEUTRAL,
+                        state.clipboardFilesEnabled, actions.setClipboardFiles,
+                    )
+                }
+                row { shape -> EagerLimitRow(shape, state, actions) }
                 row { shape ->
                     SwitchRow(
                         shape, stringResource(R.string.bg_clipboard_title), stringResource(R.string.bg_clipboard_detail),
@@ -406,6 +420,59 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
             text = { Text(stringResource(R.string.licences_body)) },
             confirmButton = { TextButton(onClick = { licences = false }) { Text(stringResource(R.string.action_close)) } },
         )
+    }
+}
+
+@Composable
+private fun eagerLimitLabel(bytes: Long): String = stringResource(
+    when (bytes) {
+        5_000_000L -> R.string.clipboard_eager_5
+        100_000_000L -> R.string.clipboard_eager_100
+        0L -> R.string.clipboard_eager_ask
+        else -> R.string.clipboard_eager_25
+    },
+)
+
+/** Send right away up to: the current choice as the detail, the four choices in a menu. */
+@Composable
+private fun EagerLimitRow(shape: androidx.compose.ui.graphics.Shape, state: SettingsState, actions: SettingsActions) {
+    val colors = BridgeyTheme.colors
+    var open by remember { mutableStateOf(false) }
+    val enabled = state.clipboardFilesEnabled
+    Box {
+        ListRow(
+            shape, stringResource(R.string.clipboard_eager_title), eagerLimitLabel(state.clipboardEagerLimit),
+            BridgeyIcons.Bolt, if (enabled) Tint.BLUE else Tint.NEUTRAL,
+            onClick = if (enabled) ({ open = true }) else null,
+            role = Role.DropdownList,
+        ) {
+            Icon(BridgeyIcons.ArrowDropDown, null, tint = if (enabled) colors.onSurfaceVariant else colors.outline, modifier = Modifier.size(24.dp))
+        }
+        androidx.compose.material3.DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            containerColor = colors.surface2,
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.widthIn(max = 320.dp),
+        ) {
+            Text(
+                stringResource(R.string.clipboard_eager_detail),
+                style = BridgeyType.small,
+                color = colors.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            dev.bridgey.android.ClipLimits.EAGER_LIMIT_CHOICES.forEach { choice ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(eagerLimitLabel(choice), style = BridgeyType.label, color = colors.onSurface) },
+                    trailingIcon = if (choice == state.clipboardEagerLimit) ({ Icon(BridgeyIcons.Check, null, tint = colors.primary) }) else null,
+                    onClick = {
+                        open = false
+                        actions.setClipboardEagerLimit(choice)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                )
+            }
+        }
     }
 }
 

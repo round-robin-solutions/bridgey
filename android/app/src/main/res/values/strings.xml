@@ -4,7 +4,7 @@
     <!-- Launcher icons fit about 12 characters on one line; the full name truncates. -->
     <string name="launcher_name">Bridgey RR</string>
     <string name="notification_forwarding_label">Bridgey notification forwarding</string>
-    <string name="notification_send_copied_text">Send copied text</string>
+    <string name="notification_send_copied_text">Send copied item</string>
     <string name="notification_turn_off">Turn off</string>
     <string name="welcome_title">Welcome to Bridgey</string>
     <string name="welcome_body">Keep your Mac and phone on the same local network. Choose the Mac, compare the pairing code, then confirm it on both devices. Optional permissions are requested only when you enable the related feature.</string>
@@ -203,7 +203,7 @@
     <string name="settings_app_notifications_off">Recommended for controls in the background</string>
     <string name="auto_clipboard_title">Automatic clipboard</string>
     <string name="auto_clipboard_detail">Copy on one device, paste on the other.</string>
-    <string name="auto_clipboard_explain">From the Mac: always. From this phone: when Bridgey is open, or tap Send copied text in the notification.</string>
+    <string name="auto_clipboard_explain">From the Mac: always. From this phone: when Bridgey is open, or tap Send copied item in the notification.</string>
     <string name="bg_clipboard_title">Background clipboard (advanced)</string>
     <string name="bg_clipboard_detail">Send what you copy on this phone even when Bridgey is closed. Needs a one-time setup from a computer.</string>
     <string name="bg_clipboard_step1">On OnePlus, Oppo, Realme and Xiaomi phones: Developer options, turn on Disable permission monitoring, then restart the phone.</string>
@@ -215,9 +215,9 @@
     <string name="bg_clipboard_status_denied">Log access denied</string>
     <string name="bg_clipboard_copied">Command copied</string>
     <string name="action_copy">Copy</string>
-    <string name="tile_label">Send copied text</string>
+    <string name="tile_label">Send copied item</string>
     <string name="settings_tile">Quick Settings tile</string>
-    <string name="settings_tile_detail">Add Send copied text from the Quick Settings edit screen to send in one tap</string>
+    <string name="settings_tile_detail">Add Send copied item from the Quick Settings edit screen to send in one tap</string>
     <string name="settings_tile_one_tap">Send what you copied in one tap</string>
     <string name="settings_tile_added">On your Quick Settings</string>
     <string name="settings_tile_add">Add</string>
@@ -276,4 +276,57 @@
     <string name="pair_paired_suffix">Paired, tap to reconnect</string>
     <string name="pair_new_suffix">New device, tap to pair</string>
     <string name="action_close">Close</string>
+    <!-- Clipboard offers: images, files and long text (draft protocol clipboard_files_draft1) -->
+    <string name="clipboard_files_title">Copy images and files</string>
+    <string name="clipboard_files_detail">Images, videos, files and long text. Big items move when you paste.</string>
+    <string name="clipboard_eager_title">Send right away up to</string>
+    <string name="clipboard_eager_detail">Smaller copies move as soon as you copy, so pasting is instant.</string>
+    <string name="clipboard_eager_5">5 MB</string>
+    <string name="clipboard_eager_25">25 MB</string>
+    <string name="clipboard_eager_100">100 MB</string>
+    <string name="clipboard_eager_ask">Always ask when pasting</string>
+    <string name="stream_clip_sent_image">Copied image (%1$s)</string>
+    <string name="stream_clip_sent_file">Copied %1$s (%2$s)</string>
+    <string name="stream_clip_sent_file_unnamed">Copied a file (%1$s)</string>
+    <string name="stream_clip_sent_text">Copied text (%1$s)</string>
+    <plurals name="stream_clip_sent_images">
+        <item quantity="one">Copied %1$d image</item>
+        <item quantity="other">Copied %1$d images</item>
+    </plurals>
+    <plurals name="stream_clip_sent_files">
+        <item quantity="one">Copied %1$d file</item>
+        <item quantity="other">Copied %1$d files</item>
+    </plurals>
+    <string name="stream_clip_sent_detail">Ready to paste on %1$s</string>
+    <string name="stream_clip_sent_auto">Automatic, ready to paste on %1$s</string>
+    <string name="stream_clip_received_image">Copied image from %1$s (%2$s)</string>
+    <string name="stream_clip_received_file">Copied %1$s from %2$s (%3$s)</string>
+    <string name="stream_clip_received_file_unnamed">Copied a file from %1$s (%2$s)</string>
+    <string name="stream_clip_received_text">Copied text from %1$s (%2$s)</string>
+    <plurals name="stream_clip_received_images">
+        <item quantity="one">Copied %1$d image from %2$s</item>
+        <item quantity="other">Copied %1$d images from %2$s</item>
+    </plurals>
+    <plurals name="stream_clip_received_files">
+        <item quantity="one">Copied %1$d file from %2$s</item>
+        <item quantity="other">Copied %1$d files from %2$s</item>
+    </plurals>
+    <string name="stream_clip_pasted_image">Pasted image from %1$s (%2$s)</string>
+    <string name="stream_clip_pasted_file">Pasted %1$s from %2$s (%3$s)</string>
+    <string name="stream_clip_pasted_file_unnamed">Pasted a file from %1$s (%2$s)</string>
+    <string name="stream_clip_pasted_text">Pasted text from %1$s (%2$s)</string>
+    <plurals name="stream_clip_pasted_images">
+        <item quantity="one">Pasted %1$d image from %2$s</item>
+        <item quantity="other">Pasted %1$d images from %2$s</item>
+    </plurals>
+    <plurals name="stream_clip_pasted_files">
+        <item quantity="one">Pasted %1$d file from %2$s</item>
+        <item quantity="other">Pasted %1$d files from %2$s</item>
+    </plurals>
+    <string name="stream_clip_pasted_detail">Moved when you pasted</string>
+    <string name="stream_clip_failed_title">Couldn\'t paste from %1$s</string>
+    <string name="stream_clip_failed_detail">Copy it again and paste</string>
+    <string name="paste_progress_title">Pasting from %1$s</string>
+    <string name="paste_progress_detail">%1$s, %2$d%%</string>
+    <string name="paste_progress_detail_unnamed">%1$d%%</string>
 </resources>

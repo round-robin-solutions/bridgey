@@ -41,6 +41,12 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+        <!-- Clips from the Mac: not exported; the clipboard grants a pasting app read access. -->
+        <provider
+            android:name=".ClipboardContentProvider"
+            android:authorities="${applicationId}.clipboard"
+            android:exported="false"
+            android:grantUriPermissions="true" />
         <activity
             android:name=".MainActivity"
             android:documentLaunchMode="never"

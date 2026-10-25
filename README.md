@@ -21,7 +21,7 @@ OnePlus O+ Connect and Microsoft Phone Link are system or phone-maker partner ap
 `READ_CLIPBOARD_IN_BACKGROUND`, which only apps signed by the phone maker can get. ADB cannot
 grant it, and an app installed from a download cannot hold it. So Bridgey does the most that is
 allowed: Mac to phone is always automatic; phone to Mac is automatic while Bridgey is open,
-otherwise one tap on "Send copied text" in the notification or on the Quick Settings tile. The
+otherwise one tap on "Send copied item" in the notification or on the Quick Settings tile. The
 optional "Background clipboard (advanced)" uses the same one-time ADB setup as
 [KDE Connect](https://userbase.kde.org/KDEConnect) (it grants READ_LOGS, reading system logs) and
 is off by default.

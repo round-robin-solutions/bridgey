@@ -35,10 +35,23 @@ enum class ActivityKind(val key: String, val category: ActivityCategory, val mer
     FIND_MAC("find_mac", ActivityCategory.OTHER),
     FIND_PHONE("find_phone", ActivityCategory.OTHER),
     PAIRED("paired", ActivityCategory.OTHER),
+
+    /** A copy on this phone, offered to the other device (images, files, long text). */
+    CLIP_OFFER_SENT("clip_offer_sent", ActivityCategory.CLIPBOARD),
+
+    /** A copy on the other device, ready to paste here. */
+    CLIP_OFFER_RECEIVED("clip_offer_received", ActivityCategory.CLIPBOARD),
+
+    /** An item moved when it was pasted here. A burst from one paste folds into one item. */
+    CLIP_PASTED("clip_pasted", ActivityCategory.CLIPBOARD, mergeWindowMillis = 60_000L),
+    CLIP_PASTE_FAILED("clip_paste_failed", ActivityCategory.CLIPBOARD, mergeWindowMillis = 60_000L),
     ;
 
-    /** Only file events carry a name: the name of the file the user sent or received. */
-    val carriesFileName: Boolean get() = category == ActivityCategory.FILES
+    /** Clipboard offers: what moved (text, image or file), how many and how big. */
+    val isClipOffer: Boolean get() = this == CLIP_OFFER_SENT || this == CLIP_OFFER_RECEIVED || this == CLIP_PASTED || this == CLIP_PASTE_FAILED
+
+    /** File events carry the file's name; clipboard offers the name of a single file, when previews are on. */
+    val carriesFileName: Boolean get() = category == ActivityCategory.FILES || isClipOffer
 
     /** Clipboard events carry a text preview; incoming calls the caller. */
     val carriesPreview: Boolean get() = this == CLIPBOARD_SENT || this == CLIPBOARD_RECEIVED || this == CALL_SHOWN
@@ -70,7 +83,14 @@ data class ActivityItem(
     val automatic: Boolean,
     val count: Int,
     val atMillis: Long,
+    /** Clipboard offers: total size in bytes. */
+    val bytes: Long? = null,
+    /** Clipboard offers: "text", "image" or "file". */
+    val content: String? = null,
 )
+
+/** The content kinds a clipboard offer item can record. */
+internal val ClipContents = setOf("text", "image", "file")
 
 /** One line, whitespace collapsed, at most [ActivityHistory.MAX_PREVIEW_LENGTH] characters ending with an ellipsis when cut. */
 fun clipboardPreview(text: String?): String? {
@@ -112,11 +132,32 @@ object ActivityHistory {
         appName: String? = null,
         sensitive: Boolean = false,
         automatic: Boolean = false,
+        bytes: Long? = null,
+        content: String? = null,
+        itemCount: Int = 1,
     ): List<ActivityItem> {
         val isSensitive = sensitive && kind.carriesPreview
         val cleanPreview = if (kind.carriesPreview && !isSensitive) clipboardPreview(preview) else null
         val cleanApp = if (kind.carriesAppName) appName?.trim()?.take(MAX_NAME_LENGTH)?.ifBlank { null } else null
-        if (kind.mergeWindowMillis > 0) {
+        val cleanBytes = if (kind.isClipOffer) bytes?.coerceAtLeast(0) else null
+        val cleanContent = if (kind.isClipOffer) content?.takeIf { it in ClipContents } else null
+        val cleanCount = if (kind.isClipOffer) itemCount.coerceIn(1, 9_999) else 1
+        if (kind.isClipOffer && kind.mergeWindowMillis > 0) {
+            val newest = items.firstOrNull()
+            if (newest != null && newest.kind == kind && newest.deviceId == deviceId &&
+                now >= newest.atMillis && now - newest.atMillis <= kind.mergeWindowMillis
+            ) {
+                val merged = newest.copy(
+                    count = (newest.count + cleanCount).coerceAtMost(9_999),
+                    bytes = if (newest.bytes == null || cleanBytes == null) null else newest.bytes + cleanBytes,
+                    content = if (newest.content == cleanContent) cleanContent else "file",
+                    fileName = null,
+                    atMillis = now,
+                    deviceName = cleanName(deviceName),
+                )
+                return prune(listOf(merged) + items.drop(1), now)
+            }
+        } else if (kind.mergeWindowMillis > 0) {
             val match = items.firstOrNull {
                 it.kind == kind && it.deviceId == deviceId && it.appName == cleanApp && it.preview == cleanPreview &&
                     now >= it.atMillis && now - it.atMillis <= kind.mergeWindowMillis
@@ -136,8 +177,10 @@ object ActivityHistory {
             appName = cleanApp,
             sensitive = isSensitive,
             automatic = automatic && kind.category == ActivityCategory.CLIPBOARD,
-            count = 1,
+            count = cleanCount,
             atMillis = now,
+            bytes = cleanBytes,
+            content = cleanContent,
         )
         return prune(listOf(item) + items, now)
     }
@@ -158,7 +201,9 @@ object ActivityHistory {
                     .put("sensitive", item.sensitive)
                     .put("automatic", item.automatic)
                     .put("count", item.count)
-                    .put("at", item.atMillis),
+                    .put("at", item.atMillis)
+                    .put("bytes", item.bytes ?: JSONObject.NULL)
+                    .put("content", item.content ?: JSONObject.NULL),
             )
         }
     }.toString()
@@ -184,6 +229,8 @@ object ActivityHistory {
                 automatic = kind.category == ActivityCategory.CLIPBOARD && value.optBoolean("automatic", false),
                 count = value.optInt("count", 1).coerceIn(1, 9_999),
                 atMillis = value.optLong("at", 0L),
+                bytes = if (kind.isClipOffer && !value.isNull("bytes") && value.has("bytes")) value.optLong("bytes", -1L).takeIf { it >= 0 } else null,
+                content = if (kind.isClipOffer && !value.isNull("content")) value.optString("content").takeIf { it in ClipContents } else null,
             )
         }
         return prune(items, now)
@@ -214,8 +261,14 @@ class ActivityLog(
         appName: String? = null,
         sensitive: Boolean = false,
         automatic: Boolean = false,
+        bytes: Long? = null,
+        content: String? = null,
+        itemCount: Int = 1,
     ) {
-        val updated = ActivityHistory.add(mutableItems.value, kind, deviceId, deviceName, fileName, clock(), nextId, preview, appName, sensitive, automatic)
+        val updated = ActivityHistory.add(
+            mutableItems.value, kind, deviceId, deviceName, fileName, clock(), nextId, preview, appName, sensitive, automatic,
+            bytes, content, itemCount,
+        )
         if (updated.any { it.id == nextId }) nextId += 1
         mutableItems.value = updated
         persist(updated)

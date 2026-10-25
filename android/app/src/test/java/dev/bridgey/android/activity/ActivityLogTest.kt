@@ -95,7 +95,7 @@ class ActivityLogTest {
             .map { it.name }
             .toSet()
         assertEquals(
-            setOf("id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "automatic", "count", "atMillis"),
+            setOf("id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "automatic", "count", "atMillis", "bytes", "content"),
             fields,
         )
     }
@@ -107,7 +107,7 @@ class ActivityLogTest {
         ActivityKind.entries.forEach { log.record(it, "mac", "Mac", fileName = "a.txt") }
         val array = JSONArray(file.readText())
         val keys = (0 until array.length()).flatMap { array.getJSONObject(it).keys().asSequence().toList() }.toSet()
-        assertEquals(setOf("id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "automatic", "count", "at"), keys)
+        assertEquals(setOf("id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "automatic", "count", "at", "bytes", "content"), keys)
         // File names only on file events.
         (0 until array.length()).map { array.getJSONObject(it) }.forEach { item ->
             val kind = ActivityKind.fromKey(item.getString("kind"))!!
@@ -245,5 +245,57 @@ class ActivityLogTest {
         val coordinator = File(root, "PairingCoordinator.kt").readText()
         val report = coordinator.substringAfter("fun diagnosticsReport()").substringBefore("\n    }\n")
         listOf("activity", "clipboardText", "preview").forEach { assertFalse(report.contains(it, ignoreCase = true)) }
+    }
+
+    @Test
+    fun clipOffersKeepSizeAndKindButNamesOnlyWithPreviews() {
+        val file = File(folder.root, ActivityLog.FILE_NAME)
+        val log = log(file)
+        val received = dev.bridgey.android.PeerEvent(
+            dev.bridgey.android.PeerActivity.CLIP_OFFER_RECEIVED, "mac", "Personal Mac", automatic = true,
+            clipContent = "file", clipCount = 1, clipBytes = 340_000_000, clipName = "holiday-video.mp4",
+        )
+        recordPeerEvent(log, received, previews = false)
+        val hidden = log.items.value.single()
+        assertNull(hidden.fileName)
+        assertEquals(340_000_000L, hidden.bytes)
+        assertEquals("file", hidden.content)
+        assertFalse(file.readText().contains("holiday"))
+
+        now += 120_000
+        recordPeerEvent(log, received, previews = true)
+        assertEquals("holiday-video.mp4", log.items.value.first().fileName)
+        // Several files never keep one name.
+        now += 120_000
+        recordPeerEvent(log, received.copy(clipCount = 3, clipName = "a.pdf"), previews = true)
+        assertNull(log.items.value.first().fileName)
+        assertEquals(3, log.items.value.first().count)
+    }
+
+    @Test
+    fun pastesFromOneDeviceFoldIntoOneItem() {
+        val log = log()
+        listOf(1_000L to "image", 2_000L to "image", 3_000L to "file").forEach { (bytes, content) ->
+            now += 5_000
+            log.record(ActivityKind.CLIP_PASTED, "mac", "Mac", fileName = "x.bin", bytes = bytes, content = content)
+        }
+        val item = log.items.value.single()
+        assertEquals(3, item.count)
+        assertEquals(6_000L, item.bytes)
+        assertEquals("file", item.content)
+        assertNull(item.fileName)
+        now += 61_000
+        log.record(ActivityKind.CLIP_PASTED, "mac", "Mac", bytes = 1, content = "image")
+        assertEquals(2, log.items.value.size)
+    }
+
+    @Test
+    fun clipFieldsStayOffOtherEvents() {
+        val log = log()
+        log.record(ActivityKind.FILE_RECEIVED, "mac", "Mac", fileName = "a.pdf", bytes = 10, content = "file", itemCount = 4)
+        val item = log.items.value.single()
+        assertNull(item.bytes)
+        assertNull(item.content)
+        assertEquals(1, item.count)
     }
 }

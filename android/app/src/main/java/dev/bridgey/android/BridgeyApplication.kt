@@ -163,10 +163,7 @@ class BridgeyApplication : Application() {
         if (!isBridgeyEnabled) return
         if (pairing.state.value !is PairingState.Connected) return
         if (!settings.state.value.autoClipboardGlobal) return
-        val clipboard = getSystemService(ClipboardManager::class.java)
-        val item = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0) ?: return
-        val text = item.coerceToText(this).toString()
-        pairing.autoSendClipboard(text, clipboard.primaryClipDescription.isMarkedSensitive())
+        pairing.autoSendClip(pairing.readClipForAutomaticSend())
     }
 
     fun enableBridgey() {

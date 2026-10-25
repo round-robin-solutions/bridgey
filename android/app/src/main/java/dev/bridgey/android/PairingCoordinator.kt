@@ -95,7 +95,10 @@ data class FileTransferState(
 data class TrustedDevice(val id: String, val name: String)
 
 /** Events reported to the activity stream. Only clipboard events carry text, for the stream's preview. */
-enum class PeerActivity { CLIPBOARD_SENT, CLIPBOARD_RECEIVED, CLIPBOARD_RECEIVE_FAILED, PING_RECEIVED, CALL_STARTED }
+enum class PeerActivity {
+    CLIPBOARD_SENT, CLIPBOARD_RECEIVED, CLIPBOARD_RECEIVE_FAILED, PING_RECEIVED, CALL_STARTED,
+    CLIP_OFFER_SENT, CLIP_OFFER_RECEIVED, CLIP_PASTED, CLIP_PASTE_FAILED,
+}
 
 data class PeerEvent(
     val activity: PeerActivity,
@@ -107,6 +110,11 @@ data class PeerEvent(
     val sensitive: Boolean = false,
     /** Automatic clipboard moved this, rather than a manual Send. */
     val automatic: Boolean = false,
+    /** Clipboard offers: "text", "image" or "file", how many items, total bytes, a single file's name. */
+    val clipContent: String? = null,
+    val clipCount: Int = 1,
+    val clipBytes: Long? = null,
+    val clipName: String? = null,
 )
 
 data class RemoteBatteryStatus(val level: Int, val isCharging: Boolean)
@@ -163,14 +171,31 @@ class PairingCoordinator(
     private val diagnostics = BridgeyDiagnostics()
     private val remoteCallRequest = RemoteCallRequest(appContext)
     private var lastRemoteCallRequestAt = 0L
+    private val clipboardCache = ClipboardCache(java.io.File(appContext.noBackupFilesDir, CLIPBOARD_CACHE_DIRECTORY))
+
+    /** Clips from the Mac: offers, the cache and the content provider's backend. */
+    internal val clipboardInbox = ClipboardInbox(clipboardCache, AndroidClipWriter(appContext))
+    private val clipboardOutbox = ClipboardOutbox(scope, ContentClipSourceOpener(appContext.contentResolver))
+    private val mutableRemoteClipboardFiles = MutableStateFlow(false)
+
+    /** The connected peer takes clipboard offers (it advertised clipboard_files_draft1). */
+    val remoteClipboardFiles: StateFlow<Boolean> = mutableRemoteClipboardFiles.asStateFlow()
 
     /** Activity stream hook. Never logged or added to diagnostics. */
     @Volatile
     var activityListener: ((PeerEvent) -> Unit)? = null
 
     init {
+        clipboardInbox.listener = ::onClipboardInboxEvent
+        scope.launch {
+            runCatching {
+                clipboardCache.removePartials()
+                clipboardCache.evict()
+            }
+        }
         scope.launch {
             settings.state.collect {
+                if (!clipboardOffersEnabledLocally()) clipboardOutbox.supersede(currentClipLink())
                 if (!featureEnabled(BridgeyFeature.CLIPBOARD)) mutableClipboardStatus.value = null
                 if (!featureEnabled(BridgeyFeature.BATTERY)) mutableRemoteBattery.value = null
                 if (!featureEnabled(BridgeyFeature.PING)) clearPingStatus()
@@ -220,6 +245,7 @@ class PairingCoordinator(
         mutableRemoteBattery.value = null
         clearPingStatus()
         quickActions.reset()
+        clipboardSessionEnded()
         mutableRemoteFeatures.value = defaultFeatureState()
         mutableState.value = PairingState.Idle
     }
@@ -233,6 +259,7 @@ class PairingCoordinator(
         mutableRemoteBattery.value = null
         clearPingStatus()
         quickActions.reset()
+        clipboardSessionEnded()
         mutableRemoteFeatures.value = defaultFeatureState()
         mutableState.value = PairingState.Idle
     }
@@ -241,6 +268,7 @@ class PairingCoordinator(
         trust.remove(deviceId)
         settings.removeDevice(deviceId)
         autoClipboardTracker.clear(deviceId)
+        clearClipboardCache()
         if ((mutableState.value as? PairingState.Connected)?.deviceId == deviceId) dismiss()
         android.util.Log.i("Bridgey", "PAIRING revoked peerId=${deviceId.take(8)}")
     }
@@ -255,19 +283,54 @@ class PairingCoordinator(
     fun isFeatureAvailable(feature: BridgeyFeature): Boolean =
         effectiveFeatureAvailable(featureEnabled(feature), mutableRemoteFeatures.value[feature] != false)
 
+    /** Send clipboard (Home, a device page): the whole clip, images and files included when the Mac takes them. */
     fun sendClipboard() {
-        val clipboard = appContext.getSystemService(ClipboardManager::class.java)
-        val item = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)
-        val text = item?.coerceToText(appContext)?.toString()
-        if (text.isNullOrEmpty()) {
-            mutableClipboardStatus.value = "Clipboard unavailable. Copy text, return to Bridgey, and try again."
+        val clip = readLocalClip(appContext, clipboardOffersAvailable(), includeHtml = true)
+        if (clip == null || clip == LocalClip.Own) {
+            mutableClipboardStatus.value = if (clip == LocalClip.Own) {
+                "This clip came from your Mac"
+            } else {
+                "Clipboard unavailable. Copy text, return to Bridgey, and try again."
+            }
         } else {
-            sendClipboardContent(text, item.htmlText, sensitive = clipboard.primaryClipDescription.isMarkedSensitive())
+            sendClip(clip)
         }
     }
 
     fun sendText(text: String, sensitive: Boolean = false, onResult: (ClipboardSendResult) -> Unit = {}) =
-        sendClipboardContent(text, html = null, sensitive = sensitive, onResult = onResult)
+        sendClip(LocalClip.Text(text, null, sensitive), onResult)
+
+    /** A manual send of [clip]: text as before, or an offer for images, files and long text. */
+    fun sendClip(clip: LocalClip, onResult: (ClipboardSendResult) -> Unit = {}) {
+        when (clip) {
+            LocalClip.Own -> onResult(ClipboardSendResult.EMPTY)
+            is LocalClip.Text -> if (clipboardOffersAvailable() && clip.text.isNotEmpty() && !textFitsLegacy(clip.text, clip.html)) {
+                sendClipOffer(clip, automatic = false, onResult = onResult)
+            } else {
+                sendClipboardContent(clip.text, clip.html, sensitive = clip.sensitive, onResult = onResult)
+            }
+            is LocalClip.Items -> if (clipboardOffersAvailable()) {
+                sendClipOffer(clip, automatic = false, onResult = onResult)
+            } else {
+                mutableClipboardStatus.value = "Images and files need Bridgey by Round Robin on your Mac, with Copy images and files on"
+                onResult(ClipboardSendResult.DISABLED)
+            }
+        }
+    }
+
+    /** Reads the clipboard for an automatic send; call only while Bridgey may read it. */
+    fun readClipForAutomaticSend(): LocalClip? = readLocalClip(appContext, clipboardOffersAvailable(), includeHtml = false)
+
+    /** Reads the clipboard for a manual send; call only while Bridgey may read it. */
+    fun readClipForManualSend(): LocalClip? = readLocalClip(appContext, clipboardOffersAvailable(), includeHtml = true)
+
+    /** Copy images and files is on here and Clipboard is on for the connected device. */
+    private fun clipboardOffersEnabledLocally(): Boolean =
+        settings.state.value.clipboardFilesEnabled && featureEnabled(BridgeyFeature.CLIPBOARD)
+
+    /** Clipboard offers can be used with the connected device: both sides advertise them. */
+    fun clipboardOffersAvailable(): Boolean =
+        clipboardOffersEnabledLocally() && mutableRemoteClipboardFiles.value && isFeatureAvailable(BridgeyFeature.CLIPBOARD)
 
     /**
      * Automatic clipboard: offered the current clipboard after a copy (listener, resume, tile or
@@ -275,18 +338,32 @@ class PairingCoordinator(
      * when the clipboard feature and automatic clipboard are on for the connected device. Silent
      * except for the size limit, which shows one quiet status and is not retried.
      */
-    fun autoSendClipboard(text: String?, sensitive: Boolean) {
-        val current = session ?: return
-        if (mutableState.value !is PairingState.Connected) return
+    fun autoSendClipboard(text: String?, sensitive: Boolean) =
+        autoSendClip(text?.takeIf(String::isNotEmpty)?.let { LocalClip.Text(it, null, sensitive) })
+
+    fun autoSendClip(clip: LocalClip?) {
+        val current = session
+        if (current == null || mutableState.value !is PairingState.Connected) {
+            clipboardOutbox.noteLocalClip(clip?.hash())
+            return
+        }
         val deviceId = current.remoteDeviceId.takeIf(String::isNotEmpty) ?: return
         val available = settings.isAutoClipboardEnabled(deviceId) && isFeatureAvailable(BridgeyFeature.CLIPBOARD)
-        when (autoClipboardDecision(text, sensitive, available, autoClipboardTracker.lastHash(deviceId))) {
+        when (autoClipDecision(clip, available, clipboardOffersAvailable(), autoClipboardTracker.lastHash(deviceId))) {
             ClipboardAutoDecision.SEND -> {
-                autoClipboardTracker.record(deviceId, clipboardHash(text!!))
-                sendClipboardContent(text, html = null, sensitive = sensitive, automatic = true)
+                val text = clip as LocalClip.Text
+                autoClipboardTracker.record(deviceId, clipboardHash(text.text))
+                sendClipboardContent(text.text, html = null, sensitive = text.sensitive, automatic = true)
+            }
+            ClipboardAutoDecision.SEND_OFFER -> {
+                clip!!.hash()?.let { autoClipboardTracker.record(deviceId, it) }
+                sendClipOffer(clip, automatic = true)
             }
             ClipboardAutoDecision.SKIP_TOO_LARGE ->
                 mutableClipboardStatus.value = "Clipboard exceeds 32 KiB. Send large text or diagnostics as a file."
+            ClipboardAutoDecision.SKIP_SENSITIVE, ClipboardAutoDecision.SKIP_EMPTY ->
+                // Something else is on the clipboard now: the last offer no longer matches it.
+                clipboardOutbox.invalidate(currentClipLink())
             else -> Unit
         }
     }
@@ -295,6 +372,148 @@ class PairingCoordinator(
     fun autoSendClipboardOnResume(text: String?, sensitive: Boolean, timestampMillis: Long) {
         if (!clipIsFresh(timestampMillis, System.currentTimeMillis())) return
         autoSendClipboard(text, sensitive)
+    }
+
+    fun autoSendClipOnResume(clip: LocalClip?, timestampMillis: Long) {
+        if (!clipIsFresh(timestampMillis, System.currentTimeMillis())) return
+        autoSendClip(clip)
+    }
+
+    /** Clear activity and Forget device: the clipboard cache goes too. */
+    fun clearClipboardCache() {
+        scope.launch { clipboardInbox.clearAll() }
+    }
+
+    /** Offers [clip] to the connected Mac, then pushes small items straight away. */
+    private fun sendClipOffer(clip: LocalClip, automatic: Boolean, onResult: (ClipboardSendResult) -> Unit = {}) {
+        val connectedSession = session
+        if (connectedSession == null || mutableState.value !is PairingState.Connected) {
+            mutableClipboardStatus.value = "Not connected, so the clip was not sent"
+            onResult(ClipboardSendResult.NOT_CONNECTED)
+            return
+        }
+        scope.launch {
+            val current = connectedSession
+            if (session !== current || mutableState.value !is PairingState.Connected || !clipboardOffersAvailable()) {
+                onResult(ClipboardSendResult.NOT_CONNECTED)
+                return@launch
+            }
+            val (offer, sources) = buildClipOffer(clip) ?: run {
+                mutableClipboardStatus.value = "Clipboard is empty"
+                onResult(ClipboardSendResult.EMPTY)
+                return@launch
+            }
+            val link = SessionClipLink(current)
+            val messageId = UUID.randomUUID().toString()
+            val summary = offer.summary()
+            pendingClipboardSends[messageId] = { result ->
+                if (result == ClipboardSendResult.DELIVERED) {
+                    activityListener?.invoke(
+                        PeerEvent(
+                            PeerActivity.CLIP_OFFER_SENT, current.remoteDeviceId, current.peerName,
+                            sensitive = offer.sensitive, automatic = automatic,
+                            clipContent = summary.content, clipCount = summary.count, clipBytes = summary.bytes, clipName = summary.name,
+                        ),
+                    )
+                }
+                onResult(result)
+            }
+            // This phone's clipboard now holds a local copy: what came from the Mac is superseded.
+            clipboardInbox.supersede()
+            if (!link.sendWithId("clipboard.offer", messageId, offer.encode())) {
+                pendingClipboardSends.remove(messageId)?.invoke(ClipboardSendResult.CONNECTION_LOST)
+                mutableClipboardStatus.value = "Connection lost"
+                return@launch
+            }
+            clipboardOutbox.publish(
+                OutgoingClip(offer, sources, current.remoteDeviceId, clip.hash()), link, settings.state.value.clipboardEagerLimit,
+            )
+            diagnostics.record("clipboard", "offer_sent")
+            if (!automatic) mutableClipboardStatus.value = "Sending…"
+            delay(6_000)
+            pendingClipboardSends.remove(messageId)?.let { callback ->
+                mutableClipboardStatus.value = "No delivery acknowledgement"
+                callback(ClipboardSendResult.NO_ACKNOWLEDGEMENT)
+            }
+        }
+    }
+
+    private fun currentClipLink(): ClipboardLink? = session?.takeIf { it.pairingKey != null }?.let(::SessionClipLink)
+
+    private fun clipboardSessionEnded() {
+        clipboardInbox.disconnected()
+        clipboardOutbox.disconnected()
+        mutableRemoteClipboardFiles.value = false
+    }
+
+    /** Clipboard offer messages on [session]: encrypted payloads, unique message IDs. */
+    private inner class SessionClipLink(private val target: Session) : ClipboardLink {
+        override val deviceId: String get() = target.remoteDeviceId
+        override val peerName: String get() = target.peerName
+
+        override fun send(kind: String, transferId: String?, payload: ByteArray?, sequence: Long?): Boolean =
+            sendWithId(kind, UUID.randomUUID().toString(), payload, transferId, sequence)
+
+        fun sendWithId(kind: String, messageId: String, payload: ByteArray?, transferId: String? = null, sequence: Long? = null): Boolean {
+            if (session !== target) return false
+            val key = target.pairingKey ?: return false
+            val encrypted = payload?.let { Crypto.encrypt(key, it) }
+            return target.send(
+                Message(
+                    kind = kind,
+                    sessionId = target.id,
+                    messageId = messageId,
+                    nonce = encrypted?.nonce,
+                    ciphertext = encrypted?.ciphertext,
+                    transferId = transferId,
+                    sequence = sequence,
+                ),
+            )
+        }
+    }
+
+    /** Clips from the Mac reach the stream, loop prevention and diagnostics (event names only). */
+    private fun onClipboardInboxEvent(event: ClipInboxEvent) {
+        when (event) {
+            is ClipInboxEvent.Received -> {
+                val summary = event.received.offer.summary()
+                diagnostics.record("clipboard", "offer_received")
+                activityListener?.invoke(
+                    PeerEvent(
+                        PeerActivity.CLIP_OFFER_RECEIVED, event.received.deviceId, event.received.peerName,
+                        sensitive = event.received.offer.sensitive, automatic = true,
+                        clipContent = summary.content, clipCount = summary.count, clipBytes = summary.bytes, clipName = summary.name,
+                    ),
+                )
+            }
+            is ClipInboxEvent.Pasted -> {
+                diagnostics.record("clipboard", "item_pasted")
+                val content = when (event.item.kind) {
+                    ClipItemKind.IMAGE -> "image"
+                    ClipItemKind.FILE -> "file"
+                    else -> "text"
+                }
+                activityListener?.invoke(
+                    PeerEvent(
+                        PeerActivity.CLIP_PASTED, event.deviceId, event.peerName,
+                        clipContent = content, clipBytes = event.item.size, clipName = event.item.name,
+                    ),
+                )
+            }
+            is ClipInboxEvent.PasteFailed -> {
+                diagnostics.record("clipboard", "paste_failed", event.code)
+                activityListener?.invoke(PeerEvent(PeerActivity.CLIP_PASTE_FAILED, event.deviceId, event.peerName))
+            }
+            is ClipInboxEvent.TextWritten -> {
+                // Our own clip-change event and the next resume read must not bounce it back.
+                autoClipboardTracker.record(event.deviceId, clipboardHash(event.text))
+                diagnostics.record("clipboard", "long_text_received")
+            }
+            is ClipInboxEvent.WriteFailed -> {
+                diagnostics.record("clipboard", "offer_received", "write_failed")
+                activityListener?.invoke(PeerEvent(PeerActivity.CLIPBOARD_RECEIVE_FAILED, event.deviceId, event.peerName, automatic = true))
+            }
+        }
     }
 
     private fun sendClipboardContent(
@@ -339,6 +558,8 @@ class PairingCoordinator(
                 }
                 onResult(result)
             }
+            clipboardOutbox.supersede(SessionClipLink(current))
+            clipboardInbox.supersede()
             val richContent = RichClipboardContent.create(text, html)
             val plaintext = richContent?.encode() ?: text.toByteArray(Charsets.UTF_8)
             val encrypted = Crypto.encrypt(current.pairingKey!!, plaintext)
@@ -877,6 +1098,7 @@ class PairingCoordinator(
         mutableRemoteBattery.value = null
         clearPingStatus()
         quickActions.reset()
+        clipboardSessionEnded()
         mutableRemoteFeatures.value = defaultFeatureState()
         server?.close()
         server = null
@@ -908,6 +1130,7 @@ class PairingCoordinator(
         mutableRemoteBattery.value = null
         clearPingStatus()
         quickActions.reset()
+        clipboardSessionEnded()
         mutableRemoteFeatures.value = defaultFeatureState()
         if (initiatedLocally) {
             current.peerName = peerHint ?: "Mac"
@@ -960,6 +1183,7 @@ class PairingCoordinator(
             mutableRemoteBattery.value = null
             clearPingStatus()
             quickActions.reset()
+            clipboardSessionEnded()
             mutableRemoteFeatures.value = defaultFeatureState()
             mutableState.value = PairingState.Idle
             diagnostics.record("transport", "disconnected", "reconnecting")
@@ -1041,6 +1265,9 @@ class PairingCoordinator(
             "features.update" -> receiveFeatureState(current, message)
             "clipboard.update" -> receiveClipboard(current, message, rich = false)
             "clipboard.rich" -> receiveClipboard(current, message, rich = true)
+            "clipboard.offer" -> receiveClipboardOffer(current, message)
+            "clipboard.fetch" -> receiveClipboardFetch(current, message)
+            "clipboard.error" -> receiveClipboardError(current, message)
             "clipboard.ack" -> {
                 val messageId = message.messageId ?: return
                 pendingClipboardSends.remove(messageId)?.let { callback ->
@@ -1073,9 +1300,14 @@ class PairingCoordinator(
                 }
             }
             "battery.update" -> receiveBattery(current, message)
-            "files.accept" -> message.transferId?.let { pendingFileAccepts.remove(it)?.complete(true) }
-            "files.complete.ack" -> message.transferId?.let { pendingFileCompletions.remove(it)?.complete(true) }
+            "files.accept" -> message.transferId?.let {
+                if (clipboardOutbox.handles(it)) clipboardOutbox.onAccepted(it) else pendingFileAccepts.remove(it)?.complete(true)
+            }
+            "files.complete.ack" -> message.transferId?.let {
+                if (clipboardOutbox.handles(it)) clipboardOutbox.onCompleteAcknowledged(it) else pendingFileCompletions.remove(it)?.complete(true)
+            }
             "files.offer" -> {
+                if (receiveClipboardTransferOffer(current, message)) return
                 if (settings.isEnabled(BridgeyFeature.FILES, current.remoteDeviceId)) {
                     receiveFileOffer(current, message)
                 } else {
@@ -1084,15 +1316,24 @@ class PairingCoordinator(
                 }
             }
             "files.rejected" -> message.transferId?.let { transferId ->
+                if (clipboardOutbox.handles(transferId)) return clipboardOutbox.onCancelled(transferId)
                 pendingFileAccepts.remove(transferId)?.complete(false)
                 outgoingFileJobs.remove(transferId)?.cancel()
                 removeFileTransfer(transferId, "File transfer is turned off on Mac")
             }
             // Once an offer has been accepted, let that transfer finish even if the
             // setting changes. Disabling Files blocks the next offer instead.
-            "files.chunk" -> receiveFileChunk(current, message)
-            "files.complete" -> receiveFileComplete(current, message)
-            "files.cancel" -> receiveFileCancel(message.transferId)
+            "files.chunk" -> if (clipboardInbox.handles(message.transferId)) receiveClipboardChunk(current, message) else receiveFileChunk(current, message)
+            "files.complete" -> if (clipboardInbox.handles(message.transferId)) receiveClipboardComplete(current, message) else receiveFileComplete(current, message)
+            "files.cancel" -> when {
+                clipboardInbox.handles(message.transferId) || clipboardOutbox.handles(message.transferId) -> {
+                    val transferId = message.transferId!!
+                    clipboardInbox.onCancelled(transferId)
+                    clipboardOutbox.onCancelled(transferId)
+                    current.send(Message(kind = "files.cancel.ack", sessionId = current.id, transferId = transferId))
+                }
+                else -> receiveFileCancel(message.transferId)
+            }
             "files.cancel.ack" -> message.transferId?.let { removeFileTransfer(it, "Transfer cancelled") }
         }
     }
@@ -1225,12 +1466,97 @@ class PairingCoordinator(
         }
         // Remember what we wrote so our own clip-change event and the next resume read do not bounce it back.
         autoClipboardTracker.record(current.remoteDeviceId, clipboardHash(text))
+        // Text replaces any clip offer, in both directions.
+        clipboardInbox.supersede()
+        clipboardOutbox.supersede(SessionClipLink(current))
         diagnostics.record("clipboard", if (rich) "rich_received" else "text_received")
         android.util.Log.i("Bridgey", "PLUGIN clipboard received")
         activityListener?.invoke(
             PeerEvent(PeerActivity.CLIPBOARD_RECEIVED, current.remoteDeviceId, current.peerName, text, sensitive, automatic = true),
         )
         current.send(Message(kind = "clipboard.ack", sessionId = current.id, messageId = messageId))
+    }
+
+    /** Decrypts an encrypted clipboard offer message; null (ignored, session kept) when it does not check out. */
+    private fun clipboardPlaintext(current: Session, message: Message, consumeId: Boolean = true): ByteArray? {
+        if (session !== current || mutableState.value !is PairingState.Connected || message.sessionId != current.id) return null
+        val key = current.pairingKey ?: return null
+        val messageId = message.messageId ?: return null
+        val plaintext = Crypto.decrypt(key, message.nonce ?: return null, message.ciphertext ?: return null) ?: return null
+        if (consumeId && !current.acceptMessageId(messageId)) return null
+        return plaintext
+    }
+
+    private fun receiveClipboardOffer(current: Session, message: Message) {
+        if (!clipboardOffersEnabledLocally()) {
+            current.send(Message(kind = "clipboard.rejected", sessionId = current.id, messageId = message.messageId))
+            sendFeatureState()
+            return
+        }
+        val plaintext = clipboardPlaintext(current, message) ?: return
+        val offer = ClipOffer.decode(plaintext) ?: return diagnostics.record("clipboard", "offer_rejected", "invalid")
+        if (clipboardInbox.currentOfferId != offer.offerId) {
+            // The Mac's copy replaces whatever this phone offered.
+            clipboardOutbox.supersede(SessionClipLink(current))
+            clipboardInbox.link = SessionClipLink(current)
+            clipboardInbox.accept(offer, SessionClipLink(current))
+        }
+        current.send(Message(kind = "clipboard.ack", sessionId = current.id, messageId = message.messageId))
+        android.util.Log.i("Bridgey", "PLUGIN clipboard offer received")
+    }
+
+    private fun receiveClipboardFetch(current: Session, message: Message) {
+        val plaintext = clipboardPlaintext(current, message) ?: return
+        val request = parseClipReference(plaintext, message.transferId) ?: return
+        val link = SessionClipLink(current)
+        if (!clipboardOffersEnabledLocally()) {
+            link.send("clipboard.error", request.transferId, clipErrorPayload(request.offerId, request.index, request.transferId, ClipErrorCode.DISABLED))
+            return
+        }
+        clipboardOutbox.onFetch(link, request)
+    }
+
+    private fun receiveClipboardError(current: Session, message: Message) {
+        val plaintext = clipboardPlaintext(current, message) ?: return
+        val reference = parseClipReference(plaintext, message.transferId) ?: return
+        val code = runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)).optString("code") }.getOrNull()
+            ?.takeIf { it in ClipErrorCode.all } ?: ClipErrorCode.UNAVAILABLE
+        clipboardInbox.onError(reference.transferId, code)
+    }
+
+    /** A files.offer marked for the clipboard: never the Files path, prompt or Downloads. True when handled. */
+    private fun receiveClipboardTransferOffer(current: Session, message: Message): Boolean {
+        val transferId = message.transferId ?: return false
+        if (!clipboardInbox.handles(transferId) && !mutableRemoteClipboardFiles.value) return false
+        val plaintext = clipboardPlaintext(current, message, consumeId = false) ?: return false
+        val payload = runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)) }.getOrNull() ?: return false
+        if (payload.optString("purpose") != "clipboard") return false
+        if (!current.acceptMessageId(message.messageId ?: return true)) return true
+        val offer = parseClipTransferOffer(payload)
+        if (offer == null || offer.transferId != transferId || !clipboardOffersEnabledLocally()) {
+            current.send(Message(kind = "files.cancel", sessionId = current.id, transferId = transferId))
+            return true
+        }
+        clipboardInbox.onTransferOffer(SessionClipLink(current), offer)
+        return true
+    }
+
+    private fun receiveClipboardChunk(current: Session, message: Message) {
+        if (session !== current || message.sessionId != current.id) return
+        val transferId = message.transferId ?: return
+        val messageId = message.messageId ?: return
+        if (!current.acceptMessageId(messageId)) return
+        val chunk = Crypto.decrypt(current.pairingKey ?: return, message.nonce ?: return, message.ciphertext ?: return)
+        if (chunk == null || !clipboardInbox.onChunk(transferId, message.sequence ?: -1, chunk)) return
+        current.send(Message(kind = "files.chunk.ack", sessionId = current.id, transferId = transferId, sequence = message.sequence))
+    }
+
+    private fun receiveClipboardComplete(current: Session, message: Message) {
+        val transferId = message.transferId ?: return
+        val plaintext = clipboardPlaintext(current, message) ?: return
+        val payload = runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)) }.getOrNull() ?: return
+        val sha256 = parseClipCompletion(payload, transferId) ?: return clipboardInbox.onError(transferId, ClipErrorCode.INVALID)
+        clipboardInbox.onComplete(SessionClipLink(current), transferId, sha256)
     }
 
     private fun receiveFindAcknowledgement(current: Session, message: Message, started: Boolean) {
@@ -1439,6 +1765,7 @@ class PairingCoordinator(
     private fun completeIfConfirmed(current: Session) {
         if (current.localConfirmed && current.remoteConfirmed) {
             trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!)
+            clipboardInbox.link = SessionClipLink(current)
             mutableState.value = PairingState.Connected(current.remoteDeviceId, current.peerName)
             diagnostics.record("pairing", "connected")
             sendFeatureState()
@@ -1454,6 +1781,11 @@ class PairingCoordinator(
         BridgeyFeature.entries.forEach { feature ->
             featureValues.put(feature.key, settings.isEnabled(feature, current.remoteDeviceId))
         }
+        // Draft, edition only: images, files and long text through clipboard offers.
+        featureValues.put(
+            CLIPBOARD_FILES_FEATURE_KEY,
+            settings.isEnabled(BridgeyFeature.CLIPBOARD, current.remoteDeviceId) && settings.state.value.clipboardFilesEnabled,
+        )
         val payload = JSONObject()
             .put("version", 1)
             .put("features", featureValues)
@@ -1493,6 +1825,8 @@ class PairingCoordinator(
             values.getBoolean(feature.key)
         }
         mutableRemoteFeatures.value = received
+        mutableRemoteClipboardFiles.value = values.opt(CLIPBOARD_FILES_FEATURE_KEY) == true
+        if (!clipboardOffersAvailable()) clipboardOutbox.supersede(SessionClipLink(current))
         quickActions.policyChanged()
         if (received[BridgeyFeature.CLIPBOARD] == false) mutableClipboardStatus.value = null
         if (received[BridgeyFeature.BATTERY] == false) mutableRemoteBattery.value = null
@@ -1528,6 +1862,7 @@ class PairingCoordinator(
         mutableRemoteBattery.value = null
         clearPingStatus()
         quickActions.reset()
+        clipboardSessionEnded()
         mutableRemoteFeatures.value = defaultFeatureState()
         mutableFileTransfers.value = recoverInterruptedTransfers(mutableFileTransfers.value)
         refreshFileTransferSummary("File transfer interrupted")
@@ -1559,6 +1894,7 @@ class PairingCoordinator(
         const val MAX_FILE_SIZE = 10L * 1024 * 1024 * 1024
         const val MAX_NOTIFICATION_ICON_BASE64_LENGTH = 28 * 1024
         const val HEARTBEAT_INTERVAL_MILLIS = 10_000L
+        const val CLIPBOARD_CACHE_DIRECTORY = "clipboard-cache"
     }
 
     private class Session(private val socket: Socket) {

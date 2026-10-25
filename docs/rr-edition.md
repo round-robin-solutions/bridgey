@@ -90,6 +90,27 @@ wire protocol is unchanged and upstream peers receive it like a manual send.
 - The activity stream marks these sends "Automatic". Received clips look the same either way on
   the wire, so they are recorded like manual ones.
 
+### Images, files and long text (draft protocol)
+
+Settings > Clipboard > "Copy images and files" (on by default) lifts the 32 KiB limit between two
+edition devices: images, videos, several files at once, and text of any size. It works like
+Universal Clipboard: the other device learns about a copy at once, and the data moves when you
+paste, with progress for big items. "Send right away up to" (5, 25 (default) or 100 MB, or Always
+ask when pasting) pushes small copies straight away so pasting them is instant. The messages are
+the draft `clipboard_files_draft1` in `docs/protocol.md`; with an upstream peer, or with the switch
+off on either side, only text up to 32 KiB moves, as before.
+
+- Mac: pasted items are lazy pasteboard items; files paste as files from
+  `~/Library/Application Support/in.roundrobin.bridgey/ClipboardCache`. Items not yet on the Mac
+  carry `org.nspasteboard.TransientType`, so clipboard managers do not pull a 2 GB video on copy.
+- Android: pasted items are `content://in.roundrobin.bridgey.clipboard/...` URIs from a
+  non-exported provider; lazy items stream through a pipe, with a progress notification and Cancel
+  from 1 MB. Text up to 256 KiB is set as text, longer text as a `.txt` file.
+- Both: the cache keeps superseded items only if an app already opened them, nothing past 24 hours,
+  at most 2 GB, and is deleted by Clear activity and Forget device. Never logged or in diagnostics.
+- The stream shows "Copied image from Personal Mac (2.1 MB)", "Pasted video.mp4 from OnePlus 11
+  (340 MB)", "Copied 3 files"; with previews off, no file names.
+
 The optional notification history (Settings > Notifications, off by default) is a different
 thing and stays separate: it keeps forwarded notifications with their titles and text so you
 can read them later, while the stream only says that "4 WhatsApp alerts" arrived.
@@ -111,13 +132,13 @@ grant it, and an app installed from a download cannot hold it. So Bridgey does t
 allowed:
 
 - Mac to phone is always automatic (writing the clipboard is allowed in the background).
-- Phone to Mac is automatic while Bridgey is open, otherwise one tap on "Send copied text" in the
+- Phone to Mac is automatic while Bridgey is open, otherwise one tap on "Send copied item" in the
   notification or on the Quick Settings tile.
 - The optional "Background clipboard (advanced)" uses the same one-time ADB setup as
   [KDE Connect](https://userbase.kde.org/KDEConnect) (it grants READ_LOGS, reading system logs),
   and is off by default.
 
-Skip rules apply in both directions: never send sensitive, empty or over-32-KiB content, and never
+Skip rules apply in both directions: never send sensitive or empty content (or text over 32 KiB without Copy images and files), and never
 re-send identical content (a per-device hash also stops a clip written because the Mac sent it from
 bouncing back). Automatic and manual moves are both recorded in the activity stream, marked
 "Automatic", and respect the previews switch.

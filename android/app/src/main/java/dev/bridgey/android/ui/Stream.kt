@@ -2,6 +2,7 @@ package dev.bridgey.android.ui
 
 import android.text.format.DateFormat
 import android.text.format.DateUtils
+import android.text.format.Formatter
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.foundation.Image
@@ -110,6 +111,16 @@ fun ActivityKind.visual(): Pair<ImageVector, Tint> = when (this) {
     ActivityKind.PING_SENT, ActivityKind.PING_RECEIVED -> BridgeyIcons.Sensors to Tint.BLUE
     ActivityKind.FIND_MAC, ActivityKind.FIND_PHONE -> BridgeyIcons.MyLocation to Tint.BLUE
     ActivityKind.PAIRED -> BridgeyIcons.Devices to Tint.PURPLE
+    ActivityKind.CLIP_OFFER_SENT, ActivityKind.CLIP_OFFER_RECEIVED, ActivityKind.CLIP_PASTED -> BridgeyIcons.ContentPaste to Tint.BLUE
+    ActivityKind.CLIP_PASTE_FAILED -> BridgeyIcons.Error to Tint.NEUTRAL
+}
+
+/** Clipboard offers show what they carried: an image or a file, else the clipboard. */
+fun ActivityItem.visual(): Pair<ImageVector, Tint> = when {
+    kind == ActivityKind.CLIP_PASTE_FAILED || !kind.isClipOffer -> kind.visual()
+    content == "image" -> BridgeyIcons.Image to Tint.BLUE
+    content == "file" -> BridgeyIcons.Description to Tint.GREEN
+    else -> kind.visual()
 }
 
 @Composable
@@ -121,7 +132,48 @@ fun itemTitle(item: ActivityItem, device: String): String {
     if (show && item.kind == ActivityKind.CALL_SHOWN && item.preview != null) {
         return stringResource(R.string.stream_call_from_title, item.preview)
     }
+    if (item.kind.isClipOffer) return clipTitle(item, device, if (show) item.fileName else null)
     return itemTitleWithoutPreview(item, device)
+}
+
+/** "Copied image from Personal Mac (2.1 MB)", "Pasted video.mp4 from OnePlus 11 (340 MB)", "Copied 3 files". */
+@Composable
+private fun clipTitle(item: ActivityItem, device: String, name: String?): String {
+    if (item.kind == ActivityKind.CLIP_PASTE_FAILED) return stringResource(R.string.stream_clip_failed_title, device)
+    val size = Formatter.formatShortFileSize(LocalContext.current, item.bytes ?: 0L)
+    val image = item.content == "image"
+    if (item.count > 1) {
+        val res = when (item.kind) {
+            ActivityKind.CLIP_OFFER_SENT -> if (image) R.plurals.stream_clip_sent_images else R.plurals.stream_clip_sent_files
+            ActivityKind.CLIP_OFFER_RECEIVED -> if (image) R.plurals.stream_clip_received_images else R.plurals.stream_clip_received_files
+            else -> if (image) R.plurals.stream_clip_pasted_images else R.plurals.stream_clip_pasted_files
+        }
+        return if (item.kind == ActivityKind.CLIP_OFFER_SENT) {
+            pluralStringResource(res, item.count, item.count)
+        } else {
+            pluralStringResource(res, item.count, item.count, device)
+        }
+    }
+    return when (item.kind) {
+        ActivityKind.CLIP_OFFER_SENT -> when {
+            image -> stringResource(R.string.stream_clip_sent_image, size)
+            item.content == "text" -> stringResource(R.string.stream_clip_sent_text, size)
+            name != null -> stringResource(R.string.stream_clip_sent_file, name, size)
+            else -> stringResource(R.string.stream_clip_sent_file_unnamed, size)
+        }
+        ActivityKind.CLIP_OFFER_RECEIVED -> when {
+            image -> stringResource(R.string.stream_clip_received_image, device, size)
+            item.content == "text" -> stringResource(R.string.stream_clip_received_text, device, size)
+            name != null -> stringResource(R.string.stream_clip_received_file, name, device, size)
+            else -> stringResource(R.string.stream_clip_received_file_unnamed, device, size)
+        }
+        else -> when {
+            image -> stringResource(R.string.stream_clip_pasted_image, device, size)
+            item.content == "text" -> stringResource(R.string.stream_clip_pasted_text, device, size)
+            name != null -> stringResource(R.string.stream_clip_pasted_file, name, device, size)
+            else -> stringResource(R.string.stream_clip_pasted_file_unnamed, device, size)
+        }
+    }
 }
 
 /** A clipboard item's quoted preview, "Hidden" for sensitive clips, or null to use the plain detail. */
@@ -154,10 +206,18 @@ private fun itemTitleWithoutPreview(item: ActivityItem, device: String): String 
     ActivityKind.FIND_MAC -> stringResource(R.string.stream_find_mac_title, device)
     ActivityKind.FIND_PHONE -> stringResource(R.string.stream_find_phone_title, device)
     ActivityKind.PAIRED -> stringResource(R.string.stream_paired_title, device)
+    ActivityKind.CLIP_OFFER_SENT, ActivityKind.CLIP_OFFER_RECEIVED, ActivityKind.CLIP_PASTED, ActivityKind.CLIP_PASTE_FAILED ->
+        clipTitle(item, device, null)
 }
 
 @Composable
 fun itemDetail(item: ActivityItem, device: String): String = when (item.kind) {
+    ActivityKind.CLIP_OFFER_SENT ->
+        stringResource(if (item.automatic) R.string.stream_clip_sent_auto else R.string.stream_clip_sent_detail, device)
+    ActivityKind.CLIP_OFFER_RECEIVED ->
+        stringResource(if (item.automatic) R.string.stream_clipboard_received_auto else R.string.stream_clipboard_received_detail)
+    ActivityKind.CLIP_PASTED -> stringResource(R.string.stream_clip_pasted_detail)
+    ActivityKind.CLIP_PASTE_FAILED -> stringResource(R.string.stream_clip_failed_detail)
     ActivityKind.CLIPBOARD_SENT ->
         stringResource(if (item.automatic) R.string.stream_clipboard_auto else R.string.stream_clipboard_sent_detail)
     ActivityKind.CLIPBOARD_RECEIVED ->
@@ -315,7 +375,7 @@ private fun Modifier.rail(first: Boolean, last: Boolean, color: androidx.compose
 private fun StreamItemRow(row: StreamRow.Item, device: String, now: Long, first: Boolean) {
     val colors = BridgeyTheme.colors
     val item = row.item
-    val (icon, tint) = item.kind.visual()
+    val (icon, tint) = item.visual()
     val title = itemTitle(item, device)
     val quote = itemQuote(item)
     val detail = quote ?: itemDetail(item, device)
@@ -340,7 +400,7 @@ private fun StreamItemRow(row: StreamRow.Item, device: String, now: Long, first:
         ) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(title, style = BridgeyType.itemTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text(title, style = BridgeyType.itemTitle, maxLines = if (item.kind.isClipOffer) 2 else 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     Text(time, style = BridgeyType.small, color = colors.onSurfaceVariant, maxLines = 1)
                 }
                 Text(

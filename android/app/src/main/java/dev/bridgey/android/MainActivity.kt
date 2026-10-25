@@ -203,13 +203,9 @@ class MainActivity : ComponentActivity() {
         if (pairing.state.value !is PairingState.Connected) return
         if (!bridgeySettings.state.value.autoClipboardGlobal) return
         val clipboard = getSystemService(ClipboardManager::class.java)
-        val item = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0) ?: return
-        val description = clipboard.primaryClipDescription
-        pairing.autoSendClipboardOnResume(
-            item.coerceToText(this).toString(),
-            description.isMarkedSensitive(),
-            description?.timestamp ?: 0L,
-        )
+        if (clipboard.primaryClip?.takeIf { it.itemCount > 0 } == null) return
+        val timestamp = clipboard.primaryClipDescription?.timestamp ?: 0L
+        pairing.autoSendClipOnResume(pairing.readClipForAutomaticSend(), timestamp)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -612,6 +608,8 @@ private fun BridgeyApp(
                             backgroundClipboardEnabled = settingsState.backgroundClipboardEnabled,
                             backgroundClipboardStatus = backgroundStatus,
                             backgroundClipboardCommand = backgroundCommand,
+                            clipboardFilesEnabled = settingsState.clipboardFilesEnabled,
+                            clipboardEagerLimit = settingsState.clipboardEagerLimit,
                             tileAddSupported = Build.VERSION.SDK_INT >= 33,
                             tileAdded = tileAdded,
                             notificationAppsEnabled = enabledApps,
@@ -642,6 +640,8 @@ private fun BridgeyApp(
                             setDirectCalls = onSetDirectCalls,
                             setAutoClipboard = settings::setAutoClipboardGlobal,
                             setBackgroundClipboard = settings::setBackgroundClipboardEnabled,
+                            setClipboardFiles = settings::setClipboardFilesEnabled,
+                            setClipboardEagerLimit = settings::setClipboardEagerLimit,
                             copyCommand = {
                                 context.getSystemService(ClipboardManager::class.java)
                                     .setPrimaryClip(ClipData.newPlainText("Bridgey", backgroundCommand))
@@ -650,7 +650,10 @@ private fun BridgeyApp(
                             addTile = onAddTile,
                             setReduceMotion = uiPreferences::setReduceMotion,
                             setShowPreviews = uiPreferences::setShowPreviews,
-                            clearActivity = activityLog::clear,
+                            clearActivity = {
+                                activityLog.clear()
+                                pairing.clearClipboardCache()
+                            },
                             exportDiagnostics = onExportDiagnostics,
                             turnOff = onTurnOff,
                             checkNow = updater::checkNow,

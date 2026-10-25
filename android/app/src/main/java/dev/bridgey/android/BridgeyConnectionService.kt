@@ -5,7 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
@@ -87,6 +86,7 @@ class BridgeyConnectionService : Service() {
             }
         }
         serviceScope.launch { bridgey.pairing.fileTransfers.collect(::updateTransferNotifications) }
+        serviceScope.launch { bridgey.pairing.clipboardInbox.progress.collect(::updatePasteNotifications) }
         serviceScope.launch { bridgey.updater.runPeriodicChecks() }
         // Optional background clipboard: run the READ_LOGS source only while it is enabled, automatic
         // clipboard is on, and a device is connected. Stops on disconnect, when off, or when the
@@ -145,6 +145,52 @@ class BridgeyConnectionService : Service() {
             notificationManager.notify(
                 notificationId,
                 builder.build(),
+            )
+        }
+    }
+
+    private val shownPasteNotifications = mutableSetOf<Int>()
+    private val pasteNotificationUpdatedAt = mutableMapOf<String, Long>()
+
+    /** A paste waiting on a big item from the Mac shows its progress, with Cancel. */
+    private fun updatePasteNotifications(fetches: List<ClipFetchProgress>) {
+        val big = fetches.filter { it.size >= PASTE_NOTIFICATION_MIN_BYTES }
+        val ids = big.map { transferNotificationId(it.transferId) + 1 }.toSet()
+        (shownPasteNotifications - ids).forEach(notificationManager::cancel)
+        pasteNotificationUpdatedAt.keys.retainAll(big.map { it.transferId }.toSet())
+        shownPasteNotifications.clear()
+        shownPasteNotifications.addAll(ids)
+        big.forEach { fetch ->
+            val now = SystemClock.elapsedRealtime()
+            if (now - (pasteNotificationUpdatedAt[fetch.transferId] ?: 0L) < 1_000 && fetch.received < fetch.size) return@forEach
+            pasteNotificationUpdatedAt[fetch.transferId] = now
+            val notificationId = transferNotificationId(fetch.transferId) + 1
+            val cancel = PendingIntent.getService(
+                this,
+                notificationId,
+                Intent()
+                    .setComponent(ComponentName(this, BridgeyConnectionService::class.java))
+                    .setAction(ACTION_CANCEL_PASTE)
+                    .putExtra(EXTRA_TRANSFER_ID, fetch.transferId),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val percent = if (fetch.size <= 0) 100 else ((fetch.received * 100) / fetch.size).toInt().coerceIn(0, 100)
+            val showName = (application as BridgeyApplication).uiPreferences.showPreviews.value
+            notificationManager.notify(
+                notificationId,
+                android.app.Notification.Builder(this, TRANSFER_CHANNEL_ID)
+                    .setSmallIcon(dev.bridgey.android.R.drawable.ic_bridgey_notification)
+                    .setContentTitle(getString(R.string.paste_progress_title, fetch.peerName))
+                    .setContentText(
+                        if (showName) getString(R.string.paste_progress_detail, fetch.name, percent)
+                        else getString(R.string.paste_progress_detail_unnamed, percent),
+                    )
+                    .setOnlyAlertOnce(true)
+                    .setOngoing(true)
+                    .setCategory(android.app.Notification.CATEGORY_PROGRESS)
+                    .setProgress(100, percent, false)
+                    .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.action_cancel), cancel)
+                    .build(),
             )
         }
     }
@@ -217,7 +263,7 @@ class BridgeyConnectionService : Service() {
         val pairing = (application as BridgeyApplication).pairing
         val connectedDeviceId = (pairing.state.value as? PairingState.Connected)?.deviceId
         if (connectedDeviceId != null && pairing.isFeatureAvailable(BridgeyFeature.CLIPBOARD)) {
-            // One full-width, easy-to-hit "Send copied text" button in a decorated custom view,
+            // One full-width, easy-to-hit "Send copied item" button in a decorated custom view,
             // rather than the small action chip. The status stays above it; Turn off stays an action.
             val content = android.widget.RemoteViews(packageName, R.layout.notification_clipboard).apply {
                 setTextViewText(R.id.notification_status, status)
@@ -274,6 +320,10 @@ class BridgeyConnectionService : Service() {
             startForeground(NOTIFICATION_ID, buildNotification(lastStatus))
             return START_STICKY
         }
+        if (intent?.action == ACTION_CANCEL_PASTE) {
+            intent.getStringExtra(EXTRA_TRANSFER_ID)?.let((application as BridgeyApplication).pairing.clipboardInbox::cancel)
+            return START_STICKY
+        }
         if (intent?.action == ACTION_STOP_FINDING) {
             (application as BridgeyApplication).pairing.stopFinding()
             notificationManager.cancel(FIND_NOTIFICATION_ID)
@@ -302,6 +352,8 @@ class BridgeyConnectionService : Service() {
         const val ACTION_TURN_OFF = "dev.bridgey.android.TURN_OFF"
         private const val ACTION_CANCEL_TRANSFER = "dev.bridgey.android.CANCEL_TRANSFER"
         private const val ACTION_STOP_FINDING = "dev.bridgey.android.STOP_FINDING"
+        private const val ACTION_CANCEL_PASTE = "dev.bridgey.android.CANCEL_PASTE"
+        private const val PASTE_NOTIFICATION_MIN_BYTES = 1_000_000L
         private const val EXTRA_TRANSFER_ID = "dev.bridgey.android.extra.TRANSFER_ID"
     }
 }
@@ -321,22 +373,25 @@ class ClipboardCaptureActivity : Activity() {
         super.onResume()
         Handler(Looper.getMainLooper()).postDelayed({
             // Clipboard access is allowed only once this user-initiated activity is foreground.
-            val clipboard = getSystemService(ClipboardManager::class.java)
-            val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(this@ClipboardCaptureActivity)?.toString()
-            val sensitive = clipboard.primaryClipDescription.isMarkedSensitive()
+            val pairing = (application as BridgeyApplication).pairing
             // Background trigger (optional READ_LOGS source): auto-send silently through the same
             // path as a copy made while Bridgey is open, with the same skip rules.
             if (intent?.getBooleanExtra(EXTRA_AUTOMATIC, false) == true) {
-                (application as BridgeyApplication).pairing.autoSendClipboard(text, sensitive)
+                pairing.autoSendClip(pairing.readClipForAutomaticSend())
                 finishAndRemoveTask()
                 overridePendingTransition(0, 0)
                 return@postDelayed
             }
-            if (text.isNullOrEmpty()) {
-                Toast.makeText(this@ClipboardCaptureActivity, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+            val clip = pairing.readClipForManualSend()
+            if (clip == null || clip == LocalClip.Own) {
+                Toast.makeText(
+                    this@ClipboardCaptureActivity,
+                    if (clip == null) "Clipboard is empty" else "This clip came from your Mac",
+                    Toast.LENGTH_SHORT,
+                ).show()
             } else {
                 val appContext = applicationContext
-                (application as BridgeyApplication).pairing.sendText(text, sensitive) { result ->
+                pairing.sendClip(clip) { result ->
                     Handler(Looper.getMainLooper()).post {
                         val message = when (result) {
                             ClipboardSendResult.DELIVERED -> "Clipboard sent to Mac"

@@ -286,4 +286,69 @@
     <string name="pair_paired_suffix">Связано, нажмите для подключения</string>
     <string name="pair_new_suffix">Новое устройство, нажмите для связи</string>
     <string name="action_close">Закрыть</string>
+    <!-- Clipboard offers: images, files and long text (draft protocol clipboard_files_draft1) -->
+    <string name="clipboard_files_title">Копировать изображения и файлы</string>
+    <string name="clipboard_files_detail">Изображения, видео, файлы и длинный текст. Большие объёмы передаются при вставке.</string>
+    <string name="clipboard_eager_title">Сразу отправлять до</string>
+    <string name="clipboard_eager_detail">Что меньше, передаётся сразу при копировании, и вставка мгновенная.</string>
+    <string name="clipboard_eager_5">5 МБ</string>
+    <string name="clipboard_eager_25">25 МБ</string>
+    <string name="clipboard_eager_100">100 МБ</string>
+    <string name="clipboard_eager_ask">Всегда запрашивать при вставке</string>
+    <string name="stream_clip_sent_image">Скопировано изображение (%1$s)</string>
+    <string name="stream_clip_sent_file">Скопировано: %1$s (%2$s)</string>
+    <string name="stream_clip_sent_file_unnamed">Скопирован файл (%1$s)</string>
+    <string name="stream_clip_sent_text">Скопирован текст (%1$s)</string>
+    <plurals name="stream_clip_sent_images">
+        <item quantity="one">Скопировано изображений: %1$d</item>
+        <item quantity="few">Скопировано изображений: %1$d</item>
+        <item quantity="many">Скопировано изображений: %1$d</item>
+        <item quantity="other">Скопировано изображений: %1$d</item>
+    </plurals>
+    <plurals name="stream_clip_sent_files">
+        <item quantity="one">Скопировано файлов: %1$d</item>
+        <item quantity="few">Скопировано файлов: %1$d</item>
+        <item quantity="many">Скопировано файлов: %1$d</item>
+        <item quantity="other">Скопировано файлов: %1$d</item>
+    </plurals>
+    <string name="stream_clip_sent_detail">Можно вставить на %1$s</string>
+    <string name="stream_clip_sent_auto">Автоматически, можно вставить на %1$s</string>
+    <string name="stream_clip_received_image">Скопировано изображение с %1$s (%2$s)</string>
+    <string name="stream_clip_received_file">Скопировано: %1$s с %2$s (%3$s)</string>
+    <string name="stream_clip_received_file_unnamed">Скопирован файл с %1$s (%2$s)</string>
+    <string name="stream_clip_received_text">Скопирован текст с %1$s (%2$s)</string>
+    <plurals name="stream_clip_received_images">
+        <item quantity="one">Скопировано изображений с %2$s: %1$d</item>
+        <item quantity="few">Скопировано изображений с %2$s: %1$d</item>
+        <item quantity="many">Скопировано изображений с %2$s: %1$d</item>
+        <item quantity="other">Скопировано изображений с %2$s: %1$d</item>
+    </plurals>
+    <plurals name="stream_clip_received_files">
+        <item quantity="one">Скопировано файлов с %2$s: %1$d</item>
+        <item quantity="few">Скопировано файлов с %2$s: %1$d</item>
+        <item quantity="many">Скопировано файлов с %2$s: %1$d</item>
+        <item quantity="other">Скопировано файлов с %2$s: %1$d</item>
+    </plurals>
+    <string name="stream_clip_pasted_image">Вставлено изображение с %1$s (%2$s)</string>
+    <string name="stream_clip_pasted_file">Вставлено: %1$s с %2$s (%3$s)</string>
+    <string name="stream_clip_pasted_file_unnamed">Вставлен файл с %1$s (%2$s)</string>
+    <string name="stream_clip_pasted_text">Вставлен текст с %1$s (%2$s)</string>
+    <plurals name="stream_clip_pasted_images">
+        <item quantity="one">Вставлено изображений с %2$s: %1$d</item>
+        <item quantity="few">Вставлено изображений с %2$s: %1$d</item>
+        <item quantity="many">Вставлено изображений с %2$s: %1$d</item>
+        <item quantity="other">Вставлено изображений с %2$s: %1$d</item>
+    </plurals>
+    <plurals name="stream_clip_pasted_files">
+        <item quantity="one">Вставлено файлов с %2$s: %1$d</item>
+        <item quantity="few">Вставлено файлов с %2$s: %1$d</item>
+        <item quantity="many">Вставлено файлов с %2$s: %1$d</item>
+        <item quantity="other">Вставлено файлов с %2$s: %1$d</item>
+    </plurals>
+    <string name="stream_clip_pasted_detail">Передано при вставке</string>
+    <string name="stream_clip_failed_title">Не удалось вставить с %1$s</string>
+    <string name="stream_clip_failed_detail">Скопируйте ещё раз и вставьте</string>
+    <string name="paste_progress_title">Вставка с %1$s</string>
+    <string name="paste_progress_detail">%1$s, %2$d%%</string>
+    <string name="paste_progress_detail_unnamed">%1$d%%</string>
 </resources>

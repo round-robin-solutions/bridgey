@@ -33,6 +33,10 @@ data class BridgeySettingsState(
     val autoClipboardDevices: Map<String, Boolean>,
     /** Optional background clipboard via READ_LOGS (off by default; advanced, needs ADB setup). */
     val backgroundClipboardEnabled: Boolean,
+    /** Clipboard > Copy images and files: offers for images, files and long text. On by default. */
+    val clipboardFilesEnabled: Boolean = true,
+    /** Clipboard > Send right away up to, in bytes; 0 is "Always ask when pasting". */
+    val clipboardEagerLimit: Long = ClipLimits.DEFAULT_EAGER_LIMIT,
 )
 
 /** Automatic clipboard is on for a device when global and the per-device switch both allow it. */
@@ -132,6 +136,17 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         mutableState.value = mutableState.value.copy(backgroundClipboardEnabled = enabled)
     }
 
+    fun setClipboardFilesEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_CLIPBOARD_FILES, enabled).apply()
+        mutableState.value = mutableState.value.copy(clipboardFilesEnabled = enabled)
+    }
+
+    fun setClipboardEagerLimit(bytes: Long) {
+        val value = bytes.takeIf { it in ClipLimits.EAGER_LIMIT_CHOICES } ?: ClipLimits.DEFAULT_EAGER_LIMIT
+        preferences.edit().putLong(KEY_CLIPBOARD_EAGER_LIMIT, value).apply()
+        mutableState.value = mutableState.value.copy(clipboardEagerLimit = value)
+    }
+
     /** Automatic clipboard for [deviceId], falling back to the global switch when unset. */
     fun isAutoClipboardEnabled(deviceId: String?): Boolean {
         val snapshot = mutableState.value
@@ -184,6 +199,9 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
             autoClipboardGlobal = preferences.getBoolean(KEY_AUTO_CLIPBOARD_GLOBAL, true),
             autoClipboardDevices = autoClipboardDevices,
             backgroundClipboardEnabled = preferences.getBoolean(KEY_BACKGROUND_CLIPBOARD, false),
+            clipboardFilesEnabled = preferences.getBoolean(KEY_CLIPBOARD_FILES, true),
+            clipboardEagerLimit = preferences.getLong(KEY_CLIPBOARD_EAGER_LIMIT, ClipLimits.DEFAULT_EAGER_LIMIT)
+                .takeIf { it in ClipLimits.EAGER_LIMIT_CHOICES } ?: ClipLimits.DEFAULT_EAGER_LIMIT,
         )
     }
 
@@ -195,5 +213,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         private const val KEY_AUTO_CLIPBOARD_GLOBAL = "clipboard.auto.global"
         private const val KEY_AUTO_CLIPBOARD_DEVICE_PREFIX = "clipboard.auto.device."
         private const val KEY_BACKGROUND_CLIPBOARD = "clipboard.background.enabled"
+        private const val KEY_CLIPBOARD_FILES = "clipboard.files.enabled"
+        private const val KEY_CLIPBOARD_EAGER_LIMIT = "clipboard.files.eager_limit"
     }
 }
