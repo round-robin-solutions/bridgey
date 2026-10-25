@@ -227,6 +227,7 @@ final class PairingCoordinator: ObservableObject {
     private var activeRemoteCalls = ActiveRemoteCalls()
     private var hiddenCallOverlayIdentities = Set<String>()
     private var audibleCallIdentities = Set<String>()
+    private var alertedNotificationIdentifiers = AlertedNotificationIdentifiers()
     private var cancelledTransferIDs = Set<String>()
     private var findDeviceSound: NSSound?
     private var lastSentBattery: LocalBatteryStatus?
@@ -1744,11 +1745,12 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func postNotification(_ payload: RemoteNotificationPayload, deviceID: String) {
+        let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: payload.notificationId)
         let content = UNMutableNotificationContent()
         content.title = payload.callType == nil ? payload.applicationName : remoteCallStatusTitle(payload.callType)
         content.subtitle = payload.title
         content.body = payload.callType == nil ? payload.text : remoteCallDetail(payload.text, type: payload.callType)
-        content.sound = .default
+        content.sound = alertedNotificationIdentifiers.insert(identifier) ? .default : nil
         content.categoryIdentifier = notificationCategoryIdentifier(for: payload, deviceID: deviceID)
         if let attachment = notificationIconAttachment(for: payload) {
             content.attachments = [attachment]
@@ -1759,7 +1761,7 @@ final class PairingCoordinator: ObservableObject {
             "androidDeviceId": deviceID,
         ]
         let request = UNNotificationRequest(
-            identifier: remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: payload.notificationId),
+            identifier: identifier,
             content: content,
             trigger: nil
         )
@@ -1974,6 +1976,7 @@ final class PairingCoordinator: ObservableObject {
             publishRemoteCall()
         }
         let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: notificationID)
+        alertedNotificationIdentifiers.remove(identifier)
         let center = UNUserNotificationCenter.current()
         center.removeDeliveredNotifications(withIdentifiers: [identifier])
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
