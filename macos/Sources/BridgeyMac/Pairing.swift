@@ -1847,7 +1847,7 @@ final class PairingCoordinator: ObservableObject {
         guard let data = remoteNotificationIconData(payload.applicationIcon) else { return nil }
         let fileManager = FileManager.default
         guard let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
-        let directory = caches.appendingPathComponent("Bridgey/NotificationIcons", isDirectory: true)
+        let directory = caches.appendingPathComponent("\(Edition.supportFolderName)/NotificationIcons", isDirectory: true)
         let file = directory.appendingPathComponent(
             remoteNotificationIconFileName(packageName: payload.packageName, data: data)
         )
@@ -2384,7 +2384,7 @@ private final class IncomingFileTransfer {
 }
 
 private final class MacIdentity {
-    private let service = "dev.bridgey.identity"
+    private let service = Edition.identityKeychainService
     private let account = "p256-signing-v1"
     private let key: P256.Signing.PrivateKey
 

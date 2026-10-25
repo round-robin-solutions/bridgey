@@ -7,13 +7,13 @@
     <key>CFBundleExecutable</key>
     <string>BridgeyMac</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.bridgey.mac</string>
+    <string>in.roundrobin.bridgey</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Bridgey</string>
+    <string>Bridgey RR</string>
 	<key>CFBundleDisplayName</key>
-	<string>Bridgey</string>
+	<string>Bridgey by Round Robin</string>
 	<key>CFBundleIconFile</key>
 	<string>Bridgey.icns</string>
     <key>CFBundleIconName</key>
@@ -29,22 +29,29 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.6.0-rc.2</string>
+    <string>0.6.0-rr.1-dev</string>
     <key>CFBundleVersion</key>
-    <string>25</string>
+    <string>1</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSUserNotificationAlertStyle</key>
     <string>alert</string>
+    <!-- Sparkle (Round Robin edition). build-app.sh adds SUFeedURL from rr-edition.properties. -->
+    <key>SUPublicEDKey</key>
+    <string>lbOBQU/lFebstlkZGt2hiRCB76NkkBCvRRrQPQ8vcpg=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>
             <key>CFBundleURLName</key>
-            <string>dev.bridgey.mac.phone</string>
+            <string>in.roundrobin.bridgey.phone</string>
             <key>CFBundleURLSchemes</key>
             <array><string>tel</string></array>
         </dict>
@@ -53,7 +60,7 @@
     <array>
         <dict>
             <key>NSMenuItem</key>
-            <dict><key>default</key><string>Call with Bridgey</string></dict>
+            <dict><key>default</key><string>Call with Bridgey RR</string></dict>
             <key>NSMessage</key>
             <string>callWithBridgey</string>
             <key>NSPortName</key>

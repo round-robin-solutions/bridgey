@@ -126,12 +126,14 @@ class MainActivity : ComponentActivity() {
         bridgeySettings = bridgey.settings
         sharedContent = intent.toSharedContent()
         startForegroundService(Intent(this, BridgeyConnectionService::class.java))
+        if (savedInstanceState == null) bridgey.updater.checkOnAppOpen()
         setContent {
             BridgeyTheme {
                 BridgeyApp(
                     discovery = discovery,
                     pairing = pairing,
                     settings = bridgey.settings,
+                    updater = bridgey.updater,
                     onDeviceNameChanged = bridgey::updateDeviceName,
                     appNotificationsEnabled = appNotificationsEnabled,
                     notificationAccessEnabled = notificationAccessEnabled,
@@ -295,6 +297,7 @@ private fun BridgeyApp(
     discovery: NsdDiscoveryService,
     pairing: PairingCoordinator,
     settings: BridgeySettings,
+    updater: AppUpdater,
     onDeviceNameChanged: (String) -> Unit,
     appNotificationsEnabled: Boolean,
     notificationAccessEnabled: Boolean,
@@ -378,6 +381,7 @@ private fun BridgeyApp(
                 },
                 onForget = pairing::forget,
                 onExportDiagnostics = onExportDiagnostics,
+                updater = updater,
                 modifier = Modifier.padding(padding),
             )
         } else {
@@ -411,6 +415,8 @@ private fun BridgeyApp(
             )
         }
     }
+
+    UpdatePrompts(updater)
 
     if (showOnboarding) {
         AlertDialog(
@@ -553,6 +559,7 @@ private fun SettingsScreen(
     onDirectCallsChanged: (Boolean) -> Unit,
     onForget: (String) -> Unit,
     onExportDiagnostics: () -> Unit,
+    updater: AppUpdater,
     modifier: Modifier = Modifier,
 ) {
     var editedName by remember(state.deviceName) { mutableStateOf(state.deviceName) }
@@ -699,6 +706,7 @@ private fun SettingsScreen(
                 }
             }
         }
+        updateAndAboutItems(updater)
         item { Spacer(Modifier.height(12.dp)) }
     }
 }

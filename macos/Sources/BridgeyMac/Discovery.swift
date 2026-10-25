@@ -4,7 +4,8 @@ enum LegacyPreferences {
     static func migrateIfNeeded() {
         let current = UserDefaults.standard
         guard !current.bool(forKey: "legacyPreferencesMigrated"),
-              let legacy = UserDefaults(suiteName: "BridgeyMac") else { return }
+              let suiteName = Edition.legacyPreferencesSuite,
+              let legacy = UserDefaults(suiteName: suiteName) else { return }
         if let deviceID = legacy.string(forKey: "deviceID"), UUID(uuidString: deviceID) != nil {
             current.set(deviceID, forKey: "deviceID")
         }

@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+    <!-- Round Robin edition: self-update through PackageInstaller after the user taps Install. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <queries>
@@ -37,6 +39,7 @@
             android:name=".MainActivity"
             android:documentLaunchMode="never"
             android:exported="true"
+            android:label="@string/launcher_name"
             android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -59,7 +62,7 @@
             android:excludeFromRecents="true"
             android:exported="false"
             android:noHistory="true"
-            android:taskAffinity="dev.bridgey.android.clipboard_action"
+            android:taskAffinity="${applicationId}.clipboard_action"
             android:theme="@style/Theme.Bridgey.Transparent" />
         <activity
             android:name=".OpenReceivedFileActivity"
@@ -78,6 +81,9 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
         </service>
+        <receiver
+            android:name=".UpdateInstallReceiver"
+            android:exported="false" />
         <service
             android:name=".BridgeyNotificationListenerService"
             android:exported="false"

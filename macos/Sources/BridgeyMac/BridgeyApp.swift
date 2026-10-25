@@ -9,6 +9,7 @@ struct BridgeyApp: App {
     @StateObject private var settings: BridgeySettings
     private let settingsWindow: SettingsWindowController
     private let callServiceProvider: CallServiceProvider
+    private let updater: AppUpdater
 
     init() {
         LegacyPreferences.migrateIfNeeded()
@@ -22,7 +23,9 @@ struct BridgeyApp: App {
         let callServiceProvider = CallServiceProvider { [weak pairing] number in pairing?.sendCallWhenConnected(number) }
         self.callServiceProvider = callServiceProvider
         NSApplication.shared.servicesProvider = callServiceProvider
-        settingsWindow = SettingsWindowController(discovery: discovery, pairing: pairing, settings: settings)
+        let updater = AppUpdater()
+        self.updater = updater
+        settingsWindow = SettingsWindowController(discovery: discovery, pairing: pairing, settings: settings, updater: updater)
         phoneURLHandler.configure { [weak pairing] number in pairing?.sendCallWhenConnected(number) }
     }
 
@@ -411,17 +414,19 @@ private final class SettingsWindowController {
     private let discovery: BonjourDiscovery
     private let pairing: PairingCoordinator
     private let settings: BridgeySettings
+    private let updater: AppUpdater
     private var window: NSWindow?
 
-    init(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings) {
+    init(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings, updater: AppUpdater) {
         self.discovery = discovery
         self.pairing = pairing
         self.settings = settings
+        self.updater = updater
     }
 
     func show() {
         if window == nil {
-            let content = SettingsView(discovery: discovery, pairing: pairing, settings: settings)
+            let content = SettingsView(discovery: discovery, pairing: pairing, settings: settings, updater: updater)
             let created = NSWindow(contentViewController: NSHostingController(rootView: content))
             created.title = "Bridgey Settings"
             created.styleMask = [.titled, .closable, .miniaturizable]
@@ -440,6 +445,7 @@ private struct SettingsView: View {
     @ObservedObject var discovery: BonjourDiscovery
     @ObservedObject var pairing: PairingCoordinator
     @ObservedObject var settings: BridgeySettings
+    @ObservedObject var updater: AppUpdater
     @State private var editedName = ""
     @State private var phoneLinkStatus: String?
 
@@ -563,6 +569,8 @@ private struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Export Diagnostics…") { pairing.exportDiagnostics() }
             }
+            UpdateSettingsView(updater: updater)
+            AboutSettingsView(updater: updater)
             Text("Bridgey communicates directly over your local network. Clipboard, files, and notification content are encrypted in transit.")
                 .font(.caption).foregroundStyle(.secondary)
         }

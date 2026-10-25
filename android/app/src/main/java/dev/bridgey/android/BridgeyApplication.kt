@@ -26,6 +26,8 @@ class BridgeyApplication : Application() {
         private set
     lateinit var settings: BridgeySettings
         private set
+    lateinit var updater: AppUpdater
+        private set
     var isBridgeyEnabled: Boolean = false
         private set
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -49,6 +51,7 @@ class BridgeyApplication : Application() {
         }
         val systemDeviceName = Settings.Global.getString(contentResolver, "device_name") ?: "Android device"
         settings = BridgeySettings(this, systemDeviceName)
+        updater = AppUpdater(this, applicationScope)
         val deviceName = settings.state.value.deviceName
         pairing = PairingCoordinator(this, deviceId, deviceName, settings = settings)
         discovery = NsdDiscoveryService(this, LocalDiscoveryIdentity(deviceId, deviceName))

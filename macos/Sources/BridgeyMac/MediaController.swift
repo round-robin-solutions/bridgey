@@ -116,7 +116,7 @@ final class MediaController: ObservableObject {
     private var generation = 0
     private var callActive = false
     private var pendingPause = false
-    private let queue = DispatchQueue(label: "dev.bridgey.media")
+    private let queue = DispatchQueue(label: "\(Edition.identifier).media")
 
     init() {
         player = MediaPlayer(rawValue: UserDefaults.standard.string(forKey: "media.player") ?? "") ?? .off

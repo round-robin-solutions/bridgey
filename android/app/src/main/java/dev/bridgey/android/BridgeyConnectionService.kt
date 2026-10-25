@@ -85,6 +85,7 @@ class BridgeyConnectionService : Service() {
             }
         }
         serviceScope.launch { bridgey.pairing.fileTransfers.collect(::updateTransferNotifications) }
+        serviceScope.launch { bridgey.updater.runPeriodicChecks() }
         serviceScope.launch {
             bridgey.pairing.phoneRinging.collect { ringing ->
                 if (ringing) notificationManager.notify(FIND_NOTIFICATION_ID, buildFindNotification())

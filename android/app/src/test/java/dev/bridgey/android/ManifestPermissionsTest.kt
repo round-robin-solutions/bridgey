@@ -23,6 +23,7 @@ class ManifestPermissionsTest {
                 "android.permission.CALL_PHONE",
                 "android.permission.READ_PHONE_STATE",
                 "android.permission.ANSWER_PHONE_CALLS",
+                "android.permission.REQUEST_INSTALL_PACKAGES",
             ),
             declared,
         )

@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Bridgey</string>
+    <string name="app_name">Bridgey by Round Robin</string>
+    <!-- Launcher icons fit about 12 characters on one line; the full name truncates. -->
+    <string name="launcher_name">Bridgey RR</string>
     <string name="notification_forwarding_label">Bridgey notification forwarding</string>
     <string name="welcome_title">Welcome to Bridgey</string>
     <string name="welcome_body">Keep your Mac and phone on the same local network. Choose the Mac, compare the pairing code, then confirm it on both devices. Optional permissions are requested only when you enable the related feature.</string>

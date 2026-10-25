@@ -1,8 +1,9 @@
 name: Release
 
+# Round Robin edition: releases are built by scripts/rr/release.sh on our own
+# machines (docs/rr-edition.md). Our v* tags must not trigger upstream's workflow.
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write

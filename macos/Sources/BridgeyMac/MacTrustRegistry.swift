@@ -13,7 +13,7 @@ final class MacTrustRegistry {
     private var devicesByID: [String: MacTrustedDevice]
 
     init(
-        service: String = "dev.bridgey.mac.trust",
+        service: String = Edition.trustKeychainService,
         account: String = "trusted-devices-v1",
         migrating defaultsStores: [UserDefaults] = [.standard]
     ) {
