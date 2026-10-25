@@ -8,34 +8,57 @@ import SwiftUI
  * `SettingsModel`, so screenshots render them from sample state.
  */
 
+/// Grouped by what people come to change, most used first. Each feature pane starts with that
+/// feature's switch, followed by its options. Android uses the same order.
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, devices, features, notifications, privacy, updates, about
+    case thisMac, devices, clipboard, notifications, calls, files, media, privacy, updates, general, about
 
     var id: String { rawValue }
 
+    /// The pane's heading.
     var title: String {
         switch self {
-        case .general: L10n.text("settings.general", fallback: "General")
-        case .devices: L10n.text("settings.devices", fallback: "Devices")
-        case .features: L10n.text("settings.features", fallback: "Features")
+        case .thisMac: L10n.text("settings.thisMac", fallback: "This Mac")
+        case .devices: L10n.text("settings.devicesPermissions", fallback: "Devices and permissions")
+        case .clipboard: L10n.text("settings.clipboard", fallback: "Clipboard")
         case .notifications: L10n.text("settings.notifications", fallback: "Notifications")
+        case .calls: L10n.text("settings.calls", fallback: "Calls")
+        case .files: L10n.text("settings.files", fallback: "Files")
+        case .media: L10n.text("settings.mediaActions", fallback: "Media and quick actions")
         case .privacy: L10n.text("settings.privacy", fallback: "Privacy")
         case .updates: L10n.text("settings.updates", fallback: "Updates")
+        case .general: L10n.text("settings.general", fallback: "General")
         case .about: L10n.text("settings.about", fallback: "About")
+        }
+    }
+
+    /// The shorter name in the sidebar.
+    var sidebarTitle: String {
+        switch self {
+        case .devices: L10n.text("settings.devices", fallback: "Devices")
+        case .media: L10n.text("settings.mediaActions.short", fallback: "Media and actions")
+        default: title
         }
     }
 
     var symbol: String {
         switch self {
-        case .general: "gearshape"
+        case .thisMac: "laptopcomputer"
         case .devices: "laptopcomputer.and.iphone"
-        case .features: "switch.2"
+        case .clipboard: "doc.on.clipboard"
         case .notifications: "bell"
+        case .calls: "phone"
+        case .files: "folder"
+        case .media: "music.note"
         case .privacy: "hand.raised"
         case .updates: "arrow.triangle.2.circlepath"
+        case .general: "gearshape"
         case .about: "info.circle"
         }
     }
+
+    /// The sidebar list; This Mac is the compact header above it.
+    static let sidebarItems: [SettingsPane] = allCases.filter { $0 != .thisMac }
 }
 
 struct SettingsModel {
@@ -84,6 +107,7 @@ struct SettingsModel {
 
 struct SettingsActions {
     var setDeviceName: (String) -> Void = { _ in }
+    var disconnect: () -> Void = {}
     var setLaunchAtLogin: (Bool) -> Void = { _ in }
     var chooseReceiveFolder: () -> Void = {}
     var setGlobal: (BridgeyFeature, Bool) -> Void = { _, _ in }
@@ -183,22 +207,25 @@ private struct SettingsSidebar: View {
             }
             .padding(.horizontal, 6)
             .frame(height: 44)
-            ForEach(SettingsPane.allCases) { item in
+            ThisMacHeader(model: model, selected: pane == .thisMac) { select(.thisMac) }
+                .padding(.bottom, 8)
+            ForEach(SettingsPane.sidebarItems) { item in
                 Button {
-                    withAnimation(BrandMotion.animation(BrandMotion.small, reduce: reduce)) { pane = item }
+                    select(item)
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: item.symbol)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(item == pane ? side.tbi : side.on2)
                             .frame(width: 18)
-                        Text(item.title)
+                        Text(item.sidebarTitle)
                             .font(BrandFont.body(13, .medium))
                             .foregroundStyle(side.on)
+                            .lineLimit(1)
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 10)
-                    .frame(height: 32)
+                    .frame(height: 30)
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(item == pane ? side.tb : Color.clear))
                     .contentShape(Rectangle())
                 }
@@ -228,6 +255,62 @@ private struct SettingsSidebar: View {
         }
         .overlay(alignment: .trailing) { if c.isDark { Rectangle().fill(c.olv).frame(width: 1) } }
         .environment(\.brand, side)
+    }
+
+    private func select(_ item: SettingsPane) {
+        withAnimation(BrandMotion.animation(BrandMotion.small, reduce: reduce)) { pane = item }
+    }
+}
+
+/// The compact header at the top of the sidebar: this Mac's name and connection.
+private struct ThisMacHeader: View {
+    let model: SettingsModel
+    let selected: Bool
+    let action: () -> Void
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                DeviceRingView(state: model.connectedDeviceID == nil ? .offline : .connected, platform: "macos", size: 32)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(model.deviceName)
+                        .font(BrandFont.body(13, .semibold))
+                        .foregroundStyle(c.on)
+                        .lineLimit(1)
+                    HStack(spacing: 3) {
+                        if case let .connected(_, name) = model.state {
+                            Image(systemName: "link").font(.system(size: 9, weight: .bold))
+                            Text(name)
+                        } else {
+                            Text(connectionText(model))
+                        }
+                    }
+                    .font(BrandFont.body(11))
+                    .foregroundStyle(model.connectedDeviceID == nil ? c.on2 : c.tgi)
+                    .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 48)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(selected ? c.tb : c.s2.opacity(0.6)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(model.deviceName), \(connectionText(model))")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// "Connected to OnePlus 11", "Connecting to …" or "Not connected".
+func connectionText(_ model: SettingsModel) -> String {
+    switch model.state {
+    case let .connected(_, name): String(format: L10n.text("thisMac.connected", fallback: "Connected to %@"), name)
+    case let .connecting(name), let .verification(name, _): String(format: L10n.text("panel.connecting", fallback: "Connecting to %@"), name)
+    case .failed: L10n.text("thisMac.failed", fallback: "Couldn\u{2019}t connect")
+    case .idle: L10n.text("thisMac.idle", fallback: "Not connected")
     }
 }
 
@@ -371,14 +454,118 @@ struct SettingsPaneView: View {
 
     var body: some View {
         switch pane {
-        case .general: GeneralPane(model: model, actions: actions)
+        case .thisMac: ThisMacPane(model: model, actions: actions)
         case .devices: DevicesPane(model: model, actions: actions)
-        case .features: FeaturesPane(model: model, actions: actions)
+        case .clipboard: ClipboardPane(model: model, actions: actions)
         case .notifications: NotificationsPane(model: model, actions: actions)
+        case .calls: CallsPane(model: model, actions: actions)
+        case .files: FilesPane(model: model, actions: actions)
+        case .media: MediaActionsPane(model: model, actions: actions)
         case .privacy: PrivacyPane(model: model, actions: actions)
         case .updates: UpdatesPane(model: model, actions: actions)
+        case .general: GeneralPane(model: model, actions: actions)
         case .about: AboutPane(model: model, actions: actions)
         }
+    }
+}
+
+/// The global switch that leads a feature pane.
+private struct FeatureSwitch: View {
+    let feature: BridgeyFeature
+    let model: SettingsModel
+    let actions: SettingsActions
+    var divider = false
+
+    var body: some View {
+        SettingsToggle(title: feature.title, subtitle: feature.subtitle, divider: divider,
+                       isOn: model.globalFeatures[feature] != false,
+                       set: { actions.setGlobal(feature, $0) })
+    }
+}
+
+private struct ThisMacPane: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+
+    var body: some View {
+        SettingsCard {
+            DeviceNameRow(name: model.deviceName, onSave: actions.setDeviceName)
+            SettingsRow(title: L10n.text("thisMac.connection", fallback: "Connection"), subtitle: connectionText(model)) {
+                if model.connectedDeviceID != nil {
+                    Button(L10n.text("thisMac.disconnect", fallback: "Disconnect"), action: actions.disconnect)
+                        .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+                }
+            }
+        }
+    }
+}
+
+private struct ClipboardPane: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+
+    var body: some View {
+        SettingsCard {
+            FeatureSwitch(feature: .clipboard, model: model, actions: actions)
+        }
+        ShortcutsCard(model: model, actions: actions, only: [.clipboard])
+    }
+}
+
+private struct NotificationsPane: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+
+    var body: some View {
+        SettingsCard {
+            FeatureSwitch(feature: .notifications, model: model, actions: actions)
+            NotificationPermissionRow(model: model, actions: actions)
+        }
+        NotificationHistoryCard(model: model, actions: actions)
+    }
+}
+
+private struct CallsPane: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+
+    var body: some View {
+        SettingsCard {
+            FeatureSwitch(feature: .calls, model: model, actions: actions)
+            PhoneLinksRow(status: model.phoneLinkStatus, use: actions.usePhoneLinks)
+            PauseForCallsToggle(model: model, actions: actions)
+        }
+        ShortcutsCard(model: model, actions: actions, only: [.call])
+    }
+}
+
+private struct FilesPane: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+
+    var body: some View {
+        SettingsCard {
+            FeatureSwitch(feature: .files, model: model, actions: actions)
+            ReceiveFolderRow(path: model.receiveFolderPath, choose: actions.chooseReceiveFolder)
+        }
+    }
+}
+
+private struct MediaActionsPane: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+
+    var body: some View {
+        SettingsCard(footnote: model.mediaDetail.isEmpty ? L10n.text("settings.media.detail", fallback: "macOS asks for Automation access to the player. Open the player on this Mac first.") : model.mediaDetail) {
+            FeatureSwitch(feature: .media, model: model, actions: actions)
+            MediaPlayerRow(model: model, actions: actions)
+        }
+        SettingsCard(title: L10n.text("settings.quickActions", fallback: "Quick actions")) {
+            ForEach(Array([BridgeyFeature.links, .ping, .findDevice, .battery].enumerated()), id: \.element) { index, feature in
+                FeatureSwitch(feature: feature, model: model, actions: actions, divider: index > 0)
+            }
+        }
+        ShortcutsCard(model: model, actions: actions, only: [.link, .ping])
     }
 }
 
@@ -387,18 +574,16 @@ private struct GeneralPane: View {
     let actions: SettingsActions
 
     var body: some View {
-        SettingsCard {
-            DeviceNameRow(name: model.deviceName, onSave: actions.setDeviceName)
+        SettingsCard(footnote: L10n.text("settings.shortcuts.detail", fallback: "Shortcuts use Control + Option and the key you choose.")) {
             SettingsToggle(title: L10n.text("settings.launchAtLogin", fallback: "Launch at login"),
-                           subtitle: model.loginItemMessage, subtitleIsWarning: model.loginItemMessage != nil,
+                           subtitle: model.loginItemMessage, subtitleIsWarning: model.loginItemMessage != nil, divider: false,
                            isOn: model.launchAtLogin, set: actions.setLaunchAtLogin)
-            ReceiveFolderRow(path: model.receiveFolderPath, choose: actions.chooseReceiveFolder)
             SettingsToggle(title: L10n.text("settings.reduceMotion", fallback: "Reduce motion"),
                            subtitle: L10n.text("settings.reduceMotion.detail", fallback: "Fade between screens; nothing moves or bounces"),
                            isOn: model.reduceMotion, set: actions.setReduceMotion)
+            SettingsToggle(title: L10n.text("settings.shortcuts.shift", fallback: "Also require Shift for shortcuts"),
+                           isOn: model.shortcutShift, set: actions.setShortcutShift)
         }
-        PhoneLinksCard(status: model.phoneLinkStatus, use: actions.usePhoneLinks)
-        ShortcutsCard(model: model, actions: actions, only: ShortcutAction.allCases)
     }
 }
 
@@ -457,18 +642,15 @@ struct ReceiveFolderRow: View {
     }
 }
 
-struct PhoneLinksCard: View {
+struct PhoneLinksRow: View {
     let status: String?
     let use: () -> Void
 
     var body: some View {
-        SettingsCard(footnote: status) {
-            SettingsRow(title: L10n.text("settings.phoneLinks", fallback: "Phone links"),
-                        subtitle: L10n.text("settings.phoneLinks.detail", fallback: "Open tel: links from browsers and other apps with Bridgey, to call from the phone. The browser still asks first."),
-                        divider: false) {
-                Button(L10n.text("settings.phoneLinks.use", fallback: "Use Bridgey"), action: use)
-                    .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
-            }
+        SettingsRow(title: L10n.text("settings.phoneLinks", fallback: "Phone links"),
+                    subtitle: status ?? L10n.text("settings.phoneLinks.detail", fallback: "Open tel: links from browsers and other apps with Bridgey, to call from the phone. The browser still asks first.")) {
+            Button(L10n.text("settings.phoneLinks.use", fallback: "Use Bridgey"), action: use)
+                .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
         }
     }
 }
@@ -477,11 +659,10 @@ struct ShortcutsCard: View {
     let model: SettingsModel
     let actions: SettingsActions
     let only: [ShortcutAction]
-    var showShift = true
 
     var body: some View {
-        SettingsCard(title: L10n.text("settings.shortcuts", fallback: "Keyboard shortcuts"),
-                     footnote: model.shortcutError ?? L10n.text("settings.shortcuts.detail", fallback: "Shortcuts use Control + Option and the key you choose.")) {
+        SettingsCard(title: L10n.text("settings.shortcut", fallback: "Keyboard shortcut"),
+                     footnote: model.shortcutError) {
             ForEach(Array(only.enumerated()), id: \.element) { index, action in
                 SettingsRow(title: action.displayTitle, divider: index > 0) {
                     ChoiceButton(value: shortcutLabel(action)) {
@@ -491,10 +672,6 @@ struct ShortcutsCard: View {
                             }
                     }
                 }
-            }
-            if showShift {
-                SettingsToggle(title: L10n.text("settings.shortcuts.shift", fallback: "Also require Shift"),
-                               isOn: model.shortcutShift, set: actions.setShortcutShift)
             }
         }
     }
@@ -597,7 +774,7 @@ struct DeviceCard: View {
     }
 
     private func note(_ feature: BridgeyFeature) -> String? {
-        if model.globalFeatures[feature] == false { return L10n.text("permission.offEverywhere", fallback: "Off for every device, in Features") }
+        if model.globalFeatures[feature] == false { return L10n.text("permission.offEverywhere", fallback: "Off for every device") }
         if model.connectedDeviceID == device.id && model.remoteFeatures[feature] == false {
             return String(format: L10n.text("permission.offRemote", fallback: "Off on %@"), device.name)
         }
@@ -627,43 +804,21 @@ struct PairNewCard: View {
     }
 }
 
-private struct FeaturesPane: View {
+struct MediaPlayerRow: View {
     let model: SettingsModel
     let actions: SettingsActions
 
     var body: some View {
-        SettingsCard(footnote: L10n.text("features.detail", fallback: "What this Mac shares with every paired device. Each device can also turn things off in Devices. Changes reach a connected device at once.")) {
-            ForEach(Array(BridgeyFeature.allCases.enumerated()), id: \.element) { index, feature in
-                SettingsToggle(title: feature.title, subtitle: feature.subtitle, divider: index > 0,
-                               isOn: model.globalFeatures[feature] != false,
-                               set: { actions.setGlobal(feature, $0) })
-            }
-        }
-        MediaCard(model: model, actions: actions)
-    }
-}
-
-struct MediaCard: View {
-    let model: SettingsModel
-    let actions: SettingsActions
-    var includeCalls = true
-
-    var body: some View {
-        SettingsCard(title: L10n.text("settings.media", fallback: "Media"),
-                     footnote: model.mediaDetail.isEmpty ? L10n.text("settings.media.detail", fallback: "macOS asks for Automation access to the player. Open the player on this Mac first.") : model.mediaDetail) {
-            SettingsRow(title: L10n.text("settings.media.player", fallback: "Player"), divider: false) {
-                ChoiceButton(value: model.mediaPlayer.title) {
-                    MediaPlayer.allCases.map { player in
-                        PopUpMenuItem(title: player.title, checked: player == model.mediaPlayer) { actions.setPlayer(player) }
-                    }
+        SettingsRow(title: L10n.text("settings.media.player", fallback: "Player"),
+                    subtitle: L10n.text("settings.media.player.detail", fallback: "The Mac player the phone controls")) {
+            ChoiceButton(value: model.mediaPlayer.title) {
+                MediaPlayer.allCases.map { player in
+                    PopUpMenuItem(title: player.title, checked: player == model.mediaPlayer) { actions.setPlayer(player) }
                 }
-                Button(L10n.text("settings.media.refresh", fallback: "Refresh"), action: actions.refreshPlayer)
-                    .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
-                    .disabled(model.mediaPlayer == .off)
             }
-            if includeCalls {
-                PauseForCallsToggle(model: model, actions: actions)
-            }
+            Button(L10n.text("settings.media.refresh", fallback: "Refresh"), action: actions.refreshPlayer)
+                .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+                .disabled(model.mediaPlayer == .off)
         }
     }
 }
@@ -700,20 +855,6 @@ struct NotificationPermissionRow: View {
                     .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
             }
         }
-    }
-}
-
-private struct NotificationsPane: View {
-    let model: SettingsModel
-    let actions: SettingsActions
-
-    var body: some View {
-        SettingsCard {
-            SettingsToggle(title: BridgeyFeature.notifications.title, subtitle: BridgeyFeature.notifications.subtitle, divider: false,
-                           isOn: model.globalFeatures[.notifications] != false, set: { actions.setGlobal(.notifications, $0) })
-            NotificationPermissionRow(model: model, actions: actions)
-        }
-        NotificationHistoryCard(model: model, actions: actions)
     }
 }
 
@@ -862,7 +1003,7 @@ private struct LiveSettingsView: View {
     @ObservedObject var activity: ActivityLog
     @ObservedObject var media: MediaController
     @ObservedObject var shortcuts: ShortcutSettings
-    @State private var pane: SettingsPane = .general
+    @State private var pane: SettingsPane = .devices
     @State private var phoneLinkStatus: String?
 
     init(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings, updater: AppUpdater) {
@@ -929,6 +1070,7 @@ private struct LiveSettingsView: View {
             pairing.updateDeviceName(settings.deviceName)
             discovery.updateDeviceName(settings.deviceName)
         }
+        actions.disconnect = { pairing.dismiss() }
         actions.setLaunchAtLogin = { settings.setLaunchAtLogin($0) }
         actions.chooseReceiveFolder = { settings.chooseReceiveFolder() }
         actions.setGlobal = { feature, enabled in
