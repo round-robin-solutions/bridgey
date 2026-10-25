@@ -11,7 +11,7 @@ internal const val MAX_CLIPBOARD_CONTENT_BYTES = 32 * 1024
 internal const val AUTO_CLIPBOARD_MAX_AGE_MILLIS = 10L * 60 * 1000
 
 /** What automatic clipboard decided to do with a change, kept pure so it is unit tested. */
-internal enum class ClipboardAutoDecision { SEND, SKIP_UNAVAILABLE, SKIP_EMPTY, SKIP_SENSITIVE, SKIP_TOO_LARGE, SKIP_DUPLICATE }
+internal enum class ClipboardAutoDecision { SEND, SEND_OFFER, SKIP_UNAVAILABLE, SKIP_EMPTY, SKIP_SENSITIVE, SKIP_TOO_LARGE, SKIP_DUPLICATE }
 
 /** A stable fingerprint of clipboard content, for de-duplication and loop prevention. */
 internal fun clipboardHash(text: String): String =
