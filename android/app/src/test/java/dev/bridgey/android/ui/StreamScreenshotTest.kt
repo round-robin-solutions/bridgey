@@ -1,0 +1,197 @@
+package dev.bridgey.android.ui
+
+import android.app.Application
+import android.content.ComponentName
+import android.os.Looper
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.test.core.app.ActivityScenario
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.github.takahirom.roborazzi.captureRoboImage
+import dev.bridgey.android.BridgeyFeature
+import dev.bridgey.android.PairingState
+import dev.bridgey.android.RemoteBatteryStatus
+import dev.bridgey.android.TrustedDevice
+import dev.bridgey.android.UpdateChannel
+import dev.bridgey.android.UpdateUiState
+import dev.bridgey.android.activity.ActivityItem
+import dev.bridgey.android.activity.ActivityKind
+import dev.bridgey.android.ui.theme.BridgeyTheme
+import dev.bridgey.core.discovery.DiscoveredPeer
+import java.util.Calendar
+import java.util.TimeZone
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+
+/**
+ * Renders the Stream screens on the JVM at the design's 412 x 915 dp phone size, light and dark,
+ * with the mockup's sample content. Always rendered (a crash fails the build); PNGs are written
+ * only with -Pscreenshots=<dir>.
+ */
+@RunWith(AndroidJUnit4::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [35], application = Application::class, qualifiers = "w412dp-h915dp-port-xxhdpi")
+class StreamScreenshotTest {
+    private val zone: TimeZone = TimeZone.getTimeZone("Asia/Kolkata")
+    private val now: Long = Calendar.getInstance(zone).apply {
+        set(2026, Calendar.OCTOBER, 25, 9, 41, 20)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    @Before
+    fun setUp() {
+        TimeZone.setDefault(zone)
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        shadowOf(context.packageManager).addActivityIfNotPresent(ComponentName(context, ComponentActivity::class.java))
+    }
+
+    private fun at(hour: Int, minute: Int): Long = Calendar.getInstance(zone).apply {
+        timeInMillis = now
+        set(Calendar.HOUR_OF_DAY, hour)
+        set(Calendar.MINUTE, minute)
+        set(Calendar.SECOND, 0)
+    }.timeInMillis
+
+    private val trusted = listOf(
+        TrustedDevice("work", "Work MacBook"),
+        TrustedDevice("personal", "Personal Mac"),
+        TrustedDevice("mini", "Mac mini"),
+    )
+    private val peers = listOf(DiscoveredPeer("personal-svc", "personal", "Personal Mac", "macos", 1, "10.0.0.3", 42_458))
+    private val rings get() = deviceRings(trusted, peers, PairingState.Connected("work", "Work MacBook"))
+
+    private val activity get() = listOf(
+        ActivityItem(7, ActivityKind.CLIPBOARD_SENT, "work", "Work MacBook", null, "Room 2 at 4, bring the deck", null, false, 1, now - 20_000),
+        ActivityItem(6, ActivityKind.CALL_SHOWN, "work", "Work MacBook", null, "Mum", null, false, 1, at(9, 40)),
+        ActivityItem(5, ActivityKind.FILE_RECEIVED, "personal", "Personal Mac", "invoice-oct.pdf", null, null, false, 1, at(9, 12)),
+        ActivityItem(4, ActivityKind.CLIPBOARD_RECEIVED, "work", "Work MacBook", null, null, null, true, 1, at(9, 5)),
+        ActivityItem(3, ActivityKind.LINK_SENT, "mini", "Mac mini", null, null, null, false, 1, at(8, 58)),
+        ActivityItem(2, ActivityKind.NOTIFICATIONS_SHOWN, "work", "Work MacBook", null, null, "WhatsApp", false, 4, at(8, 55)),
+        ActivityItem(1, ActivityKind.PING_RECEIVED, "work", "Work MacBook", null, null, null, false, 1, at(8, 30) - 24 * 60 * 60 * 1000L),
+    )
+
+    private fun nameFor(item: ActivityItem) = rings.firstOrNull { it.deviceId == item.deviceId }?.name ?: item.deviceName
+
+    private fun capture(name: String, content: @Composable () -> Unit) {
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.enableEdgeToEdge()
+                activity.setContent { BridgeyTheme { content() } }
+                val density = activity.resources.displayMetrics.density
+                val insets = WindowInsetsCompat.Builder()
+                    .setInsets(WindowInsetsCompat.Type.statusBars(), Insets.of(0, (40 * density).toInt(), 0, 0))
+                    .setInsets(WindowInsetsCompat.Type.navigationBars(), Insets.of(0, 0, 0, (24 * density).toInt()))
+                    .build()
+                ViewCompat.dispatchApplyWindowInsets(activity.window.decorView, insets)
+            }
+            repeat(3) { shadowOf(Looper.getMainLooper()).idle() }
+            val directory = System.getProperty("bridgey.screenshots") ?: "build/outputs/roborazzi"
+            scenario.onActivity { it.window.decorView.captureRoboImage("$directory/$name.png") }
+        }
+    }
+
+    private fun home() = capture(if (dark()) "home-dark" else "home-light") {
+        val rings = rings
+        HomeScreen(
+            state = HomeState(
+                rings = rings,
+                target = sendTarget(rings, null),
+                activity = activity,
+                live = emptyList(),
+                canSendClipboard = true,
+                now = now,
+            ),
+            actions = HomeActions(),
+            snackbar = remember { SnackbarHostState() },
+            deviceName = ::nameFor,
+        )
+    }
+
+    private fun device(tab: DeviceTab) = capture("device-${tab.name.lowercase()}-${if (dark()) "dark" else "light"}") {
+        val ring = rings.first()
+        val available = BridgeyFeature.entries.toSet() - BridgeyFeature.MEDIA
+        DeviceScreen(
+            state = DeviceState(
+                ring = ring,
+                battery = RemoteBatteryStatus(76, isCharging = true),
+                connected = true,
+                available = available,
+                ringing = false,
+                permissions = listOf(
+                    listOf(BridgeyFeature.CLIPBOARD),
+                    listOf(BridgeyFeature.FILES),
+                    listOf(BridgeyFeature.NOTIFICATIONS),
+                    listOf(BridgeyFeature.CALLS),
+                    listOf(BridgeyFeature.MEDIA),
+                    listOf(BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING),
+                    listOf(BridgeyFeature.LINKS),
+                    listOf(BridgeyFeature.BATTERY),
+                ).map { features ->
+                    PermissionRow(features, checked = true, globallyOff = false, remotelyOff = BridgeyFeature.MEDIA in features)
+                },
+                notificationAccess = true,
+                notificationAppsEnabled = 12,
+                activity = activity,
+                live = emptyList(),
+                now = now,
+            ),
+            actions = DeviceActions(),
+            snackbar = remember { SnackbarHostState() },
+            deviceName = ::nameFor,
+            initialTab = tab,
+        )
+    }
+
+    private fun settings() = capture(if (dark()) "settings-dark" else "settings-light") {
+        SettingsScreen(
+            state = SettingsState(
+                deviceName = "OnePlus 11",
+                pairedCount = 3,
+                notificationAppsEnabled = 12,
+                notificationAppsTotal = 48,
+                notificationsFeatureOn = true,
+                appNotificationsEnabled = true,
+                notificationAccessEnabled = true,
+                reduceMotion = false,
+                showPreviews = true,
+                activityCount = 6,
+                update = UpdateUiState(channel = UpdateChannel.STABLE, lastCheckedAt = now - 10 * 60_000),
+                installedVersion = "0.6.0",
+                now = now,
+            ),
+            actions = SettingsActions(),
+        )
+    }
+
+    private fun dark(): Boolean =
+        ApplicationProvider.getApplicationContext<Application>().resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
+
+    @Test fun homeLight() = home()
+
+    @Test @Config(qualifiers = "+night") fun homeDark() = home()
+
+    @Test fun deviceActivityLight() = device(DeviceTab.ACTIVITY)
+
+    @Test @Config(qualifiers = "+night") fun deviceActivityDark() = device(DeviceTab.ACTIVITY)
+
+    @Test fun devicePermissionsLight() = device(DeviceTab.PERMISSIONS)
+
+    @Test @Config(qualifiers = "+night") fun devicePermissionsDark() = device(DeviceTab.PERMISSIONS)
+
+    @Test fun settingsLight() = settings()
+
+    @Test @Config(qualifiers = "+night") fun settingsDark() = settings()
+}

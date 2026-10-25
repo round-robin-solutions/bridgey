@@ -8,9 +8,14 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.UserManager
 import android.provider.Settings
+import dev.bridgey.android.activity.ActivityLog
+import dev.bridgey.android.activity.ActivityRecorder
+import dev.bridgey.android.ui.UiPreferences
 import dev.bridgey.core.discovery.LocalDiscoveryIdentity
 import dev.bridgey.core.discovery.NsdDiscoveryService
+import java.io.File
 import java.util.UUID
+import java.util.concurrent.Executors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,6 +32,12 @@ class BridgeyApplication : Application() {
     lateinit var settings: BridgeySettings
         private set
     lateinit var updater: AppUpdater
+        private set
+    lateinit var activityLog: ActivityLog
+        private set
+    lateinit var activity: ActivityRecorder
+        private set
+    lateinit var uiPreferences: UiPreferences
         private set
     var isBridgeyEnabled: Boolean = false
         private set
@@ -55,6 +66,9 @@ class BridgeyApplication : Application() {
         val deviceName = settings.state.value.deviceName
         pairing = PairingCoordinator(this, deviceId, deviceName, settings = settings)
         discovery = NsdDiscoveryService(this, LocalDiscoveryIdentity(deviceId, deviceName))
+        uiPreferences = UiPreferences(this)
+        activityLog = ActivityLog(File(noBackupFilesDir, ActivityLog.FILE_NAME), Executors.newSingleThreadExecutor())
+        activity = ActivityRecorder(activityLog, pairing, applicationScope) { uiPreferences.showPreviews.value }.also { it.start() }
         applicationScope.launch {
             combine(discovery.peers, pairing.trustedDeviceIds, pairing.state) { peers, trustedIds, state ->
                 Triple(peers, trustedIds, state)

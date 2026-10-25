@@ -295,11 +295,12 @@ class ClipboardCaptureActivity : Activity() {
             // Clipboard access is allowed only once this user-initiated activity is foreground.
             val clipboard = getSystemService(ClipboardManager::class.java)
             val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(this@ClipboardCaptureActivity)?.toString()
+            val sensitive = clipboard.primaryClipDescription.isMarkedSensitive()
             if (text.isNullOrEmpty()) {
                 Toast.makeText(this@ClipboardCaptureActivity, "Clipboard is empty", Toast.LENGTH_SHORT).show()
             } else {
                 val appContext = applicationContext
-                (application as BridgeyApplication).pairing.sendText(text) { result ->
+                (application as BridgeyApplication).pairing.sendText(text, sensitive) { result ->
                     Handler(Looper.getMainLooper()).post {
                         val message = when (result) {
                             ClipboardSendResult.DELIVERED -> "Clipboard sent to Mac"

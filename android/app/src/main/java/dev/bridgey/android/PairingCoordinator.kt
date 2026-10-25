@@ -92,6 +92,19 @@ data class FileTransferState(
 
 data class TrustedDevice(val id: String, val name: String)
 
+/** Events reported to the activity stream. Only clipboard events carry text, for the stream's preview. */
+enum class PeerActivity { CLIPBOARD_SENT, CLIPBOARD_RECEIVED, PING_RECEIVED, CALL_STARTED }
+
+data class PeerEvent(
+    val activity: PeerActivity,
+    val deviceId: String,
+    val deviceName: String,
+    /** Clipboard text (plain text of rich clips); the stream keeps a short preview only. */
+    val clipboardText: String? = null,
+    /** The clip was marked sensitive (ClipDescription.EXTRA_IS_SENSITIVE). */
+    val sensitive: Boolean = false,
+)
+
 data class RemoteBatteryStatus(val level: Int, val isCharging: Boolean)
 
 class PairingCoordinator(
@@ -145,6 +158,10 @@ class PairingCoordinator(
     private val diagnostics = BridgeyDiagnostics()
     private val remoteCallRequest = RemoteCallRequest(appContext)
     private var lastRemoteCallRequestAt = 0L
+
+    /** Activity stream hook. Never logged or added to diagnostics. */
+    @Volatile
+    var activityListener: ((PeerEvent) -> Unit)? = null
 
     init {
         scope.launch {
@@ -239,16 +256,17 @@ class PairingCoordinator(
         if (text.isNullOrEmpty()) {
             mutableClipboardStatus.value = "Clipboard unavailable. Copy text, return to Bridgey, and try again."
         } else {
-            sendClipboardContent(text, item.htmlText)
+            sendClipboardContent(text, item.htmlText, sensitive = clipboard.primaryClipDescription.isMarkedSensitive())
         }
     }
 
-    fun sendText(text: String, onResult: (ClipboardSendResult) -> Unit = {}) =
-        sendClipboardContent(text, html = null, onResult = onResult)
+    fun sendText(text: String, sensitive: Boolean = false, onResult: (ClipboardSendResult) -> Unit = {}) =
+        sendClipboardContent(text, html = null, sensitive = sensitive, onResult = onResult)
 
     private fun sendClipboardContent(
         text: String,
         html: String?,
+        sensitive: Boolean = false,
         onResult: (ClipboardSendResult) -> Unit = {},
     ) {
         if (!isFeatureAvailable(BridgeyFeature.CLIPBOARD)) {
@@ -280,7 +298,12 @@ class PairingCoordinator(
                 return@launch
             }
             val messageId = UUID.randomUUID().toString()
-            pendingClipboardSends[messageId] = onResult
+            pendingClipboardSends[messageId] = { result ->
+                if (result == ClipboardSendResult.DELIVERED) {
+                    activityListener?.invoke(PeerEvent(PeerActivity.CLIPBOARD_SENT, current.remoteDeviceId, current.peerName, text, sensitive))
+                }
+                onResult(result)
+            }
             val richContent = RichClipboardContent.create(text, html)
             val plaintext = richContent?.encode() ?: text.toByteArray(Charsets.UTF_8)
             val encrypted = Crypto.encrypt(current.pairingKey!!, plaintext)
@@ -404,6 +427,7 @@ class PairingCoordinator(
         }
         current.send(Message(kind = "ping.ack", sessionId = current.id, messageId = messageId))
         android.util.Log.i("Bridgey", "PLUGIN ping received")
+        activityListener?.invoke(PeerEvent(PeerActivity.PING_RECEIVED, current.remoteDeviceId, current.peerName))
     }
 
     private fun clearPingStatus() {
@@ -1090,6 +1114,9 @@ class PairingCoordinator(
         val result = remoteCallRequest.execute(number, settings.state.value.directCallsEnabled)
         current.send(Message(kind = result.wireKind, sessionId = current.id, messageId = messageId))
         diagnostics.record("calls", "request", outcome = result.name.lowercase())
+        if (result == RemoteCallResult.STARTED) {
+            activityListener?.invoke(PeerEvent(PeerActivity.CALL_STARTED, current.remoteDeviceId, current.peerName))
+        }
     }
 
     private fun receiveNotificationAction(current: Session, message: Message) {
@@ -1143,6 +1170,9 @@ class PairingCoordinator(
         appContext.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
         diagnostics.record("clipboard", if (rich) "rich_received" else "text_received")
         android.util.Log.i("Bridgey", "PLUGIN clipboard received")
+        activityListener?.invoke(
+            PeerEvent(PeerActivity.CLIPBOARD_RECEIVED, current.remoteDeviceId, current.peerName, clip.getItemAt(0).text?.toString()),
+        )
         current.send(Message(kind = "clipboard.ack", sessionId = current.id, messageId = messageId))
     }
 
