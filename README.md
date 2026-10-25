@@ -1,3 +1,22 @@
+# Bridgey by Round Robin
+
+This repository is **Bridgey by Round Robin**, Round Robin's edition of
+[Bridgey](https://github.com/singeol/bridgey). Built on Bridgey by Semyon Mikhailov,
+under the same [MIT licence](LICENSE).
+
+- A separate app (`in.roundrobin.bridgey` on Android and macOS) that installs next to upstream
+  Bridgey and pairs with upstream clients over the same protocol.
+- In-app updates with three channels, Stable, Beta and Nightly, chosen in Settings.
+- Downloads: [releases of round-robin-solutions/bridgey](https://github.com/round-robin-solutions/bridgey/releases).
+  Each release has the Android APK, a macOS DMG and ZIP, and `SHA256SUMS`.
+
+What differs from upstream, how releases and channels work, where the signing keys live and
+how to merge upstream changes: [docs/rr-edition.md](docs/rr-edition.md).
+
+The upstream README follows unchanged.
+
+---
+
 # Bridgey
 
 [![Build](https://github.com/singeol/bridgey/actions/workflows/ci.yml/badge.svg)](https://github.com/singeol/bridgey/actions/workflows/ci.yml)
