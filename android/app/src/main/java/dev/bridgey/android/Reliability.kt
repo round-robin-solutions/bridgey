@@ -47,6 +47,7 @@ internal fun recoverInterruptedTransfers(
             status = "Transfer interrupted — reconnect to retry",
             active = false,
             progressPercent = null,
+            queued = false,
         ) else transfer
     }
     .values

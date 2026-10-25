@@ -160,9 +160,18 @@ func streamRows(_ items: [ActivityItem], deviceID: String? = nil, now: Date, cal
     return rows
 }
 
-/// Transfers that need a card with an action: running ones (Cancel) and failed ones that can be retried.
+/// Transfers that need a card with an action: running ones (Cancel) and failed ones that can be retried,
+/// newest first, then the queued files in the order they will be sent.
 func liveTransfers(_ transfers: [String: FileTransferRow]) -> [FileTransferRow] {
-    transfers.values.filter { $0.active || $0.retryable }.sorted { $0.startedAt > $1.startedAt }
+    let candidates = transfers.values.filter { $0.active || $0.retryable }
+    let others = candidates.filter { !$0.queued }.sorted { $0.startedAt > $1.startedAt }
+    let queued = candidates.filter(\.queued).sorted { $0.startedAt < $1.startedAt }
+    return others + queued
+}
+
+/// Cancel All appears on the first transfer card once more than one transfer is running or queued.
+func showsCancelAll(_ transfers: [FileTransferRow]) -> Bool {
+    transfers.filter(\.active).count > 1
 }
 
 /// A transfer card's detail without repeating the file name the card already shows as its title.

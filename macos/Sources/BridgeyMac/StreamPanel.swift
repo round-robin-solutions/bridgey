@@ -76,7 +76,7 @@ struct PanelActions {
     var cancel: () -> Void = {}
     var openLocalNetworkSettings: () -> Void = {}
     var sendClipboard: () -> Void = {}
-    var dropFile: (URL) -> Bool = { _ in false }
+    var dropFiles: ([URL]) -> Bool = { _ in false }
     var chooseFile: () -> Void = {}
     var openDropWindow: () -> Void = {}
     var showTransfers: () -> Void = {}
@@ -90,6 +90,7 @@ struct PanelActions {
     var openLink: () -> Void = {}
     var dismissLink: () -> Void = {}
     var cancelTransfer: (String) -> Void = { _ in }
+    var cancelAllTransfers: () -> Void = {}
     var retryTransfer: (String) -> Void = { _ in }
     var callAction: (RemoteCallAction) -> Void = { _ in }
     var enableNotifications: () -> Void = {}
@@ -715,11 +716,16 @@ private struct LiveCards: View {
                 .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
             }
             ForEach(model.transfers) { transfer in
-                LiveCard(symbol: transfer.active ? "arrow.up.arrow.down" : "exclamationmark.arrow.triangle.2.circlepath",
+                LiveCard(symbol: transfer.queued ? "clock" : transfer.active ? "arrow.up.arrow.down" : "exclamationmark.arrow.triangle.2.circlepath",
                          tint: transfer.active ? .green : .neutral,
                          title: transfer.name, detail: transferDetail(transfer)) {
-                    Button(L10n.text("panel.transfer.details", fallback: "Details"), action: actions.showTransfers)
-                        .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
+                    if transfer.id == model.transfers.first?.id, showsCancelAll(model.transfers) {
+                        Button(L10n.text("transfers.cancelAll", fallback: "Cancel All"), action: actions.cancelAllTransfers)
+                            .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
+                    } else {
+                        Button(L10n.text("panel.transfer.details", fallback: "Details"), action: actions.showTransfers)
+                            .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
+                    }
                     if transfer.active {
                         Button(L10n.text("action.cancel", fallback: "Cancel")) { actions.cancelTransfer(transfer.id) }
                             .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
@@ -1109,8 +1115,8 @@ private struct SendBar: View {
         .background(Capsule().fill(c.s2))
         .overlay(Capsule().strokeBorder(targeted ? c.pri : Color.clear, lineWidth: 2))
         .modifier(FileDrop(enabled: !snapshot) { urls in
-            guard canDrop, let url = urls.first else { return false }
-            return actions.dropFile(url)
+            guard canDrop, !urls.isEmpty else { return false }
+            return actions.dropFiles(urls)
         } targeted: { targeted = $0 && canDrop })
     }
 
@@ -1266,7 +1272,7 @@ struct BridgeyPanel: View {
             }
         }
         actions.sendClipboard = { pairing.sendClipboard() }
-        actions.dropFile = { pairing.sendDroppedFile($0) }
+        actions.dropFiles = { pairing.sendDroppedFiles($0) }
         actions.chooseFile = { pairing.chooseAndSendFile() }
         actions.openDropWindow = { pairing.showFileDropWindow() }
         actions.showTransfers = { pairing.showFileTransferWindow() }
@@ -1280,6 +1286,7 @@ struct BridgeyPanel: View {
         actions.openLink = { quickActions.openLink() }
         actions.dismissLink = { quickActions.dismissLink() }
         actions.cancelTransfer = { pairing.cancelFileTransfer(id: $0) }
+        actions.cancelAllTransfers = { pairing.cancelFileTransfer() }
         actions.retryTransfer = { pairing.retryFileTransfer(id: $0) }
         actions.callAction = { pairing.performRemoteCallAction($0) }
         actions.enableNotifications = { pairing.enableNotifications() }

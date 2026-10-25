@@ -96,6 +96,7 @@ import dev.bridgey.android.ui.UiPreferences
 import dev.bridgey.android.ui.deviceIcon
 import dev.bridgey.android.ui.deviceRings
 import dev.bridgey.android.ui.liveTransfers
+import dev.bridgey.android.ui.showsCancelAll
 import dev.bridgey.android.ui.motion.LocalMotion
 import dev.bridgey.android.ui.motion.rememberAnimatorScale
 import dev.bridgey.android.ui.motion.resolveMotion
@@ -547,10 +548,12 @@ private fun BridgeyApp(
         reconnectCard(target)?.let(::add)
         if (phoneRinging && connected != null) add(LiveCard.Ringing(connected.peerName))
         receivedLink?.takeIf { linksAvailable && connected != null }?.let { add(LiveCard.Link(it, connected!!.peerName)) }
-        liveTransfers(fileTransfers).forEach { add(LiveCard.Transfer(it)) }
+        val cancelAll = showsCancelAll(fileTransfers.values)
+        liveTransfers(fileTransfers).forEachIndexed { index, transfer -> add(LiveCard.Transfer(transfer, cancelAll = cancelAll && index == 0)) }
     }
     val liveActions = LiveActions(
         cancelTransfer = pairing::cancelFileTransfer,
+        cancelAllTransfers = { pairing.cancelFileTransfer() },
         retryTransfer = pairing::retryFileTransfer,
         dismissTransfers = pairing::clearTransferHistory,
         openLink = pairing.quickActions::openLink,
@@ -559,7 +562,7 @@ private fun BridgeyApp(
         media = { action, value -> pairing.quickActions.request(BridgeyFeature.MEDIA, action, value) },
         retryDevice = pairing::retryNow,
     )
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { pairing.sendFile(it, fileTarget) } }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> if (uris.isNotEmpty()) pairing.sendFiles(uris, fileTarget) }
     val readClipboard = {
         val clipboard = context.getSystemService(ClipboardManager::class.java)
         clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
@@ -1012,7 +1015,7 @@ private fun BridgeyApp(
                     enabled = isConnected && featureAvailable,
                     onClick = {
                         content.text?.let { pairing.sendText(it) }
-                        content.files.forEach(pairing::sendFile)
+                        if (content.files.isNotEmpty()) pairing.sendFiles(content.files)
                         onSharedContentHandled()
                     },
                 ) { Text("Send") }

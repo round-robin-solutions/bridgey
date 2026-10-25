@@ -114,7 +114,8 @@ class BridgeyConnectionService : Service() {
     private val transferNotificationUpdatedAt = mutableMapOf<String, Long>()
 
     private fun updateTransferNotifications(transfers: Map<String, FileTransferState>) {
-        val active = transfers.values.filter { it.active }
+        // Queued files get no notification until they start: 50 queued files must not post 50 "Cancel" notifications.
+        val active = notifiableTransfers(transfers)
         val activeIds = active.map { transferNotificationId(it.id) }.toSet()
         (shownTransferNotifications - activeIds).forEach(notificationManager::cancel)
         transferNotificationUpdatedAt.keys.retainAll(active.map { it.id }.toSet())

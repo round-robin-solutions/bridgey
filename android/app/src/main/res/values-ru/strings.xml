@@ -492,4 +492,6 @@
     <string name="remote_reason_unsupported">Эта версия не может управлять %1$s. Обновите Bridgey на обоих устройствах.</string>
     <string name="remote_reason_disconnected">Соединение с %1$s потеряно.</string>
     <string name="remote_reason_no_answer">%1$s не ответил. Проверьте, что там открыт Bridgey последней версии.</string>
+    <string name="file_queued">В очереди</string>
+    <string name="transfers_cancel_all">Отменить все</string>
 </resources>

@@ -58,6 +58,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
@@ -95,6 +96,8 @@ data class FileTransferState(
     /** The device on the other end of the transfer. */
     val deviceId: String? = null,
     val deviceName: String = "",
+    /** Waiting in the send queue; not offered to the device yet. */
+    val queued: Boolean = false,
 )
 
 data class TrustedDevice(val id: String, val name: String)
@@ -237,6 +240,9 @@ class PairingCoordinator(
 
     /** Which device each file transfer belongs to. */
     private val transferDevices = ConcurrentHashMap<String, String>()
+
+    /** One sequential send queue per device: a device gets one file at a time. */
+    private val fileSendQueues = ConcurrentHashMap<String, FileSendQueue<Uri>>()
     val deviceId: String get() = localDeviceId
     private var server: ServerSocket? = null
     private var acceptJob: Job? = null
@@ -1260,22 +1266,96 @@ class PairingCoordinator(
     }
 
     /** Sends a file to [deviceId] (null: the selected device). */
-    fun sendFile(uri: Uri, deviceId: String? = null) {
+    fun sendFile(uri: Uri, deviceId: String? = null) = sendFiles(listOf(uri), deviceId)
+
+    /**
+     * Adds files to [deviceId]'s outgoing queue (null: the selected device). Files are offered one
+     * after another, each as its own transfer, so a failure or cancellation affects only that file.
+     */
+    fun sendFiles(uris: List<Uri>, deviceId: String? = null) {
+        if (uris.isEmpty()) return
         val connectedSession = sessionFor(deviceId)
         if (connectedSession == null) {
             mutableFileTransferStatus.value = "Not connected — file was not sent"
             return
         }
-        if (!isFeatureAvailable(BridgeyFeature.FILES, connectedSession.remoteDeviceId)) {
+        val target = connectedSession.remoteDeviceId
+        if (!isFeatureAvailable(BridgeyFeature.FILES, target)) {
             mutableFileTransferStatus.value = "File transfer is turned off on one of your devices"
             return
         }
+        val queuedAt = System.currentTimeMillis()
+        val status = appContext.getString(R.string.file_queued)
+        val queued = uris.distinct().mapIndexed { index, uri ->
+            val transferId = UUID.randomUUID().toString()
+            outgoingFileSources[transferId] = uri
+            transferDevices[transferId] = target
+            FileTransferState(
+                id = transferId,
+                name = "Selected file",
+                status = status,
+                active = true,
+                progressPercent = null,
+                startedAtMillis = queuedAt + index,
+                deviceId = target,
+                deviceName = connectedSession.peerName,
+                queued = true,
+            ) to uri
+        }
+        mutableFileTransfers.update { transfers -> transfers + queued.associate { (transfer, _) -> transfer.id to transfer } }
+        val queue = fileSendQueues.getOrPut(target) { FileSendQueue() }
+        queued.forEach { (transfer, uri) -> queue.enqueue(transfer.id, uri) }
+        pruneTransferHistory()
+        refreshFileTransferSummary(status)
+        scope.launch {
+            queued.forEach { (transfer, uri) ->
+                val name = runCatching { displayName(uri) }.getOrNull() ?: return@forEach
+                mutableFileTransfers.update { transfers ->
+                    val current = transfers[transfer.id]?.takeIf(FileTransferState::queued) ?: return@update transfers
+                    transfers + (transfer.id to current.copy(name = name))
+                }
+            }
+        }
+        startNextQueuedFile(target)
+    }
+
+    private fun displayName(uri: Uri): String? =
+        appContext.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let(cursor::getString)?.take(255)
+        }
+
+    private fun startNextQueuedFile(deviceId: String) {
+        val queue = fileSendQueues[deviceId] ?: return
+        if (registry.session(deviceId) == null) return
+        if (!isFeatureAvailable(BridgeyFeature.FILES, deviceId)) {
+            stopFileQueue(deviceId, "File transfer is turned off on one of your devices")
+            return
+        }
+        val (transferId, uri) = queue.startNext() ?: return
+        startFile(transferId, uri, deviceId)
+    }
+
+    private fun finishQueuedFile(transferId: String) {
+        val deviceId = transferDevices[transferId] ?: return
+        if (fileSendQueues[deviceId]?.finish(transferId) == true) startNextQueuedFile(deviceId)
+    }
+
+    /** Ends every file of [deviceId] that has not started yet with the given status. They remain retryable. */
+    private fun stopFileQueue(deviceId: String, status: String) {
+        fileSendQueues[deviceId]?.removeAllPending()?.forEach { removeFileTransfer(it, status) }
+    }
+
+    private fun startFile(transferId: String, uri: Uri, deviceId: String) {
+        val connectedSession = registry.session(deviceId)
+        if (connectedSession == null) {
+            removeFileTransfer(transferId, "Transfer interrupted — reconnect to retry")
+            finishQueuedFile(transferId)
+            return
+        }
         val peer = connectedSession.peerName
-        val transferId = UUID.randomUUID().toString()
-        outgoingFileSources[transferId] = uri
-        transferDevices[transferId] = connectedSession.remoteDeviceId
         diagnostics.record("transfer", "send_started")
-        updateFileTransfer(transferId, "Selected file", "Preparing…", true)
+        updateFileTransfer(transferId, mutableFileTransfers.value[transferId]?.name ?: "Selected file", "Preparing…", true)
         val job = scope.launch {
             val resolver = appContext.contentResolver
             val metadata = runCatching {
@@ -1411,10 +1491,19 @@ class PairingCoordinator(
             }
         }
         outgoingFileJobs[transferId] = job
-        job.invokeOnCompletion { outgoingFileJobs.remove(transferId, job) }
+        job.invokeOnCompletion {
+            outgoingFileJobs.remove(transferId, job)
+            finishQueuedFile(transferId)
+        }
     }
 
     fun cancelFileTransfer(transferId: String) {
+        val queueDevice = transferDevices[transferId]
+        if (queueDevice != null && fileSendQueues[queueDevice]?.removePending(transferId) == true) {
+            removeFileTransfer(transferId, "Transfer cancelled")
+            diagnostics.record("transfer", "cancelled")
+            return
+        }
         val current = transferDevices[transferId]?.let(registry::session)
         markTransferCancelled(transferId)
         if (current != null) {
@@ -1433,7 +1522,10 @@ class PairingCoordinator(
         diagnostics.record("transfer", "cancelled")
     }
 
-    fun cancelFileTransfer() = mutableFileTransfers.value.values.filter { it.active }.forEach { cancelFileTransfer(it.id) }
+    fun cancelFileTransfer() {
+        fileSendQueues.keys.forEach { stopFileQueue(it, "Transfer cancelled") }
+        mutableFileTransfers.value.values.filter { it.active }.forEach { cancelFileTransfer(it.id) }
+    }
 
     /** Retries to the same device the file first went to. */
     fun retryFileTransfer(transferId: String) {
@@ -1511,6 +1603,7 @@ class PairingCoordinator(
         pendingFileCompletions.clear()
         incomingFiles.values.forEach(IncomingFileTransfer::cancel)
         incomingFiles.clear()
+        interruptFileQueue()
         outgoingFileJobs.values.forEach(Job::cancel)
         outgoingFileJobs.clear()
         mutableFileTransfers.value = recoverInterruptedTransfers(mutableFileTransfers.value)
@@ -1815,6 +1908,7 @@ class PairingCoordinator(
             "files.rejected" -> message.transferId?.let { transferId ->
                 if (clipboardOutbox.handles(transferId)) return clipboardOutbox.onCancelled(transferId)
                 if (!ownsTransfer(current, transferId)) return
+                stopFileQueue(current.remoteDeviceId, "File transfer is turned off on ${current.peerName}")
                 pendingFileAccepts.remove(transferId)?.complete(false)
                 outgoingFileJobs.remove(transferId)?.cancel()
                 removeFileTransfer(transferId, "File transfer is turned off on ${current.peerName}")
@@ -2188,6 +2282,12 @@ class PairingCoordinator(
         android.util.Log.i("Bridgey", "PLUGIN file cancellation received transfer=${transferId.take(8)}")
     }
 
+    /** Ends the current and waiting outgoing files of [deviceId] (null: all) after the session is lost. They remain retryable. */
+    private fun interruptFileQueue(deviceId: String? = null) {
+        val queues = if (deviceId == null) fileSendQueues.values.toList() else listOfNotNull(fileSendQueues[deviceId])
+        queues.flatMap { it.removeAll() }.forEach { removeFileTransfer(it, "Transfer interrupted — reconnect to retry") }
+    }
+
     private fun markTransferCancelled(transferId: String) {
         cancelledTransferIds += transferId
         while (cancelledTransferIds.size > 64) cancelledTransferIds.firstOrNull()?.let(cancelledTransferIds::remove)
@@ -2226,6 +2326,7 @@ class PairingCoordinator(
                     active = false,
                     progressPercent = null,
                     retryable = outgoingFileSources.containsKey(id),
+                    queued = false,
                 ))
             }
         }
@@ -2244,7 +2345,7 @@ class PairingCoordinator(
     private fun refreshFileTransferSummary(fallback: String? = null) {
         val activeTransfers = mutableFileTransfers.value.values.filter { it.active }
         mutableFileTransferActive.value = activeTransfers.isNotEmpty()
-        mutableFileTransferStatus.value = activeTransfers.firstOrNull()?.status ?: fallback
+        mutableFileTransferStatus.value = (activeTransfers.firstOrNull { !it.queued } ?: activeTransfers.firstOrNull())?.status ?: fallback
     }
 
     private fun authenticateOrPrompt(current: Session) {
@@ -2388,6 +2489,7 @@ class PairingCoordinator(
             )
         }
         if (!clipboardOffersAvailable(deviceId)) clipboardOutbox.disconnected(deviceId)
+        if (received[BridgeyFeature.FILES] == false) stopFileQueue(deviceId, "File transfer is turned off on ${current.peerName}")
         if (received[BridgeyFeature.FIND_DEVICE] == false && phoneRingingFrom == deviceId) stopPhoneRinging()
         val isTarget = registry.target(selectedDeviceId) == deviceId
         if (isTarget && received[BridgeyFeature.CLIPBOARD] == false) mutableClipboardStatus.value = null
@@ -2447,6 +2549,7 @@ class PairingCoordinator(
         val ids = if (deviceId == null) null else transferDevices.filterValues { it == deviceId }.keys
         fun mine(transferId: String) = ids == null || transferId in ids
         val hadActiveTransfers = mutableFileTransfers.value.values.any { it.active && mine(it.id) }
+        interruptFileQueue(deviceId)
         incomingFiles.entries.filter { mine(it.key) }.forEach { (id, transfer) ->
             transfer.cancel()
             incomingFiles.remove(id)

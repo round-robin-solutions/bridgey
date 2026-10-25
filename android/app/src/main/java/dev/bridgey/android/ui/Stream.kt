@@ -72,7 +72,7 @@ val LocalShowPreviews = androidx.compose.runtime.staticCompositionLocalOf { true
 sealed interface LiveCard {
     val key: String
 
-    data class Transfer(val transfer: FileTransferState) : LiveCard {
+    data class Transfer(val transfer: FileTransferState, val cancelAll: Boolean = false) : LiveCard {
         override val key get() = "transfer:${transfer.id}"
     }
 
@@ -96,6 +96,7 @@ sealed interface LiveCard {
 
 class LiveActions(
     val cancelTransfer: (String) -> Unit = {},
+    val cancelAllTransfers: () -> Unit = {},
     val retryTransfer: (String) -> Unit = {},
     val dismissTransfers: () -> Unit = {},
     val openLink: () -> Unit = {},
@@ -444,7 +445,7 @@ private fun LiveCardRow(card: LiveCard, actions: LiveActions, first: Boolean, la
             Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).background(colors.surface1).padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
             when (card) {
-                is LiveCard.Transfer -> TransferCardContent(card.transfer, actions)
+                is LiveCard.Transfer -> TransferCardContent(card.transfer, card.cancelAll, actions)
                 is LiveCard.Link -> {
                     CardText(stringResource(R.string.live_link_title, card.deviceName), card.url, singleLineDetail = false)
                     CardActions {
@@ -490,10 +491,15 @@ private fun CardActions(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun TransferCardContent(transfer: FileTransferState, actions: LiveActions) {
+private fun TransferCardContent(transfer: FileTransferState, cancelAll: Boolean, actions: LiveActions) {
     CardText(transfer.name, compactTransferStatus(transfer))
     val percent = transfer.progressPercent
-    if (transfer.active) {
+    if (transfer.active && transfer.queued) {
+        CardActions {
+            if (cancelAll) TonalPillButton(stringResource(R.string.transfers_cancel_all), actions.cancelAllTransfers, tint = Tint.NEUTRAL)
+            TonalPillButton(stringResource(R.string.action_cancel), { actions.cancelTransfer(transfer.id) }, tint = Tint.NEUTRAL)
+        }
+    } else if (transfer.active) {
         Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (percent != null) {
                 LinearProgressIndicator(
@@ -514,7 +520,10 @@ private fun TransferCardContent(transfer: FileTransferState, actions: LiveAction
                 )
             }
         }
-        CardActions { TonalPillButton(stringResource(R.string.action_cancel), { actions.cancelTransfer(transfer.id) }, tint = Tint.NEUTRAL) }
+        CardActions {
+            if (cancelAll) TonalPillButton(stringResource(R.string.transfers_cancel_all), actions.cancelAllTransfers, tint = Tint.NEUTRAL)
+            TonalPillButton(stringResource(R.string.action_cancel), { actions.cancelTransfer(transfer.id) }, tint = Tint.NEUTRAL)
+        }
     } else {
         CardActions {
             TonalPillButton(stringResource(R.string.action_dismiss), actions.dismissTransfers, tint = Tint.NEUTRAL)

@@ -468,4 +468,6 @@
     <string name="remote_reason_unsupported">%1$s cannot be controlled by this version. Update Bridgey on both devices.</string>
     <string name="remote_reason_disconnected">The connection to %1$s was lost.</string>
     <string name="remote_reason_no_answer">%1$s did not answer. Check that Bridgey is open there and up to date.</string>
+    <string name="file_queued">Queued</string>
+    <string name="transfers_cancel_all">Cancel all</string>
 </resources>

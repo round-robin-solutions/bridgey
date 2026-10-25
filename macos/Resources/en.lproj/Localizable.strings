@@ -31,9 +31,11 @@
 "devices.pair.searching" = "Looking for devices on this network…";
 "devices.permissions.intro" = "What this Mac shares with %@.";
 "drop.detail" = "This window stays open while you switch to Finder.";
+"drop.foldersSkipped" = "Folders were skipped. Only files are sent.";
+"drop.hint" = "Drop files to send them to the connected Android device one after another";
 "drop.open" = "Open file drop window";
-"drop.ready" = "Drop one file anywhere in this area";
-"drop.title" = "Drop a file here to send";
+"drop.ready" = "Drop one or more files anywhere in this area. They are sent one after another.";
+"drop.title" = "Drop files here to send";
 "drop.unavailable" = "Connect an Android device and enable File transfer first.";
 "feature.battery.detail" = "Share battery level both ways";
 "feature.calls.detail" = "Start calls on the phone from this Mac";
@@ -45,6 +47,8 @@
 "feature.notifications.detail" = "Show the phone’s notifications on this Mac";
 "feature.ping.detail" = "A short alert, both ways";
 "feature.remoteInput.detail" = "Let a phone you allow move the pointer, type and change slides";
+"files.panel.title" = "Send Files to Android";
+"files.queued" = "Queued";
 "panel.battery" = "Battery %d%%";
 "panel.battery.charging" = "Battery %d%%, charging";
 "panel.call.usePhone" = "Use the phone to control this call.";
@@ -295,6 +299,7 @@
 "thisMac.disconnect" = "Disconnect";
 "thisMac.failed" = "Couldn’t connect";
 "thisMac.idle" = "Not connected";
+"transfers.cancelAll" = "Cancel All";
 "updates.automatic" = "Check for updates automatically";
 "updates.channel" = "Release channel";
 "updates.channel.note" = "Switching to a steadier channel waits for its next release; nothing is downgraded.";
