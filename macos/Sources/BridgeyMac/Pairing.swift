@@ -164,7 +164,9 @@ private final class NotificationPresenter: NSObject, UNUserNotificationCenterDel
 
 @MainActor
 final class PairingCoordinator: ObservableObject {
-    @Published private(set) var state: PairingState = .idle
+    @Published private(set) var state: PairingState = .idle {
+        didSet { refreshAutoClipboard() }
+    }
     @Published private(set) var trustedDeviceIDs: Set<String>
     @Published private(set) var clipboardStatus: String? = nil
     @Published private(set) var remoteBattery: RemoteBatteryStatus? = nil
@@ -231,7 +233,9 @@ final class PairingCoordinator: ObservableObject {
     private var audibleCallIdentities = Set<String>()
     private var recordedCallIdentities = Set<String>()
     /// The clipboard being sent, as a stream preview, until the phone acknowledges it.
-    private var pendingClipboardActivity: (preview: String?, sensitive: Bool)?
+    private var pendingClipboardActivity: (preview: String?, sensitive: Bool, automatic: Bool)?
+    private let autoClipboard = AutoClipboardWatcher()
+    private var autoClipboardCancellable: AnyCancellable?
     private var alertedNotificationIdentifiers = AlertedNotificationIdentifiers()
     private var cancelledTransferIDs = Set<String>()
     private var findDeviceSound: NSSound?
@@ -298,6 +302,15 @@ final class PairingCoordinator: ObservableObject {
             }
         }
         shortcuts.register()
+        autoClipboard.onSend = { [weak self] text, html in self?.sendAutomaticClipboard(text: text, html: html) }
+        autoClipboard.onTooLarge = { [weak self] in
+            self?.clipboardStatus = "Clipboard is over 32 KiB, so it was not sent automatically"
+        }
+        autoClipboardCancellable = Publishers.CombineLatest(settings.$autoClipboardEnabled, settings.$autoClipboardDevices)
+            .dropFirst()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshAutoClipboard() }
+            }
         settingsCancellable = Publishers.CombineLatest3(
             settings.$globalFeatures,
             settings.$deviceFeatures,
@@ -325,6 +338,7 @@ final class PairingCoordinator: ObservableObject {
                     self.sendFeatureState()
                     self.mediaController.refresh()
                     self.publishLocalBattery(force: true)
+                    self.refreshAutoClipboard()
                 }
             }
     }
@@ -632,7 +646,19 @@ final class PairingCoordinator: ObservableObject {
         }
         let html = NSPasteboard.general.data(forType: .html)
             .flatMap { String(data: $0, encoding: .utf8) }
-        let concealed = pasteboardIsConcealed(NSPasteboard.general)
+        sendClipboardContent(text: text, html: html, concealed: pasteboardIsConcealed(NSPasteboard.general), automatic: false, in: current)
+    }
+
+    /// Automatic clipboard: a settled pasteboard change that passed AutoClipboardFilter.
+    private func sendAutomaticClipboard(text: String, html: String?) {
+        guard let current = session, case .connected = state,
+              isFeatureAvailable(.clipboard),
+              settings.isAutoClipboardEnabled(for: current.remoteDeviceID) else { return }
+        sendClipboardContent(text: text, html: html, concealed: false, automatic: true, in: current)
+    }
+
+    /// Sends through the existing clipboard.update / clipboard.rich messages and acknowledgement.
+    private func sendClipboardContent(text: String, html: String?, concealed: Bool, automatic: Bool, in current: Session) {
         let richContent = RichClipboardContent(text: text, html: html)
         let plaintext = richContent.flatMap { try? JSONEncoder().encode($0) } ?? Data(text.utf8)
         guard let encrypted = try? encrypt(plaintext, key: current.pairingKey!) else {
@@ -647,10 +673,12 @@ final class PairingCoordinator: ObservableObject {
             nonce: encrypted.nonce,
             ciphertext: encrypted.ciphertext
         ))
+        autoClipboard.noteSent(text: text)
         clipboardTimeoutWorkItem?.cancel()
         clipboardSendID = messageID
-        pendingClipboardActivity = (concealed ? nil : ActivityHistory.preview(text), concealed)
-        clipboardStatus = "Sending…"
+        pendingClipboardActivity = (concealed ? nil : ActivityHistory.preview(text), concealed, automatic)
+        // Automatic sends stay quiet; only problems show in the send bar.
+        clipboardStatus = automatic ? nil : "Sending…"
         let timeout = DispatchWorkItem { [weak self, weak current] in
             guard let self, let current, self.session === current,
                   self.clipboardSendID == messageID else { return }
@@ -661,7 +689,17 @@ final class PairingCoordinator: ObservableObject {
         }
         clipboardTimeoutWorkItem = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: timeout)
-        NSLog("PLUGIN clipboard sent")
+        NSLog("PLUGIN clipboard sent automatic=%@", String(automatic))
+    }
+
+    /// Runs the pasteboard watcher only while connected, with Clipboard available on both sides
+    /// and Automatic clipboard on for this device.
+    private func refreshAutoClipboard() {
+        var active = false
+        if case .connected = state, let current = session {
+            active = isFeatureAvailable(.clipboard) && settings.isAutoClipboardEnabled(for: current.remoteDeviceID)
+        }
+        autoClipboard.setActive(active)
     }
 
     private func clearClipboardSendStatus() {
@@ -1281,6 +1319,7 @@ final class PairingCoordinator: ObservableObject {
                 }
                 flushPendingCallIfPossible()
                 publishLocalBattery(force: true)
+                refreshAutoClipboard()
             case "ping.request":
                 try receivePing(message, in: current)
             case "ping.ack":
@@ -1324,6 +1363,8 @@ final class PairingCoordinator: ObservableObject {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)
                 if let html { NSPasteboard.general.setData(Data(html.utf8), forType: .html) }
+                // Automatic clipboard must not send this clip back to the phone.
+                autoClipboard.noteReceived(text: text, changeCount: NSPasteboard.general.changeCount)
                 diagnostics.record(category: "clipboard", event: html == nil ? "text_received" : "rich_received")
                 recordActivity(.clipboardReceived, in: current, preview: text)
                 NSLog("PLUGIN clipboard received")
@@ -1333,9 +1374,11 @@ final class PairingCoordinator: ObservableObject {
                 clipboardTimeoutWorkItem?.cancel()
                 clipboardTimeoutWorkItem = nil
                 clipboardSendID = nil
-                clipboardStatus = "Delivered"
                 if let pending = pendingClipboardActivity {
-                    recordActivity(.clipboardSent, in: current, preview: pending.preview, sensitive: pending.sensitive)
+                    clipboardStatus = pending.automatic ? nil : "Delivered"
+                    recordActivity(.clipboardSent, in: current, preview: pending.preview, sensitive: pending.sensitive, automatic: pending.automatic)
+                } else {
+                    clipboardStatus = "Delivered"
                 }
                 pendingClipboardActivity = nil
                 NSLog("PLUGIN clipboard acknowledged")

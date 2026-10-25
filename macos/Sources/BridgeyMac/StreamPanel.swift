@@ -40,6 +40,8 @@ struct PanelModel {
     var mediaPlayer: MediaPlayer = .off
     var mediaDetail = ""
     var fileTransferActive = false
+    /// Automatic clipboard is running for the connected device.
+    var autoClipboard = false
 
     var connectedName: String? {
         if case let .connected(_, name) = state { return name }
@@ -982,6 +984,11 @@ private struct SendBar: View {
         if !model.available.contains(.clipboard) && !model.available.contains(.files) {
             return String(format: L10n.text("send.off", fallback: "Sending is off for %@"), name)
         }
+        if model.autoClipboard {
+            return model.available.contains(.files)
+                ? L10n.text("send.hint.auto", fallback: "Copies send automatically, or drop a file")
+                : L10n.text("send.hint.autoOnly", fallback: "Copies send automatically")
+        }
         return model.available.contains(.files)
             ? L10n.text("send.hint", fallback: "Clipboard, or drop a file")
             : L10n.text("send.hint.clipboard", fallback: "Clipboard")
@@ -1061,6 +1068,9 @@ struct BridgeyPanel: View {
         model.transfers = liveTransfers(pairing.fileTransfers)
         model.hasTransferHistory = !pairing.fileTransfers.isEmpty
         model.fileTransferActive = pairing.fileTransferActive
+        if case let .connected(deviceID, _) = pairing.state {
+            model.autoClipboard = pairing.isFeatureAvailable(.clipboard) && settings.isAutoClipboardEnabled(for: deviceID)
+        }
         model.receivedLink = quickActions.receivedLink
         if case let .connected(_, name) = pairing.state {
             if pairing.macRinging { model.ringing = .mac(name) } else if pairing.androidRinging { model.ringing = .phone(name) }

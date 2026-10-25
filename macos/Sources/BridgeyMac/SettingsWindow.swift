@@ -69,6 +69,8 @@ struct SettingsModel {
     var globalFeatures: [BridgeyFeature: Bool] = [:]
     var deviceFeatures: [String: [BridgeyFeature: Bool]] = [:]
     var remoteFeatures: [BridgeyFeature: Bool] = [:]
+    var autoClipboard = true
+    var autoClipboardDevices: [String: Bool] = [:]
     var launchAtLogin = false
     var loginItemMessage: String?
     var receiveFolderPath = ""
@@ -103,6 +105,10 @@ struct SettingsModel {
     func isEnabled(_ feature: BridgeyFeature, for deviceID: String) -> Bool {
         globalFeatures[feature] != false && deviceFeatures[deviceID]?[feature] != false
     }
+
+    func isAutoClipboardEnabled(for deviceID: String) -> Bool {
+        autoClipboard && autoClipboardDevices[deviceID] != false
+    }
 }
 
 struct SettingsActions {
@@ -112,6 +118,8 @@ struct SettingsActions {
     var chooseReceiveFolder: () -> Void = {}
     var setGlobal: (BridgeyFeature, Bool) -> Void = { _, _ in }
     var setForDevice: (String, BridgeyFeature, Bool) -> Void = { _, _, _ in }
+    var setAutoClipboard: (Bool) -> Void = { _ in }
+    var setAutoClipboardForDevice: (String, Bool) -> Void = { _, _ in }
     var forget: (String) -> Void = { _ in }
     var pair: (DeviceRing) -> Void = { _ in }
     var enableNotifications: () -> Void = {}
@@ -469,6 +477,20 @@ struct SettingsPaneView: View {
     }
 }
 
+struct AutoClipboardToggle: View {
+    let isOn: Bool
+    var subtitle: String?
+    var subtitleIsWarning = false
+    let set: (Bool) -> Void
+
+    var body: some View {
+        SettingsToggle(title: L10n.text("settings.autoClipboard", fallback: "Automatic clipboard"),
+                       subtitle: subtitle ?? L10n.text("settings.autoClipboard.detail", fallback: "Copy on one device, paste on the other."),
+                       subtitleIsWarning: subtitleIsWarning,
+                       isOn: isOn, set: set)
+    }
+}
+
 /// The global switch that leads a feature pane.
 private struct FeatureSwitch: View {
     let feature: BridgeyFeature
@@ -505,8 +527,10 @@ private struct ClipboardPane: View {
     let actions: SettingsActions
 
     var body: some View {
-        SettingsCard {
+        SettingsCard(footnote: L10n.text("settings.autoClipboard.note", fallback: "Works while both devices are connected and Clipboard is on for both. Passwords and other concealed clips are never sent; text over 32 KiB is skipped.")) {
             FeatureSwitch(feature: .clipboard, model: model, actions: actions)
+            AutoClipboardToggle(isOn: model.autoClipboard, set: actions.setAutoClipboard)
+                .disabled(model.globalFeatures[.clipboard] == false)
         }
         ShortcutsCard(model: model, actions: actions, only: [.clipboard])
     }
@@ -761,6 +785,15 @@ struct DeviceCard: View {
                     set: { actions.setForDevice(device.id, feature, $0) }
                 )
                 .disabled(model.globalFeatures[feature] == false)
+                if feature == .clipboard {
+                    AutoClipboardToggle(
+                        isOn: model.isAutoClipboardEnabled(for: device.id),
+                        subtitle: model.autoClipboard ? nil : L10n.text("settings.autoClipboard.offEverywhere", fallback: "Off for every device, in Clipboard"),
+                        subtitleIsWarning: !model.autoClipboard,
+                        set: { actions.setAutoClipboardForDevice(device.id, $0) }
+                    )
+                    .disabled(!model.autoClipboard || !model.isEnabled(.clipboard, for: device.id))
+                }
             }
         }
         .confirmationDialog(
@@ -1035,6 +1068,8 @@ private struct LiveSettingsView: View {
         model.globalFeatures = settings.globalFeatures
         model.deviceFeatures = settings.deviceFeatures
         model.remoteFeatures = pairing.remoteFeatures
+        model.autoClipboard = settings.autoClipboardEnabled
+        model.autoClipboardDevices = settings.autoClipboardDevices
         model.launchAtLogin = settings.launchAtLogin
         model.loginItemMessage = settings.loginItemMessage
         model.receiveFolderPath = settings.receiveFolderPath
@@ -1083,6 +1118,8 @@ private struct LiveSettingsView: View {
                case let .connected(connectedID, _) = pairing.state,
                connectedID == deviceID { pairing.stopFinding() }
         }
+        actions.setAutoClipboard = { settings.setAutoClipboard($0) }
+        actions.setAutoClipboardForDevice = { deviceID, enabled in settings.setAutoClipboard(enabled, for: deviceID) }
         actions.forget = { pairing.forget(deviceID: $0) }
         actions.pair = { ring in
             guard let host = ring.peer?.host, let port = ring.peer?.port else { return }

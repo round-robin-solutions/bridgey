@@ -100,6 +100,8 @@
 "send.help" = "Send the clipboard";
 "send.hidden" = "Hidden (password)";
 "send.hint" = "Clipboard, or drop a file";
+"send.hint.auto" = "Copies send automatically, or drop a file";
+"send.hint.autoOnly" = "Copies send automatically";
 "send.hint.clipboard" = "Clipboard";
 "send.label" = "Send clipboard";
 "send.off" = "Sending is off for %@";
@@ -110,6 +112,10 @@
 "settings.activity.clear.body" = "This removes the stream from this Mac. Your other devices keep their own history.";
 "settings.activity.clear.title" = "Clear activity?";
 "settings.activity.detail" = "Kept only on this Mac, for 7 days. Never in diagnostics.";
+"settings.autoClipboard" = "Automatic clipboard";
+"settings.autoClipboard.detail" = "Copy on one device, paste on the other.";
+"settings.autoClipboard.note" = "Works while both devices are connected and Clipboard is on for both. Passwords and other concealed clips are never sent; text over 32 KiB is skipped.";
+"settings.autoClipboard.offEverywhere" = "Off for every device, in Clipboard";
 "settings.calls" = "Calls";
 "settings.clipboard" = "Clipboard";
 "settings.deviceName" = "Device name";

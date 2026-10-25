@@ -63,6 +63,7 @@ final class DesignScreenshots: XCTestCase {
         model.available = Set(BridgeyFeature.allCases)
         model.clipboardLine = "Room 2 at 4, bring the deck"
         model.mediaPlayer = .music
+        model.autoClipboard = true
         return model
     }
 
