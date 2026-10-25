@@ -64,11 +64,15 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 struct SettingsModel {
     var deviceName = "Mac"
     var state: PairingState = .idle
+    /// Connected phones; more than one shows as a count.
+    var connectedCount = 0
     var trustedDevices: [TrustedDeviceInfo] = []
     var rings: [DeviceRing] = []
     var globalFeatures: [BridgeyFeature: Bool] = [:]
     var deviceFeatures: [String: [BridgeyFeature: Bool]] = [:]
     var remoteFeatures: [BridgeyFeature: Bool] = [:]
+    /// Each connected phone's own feature state.
+    var phoneFeatures: [String: [BridgeyFeature: Bool]] = [:]
     var autoClipboard = true
     var autoClipboardDevices: [String: Bool] = [:]
     var clipboardFiles = true
@@ -321,7 +325,10 @@ private struct ThisMacHeader: View {
 
 /// "Connected to OnePlus 11", "Connecting to …" or "Not connected".
 func connectionText(_ model: SettingsModel) -> String {
-    switch model.state {
+    if model.connectedCount > 1 {
+        return String(format: L10n.text("thisMac.connectedMany", fallback: "Connected to %d devices"), model.connectedCount)
+    }
+    return switch model.state {
     case let .connected(_, name): String(format: L10n.text("thisMac.connected", fallback: "Connected to %@"), name)
     case let .connecting(name), let .verification(name, _): String(format: L10n.text("panel.connecting", fallback: "Connecting to %@"), name)
     case .failed: L10n.text("thisMac.failed", fallback: "Couldn\u{2019}t connect")
@@ -841,7 +848,8 @@ struct DeviceCard: View {
 
     private func note(_ feature: BridgeyFeature) -> String? {
         if model.globalFeatures[feature] == false { return L10n.text("permission.offEverywhere", fallback: "Off for every device") }
-        if model.connectedDeviceID == device.id && model.remoteFeatures[feature] == false {
+        let remote = model.phoneFeatures[device.id] ?? (model.connectedDeviceID == device.id ? model.remoteFeatures : [:])
+        if remote[feature] == false {
             return String(format: L10n.text("permission.offRemote", fallback: "Off on %@"), device.name)
         }
         return nil
@@ -1096,11 +1104,13 @@ private struct LiveSettingsView: View {
         var model = SettingsModel()
         model.deviceName = settings.deviceName
         model.state = pairing.state
+        model.connectedCount = pairing.connectedPhones.count
         model.trustedDevices = pairing.trustedDevices
-        model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, state: pairing.state)
+        model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, connected: pairing.connectedPhones, pairing: pairing.pairingFlow)
         model.globalFeatures = settings.globalFeatures
         model.deviceFeatures = settings.deviceFeatures
         model.remoteFeatures = pairing.remoteFeatures
+        model.phoneFeatures = Dictionary(pairing.connectedPhones.map { ($0.id, $0.state.remoteFeatures) }, uniquingKeysWith: { $1 })
         model.autoClipboard = settings.autoClipboardEnabled
         model.autoClipboardDevices = settings.autoClipboardDevices
         model.clipboardFiles = settings.clipboardFilesEnabled
@@ -1150,8 +1160,7 @@ private struct LiveSettingsView: View {
         actions.setForDevice = { deviceID, feature, enabled in
             settings.setForDevice(deviceID, feature: feature, enabled: enabled)
             if feature == .findDevice && !enabled,
-               case let .connected(connectedID, _) = pairing.state,
-               connectedID == deviceID { pairing.stopFinding() }
+               pairing.connectedPhones.contains(where: { $0.id == deviceID }) { pairing.stopFinding() }
         }
         actions.setAutoClipboard = { settings.setAutoClipboard($0) }
         actions.setAutoClipboardForDevice = { deviceID, enabled in settings.setAutoClipboard(enabled, for: deviceID) }

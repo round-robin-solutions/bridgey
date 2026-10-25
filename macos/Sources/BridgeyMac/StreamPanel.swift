@@ -22,8 +22,14 @@ enum NotificationPrompt: Equatable { case request, openSettings }
 struct PanelModel {
     var onboardingDone = true
     var state: PairingState = .idle
+    /// The pairing in progress only; drives the verification and failure cards.
+    var pairingFlow: PairingState = .idle
     var rings: [DeviceRing] = []
     var battery: RemoteBatteryStatus?
+    /// Each connected phone's own battery, by device id.
+    var batteries: [String: RemoteBatteryStatus] = [:]
+    /// The phone single-target actions go to.
+    var targetDeviceID: String?
     var transfers: [FileTransferRow] = []
     var hasTransferHistory = false
     var receivedLink: String?
@@ -57,6 +63,8 @@ struct PanelActions {
     var completeOnboarding: () -> Void = {}
     var connect: (DeviceRing) -> Void = { _ in }
     var disconnect: () -> Void = {}
+    var disconnectDevice: (String) -> Void = { _ in }
+    var selectDevice: (String) -> Void = { _ in }
     var confirm: () -> Void = {}
     var cancel: () -> Void = {}
     var openLocalNetworkSettings: () -> Void = {}
@@ -111,7 +119,8 @@ struct StreamPanelView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
         } else {
-            DeviceChips(rings: model.rings, battery: model.battery, fileTransferActive: model.fileTransferActive, actions: actions)
+            DeviceChips(rings: model.rings, batteries: model.batteries, targetDeviceID: model.targetDeviceID,
+                        fileTransferActive: model.fileTransferActive, actions: actions)
                 .padding(.top, 12)
         }
         stateCard
@@ -143,7 +152,7 @@ struct StreamPanelView: View {
     }
 
     @ViewBuilder private var stateCard: some View {
-        switch model.state {
+        switch model.pairingFlow {
         case let .connecting(name):
             StatusCard(
                 symbol: "lock.shield",
@@ -241,7 +250,9 @@ struct AuroraBand: View {
 
 private struct DeviceChips: View {
     let rings: [DeviceRing]
-    let battery: RemoteBatteryStatus?
+    /// Each connected phone's own battery.
+    let batteries: [String: RemoteBatteryStatus]
+    let targetDeviceID: String?
     let fileTransferActive: Bool
     let actions: PanelActions
     @Environment(\.snapshotRendering) private var snapshot
@@ -266,15 +277,25 @@ private struct DeviceChips: View {
     }
 
     @ViewBuilder private func chip(_ ring: DeviceRing) -> some View {
-        let content = DeviceChip(ring: ring, battery: ring.state == .connected ? battery : nil)
+        let content = DeviceChip(ring: ring, battery: ring.state == .connected ? ring.deviceID.flatMap { batteries[$0] } : nil)
         switch ring.state {
         case .connected:
             PopUpMenuButton(items: {
-                [PopUpMenuItem(
+                var items: [PopUpMenuItem] = []
+                // Several phones: pick which one sends, pings and finds go to.
+                if let id = ring.deviceID, id != targetDeviceID {
+                    items.append(PopUpMenuItem(
+                        title: String(format: L10n.text("panel.sendTo", fallback: "Send to %@"), ring.name),
+                        enabled: true,
+                        action: { actions.selectDevice(id) }
+                    ))
+                }
+                items.append(PopUpMenuItem(
                     title: String(format: L10n.text("panel.disconnect", fallback: "Disconnect %@"), ring.name),
                     enabled: !fileTransferActive,
-                    action: actions.disconnect
-                )]
+                    action: { if let id = ring.deviceID { actions.disconnectDevice(id) } else { actions.disconnect() } }
+                ))
+                return items
             }) { content }
             .help(L10n.text("panel.chip.connected.help", fallback: "Connected. Click for options."))
         case .nearby where ring.canConnect:
@@ -504,7 +525,7 @@ private struct FailureCard: View {
         CardShell {
             HStack(alignment: .top, spacing: 10) {
                 IconTile(symbol: "exclamationmark.triangle.fill", tint: .purple, size: 32, corner: 10)
-                CardText(title: L10n.text("panel.failed", fallback: "Couldn\u{2019}t connect"), detail: message, detailLines: 4)
+                CardText(title: L10n.text("panel.pairingFailed", fallback: "Pairing failed"), detail: message, detailLines: 4)
             }
             HStack(spacing: 8) {
                 Spacer()
@@ -1075,8 +1096,13 @@ struct BridgeyPanel: View {
         var model = PanelModel()
         model.onboardingDone = settings.hasCompletedOnboarding
         model.state = pairing.state
-        model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, state: pairing.state)
+        model.pairingFlow = pairing.pairingFlow
+        model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, connected: pairing.connectedPhones, pairing: pairing.pairingFlow)
         model.battery = pairing.isFeatureAvailable(.battery) ? pairing.remoteBattery : nil
+        model.batteries = Dictionary(pairing.connectedPhones.compactMap { phone in
+            pairing.isFeatureAvailable(.battery, for: phone.id) ? phone.state.battery.map { (phone.id, $0) } : nil
+        }, uniquingKeysWith: { $1 })
+        if case let .connected(deviceID, _) = pairing.state { model.targetDeviceID = deviceID }
         model.transfers = liveTransfers(pairing.fileTransfers)
         model.hasTransferHistory = !pairing.fileTransfers.isEmpty
         model.fileTransferActive = pairing.fileTransferActive
@@ -1113,6 +1139,8 @@ struct BridgeyPanel: View {
             pairing.pair(host: host, port: port, peerName: ring.name)
         }
         actions.disconnect = { pairing.dismiss() }
+        actions.disconnectDevice = { pairing.disconnect(deviceID: $0) }
+        actions.selectDevice = { pairing.selectDevice($0) }
         actions.confirm = { pairing.confirm() }
         actions.cancel = { pairing.cancel() }
         actions.openLocalNetworkSettings = {

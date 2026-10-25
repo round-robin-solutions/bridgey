@@ -60,6 +60,13 @@ struct ActiveRemoteCalls {
         return calls.remove(at: index)
     }
 
+    /// One phone disconnected or turned notifications off: only its calls go.
+    mutating func removeAll(deviceID: String) -> [RemoteCallStatus] {
+        let removed = calls.filter { $0.deviceID == deviceID }
+        calls.removeAll { $0.deviceID == deviceID }
+        return removed
+    }
+
     mutating func removeAll() -> [RemoteCallStatus] {
         defer { calls = [] }
         return calls

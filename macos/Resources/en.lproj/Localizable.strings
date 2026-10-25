@@ -261,3 +261,14 @@
 "welcome.continue" = "Get started";
 "welcome.continue.hint" = "Closes the welcome guide and starts device discovery";
 "welcome.title" = "Welcome to Bridgey";
+"thisMac.connectedMany" = "Connected to %d devices";
+"panel.sendTo" = "Send to %@";
+"pairing.failure.connect" = "Could not reach the device. Check that both are on the same Wi-Fi and Bridgey is open.";
+"pairing.failure.timeout" = "Pairing timed out. Start again and confirm the code on both devices within two minutes.";
+"pairing.failure.cancelled" = "Pairing was cancelled on the other device, or its code was rejected there.";
+"pairing.failure.rejected" = "The devices could not verify each other. Check that the codes match and try again.";
+"pairing.failure.identity" = "This device’s identity changed. Forget it on both devices, then pair again.";
+"pairing.failure.lost" = "The connection was lost before pairing finished. Try again.";
+"pairing.failure.busy" = "Another pairing is waiting for confirmation. Finish or cancel it first.";
+"pairing.failure.invalid" = "The other device sent something unexpected. Update Bridgey on both devices and try again.";
+"panel.pairingFailed" = "Pairing failed";

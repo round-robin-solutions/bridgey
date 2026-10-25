@@ -39,13 +39,18 @@ struct DeviceRing: Identifiable, Equatable {
 /// Every trusted device plus every device on the network, in reading order: connected, then
 /// connecting, nearby paired, offline paired, and new devices last.
 func deviceRings(trusted: [TrustedDeviceInfo], peers: [DiscoveredPeer], state: PairingState) -> [DeviceRing] {
-    var connectedID: String?
-    var connectedName = ""
+    if case let .connected(deviceID, peerName) = state {
+        return deviceRings(trusted: trusted, peers: peers, connected: [PhoneConnection(id: deviceID, name: peerName, state: PhoneLinkState())], pairing: .idle)
+    }
+    return deviceRings(trusted: trusted, peers: peers, connected: [], pairing: state)
+}
+
+/// Multi-device: every connected phone shows as connected at once; `pairing` (the pairing
+/// flow) marks the device being paired as connecting.
+func deviceRings(trusted: [TrustedDeviceInfo], peers: [DiscoveredPeer], connected: [PhoneConnection], pairing: PairingState) -> [DeviceRing] {
+    let connectedNames = Dictionary(connected.map { ($0.id, $0.name) }, uniquingKeysWith: { $1 })
     var connectingName: String?
-    switch state {
-    case let .connected(deviceID, peerName):
-        connectedID = deviceID
-        connectedName = peerName
+    switch pairing {
     case let .connecting(name):
         connectingName = name
     case let .verification(name, _):
@@ -57,7 +62,7 @@ func deviceRings(trusted: [TrustedDeviceInfo], peers: [DiscoveredPeer], state: P
     var rings: [DeviceRing] = trusted.map { device in
         let peer = peers.first { $0.deviceIDHint == device.id }
         let ringState: RingState
-        if device.id == connectedID {
+        if connectedNames[device.id] != nil {
             ringState = .connected
         } else if let connectingName, connectingName == device.name || connectingName == peer?.deviceNameHint {
             ringState = .connecting
@@ -66,14 +71,15 @@ func deviceRings(trusted: [TrustedDeviceInfo], peers: [DiscoveredPeer], state: P
         } else {
             ringState = .offline
         }
-        let name = device.id == connectedID && !connectedName.isEmpty ? connectedName : device.name
+        let connectedName = connectedNames[device.id] ?? ""
+        let name = !connectedName.isEmpty ? connectedName : device.name
         return DeviceRing(id: device.id, deviceID: device.id, name: name, state: ringState, trusted: true, platform: peer?.platformHint, peer: peer)
     }
-    if let connectedID, !trustedIDs.contains(connectedID) {
-        let peer = peers.first { $0.deviceIDHint == connectedID }
-        rings.append(DeviceRing(id: connectedID, deviceID: connectedID, name: connectedName, state: .connected, trusted: true, platform: peer?.platformHint, peer: peer))
+    for phone in connected where !trustedIDs.contains(phone.id) {
+        let peer = peers.first { $0.deviceIDHint == phone.id }
+        rings.append(DeviceRing(id: phone.id, deviceID: phone.id, name: phone.name, state: .connected, trusted: true, platform: peer?.platformHint, peer: peer))
     }
-    for peer in peers where peer.deviceIDHint == nil || (!trustedIDs.contains(peer.deviceIDHint!) && peer.deviceIDHint != connectedID) {
+    for peer in peers where peer.deviceIDHint == nil || (!trustedIDs.contains(peer.deviceIDHint!) && connectedNames[peer.deviceIDHint!] == nil) {
         let ringState: RingState = connectingName != nil && connectingName == peer.deviceNameHint ? .connecting : .nearby
         rings.append(DeviceRing(id: "peer:\(peer.id)", deviceID: peer.deviceIDHint, name: peer.deviceNameHint, state: ringState, trusted: false, platform: peer.platformHint, peer: peer))
     }
