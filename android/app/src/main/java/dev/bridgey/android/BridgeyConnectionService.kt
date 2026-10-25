@@ -217,10 +217,20 @@ class BridgeyConnectionService : Service() {
         val pairing = (application as BridgeyApplication).pairing
         val connectedDeviceId = (pairing.state.value as? PairingState.Connected)?.deviceId
         if (connectedDeviceId != null && pairing.isFeatureAvailable(BridgeyFeature.CLIPBOARD)) {
-            notification.addAction(android.R.drawable.ic_menu_send, "Send clipboard", pendingCapture)
+            // One full-width, easy-to-hit "Send copied text" button in a decorated custom view,
+            // rather than the small action chip. The status stays above it; Turn off stays an action.
+            val content = android.widget.RemoteViews(packageName, R.layout.notification_clipboard).apply {
+                setTextViewText(R.id.notification_status, status)
+                setTextViewText(R.id.notification_send, getString(R.string.notification_send_copied_text))
+                setOnClickPendingIntent(R.id.notification_send, pendingCapture)
+            }
+            notification
+                .setStyle(android.app.Notification.DecoratedCustomViewStyle())
+                .setCustomContentView(content)
+                .setCustomBigContentView(content)
         }
         return notification
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Turn off", turnOff)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.notification_turn_off), turnOff)
             .build()
     }
 
