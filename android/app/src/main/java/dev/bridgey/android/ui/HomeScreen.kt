@@ -172,7 +172,7 @@ private fun HomeAppBar(openSettings: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Image(painterResource(R.drawable.ic_round_robin_mark), contentDescription = null, modifier = Modifier.size(30.dp))
+            Image(painterResource(R.drawable.ic_app_mark), contentDescription = null, modifier = Modifier.size(30.dp))
             Column {
                 Text(stringResource(R.string.brand_name), style = BridgeyType.brand, color = colors.onSurface)
                 Text(stringResource(R.string.brand_by), style = BridgeyType.brandSub, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 3.dp))

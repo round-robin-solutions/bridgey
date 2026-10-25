@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- In-app mark: the launcher icon on its midnight tile. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="30dp"
+    android:height="30dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FF050B18"
+        android:pathData="M24,0H84A24,24 0,0 1,108 24V84A24,24 0,0 1,84 108H24A24,24 0,0 1,0 84V24A24,24 0,0 1,24 0Z" />
+    <group
+        android:translateX="14.7129"
+        android:translateY="9.2391"
+        android:scaleX="0.72788"
+        android:scaleY="0.72788">
+        <path
+            android:fillType="evenOdd"
+            android:pathData="M28,26H57C72,26 81,34 81,45C81,52 77,57 71,60C79,63 84,69 84,77C84,90 74,97 57,97H28ZM41,38V54H56C64,54 68,51 68,46C68,41 64,38 56,38ZM41,66V85H58C66,85 71,81 71,75C71,69 66,66 58,66Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="28"
+                android:startY="26"
+                android:endX="84"
+                android:endY="97">
+                <item android:offset="0" android:color="#FF9B7CFF" />
+                <item android:offset="0.2" android:color="#FF9B7CFF" />
+                <item android:offset="0.55" android:color="#FF5EF2B2" />
+                <item android:offset="1" android:color="#FF54C7F5" />
+            </gradient>
+        </aapt:attr>
+        </path>
+    </group>
+</vector>
