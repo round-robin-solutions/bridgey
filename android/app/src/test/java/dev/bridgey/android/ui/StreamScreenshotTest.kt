@@ -169,6 +169,8 @@ class StreamScreenshotTest {
         backgroundClipboardCommand = "adb shell pm grant in.roundrobin.bridgey android.permission.READ_LOGS && " +
             "adb shell appops set in.roundrobin.bridgey SYSTEM_ALERT_WINDOW allow && " +
             "adb shell am force-stop in.roundrobin.bridgey",
+        tileAddSupported = true,
+        tileAdded = false,
         notificationAppsEnabled = 12,
         notificationAppsTotal = 48,
         appNotificationsEnabled = true,

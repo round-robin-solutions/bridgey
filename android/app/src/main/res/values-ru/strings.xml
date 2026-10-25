@@ -225,8 +225,12 @@
     <string name="bg_clipboard_status_denied">Доступ к логам запрещён</string>
     <string name="bg_clipboard_copied">Команда скопирована</string>
     <string name="action_copy">Копировать</string>
+    <string name="tile_label">Отправить скопированное</string>
     <string name="settings_tile">Плитка быстрых настроек</string>
-    <string name="settings_tile_detail">Добавьте «Bridgey clipboard» в быстрые настройки, чтобы отправлять скопированное</string>
+    <string name="settings_tile_detail">Добавьте «Отправить скопированное» на экране редактирования быстрых настроек, чтобы отправлять в одно касание</string>
+    <string name="settings_tile_one_tap">Отправляйте скопированное в одно касание</string>
+    <string name="settings_tile_added">В ваших быстрых настройках</string>
+    <string name="settings_tile_add">Добавить</string>
     <string name="settings_reduce_motion">Меньше движения</string>
     <string name="settings_reduce_motion_detail">Плавная смена экранов без движения и отскоков</string>
     <string name="settings_this_phone">Этот телефон</string>

@@ -173,6 +173,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onRequestDirectCalls = ::requestDirectCalls,
                     onExportDiagnostics = ::exportDiagnostics,
+                    onAddTile = ::requestAddClipboardTile,
                     sharedContent = sharedContent,
                     onSharedContentHandled = ::clearSharedContent,
                     showOnboarding = showOnboarding,
@@ -290,6 +291,24 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun requestAddClipboardTile() {
+        if (Build.VERSION.SDK_INT < 33) return
+        val statusBar = getSystemService(android.app.StatusBarManager::class.java) ?: return
+        statusBar.requestAddTileService(
+            android.content.ComponentName(this, ClipboardTileService::class.java),
+            getString(R.string.tile_label),
+            android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_bridgey_notification),
+            mainExecutor,
+        ) { result ->
+            if (
+                result == android.app.StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED ||
+                result == android.app.StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED
+            ) {
+                (application as BridgeyApplication).uiPreferences.setTileAdded(true)
+            }
+        }
+    }
+
     private fun exportDiagnostics() {
         val report = pairing.diagnosticsReport()
         val diagnosticsDirectory = File(cacheDir, "diagnostics")
@@ -361,6 +380,7 @@ private fun BridgeyApp(
     onOpenNotificationAccessSettings: () -> Unit,
     onRequestDirectCalls: () -> Unit,
     onExportDiagnostics: () -> Unit,
+    onAddTile: () -> Unit,
     sharedContent: SharedContent?,
     onSharedContentHandled: () -> Unit,
     showOnboarding: Boolean,
@@ -381,6 +401,7 @@ private fun BridgeyApp(
     val activity by activityLog.items.collectAsStateWithLifecycle()
     val reduceMotion by uiPreferences.reduceMotion.collectAsStateWithLifecycle()
     val showPreviews by uiPreferences.showPreviews.collectAsStateWithLifecycle()
+    val tileAdded by uiPreferences.tileAdded.collectAsStateWithLifecycle()
     var permissionPrompt by remember { mutableStateOf<PermissionPrompt?>(null) }
     var pairDialog by rememberSaveable { mutableStateOf(false) }
     var forgetting by remember { mutableStateOf<DeviceRing?>(null) }
@@ -591,6 +612,8 @@ private fun BridgeyApp(
                             backgroundClipboardEnabled = settingsState.backgroundClipboardEnabled,
                             backgroundClipboardStatus = backgroundStatus,
                             backgroundClipboardCommand = backgroundCommand,
+                            tileAddSupported = Build.VERSION.SDK_INT >= 33,
+                            tileAdded = tileAdded,
                             notificationAppsEnabled = enabledApps,
                             notificationAppsTotal = totalApps,
                             appNotificationsEnabled = appNotificationsEnabled,
@@ -624,6 +647,7 @@ private fun BridgeyApp(
                                     .setPrimaryClip(ClipData.newPlainText("Bridgey", backgroundCommand))
                                 android.widget.Toast.makeText(context, context.getString(R.string.bg_clipboard_copied), android.widget.Toast.LENGTH_SHORT).show()
                             },
+                            addTile = onAddTile,
                             setReduceMotion = uiPreferences::setReduceMotion,
                             setShowPreviews = uiPreferences::setShowPreviews,
                             clearActivity = activityLog::clear,

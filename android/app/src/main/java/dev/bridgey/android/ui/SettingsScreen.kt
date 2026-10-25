@@ -74,6 +74,8 @@ data class SettingsState(
     val backgroundClipboardEnabled: Boolean,
     val backgroundClipboardStatus: dev.bridgey.android.BackgroundClipboardStatus,
     val backgroundClipboardCommand: String,
+    val tileAddSupported: Boolean,
+    val tileAdded: Boolean,
     val notificationAppsEnabled: Int,
     val notificationAppsTotal: Int,
     val appNotificationsEnabled: Boolean,
@@ -100,6 +102,7 @@ class SettingsActions(
     val setAutoClipboard: (Boolean) -> Unit = {},
     val setBackgroundClipboard: (Boolean) -> Unit = {},
     val copyCommand: () -> Unit = {},
+    val addTile: () -> Unit = {},
     val setReduceMotion: (Boolean) -> Unit = {},
     val setShowPreviews: (Boolean) -> Unit = {},
     val clearActivity: () -> Unit = {},
@@ -212,7 +215,20 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
                     )
                 }
                 row { shape ->
-                    ListRow(shape, stringResource(R.string.settings_tile), stringResource(R.string.settings_tile_detail), BridgeyIcons.AddToHomeScreen, Tint.BLUE)
+                    when {
+                        state.tileAddSupported && !state.tileAdded -> ListRow(
+                            shape, stringResource(R.string.settings_tile), stringResource(R.string.settings_tile_one_tap),
+                            BridgeyIcons.AddToHomeScreen, Tint.BLUE,
+                        ) { OutlinePillButton(stringResource(R.string.settings_tile_add), null, actions.addTile) }
+                        state.tileAddSupported -> ListRow(
+                            shape, stringResource(R.string.settings_tile), stringResource(R.string.settings_tile_added),
+                            BridgeyIcons.AddToHomeScreen, Tint.GREEN,
+                        )
+                        else -> ListRow(
+                            shape, stringResource(R.string.settings_tile), stringResource(R.string.settings_tile_detail),
+                            BridgeyIcons.AddToHomeScreen, Tint.BLUE,
+                        )
+                    }
                 }
             }
         }

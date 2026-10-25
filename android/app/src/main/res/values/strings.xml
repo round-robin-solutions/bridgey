@@ -215,8 +215,12 @@
     <string name="bg_clipboard_status_denied">Log access denied</string>
     <string name="bg_clipboard_copied">Command copied</string>
     <string name="action_copy">Copy</string>
+    <string name="tile_label">Send copied text</string>
     <string name="settings_tile">Quick Settings tile</string>
-    <string name="settings_tile_detail">Add Bridgey clipboard to your Quick Settings to send what you copied</string>
+    <string name="settings_tile_detail">Add Send copied text from the Quick Settings edit screen to send in one tap</string>
+    <string name="settings_tile_one_tap">Send what you copied in one tap</string>
+    <string name="settings_tile_added">On your Quick Settings</string>
+    <string name="settings_tile_add">Add</string>
     <string name="settings_reduce_motion">Reduce motion</string>
     <string name="settings_reduce_motion_detail">Fade between screens; nothing moves or bounces</string>
     <string name="settings_this_phone">This phone</string>
