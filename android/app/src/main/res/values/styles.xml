@@ -1,9 +1,10 @@
 <resources>
+    <!-- Window colours match the first frame of the Stream design: frost here, midnight in values-night. -->
     <style name="Theme.Bridgey" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:statusBarColor">#FAF8FF</item>
-        <item name="android:navigationBarColor">#FAF8FF</item>
+        <item name="android:windowBackground">@color/bridgey_window</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
     <style name="Theme.Bridgey.Transparent" parent="android:style/Theme.Material.Light.NoActionBar">
