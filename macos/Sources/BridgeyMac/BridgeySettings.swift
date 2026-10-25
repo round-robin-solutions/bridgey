@@ -65,6 +65,14 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var loginItemMessage: String?
     @Published private(set) var hasCompletedOnboarding: Bool
     @Published private(set) var notificationHistoryEnabled: Bool
+    /// Settings > Privacy > Show previews in activity. On by default.
+    @Published private(set) var showActivityPreviews: Bool
+    /// Settings > General > Reduce motion: cross-fades only, like the system setting.
+    @Published private(set) var reduceMotion: Bool
+    /// Automatic clipboard for every device. On by default, like Universal Clipboard.
+    @Published private(set) var autoClipboardEnabled: Bool
+    /// Per-device Automatic clipboard; a missing entry follows the global switch.
+    @Published private(set) var autoClipboardDevices: [String: Bool]
 
     private let defaults = UserDefaults.standard
 
@@ -74,6 +82,15 @@ final class BridgeySettings: ObservableObject {
         deviceName = storedDefaults.string(forKey: "settings.deviceName") ?? systemName
         hasCompletedOnboarding = storedDefaults.bool(forKey: "settings.onboarding.completed")
         notificationHistoryEnabled = storedDefaults.bool(forKey: "settings.notificationHistory.enabled")
+        showActivityPreviews = storedDefaults.object(forKey: "settings.activity.previews") as? Bool ?? true
+        reduceMotion = storedDefaults.bool(forKey: "settings.reduceMotion")
+        autoClipboardEnabled = storedDefaults.object(forKey: "settings.autoClipboard.enabled") as? Bool ?? true
+        var autoDevices: [String: Bool] = [:]
+        for (key, value) in storedDefaults.dictionaryRepresentation() where key.hasPrefix(Self.autoClipboardDevicePrefix) {
+            let id = String(key.dropFirst(Self.autoClipboardDevicePrefix.count))
+            if !id.isEmpty, let enabled = value as? Bool { autoDevices[id] = enabled }
+        }
+        autoClipboardDevices = autoDevices
         globalFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
             ($0, storedDefaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media))
         })
@@ -116,6 +133,36 @@ final class BridgeySettings: ObservableObject {
         notificationHistoryEnabled = enabled
     }
 
+    func setShowActivityPreviews(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.activity.previews")
+        showActivityPreviews = enabled
+    }
+
+    func setReduceMotion(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.reduceMotion")
+        reduceMotion = enabled
+    }
+
+    func setAutoClipboard(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.autoClipboard.enabled")
+        autoClipboardEnabled = enabled
+    }
+
+    func setAutoClipboard(_ enabled: Bool, for deviceID: String) {
+        defaults.set(enabled, forKey: Self.autoClipboardDevicePrefix + deviceID)
+        autoClipboardDevices[deviceID] = enabled
+    }
+
+    /// The global switch and the device's own switch; the device follows the global one until changed.
+    func isAutoClipboardEnabled(for deviceID: String?) -> Bool {
+        effectiveFeatureEnabled(
+            globalEnabled: autoClipboardEnabled,
+            deviceEnabled: deviceID.flatMap { autoClipboardDevices[$0] }
+        )
+    }
+
+    private static let autoClipboardDevicePrefix = "settings.autoClipboard.device."
+
     func setForDevice(_ deviceID: String, feature: BridgeyFeature, enabled: Bool) {
         defaults.set(enabled, forKey: "settings.device.\(deviceID).\(feature.rawValue)")
         deviceFeatures[deviceID, default: [:]][feature] = enabled
@@ -133,6 +180,8 @@ final class BridgeySettings: ObservableObject {
             defaults.removeObject(forKey: "settings.device.\(deviceID).\(feature.rawValue)")
         }
         deviceFeatures.removeValue(forKey: deviceID)
+        defaults.removeObject(forKey: Self.autoClipboardDevicePrefix + deviceID)
+        autoClipboardDevices.removeValue(forKey: deviceID)
     }
 
     func chooseReceiveFolder() {

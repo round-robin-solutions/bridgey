@@ -50,6 +50,9 @@ ditto "$SPARKLE_FRAMEWORK" "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 if ! otool -l "$APP_PATH/Contents/MacOS/BridgeyMac" | grep -q "@executable_path/../Frameworks"; then
   install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_PATH/Contents/MacOS/BridgeyMac"
 fi
+# Space Grotesk and Inter (SIL OFL), with their licences.
+mkdir -p "$APP_PATH/Contents/Resources/Fonts"
+cp Resources/Fonts/*.ttf Resources/Fonts/*-OFL.txt "$APP_PATH/Contents/Resources/Fonts/"
 for localization in Resources/*.lproj; do
   [ -d "$localization" ] || continue
   cp -R "$localization" "$APP_PATH/Contents/Resources/"

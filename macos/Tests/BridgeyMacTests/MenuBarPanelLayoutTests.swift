@@ -6,16 +6,16 @@ import XCTest
 final class MenuBarPanelLayoutTests: XCTestCase {
     @MainActor func testCompactPanelRejectsStaleTallWindowProposal() {
         let host = NSHostingController(rootView: fixture(height: 120, transfers: 10))
-        let natural = host.sizeThatFits(in: NSSize(width: 340, height: 400))
-        let stale = host.sizeThatFits(in: NSSize(width: 340, height: 1800))
-        XCTAssertEqual(natural.width, 340, accuracy: 0.5)
+        let natural = host.sizeThatFits(in: NSSize(width: StreamPanelView.width, height: 400))
+        let stale = host.sizeThatFits(in: NSSize(width: StreamPanelView.width, height: 1800))
+        XCTAssertEqual(natural.width, StreamPanelView.width, accuracy: 0.5)
         XCTAssertLessThan(natural.height, 250)
         XCTAssertEqual(stale.height, natural.height, accuracy: 0.5)
     }
 
     @MainActor func testPanelShrinksAfterRepeatedConnectionStateChanges() {
         let host = NSHostingController(rootView: fixture(height: 120, transfers: 10))
-        let proposal = NSSize(width: 340, height: 1800)
+        let proposal = NSSize(width: StreamPanelView.width, height: 1800)
         let compact = host.sizeThatFits(in: proposal)
         for _ in 0..<5 {
             host.rootView = fixture(height: 480, transfers: 10)
@@ -28,7 +28,7 @@ final class MenuBarPanelLayoutTests: XCTestCase {
 
     @MainActor func testTransferHistoryRowDoesNotExpandVertically() {
         let host = NSHostingController(rootView: fixture(height: 120, transfers: 0))
-        let proposal = NSSize(width: 340, height: 1800)
+        let proposal = NSSize(width: StreamPanelView.width, height: 1800)
         let withoutHistory = host.sizeThatFits(in: proposal)
         host.rootView = fixture(height: 120, transfers: 10)
         let withHistory = host.sizeThatFits(in: proposal)

@@ -44,7 +44,7 @@ func recoverInterruptedTransfers(_ transfers: [String: FileTransferRow]) -> [Str
             return FileTransferRow(
                 id: transfer.id,
                 name: transfer.name,
-                status: "Transfer interrupted — reconnect to retry",
+                status: "Transfer interrupted; reconnect to retry",
                 active: false,
                 startedAt: transfer.startedAt,
                 retryable: transfer.retryable

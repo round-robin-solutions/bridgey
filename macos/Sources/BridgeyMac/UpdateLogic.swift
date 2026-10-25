@@ -20,9 +20,9 @@ enum UpdateChannel: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .stable: "Tested releases. Recommended."
-        case .beta: "Upcoming features before they reach Stable."
-        case .nightly: "Daily builds. Expect rough edges."
+        case .stable: L10n.text("channel.stable.detail", fallback: "Tested releases. Best for most people.")
+        case .beta: L10n.text("channel.beta.detail", fallback: "New features before they reach Stable.")
+        case .nightly: L10n.text("channel.nightly.detail", fallback: "Daily builds. Expect rough edges.")
         }
     }
 

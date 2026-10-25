@@ -28,6 +28,8 @@ final class QuickActions: ObservableObject {
     @Published private(set) var status: String?
     var available: (BridgeyFeature) -> Bool = { _ in false }
     var send: (String, [String: Any]) -> Bool = { _, _ in false }
+    /// Tells the activity stream that a link was delivered or received (never the address).
+    var onActivity: (ActivityKind) -> Void = { _ in }
     private var pending: String?
     private var timeout: Task<Void, Never>?
     private var sequence = 0
@@ -43,7 +45,7 @@ final class QuickActions: ObservableObject {
         sequence += 1
         status = "Sending link…"
         if !send("quick.request", ["version": 1, "requestId": id, "feature": "links", "action": "offer", "value": link, "sequence": sequence]) {
-            pending = nil; status = "Not connected — link not sent"; return
+            pending = nil; status = "Not connected, so the link was not sent"; return
         }
         timeout?.cancel()
         timeout = Task { [weak self] in
@@ -61,16 +63,18 @@ final class QuickActions: ObservableObject {
             guard id == pending, payload["feature"] as? String == "links" else { return }
             pending = nil; timeout?.cancel()
             status = payload["accepted"] as? Bool == true
-                ? "Link delivered — waiting for the user to open it"
-                : "Link declined — check settings or dismiss the previous link"
+                ? "Link delivered; it opens when tapped on the phone"
+                : "Link declined; check settings or dismiss the previous link"
+            if payload["accepted"] as? Bool == true { onActivity(.linkSent) }
         } else if kind == "quick.request" {
             let link = (payload["value"] as? String).flatMap(validatedWebLink)
             let accepted = available(.links) && payload["feature"] as? String == "links" &&
                 payload["action"] as? String == "offer" && link != nil && receivedLink == nil
             if accepted {
                 receivedLink = link
-                status = "Link received — open it below"
+                status = "Link received"
                 NSSound(named: NSSound.Name("Glass"))?.play()
+                onActivity(.linkReceived)
             }
             _ = send("quick.result", ["version": 1, "requestId": id, "feature": "links", "accepted": accepted])
         }

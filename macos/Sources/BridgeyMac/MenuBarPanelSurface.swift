@@ -11,7 +11,7 @@ struct MenuBarPanelSurface<Content: View>: View {
 
     var body: some View {
         content
-            .frame(width: 340, alignment: .topLeading)
+            .frame(width: StreamPanelView.width, alignment: .topLeading)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
