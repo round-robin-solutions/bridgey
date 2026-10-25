@@ -224,8 +224,9 @@ final class PairingCoordinator: ObservableObject {
     private var fileTransferWindow: FileTransferWindowController?
     private var fileDropWindow: FileDropWindowController?
     private lazy var callOverlayWindow = CallOverlayWindowController(pairing: self)
-    private var hiddenCallOverlayIdentity: String?
-    private var audibleCallIdentity: String?
+    private var activeRemoteCalls = ActiveRemoteCalls()
+    private var hiddenCallOverlayIdentities = Set<String>()
+    private var audibleCallIdentities = Set<String>()
     private var cancelledTransferIDs = Set<String>()
     private var findDeviceSound: NSSound?
     private var lastSentBattery: LocalBatteryStatus?
@@ -1783,7 +1784,7 @@ final class PairingCoordinator: ObservableObject {
 
     func hideCallOverlay() {
         if let call = remoteCall {
-            hiddenCallOverlayIdentity = callOverlayIdentity(call.notificationID, deviceID: call.deviceID)
+            hiddenCallOverlayIdentities.insert(callOverlayIdentity(call.notificationID, deviceID: call.deviceID))
         }
         callOverlayWindow.hide()
     }
@@ -1791,15 +1792,11 @@ final class PairingCoordinator: ObservableObject {
     private func updateRemoteCall(_ payload: RemoteNotificationPayload, deviceID: String) {
         guard let callType = normalizedRemoteCallType(payload.callType) else { return }
         let identity = callOverlayIdentity(payload.notificationId, deviceID: deviceID)
-        if let existing = remoteCall,
-           existing.notificationID != payload.notificationId || existing.deviceID != deviceID {
-            clearRemoteCall()
-        }
         clearCallStatus()
         let actions = (payload.actions ?? []).filter { !$0.allowsReply }.prefix(4).map {
             RemoteCallAction(id: $0.actionToken, title: $0.title)
         }
-        remoteCall = RemoteCallStatus(
+        activeRemoteCalls.update(RemoteCallStatus(
             notificationID: payload.notificationId,
             deviceID: deviceID,
             applicationName: payload.applicationName,
@@ -1807,14 +1804,22 @@ final class PairingCoordinator: ObservableObject {
             detail: remoteCallDetail(payload.text, type: callType),
             type: callType,
             actions: actions
-        )
-        mediaController.callChanged(active: ["incoming", "ongoing"].contains(callType))
-        if hiddenCallOverlayIdentity != identity {
-            callOverlayWindow.show()
-        }
-        if callType == "incoming", audibleCallIdentity != identity {
+        ))
+        publishRemoteCall()
+        if callType == "incoming", !audibleCallIdentities.contains(identity) {
             NSSound.beep()
-            audibleCallIdentity = identity
+            audibleCallIdentities.insert(identity)
+        }
+    }
+
+    private func publishRemoteCall() {
+        remoteCall = activeRemoteCalls.mostRelevant
+        mediaController.callChanged(active: activeRemoteCalls.pausesMedia)
+        if let call = remoteCall,
+           !hiddenCallOverlayIdentities.contains(callOverlayIdentity(call.notificationID, deviceID: call.deviceID)) {
+            callOverlayWindow.show()
+        } else {
+            callOverlayWindow.hide()
         }
     }
 
@@ -1962,12 +1967,11 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func removeRemoteNotification(_ notificationID: String, deviceID: String) {
-        if remoteCall?.notificationID == notificationID && remoteCall?.deviceID == deviceID {
-            mediaController.callChanged(active: false)
-            remoteCall = nil
-            callOverlayWindow.hide()
-            hiddenCallOverlayIdentity = nil
-            audibleCallIdentity = nil
+        if activeRemoteCalls.remove(notificationID: notificationID, deviceID: deviceID) != nil {
+            let identity = callOverlayIdentity(notificationID, deviceID: deviceID)
+            hiddenCallOverlayIdentities.remove(identity)
+            audibleCallIdentities.remove(identity)
+            publishRemoteCall()
         }
         let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: notificationID)
         let center = UNUserNotificationCenter.current()
@@ -1978,18 +1982,18 @@ final class PairingCoordinator: ObservableObject {
 
     private func clearRemoteCall() {
         mediaController.callChanged(active: false)
-        guard let call = remoteCall else { return }
+        let calls = activeRemoteCalls.removeAll()
         remoteCall = nil
+        hiddenCallOverlayIdentities.removeAll()
+        audibleCallIdentities.removeAll()
+        guard !calls.isEmpty else { return }
         callOverlayWindow.hide()
-        hiddenCallOverlayIdentity = nil
-        audibleCallIdentity = nil
-        let identifier = remoteNotificationRequestIdentifier(
-            deviceID: call.deviceID,
-            notificationID: call.notificationID
-        )
+        let identifiers = calls.map {
+            remoteNotificationRequestIdentifier(deviceID: $0.deviceID, notificationID: $0.notificationID)
+        }
         let center = UNUserNotificationCenter.current()
-        center.removeDeliveredNotifications(withIdentifiers: [identifier])
-        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        center.removePendingNotificationRequests(withIdentifiers: identifiers)
     }
 
     private func callOverlayIdentity(_ notificationID: String, deviceID: String) -> String {
