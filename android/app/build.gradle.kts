@@ -61,6 +61,8 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    // Robolectric screenshot tests read the app's fonts, strings and drawables.
+    testOptions.unitTests.isIncludeAndroidResources = true
 }
 
 kotlin {
@@ -77,8 +79,20 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // Real org.json for JVM unit tests of the update feed parser (android.jar only has stubs).
     testImplementation("org.json:json:20240303")
+    // Test only: JVM screenshots of the Stream screens (nothing here ships in the APK).
+    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.77.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.77.0")
+    testImplementation("androidx.test:core-ktx:1.7.0")
+    testImplementation("androidx.test.ext:junit-ktx:1.3.0")
 }
 
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     systemProperty("bridgey.repoRoot", rootProject.projectDir.parentFile.absolutePath)
+    systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+    // ./gradlew :app:testDebugUnitTest -Pscreenshots=<dir> writes the screen PNGs to <dir>.
+    (project.findProperty("screenshots") as String?)?.let {
+        systemProperty("roborazzi.test.record", "true")
+        systemProperty("bridgey.screenshots", it)
+    }
 }
