@@ -1,0 +1,179 @@
+# RR CI GitHub-hosted lane. Commit as .github/workflows/rr-ci-hosted.yml on the default branch of a
+# public repository. Only the RR CI coordinator starts it (workflow_dispatch); it holds no RR CI
+# credential, and the coordinator reads the outcome and log through the GitHub API.
+#
+# Jobs without secrets ("run") check out the requested revision with a read-only token; the coordinator
+# dispatches them on the rr-ci-untrusted branch (which carries this same file) so their caches never
+# reach the default branch. The "release" job runs only when the coordinator found the revision to be
+# the head of a protected branch or a release tag and dispatched on that ref. Before exporting the
+# secrets the task lists in pass_env, it checks the ref again and verifies the coordinator's HMAC
+# signature over the job spec with RR_CI_DISPATCH_KEY from the rr-ci-release environment, so nobody
+# else who can dispatch this workflow can choose the command or the secrets. Give that environment
+# deployment rules for the same branches and tags, and protect release tags with a ruleset.
+name: RR CI hosted
+run-name: rr-ci ${{ inputs.task }} ${{ inputs.attempt }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      attempt: {description: RR CI attempt id, required: true, type: string}
+      task: {description: RR CI task, required: true, type: string}
+      runs_on: {description: Runner label, required: true, type: string}
+      trusted: {description: Release secrets (true or false), required: true, type: string, default: 'false'}
+      job: {description: Job specification (JSON), required: true, type: string}
+      signature: {description: Coordinator signature (release runs), required: false, type: string, default: ''}
+
+permissions: {}
+
+jobs:
+  run:
+    if: inputs.trusted != 'true'
+    name: ${{ inputs.task }}
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ fromJSON(inputs.job).timeout_minutes }}
+    permissions:
+      contents: read
+    env:
+      RR_CI_JOB: ${{ inputs.job }}
+      RR_CI_ATTEMPT: ${{ inputs.attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ fromJSON(inputs.job).revision }}
+          persist-credentials: false
+      - name: Check the revision
+        run: test "$(git rev-parse HEAD)" = "$(python3 -c 'import json,os;print(json.loads(os.environ["RR_CI_JOB"])["revision"])')"
+      - if: fromJSON(inputs.job).setup.java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          java-version: ${{ fromJSON(inputs.job).setup.java }}
+          distribution: ${{ fromJSON(inputs.job).setup.java_distribution || 'temurin' }}
+      - if: fromJSON(inputs.job).setup.node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ fromJSON(inputs.job).setup.node }}
+      - if: fromJSON(inputs.job).setup.python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(inputs.job).setup.python }}
+      - name: Run the task
+        id: task
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, sys
+          job = json.loads(os.environ['RR_CI_JOB'])
+          out = os.path.join(os.environ['RUNNER_TEMP'], 'rr-ci-output')
+          os.makedirs(out, exist_ok=True)
+          env = {**os.environ, 'CI': '1', 'RR_CI_HOSTED': '1', 'RR_CI_OUTPUT': out, 'RR_CI_CPU': str(job.get('cpu', 1))}
+          env.pop('RR_CI_JOB', None)
+          code = subprocess.call(job['command'], env=env)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as handle:
+              handle.write('paths<<RRCI_PATHS_END\n' + ''.join(p + '\n' for p in job.get('artifacts', [])) + 'RRCI_PATHS_END\n')
+          print('[rr-ci] exit %d' % code, flush=True)
+          sys.exit(code)
+          PY
+      - if: always() && fromJSON(inputs.job).artifacts[0]
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rr-ci-${{ inputs.task }}-${{ inputs.attempt }}
+          path: ${{ steps.task.outputs.paths }}
+          retention-days: ${{ fromJSON(inputs.job).retention_days }}
+          if-no-files-found: ignore
+
+  release:
+    if: inputs.trusted == 'true'
+    name: ${{ inputs.task }} (release)
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ fromJSON(inputs.job).timeout_minutes }}
+    environment: rr-ci-release
+    permissions:
+      contents: read
+    env:
+      RR_CI_JOB: ${{ inputs.job }}
+      RR_CI_ATTEMPT: ${{ inputs.attempt }}
+    steps:
+      - name: Check that this run may use release secrets
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          TASK: ${{ inputs.task }}
+          RUNS_ON: ${{ inputs.runs_on }}
+          SIGNATURE: ${{ inputs.signature }}
+          RR_CI_DISPATCH_KEY: ${{ secrets.RR_CI_DISPATCH_KEY }}
+        shell: bash
+        run: |
+          test "$REF_TYPE" = tag || test "$REF_PROTECTED" = true
+          python3 - <<'PY'
+          import hashlib, hmac, json, os, sys, time
+          key = os.environ['RR_CI_DISPATCH_KEY']
+          message = '\n'.join(os.environ[k] for k in ('RR_CI_ATTEMPT', 'TASK', 'RUNS_ON', 'REF_NAME', 'RR_CI_JOB'))
+          expected = hmac.new(key.encode(), message.encode(), hashlib.sha256).hexdigest()
+          if not key or not hmac.compare_digest(expected, os.environ['SIGNATURE']):
+              sys.exit('the job spec is not signed by the RR CI coordinator')
+          job = json.loads(os.environ['RR_CI_JOB'])
+          # A signed dispatch copied from a public log cannot be replayed later.
+          if not 0 <= time.time() - job.get('signed_at', 0) <= 1800:
+              sys.exit('the signed dispatch is older than 30 minutes')
+          if job['revision'] != os.environ['SHA']:
+              sys.exit('the dispatched ref no longer points at the requested revision')
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - if: fromJSON(inputs.job).setup.java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          java-version: ${{ fromJSON(inputs.job).setup.java }}
+          distribution: ${{ fromJSON(inputs.job).setup.java_distribution || 'temurin' }}
+      - if: fromJSON(inputs.job).setup.node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ fromJSON(inputs.job).setup.node }}
+      - if: fromJSON(inputs.job).setup.python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ fromJSON(inputs.job).setup.python }}
+      - name: Export the task's secrets
+        env:
+          RR_CI_SECRETS: ${{ toJSON(secrets) }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, secrets
+          job = json.loads(os.environ['RR_CI_JOB'])
+          values = json.loads(os.environ['RR_CI_SECRETS'])
+          with open(os.environ['GITHUB_ENV'], 'a') as handle:
+              for name in job.get('pass_env', []):
+                  if name in values:
+                      end = 'RRCI_' + secrets.token_hex(16)
+                      handle.write('%s<<%s\n%s\n%s\n' % (name, end, values[name], end))
+              print('exported %d of %d secrets' % (sum(n in values for n in job.get('pass_env', [])), len(job.get('pass_env', []))))
+          PY
+      - name: Run the task
+        id: task
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, sys
+          job = json.loads(os.environ['RR_CI_JOB'])
+          out = os.path.join(os.environ['RUNNER_TEMP'], 'rr-ci-output')
+          os.makedirs(out, exist_ok=True)
+          env = {**os.environ, 'CI': '1', 'RR_CI_HOSTED': '1', 'RR_CI_OUTPUT': out, 'RR_CI_CPU': str(job.get('cpu', 1))}
+          env.pop('RR_CI_JOB', None)
+          code = subprocess.call(job['command'], env=env)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as handle:
+              handle.write('paths<<RRCI_PATHS_END\n' + ''.join(p + '\n' for p in job.get('artifacts', [])) + 'RRCI_PATHS_END\n')
+          print('[rr-ci] exit %d' % code, flush=True)
+          sys.exit(code)
+          PY
+      - if: always() && fromJSON(inputs.job).artifacts[0]
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rr-ci-${{ inputs.task }}-${{ inputs.attempt }}
+          path: ${{ steps.task.outputs.paths }}
+          retention-days: ${{ fromJSON(inputs.job).retention_days }}
+          if-no-files-found: ignore
