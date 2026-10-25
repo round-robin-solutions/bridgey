@@ -28,7 +28,7 @@ class StreamModelTest {
     private fun peer(id: String?, name: String) = DiscoveredPeer("svc-$name", id, name, "macos", 1, "10.0.0.2", 42_458)
 
     private fun item(id: Long, kind: ActivityKind, device: String, minutesAgo: Long) =
-        ActivityItem(id, kind, device, device, if (kind.carriesFileName) "f.pdf" else null, null, null, false, 1, now - minutesAgo * 60_000)
+        ActivityItem(id, kind, device, device, if (kind.carriesFileName) "f.pdf" else null, null, null, false, false, 1, now - minutesAgo * 60_000)
 
     @Test
     fun ringsShowEveryTrustedDeviceAndNearbyOnesInReadingOrder() {

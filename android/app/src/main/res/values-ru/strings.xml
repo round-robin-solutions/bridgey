@@ -61,6 +61,10 @@
     <string name="stream_clipboard_sent_detail">Буфер обмена</string>
     <string name="stream_clipboard_received_title">Буфер обмена с %1$s</string>
     <string name="stream_clipboard_received_detail">Можно вставить здесь</string>
+    <string name="stream_clipboard_auto">Автоматически</string>
+    <string name="stream_clipboard_received_auto">Автоматически, можно вставить</string>
+    <string name="stream_clipboard_failed_title">Буфер обмена не сохранён</string>
+    <string name="stream_clipboard_failed_detail">Не удалось записать на этом телефоне</string>
     <string name="stream_file_unnamed">Файл</string>
     <string name="stream_file_sent_detail">Отправлен на %1$s</string>
     <string name="stream_file_received_detail">С %1$s, в Download/Bridgey</string>
@@ -205,6 +209,9 @@
     <string name="settings_app_notifications">Уведомления Bridgey</string>
     <string name="settings_app_notifications_on">Подключение, передачи и поиск устройства</string>
     <string name="settings_app_notifications_off">Рекомендуются для управления в фоне</string>
+    <string name="auto_clipboard_title">Автоматический буфер обмена</string>
+    <string name="auto_clipboard_detail">Скопируйте на одном устройстве, вставьте на другом.</string>
+    <string name="auto_clipboard_explain">С Mac: всегда. С этого телефона: когда Bridgey открыт, или нажмите «Отправить скопированное» в уведомлении.</string>
     <string name="settings_tile">Плитка быстрых настроек</string>
     <string name="settings_tile_detail">Добавьте «Bridgey clipboard» в быстрые настройки, чтобы отправлять скопированное</string>
     <string name="settings_reduce_motion">Меньше движения</string>

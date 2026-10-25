@@ -118,6 +118,7 @@ internal fun recordPeerEvent(log: ActivityLog, event: PeerEvent, previews: Boole
     val kind = when (event.activity) {
         PeerActivity.CLIPBOARD_SENT -> ActivityKind.CLIPBOARD_SENT
         PeerActivity.CLIPBOARD_RECEIVED -> ActivityKind.CLIPBOARD_RECEIVED
+        PeerActivity.CLIPBOARD_RECEIVE_FAILED -> ActivityKind.CLIPBOARD_RECEIVE_FAILED
         PeerActivity.PING_RECEIVED -> ActivityKind.PING_RECEIVED
         PeerActivity.CALL_STARTED -> ActivityKind.CALL_STARTED
     }
@@ -127,6 +128,7 @@ internal fun recordPeerEvent(log: ActivityLog, event: PeerEvent, previews: Boole
         event.deviceName,
         preview = if (previews) event.clipboardText else null,
         sensitive = event.sensitive,
+        automatic = event.automatic,
     )
 }
 

@@ -73,13 +73,13 @@ class StreamScreenshotTest {
     private val rings get() = deviceRings(trusted, peers, PairingState.Connected("work", "Work MacBook"))
 
     private val activity get() = listOf(
-        ActivityItem(7, ActivityKind.CLIPBOARD_SENT, "work", "Work MacBook", null, "Room 2 at 4, bring the deck", null, false, 1, now - 20_000),
-        ActivityItem(6, ActivityKind.CALL_SHOWN, "work", "Work MacBook", null, "Mum", null, false, 1, at(9, 40)),
-        ActivityItem(5, ActivityKind.FILE_RECEIVED, "personal", "Personal Mac", "invoice-oct.pdf", null, null, false, 1, at(9, 12)),
-        ActivityItem(4, ActivityKind.CLIPBOARD_RECEIVED, "work", "Work MacBook", null, null, null, true, 1, at(9, 5)),
-        ActivityItem(3, ActivityKind.LINK_SENT, "mini", "Mac mini", null, null, null, false, 1, at(8, 58)),
-        ActivityItem(2, ActivityKind.NOTIFICATIONS_SHOWN, "work", "Work MacBook", null, null, "WhatsApp", false, 4, at(8, 55)),
-        ActivityItem(1, ActivityKind.PING_RECEIVED, "work", "Work MacBook", null, null, null, false, 1, at(8, 30) - 24 * 60 * 60 * 1000L),
+        ActivityItem(7, ActivityKind.CLIPBOARD_SENT, "work", "Work MacBook", null, "Room 2 at 4, bring the deck", null, false, false, 1, now - 20_000),
+        ActivityItem(6, ActivityKind.CALL_SHOWN, "work", "Work MacBook", null, "Mum", null, false, false, 1, at(9, 40)),
+        ActivityItem(5, ActivityKind.FILE_RECEIVED, "personal", "Personal Mac", "invoice-oct.pdf", null, null, false, false, 1, at(9, 12)),
+        ActivityItem(4, ActivityKind.CLIPBOARD_RECEIVED, "work", "Work MacBook", null, null, null, true, false, 1, at(9, 5)),
+        ActivityItem(3, ActivityKind.LINK_SENT, "mini", "Mac mini", null, null, null, false, false, 1, at(8, 58)),
+        ActivityItem(2, ActivityKind.NOTIFICATIONS_SHOWN, "work", "Work MacBook", null, null, "WhatsApp", false, false, 4, at(8, 55)),
+        ActivityItem(1, ActivityKind.PING_RECEIVED, "work", "Work MacBook", null, null, null, false, false, 1, at(8, 30) - 24 * 60 * 60 * 1000L),
     )
 
     private fun nameFor(item: ActivityItem) = rings.firstOrNull { it.deviceId == item.deviceId }?.name ?: item.deviceName
@@ -143,6 +143,8 @@ class StreamScreenshotTest {
                 },
                 notificationAccess = true,
                 notificationAppsEnabled = 12,
+                autoClipboard = true,
+                autoClipboardGlobalOn = true,
                 activity = activity,
                 live = emptyList(),
                 now = now,
@@ -161,6 +163,7 @@ class StreamScreenshotTest {
         pairedCount = 3,
         globalFeatures = BridgeyFeature.entries.associateWith { it != BridgeyFeature.MEDIA },
         directCallsEnabled = true,
+        autoClipboardEnabled = true,
         notificationAppsEnabled = 12,
         notificationAppsTotal = 48,
         appNotificationsEnabled = true,

@@ -87,6 +87,10 @@ data class DeviceState(
     val permissions: List<PermissionRow>,
     val notificationAccess: Boolean,
     val notificationAppsEnabled: Int,
+    /** Automatic clipboard for this device (global and per-device both on). */
+    val autoClipboard: Boolean,
+    /** The global Automatic clipboard switch is on, so the per-device one is worth showing. */
+    val autoClipboardGlobalOn: Boolean,
     val activity: List<ActivityItem>,
     val live: List<LiveCard>,
     val now: Long,
@@ -101,6 +105,7 @@ class DeviceActions(
     val find: () -> Unit = {},
     val stopFind: () -> Unit = {},
     val setPermission: (List<BridgeyFeature>, Boolean) -> Unit = { _, _ -> },
+    val setAutoClipboard: (Boolean) -> Unit = {},
     val notificationAccess: () -> Unit = {},
     val sendClipboard: () -> Unit = {},
     val sendText: (String) -> Unit = {},
@@ -325,8 +330,8 @@ private fun PermissionsList(state: DeviceState, actions: DeviceActions, contentP
         item(key = "group") {
             RowGroup(Modifier.padding(top = 12.dp)) {
                 state.permissions.forEach { permission ->
+                    val feature = permission.features.first()
                     row { shape ->
-                        val feature = permission.features.first()
                         val (icon, tint) = permissionVisual(feature)
                         val needsAccess = feature == BridgeyFeature.NOTIFICATIONS && !state.notificationAccess && permission.checked
                         val detail = when {
@@ -362,6 +367,24 @@ private fun PermissionsList(state: DeviceState, actions: DeviceActions, contentP
                                 enabled = !permission.globallyOff && !permission.remotelyOff,
                                 compact = true,
                                 detailWarning = permission.remotelyOff || permission.globallyOff,
+                            )
+                        }
+                    }
+                    // Automatic clipboard for this device, just under Clipboard, while both the
+                    // feature and the global Automatic clipboard switch are on.
+                    if (feature == BridgeyFeature.CLIPBOARD && state.autoClipboardGlobalOn &&
+                        permission.checked && !permission.globallyOff && !permission.remotelyOff
+                    ) {
+                        row { shape ->
+                            SwitchRow(
+                                shape = shape,
+                                title = stringResource(R.string.auto_clipboard_title),
+                                detail = stringResource(R.string.auto_clipboard_detail),
+                                icon = BridgeyIcons.Sync,
+                                tint = if (state.autoClipboard) Tint.BLUE else Tint.NEUTRAL,
+                                checked = state.autoClipboard,
+                                onCheckedChange = actions.setAutoClipboard,
+                                compact = true,
                             )
                         }
                     }

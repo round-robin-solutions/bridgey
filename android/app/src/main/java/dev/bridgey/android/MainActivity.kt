@@ -187,6 +187,26 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshPermissionState()
+        autoSendClipboardOnResume()
+    }
+
+    /**
+     * Automatic clipboard, phone to Mac: on every resume, read the clipboard (allowed while
+     * foreground) and offer a fresh clip (copied within the last 10 minutes) to be sent. The
+     * coordinator applies the skip rules, de-duplication and loop prevention.
+     */
+    private fun autoSendClipboardOnResume() {
+        if (!::pairing.isInitialized || !::bridgeySettings.isInitialized) return
+        if (pairing.state.value !is PairingState.Connected) return
+        if (!bridgeySettings.state.value.autoClipboardGlobal) return
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        val item = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0) ?: return
+        val description = clipboard.primaryClipDescription
+        pairing.autoSendClipboardOnResume(
+            item.coerceToText(this).toString(),
+            description.isMarkedSensitive(),
+            description?.timestamp ?: 0L,
+        )
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -502,6 +522,8 @@ private fun BridgeyApp(
                                 },
                                 notificationAccess = notificationAccessEnabled,
                                 notificationAppsEnabled = enabledApps,
+                                autoClipboard = settings.isAutoClipboardEnabled(ring.deviceId),
+                                autoClipboardGlobalOn = settingsState.autoClipboardGlobal,
                                 activity = activity,
                                 live = deviceLive,
                                 now = now,
@@ -519,6 +541,7 @@ private fun BridgeyApp(
                                     features.forEach { settings.setForDevice(deviceId, it, enabled) }
                                     if (BridgeyFeature.FIND_DEVICE in features && !enabled && isConnected) pairing.stopFinding()
                                 },
+                                setAutoClipboard = { enabled -> ring.deviceId?.let { settings.setAutoClipboardForDevice(it, enabled) } },
                                 notificationAccess = {
                                     if (notificationAccessEnabled) onOpenNotificationAccessSettings()
                                     else permissionPrompt = PermissionPrompt.NotificationForwarding
@@ -548,6 +571,7 @@ private fun BridgeyApp(
                             pairedCount = trustedDevices.size,
                             globalFeatures = settingsState.globalFeatures,
                             directCallsEnabled = settingsState.directCallsEnabled,
+                            autoClipboardEnabled = settingsState.autoClipboardGlobal,
                             notificationAppsEnabled = enabledApps,
                             notificationAppsTotal = totalApps,
                             appNotificationsEnabled = appNotificationsEnabled,
@@ -574,6 +598,7 @@ private fun BridgeyApp(
                             rename = onDeviceNameChanged,
                             setGlobal = onSetGlobalFeature,
                             setDirectCalls = onSetDirectCalls,
+                            setAutoClipboard = settings::setAutoClipboardGlobal,
                             setReduceMotion = uiPreferences::setReduceMotion,
                             setShowPreviews = uiPreferences::setShowPreviews,
                             clearActivity = activityLog::clear,

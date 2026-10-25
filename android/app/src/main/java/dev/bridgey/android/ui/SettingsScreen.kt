@@ -69,6 +69,7 @@ data class SettingsState(
     val pairedCount: Int,
     val globalFeatures: Map<BridgeyFeature, Boolean>,
     val directCallsEnabled: Boolean,
+    val autoClipboardEnabled: Boolean,
     val notificationAppsEnabled: Int,
     val notificationAppsTotal: Int,
     val appNotificationsEnabled: Boolean,
@@ -92,6 +93,7 @@ class SettingsActions(
     val rename: (String) -> Unit = {},
     val setGlobal: (BridgeyFeature, Boolean) -> Unit = { _, _ -> },
     val setDirectCalls: (Boolean) -> Unit = {},
+    val setAutoClipboard: (Boolean) -> Unit = {},
     val setReduceMotion: (Boolean) -> Unit = {},
     val setShowPreviews: (Boolean) -> Unit = {},
     val clearActivity: () -> Unit = {},
@@ -190,10 +192,18 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
             RowGroup(Modifier.padding(top = 8.dp)) {
                 row { shape -> FeatureSwitch(shape, BridgeyFeature.CLIPBOARD, state, actions) }
                 row { shape ->
+                    SwitchRow(
+                        shape, stringResource(R.string.auto_clipboard_title), stringResource(R.string.auto_clipboard_detail),
+                        BridgeyIcons.Sync, if (state.autoClipboardEnabled) Tint.BLUE else Tint.NEUTRAL,
+                        state.autoClipboardEnabled, actions.setAutoClipboard,
+                    )
+                }
+                row { shape ->
                     ListRow(shape, stringResource(R.string.settings_tile), stringResource(R.string.settings_tile_detail), BridgeyIcons.AddToHomeScreen, Tint.BLUE)
                 }
             }
         }
+        item(key = "clipboard.note") { Note(stringResource(R.string.auto_clipboard_explain), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) }
 
         // 4. Notifications
         val notificationsOn = state.featureOn(BridgeyFeature.NOTIFICATIONS)

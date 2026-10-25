@@ -21,6 +21,7 @@ enum class ActivityCategory { CLIPBOARD, FILES, ALERTS, CALLS, OTHER }
 enum class ActivityKind(val key: String, val category: ActivityCategory, val mergeWindowMillis: Long = 0) {
     CLIPBOARD_SENT("clipboard_sent", ActivityCategory.CLIPBOARD),
     CLIPBOARD_RECEIVED("clipboard_received", ActivityCategory.CLIPBOARD),
+    CLIPBOARD_RECEIVE_FAILED("clipboard_receive_failed", ActivityCategory.CLIPBOARD),
     FILE_SENT("file_sent", ActivityCategory.FILES),
     FILE_RECEIVED("file_received", ActivityCategory.FILES),
     FILE_FAILED("file_failed", ActivityCategory.FILES),
@@ -65,6 +66,8 @@ data class ActivityItem(
     val appName: String?,
     /** A clip marked sensitive: shown as "Hidden", no text kept. */
     val sensitive: Boolean,
+    /** Automatic clipboard moved this item, rather than a manual Send. */
+    val automatic: Boolean,
     val count: Int,
     val atMillis: Long,
 )
@@ -108,6 +111,7 @@ object ActivityHistory {
         preview: String? = null,
         appName: String? = null,
         sensitive: Boolean = false,
+        automatic: Boolean = false,
     ): List<ActivityItem> {
         val isSensitive = sensitive && kind.carriesPreview
         val cleanPreview = if (kind.carriesPreview && !isSensitive) clipboardPreview(preview) else null
@@ -131,6 +135,7 @@ object ActivityHistory {
             preview = cleanPreview,
             appName = cleanApp,
             sensitive = isSensitive,
+            automatic = automatic && kind.category == ActivityCategory.CLIPBOARD,
             count = 1,
             atMillis = now,
         )
@@ -151,6 +156,7 @@ object ActivityHistory {
                     .put("preview", item.preview ?: JSONObject.NULL)
                     .put("appName", item.appName ?: JSONObject.NULL)
                     .put("sensitive", item.sensitive)
+                    .put("automatic", item.automatic)
                     .put("count", item.count)
                     .put("at", item.atMillis),
             )
@@ -175,6 +181,7 @@ object ActivityHistory {
                 preview = if (kind.carriesPreview && !value.isNull("preview")) clipboardPreview(value.optString("preview")) else null,
                 appName = if (kind.carriesAppName && !value.isNull("appName")) value.optString("appName").take(MAX_NAME_LENGTH).ifBlank { null } else null,
                 sensitive = kind.carriesPreview && value.optBoolean("sensitive", false),
+                automatic = kind.category == ActivityCategory.CLIPBOARD && value.optBoolean("automatic", false),
                 count = value.optInt("count", 1).coerceIn(1, 9_999),
                 atMillis = value.optLong("at", 0L),
             )
@@ -206,8 +213,9 @@ class ActivityLog(
         preview: String? = null,
         appName: String? = null,
         sensitive: Boolean = false,
+        automatic: Boolean = false,
     ) {
-        val updated = ActivityHistory.add(mutableItems.value, kind, deviceId, deviceName, fileName, clock(), nextId, preview, appName, sensitive)
+        val updated = ActivityHistory.add(mutableItems.value, kind, deviceId, deviceName, fileName, clock(), nextId, preview, appName, sensitive, automatic)
         if (updated.any { it.id == nextId }) nextId += 1
         mutableItems.value = updated
         persist(updated)

@@ -289,6 +289,11 @@ class ClipboardCaptureActivity : Activity() {
         window.setDimAmount(0f)
     }
 
+    companion object {
+        /** Set by the optional background clipboard source to auto-send silently (no toasts). */
+        const val EXTRA_AUTOMATIC = "dev.bridgey.android.extra.AUTOMATIC"
+    }
+
     override fun onResume() {
         super.onResume()
         Handler(Looper.getMainLooper()).postDelayed({
@@ -296,6 +301,14 @@ class ClipboardCaptureActivity : Activity() {
             val clipboard = getSystemService(ClipboardManager::class.java)
             val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(this@ClipboardCaptureActivity)?.toString()
             val sensitive = clipboard.primaryClipDescription.isMarkedSensitive()
+            // Background trigger (optional READ_LOGS source): auto-send silently through the same
+            // path as a copy made while Bridgey is open, with the same skip rules.
+            if (intent?.getBooleanExtra(EXTRA_AUTOMATIC, false) == true) {
+                (application as BridgeyApplication).pairing.autoSendClipboard(text, sensitive)
+                finishAndRemoveTask()
+                overridePendingTransition(0, 0)
+                return@postDelayed
+            }
             if (text.isNullOrEmpty()) {
                 Toast.makeText(this@ClipboardCaptureActivity, "Clipboard is empty", Toast.LENGTH_SHORT).show()
             } else {

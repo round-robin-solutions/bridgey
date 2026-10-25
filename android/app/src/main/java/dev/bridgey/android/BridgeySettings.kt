@@ -27,7 +27,19 @@ data class BridgeySettingsState(
     val notificationApplications: Map<String, String>,
     val disabledNotificationPackages: Set<String>,
     val directCallsEnabled: Boolean,
+    /** Automatic clipboard: send on copy, paste on the other device. On by default. */
+    val autoClipboardGlobal: Boolean,
+    /** Per-device automatic clipboard; absent means it follows [autoClipboardGlobal]. */
+    val autoClipboardDevices: Map<String, Boolean>,
+    /** Optional background clipboard via READ_LOGS (off by default; advanced, needs ADB setup). */
+    val backgroundClipboardEnabled: Boolean,
 )
+
+/** Automatic clipboard is on for a device when global and the per-device switch both allow it. */
+internal fun effectiveAutoClipboardEnabled(
+    globalEnabled: Boolean,
+    deviceEnabled: Boolean?,
+): Boolean = globalEnabled && deviceEnabled != false
 
 internal fun effectiveFeatureEnabled(
     globalEnabled: Boolean,
@@ -103,11 +115,41 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         mutableState.value = mutableState.value.copy(directCallsEnabled = enabled)
     }
 
+    fun setAutoClipboardGlobal(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_AUTO_CLIPBOARD_GLOBAL, enabled).apply()
+        mutableState.value = mutableState.value.copy(autoClipboardGlobal = enabled)
+    }
+
+    fun setAutoClipboardForDevice(deviceId: String, enabled: Boolean) {
+        preferences.edit().putBoolean("$KEY_AUTO_CLIPBOARD_DEVICE_PREFIX$deviceId", enabled).apply()
+        mutableState.value = mutableState.value.copy(
+            autoClipboardDevices = mutableState.value.autoClipboardDevices + (deviceId to enabled),
+        )
+    }
+
+    fun setBackgroundClipboardEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_BACKGROUND_CLIPBOARD, enabled).apply()
+        mutableState.value = mutableState.value.copy(backgroundClipboardEnabled = enabled)
+    }
+
+    /** Automatic clipboard for [deviceId], falling back to the global switch when unset. */
+    fun isAutoClipboardEnabled(deviceId: String?): Boolean {
+        val snapshot = mutableState.value
+        return effectiveAutoClipboardEnabled(
+            globalEnabled = snapshot.autoClipboardGlobal,
+            deviceEnabled = deviceId?.let { snapshot.autoClipboardDevices[it] },
+        )
+    }
+
     fun removeDevice(deviceId: String) {
         val editor = preferences.edit()
         BridgeyFeature.entries.forEach { editor.remove("device.$deviceId.${it.key}") }
+        editor.remove("$KEY_AUTO_CLIPBOARD_DEVICE_PREFIX$deviceId")
         editor.apply()
-        mutableState.value = mutableState.value.copy(deviceFeatures = mutableState.value.deviceFeatures - deviceId)
+        mutableState.value = mutableState.value.copy(
+            deviceFeatures = mutableState.value.deviceFeatures - deviceId,
+            autoClipboardDevices = mutableState.value.autoClipboardDevices - deviceId,
+        )
     }
 
     private fun load(defaultDeviceName: String): BridgeySettingsState {
@@ -127,6 +169,11 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
             val packageName = key.removePrefix(KEY_NOTIFICATION_APPLICATION_PREFIX)
             if (packageName.isBlank() || value.isBlank()) null else packageName to value
         }.toMap()
+        val autoClipboardDevices = preferences.all.mapNotNull { (key, value) ->
+            if (!key.startsWith(KEY_AUTO_CLIPBOARD_DEVICE_PREFIX) || value !is Boolean) return@mapNotNull null
+            val deviceId = key.removePrefix(KEY_AUTO_CLIPBOARD_DEVICE_PREFIX)
+            if (deviceId.isBlank()) null else deviceId to value
+        }.toMap()
         return BridgeySettingsState(
             deviceName = preferences.getString(KEY_DEVICE_NAME, null) ?: defaultDeviceName,
             globalFeatures = globals,
@@ -134,6 +181,9 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
             notificationApplications = notificationApplications,
             disabledNotificationPackages = preferences.getStringSet(KEY_DISABLED_NOTIFICATION_PACKAGES, emptySet()).orEmpty(),
             directCallsEnabled = preferences.getBoolean(KEY_DIRECT_CALLS_ENABLED, false),
+            autoClipboardGlobal = preferences.getBoolean(KEY_AUTO_CLIPBOARD_GLOBAL, true),
+            autoClipboardDevices = autoClipboardDevices,
+            backgroundClipboardEnabled = preferences.getBoolean(KEY_BACKGROUND_CLIPBOARD, false),
         )
     }
 
@@ -142,5 +192,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         private const val KEY_NOTIFICATION_APPLICATION_PREFIX = "notification.application."
         private const val KEY_DISABLED_NOTIFICATION_PACKAGES = "notification.disabled_packages"
         private const val KEY_DIRECT_CALLS_ENABLED = "calls.direct_enabled"
+        private const val KEY_AUTO_CLIPBOARD_GLOBAL = "clipboard.auto.global"
+        private const val KEY_AUTO_CLIPBOARD_DEVICE_PREFIX = "clipboard.auto.device."
+        private const val KEY_BACKGROUND_CLIPBOARD = "clipboard.background.enabled"
     }
 }

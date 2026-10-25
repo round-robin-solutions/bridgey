@@ -61,6 +61,10 @@
     <string name="stream_clipboard_sent_detail">Clipboard</string>
     <string name="stream_clipboard_received_title">Clipboard from %1$s</string>
     <string name="stream_clipboard_received_detail">Ready to paste here</string>
+    <string name="stream_clipboard_auto">Automatic</string>
+    <string name="stream_clipboard_received_auto">Automatic, ready to paste</string>
+    <string name="stream_clipboard_failed_title">Clipboard not saved</string>
+    <string name="stream_clipboard_failed_detail">Could not write it on this phone</string>
     <string name="stream_file_unnamed">File</string>
     <string name="stream_file_sent_detail">Sent to %1$s</string>
     <string name="stream_file_received_detail">From %1$s, in Download/Bridgey</string>
@@ -195,6 +199,9 @@
     <string name="settings_app_notifications">Bridgey notifications</string>
     <string name="settings_app_notifications_on">Connection, transfers and Find device</string>
     <string name="settings_app_notifications_off">Recommended for controls in the background</string>
+    <string name="auto_clipboard_title">Automatic clipboard</string>
+    <string name="auto_clipboard_detail">Copy on one device, paste on the other.</string>
+    <string name="auto_clipboard_explain">From the Mac: always. From this phone: when Bridgey is open, or tap Send copied text in the notification.</string>
     <string name="settings_tile">Quick Settings tile</string>
     <string name="settings_tile_detail">Add Bridgey clipboard to your Quick Settings to send what you copied</string>
     <string name="settings_reduce_motion">Reduce motion</string>
