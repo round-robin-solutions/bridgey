@@ -1122,3 +1122,11 @@ Storage Access Framework". This design answers those three:
    for the Resume button. Change any?
 5. **Mode (b) sheet (D14).** A Bridgey sheet of places plus "Other folder…", rather than
    jumping straight into Android's picker. Fine?
+
+## Decisions confirmed by Rahul (2026-10-25)
+
+- Hidden files: skipped by default; the send sheet offers "Include hidden files". `.DS_Store` and AppleDouble `._*` files are always skipped.
+- Settings sync: on by default; every change made by a paired device is recorded in the activity stream.
+- Replace safety: a phone-only switch "Allow other devices to replace files here", off by default. Until it is on, a Replace chosen on the Mac asks on the phone first.
+- Ask on the phone: a Bridgey "Save to..." sheet with granted folders and recent destinations, plus "Other folder..." for Android's picker.
+- Timeouts as proposed: 3 minutes for questions, 30 minutes for automatic resume, 24 hours for the Resume button (not objected to; revisit after use).
