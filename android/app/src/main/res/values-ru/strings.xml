@@ -169,7 +169,27 @@
     <string name="permission_needs_notification_access">Нужен доступ к уведомлениям, нажмите</string>
 
     <string name="settings_updates">Обновления</string>
-    <string name="settings_more">Ещё</string>
+    <string name="settings_devices_section">Устройства</string>
+    <string name="settings_notifications">Уведомления</string>
+    <string name="settings_media">Медиа и быстрые действия</string>
+    <string name="settings_general">Основные</string>
+    <string name="settings_about">О приложении</string>
+    <string name="settings_connection">Соединение</string>
+    <string name="settings_status_connected">Подключено к %1$s</string>
+    <string name="settings_status_connecting">Подключение к %1$s</string>
+    <string name="settings_status_not_connected">Не подключено</string>
+    <string name="settings_forwarding_title">Пересылка уведомлений</string>
+    <string name="settings_notifications_detail">Показывать уведомления этого телефона на Mac</string>
+    <string name="settings_calls_detail">Разрешить связанному Mac начинать, принимать и завершать звонки</string>
+    <string name="settings_media_detail">Управлять музыкой на Mac отсюда</string>
+    <string name="settings_find_detail">Подавать сигнал на этом телефоне с Mac</string>
+    <string name="settings_ping_detail">Проверить связь, подав сигнал на Mac</string>
+    <string name="settings_battery_detail">Показывать заряд этого телефона на Mac</string>
+    <string name="settings_turn_off_detail">Прекратить обмен и закрыть Bridgey на этом телефоне</string>
+    <string name="settings_version">Версия</string>
+    <string name="settings_licences">Лицензии открытого кода</string>
+    <string name="settings_licences_detail">Bridgey и используемые библиотеки</string>
+    <string name="licences_body">Bridgey by Round Robin распространяется с открытым кодом по лицензии MIT.\n\nОснован на Bridgey Семёна Михайлова (MIT).\n\nЗначки: Material Symbols (Apache License 2.0).\nШрифты: Inter и Space Grotesk (SIL Open Font License 1.1).\nБиблиотеки: AndroidX и Jetpack Compose (Apache License 2.0), Kotlin (Apache License 2.0).</string>
     <string name="settings_devices">Устройства и разрешения</string>
     <plurals name="settings_devices_count">
         <item quantity="one">%1$d устройство</item>
@@ -223,13 +243,14 @@
     <string name="updates_release_notes">Примечания</string>
     <string name="updates_installed_here">Установлено на этом телефоне</string>
     <string name="updates_ready">Готово к установке</string>
-    <string name="about_credit">Bridgey by Round Robin %1$s\nОснован на Bridgey Семёна Михайлова (MIT)</string>
+    <string name="about_credit">Основан на Bridgey Семёна Михайлова (MIT)</string>
     <string name="about_original">Оригинальный проект Bridgey</string>
 
     <string name="devices_paired">Связанные устройства</string>
-    <string name="devices_none">Связанных устройств пока нет. Нажмите «Добавить» на главном экране.</string>
-    <string name="devices_everywhere">Для всех устройств</string>
-    <string name="devices_everywhere_detail">Чем этот телефон делится с любым связанным устройством. На странице устройства можно отключить функции только для него.</string>
+    <string name="devices_none">Связанных устройств пока нет. Нажмите «Связать новое устройство».</string>
+    <string name="devices_pair_new">Связать новое устройство</string>
+    <string name="devices_pair_new_detail">Найти Mac в этой сети Wi-Fi и сверить код</string>
+    <string name="devices_per_device_note">Откройте устройство, чтобы отключить функции только для него или забыть его. Чем делится каждая функция, задаётся в разделах настроек.</string>
     <string name="devices_direct_calls">Статус и управление звонками</string>
     <string name="devices_direct_calls_detail">Mac сможет начинать, принимать, отклонять и завершать звонки</string>
     <string name="notification_apps_intro">Выберите, какие приложения могут показывать уведомления на связанном Mac.</string>

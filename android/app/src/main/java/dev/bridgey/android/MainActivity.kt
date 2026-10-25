@@ -429,6 +429,23 @@ private fun BridgeyApp(
         stack.removeWhere { route -> route is Route.Device && rings.none { it.deviceId == route.deviceId } }
     }
 
+    val onSetGlobalFeature: (BridgeyFeature, Boolean) -> Unit = { feature, enabled ->
+        settings.setGlobal(feature, enabled)
+        if (feature == BridgeyFeature.FIND_DEVICE && !enabled) pairing.stopFinding()
+        if (feature == BridgeyFeature.CALLS && !enabled) {
+            settings.setDirectCallsEnabled(false)
+            BridgeyNotificationListenerService.callPermissionsChanged()
+        }
+    }
+    val onSetDirectCalls: (Boolean) -> Unit = { enabled ->
+        if (enabled) {
+            permissionPrompt = PermissionPrompt.DirectCalls
+        } else {
+            settings.setDirectCallsEnabled(false)
+            BridgeyNotificationListenerService.callPermissionsChanged()
+        }
+    }
+
     val animatorScale = rememberAnimatorScale()
     val motion = remember(animatorScale, reduceMotion) { resolveMotion(animatorScale, reduceMotion) }
     CompositionLocalProvider(LocalMotion provides motion, LocalShowPreviews provides showPreviews) {
@@ -517,13 +534,22 @@ private fun BridgeyApp(
                 }
                 Route.Settings -> {
                     val (enabledApps, totalApps) = notificationAppCounts(settingsState.notificationApplications, settingsState.disabledNotificationPackages)
+                    val connectionStatus = when (val s = pairingState) {
+                        is PairingState.Connected -> stringResource(R.string.settings_status_connected, s.peerName)
+                        is PairingState.Connecting -> stringResource(R.string.settings_status_connecting, s.peerName)
+                        is PairingState.Verification -> stringResource(R.string.settings_status_connecting, s.peerName)
+                        else -> stringResource(R.string.settings_status_not_connected)
+                    }
                     SettingsScreen(
                         state = SettingsState(
                             deviceName = settingsState.deviceName,
+                            connectionStatus = connectionStatus,
+                            connected = connected != null,
                             pairedCount = trustedDevices.size,
+                            globalFeatures = settingsState.globalFeatures,
+                            directCallsEnabled = settingsState.directCallsEnabled,
                             notificationAppsEnabled = enabledApps,
                             notificationAppsTotal = totalApps,
-                            notificationsFeatureOn = settingsState.globalFeatures[BridgeyFeature.NOTIFICATIONS] != false,
                             appNotificationsEnabled = appNotificationsEnabled,
                             notificationAccessEnabled = notificationAccessEnabled,
                             reduceMotion = reduceMotion,
@@ -546,6 +572,8 @@ private fun BridgeyApp(
                                 else permissionPrompt = PermissionPrompt.NotificationForwarding
                             },
                             rename = onDeviceNameChanged,
+                            setGlobal = onSetGlobalFeature,
+                            setDirectCalls = onSetDirectCalls,
                             setReduceMotion = uiPreferences::setReduceMotion,
                             setShowPreviews = uiPreferences::setShowPreviews,
                             clearActivity = activityLog::clear,
@@ -559,29 +587,11 @@ private fun BridgeyApp(
                     )
                 }
                 Route.Devices -> DevicesSettingsScreen(
-                    state = DevicesSettingsState(
-                        globalFeatures = settingsState.globalFeatures,
-                        directCallsEnabled = settingsState.directCallsEnabled,
-                        rings = rings,
-                    ),
+                    state = DevicesSettingsState(rings = rings),
                     actions = DevicesSettingsActions(
                         back = { stack.pop() },
-                        setGlobal = { feature, enabled ->
-                            settings.setGlobal(feature, enabled)
-                            if (feature == BridgeyFeature.FIND_DEVICE && !enabled) pairing.stopFinding()
-                            if (feature == BridgeyFeature.CALLS && !enabled) {
-                                settings.setDirectCallsEnabled(false)
-                                BridgeyNotificationListenerService.callPermissionsChanged()
-                            }
-                        },
-                        setDirectCalls = { enabled ->
-                            if (enabled) permissionPrompt = PermissionPrompt.DirectCalls
-                            else {
-                                settings.setDirectCallsEnabled(false)
-                                BridgeyNotificationListenerService.callPermissionsChanged()
-                            }
-                        },
                         openDevice = { ring -> ring.deviceId?.let { stack.push(Route.Device(it)) } },
+                        addDevice = { pairDialog = true },
                     ),
                 )
                 Route.NotificationApps -> NotificationAppsScreen(

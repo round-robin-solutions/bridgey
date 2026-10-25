@@ -161,7 +161,27 @@
     <string name="permission_needs_notification_access">Needs notification access, tap to allow</string>
 
     <string name="settings_updates">Updates</string>
-    <string name="settings_more">More</string>
+    <string name="settings_devices_section">Devices</string>
+    <string name="settings_notifications">Notifications</string>
+    <string name="settings_media">Media and quick actions</string>
+    <string name="settings_general">General</string>
+    <string name="settings_about">About</string>
+    <string name="settings_connection">Connection</string>
+    <string name="settings_status_connected">Connected to %1$s</string>
+    <string name="settings_status_connecting">Connecting to %1$s</string>
+    <string name="settings_status_not_connected">Not connected</string>
+    <string name="settings_forwarding_title">Notification forwarding</string>
+    <string name="settings_notifications_detail">Show this phone\'s notifications on your Mac</string>
+    <string name="settings_calls_detail">Let a paired Mac start, answer and end calls</string>
+    <string name="settings_media_detail">Control music on your Mac from here</string>
+    <string name="settings_find_detail">Ring this phone from your Mac</string>
+    <string name="settings_ping_detail">Ring your Mac to check the link</string>
+    <string name="settings_battery_detail">Show this phone\'s battery on your Mac</string>
+    <string name="settings_turn_off_detail">Stop sharing and close Bridgey on this phone</string>
+    <string name="settings_version">Version</string>
+    <string name="settings_licences">Open-source licences</string>
+    <string name="settings_licences_detail">Bridgey and the libraries it uses</string>
+    <string name="licences_body">Bridgey by Round Robin is open source under the MIT License.\n\nBuilt on Bridgey by Semyon Mikhailov (MIT).\n\nIcons: Material Symbols (Apache License 2.0).\nFonts: Inter and Space Grotesk (SIL Open Font License 1.1).\nLibraries: AndroidX and Jetpack Compose (Apache License 2.0), Kotlin (Apache License 2.0).</string>
     <string name="settings_devices">Devices and permissions</string>
     <plurals name="settings_devices_count">
         <item quantity="one">%1$d device</item>
@@ -213,13 +233,14 @@
     <string name="updates_release_notes">Release notes</string>
     <string name="updates_installed_here">Installed on this phone</string>
     <string name="updates_ready">Ready to install</string>
-    <string name="about_credit">Bridgey by Round Robin %1$s\nBuilt on Bridgey by Semyon Mikhailov (MIT)</string>
+    <string name="about_credit">Built on Bridgey by Semyon Mikhailov (MIT)</string>
     <string name="about_original">Original Bridgey project</string>
 
     <string name="devices_paired">Paired devices</string>
-    <string name="devices_none">No paired devices yet. Tap Add on the home screen to pair.</string>
-    <string name="devices_everywhere">For every device</string>
-    <string name="devices_everywhere_detail">What this phone shares with any paired device. Each device page can turn things off for that device only.</string>
+    <string name="devices_none">No paired devices yet. Tap Pair a new device to get started.</string>
+    <string name="devices_pair_new">Pair a new device</string>
+    <string name="devices_pair_new_detail">Find a Mac on this Wi-Fi and compare the code</string>
+    <string name="devices_per_device_note">Open a device to turn features off for it only, or to forget it. What each feature shares is set in the sections of Settings.</string>
     <string name="devices_direct_calls">Call status and controls</string>
     <string name="devices_direct_calls_detail">Lets your paired Mac start, answer, decline and end calls</string>
     <string name="notification_apps_intro">Choose which apps may show their notifications on your paired Mac.</string>

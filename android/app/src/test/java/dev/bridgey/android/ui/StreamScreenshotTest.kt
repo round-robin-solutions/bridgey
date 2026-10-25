@@ -154,24 +154,35 @@ class StreamScreenshotTest {
         )
     }
 
+    private fun settingsState() = SettingsState(
+        deviceName = "OnePlus 11",
+        connectionStatus = "Connected to Work MacBook",
+        connected = true,
+        pairedCount = 3,
+        globalFeatures = BridgeyFeature.entries.associateWith { it != BridgeyFeature.MEDIA },
+        directCallsEnabled = true,
+        notificationAppsEnabled = 12,
+        notificationAppsTotal = 48,
+        appNotificationsEnabled = true,
+        notificationAccessEnabled = true,
+        reduceMotion = false,
+        showPreviews = true,
+        activityCount = 6,
+        update = UpdateUiState(channel = UpdateChannel.STABLE, lastCheckedAt = now - 10 * 60_000),
+        installedVersion = "0.6.0",
+        now = now,
+    )
+
     private fun settings() = capture(if (dark()) "settings-dark" else "settings-light") {
+        SettingsScreen(state = settingsState(), actions = SettingsActions())
+    }
+
+    /** Scrolled so the Clipboard section (its label is item index 4) leads the page. */
+    private fun settingsClipboard() = capture(if (dark()) "settings-clipboard-dark" else "settings-clipboard-light") {
         SettingsScreen(
-            state = SettingsState(
-                deviceName = "OnePlus 11",
-                pairedCount = 3,
-                notificationAppsEnabled = 12,
-                notificationAppsTotal = 48,
-                notificationsFeatureOn = true,
-                appNotificationsEnabled = true,
-                notificationAccessEnabled = true,
-                reduceMotion = false,
-                showPreviews = true,
-                activityCount = 6,
-                update = UpdateUiState(channel = UpdateChannel.STABLE, lastCheckedAt = now - 10 * 60_000),
-                installedVersion = "0.6.0",
-                now = now,
-            ),
+            state = settingsState(),
             actions = SettingsActions(),
+            listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = 4),
         )
     }
 
@@ -194,4 +205,8 @@ class StreamScreenshotTest {
     @Test fun settingsLight() = settings()
 
     @Test @Config(qualifiers = "+night") fun settingsDark() = settings()
+
+    @Test fun settingsClipboardLight() = settingsClipboard()
+
+    @Test @Config(qualifiers = "+night") fun settingsClipboardDark() = settingsClipboard()
 }
