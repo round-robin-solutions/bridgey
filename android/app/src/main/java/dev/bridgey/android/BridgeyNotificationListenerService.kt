@@ -119,7 +119,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         val forward = Runnable {
             pendingCallPosts.remove(notificationId)
             if (forwardedNotifications.systemKey(notificationId) != sbn.key) return@Runnable
-            bridgey.pairing.sendNotification(
+            val forwardedTo = bridgey.pairing.sendNotification(
                 packageName = sbn.packageName,
                 applicationName = applicationName,
                 notificationId = notificationId,
@@ -131,8 +131,9 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
                 callType = callType,
             )
             val firstForward = notificationId !in forwardedNotificationIds
-            if (firstForward && (callType == null || callType == "incoming") && bridgey.pairing.isFeatureAvailable(BridgeyFeature.NOTIFICATIONS)) {
+            if (firstForward && (callType == null || callType == "incoming") && forwardedTo.isNotEmpty()) {
                 bridgey.activity.notificationForwarded(
+                    devices = forwardedTo,
                     isCall = callType == "incoming",
                     appName = applicationName,
                     // The caller is the call notification's title; it is already read for forwarding.

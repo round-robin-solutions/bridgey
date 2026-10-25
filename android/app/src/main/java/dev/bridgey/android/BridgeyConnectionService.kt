@@ -59,16 +59,13 @@ class BridgeyConnectionService : Service() {
         )
         startForeground(NOTIFICATION_ID, buildNotification(lastStatus))
         serviceScope.launch {
-            (application as BridgeyApplication).pairing.state.collect { state ->
-                lastStatus = when (state) {
-                    is PairingState.Connected -> "Connected to ${state.peerName}"
-                    is PairingState.Connecting -> "Connecting to ${state.peerName}…"
-                    is PairingState.Verification -> "Pairing confirmation required"
-                    is PairingState.Failed -> "Not connected"
-                    PairingState.Idle -> "Not connected · waiting for paired device"
+            val pairing = (application as BridgeyApplication).pairing
+            combine(pairing.connections, pairing.pairingFlow) { connections, flow -> connectionStatus(connections, flow) }
+                .distinctUntilChanged()
+                .collect { status ->
+                    lastStatus = status
+                    notificationManager.notify(NOTIFICATION_ID, buildNotification(lastStatus))
                 }
-                notificationManager.notify(NOTIFICATION_ID, buildNotification(lastStatus))
-            }
         }
         serviceScope.launch {
             bridgey.pairing.fileTransferActive.collect {
@@ -81,7 +78,7 @@ class BridgeyConnectionService : Service() {
             }
         }
         serviceScope.launch {
-            bridgey.pairing.remoteFeatures.collect {
+            bridgey.pairing.connections.collect {
                 notificationManager.notify(NOTIFICATION_ID, buildNotification(lastStatus))
             }
         }

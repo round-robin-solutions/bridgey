@@ -2,6 +2,7 @@ package dev.bridgey.android.activity
 
 import dev.bridgey.android.FileTransferState
 import dev.bridgey.android.PairingCoordinator
+import dev.bridgey.android.DeviceConnection
 import dev.bridgey.android.PairingState
 import dev.bridgey.android.PeerActivity
 import dev.bridgey.android.PeerEvent
@@ -45,25 +46,7 @@ class ActivityRecorder(
 
     fun start() {
         pairing.activityListener = { event -> recordPeerEvent(log, event, showPreviews()) }
-        scope.launch {
-            pairing.pingStatus.drop(1).collect { status ->
-                if (status == "Ping delivered") connected()?.let { log.record(ActivityKind.PING_SENT, it.deviceId, it.peerName) }
-            }
-        }
-        scope.launch {
-            var ringing = pairing.macRinging.value
-            pairing.macRinging.collect { now ->
-                if (now && !ringing) connected()?.let { log.record(ActivityKind.FIND_MAC, it.deviceId, it.peerName) }
-                ringing = now
-            }
-        }
-        scope.launch {
-            var ringing = pairing.phoneRinging.value
-            pairing.phoneRinging.collect { now ->
-                if (now && !ringing) connected()?.let { log.record(ActivityKind.FIND_PHONE, it.deviceId, it.peerName) }
-                ringing = now
-            }
-        }
+        // Ping sent, Find Mac and Find phone arrive as PeerEvents tagged with their own device.
         scope.launch {
             pairing.quickActions.status.drop(1).collect { status ->
                 if (status?.startsWith("Link delivered") == true) {
@@ -92,22 +75,26 @@ class ActivityRecorder(
                     val outcome = transferOutcome(transfer) ?: return@forEach
                     recordedTransfers += transfer.id
                     while (recordedTransfers.size > 256) recordedTransfers.remove(recordedTransfers.first())
-                    val device = connected()
                     val kind = when (outcome) {
                         TransferOutcome.SENT -> ActivityKind.FILE_SENT
                         TransferOutcome.RECEIVED -> ActivityKind.FILE_RECEIVED
                         TransferOutcome.FAILED -> ActivityKind.FILE_FAILED
                     }
-                    log.record(kind, device?.deviceId, device?.peerName.orEmpty(), transfer.name)
+                    // The transfer's own device, not whichever device is selected now.
+                    val deviceId = transfer.deviceId ?: connected()?.deviceId
+                    val deviceName = transfer.deviceName.ifBlank { connected()?.peerName.orEmpty() }
+                    log.record(kind, deviceId, deviceName, transfer.name)
                 }
             }
         }
     }
 
     /** Called by the notification listener after it forwards a notification to the connected device. */
-    fun notificationForwarded(isCall: Boolean, appName: String?, caller: String?) {
-        val device = connected() ?: return
-        recordNotification(log, device.deviceId, device.peerName, isCall, appName, caller, showPreviews())
+    fun notificationForwarded(devices: List<DeviceConnection>, isCall: Boolean, appName: String?, caller: String?) {
+        // One item per device it went to, so each device's page shows it.
+        devices.forEach { device ->
+            recordNotification(log, device.deviceId, device.peerName, isCall, appName, caller, showPreviews())
+        }
     }
 
     private fun connected(): PairingState.Connected? = pairing.state.value as? PairingState.Connected
@@ -121,6 +108,9 @@ internal fun recordPeerEvent(log: ActivityLog, event: PeerEvent, previews: Boole
         PeerActivity.CLIPBOARD_RECEIVE_FAILED -> ActivityKind.CLIPBOARD_RECEIVE_FAILED
         PeerActivity.PING_RECEIVED -> ActivityKind.PING_RECEIVED
         PeerActivity.CALL_STARTED -> ActivityKind.CALL_STARTED
+        PeerActivity.PING_SENT -> ActivityKind.PING_SENT
+        PeerActivity.FIND_REMOTE_STARTED -> ActivityKind.FIND_MAC
+        PeerActivity.FIND_PHONE_STARTED -> ActivityKind.FIND_PHONE
         PeerActivity.CLIP_OFFER_SENT -> ActivityKind.CLIP_OFFER_SENT
         PeerActivity.CLIP_OFFER_RECEIVED -> ActivityKind.CLIP_OFFER_RECEIVED
         PeerActivity.CLIP_PASTED -> ActivityKind.CLIP_PASTED

@@ -25,6 +25,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class BridgeyApplication : Application() {
@@ -89,27 +91,34 @@ class BridgeyApplication : Application() {
             onClipboardChangeDenied = ::launchBackgroundClipboardCapture,
         )
         applicationScope.launch {
-            combine(discovery.peers, pairing.trustedDeviceIds, pairing.state) { peers, trustedIds, state ->
-                Triple(peers, trustedIds, state)
-            }.collect { (peers, trustedIds, state) ->
-                if (isBridgeyEnabled && state is PairingState.Idle) {
-                    peers.firstOrNull {
-                        val peerId = it.deviceIdHint
-                        peerId != null && peerId in trustedIds && deviceId < peerId
-                    }?.let { peer ->
-                        peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint) }
-                    }
-                } else if (state is PairingState.Connected) {
-                    lastBatteryIntent?.let(::publishBattery)
-                }
+            // Every trusted device on the network that this phone dials (lower device id) gets its
+            // own connection; the coordinator keeps per-device backoff.
+            combine(discovery.peers, pairing.trustedDeviceIds, pairing.connections) { peers, trustedIds, connections ->
+                Triple(peers, trustedIds, connections.map { it.deviceId })
+            }.collect { (peers, trustedIds, _) ->
+                if (!isBridgeyEnabled) return@collect
+                pairing.reconnectTrusted(
+                    peers.mapNotNull { peer ->
+                        val peerId = peer.deviceIdHint ?: return@mapNotNull null
+                        val host = peer.host ?: return@mapNotNull null
+                        if (peerId !in trustedIds || deviceId >= peerId) return@mapNotNull null
+                        DialCandidate(peerId, host, peer.port ?: 42_458, peer.deviceNameHint)
+                    },
+                )
+            }
+        }
+        applicationScope.launch {
+            // A newly connected device gets the battery straight away.
+            pairing.connections.map { list -> list.map { it.deviceId }.toSet() }.distinctUntilChanged().collect { ids ->
+                if (ids.isNotEmpty()) lastBatteryIntent?.let(::publishBattery)
             }
         }
         applicationScope.launch {
             settings.state.collect { lastBatteryIntent?.let(::publishBattery) }
         }
         applicationScope.launch {
-            pairing.remoteFeatures.collect { features ->
-                if (features[BridgeyFeature.BATTERY] != false) lastBatteryIntent?.let(::publishBattery)
+            pairing.connections.map { list -> list.map { it.state.remoteFeatures[BridgeyFeature.BATTERY] } }.distinctUntilChanged().collect {
+                lastBatteryIntent?.let(::publishBattery)
             }
         }
         registerForegroundClipboardWatcher()

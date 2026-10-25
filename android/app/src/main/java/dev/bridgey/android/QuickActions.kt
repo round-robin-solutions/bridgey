@@ -137,6 +137,12 @@ class QuickActions(
             disabled
         }
     }
+    /** The selected device changed: pending requests end, and its own media state (if known) shows. */
+    @Synchronized fun targetChanged(media: JSONObject?) {
+        pending.values.forEach { it.second.cancel() }; pending.clear()
+        mutableMedia.value = MacMediaState()
+        media?.let { receive("media.state", it) }
+    }
     @Synchronized fun reset() {
         pending.values.forEach { it.second.cancel() }; pending.clear()
         mutableLink.value = null; mutableMedia.value = MacMediaState(); mutableStatus.value = null

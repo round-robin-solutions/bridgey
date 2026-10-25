@@ -182,6 +182,7 @@
     <string name="settings_about">О приложении</string>
     <string name="settings_connection">Соединение</string>
     <string name="settings_status_connected">Подключено к %1$s</string>
+    <string name="settings_status_connected_many">Подключено устройств: %1$d</string>
     <string name="settings_status_connecting">Подключение к %1$s</string>
     <string name="settings_status_not_connected">Не подключено</string>
     <string name="settings_forwarding_title">Пересылка уведомлений</string>

@@ -1,5 +1,7 @@
 package dev.bridgey.android.ui
 
+import dev.bridgey.android.DeviceConnection
+import dev.bridgey.android.DeviceLinkState
 import dev.bridgey.android.FileTransferState
 import dev.bridgey.android.PairingState
 import dev.bridgey.android.TrustedDevice
@@ -51,29 +53,43 @@ fun deviceRings(
     peers: List<DiscoveredPeer>,
     state: PairingState,
 ): List<DeviceRing> {
-    val connected = state as? PairingState.Connected
-    val connectingName = when (state) {
-        is PairingState.Connecting -> state.peerName
-        is PairingState.Verification -> state.peerName
+    val connected = (state as? PairingState.Connected)?.let { listOf(DeviceConnection(it.deviceId, it.peerName, DeviceLinkState())) }.orEmpty()
+    return deviceRings(trusted, peers, connected, state)
+}
+
+/**
+ * Multi-device: every connected device shows as connected at once; [pairing] (the pairing flow)
+ * marks the device being paired as connecting.
+ */
+fun deviceRings(
+    trusted: List<TrustedDevice>,
+    peers: List<DiscoveredPeer>,
+    connections: List<DeviceConnection>,
+    pairing: PairingState,
+): List<DeviceRing> {
+    val connectedIds = connections.mapTo(HashSet()) { it.deviceId }
+    val connectingName = when (pairing) {
+        is PairingState.Connecting -> pairing.peerName
+        is PairingState.Verification -> pairing.peerName
         else -> null
     }
     val trustedIds = trusted.mapTo(HashSet()) { it.id }
     val rings = trusted.map { device ->
         val peer = peers.firstOrNull { it.deviceIdHint == device.id }
         val ringState = when {
-            device.id == connected?.deviceId -> RingState.CONNECTED
+            device.id in connectedIds -> RingState.CONNECTED
             connectingName != null && (connectingName == device.name || connectingName == peer?.deviceNameHint) -> RingState.CONNECTING
             peer != null -> RingState.NEARBY
             else -> RingState.OFFLINE
         }
         DeviceRing(device.id, device.id, device.name, ringState, trusted = true, platform = peer?.platformHint, peer = peer)
     }.toMutableList()
-    if (connected != null && connected.deviceId !in trustedIds) {
+    connections.filter { it.deviceId !in trustedIds }.forEach { connected ->
         val peer = peers.firstOrNull { it.deviceIdHint == connected.deviceId }
         rings += DeviceRing(connected.deviceId, connected.deviceId, connected.peerName, RingState.CONNECTED, trusted = true, platform = peer?.platformHint, peer = peer)
     }
     peers
-        .filter { peer -> peer.deviceIdHint == null || (peer.deviceIdHint !in trustedIds && peer.deviceIdHint != connected?.deviceId) }
+        .filter { peer -> peer.deviceIdHint == null || (peer.deviceIdHint !in trustedIds && peer.deviceIdHint !in connectedIds) }
         .forEach { peer ->
             val ringState = if (connectingName != null && connectingName == peer.deviceNameHint) RingState.CONNECTING else RingState.NEARBY
             rings += DeviceRing("peer:${peer.key}", peer.deviceIdHint, peer.deviceNameHint, ringState, trusted = false, platform = peer.platformHint, peer = peer)

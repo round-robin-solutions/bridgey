@@ -384,12 +384,11 @@ private fun BridgeyApp(
 ) {
     val peers by discovery.peers.collectAsStateWithLifecycle()
     val pairingState by pairing.state.collectAsStateWithLifecycle()
+    val pairingFlow by pairing.pairingFlow.collectAsStateWithLifecycle()
+    val connections by pairing.connections.collectAsStateWithLifecycle()
     val fileTransfers by pairing.fileTransfers.collectAsStateWithLifecycle()
     val phoneRinging by pairing.phoneRinging.collectAsStateWithLifecycle()
-    val macRinging by pairing.macRinging.collectAsStateWithLifecycle()
-    val remoteBattery by pairing.remoteBattery.collectAsStateWithLifecycle()
     val trustedDevices by pairing.trustedDevices.collectAsStateWithLifecycle()
-    val remoteFeatures by pairing.remoteFeatures.collectAsStateWithLifecycle()
     val receivedLink by pairing.quickActions.receivedLink.collectAsStateWithLifecycle()
     val media by pairing.quickActions.media.collectAsStateWithLifecycle()
     val settingsState by settings.state.collectAsStateWithLifecycle()
@@ -402,6 +401,7 @@ private fun BridgeyApp(
     var pairDialog by rememberSaveable { mutableStateOf(false) }
     var forgetting by remember { mutableStateOf<DeviceRing?>(null) }
     var pickedTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var fileTarget by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val stack = rememberBackStack()
     val uriHandler = LocalUriHandler.current
@@ -431,14 +431,15 @@ private fun BridgeyApp(
     }
 
     val connected = pairingState as? PairingState.Connected
-    val rings = remember(trustedDevices, peers, pairingState) { deviceRings(trustedDevices, peers, pairingState) }
+    val rings = remember(trustedDevices, peers, connections, pairingFlow) { deviceRings(trustedDevices, peers, connections, pairingFlow) }
     val target = sendTarget(rings, pickedTarget)
-    fun availableWith(deviceId: String?): Set<BridgeyFeature> =
-        if (deviceId == null || connected?.deviceId != deviceId) {
-            emptySet()
-        } else {
-            BridgeyFeature.entries.filter { settings.isEnabled(it, deviceId) && remoteFeatures[it] != false }.toSet()
-        }
+    // The send bar's pick is the coordinator's target for actions without an explicit device.
+    LaunchedEffect(target?.deviceId) { pairing.selectDevice(target?.deviceId) }
+    fun connectionOf(deviceId: String?): DeviceConnection? = connections.firstOrNull { it.deviceId == deviceId }
+    fun availableWith(deviceId: String?): Set<BridgeyFeature> {
+        val connection = connectionOf(deviceId) ?: return emptySet()
+        return BridgeyFeature.entries.filter { settings.isEnabled(it, connection.deviceId) && connection.state.remoteFeatures[it] != false }.toSet()
+    }
 
     val nameFor: (ActivityItem) -> String = { item ->
         rings.firstOrNull { it.deviceId != null && it.deviceId == item.deviceId }?.name
@@ -459,7 +460,7 @@ private fun BridgeyApp(
         stopRinging = pairing::stopFinding,
         media = { action, value -> pairing.quickActions.request(BridgeyFeature.MEDIA, action, value) },
     )
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(pairing::sendFile) }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { pairing.sendFile(it, fileTarget) } }
     val readClipboard = {
         val clipboard = context.getSystemService(ClipboardManager::class.java)
         clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
@@ -503,12 +504,12 @@ private fun BridgeyApp(
                     ),
                     actions = HomeActions(
                         openSettings = { stack.push(Route.Settings) },
-                        selectRing = { ring -> pickedTarget = ring.deviceId },
+                        selectRing = { ring -> pickedTarget = ring.deviceId; pairing.selectDevice(ring.deviceId) },
                         openDevice = { ring -> ring.deviceId?.let { stack.push(Route.Device(it)) } },
                         pairRing = { ring -> ring.peer?.host?.let { pairing.pair(it, ring.peer.port ?: 42_458, ring.peer.deviceNameHint) } ?: run { pairDialog = true } },
                         addDevice = { pairDialog = true },
-                        pickTarget = { pickedTarget = it },
-                        sendClipboard = pairing::sendClipboard,
+                        pickTarget = { pickedTarget = it; pairing.selectDevice(it) },
+                        sendClipboard = { pairing.sendClipboard(target?.deviceId) },
                         live = liveActions,
                     ),
                     snackbar = snackbar,
@@ -516,8 +517,14 @@ private fun BridgeyApp(
                 )
                 is Route.Device -> {
                     val ring = rings.firstOrNull { it.deviceId == route.deviceId }
+                    // A device page aims links and media at its own device.
+                    LaunchedEffect(route.deviceId) {
+                        pickedTarget = route.deviceId
+                        pairing.selectDevice(route.deviceId)
+                    }
                     if (ring != null) {
-                        val isConnected = connected?.deviceId == ring.deviceId
+                        val connection = connectionOf(ring.deviceId)
+                        val isConnected = connection != null
                         val available = availableWith(ring.deviceId)
                         val artwork = remember(media.artwork) { decodeArtwork(media.artwork) }
                         val deviceLive = if (!isConnected) emptyList() else buildList {
@@ -528,17 +535,17 @@ private fun BridgeyApp(
                         DeviceScreen(
                             state = DeviceState(
                                 ring = ring,
-                                battery = if (isConnected) remoteBattery else null,
+                                battery = connection?.state?.battery,
                                 connected = isConnected,
                                 available = available,
-                                ringing = isConnected && (macRinging || phoneRinging),
+                                ringing = isConnected && (connection?.state?.ringing == true || phoneRinging),
                                 permissions = PermissionOrder.map { features ->
                                     val deviceId = ring.deviceId!!
                                     PermissionRow(
                                         features = features,
                                         checked = features.any { settingsState.globalFeatures[it] != false && settingsState.deviceFeatures[deviceId]?.get(it) != false },
                                         globallyOff = features.all { settingsState.globalFeatures[it] == false },
-                                        remotelyOff = isConnected && features.all { remoteFeatures[it] == false },
+                                        remotelyOff = isConnected && features.all { connection?.state?.remoteFeatures?.get(it) == false },
                                     )
                                 },
                                 notificationAccess = notificationAccessEnabled,
@@ -552,23 +559,29 @@ private fun BridgeyApp(
                             actions = DeviceActions(
                                 back = { stack.pop() },
                                 forget = { forgetting = ring },
-                                sendFile = { filePicker.launch(arrayOf("*/*")) },
-                                sendLink = { pairing.quickActions.sendLink(readClipboard()) },
-                                ping = pairing::sendPing,
-                                find = pairing::findMac,
-                                stopFind = pairing::stopFinding,
+                                sendFile = {
+                                    fileTarget = ring.deviceId
+                                    filePicker.launch(arrayOf("*/*"))
+                                },
+                                sendLink = {
+                                    pairing.selectDevice(ring.deviceId)
+                                    pairing.quickActions.sendLink(readClipboard())
+                                },
+                                ping = { pairing.sendPing(ring.deviceId) },
+                                find = { pairing.findMac(ring.deviceId) },
+                                stopFind = { ring.deviceId?.let(pairing::stopFinding) ?: pairing.stopFinding() },
                                 setPermission = { features, enabled ->
                                     val deviceId = ring.deviceId!!
                                     features.forEach { settings.setForDevice(deviceId, it, enabled) }
-                                    if (BridgeyFeature.FIND_DEVICE in features && !enabled && isConnected) pairing.stopFinding()
+                                    if (BridgeyFeature.FIND_DEVICE in features && !enabled && isConnected) pairing.stopFinding(deviceId)
                                 },
                                 setAutoClipboard = { enabled -> ring.deviceId?.let { settings.setAutoClipboardForDevice(it, enabled) } },
                                 notificationAccess = {
                                     if (notificationAccessEnabled) onOpenNotificationAccessSettings()
                                     else permissionPrompt = PermissionPrompt.NotificationForwarding
                                 },
-                                sendClipboard = pairing::sendClipboard,
-                                sendText = { pairing.sendText(it) },
+                                sendClipboard = { pairing.sendClipboard(ring.deviceId) },
+                                sendText = { pairing.sendText(it, deviceId = ring.deviceId) },
                                 live = liveActions,
                             ),
                             snackbar = snackbar,
@@ -590,11 +603,14 @@ private fun BridgeyApp(
                     val backgroundCommand = "adb shell pm grant $pkg android.permission.READ_LOGS && " +
                         "adb shell appops set $pkg SYSTEM_ALERT_WINDOW allow && " +
                         "adb shell am force-stop $pkg"
-                    val connectionStatus = when (val s = pairingState) {
-                        is PairingState.Connected -> stringResource(R.string.settings_status_connected, s.peerName)
-                        is PairingState.Connecting -> stringResource(R.string.settings_status_connecting, s.peerName)
-                        is PairingState.Verification -> stringResource(R.string.settings_status_connecting, s.peerName)
-                        else -> stringResource(R.string.settings_status_not_connected)
+                    val connectionStatus = when {
+                        connections.size > 1 -> stringResource(R.string.settings_status_connected_many, connections.size)
+                        connections.size == 1 -> stringResource(R.string.settings_status_connected, connections.single().peerName)
+                        else -> when (val s = pairingFlow) {
+                            is PairingState.Connecting -> stringResource(R.string.settings_status_connecting, s.peerName)
+                            is PairingState.Verification -> stringResource(R.string.settings_status_connecting, s.peerName)
+                            else -> stringResource(R.string.settings_status_not_connected)
+                        }
                     }
                     SettingsScreen(
                         state = SettingsState(
@@ -707,7 +723,7 @@ private fun BridgeyApp(
         PairDialog(
             peers = peers,
             trustedIds = trustedDevices.mapTo(HashSet()) { it.id },
-            connectedId = connected?.deviceId,
+            connectedIds = connections.mapTo(HashSet()) { it.deviceId },
             onPair = { peer ->
                 pairDialog = false
                 peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint) }
@@ -731,7 +747,8 @@ private fun BridgeyApp(
         )
     }
 
-    when (val state = pairingState) {
+    // The pairing flow only: connected devices never hide or replace the prompt.
+    when (val state = pairingFlow) {
         is PairingState.Verification -> AlertDialog(
             onDismissRequest = pairing::cancel,
             title = { Text("Verify this device") },
@@ -746,7 +763,7 @@ private fun BridgeyApp(
         )
         is PairingState.Failed -> AlertDialog(
             onDismissRequest = pairing::cancel,
-            title = { Text("Couldn’t connect") },
+            title = { Text("Pairing failed") },
             text = { Text(state.message) },
             confirmButton = { Button(onClick = pairing::cancel) { Text("OK") } },
         )
@@ -793,10 +810,7 @@ private fun BridgeyApp(
     sharedContent?.let { content ->
         val isConnected = pairingState is PairingState.Connected
         val requiredFeature = if (content.files.isNotEmpty()) BridgeyFeature.FILES else BridgeyFeature.CLIPBOARD
-        val featureAvailable = settings.isEnabled(
-            requiredFeature,
-            (pairingState as? PairingState.Connected)?.deviceId,
-        ) && remoteFeatures[requiredFeature] != false
+        val featureAvailable = requiredFeature in availableWith((pairingState as? PairingState.Connected)?.deviceId)
         val summary = when {
             content.files.size == 1 -> "Send the selected file to your Mac?"
             content.files.isNotEmpty() -> "Send ${content.files.size} selected files to your Mac?"
@@ -851,12 +865,12 @@ private fun BridgeyApp(
 private fun PairDialog(
     peers: List<DiscoveredPeer>,
     trustedIds: Set<String>,
-    connectedId: String?,
+    connectedIds: Set<String>,
     onPair: (DiscoveredPeer) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = BridgeyTheme.colors
-    val visible = peers.filter { it.deviceIdHint == null || it.deviceIdHint != connectedId }
+    val visible = peers.filter { it.deviceIdHint == null || it.deviceIdHint !in connectedIds }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.pair_title)) },
