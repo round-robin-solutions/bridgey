@@ -9,7 +9,8 @@ HOST=${1:?usage: build-macos-remote.sh <host> <output-dir>}
 OUTPUT=${2:?usage: build-macos-remote.sh <host> <output-dir>}
 : "${BRIDGEY_VERSION_NAME:?set BRIDGEY_VERSION_NAME}"
 : "${BRIDGEY_BUILD_NUMBER:?set BRIDGEY_BUILD_NUMBER}"
-REMOTE=/tmp/bridgey-rr-release
+# One folder per build, so two releases (a nightly and a hand-run one) never share it.
+REMOTE=/tmp/bridgey-rr-release-$(date -u +%Y%m%d%H%M%S)-$$
 mkdir -p "$OUTPUT"
 
 tar -C "$(dirname -- "$RR_ROOT")" -czf - --exclude=.git --exclude=android --exclude=macos/.build --exclude=dist \
