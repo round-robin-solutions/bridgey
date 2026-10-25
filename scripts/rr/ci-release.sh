@@ -3,7 +3,7 @@
 # Usage: scripts/rr/ci-release.sh nightly   nightly from rr/main, notes from the commits since the last nightly
 #        scripts/rr/ci-release.sh tag       beta or stable from the annotated tag in RR_CI_REF, notes from its message
 #   v0.6.0-rr.1         -> stable 0.6.0-rr.1
-#   v0.6.0-rr.2-beta.1  -> beta 0.6.0-rr.2-beta.1
+#   v0.6.0-rr.1-beta.2  -> beta 0.6.0-rr.1-beta.2 (betas lead to EDITION_NEXT_VERSION)
 # The revision must be on RELEASE_BRANCH (rr/main). Builds Android here and the Mac app on
 # BRIDGEY_RR_MAC_HOST (default personal) over SSH, then publishes (release.sh --publish).
 # RR CI gives jobs a private HOME, so the keys, the GitHub token and the toolchains come from the
@@ -40,7 +40,9 @@ STATUS=$(gh api "repos/$REPO/compare/$BRANCH...$HEAD" --jq .status)
 case "$STATUS" in identical|behind) ;; *) die "$HEAD is not on $BRANCH ($STATUS); releases come from $BRANCH only" ;; esac
 
 NOTES=$(mktemp)
-trap 'rm -f "$NOTES"' EXIT INT TERM
+trap 'rm -f "$NOTES"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 SHORT=$(printf '%.7s' "$HEAD")
 
 if [ "$MODE" = nightly ]; then
@@ -67,12 +69,13 @@ else
   VERSION=${TAG#v}
   if echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-rr\.[0-9]+-beta\.[0-9]+$'; then CHANNEL=beta
   elif echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-rr\.[0-9]+$'; then CHANNEL=stable
-  else die "$TAG is neither a stable (v0.6.0-rr.1) nor a beta (v0.6.0-rr.2-beta.1) tag"; fi
+  else die "$TAG is neither a stable (v0.6.0-rr.1) nor a beta (v0.6.0-rr.1-beta.2) tag"; fi
   OBJECT=$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha')
   [ "${OBJECT%% *}" = tag ] || die "$TAG is a lightweight tag; release tags must be annotated (git tag -a) and carry the notes"
   TAGGED=$(gh api "repos/$REPO/git/tags/${OBJECT#* }" --jq '.object.sha')
   [ "$TAGGED" = "$HEAD" ] || die "$TAG points at $TAGGED, not at the checked-out $HEAD"
-  gh api "repos/$REPO/git/tags/${OBJECT#* }" --jq .message > "$NOTES"
+  # Notes are the tag message without a GPG or SSH signature block.
+  gh api "repos/$REPO/git/tags/${OBJECT#* }" --jq .message | sed '/^-----BEGIN [A-Z ]*SIGNATURE-----/,$d' > "$NOTES"
   [ -s "$NOTES" ] || die "$TAG has no message to use as release notes"
   set -- "$CHANNEL" --version "$VERSION"
 fi

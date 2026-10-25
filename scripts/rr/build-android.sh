@@ -24,7 +24,7 @@ command -v iieon-slot >/dev/null 2>&1 && SLOT=iieon-slot
   . "$SIGNING_ENV"
   set +a
   BRIDGEY_ANDROID_KEYSTORE="$KEYSTORE" BRIDGEY_VERSION_NAME="$BRIDGEY_VERSION_NAME" BRIDGEY_BUILD_NUMBER="$BRIDGEY_BUILD_NUMBER" \
-    $SLOT ./gradlew --console=plain :app:testDebugUnitTest :app:assembleRelease
+    env -u GH_TOKEN -u GITHUB_TOKEN $SLOT ./gradlew --console=plain :app:testDebugUnitTest :app:assembleRelease
 )
 
 APK="$RR_ROOT/android/app/build/outputs/apk/release/app-release.apk"

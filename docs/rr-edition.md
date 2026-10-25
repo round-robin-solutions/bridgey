@@ -157,7 +157,8 @@ The RR CI project `bridgey` (policy in `rbansal42/rr-ci` `examples/app_policies.
   `scripts/rr/ci-release.sh nightly` on rr-dev-1, with notes from the commits since the previous
   nightly.
 - **Releases** from annotated tags on `rr/main`: push `v0.6.0-rr.1` for Stable or
-  `v0.6.0-rr.2-beta.1` for Beta; the tag message is the release notes.
+  `v0.6.0-rr.1-beta.2` for Beta (betas lead to `EDITION_NEXT_VERSION`); the tag message is the
+  release notes. RR CI checks the tag is on `rr/main` before starting.
   `scripts/rr/ci-release.sh tag` checks the tag (annotated, on `rr/main`, pointing at the build)
   and runs `release.sh` with that version; `publish.sh` uses the existing tag.
 
