@@ -61,6 +61,31 @@ and existing previews are hidden.
 The About section in Settings on both apps says "Built on Bridgey by Semyon Mikhailov" and
 links to the original project. Keep it, and keep `LICENSE`.
 
+### Automatic clipboard, and why it is not fully automatic from the phone
+
+Automatic clipboard ("Copy on one device, paste on the other.") is on by default, reusing the
+existing `clipboard.update`/`clipboard.rich` messages and acks, so it works with upstream peers too.
+
+**Why can't copying on the phone sync automatically like OnePlus O+ Connect or Microsoft Phone
+Link?** Since Android 10, an app can read the clipboard only while it is on screen, or if it is
+the keyboard ([Android 10 clipboard changes](https://developer.android.com/about/versions/10/privacy/changes#clipboard-data)).
+O+ Connect and Phone Link are system or phone-maker partner apps: they hold
+`READ_CLIPBOARD_IN_BACKGROUND`, which only apps signed by the phone maker can get. ADB cannot
+grant it, and an app installed from a download cannot hold it. So Bridgey does the most that is
+allowed:
+
+- Mac to phone is always automatic (writing the clipboard is allowed in the background).
+- Phone to Mac is automatic while Bridgey is open, otherwise one tap on "Send copied text" in the
+  notification or on the Quick Settings tile.
+- The optional "Background clipboard (advanced)" uses the same one-time ADB setup as
+  [KDE Connect](https://userbase.kde.org/KDEConnect) (it grants READ_LOGS, reading system logs),
+  and is off by default.
+
+Skip rules apply in both directions: never send sensitive, empty or over-32-KiB content, and never
+re-send identical content (a per-device hash also stops a clip written because the Mac sent it from
+bouncing back). Automatic and manual moves are both recorded in the activity stream, marked
+"Automatic", and respect the previews switch.
+
 ## Versions
 
 - **Version name** (shown to people): `0.6.0-rr.1` for Stable, `0.6.0-rr.2-beta.1` for Beta,
