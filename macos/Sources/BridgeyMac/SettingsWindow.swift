@@ -186,10 +186,13 @@ struct SettingsWindowView: View {
                 .font(BrandFont.body(12))
                 .foregroundStyle(c.on2)
             Spacer()
-            Button(L10n.text("updates.releaseNotes", fallback: "Release notes")) { actions.openURL(SettingsLinks.releases) }
-                .buttonStyle(.plain)
-                .font(BrandFont.body(12, .semibold))
-                .foregroundStyle(c.pri)
+            // Updates shows Release notes in its What's new card; elsewhere only About links to them.
+            if pane == .about {
+                Button(L10n.text("updates.releaseNotes", fallback: "Release notes")) { actions.openURL(SettingsLinks.releases) }
+                    .buttonStyle(.plain)
+                    .font(BrandFont.body(12, .semibold))
+                    .foregroundStyle(c.pri)
+            }
         }
         .padding(.horizontal, 40)
         .frame(height: 40)
