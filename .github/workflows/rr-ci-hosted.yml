@@ -138,20 +138,28 @@ jobs:
         with:
           python-version: ${{ fromJSON(inputs.job).setup.python }}
       - name: Export the task's secrets
+        # Only the names the signed job lists, one slot each (at most 8); no other secret is read.
         env:
-          RR_CI_SECRETS: ${{ toJSON(secrets) }}
+          S0: ${{ secrets[fromJSON(inputs.job).pass_env[0] || 'RR_CI_NO_SECRET'] }}
+          S1: ${{ secrets[fromJSON(inputs.job).pass_env[1] || 'RR_CI_NO_SECRET'] }}
+          S2: ${{ secrets[fromJSON(inputs.job).pass_env[2] || 'RR_CI_NO_SECRET'] }}
+          S3: ${{ secrets[fromJSON(inputs.job).pass_env[3] || 'RR_CI_NO_SECRET'] }}
+          S4: ${{ secrets[fromJSON(inputs.job).pass_env[4] || 'RR_CI_NO_SECRET'] }}
+          S5: ${{ secrets[fromJSON(inputs.job).pass_env[5] || 'RR_CI_NO_SECRET'] }}
+          S6: ${{ secrets[fromJSON(inputs.job).pass_env[6] || 'RR_CI_NO_SECRET'] }}
+          S7: ${{ secrets[fromJSON(inputs.job).pass_env[7] || 'RR_CI_NO_SECRET'] }}
         shell: bash
         run: |
           python3 - <<'PY'
           import json, os, secrets
-          job = json.loads(os.environ['RR_CI_JOB'])
-          values = json.loads(os.environ['RR_CI_SECRETS'])
+          names = json.loads(os.environ['RR_CI_JOB']).get('pass_env', [])[:8]
           with open(os.environ['GITHUB_ENV'], 'a') as handle:
-              for name in job.get('pass_env', []):
-                  if name in values:
+              for i, name in enumerate(names):
+                  value = os.environ.get('S%d' % i, '')
+                  if value:
                       end = 'RRCI_' + secrets.token_hex(16)
-                      handle.write('%s<<%s\n%s\n%s\n' % (name, end, values[name], end))
-              print('exported %d of %d secrets' % (sum(n in values for n in job.get('pass_env', [])), len(job.get('pass_env', []))))
+                      handle.write('%s<<%s\n%s\n%s\n' % (name, end, value, end))
+              print('exported %d of %d secrets' % (sum(bool(os.environ.get('S%d' % i)) for i in range(len(names))), len(names)))
           PY
       - name: Run the task
         id: task
