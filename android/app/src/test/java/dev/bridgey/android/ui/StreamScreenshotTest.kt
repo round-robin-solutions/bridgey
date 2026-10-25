@@ -164,6 +164,11 @@ class StreamScreenshotTest {
         globalFeatures = BridgeyFeature.entries.associateWith { it != BridgeyFeature.MEDIA },
         directCallsEnabled = true,
         autoClipboardEnabled = true,
+        backgroundClipboardEnabled = true,
+        backgroundClipboardStatus = dev.bridgey.android.BackgroundClipboardStatus.WAITING_FOR_SETUP,
+        backgroundClipboardCommand = "adb shell pm grant in.roundrobin.bridgey android.permission.READ_LOGS && " +
+            "adb shell appops set in.roundrobin.bridgey SYSTEM_ALERT_WINDOW allow && " +
+            "adb shell am force-stop in.roundrobin.bridgey",
         notificationAppsEnabled = 12,
         notificationAppsTotal = 48,
         appNotificationsEnabled = true,

@@ -212,6 +212,17 @@
     <string name="auto_clipboard_title">Автоматический буфер обмена</string>
     <string name="auto_clipboard_detail">Скопируйте на одном устройстве, вставьте на другом.</string>
     <string name="auto_clipboard_explain">С Mac: всегда. С этого телефона: когда Bridgey открыт, или нажмите «Отправить скопированное» в уведомлении.</string>
+    <string name="bg_clipboard_title">Буфер обмена в фоне (для продвинутых)</string>
+    <string name="bg_clipboard_detail">Отправлять скопированное на этом телефоне, даже когда Bridgey закрыт. Нужна разовая настройка с компьютера.</string>
+    <string name="bg_clipboard_step1">На телефонах OnePlus, Oppo, Realme и Xiaomi: в параметрах разработчика включите «Отключить мониторинг разрешений», затем перезагрузите телефон.</string>
+    <string name="bg_clipboard_step2">Включите отладку по USB и подключите телефон к компьютеру.</string>
+    <string name="bg_clipboard_step3">Выполните эту команду:</string>
+    <string name="bg_clipboard_step4">Снова откройте Bridgey и разрешите доступ к логам, когда Android спросит.</string>
+    <string name="bg_clipboard_status_ready">Готово</string>
+    <string name="bg_clipboard_status_waiting">Ожидает настройки</string>
+    <string name="bg_clipboard_status_denied">Доступ к логам запрещён</string>
+    <string name="bg_clipboard_copied">Команда скопирована</string>
+    <string name="action_copy">Копировать</string>
     <string name="settings_tile">Плитка быстрых настроек</string>
     <string name="settings_tile_detail">Добавьте «Bridgey clipboard» в быстрые настройки, чтобы отправлять скопированное</string>
     <string name="settings_reduce_motion">Меньше движения</string>

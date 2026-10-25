@@ -18,6 +18,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 class BridgeyConnectionService : Service() {
@@ -86,6 +88,16 @@ class BridgeyConnectionService : Service() {
         }
         serviceScope.launch { bridgey.pairing.fileTransfers.collect(::updateTransferNotifications) }
         serviceScope.launch { bridgey.updater.runPeriodicChecks() }
+        // Optional background clipboard: run the READ_LOGS source only while it is enabled, automatic
+        // clipboard is on, and a device is connected. Stops on disconnect, when off, or when the
+        // service stops.
+        serviceScope.launch {
+            combine(bridgey.settings.state, bridgey.pairing.state) { settings, pairingState ->
+                settings.backgroundClipboardEnabled && settings.autoClipboardGlobal && pairingState is PairingState.Connected
+            }.distinctUntilChanged().collect { active ->
+                if (active) bridgey.backgroundClipboardSource.start() else bridgey.backgroundClipboardSource.stop()
+            }
+        }
         serviceScope.launch {
             bridgey.pairing.phoneRinging.collect { ringing ->
                 if (ringing) notificationManager.notify(FIND_NOTIFICATION_ID, buildFindNotification())
@@ -265,6 +277,7 @@ class BridgeyConnectionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        if (supportedProfile) runCatching { (application as BridgeyApplication).backgroundClipboardSource.stop() }
         serviceScope.cancel()
         super.onDestroy()
     }

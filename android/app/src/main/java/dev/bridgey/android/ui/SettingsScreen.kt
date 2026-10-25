@@ -49,6 +49,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,6 +71,9 @@ data class SettingsState(
     val globalFeatures: Map<BridgeyFeature, Boolean>,
     val directCallsEnabled: Boolean,
     val autoClipboardEnabled: Boolean,
+    val backgroundClipboardEnabled: Boolean,
+    val backgroundClipboardStatus: dev.bridgey.android.BackgroundClipboardStatus,
+    val backgroundClipboardCommand: String,
     val notificationAppsEnabled: Int,
     val notificationAppsTotal: Int,
     val appNotificationsEnabled: Boolean,
@@ -94,6 +98,8 @@ class SettingsActions(
     val setGlobal: (BridgeyFeature, Boolean) -> Unit = { _, _ -> },
     val setDirectCalls: (Boolean) -> Unit = {},
     val setAutoClipboard: (Boolean) -> Unit = {},
+    val setBackgroundClipboard: (Boolean) -> Unit = {},
+    val copyCommand: () -> Unit = {},
     val setReduceMotion: (Boolean) -> Unit = {},
     val setShowPreviews: (Boolean) -> Unit = {},
     val clearActivity: () -> Unit = {},
@@ -199,11 +205,21 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
                     )
                 }
                 row { shape ->
+                    SwitchRow(
+                        shape, stringResource(R.string.bg_clipboard_title), stringResource(R.string.bg_clipboard_detail),
+                        BridgeyIcons.DeveloperMode, if (state.backgroundClipboardEnabled) Tint.BLUE else Tint.NEUTRAL,
+                        state.backgroundClipboardEnabled, actions.setBackgroundClipboard,
+                    )
+                }
+                row { shape ->
                     ListRow(shape, stringResource(R.string.settings_tile), stringResource(R.string.settings_tile_detail), BridgeyIcons.AddToHomeScreen, Tint.BLUE)
                 }
             }
         }
         item(key = "clipboard.note") { Note(stringResource(R.string.auto_clipboard_explain), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) }
+        if (state.backgroundClipboardEnabled) {
+            item(key = "clipboard.background") { BackgroundClipboardCard(state, actions) }
+        }
 
         // 4. Notifications
         val notificationsOn = state.featureOn(BridgeyFeature.NOTIFICATIONS)
@@ -417,6 +433,51 @@ private fun globalFeatureDetail(feature: BridgeyFeature): String = stringResourc
         BridgeyFeature.BATTERY -> R.string.settings_battery_detail
     },
 )
+
+/** The one-time setup for the optional background clipboard: a status line, and the steps when not ready. */
+@Composable
+private fun BackgroundClipboardCard(state: SettingsState, actions: SettingsActions) {
+    val colors = BridgeyTheme.colors
+    val status = state.backgroundClipboardStatus
+    val (statusText, statusIcon, statusTint) = when (status) {
+        dev.bridgey.android.BackgroundClipboardStatus.READY -> Triple(stringResource(R.string.bg_clipboard_status_ready), BridgeyIcons.Check, Tint.GREEN)
+        dev.bridgey.android.BackgroundClipboardStatus.DENIED -> Triple(stringResource(R.string.bg_clipboard_status_denied), BridgeyIcons.Error, Tint.NEUTRAL)
+        else -> Triple(stringResource(R.string.bg_clipboard_status_waiting), BridgeyIcons.DeveloperMode, Tint.NEUTRAL)
+    }
+    Column(
+        Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(colors.surface1).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        StatusPill(statusText, statusIcon, statusTint)
+        if (status != dev.bridgey.android.BackgroundClipboardStatus.READY) {
+            SetupStep(1, stringResource(R.string.bg_clipboard_step1))
+            SetupStep(2, stringResource(R.string.bg_clipboard_step2))
+            SetupStep(3, stringResource(R.string.bg_clipboard_step3))
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(colors.surface2).padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    state.backgroundClipboardCommand,
+                    style = BridgeyType.small.copy(fontFamily = FontFamily.Monospace),
+                    color = colors.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinePillButton(stringResource(R.string.action_copy), BridgeyIcons.ContentPaste, actions.copyCommand)
+            }
+            SetupStep(4, stringResource(R.string.bg_clipboard_step4))
+        }
+    }
+}
+
+@Composable
+private fun SetupStep(number: Int, text: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("$number.", style = BridgeyType.itemBody.copy(fontWeight = BridgeyType.label.fontWeight), color = BridgeyTheme.colors.primary)
+        Text(text, style = BridgeyType.itemBody, color = BridgeyTheme.colors.onSurfaceVariant)
+    }
+}
 
 @Composable
 private fun Chevron() = Icon(BridgeyIcons.ChevronRight, null, tint = BridgeyTheme.colors.onSurfaceVariant)

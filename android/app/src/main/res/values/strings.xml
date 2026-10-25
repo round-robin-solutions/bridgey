@@ -202,6 +202,17 @@
     <string name="auto_clipboard_title">Automatic clipboard</string>
     <string name="auto_clipboard_detail">Copy on one device, paste on the other.</string>
     <string name="auto_clipboard_explain">From the Mac: always. From this phone: when Bridgey is open, or tap Send copied text in the notification.</string>
+    <string name="bg_clipboard_title">Background clipboard (advanced)</string>
+    <string name="bg_clipboard_detail">Send what you copy on this phone even when Bridgey is closed. Needs a one-time setup from a computer.</string>
+    <string name="bg_clipboard_step1">On OnePlus, Oppo, Realme and Xiaomi phones: Developer options, turn on Disable permission monitoring, then restart the phone.</string>
+    <string name="bg_clipboard_step2">Turn on USB debugging and connect this phone to a computer.</string>
+    <string name="bg_clipboard_step3">Run this command:</string>
+    <string name="bg_clipboard_step4">Open Bridgey again and allow log access when Android asks.</string>
+    <string name="bg_clipboard_status_ready">Ready</string>
+    <string name="bg_clipboard_status_waiting">Waiting for setup</string>
+    <string name="bg_clipboard_status_denied">Log access denied</string>
+    <string name="bg_clipboard_copied">Command copied</string>
+    <string name="action_copy">Copy</string>
     <string name="settings_tile">Quick Settings tile</string>
     <string name="settings_tile_detail">Add Bridgey clipboard to your Quick Settings to send what you copied</string>
     <string name="settings_reduce_motion">Reduce motion</string>

@@ -120,6 +120,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var bridgeySettings: BridgeySettings
     private var notificationAccessEnabled by mutableStateOf(false)
     private var appNotificationsEnabled by mutableStateOf(false)
+    private var readLogsGranted by mutableStateOf(false)
     private var sharedContent by mutableStateOf<SharedContent?>(null)
     private var showOnboarding by mutableStateOf(false)
     private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -160,6 +161,7 @@ class MainActivity : ComponentActivity() {
                     onDeviceNameChanged = bridgey::updateDeviceName,
                     appNotificationsEnabled = appNotificationsEnabled,
                     notificationAccessEnabled = notificationAccessEnabled,
+                    readLogsGranted = readLogsGranted,
                     onTurnOff = {
                         startService(Intent(this, BridgeyConnectionService::class.java).setAction(BridgeyConnectionService.ACTION_TURN_OFF))
                         finishAndRemoveTask()
@@ -245,6 +247,7 @@ class MainActivity : ComponentActivity() {
     private fun refreshPermissionState() {
         appNotificationsEnabled = getSystemService(NotificationManager::class.java).areNotificationsEnabled()
         notificationAccessEnabled = NotificationAccess.isEnabled(this)
+        readLogsGranted = checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
         if (
             ::bridgeySettings.isInitialized && bridgeySettings.state.value.directCallsEnabled &&
             !hasCallIntegrationPermissions()
@@ -351,6 +354,7 @@ private fun BridgeyApp(
     onDeviceNameChanged: (String) -> Unit,
     appNotificationsEnabled: Boolean,
     notificationAccessEnabled: Boolean,
+    readLogsGranted: Boolean,
     onTurnOff: () -> Unit,
     onRequestAppNotifications: () -> Unit,
     onOpenAppNotificationSettings: () -> Unit,
@@ -557,6 +561,18 @@ private fun BridgeyApp(
                 }
                 Route.Settings -> {
                     val (enabledApps, totalApps) = notificationAppCounts(settingsState.notificationApplications, settingsState.disabledNotificationPackages)
+                    val bridgeyApp = context.applicationContext as BridgeyApplication
+                    val bgSourceStatus by bridgeyApp.backgroundClipboardSource.status.collectAsStateWithLifecycle()
+                    val backgroundStatus = when {
+                        !settingsState.backgroundClipboardEnabled -> BackgroundClipboardStatus.OFF
+                        !readLogsGranted -> BackgroundClipboardStatus.WAITING_FOR_SETUP
+                        bgSourceStatus == BackgroundClipboardStatus.DENIED -> BackgroundClipboardStatus.DENIED
+                        else -> BackgroundClipboardStatus.READY
+                    }
+                    val pkg = BuildConfig.APPLICATION_ID
+                    val backgroundCommand = "adb shell pm grant $pkg android.permission.READ_LOGS && " +
+                        "adb shell appops set $pkg SYSTEM_ALERT_WINDOW allow && " +
+                        "adb shell am force-stop $pkg"
                     val connectionStatus = when (val s = pairingState) {
                         is PairingState.Connected -> stringResource(R.string.settings_status_connected, s.peerName)
                         is PairingState.Connecting -> stringResource(R.string.settings_status_connecting, s.peerName)
@@ -572,6 +588,9 @@ private fun BridgeyApp(
                             globalFeatures = settingsState.globalFeatures,
                             directCallsEnabled = settingsState.directCallsEnabled,
                             autoClipboardEnabled = settingsState.autoClipboardGlobal,
+                            backgroundClipboardEnabled = settingsState.backgroundClipboardEnabled,
+                            backgroundClipboardStatus = backgroundStatus,
+                            backgroundClipboardCommand = backgroundCommand,
                             notificationAppsEnabled = enabledApps,
                             notificationAppsTotal = totalApps,
                             appNotificationsEnabled = appNotificationsEnabled,
@@ -599,6 +618,12 @@ private fun BridgeyApp(
                             setGlobal = onSetGlobalFeature,
                             setDirectCalls = onSetDirectCalls,
                             setAutoClipboard = settings::setAutoClipboardGlobal,
+                            setBackgroundClipboard = settings::setBackgroundClipboardEnabled,
+                            copyCommand = {
+                                context.getSystemService(ClipboardManager::class.java)
+                                    .setPrimaryClip(ClipData.newPlainText("Bridgey", backgroundCommand))
+                                android.widget.Toast.makeText(context, context.getString(R.string.bg_clipboard_copied), android.widget.Toast.LENGTH_SHORT).show()
+                            },
                             setReduceMotion = uiPreferences::setReduceMotion,
                             setShowPreviews = uiPreferences::setShowPreviews,
                             clearActivity = activityLog::clear,

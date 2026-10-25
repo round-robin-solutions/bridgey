@@ -1,5 +1,6 @@
 package dev.bridgey.android
 
+import android.Manifest
 import android.app.Activity
 import android.app.Application
 import android.content.BroadcastReceiver
@@ -7,6 +8,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.BatteryManager
 import android.os.Bundle
 import android.os.UserManager
@@ -41,6 +43,8 @@ class BridgeyApplication : Application() {
     lateinit var activity: ActivityRecorder
         private set
     lateinit var uiPreferences: UiPreferences
+        private set
+    lateinit var backgroundClipboardSource: ClipboardChangeSource
         private set
     var isBridgeyEnabled: Boolean = false
         private set
@@ -78,6 +82,12 @@ class BridgeyApplication : Application() {
         uiPreferences = UiPreferences(this)
         activityLog = ActivityLog(File(noBackupFilesDir, ActivityLog.FILE_NAME), Executors.newSingleThreadExecutor())
         activity = ActivityRecorder(activityLog, pairing, applicationScope) { uiPreferences.showPreviews.value }.also { it.start() }
+        backgroundClipboardSource = LogcatClipboardSource(
+            this,
+            packageName,
+            hasLogPermission = { checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED },
+            onClipboardChangeDenied = ::launchBackgroundClipboardCapture,
+        )
         applicationScope.launch {
             combine(discovery.peers, pairing.trustedDeviceIds, pairing.state) { peers, trustedIds, state ->
                 Triple(peers, trustedIds, state)
@@ -129,6 +139,23 @@ class BridgeyApplication : Application() {
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
             override fun onActivityDestroyed(activity: Activity) = Unit
         })
+    }
+
+    /**
+     * Optional background clipboard: a transparent, excluded-from-recents activity reads the
+     * clipboard once it has window focus and auto-sends it. Starting it from the background needs
+     * SYSTEM_ALERT_WINDOW, which the one-time ADB setup grants.
+     */
+    private fun launchBackgroundClipboardCapture() {
+        val intent = Intent(this, ClipboardCaptureActivity::class.java)
+            .putExtra(ClipboardCaptureActivity.EXTRA_AUTOMATIC, true)
+            .addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_NEW_DOCUMENT or
+                    Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
+                    Intent.FLAG_ACTIVITY_NO_ANIMATION,
+            )
+        runCatching { startActivity(intent) }
     }
 
     /** Reads the current clipboard (allowed while foreground) and offers it to automatic clipboard. */
