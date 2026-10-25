@@ -100,6 +100,15 @@ internal class ClipboardInbox(
     /** Set while connected to a peer that takes clipboard offers; null otherwise. */
     @Volatile var link: ClipboardLink? = null
 
+    /**
+     * Multi-device: the live link to a device id. Fetches and cancels go to the device the clip
+     * came from, whichever devices are connected. Falls back to [link] when unset.
+     */
+    @Volatile var linkFor: ((String) -> ClipboardLink?)? = null
+
+    private fun linkTo(deviceId: String): ClipboardLink? =
+        linkFor?.invoke(deviceId) ?: link?.takeIf { it.deviceId == deviceId }
+
     @Volatile var listener: (ClipInboxEvent) -> Unit = {}
 
     private val lock = Any()
@@ -158,9 +167,13 @@ internal class ClipboardInbox(
         publishProgress()
     }
 
-    fun disconnected() {
-        link = null
-        synchronized(lock) { transfers.values.toList().forEach { failLocked(it, ClipErrorCode.NOT_CONNECTED, notifyPeer = false) } }
+    /** [deviceId] disconnected (null: every device). Only its transfers fail; others continue. */
+    fun disconnected(deviceId: String? = null) {
+        if (deviceId == null || link?.deviceId == deviceId) link = null
+        synchronized(lock) {
+            transfers.values.filter { deviceId == null || it.received.deviceId == deviceId }
+                .forEach { failLocked(it, ClipErrorCode.NOT_CONNECTED, notifyPeer = false) }
+        }
         publishProgress()
     }
 
@@ -338,7 +351,7 @@ internal class ClipboardInbox(
     }
 
     private fun startFetchLocked(received: ReceivedClipOffer, item: ClipOfferItem, fetched: Boolean): Inbound? {
-        val link = link?.takeIf { it.deviceId == received.deviceId } ?: return null
+        val link = linkTo(received.deviceId) ?: return null
         val inbound = register(UUID.randomUUID().toString(), received, item, fetched)
         if (!link.send("clipboard.fetch", inbound.transferId, clipFetchPayload(received.offer.offerId, item.index, inbound.transferId))) {
             unregister(inbound)
@@ -351,7 +364,7 @@ internal class ClipboardInbox(
     private fun resendFetch(inbound: Inbound) {
         synchronized(lock) {
             if (transfers[inbound.transferId] !== inbound || inbound.state != State.REQUESTED) return
-            val link = link?.takeIf { it.deviceId == inbound.received.deviceId }
+            val link = linkTo(inbound.received.deviceId)
             if (link == null || !link.send("clipboard.fetch", inbound.transferId,
                     clipFetchPayload(inbound.offerId, inbound.item.index, inbound.transferId))
             ) failLocked(inbound, ClipErrorCode.NOT_CONNECTED, notifyPeer = false)
@@ -382,7 +395,7 @@ internal class ClipboardInbox(
     private fun failLocked(inbound: Inbound, code: String, notifyPeer: Boolean) {
         unregister(inbound)
         if (!inbound.fail(code)) return
-        if (notifyPeer) link?.send("files.cancel", inbound.transferId)
+        if (notifyPeer) linkTo(inbound.received.deviceId)?.send("files.cancel", inbound.transferId)
         cache.discardItem(inbound.offerId, inbound.item.index)
         val reported = code != ClipErrorCode.SUPERSEDED && code != ClipErrorCode.CANCELLED
         val isText = inbound.received.offer.isText && inbound.received.offer.totalSize <= ClipLimits.TEXT_IN_MEMORY_BYTES

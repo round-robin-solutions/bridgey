@@ -37,6 +37,8 @@ internal class OutgoingClip(
     val deviceId: String,
     /** [LocalClip.hash] of what was offered, to notice the clipboard changing while offline. */
     val clipHash: String? = null,
+    /** Every device the offer went to (automatic clipboard offers to all connected Macs). */
+    val deviceIds: Set<String> = setOf(deviceId),
 )
 
 /**
@@ -47,7 +49,7 @@ internal class ClipboardOutbox(
     private val scope: CoroutineScope,
     private val opener: ClipSourceOpener,
 ) {
-    private class OutTransfer(val transferId: String) {
+    private class OutTransfer(val transferId: String, val link: ClipboardLink) {
         val accepted = CompletableDeferred<Boolean>()
         val completed = CompletableDeferred<Boolean>()
         var job: Job? = null
@@ -65,17 +67,24 @@ internal class ClipboardOutbox(
     fun handles(transferId: String?): Boolean = transferId != null && transfers.containsKey(transferId)
 
     /** A new offer went out: it replaces the previous one, then eager items are pushed in order. */
-    fun publish(clip: OutgoingClip, link: ClipboardLink, eagerLimitBytes: Long) {
+    fun publish(clip: OutgoingClip, link: ClipboardLink, eagerLimitBytes: Long) = publish(clip, listOf(link), eagerLimitBytes)
+
+    /** The same offer went to several devices: each gets its own eager pushes. */
+    fun publish(clip: OutgoingClip, links: List<ClipboardLink>, eagerLimitBytes: Long) {
         synchronized(lock) {
-            stopLocked(link)
+            stopLocked(notify = true)
             current = clip
             currentChanged = false
             val indices = eagerIndices(clip.offer.items, eagerLimitBytes)
-            if (indices.isEmpty()) return
+            if (indices.isEmpty() || links.isEmpty()) return
             eagerJob = scope.launch {
-                for (index in indices) {
-                    if (synchronized(lock) { current !== clip || currentChanged }) break
-                    stream(link, clip, index, UUID.randomUUID().toString())
+                for (link in links) {
+                    launch {
+                        for (index in indices) {
+                            if (synchronized(lock) { current !== clip || currentChanged }) break
+                            stream(link, clip, index, UUID.randomUUID().toString())
+                        }
+                    }
                 }
             }
         }
@@ -84,7 +93,7 @@ internal class ClipboardOutbox(
     /** Something else is on the clipboard now (text, or a clip from the Mac): stop serving. */
     fun supersede(link: ClipboardLink?) {
         synchronized(lock) {
-            stopLocked(link)
+            stopLocked(notify = link != null)
             current = null
         }
     }
@@ -93,7 +102,7 @@ internal class ClipboardOutbox(
     fun invalidate(link: ClipboardLink?) {
         synchronized(lock) {
             if (current == null) return
-            stopLocked(link)
+            stopLocked(notify = link != null)
             currentChanged = true
         }
     }
@@ -112,7 +121,7 @@ internal class ClipboardOutbox(
     fun onFetch(link: ClipboardLink, request: ClipFetchRequest) {
         val clip = synchronized(lock) { current }
         val code = when {
-            clip == null || clip.offer.offerId != request.offerId || clip.deviceId != link.deviceId ||
+            clip == null || clip.offer.offerId != request.offerId || link.deviceId !in clip.deviceIds ||
                 request.index !in clip.offer.items.indices -> ClipErrorCode.EXPIRED
             synchronized(lock) { currentChanged } -> ClipErrorCode.CHANGED
             transfers.size >= ClipLimits.MAX_CONCURRENT_SENDS -> ClipErrorCode.BUSY
@@ -144,16 +153,22 @@ internal class ClipboardOutbox(
     }
 
     /** Transfers stop; the offer stays, so the Mac can still paste it after reconnecting. */
-    fun disconnected() {
-        synchronized(lock) { stopLocked(null) }
+    fun disconnected(deviceId: String? = null) {
+        synchronized(lock) {
+            if (deviceId == null) {
+                stopLocked(notify = false)
+            } else {
+                transfers.values.filter { it.link.deviceId == deviceId }.forEach { onCancelled(it.transferId) }
+            }
+        }
     }
 
-    private fun stopLocked(link: ClipboardLink?) {
+    private fun stopLocked(notify: Boolean) {
         eagerJob?.cancel()
         eagerJob = null
-        transfers.keys.toList().forEach { transferId ->
-            link?.send("files.cancel", transferId)
-            onCancelled(transferId)
+        transfers.values.toList().forEach { transfer ->
+            if (notify) transfer.link.send("files.cancel", transfer.transferId)
+            onCancelled(transfer.transferId)
         }
     }
 
@@ -176,7 +191,7 @@ internal class ClipboardOutbox(
         } catch (_: RuntimeException) {
             return sendError(ClipErrorCode.UNAVAILABLE)
         }
-        val transfer = OutTransfer(transferId)
+        val transfer = OutTransfer(transferId, link)
         transfer.job = coroutineContext[Job]
         transfers[transferId] = transfer
         try {
