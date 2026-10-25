@@ -58,6 +58,9 @@ should follow device acceptance, not precede it.
 - Test an incoming and ongoing VoIP call (WhatsApp or Signal) with call
   integration on. The Mac card must appear while the phone is otherwise idle,
   and its buttons must act on the VoIP call, never on a cellular call.
+- Test call waiting: with a call in progress, receive a second cellular call.
+  Answer and Decline from the Mac must act on the waiting call, and pressing
+  a stale Answer after the ringing stops must report failure, not success.
 
 Pause-on-call depends on forwarded call state: notification forwarding and the
 optional Android Phone permissions must be enabled. It does not carry call

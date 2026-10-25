@@ -212,6 +212,14 @@ class ForwardedNotificationRegistryTest {
         assertFalse(lookedUp)
     }
 
+    @Test fun systemCallActionsRequireAMatchingTelecomState() {
+        assertTrue(canPerformSystemCallAction(SystemCallAction.ANSWER, isRinging = true, isInCall = true, sdkInt = 36))
+        assertFalse(canPerformSystemCallAction(SystemCallAction.ANSWER, isRinging = false, isInCall = true, sdkInt = 36))
+        assertTrue(canPerformSystemCallAction(SystemCallAction.END, isRinging = false, isInCall = true, sdkInt = 36))
+        assertFalse(canPerformSystemCallAction(SystemCallAction.END, isRinging = false, isInCall = false, sdkInt = 36))
+        assertFalse(canPerformSystemCallAction(SystemCallAction.END, isRinging = true, isInCall = true, sdkInt = 27))
+    }
+
     @Test fun ongoingCallPostsUseASettleDelayToSuppressTerminalSamsungUpdates() {
         assertTrue(shouldDelayCallPost("ongoing"))
         assertFalse(shouldDelayCallPost("incoming"))

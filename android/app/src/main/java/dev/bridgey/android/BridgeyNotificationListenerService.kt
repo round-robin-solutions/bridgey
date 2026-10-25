@@ -247,7 +247,13 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     @Suppress("DEPRECATION")
     private fun performSystemCallAction(action: SystemCallAction): Boolean {
         if (!canControlSystemCalls()) return false
-        val telecom = getSystemService(TelecomManager::class.java)
+        val telecom = getSystemService(TelecomManager::class.java) ?: return false
+        // Call integration requires READ_PHONE_STATE; a revoked grant must not act on an unknown call.
+        val isRinging = runCatching {
+            getSystemService(TelephonyManager::class.java).callState == TelephonyManager.CALL_STATE_RINGING
+        }.getOrDefault(false)
+        val isInCall = runCatching { telecom.isInCall }.getOrDefault(false)
+        if (!canPerformSystemCallAction(action, isRinging, isInCall, Build.VERSION.SDK_INT)) return false
         return when (action) {
             SystemCallAction.ANSWER -> {
                 telecom.acceptRingingCall()
@@ -395,7 +401,17 @@ private data class NotificationActionCandidate(
     val systemCallAction: SystemCallAction? = null,
 )
 
-private enum class SystemCallAction { ANSWER, END }
+internal enum class SystemCallAction { ANSWER, END }
+
+internal fun canPerformSystemCallAction(
+    action: SystemCallAction,
+    isRinging: Boolean,
+    isInCall: Boolean,
+    sdkInt: Int,
+): Boolean = when (action) {
+    SystemCallAction.ANSWER -> isRinging
+    SystemCallAction.END -> isInCall && sdkInt >= Build.VERSION_CODES.P
+}
 
 private fun notificationActionCandidates(
     notification: Notification,
