@@ -420,6 +420,10 @@ body     = base64url(0x01 ‖ nonce(12) ‖ AES-256-GCM(sigKey, nonce, plaintext
 
 ### Resumable transfer (`transfer.v1`)
 
+Superseded by the transfer engine design, [transfer-engine/design.md](transfer-engine/design.md)
+section 7 (receiver-driven wants, BLAKE3 chaining values, `BXR1` response streams). The earlier
+draft below is kept until that design is accepted.
+
 **Model:**
 
 - 1 MiB chunks; `H_i = SHA-256(chunk_i)`.

@@ -692,6 +692,12 @@ Pins and spike exit criteria (phase 0):
 
 ## 8. Large-file transfer (`transfer.v1`)
 
+Superseded (2026-10-25): the transfer engine design in
+[transfer-engine/design.md](transfer-engine/design.md) replaces this section and phase P4 below
+(receiver-driven requests, BLAKE3 instead of SHA-256, a visible ledger). What changed and why is
+listed in [transfer-engine/research.md](transfer-engine/research.md#corrections-to-earlier-drafts).
+The text below stays for the record until Rahul answers the engine questions.
+
 Version 1 of files (`files.v1`) stays for upstream peers. It is sequential, base64 inside JSON,
 24 KiB chunks, no resume, 10 GiB maximum. `transfer.v1` is used when both peers advertise it.
 
