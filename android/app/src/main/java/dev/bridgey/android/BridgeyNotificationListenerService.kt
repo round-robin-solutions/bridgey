@@ -98,7 +98,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         val notificationId = notificationToken(sbn.key)
         forwardedNotifications.record(notificationId, sbn.key, sbn.packageName)
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
-        val callType = if (isCall) resolvedNotificationCallType(notification, telephonyCallType) else null
+        val callType = if (isCall) resolvedNotificationCallType(notification, telephonyCallType, isTelephonyCall) else null
         val actions = storeActions(
             notificationId,
             notificationActionCandidates(notification, callType, isTelephonyCall && canControlSystemCalls()),
@@ -424,7 +424,11 @@ private fun notificationActionCandidates(
     return candidates
 }
 
-private fun resolvedNotificationCallType(notification: Notification, telephonyCallType: String?): String {
+private fun resolvedNotificationCallType(
+    notification: Notification,
+    telephonyCallType: String?,
+    isTelephonyCall: Boolean,
+): String {
     val reportedType = notificationCallType(notification.extras.getInt("android.callType", 0))
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return reportedType
     val hasAnswer = notification.extras.pendingIntent(Notification.EXTRA_ANSWER_INTENT) != null
@@ -438,6 +442,7 @@ private fun resolvedNotificationCallType(notification: Notification, telephonyCa
         hasHangUp = hasHangUp,
         hasFullScreenIntent = hasFullScreenIntent,
         telephonyCallType = telephonyCallType,
+        isTelephonyCall = isTelephonyCall,
     )
     android.util.Log.d(
         "Bridgey",
@@ -455,12 +460,14 @@ internal fun resolvedNotificationCallType(
     hasHangUp: Boolean,
     hasFullScreenIntent: Boolean = false,
     telephonyCallType: String? = null,
+    isTelephonyCall: Boolean = true,
 ): String = when {
     telephonyCallType == "incoming" -> "incoming"
     telephonyCallType == "ongoing" -> "ongoing"
-    // Samsung's dialer reports CALL_TYPE_ONGOING while the phone is still ringing.
-    // Its full-screen intent is the stable, language-independent incoming-call signal.
-    hasFullScreenIntent -> "incoming"
+    // Samsung's dialer reports CALL_TYPE_ONGOING with only a hang-up intent while the phone is
+    // still ringing. Its full-screen intent is the stable, language-independent incoming-call signal.
+    // Other apps can keep a full-screen intent after answering, so a hang-up-only call stays ongoing.
+    hasFullScreenIntent && (isTelephonyCall || !hasHangUp) -> "incoming"
     hasAnswer && hasDecline && !hasHangUp -> "incoming"
     hasAnswer && hasHangUp && !hasDecline -> "screening"
     hasHangUp && !hasAnswer && !hasDecline -> "ongoing"

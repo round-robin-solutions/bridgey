@@ -101,6 +101,49 @@ class ForwardedNotificationRegistryTest {
         )
     }
 
+    @Test fun appCallKeepingItsFullScreenIntentAfterAnsweringIsOngoing() {
+        assertTrue(
+            resolvedNotificationCallType(
+                reportedType = "ongoing",
+                hasAnswer = false,
+                hasDecline = false,
+                hasHangUp = true,
+                hasFullScreenIntent = true,
+                isTelephonyCall = false,
+            ) == "ongoing",
+        )
+        assertTrue(
+            resolvedNotificationCallType(
+                reportedType = "incoming",
+                hasAnswer = false,
+                hasDecline = false,
+                hasHangUp = true,
+                hasFullScreenIntent = true,
+                isTelephonyCall = false,
+            ) == "ongoing",
+        )
+        assertTrue(
+            resolvedNotificationCallType(
+                reportedType = "ongoing",
+                hasAnswer = true,
+                hasDecline = true,
+                hasHangUp = false,
+                hasFullScreenIntent = true,
+                isTelephonyCall = false,
+            ) == "incoming",
+        )
+        assertTrue(
+            resolvedNotificationCallType(
+                reportedType = "unknown",
+                hasAnswer = false,
+                hasDecline = false,
+                hasHangUp = false,
+                hasFullScreenIntent = true,
+                isTelephonyCall = false,
+            ) == "incoming",
+        )
+    }
+
     @Test fun telephonyStateOverridesAmbiguousSamsungNotificationSignals() {
         assertTrue(
             resolvedNotificationCallType(
