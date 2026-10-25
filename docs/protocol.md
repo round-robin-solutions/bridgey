@@ -199,6 +199,143 @@ state, it replies with `clipboard.rejected` and immediately resends the
 encrypted `features.update`; senders time out rather than displaying an
 unbounded sending state.
 
+### Clipboard offers (`clipboard_files_draft1`)
+
+Status: **Draft, edition only until accepted upstream.** Bridgey by Round Robin uses it between
+two edition peers; upstream clients never see these messages.
+
+This lifts the 32 KiB limit and adds images and files, the way Apple's Universal Clipboard works:
+the other device learns about a copy straight away, and the data moves when someone pastes.
+Small items are pushed at once, so pasting them is instant; copying a 2 GB video and never pasting
+it moves only the description.
+
+**Negotiation.** `features.update` gains the boolean key `clipboard_files_draft1` in its `features`
+map. A peer sets it when Clipboard is on for that device and its local "Copy images and files"
+setting is on. The messages below are used only when both peers advertise `true` and Clipboard is
+available on both. A missing key means `false`. Otherwise, and with upstream or older peers, the
+clients keep the behaviour above exactly: text up to 32 KiB through `clipboard.update` and
+`clipboard.rich`.
+
+Between two peers that both advertise the key:
+
+- text whose text and HTML together fit in 32 KiB still uses `clipboard.update`/`clipboard.rich`;
+- longer text, images, and files use `clipboard.offer`.
+
+#### `clipboard.offer`
+
+An encrypted, replay-protected payload on the current session, like `features.update`. The outer
+message has `kind`, `sessionId`, a unique `messageId`, `nonce` and `ciphertext`. The plaintext is
+UTF-8 JSON of at most 40,960 bytes:
+
+```json
+{
+  "version": 1,
+  "offerId": "5b1f3a5e-7d0c-4f6e-9a51-0c2f6f7d1e0b",
+  "createdAt": 1786550000000,
+  "sensitive": false,
+  "items": [
+    { "index": 0, "kind": "image", "mime": "image/png", "size": 2202009,
+      "sha256": "base64 of 32 bytes" },
+    { "index": 1, "kind": "file", "mime": "video/mp4", "name": "video.mp4", "size": 356515840 }
+  ]
+}
+```
+
+| Field | Rule |
+| --- | --- |
+| `version` | `1` |
+| `offerId` | UUID, chosen by the sender, unique per offer |
+| `createdAt` | Unix milliseconds, non-negative integer |
+| `sensitive` | optional boolean; receivers set Android's `EXTRA_IS_SENSITIVE` when true |
+| `items` | 1 to 100 entries; `index` is the position, 0 to n-1 in order |
+| `kind` | `text`, `html`, `image` or `file` |
+| `mime` | 1 to 255 characters, `type/subtype`, no control characters |
+| `name` | files only, 1 to 255 characters; receivers keep only the last path component |
+| `size` | bytes, integer from 0 to 10 GiB |
+| `sha256` | optional base64 SHA-256 of the item; required when `inline` is present |
+| `inline` | optional base64 of the whole item; decoded length equals `size` and matches `sha256`. All inline items in one offer total at most 16 KiB decoded, so the frame stays well under 65,536 bytes |
+
+An offer is either text (one `text` item, optionally followed by one `html` item that is the same
+clip's HTML representation) or one or more `image`/`file` items. Mixed offers, an `html` item
+without `text`, unknown kinds, duplicate offer IDs, out-of-range values and oversized payloads are
+rejected. As with quick actions, a malformed or undecryptable offer is ignored without closing the
+session. The receiver replies `clipboard.ack` with the offer's outer `messageId` once it has put
+the offer on its clipboard, or `clipboard.rejected` (followed by `features.update`) when Clipboard
+or "Copy images and files" is off locally.
+
+A new offer, or any clipboard text, supersedes the previous offer in both directions. The receiver
+cancels transfers still running for the old offer and deletes its cached items, except items it
+already handed to an app (a pasted file in a draft message must stay readable; those age out with
+the cache rules below). The sender stops serving the old offer.
+
+#### `clipboard.fetch` and `clipboard.error`
+
+When an app pastes an item that is not cached yet, the receiver asks for it:
+
+```json
+{ "version": 1, "offerId": "5b1f3a5e-...", "index": 1, "transferId": "c0ffee00-..." }
+```
+
+`clipboard.fetch` is encrypted; the receiver chooses `transferId` (a UUID) and also repeats it in
+the outer message. The sender answers with one of:
+
+- a clipboard-purpose transfer (below) using that `transferId`; or
+- an encrypted `clipboard.error` with outer `transferId` and plaintext
+  `{ "version": 1, "offerId", "index", "transferId", "code" }`.
+
+| `code` | Meaning |
+| --- | --- |
+| `expired` | not the sender's current offer, or no such index |
+| `changed` | the sender's clipboard, or the copied file, changed since the offer |
+| `too_large` | the item is over a limit (for example it grew past 10 GiB) |
+| `unavailable` | the sender can no longer read it (file deleted, permission gone, read error) |
+| `disabled` | Clipboard or "Copy images and files" is off on the sender for this device |
+| `busy` | the sender already runs 4 clipboard transfers; retry shortly |
+
+A sender may also send `clipboard.error` during a transfer (for example the file changed while
+streaming); the receiver then discards the partial data. A fetch that gets neither a transfer nor
+an error within 15 seconds, or a transfer that stalls for 30 seconds, fails locally.
+
+#### Clipboard-purpose transfers
+
+Clipboard data reuses the chunked file transfer messages above, marked with a purpose:
+
+1. `files.offer` (outer `transferId`) whose encrypted payload adds `"purpose": "clipboard"`,
+   `offerId` and `index` to the usual `transferId`, `name`, `mimeType` and `size`. `sha256` is
+   optional here: the sender may hash while it streams, so a 2 GB file is read once.
+2. The receiver checks that the item belongs to its current received offer (and, for a fetch, that
+   the transfer ID is the one it asked for), that the size matches, and replies `files.accept`.
+   It never shows a prompt, never requires the Files feature (Clipboard governs these), and never
+   writes to Downloads or the received-files folder: data goes to an app-private clipboard cache.
+3. `files.chunk` messages of at most 24 KiB, sequence from 0. As for files, Android acknowledges
+   with cumulative `files.chunk.ack` and the Mac keeps at most 64 chunks unacknowledged.
+4. `files.complete` repeats `transferId` in the outer message and carries the SHA-256 of all
+   bytes. The receiver checks the byte count, its own hash, and the offer's `sha256` when the
+   offer had one, then replies `files.complete.ack`.
+
+Either side can stop a transfer with the existing idempotent `files.cancel`. A receiver declines an
+eager push it does not need (for example the item is already being fetched) the same way.
+
+**Eager items.** Right after an offer, the sender pushes items through the same transfer path
+without waiting for a fetch: in index order, while the total of pushed items stays within its
+"Send right away up to" setting (5 MB, 25 MB (default) or 100 MB; "Always ask when pasting" pushes
+nothing). Inline items need no push. An app that pastes during a push waits for that push instead
+of starting a second transfer.
+
+**Receivers.** The Mac writes one `NSPasteboardItem` per item with an `NSPasteboardItemDataProvider`
+for the item's types (image types, `public.utf8-plain-text` and `public.html`, or `public.file-url`
+for files, pointing into its cache with the original name); the provider waits for the data and
+shows progress after about 300 ms, like Universal Clipboard. Android sets `ClipData` with
+`content://${applicationId}.clipboard/...` URIs from a non-exported provider that grants read
+access through the clipboard, and streams a lazy item into a pipe when an app opens it. Text up to
+256 KiB is fetched at once and set as plain text (Android's Binder transaction limit rules out
+larger `ClipData` text); longer text is offered as a `.txt` URI.
+
+**Caches.** Each side keeps clipboard data in an app-private cache: superseded items are deleted
+(unless handed to an app), nothing is kept longer than 24 hours, and the total is capped at 2 GB
+(oldest first). Clear activity and Forget device delete the cache. Cached data, names and sizes
+are never logged or put in diagnostics.
+
 ### Files (`files.v1`)
 
 `files.offer` carries transfer ID, display filename, MIME type, unsigned byte
