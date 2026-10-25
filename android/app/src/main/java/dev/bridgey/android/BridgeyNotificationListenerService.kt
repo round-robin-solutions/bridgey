@@ -130,6 +130,10 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
                 applicationIcon = applicationIcon,
                 callType = callType,
             )
+            val firstForward = notificationId !in forwardedNotificationIds
+            if (firstForward && (callType == null || callType == "incoming") && bridgey.pairing.isFeatureAvailable(BridgeyFeature.NOTIFICATIONS)) {
+                bridgey.activity.notificationForwarded(isCall = callType == "incoming")
+            }
             forwardedNotificationIds += notificationId
             while (forwardedNotificationIds.size > MAX_TRACKED_FORWARDED_NOTIFICATIONS) {
                 forwardedNotificationIds.remove(forwardedNotificationIds.first())

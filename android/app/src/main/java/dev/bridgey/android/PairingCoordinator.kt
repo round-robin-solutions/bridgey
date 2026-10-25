@@ -92,6 +92,9 @@ data class FileTransferState(
 
 data class TrustedDevice(val id: String, val name: String)
 
+/** Events that leave no state behind, reported to the activity stream (kind only, never content). */
+enum class PeerActivity { CLIPBOARD_RECEIVED, PING_RECEIVED, CALL_STARTED }
+
 data class RemoteBatteryStatus(val level: Int, val isCharging: Boolean)
 
 class PairingCoordinator(
@@ -145,6 +148,10 @@ class PairingCoordinator(
     private val diagnostics = BridgeyDiagnostics()
     private val remoteCallRequest = RemoteCallRequest(appContext)
     private var lastRemoteCallRequestAt = 0L
+
+    /** Activity stream hook: called with the event kind and the peer, never with content. */
+    @Volatile
+    var activityListener: ((PeerActivity, String, String) -> Unit)? = null
 
     init {
         scope.launch {
@@ -404,6 +411,7 @@ class PairingCoordinator(
         }
         current.send(Message(kind = "ping.ack", sessionId = current.id, messageId = messageId))
         android.util.Log.i("Bridgey", "PLUGIN ping received")
+        activityListener?.invoke(PeerActivity.PING_RECEIVED, current.remoteDeviceId, current.peerName)
     }
 
     private fun clearPingStatus() {
@@ -1090,6 +1098,9 @@ class PairingCoordinator(
         val result = remoteCallRequest.execute(number, settings.state.value.directCallsEnabled)
         current.send(Message(kind = result.wireKind, sessionId = current.id, messageId = messageId))
         diagnostics.record("calls", "request", outcome = result.name.lowercase())
+        if (result == RemoteCallResult.STARTED) {
+            activityListener?.invoke(PeerActivity.CALL_STARTED, current.remoteDeviceId, current.peerName)
+        }
     }
 
     private fun receiveNotificationAction(current: Session, message: Message) {
@@ -1143,6 +1154,7 @@ class PairingCoordinator(
         appContext.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
         diagnostics.record("clipboard", if (rich) "rich_received" else "text_received")
         android.util.Log.i("Bridgey", "PLUGIN clipboard received")
+        activityListener?.invoke(PeerActivity.CLIPBOARD_RECEIVED, current.remoteDeviceId, current.peerName)
         current.send(Message(kind = "clipboard.ack", sessionId = current.id, messageId = messageId))
     }
 
