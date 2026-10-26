@@ -54,3 +54,9 @@ struct FileSendQueue<Item> {
         return ids
     }
 }
+
+/// One item of a phone's send queue: a file, or a whole folder (owned by `FolderSender` under the same ID).
+enum OutgoingQueueItem: Equatable {
+    case file(URL)
+    case folder
+}
