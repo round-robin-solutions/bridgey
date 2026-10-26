@@ -216,7 +216,7 @@ class StreamScreenshotTest {
         )
     }
 
-    /** Scrolled so the Remote control section (its label is item index 16) leads the page. */
+    /** Scrolled to the end of Media and quick actions, so Remote control shows below its neighbour. */
     private fun settingsRemote() = capture(if (dark()) "settings-remote-dark" else "settings-remote-light") {
         SettingsScreen(
             state = settingsState().copy(globalFeatures = settingsState().globalFeatures + (BridgeyFeature.REMOTE_INPUT to true), remoteVolumeKeys = true),
