@@ -565,3 +565,37 @@
 "settings.logging.clear.detail" = "Deletes the diagnostics log on this Mac";
 "settings.logging.clear.title" = "Clear logs?";
 "settings.logging.clear.body" = "This deletes the diagnostics log on this Mac. Your other devices keep their own.";
+
+/* Codes from messages */
+"codes.access" = "Code access";
+"codes.access.allowed" = "Allowed: Android shows Bridgey the full message";
+"codes.access.hidden" = "Hidden by Android: link this phone to the Mac";
+"codes.access.noPhone" = "Connect a phone to see this";
+"codes.access.notLinked" = "Not linked: Android may hide codes from Bridgey";
+"codes.access.tooOld" = "Update Bridgey on the phone to use codes";
+"codes.access.waiting" = "Waiting for the phone";
+"codes.autoCopy" = "Copy automatically";
+"codes.autoCopy.detail" = "Only while you are using this Mac. Any app can read the clipboard, so this is off by default.";
+"codes.card.detail" = "From %1$@ on %2$@";
+"codes.card.title" = "Code %@";
+"codes.confirm.body" = "To find the code, Bridgey sends the text of each message that looks like it has one, code included, to Cloudflare Workers AI through Round Robin’s relay. Nothing is stored there. You can turn this off at any time.";
+"codes.confirm.title" = "Send code messages to Cloudflare?";
+"codes.confirm.turnOn" = "Turn On";
+"codes.copied" = "Copied. Clears in %d s.";
+"codes.copied.auto" = "Copied automatically. Clears in %d s.";
+"codes.copy" = "Copy code";
+"codes.history" = "Sent a one-time code";
+"codes.link" = "Link this phone to the Mac";
+"codes.link.advertising" = "Waiting for the phone. Tap Allow there.";
+"codes.link.bluetoothOff" = "Turn on Bluetooth on this Mac, then try again.";
+"codes.link.failed" = "Bluetooth advertising did not start. Try again.";
+"codes.link.requested" = "On the phone, tap the Bridgey notification, then Allow.";
+"codes.link.unauthorized" = "Allow Bluetooth for Bridgey in System Settings > Privacy & Security > Bluetooth, then try again.";
+"codes.link.unsupported" = "Update Bridgey on the phone to link it.";
+"codes.link.unsupported.mac" = "This Mac cannot advertise over Bluetooth. Use the ADB command instead.";
+"codes.notification.title" = "Code %1$@ from %2$@";
+"codes.privacy" = "When on, a text message that looks like it has a code goes from this Mac, through Round Robin’s relay, to Cloudflare Workers AI, which finds the code. So that message text, code included, leaves your devices. Cloudflare does not use it to train models, and the relay keeps no copy and logs nothing. Bridgey never saves or logs codes, and clears a copied code from the clipboard after 60 seconds.";
+"codes.title" = "Codes from messages";
+"codes.toggle" = "Show codes from text messages";
+"codes.toggle.detail" = "“Code 482913 from HDFC Bank” with a Copy button. Off by default.";
+"codes.toggle.unavailable" = "Not available in this build";

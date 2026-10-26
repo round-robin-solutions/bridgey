@@ -88,6 +88,13 @@ struct SettingsModel {
     var notificationPermissionDetermined = true
     var historyEnabled = false
     var history: [NotificationHistoryItem] = []
+    /// Notifications > Codes from messages.
+    var codesEnabled = false
+    var codesAutoCopy = false
+    /// The build has a relay address (rr-edition.properties OTP_PROXY_URL).
+    var codesAvailable = true
+    var codeAccess: CodeAccessDisplay = .noPhone
+    var codeLinkStatus: String?
     var shortcutKeys: [ShortcutAction: String] = [:]
     var shortcutShift = false
     var shortcutError: String?
@@ -157,6 +164,9 @@ struct SettingsActions {
     var lookForDevices: () -> Void = {}
     var enableNotifications: () -> Void = {}
     var setHistoryEnabled: (Bool) -> Void = { _ in }
+    var setCodesEnabled: (Bool) -> Void = { _ in }
+    var setCodesAutoCopy: (Bool) -> Void = { _ in }
+    var linkPhone: () -> Void = {}
     var clearHistory: () -> Void = {}
     var setShortcut: (ShortcutAction, String) -> Void = { _, _ in }
     var setShortcutShift: (Bool) -> Void = { _ in }
@@ -618,6 +628,7 @@ private struct NotificationsPane: View {
             FeatureSwitch(feature: .notifications, model: model, actions: actions)
             NotificationPermissionRow(model: model, actions: actions)
         }
+        CodesCard(model: model, actions: actions)
         NotificationHistoryCard(model: model, actions: actions)
     }
 }
@@ -1005,6 +1016,47 @@ struct NotificationPermissionRow: View {
     }
 }
 
+/// Notifications > Codes from messages: off by default, and turning it on says plainly where the
+/// message text goes.
+struct CodesCard: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+    @State private var confirmEnable = false
+
+    var body: some View {
+        SettingsCard(title: L10n.text("codes.title", fallback: "Codes from messages"),
+                     footnote: L10n.text("codes.privacy", fallback: "When on, a text message that looks like it has a code goes from this Mac, through Round Robin\u{2019}s relay, to Cloudflare Workers AI, which finds the code. So that message text, code included, leaves your devices. Cloudflare does not use it to train models, and the relay keeps no copy and logs nothing. Bridgey never saves or logs codes, and clears a copied code from the clipboard after 60 seconds.")) {
+            SettingsToggle(title: L10n.text("codes.toggle", fallback: "Show codes from text messages"),
+                           subtitle: model.codesAvailable
+                               ? L10n.text("codes.toggle.detail", fallback: "\u{201C}Code 482913 from HDFC Bank\u{201D} with a Copy button. Off by default.")
+                               : L10n.text("codes.toggle.unavailable", fallback: "Not available in this build"),
+                           subtitleIsWarning: !model.codesAvailable,
+                           divider: false,
+                           isOn: model.codesEnabled,
+                           set: { on in if on { confirmEnable = true } else { actions.setCodesEnabled(false) } })
+                .disabled(!model.codesAvailable && !model.codesEnabled)
+            SettingsToggle(title: L10n.text("codes.autoCopy", fallback: "Copy automatically"),
+                           subtitle: L10n.text("codes.autoCopy.detail", fallback: "Only while you are using this Mac. Any app can read the clipboard, so this is off by default."),
+                           isOn: model.codesAutoCopy, set: actions.setCodesAutoCopy)
+                .disabled(!model.codesEnabled)
+            SettingsRow(title: L10n.text("codes.access", fallback: "Code access"),
+                        subtitle: model.codeLinkStatus ?? model.codeAccess.text,
+                        subtitleIsWarning: model.codeLinkStatus == nil && model.codeAccess.isWarning) {
+                if model.codeAccess.offersLink {
+                    Button(L10n.text("codes.link", fallback: "Link this phone to the Mac"), action: actions.linkPhone)
+                        .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                }
+            }
+        }
+        .confirmationDialog(L10n.text("codes.confirm.title", fallback: "Send code messages to Cloudflare?"), isPresented: $confirmEnable) {
+            Button(L10n.text("codes.confirm.turnOn", fallback: "Turn On")) { actions.setCodesEnabled(true) }
+            Button(L10n.text("action.cancel", fallback: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.text("codes.confirm.body", fallback: "To find the code, Bridgey sends the text of each message that looks like it has one, code included, to Cloudflare Workers AI through Round Robin\u{2019}s relay. Nothing is stored there. You can turn this off at any time."))
+        }
+    }
+}
+
 struct NotificationHistoryCard: View {
     let model: SettingsModel
     let actions: SettingsActions
@@ -1281,6 +1333,11 @@ private struct LiveSettingsView: View {
         model.notificationPermissionDetermined = pairing.notificationPermissionDetermined
         model.historyEnabled = settings.notificationHistoryEnabled
         model.history = pairing.notificationHistory
+        model.codesEnabled = settings.codesEnabled
+        model.codesAutoCopy = settings.codesAutoCopy
+        model.codesAvailable = CodeRelay.baseURL != nil
+        model.codeAccess = pairing.codeAccessForSelectedPhone
+        model.codeLinkStatus = pairing.codeLinkStatus
         model.shortcutKeys = shortcuts.keys
         model.shortcutShift = shortcuts.useShift
         model.shortcutError = shortcuts.error
@@ -1348,6 +1405,9 @@ private struct LiveSettingsView: View {
         actions.lookForDevices = { pairing.lookForDevices() }
         actions.enableNotifications = { pairing.enableNotifications() }
         actions.setHistoryEnabled = { settings.setNotificationHistoryEnabled($0) }
+        actions.setCodesEnabled = { settings.setCodesEnabled($0) }
+        actions.setCodesAutoCopy = { settings.setCodesAutoCopy($0) }
+        actions.linkPhone = { pairing.requestCompanionLink() }
         actions.clearHistory = { pairing.clearNotificationHistory() }
         actions.setShortcut = { action, key in shortcuts.setKey(key, for: action) }
         actions.setShortcutShift = { shortcuts.setShift($0) }

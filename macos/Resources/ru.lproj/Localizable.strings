@@ -565,3 +565,37 @@
 "settings.logging.clear.detail" = "Удаляет журнал диагностики на этом Mac";
 "settings.logging.clear.title" = "Очистить журналы?";
 "settings.logging.clear.body" = "Журнал диагностики на этом Mac будет удалён. Другие устройства хранят свои журналы.";
+
+/* Codes from messages */
+"codes.access" = "Доступ к кодам";
+"codes.access.allowed" = "Разрешён: Android показывает Bridgey сообщение целиком";
+"codes.access.hidden" = "Скрыт Android: свяжите этот телефон с Mac";
+"codes.access.noPhone" = "Подключите телефон, чтобы увидеть статус";
+"codes.access.notLinked" = "Не связан: Android может скрывать коды от Bridgey";
+"codes.access.tooOld" = "Обновите Bridgey на телефоне, чтобы получать коды";
+"codes.access.waiting" = "Ждём ответа телефона";
+"codes.autoCopy" = "Копировать автоматически";
+"codes.autoCopy.detail" = "Только пока вы пользуетесь этим Mac. Буфер обмена может прочитать любое приложение, поэтому по умолчанию выключено.";
+"codes.card.detail" = "От %1$@ (%2$@)";
+"codes.card.title" = "Код %@";
+"codes.confirm.body" = "Чтобы найти код, Bridgey отправляет текст каждого сообщения, похожего на сообщение с кодом, вместе с кодом, в Cloudflare Workers AI через сервер-посредник Round Robin. Там ничего не хранится. Это можно выключить в любой момент.";
+"codes.confirm.title" = "Отправлять сообщения с кодами в Cloudflare?";
+"codes.confirm.turnOn" = "Включить";
+"codes.copied" = "Скопировано. Очистится через %d с.";
+"codes.copied.auto" = "Скопировано автоматически. Очистится через %d с.";
+"codes.copy" = "Скопировать код";
+"codes.history" = "Прислал одноразовый код";
+"codes.link" = "Связать телефон с этим Mac";
+"codes.link.advertising" = "Ждём телефон. Нажмите там «Разрешить».";
+"codes.link.bluetoothOff" = "Включите Bluetooth на этом Mac и попробуйте снова.";
+"codes.link.failed" = "Не удалось начать передачу по Bluetooth. Попробуйте снова.";
+"codes.link.requested" = "На телефоне нажмите уведомление Bridgey, затем «Разрешить».";
+"codes.link.unauthorized" = "Разрешите Bluetooth для Bridgey в Системных настройках > Конфиденциальность и безопасность > Bluetooth и попробуйте снова.";
+"codes.link.unsupported" = "Обновите Bridgey на телефоне, чтобы связать его.";
+"codes.link.unsupported.mac" = "Этот Mac не может работать по Bluetooth так, как нужно. Используйте команду ADB.";
+"codes.notification.title" = "Код %1$@ от %2$@";
+"codes.privacy" = "Когда функция включена, текстовое сообщение, похожее на сообщение с кодом, уходит с этого Mac через сервер-посредник Round Robin в Cloudflare Workers AI, который находит код. То есть текст сообщения вместе с кодом покидает ваши устройства. Cloudflare не обучает на нём модели, а посредник ничего не хранит и не пишет в журнал. Bridgey никогда не сохраняет коды и не пишет их в журнал, а скопированный код удаляет из буфера обмена через 60 секунд.";
+"codes.title" = "Коды из сообщений";
+"codes.toggle" = "Показывать коды из SMS";
+"codes.toggle.detail" = "«Код 482913 от HDFC Bank» с кнопкой «Скопировать код». По умолчанию выключено.";
+"codes.toggle.unavailable" = "Недоступно в этой сборке";

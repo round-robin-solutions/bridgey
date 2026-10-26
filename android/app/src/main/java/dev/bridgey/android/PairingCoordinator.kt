@@ -1379,6 +1379,8 @@ class PairingCoordinator(
         actions: List<ForwardedNotificationAction> = emptyList(),
         applicationIcon: String? = null,
         callType: String? = null,
+        smsDefaultApp: Boolean = false,
+        redacted: Boolean? = null,
     ): List<DeviceConnection> {
         val targets = broadcastTargets(BridgeyFeature.NOTIFICATIONS)
         if (targets.isEmpty()) return emptyList()
@@ -1396,6 +1398,9 @@ class PairingCoordinator(
                 if (callType in setOf("incoming", "ongoing", "screening", "unknown")) {
                     put("callType", callType)
                 }
+                // Draft sms_codes_draft1: lets the Mac look for a code, or say Android hid the text.
+                put("smsDefaultApp", smsDefaultApp)
+                if (smsDefaultApp && redacted != null) put("redacted", redacted)
             }
             .put("actions", JSONArray().apply {
                 actions.take(4).forEach { action ->
@@ -1410,7 +1415,13 @@ class PairingCoordinator(
         scope.launch {
             targets.forEach { current ->
                 if (sendEncrypted(current, "notifications.post", payload)) {
-                    BridgeyLogging.line(LogLines.notification(BridgeyLogging.policy, "sent", applicationName, title, text))
+                    // Text messages can carry codes: their content never reaches the log, whatever Logging says.
+                    BridgeyLogging.line(
+                        LogLines.notification(
+                            BridgeyLogging.policy, "sent", applicationName,
+                            if (smsDefaultApp) null else title, if (smsDefaultApp) null else text,
+                        ),
+                    )
                 }
             }
         }
@@ -2160,6 +2171,7 @@ class PairingCoordinator(
                 }
             }
             "notifications.dismiss" -> receiveNotificationDismiss(current, message)
+            "codes.advertise_result", "codes.link_request" -> receiveCodesMessage(current, message)
             "notifications.action" -> receiveNotificationAction(current, message)
             "calls.request" -> receiveCallRequest(current, message)
             "find.start" -> receiveFindCommand(current, message, start = true)
@@ -2777,6 +2789,9 @@ class PairingCoordinator(
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
         featureValues.put(dev.bridgey.android.folders.FOLDERS_FEATURE_KEY, receivesFolders)
         featureValues.put(dev.bridgey.android.folders.PLACES_FEATURE_KEY, receivesFolders)
+        // Draft, edition only: SMS notifications are marked for the Mac's code reader, and this phone
+        // reports code access and makes the companion link.
+        featureValues.put(dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY, settings.isEnabled(BridgeyFeature.NOTIFICATIONS, current.remoteDeviceId))
         val payload = JSONObject()
             .put("version", 1)
             .put("features", featureValues)
@@ -2813,6 +2828,7 @@ class PairingCoordinator(
                 remoteClipboardFiles = values.opt(CLIPBOARD_FILES_FEATURE_KEY) == true,
                 remoteFolders = values.opt(dev.bridgey.android.folders.FOLDERS_FEATURE_KEY) == true,
                 remotePlaces = values.opt(dev.bridgey.android.folders.PLACES_FEATURE_KEY) == true,
+                remoteSmsCodes = values.opt(dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY) == true,
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
                 ringing = state.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
             )
@@ -2825,6 +2841,94 @@ class PairingCoordinator(
         if (received[BridgeyFeature.PING] == false && pendingPing?.first == deviceId) clearPingStatus()
         publish()
         quickActions.policyChanged()
+        if (values.opt(dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY) == true) sendCodeStatus(current)
+    }
+
+    // MARK: Codes from messages (draft sms_codes_draft1)
+
+    /** Set by the application: the current code access status, sent to each Mac that reads codes. */
+    @Volatile var codeAccessStatus: () -> dev.bridgey.android.codes.CodeAccessStatus? = { null }
+
+    /** Set by the application: a Mac asked this phone to start the companion link (its Settings button). */
+    @Volatile var codeLinkRequested: (deviceId: String, peerName: String) -> Unit = { _, _ -> }
+
+    private val pendingAdvertising = java.util.concurrent.ConcurrentHashMap<String, (Boolean, String?) -> Unit>()
+    private val mainHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+
+    /** codes.status to every connected Mac that reads codes. */
+    fun sendCodeStatus() {
+        registry.broadcastTargets { _, state -> state.remoteSmsCodes }.forEach { (_, current) -> sendCodeStatus(current) }
+    }
+
+    private fun sendCodeStatus(current: Session) {
+        val status = codeAccessStatus() ?: return
+        val payload = JSONObject().put("version", 1).put("status", status.wire).toString().toByteArray()
+        scope.launch { sendEncrypted(current, "codes.status", payload) }
+    }
+
+    /** The Mac "Link this phone to the Mac" talks to: the selected one if it reads codes, else any that does. */
+    fun companionLinkTarget(): String? {
+        val connections = registry.connections()
+        val selected = registry.target(selectedDeviceId)
+        return connections.firstOrNull { it.deviceId == selected && it.state.remoteSmsCodes }?.deviceId
+            ?: connections.firstOrNull { it.state.remoteSmsCodes }?.deviceId
+    }
+
+    /** Connected, but no Mac speaks sms_codes_draft1 (an older Bridgey). */
+    fun companionLinkMacTooOld(): Boolean {
+        val connections = registry.connections()
+        return connections.isNotEmpty() && connections.none { it.state.remoteSmsCodes }
+    }
+
+    /** codes.advertise: the Mac advertises [serviceUuid] over Bluetooth LE for a minute. */
+    fun requestCompanionAdvertising(deviceId: String, serviceUuid: java.util.UUID, onResult: (Boolean, String?) -> Unit) {
+        val current = registry.session(deviceId)
+        if (current == null) {
+            mainHandler.post { onResult(false, null) }
+            return
+        }
+        val key = serviceUuid.toString()
+        pendingAdvertising[key] = onResult
+        val payload = JSONObject().put("version", 1).put("serviceUuid", key).toString().toByteArray()
+        scope.launch {
+            if (!sendEncrypted(current, "codes.advertise", payload)) {
+                pendingAdvertising.remove(key)?.let { callback -> mainHandler.post { callback(false, null) } }
+            }
+        }
+        // The Mac may first ask for Bluetooth permission; give the person time to answer it.
+        mainHandler.postDelayed({ pendingAdvertising.remove(key)?.invoke(false, null) }, COMPANION_ADVERTISE_TIMEOUT_MS)
+    }
+
+    fun stopCompanionAdvertising(deviceId: String, serviceUuid: java.util.UUID, linked: Boolean) {
+        pendingAdvertising.remove(serviceUuid.toString())
+        val current = registry.session(deviceId) ?: return
+        val payload = JSONObject().put("version", 1).put("serviceUuid", serviceUuid.toString()).put("linked", linked).toString().toByteArray()
+        scope.launch { sendEncrypted(current, "codes.advertise_stop", payload) }
+    }
+
+    private fun receiveCodesMessage(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        if (data.size > 1024) return
+        val payload = runCatching { JSONObject(data.toString(Charsets.UTF_8)) }.getOrNull() ?: return
+        if (payload.optInt("version") != 1) return
+        when (message.kind) {
+            "codes.advertise_result" -> {
+                val uuid = payload.optString("serviceUuid")
+                val ok = payload.opt("ok") == true
+                val reason = payload.optString("reason").takeIf { it.isNotEmpty() }
+                pendingAdvertising.remove(uuid)?.let { callback -> mainHandler.post { callback(ok, reason ?: if (ok) null else "failed") } }
+            }
+            "codes.link_request" -> {
+                if (!settings.isEnabled(BridgeyFeature.NOTIFICATIONS, current.remoteDeviceId)) return
+                val deviceId = current.remoteDeviceId
+                val name = current.peerName
+                mainHandler.post { codeLinkRequested(deviceId, name) }
+            }
+        }
     }
 
     private fun receiveBattery(current: Session, message: Message) {
@@ -2912,6 +3016,7 @@ class PairingCoordinator(
         const val MAX_NOTIFICATION_ICON_BASE64_LENGTH = 28 * 1024
         const val CONNECT_TIMEOUT_MILLIS = ReconnectPolicy.CONNECT_TIMEOUT_MILLIS
         const val HANDSHAKE_TIMEOUT_MILLIS = 20_000L
+        const val COMPANION_ADVERTISE_TIMEOUT_MS = 45_000L
         const val VERIFICATION_TIMEOUT_MILLIS = 120_000L
         const val CLIPBOARD_CACHE_DIRECTORY = "clipboard-cache"
         const val FOLDER_JOURNAL_DIRECTORY = "folder-transfers"

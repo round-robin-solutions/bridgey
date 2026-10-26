@@ -33,6 +33,8 @@ class PerfTestActions(
     val cancel: () -> Unit = {},
     val copy: (BenchReport) -> Unit = {},
     val share: (BenchReport) -> Unit = {},
+    /** Lab builds only: the Code reader test lives next to this one. */
+    val openCodeTest: (() -> Unit)? = null,
 )
 
 @Composable
@@ -118,6 +120,7 @@ fun PerfTestScreen(state: BenchUiState, pluggedIn: Boolean?, actions: PerfTestAc
             }
             BenchUiState.Idle -> {}
         }
+        actions.openCodeTest?.let { open -> item(key = "codetest") { CodeTestEntry(open) } }
     }
 }
 

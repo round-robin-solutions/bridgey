@@ -29,6 +29,12 @@ Bridgey v0.5 does not declare `READ_SMS`, `SEND_SMS`, `READ_CALL_LOG`,
 This keeps the feature useful without adding broad access to unrelated message
 history or telephony metadata.
 
+Round Robin edition, 2026-10-26: "Codes from text messages" reads codes from the
+SMS notifications Bridgey already receives and needs no SMS permission. Only the
+hidden Code reader test (a one-off evaluation) reads the SMS inbox; `READ_SMS` is
+declared only in beta, nightly and local builds, never in stable ones, is asked
+for when the test starts, and is released when it ends (see `docs/rr-edition.md`).
+
 ## Future full conversation access
 
 Google Play treats SMS and Call Log permissions as restricted. Its policy lists

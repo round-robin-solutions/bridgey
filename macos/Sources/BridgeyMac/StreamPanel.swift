@@ -37,6 +37,8 @@ struct PanelModel {
     var receivedLink: String?
     var ringing: RingingState?
     var call: RemoteCallStatus?
+    /// Codes from messages: the newest code, for ten minutes.
+    var code: LiveCodeCard?
     var rows: [StreamRow] = []
     var showPreviews = true
     var now = Date()
@@ -96,6 +98,8 @@ struct PanelActions {
     var retryTransfer: (String) -> Void = { _ in }
     var resumeTransfer: (String) -> Void = { _ in }
     var callAction: (RemoteCallAction) -> Void = { _ in }
+    var copyCode: (String) -> Void = { _ in }
+    var dismissCode: () -> Void = {}
     var enableNotifications: () -> Void = {}
     var retryDevice: (String) -> Void = { _ in }
     var lookForDevices: () -> Void = {}
@@ -174,7 +178,7 @@ struct StreamPanelView: View {
     }
 
     private var hasLiveCards: Bool {
-        !model.transfers.isEmpty || model.receivedLink != nil || model.ringing != nil || model.call != nil || model.update.showsInPanel
+        !model.transfers.isEmpty || model.receivedLink != nil || model.ringing != nil || model.call != nil || model.code != nil || model.update.showsInPanel
     }
 
     @ViewBuilder private var stateCard: some View {
@@ -688,6 +692,19 @@ private struct LiveCards: View {
                 .id("call")
                 .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
             }
+            if let code = model.code {
+                LiveCard(symbol: "key.fill", tint: .blue,
+                         title: String(format: L10n.text("codes.card.title", fallback: "Code %@"), code.code),
+                         detail: code.copiedLine(now: model.now)
+                             ?? String(format: L10n.text("codes.card.detail", fallback: "From %1$@ on %2$@"), code.sender, code.deviceName)) {
+                    Button(L10n.text("action.dismiss", fallback: "Dismiss"), action: actions.dismissCode)
+                        .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
+                    Button(L10n.text("codes.copy", fallback: "Copy code")) { actions.copyCode(code.id) }
+                        .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                }
+                .id("code")
+                .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
+            }
             if let ringing = model.ringing {
                 LiveCard(symbol: "location.fill", tint: .purple, title: ringingTitle(ringing),
                          detail: L10n.text("panel.find.detail", fallback: "Find device")) {
@@ -758,6 +775,7 @@ private struct LiveCards: View {
     private var cardKeys: [String] {
         var keys: [String] = []
         if model.call != nil { keys.append("call") }
+        if model.code != nil { keys.append("code") }
         if model.ringing != nil { keys.append("ringing") }
         if model.receivedLink != nil { keys.append("link") }
         if model.update.showsInPanel { keys.append("update") }
@@ -1346,7 +1364,9 @@ struct BridgeyPanel: View {
         .onReceive(ticker) { date in
             let latest = PasteboardPreview.current(previous: clipboard)
             if latest != clipboard { clipboard = latest }
-            if Calendar.current.component(.minute, from: date) != Calendar.current.component(.minute, from: now) { now = date }
+            // A copied code counts down "Clears in 42 s" every second; otherwise once a minute is enough.
+            let countingDown = pairing.liveCode?.copiedLine(now: date) != nil || pairing.liveCode?.copiedLine(now: now) != nil
+            if countingDown || Calendar.current.component(.minute, from: date) != Calendar.current.component(.minute, from: now) { now = date }
         }
     }
 
@@ -1374,6 +1394,7 @@ struct BridgeyPanel: View {
             if pairing.macRinging { model.ringing = .mac(name) } else if pairing.androidRinging { model.ringing = .phone(name) }
         }
         model.call = pairing.remoteCall
+        model.code = pairing.liveCode
         model.rows = streamRows(activity.items, now: now)
         model.showPreviews = settings.showActivityPreviews
         model.now = now
@@ -1430,6 +1451,8 @@ struct BridgeyPanel: View {
         actions.retryTransfer = { pairing.retryFileTransfer(id: $0) }
         actions.resumeTransfer = { pairing.resumeFolderTransfer(id: $0) }
         actions.callAction = { pairing.performRemoteCallAction($0) }
+        actions.copyCode = { pairing.copyCode(reference: $0) }
+        actions.dismissCode = { pairing.dismissLiveCode() }
         actions.enableNotifications = { pairing.enableNotifications() }
         actions.retryDevice = { pairing.retryNow(deviceID: $0) }
         actions.lookForDevices = { pairing.lookForDevices() }

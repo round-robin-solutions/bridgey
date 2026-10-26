@@ -112,6 +112,8 @@ data class SettingsState(
     val keepWifiAwake: Boolean = false,
     /** Files: folders sent to this phone, default folder, conflicts, Replace from other devices, places. */
     val folders: FolderSettingsState = FolderSettingsState(),
+    /** Notifications > Codes from messages: code access and the companion link. */
+    val codes: CodesSettingsState = CodesSettingsState(),
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean = globalFeatures[feature] != false
 }
@@ -154,6 +156,7 @@ class SettingsActions(
     val openBatterySettings: () -> Unit = {},
     val setKeepWifiAwake: (Boolean) -> Unit = {},
     val folders: FolderSettingsActions = FolderSettingsActions(),
+    val codes: CodesSettingsActions = CodesSettingsActions(),
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
@@ -354,6 +357,7 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
                             BridgeyIcons.Notifications, Tint.PURPLE, onClick = actions.openNotificationApps,
                         ) { Chevron() }
                     }
+                    codesRows(state.codes, actions.codes)
                 }
                 row { shape ->
                     ListRow(
@@ -364,6 +368,10 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
                     ) { ManageLabel(state.appNotificationsEnabled) }
                 }
             }
+        }
+
+        if (notificationsOn) {
+            item(key = "notifications.codes") { CodesFootnote(state.codes, actions.codes) }
         }
 
         // 5. Calls

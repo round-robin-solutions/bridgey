@@ -85,6 +85,10 @@ import dev.bridgey.android.remote.VolumeKeyRouter
 import dev.bridgey.android.ui.RingState
 import dev.bridgey.android.ui.Route
 import dev.bridgey.android.ui.SettingsActions
+import dev.bridgey.android.ui.CodeTestActions
+import dev.bridgey.android.ui.CodeTestScreen
+import dev.bridgey.android.ui.CodesSettingsActions
+import dev.bridgey.android.ui.CodesSettingsState
 import dev.bridgey.android.ui.PerfTestActions
 import dev.bridgey.android.ui.PerfTestScreen
 import dev.bridgey.android.bench.AndroidBenchProbe
@@ -126,6 +130,21 @@ private data class SharedContent(
     val files: List<Uri> = emptyList(),
 )
 
+/** Codes from messages: what the activity hands the UI (the link, code access, the Code reader test). */
+private class CodesHooks(
+    val linker: dev.bridgey.android.codes.CompanionLinker,
+    val access: dev.bridgey.android.codes.CodeAccessMonitor,
+    /** A Mac asked for the link (its notification was tapped); empty means any Mac. */
+    val linkRequest: String?,
+    val onLinkRequestHandled: () -> Unit,
+    val smsDenied: Boolean,
+    val smsGranted: Boolean,
+    val startTest: (Int, Boolean) -> Unit,
+    val stopTest: () -> Unit,
+    val restart: () -> Unit,
+    val openAppSettings: () -> Unit,
+)
+
 class MainActivity : ComponentActivity() {
     private lateinit var discovery: NsdDiscoveryService
     private lateinit var pairing: PairingCoordinator
@@ -150,6 +169,26 @@ class MainActivity : ComponentActivity() {
         BridgeyNotificationListenerService.callPermissionsChanged()
     }
 
+    /** Codes from messages: "Link this phone to the Mac" (a companion link), from Settings or the Mac's request. */
+    private val companionLinker = dev.bridgey.android.codes.CompanionLinker(
+        this,
+        transport = { codeLinkTransport() },
+        onLinked = ::companionLinked,
+    )
+    /** The Mac's link request notification was tapped: link with that Mac. */
+    private var linkRequest by mutableStateOf<String?>(null)
+    /** Code reader test (lab builds): READ_SMS is asked for only when Start is pressed. */
+    private var pendingCodeTest: Pair<Int, Boolean>? = null
+    private var smsDenied by mutableStateOf(false)
+    private var smsGranted by mutableStateOf(false)
+    private val smsPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        smsGranted = granted
+        smsDenied = !granted
+        val pending = pendingCodeTest
+        pendingCodeTest = null
+        if (granted && pending != null) startCodeTest(pending.first, pending.second)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // The top of every screen is midnight (dark mode, or the light mode band): light status bar icons.
         enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
@@ -168,6 +207,7 @@ class MainActivity : ComponentActivity() {
         sharedContent = intent.toSharedContent()
         remoteTarget = intent.toRemoteTarget()
         folderQuestion = intent.getStringExtra(FolderNotifier.EXTRA_FOLDER_QUESTION)
+        linkRequest = intent.toLinkRequest()
         startForegroundService(Intent(this, BridgeyConnectionService::class.java))
         if (savedInstanceState == null) bridgey.updater.checkOnAppOpen()
         setContent {
@@ -207,6 +247,18 @@ class MainActivity : ComponentActivity() {
                     screenshotAccess = screenshotAccess,
                     sharedContent = sharedContent,
                     onSharedContentHandled = ::clearSharedContent,
+                    codes = CodesHooks(
+                        linker = companionLinker,
+                        access = bridgey.codeAccess,
+                        linkRequest = linkRequest,
+                        onLinkRequestHandled = { linkRequest = null },
+                        smsDenied = smsDenied,
+                        smsGranted = smsGranted,
+                        startTest = ::requestCodeTest,
+                        stopTest = ::finishCodeTest,
+                        restart = ::restartForPermissionRemoval,
+                        openAppSettings = ::openAppDetails,
+                    ),
                     showOnboarding = showOnboarding,
                     onOnboardingComplete = {
                         getSharedPreferences("bridgey_onboarding", MODE_PRIVATE)
@@ -221,6 +273,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshPermissionState()
+        if (::pairing.isInitialized) (application as BridgeyApplication).codeAccess.refresh()
         screenshotAccess.onResume()
         autoSendClipboardOnResume()
     }
@@ -246,6 +299,84 @@ class MainActivity : ComponentActivity() {
         sharedContent = intent.toSharedContent()
         remoteTarget = intent.toRemoteTarget()
         intent.getStringExtra(FolderNotifier.EXTRA_FOLDER_QUESTION)?.let { folderQuestion = it }
+        intent.toLinkRequest()?.let { linkRequest = it }
+    }
+
+    private fun Intent.toLinkRequest(): String? =
+        if (action == dev.bridgey.android.codes.CodeLinkNotifier.ACTION_LINK) {
+            getStringExtra(dev.bridgey.android.codes.CodeLinkNotifier.EXTRA_DEVICE_ID).orEmpty()
+        } else {
+            null
+        }
+
+    private fun codeLinkTransport(): dev.bridgey.android.codes.CompanionLinkTransport = object : dev.bridgey.android.codes.CompanionLinkTransport {
+        override fun linkTarget(): String? {
+            val requested = linkRequest?.takeIf { it.isNotEmpty() }
+            val supported = pairing.connections.value.filter { it.state.remoteSmsCodes }.map { it.deviceId }
+            return requested?.takeIf { it in supported } ?: pairing.companionLinkTarget()
+        }
+
+        override fun macTooOld(): Boolean = pairing.companionLinkMacTooOld()
+
+        override fun requestAdvertising(deviceId: String, serviceUuid: java.util.UUID, onResult: (Boolean, String?) -> Unit) =
+            pairing.requestCompanionAdvertising(deviceId, serviceUuid, onResult)
+
+        override fun stopAdvertising(deviceId: String, serviceUuid: java.util.UUID, linked: Boolean) =
+            pairing.stopCompanionAdvertising(deviceId, serviceUuid, linked)
+    }
+
+    /** Android trusts a listener when it connects: reconnect it, then tell the Macs. */
+    private fun companionLinked() {
+        val bridgey = application as BridgeyApplication
+        bridgey.codeAccess.linkChanged()
+        dev.bridgey.android.codes.CodeLinkNotifier.dismiss(this)
+        BridgeyNotificationListenerService.rebindForTrust(this)
+        pairing.sendCodeStatus()
+    }
+
+    private fun requestCodeTest(limit: Int, useCloud: Boolean) {
+        if (checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
+            smsGranted = true
+            startCodeTest(limit, useCloud)
+        } else {
+            pendingCodeTest = limit to useCloud
+            smsPermissionLauncher.launch(Manifest.permission.READ_SMS)
+        }
+    }
+
+    private fun startCodeTest(limit: Int, useCloud: Boolean) {
+        val bridgey = application as BridgeyApplication
+        dev.bridgey.android.codes.CodeTestSession.start(
+            this, limit, useCloud, BuildConfig.OTP_PROXY_URL, bridgey.updater.installedVersionName, bridgey.codeAccess,
+        )
+    }
+
+    /** The test stopped or its run was deleted: ask Android to drop SMS access when Bridgey next restarts. */
+    private fun finishCodeTest() {
+        dev.bridgey.android.codes.CodeTestSession.cancel()
+        releaseSmsAccess()
+    }
+
+    private fun releaseSmsAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+        ) {
+            revokeSelfPermissionOnKill(Manifest.permission.READ_SMS)
+        }
+    }
+
+    /** "Restart Bridgey": the revoke takes effect when the process ends; the launcher opens a fresh one. */
+    private fun restartForPermissionRemoval() {
+        releaseSmsAccess()
+        dev.bridgey.android.codes.CodeTestSession.delete()
+        val launch = packageManager.getLaunchIntentForPackage(packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        if (launch != null) startActivity(launch)
+        finishAffinity()
+        Runtime.getRuntime().exit(0)
+    }
+
+    private fun openAppDetails() {
+        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
     }
 
     /** While the presentation remote shows (and Settings allows it), the volume keys change slides. */
@@ -298,6 +429,7 @@ class MainActivity : ComponentActivity() {
         }
 
     private fun refreshPermissionState() {
+        smsGranted = checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
         appNotificationsEnabled = getSystemService(NotificationManager::class.java).areNotificationsEnabled()
         notificationAccessEnabled = NotificationAccess.isEnabled(this)
         readLogsGranted = checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
@@ -461,6 +593,7 @@ private fun BridgeyApp(
     screenshotAccess: ScreenshotAccessController,
     sharedContent: SharedContent?,
     onSharedContentHandled: () -> Unit,
+    codes: CodesHooks,
     showOnboarding: Boolean,
     onOnboardingComplete: () -> Unit,
 ) {
@@ -483,6 +616,9 @@ private fun BridgeyApp(
     val reconnectStates by pairing.reconnectStates.collectAsStateWithLifecycle()
     val rediscover by pairing.rediscover.collectAsStateWithLifecycle()
     val batteryPromptShown by uiPreferences.batteryPromptShown.collectAsStateWithLifecycle()
+    val codeAccessStatus by codes.access.status.collectAsStateWithLifecycle()
+    val companionLink by codes.linker.state.collectAsStateWithLifecycle()
+    val codeTestState by dev.bridgey.android.codes.CodeTestSession.state.collectAsStateWithLifecycle()
     var permissionPrompt by remember { mutableStateOf<PermissionPrompt?>(null) }
     var pairDialog by rememberSaveable { mutableStateOf(false) }
     var forgetting by remember { mutableStateOf<DeviceRing?>(null) }
@@ -588,6 +724,23 @@ private fun BridgeyApp(
         stack.removeWhere { route ->
             (route is Route.Device && rings.none { it.deviceId == route.deviceId }) ||
                 (route is Route.Remote && rings.none { it.deviceId == route.deviceId })
+        }
+    }
+
+    // The Mac's "Link this phone to the Mac" notification: Settings, and the link starts.
+    LaunchedEffect(codes.linkRequest) {
+        if (codes.linkRequest == null) return@LaunchedEffect
+        stack.push(Route.Settings)
+        codes.linker.start()
+        codes.onLinkRequestHandled()
+    }
+
+    // The Code reader test reached its report: ask Android to drop SMS access at the next restart.
+    LaunchedEffect(codeTestState is dev.bridgey.android.codes.CodeTestState.Report) {
+        if (codeTestState is dev.bridgey.android.codes.CodeTestState.Report && android.os.Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+        ) {
+            context.revokeSelfPermissionOnKill(Manifest.permission.READ_SMS)
         }
     }
 
@@ -788,6 +941,13 @@ private fun BridgeyApp(
                             keepWifiAwake = settingsState.keepWifiAwake,
                             folders = folderUi.settingsState,
                             logging = settingsState.logging,
+                            codes = CodesSettingsState(
+                                access = codeAccessStatus,
+                                link = companionLink,
+                                linkApplies = Build.VERSION.SDK_INT >= dev.bridgey.android.codes.SENSITIVE_REDACTION_SDK,
+                                linked = remember(codeAccessStatus, companionLink) { codes.access.isLinked() },
+                                adbCommand = dev.bridgey.android.codes.codeAccessAdbCommand(BuildConfig.APPLICATION_ID),
+                            ),
                         ),
                         actions = SettingsActions(
                             back = { stack.pop() },
@@ -840,6 +1000,15 @@ private fun BridgeyApp(
                             openBatterySettings = onOpenBatterySettings,
                             setKeepWifiAwake = settings::setKeepWifiAwake,
                             folders = folderUi.settingsActions,
+                            codes = CodesSettingsActions(
+                                link = codes.linker::start,
+                                copyCommand = {
+                                    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                                        ClipData.newPlainText("Bridgey", dev.bridgey.android.codes.codeAccessAdbCommand(BuildConfig.APPLICATION_ID)),
+                                    )
+                                    android.widget.Toast.makeText(context, context.getString(R.string.codes_adb_copied), android.widget.Toast.LENGTH_SHORT).show()
+                                },
+                            ),
                         ),
                     )
                 }
@@ -866,9 +1035,34 @@ private fun BridgeyApp(
                                     ),
                                 )
                             },
+                            openCodeTest = if (BuildConfig.CODE_TEST_AVAILABLE) ({ stack.push(Route.CodeTest) }) else null,
                         ),
                     )
                 }
+                Route.CodeTest -> CodeTestScreen(
+                    state = codeTestState,
+                    cloudAvailable = dev.bridgey.android.codes.CodeTestSession.cloudAvailable(BuildConfig.OTP_PROXY_URL),
+                    smsDenied = codes.smsDenied,
+                    smsGranted = codes.smsGranted,
+                    actions = CodeTestActions(
+                        back = { stack.pop() },
+                        start = codes.startTest,
+                        stop = codes.stopTest,
+                        label = dev.bridgey.android.codes.CodeTestSession::label,
+                        finishReview = dev.bridgey.android.codes.CodeTestSession::finishReview,
+                        export = { report ->
+                            context.startActivity(
+                                Intent.createChooser(
+                                    Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_TEXT, report.toJson().toString(2)),
+                                    context.getString(R.string.codetest_export),
+                                ),
+                            )
+                        },
+                        delete = codes.stopTest,
+                        restart = codes.restart,
+                        openAppSettings = codes.openAppSettings,
+                    ),
+                )
                 Route.Places -> dev.bridgey.android.ui.PlacesScreen(
                     state = folderUi.placesState,
                     actions = dev.bridgey.android.ui.PlacesScreenActions(

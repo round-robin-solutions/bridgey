@@ -97,6 +97,11 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var folderIncludeHidden: Bool
     /// Files > Include system files when sending folders (.DS_Store, ._*, Thumbs.db, ...). Off by default.
     @Published private(set) var folderIncludeSystem: Bool
+    /// Notifications > Codes from messages: send SMS text that looks like it has a code to the relay
+    /// (Cloudflare Workers AI) and show the code with a Copy button. Off by default.
+    @Published private(set) var codesEnabled: Bool
+    /// Notifications > Codes from messages > Copy automatically. Off by default.
+    @Published private(set) var codesAutoCopy: Bool
 
     private let defaults = UserDefaults.standard
 
@@ -125,6 +130,8 @@ final class BridgeySettings: ObservableObject {
         ).bytes
         folderIncludeHidden = storedDefaults.bool(forKey: "settings.folders.includeHidden")
         folderIncludeSystem = storedDefaults.bool(forKey: "settings.folders.includeSystem")
+        codesEnabled = storedDefaults.bool(forKey: "settings.codes.enabled")
+        codesAutoCopy = storedDefaults.bool(forKey: "settings.codes.autoCopy")
         globalFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
             ($0, storedDefaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media && $0 != .remoteInput))
         })
@@ -165,6 +172,24 @@ final class BridgeySettings: ObservableObject {
     func setNotificationHistoryEnabled(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.notificationHistory.enabled")
         notificationHistoryEnabled = enabled
+    }
+
+    func setCodesEnabled(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.codes.enabled")
+        codesEnabled = enabled
+    }
+
+    func setCodesAutoCopy(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.codes.autoCopy")
+        codesAutoCopy = enabled
+    }
+
+    /// The relay's rate-limit key for this Mac: random, made on first use, never tied to the user.
+    var codesInstallID: String {
+        if let stored = defaults.string(forKey: "settings.codes.installId"), CodeRelay.isInstallID(stored) { return stored }
+        let created = CodeRelay.newInstallID()
+        defaults.set(created, forKey: "settings.codes.installId")
+        return created
     }
 
     func setShowActivityPreviews(_ enabled: Bool) {

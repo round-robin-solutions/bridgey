@@ -36,4 +36,16 @@ class ManifestPermissionsTest {
             declared,
         )
     }
+
+    /** READ_SMS is in lab builds only (beta, nightly, local), for the Code reader test; stable never has it. */
+    @Test
+    fun labManifestAddsOnlyReadSmsAndOnlyOutsideStable() {
+        val lab = File("src/lab/AndroidManifest.xml").readText()
+        val declared = Regex("""<uses-permission android:name="([^"]+)"""").findAll(lab).map { it.groupValues[1] }.toSet()
+        assertEquals(setOf("android.permission.READ_SMS"), declared)
+        val gradle = File("build.gradle.kts").readText()
+        org.junit.Assert.assertTrue(gradle.contains("if (!isStableBuild) {"))
+        org.junit.Assert.assertTrue(gradle.contains("src/lab/AndroidManifest.xml"))
+        org.junit.Assert.assertTrue(!File("src/main/AndroidManifest.xml").readText().contains("READ_SMS"))
+    }
 }

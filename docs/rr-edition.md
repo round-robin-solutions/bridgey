@@ -26,6 +26,7 @@ upstream clients.
 | macOS design | SwiftUI defaults | Direction B "Stream": 360 pt menu-bar panel with device chips, live cards, activity stream, quick actions and send bar; Settings window with a sidebar (Round Robin theme, bundled Space Grotesk and Inter) |
 | macOS activity stream | none | The same private, local history on the Mac (see below) |
 | Remote control | planned for 0.7 | Phone as touchpad, keyboard and presentation remote for the Mac, through the draft `remote_input_draft1` (see below) |
+| Codes from text messages | none | Opt-in: the Mac shows "Code 482913 from HDFC Bank" with Copy code, read through Round Robin's relay to Cloudflare Workers AI; a companion link lets Android 15+ show Bridgey the codes (draft `sms_codes_draft1`, see below) |
 
 Unchanged on purpose: the wire protocol, the Bonjour service type `_bridgey._tcp`, the default
 port 42458, and the Kotlin and Swift package names. Because the port is the
@@ -180,6 +181,53 @@ sides until turned on, and only works between two edition devices.
   plan in `docs/testing-remote-input.md`). If it does not, sessions are refused with
   `permission_required`, the pane shows the grant as needed with Open System Settings, and
   Bridgey has to be switched off and on again in that list.
+
+### Codes from text messages (draft protocol)
+
+When a one-time code arrives by SMS, the Mac can show it as "Code 482913 from HDFC Bank" with
+**Copy code**, instead of the plain mirrored notification. The messages are the draft
+`sms_codes_draft1` in `docs/protocol.md`.
+
+- **Mac, Settings > Notifications > Codes from messages:** "Show codes from text messages" is off
+  by default, and turning it on asks first. When on, the text of an SMS that looks like it has a
+  code (from the phone's default SMS app, not hidden by Android) goes from the Mac to the relay
+  `services/otp-proxy` (a Cloudflare Worker on the Round Robin account, address in
+  `rr-edition.properties` `OTP_PROXY_URL`), which asks Cloudflare Workers AI (Llama 3.2 3B). No API
+  key ships in either app; the relay keeps no copy, logs nothing and rate-limits per install
+  (a random id), per address and in total. The Mac accepts a code only if it is literally in the
+  message and looks like a code; otherwise, or after 2 seconds, it shows the plain notification.
+- **Copying:** the banner's Copy code button, a click on the banner, or the panel's code card (ten
+  minutes). The copy is marked concealed and transient (clipboard managers and Automatic clipboard
+  skip it), stays on this Mac (no Universal Clipboard), and is cleared after 60 seconds unless
+  something else was copied since; Bridgey compares change counts and never reads the clipboard.
+  "Copy automatically" (off by default) copies a new code only when the Mac is unlocked and was
+  used in the last two minutes.
+- **Privacy:** codes and message text are never logged on either side, whatever Settings > Privacy
+  > Logging says (SMS-app notifications log without title and text). Notification history, when on,
+  keeps "Sent a one-time code" for a code message, never the code. Diagnostics record only the
+  outcome (found, none, timeout, rate limited, unavailable).
+- **Code access (Android 15 and later):** Android hides the text of notifications it thinks hold a
+  code from notification readers it does not trust. Settings > Notifications on the phone shows
+  "Code access: allowed / hidden by Android / not linked" (the Mac shows the same for the selected
+  phone). **Link this phone to the Mac** (on the phone, or from the Mac, which sends the phone a
+  notification to tap) has the Mac advertise over Bluetooth for a minute, Android's own dialog finds
+  it, and one Allow creates a Companion Device Manager association; Bridgey then reconnects its
+  notification access. The fallback is the one-time command
+  `adb shell cmd appops set --user 0 in.roundrobin.bridgey RECEIVE_SENSITIVE_NOTIFICATIONS allow`,
+  shown with Copy on the phone. Removing the link in Android settings may also turn off Bridgey's
+  notification access. The Mac asks for Bluetooth permission the first time it advertises.
+- **Code reader test (Phase 0, beta and nightly only):** Settings > About, tap the version 7 times,
+  Performance test, Code reader test. It reads the last 500, 2,000 or 5,000 SMS on the phone into
+  memory, runs the pattern baseline and, only if "Send code-like test messages to the cloud
+  provider" is ticked (off by default), the relay on up to 120 code-like messages (every one the
+  pattern flagged first). Disagreements and a random audit of 20 agreed "code" and 20 agreed "no
+  code" messages are shown one at a time to confirm (screenshots blocked). The report has totals
+  only (right, wrong, missed, false alarms, latency, by script and sender kind, how many SMS
+  notifications Android hid during the test) and exports as JSON without any message, code or
+  sender. `READ_SMS` is declared only in non-stable builds (`src/lab/AndroidManifest.xml`, applied
+  by `build.gradle.kts` when the version is not `x.y.z-rr.N`), asked for only at Start, and Bridgey
+  asks Android to drop it at the next restart when the test ends (Restart Bridgey button), with the
+  manual path shown.
 
 ## Versions
 

@@ -22,6 +22,8 @@
     <string>Bridgey discovers and connects to your paired Android devices on your local network.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>When you enable media controls, Bridgey controls your selected Music or Spotify player and shares now-playing information with your paired phone.</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>Bridgey uses Bluetooth only while you link your phone, so Android can show Bridgey the codes in your text messages. Nothing connects over Bluetooth.</string>
     <key>NSBonjourServices</key>
     <array>
         <string>_bridgey._tcp</string>

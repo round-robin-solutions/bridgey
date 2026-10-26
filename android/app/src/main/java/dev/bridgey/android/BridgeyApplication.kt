@@ -31,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -58,6 +59,10 @@ class BridgeyApplication : Application() {
     lateinit var remoteInput: RemoteInputController
         private set
     lateinit var remotePreferences: RemoteInputPreferences
+        private set
+
+    /** Codes from messages: whether Android shows Bridgey the text of code SMS (companion link). */
+    lateinit var codeAccess: dev.bridgey.android.codes.CodeAccessMonitor
         private set
     var isBridgeyEnabled: Boolean = false
         private set
@@ -126,6 +131,7 @@ class BridgeyApplication : Application() {
             }
         }
         startRemoteInput()
+        startCodeAccess()
         registerForegroundClipboardWatcher()
         if (preferences.getBoolean(PREFERENCE_ENABLED, true)) enableBridgey()
     }
@@ -161,6 +167,16 @@ class BridgeyApplication : Application() {
                 remoteInput.connectionsChanged(connections.mapTo(HashSet()) { it.deviceId })
                 shortcuts.publish(remoteShortcutTargets(connections) { settings.isEnabled(BridgeyFeature.REMOTE_INPUT, it) })
             }
+        }
+    }
+
+    private fun startCodeAccess() {
+        codeAccess = dev.bridgey.android.codes.CodeAccessMonitor(this)
+        pairing.codeAccessStatus = { codeAccess.status.value }
+        pairing.codeLinkRequested = { deviceId, name -> dev.bridgey.android.codes.CodeLinkNotifier.show(this, deviceId, name) }
+        applicationScope.launch {
+            // Every Mac that reads codes hears when Android starts or stops hiding them.
+            codeAccess.status.drop(1).collect { pairing.sendCodeStatus() }
         }
     }
 

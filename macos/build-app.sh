@@ -30,6 +30,11 @@ cp ".build/$CONFIGURATION/BridgeyMac" "$APP_PATH/Contents/MacOS/BridgeyMac"
 cp "Resources/Info.plist" "$APP_PATH/Contents/Info.plist"
 PLIST_BUDDY=/usr/libexec/PlistBuddy
 "$PLIST_BUDDY" -c "Add :SUFeedURL string $FEED_BASE_URL/appcast.xml" "$APP_PATH/Contents/Info.plist"
+# Codes from messages: the relay (services/otp-proxy). Empty means the switch says "not available".
+CODE_RELAY_URL=$(sed -n "s/^OTP_PROXY_URL=//p" ../rr-edition.properties | tail -n 1)
+if [ -n "$CODE_RELAY_URL" ]; then
+  "$PLIST_BUDDY" -c "Add :BridgeyCodeRelayURL string $CODE_RELAY_URL" "$APP_PATH/Contents/Info.plist"
+fi
 test "$("$PLIST_BUDDY" -c "Print :CFBundleIdentifier" "$APP_PATH/Contents/Info.plist")" = "$EDITION_APP_ID"
 # Release builds get their version from scripts/rr (see docs/rr-edition.md).
 if [ -n "${BRIDGEY_VERSION_NAME:-}" ]; then

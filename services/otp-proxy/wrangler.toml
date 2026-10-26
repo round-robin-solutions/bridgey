@@ -1,0 +1,29 @@
+name = "bridgey-otp-proxy"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[ai]
+binding = "AI"
+
+[[ratelimits]]
+name = "PER_INSTALL"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "PER_IP"
+namespace_id = "1002"
+simple = { limit = 30, period = 60 }
+
+[[ratelimits]]
+name = "GLOBAL"
+namespace_id = "1003"
+simple = { limit = 30, period = 60 }
+
+[vars]
+MODEL = "@cf/meta/llama-3.2-3b-instruct"
+AI_TIMEOUT_MS = "1500"
+
+[observability]
+enabled = false
