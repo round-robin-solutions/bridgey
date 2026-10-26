@@ -189,12 +189,17 @@ final class ClipboardTransferTests: XCTestCase {
         let inbox = makeInbox()
         let progress = FakeProgress()
         inbox.progress = progress
-        var spins = 0
+        // Real time until the panel appears, not a count of spins: a slow machine (a shared CI runner)
+        // fits fewer 20 ms spins into 300 ms, but the panel must still wait the full 300 ms.
+        let started = Date()
+        var shownAfter: TimeInterval?
         inbox.spin = { _ in
-            spins += 1
             Thread.sleep(forTimeInterval: 0.02)
             RunLoop.current.run(mode: .default, before: Date())
-            if progress.shown != nil { progress.cancel?() }
+            if progress.shown != nil {
+                if shownAfter == nil { shownAfter = Date().timeIntervalSince(started) }
+                progress.cancel?()
+            }
         }
         let clip = offer([ClipboardOfferItem(index: 0, kind: .file, mime: "application/pdf", name: "a.pdf", size: 5, sha256: nil, inline: nil)])
         inbox.accept(clip, deviceID: "phone", peerName: "OnePlus 11")
@@ -202,7 +207,7 @@ final class ClipboardTransferTests: XCTestCase {
         guard case .failure(.cancelled) = inbox.waitForFile(received, index: 0) else { return XCTFail("expected cancelled") }
         XCTAssertEqual(progress.shown, "OnePlus 11")
         XCTAssertTrue(progress.hidden)
-        XCTAssertGreaterThanOrEqual(spins, 10, "not shown before about 300 ms")
+        XCTAssertGreaterThanOrEqual(shownAfter ?? 0, 0.3, "not shown before 300 ms")
         XCTAssertEqual(sent.last, "cancel")
     }
 
