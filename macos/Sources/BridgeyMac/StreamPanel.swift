@@ -51,6 +51,8 @@ struct PanelModel {
     /// In-app update progress (Sparkle drives it; no system windows).
     var update: UpdateFlow = .idle
     var appVersion = ""
+    /// The pairing file could not be loaded; phones wait until Try again succeeds.
+    var pairingStoreIssue: PairingStoreIssue?
 
     var connectedName: String? {
         if case let .connected(_, name) = state { return name }
@@ -90,6 +92,7 @@ struct PanelActions {
     var callAction: (RemoteCallAction) -> Void = { _ in }
     var enableNotifications: () -> Void = {}
     var update = UpdateFlowActions()
+    var retryPairingStore: () -> Void = {}
 }
 
 struct StreamPanelView: View {
@@ -128,6 +131,16 @@ struct StreamPanelView: View {
                 .padding(.top, 12)
         }
         stateCard
+        if let issue = model.pairingStoreIssue {
+            NoticeBanner(
+                symbol: "key",
+                text: pairingStoreIssueText(issue),
+                button: L10n.text("action.retry", fallback: "Retry"),
+                action: actions.retryPairingStore
+            )
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+        }
         if let prompt = model.notificationPrompt {
             NoticeBanner(
                 symbol: "bell.badge",
@@ -568,6 +581,15 @@ private struct NoticeBanner: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(c.tp))
+    }
+}
+
+func pairingStoreIssueText(_ issue: PairingStoreIssue) -> String {
+    switch issue {
+    case .keychainAccessDenied:
+        L10n.text("pairingStore.keychain", fallback: "Bridgey needs Keychain access one last time to move your pairing keys into a private file. After that, updates never ask. Phones stay disconnected until then.")
+    case .fileUnreadable:
+        L10n.text("pairingStore.file", fallback: "Bridgey can't open its pairing file, so phones stay disconnected.")
     }
 }
 
@@ -1152,6 +1174,7 @@ struct BridgeyPanel: View {
         model.mediaDetail = media.snapshot.detail
         model.update = updater.flow
         model.appVersion = updater.shortVersion
+        model.pairingStoreIssue = pairing.pairingStoreIssue
         return model
     }
 
@@ -1193,6 +1216,7 @@ struct BridgeyPanel: View {
         actions.callAction = { pairing.performRemoteCallAction($0) }
         actions.enableNotifications = { pairing.enableNotifications() }
         actions.update = updater.flowActions
+        actions.retryPairingStore = { pairing.retryPairingStore() }
         return actions
     }
 }

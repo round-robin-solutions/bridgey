@@ -323,3 +323,7 @@
 "update.skip" = "Skip this version";
 "update.upToDate" = "You're up to date";
 "update.upToDate.detail" = "Version %@ is the newest on your channel.";
+
+/* Pairing file (replaces the Keychain) */
+"pairingStore.file" = "Bridgey can't open its pairing file, so phones stay disconnected.";
+"pairingStore.keychain" = "Bridgey needs Keychain access one last time to move your pairing keys into a private file. After that, updates never ask. Phones stay disconnected until then.";

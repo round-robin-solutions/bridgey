@@ -168,6 +168,9 @@ final class DesignScreenshots: XCTestCase {
         try render(panel: pairingModel, scheme: .light, name: "panel-light-pairing-code")
         try render(panel: failureModel, scheme: .dark, name: "panel-dark-failure")
         try render(panel: welcomeModel, scheme: .light, name: "panel-light-welcome")
+        var storeIssue = offlineModel
+        storeIssue.pairingStoreIssue = .keychainAccessDenied(-128)
+        try render(panel: storeIssue, scheme: .light, name: "panel-light-pairing-store-keychain")
         try render(panel: updateModel(.ready(version: "0.6.0-rr.1-beta.8")), scheme: .dark, name: "panel-dark-update-ready")
         try render(panel: updateModel(.downloading(version: "0.6.0-rr.1-beta.8", received: 6_400_000, expected: 15_200_000)),
                    scheme: .light, name: "panel-light-update-downloading")

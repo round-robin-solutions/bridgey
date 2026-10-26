@@ -14,7 +14,7 @@ upstream clients.
 | macOS bundle id | `dev.bridgey.mac` | `in.roundrobin.bridgey` |
 | Name | Bridgey | Bridgey by Round Robin (launcher label "Bridgey RR"; macOS `CFBundleName` "Bridgey RR") |
 | macOS app file | `Bridgey.app` | `Bridgey by Round Robin.app`, so both can sit in /Applications |
-| macOS Keychain items | `dev.bridgey.mac.trust`, `dev.bridgey.identity` | one item, `in.roundrobin.bridgey.trust` account `state-v2` (moved from the older `.trust` and `.identity` items on first launch; see [rr-mac-signing.md](rr-mac-signing.md)) |
+| macOS pairing state | Keychain items `dev.bridgey.mac.trust`, `dev.bridgey.identity` | private file `~/Library/Application Support/in.roundrobin.bridgey/trust-v3.json` (0600, no Keychain prompts after updates; older Keychain items are moved once, see [rr-mac-signing.md](rr-mac-signing.md)) |
 | macOS support folders | `~/Library/Application Support/Bridgey`, `~/Library/Caches/Bridgey` | `.../in.roundrobin.bridgey` |
 | macOS legacy import | reads the old `BridgeyMac` defaults suite | never reads it (it belongs to upstream) |
 | URL handler name, Services item | `dev.bridgey.mac.phone`, "Call with Bridgey" | `in.roundrobin.bridgey.phone`, "Call with Bridgey RR" |
@@ -226,8 +226,8 @@ How channels combine:
 **Signing.** We have no Apple Developer ID yet. Builds are ad-hoc signed with the designated
 requirement `identifier "in.roundrobin.bridgey"`, or, with `release.sh --mac-sign`, signed with
 the self-signed "Bridgey by Round Robin Code Signing" identity (requirement pins that
-certificate). Neither stops the Keychain question after an update; only an Apple-issued
-certificate does. Details and test results: [rr-mac-signing.md](rr-mac-signing.md). Sparkle's validator
+certificate). Pairing state is a private file, not the Keychain, so updates never ask for the
+login password. Details and test results: [rr-mac-signing.md](rr-mac-signing.md). Sparkle's validator
 (`SUUpdateValidator.m`, Sparkle 2.10) accepts an update when the EdDSA signature matches the
 installed app's `SUPublicEDKey`, or when the Apple code signature matches. Ad-hoc apps count
 as code signed, so every update must stay at least ad-hoc signed, and the EdDSA key is the
