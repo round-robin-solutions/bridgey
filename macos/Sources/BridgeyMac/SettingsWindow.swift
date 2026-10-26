@@ -105,6 +105,7 @@ struct SettingsModel {
     var updatesAvailable = false
     var canCheckForUpdates = false
     var updateFlow: UpdateFlow = .idle
+    var updateDeferral: UpdateDeferral?
     var shortVersion = "Development"
     var versionDescription = "Development"
     var phoneLinkStatus: String?
@@ -225,7 +226,7 @@ struct SettingsWindowView: View {
                 .font(BrandFont.body(12))
                 .foregroundStyle(c.on2)
             Spacer()
-            // Updates shows Release notes in its What's new card; elsewhere only About links to them.
+            // Updates links to the offered release's notes in its status card; elsewhere only About links to them.
             if pane == .about {
                 Button(L10n.text("updates.releaseNotes", fallback: "Release notes")) { actions.openURL(SettingsLinks.releases) }
                     .buttonStyle(.plain)
@@ -1297,6 +1298,7 @@ private struct LiveSettingsView: View {
         model.updatesAvailable = updater.isAvailable
         model.canCheckForUpdates = updater.canCheckForUpdates
         model.updateFlow = updater.flow
+        model.updateDeferral = updater.deferral
         model.shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
         model.versionDescription = updater.versionDescription
         model.phoneLinkStatus = phoneLinkStatus

@@ -25,12 +25,8 @@ class UpdateInstallReceiver : BroadcastReceiver() {
                 bridgey.updater.onInstallNeedsConfirmation(confirmation)
             }
             PackageInstaller.STATUS_SUCCESS -> bridgey.updater.onInstallFinished(null)
-            PackageInstaller.STATUS_FAILURE_ABORTED -> bridgey.updater.onInstallFinished("Update cancelled.")
-            else -> bridgey.updater.onInstallFinished(
-                intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)?.take(200)
-                    ?.let { "Android could not install the update: $it" }
-                    ?: "Android could not install the update.",
-            )
+            PackageInstaller.STATUS_FAILURE_ABORTED -> bridgey.updater.onInstallFinished(UpdateError.CANCELLED)
+            else -> bridgey.updater.onInstallFinished(UpdateError.INSTALLER)
         }
     }
 

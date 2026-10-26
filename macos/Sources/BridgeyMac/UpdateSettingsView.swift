@@ -1,114 +1,274 @@
 import SwiftUI
 
-/// Settings > Updates (Round Robin edition), wired to the Sparkle updater through `SettingsModel`.
+/// Settings > Updates (Round Robin edition): one status card that shows one state at a time,
+/// then the channel and automatic checks as compact rows. The sidebar footer carries the version.
 struct UpdatesPane: View {
     let model: SettingsModel
     let actions: SettingsActions
     @Environment(\.brand) private var c
 
     var body: some View {
-        if model.updateFlow != .idle {
-            UpdateFlowCard(flow: model.updateFlow, currentVersion: model.shortVersion, actions: actions.update)
+        UpdateStatusCard(model: model, actions: actions)
+        SettingsCard {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    Text(L10n.text("updates.channel", fallback: "Release channel"))
+                        .font(BrandFont.body(13, .medium))
+                        .foregroundStyle(c.on)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ChannelPicker(selected: model.channel, onSelect: actions.setChannel)
+                        .frame(width: 282)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.channel.detail)
+                        .font(BrandFont.body(12))
+                        .foregroundStyle(c.on)
+                    Text(L10n.text("updates.channel.note", fallback: "Switching to a steadier channel waits for its next release; nothing is downgraded."))
+                        .font(BrandFont.body(12))
+                        .foregroundStyle(c.on2)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, 12)
+            SettingsToggle(
+                title: L10n.text("updates.automatic", fallback: "Check automatically"),
+                isOn: model.automaticallyChecks,
+                set: actions.setAutomaticallyChecks
+            )
+            .disabled(!model.updatesAvailable)
         }
-        versionCard
-        HStack(alignment: .top, spacing: 16) {
-            channelCard
-            whatsNewCard
-        }
-        .fixedSize(horizontal: false, vertical: true)
     }
+}
 
-    private var versionCard: some View {
+/// The one card at the top of Settings > Updates.
+private struct UpdateStatusCard: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+    @Environment(\.brand) private var c
+
+    private var flow: UpdateFlow { model.updateFlow }
+    private var update: UpdateFlowActions { actions.update }
+
+    var body: some View {
         UpdatesCard {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(String(format: L10n.text("updates.version", fallback: "Version %@"), model.shortVersion))
+            HStack(alignment: .center, spacing: 12) {
+                let visual = statusSymbol
+                IconTile(symbol: visual.symbol, tint: visual.tint, size: 36, corner: 10)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(UpdateFlowText.settingsTitle(flow, currentVersion: model.shortVersion))
                         .font(BrandFont.body(15, .semibold))
                         .foregroundStyle(c.on)
-                    HStack(spacing: 6) {
-                        if model.lastCheck != nil && model.updatesAvailable {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(c.good)
-                        }
-                        Text(checkedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let detail {
+                        Text(detail)
                             .font(BrandFont.body(12))
-                            .foregroundStyle(c.on2)
+                            .foregroundStyle(failed ? c.tpi : c.on2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                trailingButton
+            }
+            if flow.isBusy {
+                UpdateProgressBar(progress: flow.progress)
+                    .padding(.top, 12)
+                    .padding(.leading, 48)
+            }
+            if case let .available(offer) = flow, let notes = offer.notes {
+                let blocks = ReleaseNotes.blocks(notes, version: offer.version)
+                if !blocks.isEmpty {
+                    ReleaseNotesList(blocks: blocks)
+                        .id(offer.version)
+                        .padding(.top, 12)
+                        .padding(.leading, 48)
+                }
+            }
+            if hasFooter {
+                HStack(spacing: 8) {
+                    if case let .available(offer) = flow {
+                        Button {
+                            actions.openURL(offer.notesURL ?? SettingsLinks.releases)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(L10n.text("updates.fullNotes", fallback: "Full release notes"))
+                                Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .bold))
+                            }
+                            .font(BrandFont.body(12, .semibold))
+                            .foregroundStyle(c.pri)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.leading, 48)
+                    }
+                    Spacer(minLength: 0)
+                    footerButtons
+                }
+                .padding(.top, 14)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var failed: Bool {
+        if case .failed = flow { return true }
+        return false
+    }
+
+    private var detail: String? {
+        switch flow {
+        case .idle, .upToDate:
+            UpdateFlowText.idleDetail(
+                updatesAvailable: model.updatesAvailable,
+                lastCheck: model.lastCheck,
+                deferral: model.updateDeferral,
+                currentVersion: model.shortVersion,
+                now: model.now
+            )
+        default:
+            UpdateFlowText.settingsDetail(flow, currentVersion: model.shortVersion)
+        }
+    }
+
+    private var statusSymbol: (symbol: String, tint: TileTint) {
+        switch flow {
+        case .idle, .upToDate:
+            if !model.updatesAvailable { return ("arrow.triangle.2.circlepath", .neutral) }
+            if model.updateDeferral != nil { return ("arrow.down.circle", .purple) }
+            return model.lastCheck == nil ? ("arrow.triangle.2.circlepath", .neutral) : ("checkmark.circle", .green)
+        case .checking: return ("arrow.triangle.2.circlepath", .neutral)
+        default: return updateFlowSymbol(flow)
+        }
+    }
+
+    private var hasFooter: Bool {
+        switch flow {
+        case .available, .ready, .failed: true
+        default: false
+        }
+    }
+
+    /// Single-action states keep their button beside the title.
+    @ViewBuilder private var trailingButton: some View {
+        switch flow {
+        case .idle, .upToDate:
+            if let deferral = model.updateDeferral, deferral.kind == .later {
+                Button(L10n.text("updates.showUpdate", fallback: "Show update"), action: actions.checkForUpdates)
+                    .buttonStyle(PillButtonStyle(kind: .tonal, height: 32))
+                    .disabled(!model.canCheckForUpdates)
+            } else {
                 Button(action: actions.checkForUpdates) {
                     Label(L10n.text("updates.checkNow", fallback: "Check now"), systemImage: "arrow.triangle.2.circlepath")
                 }
-                .buttonStyle(PillButtonStyle(kind: .outline, height: 34))
+                .buttonStyle(PillButtonStyle(kind: .outline, height: 32))
                 .disabled(!model.updatesAvailable || !model.canCheckForUpdates)
             }
+        case .checking, .downloading:
+            Button(L10n.text("action.cancel", fallback: "Cancel"), action: update.cancel)
+                .buttonStyle(PillButtonStyle(kind: .neutral, height: 32))
+        default:
+            EmptyView()
         }
     }
 
-    private var checkedText: String {
-        guard model.updatesAvailable else {
-            return L10n.text("updates.unavailable", fallback: "Updates work only in the installed app.")
-        }
-        guard let lastCheck = model.lastCheck else { return L10n.text("updates.notChecked", fallback: "Not checked yet.") }
-        let calendar = Calendar.current
-        let time = lastCheck.formatted(date: .omitted, time: .shortened)
-        if calendar.isDate(lastCheck, inSameDayAs: model.now) {
-            return String(format: L10n.text("updates.checkedToday", fallback: "Checked today at %@."), time)
-        }
-        return String(format: L10n.text("updates.checked", fallback: "Checked %@."), lastCheck.formatted(date: .abbreviated, time: .shortened))
-    }
-
-    private var channelCard: some View {
-        UpdatesCard {
-            Text(L10n.text("updates.channel", fallback: "Release channel"))
-                .font(BrandFont.body(13, .semibold))
-                .foregroundStyle(c.on2)
-                .padding(.bottom, 10)
-            ChannelPicker(selected: model.channel, onSelect: actions.setChannel)
-            Text(model.channel.detail)
-                .font(BrandFont.body(13))
-                .foregroundStyle(c.on2)
-                .padding(.top, 10)
-            Text(L10n.text("updates.channel.note", fallback: "Switching to a steadier channel waits for its next release; nothing is downgraded."))
-                .font(BrandFont.body(12))
-                .foregroundStyle(c.on2)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 6)
-            Toggle(isOn: Binding(get: { model.automaticallyChecks }, set: actions.setAutomaticallyChecks)) {
-                Text(L10n.text("updates.automatic", fallback: "Check for updates automatically"))
-                    .font(BrandFont.body(13))
-                    .foregroundStyle(c.on)
+    @ViewBuilder private var footerButtons: some View {
+        switch flow {
+        case let .available(offer):
+            if !offer.downloaded {
+                PopUpMenuButton(items: {
+                    [PopUpMenuItem(title: L10n.text("update.skip", fallback: "Skip this version"), action: update.skip)]
+                }) {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(c.on2)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(c.s3))
+                        .contentShape(Circle())
+                }
+                .help(L10n.text("action.more", fallback: "More"))
+                .accessibilityLabel(L10n.text("action.more", fallback: "More"))
             }
-            .toggleStyle(BrandSwitchStyle())
-            .disabled(!model.updatesAvailable)
-            .frame(height: 40)
-            .padding(.top, 8)
+            Button(L10n.text("update.later", fallback: "Later"), action: update.later)
+                .buttonStyle(PillButtonStyle(kind: .neutral, height: 32))
+            Button(UpdateFlowText.primaryAction(flow) ?? "", action: update.install)
+                .buttonStyle(PillButtonStyle(kind: .gradient, height: 32))
+        case .ready:
+            Button(L10n.text("update.later", fallback: "Later"), action: update.later)
+                .buttonStyle(PillButtonStyle(kind: .neutral, height: 32))
+            Button(L10n.text("update.restart", fallback: "Restart to update"), action: update.install)
+                .buttonStyle(PillButtonStyle(kind: .gradient, height: 32))
+        case .failed:
+            Button(L10n.text("action.dismiss", fallback: "Dismiss"), action: update.dismiss)
+                .buttonStyle(PillButtonStyle(kind: .neutral, height: 32))
+            Button(L10n.text("action.retry", fallback: "Retry"), action: update.checkAgain)
+                .buttonStyle(PillButtonStyle(kind: .tonal, height: 32))
+        default:
+            EmptyView()
         }
     }
+}
 
-    private var whatsNewCard: some View {
-        UpdatesCard {
-            HStack {
-                Text(L10n.text("updates.whatsNew", fallback: "What's new"))
-                    .font(BrandFont.body(13, .semibold))
-                    .foregroundStyle(c.on2)
-                Spacer()
+/// Release notes as a list: about four lines, then Show all. Never scrolls on its own, so
+/// nothing is clipped.
+private struct ReleaseNotesList: View {
+    let blocks: [ReleaseNoteBlock]
+    @State private var expanded = false
+    @Environment(\.brand) private var c
+    @Environment(\.brandReduceMotion) private var reduce
+
+    var body: some View {
+        let preview = ReleaseNotes.preview(blocks)
+        let shown = expanded ? blocks : preview
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(shown.enumerated()), id: \.offset) { _, block in
+                row(block)
+            }
+            if preview.count < blocks.count {
                 Button {
-                    actions.openURL(SettingsLinks.releases)
+                    withAnimation(BrandMotion.animation(BrandMotion.small, reduce: reduce)) { expanded.toggle() }
                 } label: {
-                    HStack(spacing: 4) {
-                        Text(L10n.text("updates.releaseNotes", fallback: "Release notes"))
-                        Image(systemName: "arrow.up.right.square").font(.system(size: 11, weight: .semibold))
-                    }
-                    .font(BrandFont.body(12, .semibold))
-                    .foregroundStyle(c.pri)
+                    Text(expanded
+                         ? L10n.text("updates.showLess", fallback: "Show less")
+                         : String(format: L10n.text("updates.showAll", fallback: "Show all (%d)"), blocks.count))
+                        .font(BrandFont.body(12, .semibold))
+                        .foregroundStyle(c.pri)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .padding(.top, 2)
             }
-            WhatsNewRow(version: model.shortVersion, line: L10n.text("updates.installedHere", fallback: "Installed on this Mac"))
-                .padding(.top, 8)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
+    }
+
+    @ViewBuilder private func row(_ block: ReleaseNoteBlock) -> some View {
+        switch block {
+        case let .heading(text):
+            Text(inline(text))
+                .font(BrandFont.body(12, .semibold))
+                .foregroundStyle(c.on2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 2)
+        case let .bullet(text):
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Circle().fill(c.on2).frame(width: 4, height: 4).alignmentGuide(.firstTextBaseline) { $0[.bottom] + 2 }
+                Text(inline(text))
+                    .font(BrandFont.body(13))
+                    .foregroundStyle(c.on)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        case let .paragraph(text):
+            Text(inline(text))
+                .font(BrandFont.body(13))
+                .foregroundStyle(c.on)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Inline Markdown (bold, code, links) as styled text; anything unparsable stays plain.
+    private func inline(_ text: String) -> AttributedString {
+        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
     }
 }
 
@@ -120,7 +280,7 @@ struct UpdatesCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 0) { content }
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
             .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(c.s1))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(c.olv, lineWidth: 1))
     }
@@ -168,30 +328,7 @@ private struct ChannelPicker: View {
     }
 }
 
-private struct WhatsNewRow: View {
-    let version: String
-    let line: String
-    @Environment(\.brand) private var c
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(LinearGradient(colors: [BrandPalette.auroraPurple, BrandPalette.auroraGreen], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .frame(width: 10, height: 10)
-            Text(version)
-                .font(BrandFont.body(13, .semibold))
-                .foregroundStyle(c.on)
-                .frame(minWidth: 40, alignment: .leading)
-            Text(line)
-                .font(BrandFont.body(13))
-                .foregroundStyle(c.on2)
-                .lineLimit(1)
-        }
-        .frame(height: 40)
-    }
-}
-
-// MARK: - In-app update flow (shared by Settings and the Stream panel)
+// MARK: - In-app update flow (shared pieces)
 
 struct UpdateFlowActions {
     var install: () -> Void = {}
@@ -202,34 +339,22 @@ struct UpdateFlowActions {
     var checkAgain: () -> Void = {}
 }
 
-/// The buttons each step offers. `compact` drops Skip for the narrow panel card.
+/// The Stream panel card's buttons. Skip lives in Settings, behind the ⋯ menu.
 struct UpdateFlowButtons: View {
     let flow: UpdateFlow
     let actions: UpdateFlowActions
-    var compact = false
     var height: CGFloat = 28
 
     var body: some View {
         switch flow {
-        case let .available(offer):
-            if !compact {
-                Button(L10n.text("update.skip", fallback: "Skip this version"), action: actions.skip)
-                    .buttonStyle(PillButtonStyle(kind: .neutral, height: height))
-            }
+        case .available, .ready:
             Button(L10n.text("update.later", fallback: "Later"), action: actions.later)
                 .buttonStyle(PillButtonStyle(kind: .neutral, height: height))
-            Button(offer.downloaded
-                   ? L10n.text("update.restart", fallback: "Restart to update")
-                   : L10n.text("update.install", fallback: "Install"), action: actions.install)
+            Button(UpdateFlowText.primaryAction(flow) ?? "", action: actions.install)
                 .buttonStyle(PillButtonStyle(kind: .gradient, height: height))
         case .checking, .downloading:
             Button(L10n.text("action.cancel", fallback: "Cancel"), action: actions.cancel)
                 .buttonStyle(PillButtonStyle(kind: .neutral, height: height))
-        case .ready:
-            Button(L10n.text("update.later", fallback: "Later"), action: actions.later)
-                .buttonStyle(PillButtonStyle(kind: .neutral, height: height))
-            Button(L10n.text("update.restart", fallback: "Restart to update"), action: actions.install)
-                .buttonStyle(PillButtonStyle(kind: .gradient, height: height))
         case .upToDate:
             Button(L10n.text("action.dismiss", fallback: "Dismiss"), action: actions.dismiss)
                 .buttonStyle(PillButtonStyle(kind: .neutral, height: height))
@@ -271,65 +396,5 @@ func updateFlowSymbol(_ flow: UpdateFlow) -> (symbol: String, tint: TileTint) {
     case .upToDate: ("checkmark.circle", .green)
     case .ready, .installing: ("arrow.clockwise.circle", .green)
     default: ("arrow.down.circle", .purple)
-    }
-}
-
-/// Settings > Updates: the current step, its notes and its buttons. Hidden when idle.
-struct UpdateFlowCard: View {
-    let flow: UpdateFlow
-    let currentVersion: String
-    let actions: UpdateFlowActions
-    @Environment(\.brand) private var c
-    @Environment(\.snapshotRendering) private var snapshot
-
-    private func notesText(_ notes: String) -> some View {
-        Text(notes)
-            .font(BrandFont.body(13))
-            .foregroundStyle(c.on)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-
-    var body: some View {
-        UpdatesCard {
-            HStack(alignment: .top, spacing: 12) {
-                let visual = updateFlowSymbol(flow)
-                IconTile(symbol: visual.symbol, tint: visual.tint, size: 32, corner: 9)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(UpdateFlowText.title(flow))
-                        .font(BrandFont.body(15, .semibold))
-                        .foregroundStyle(c.on)
-                    if let detail = UpdateFlowText.detail(flow, currentVersion: currentVersion) {
-                        Text(detail)
-                            .font(BrandFont.body(12))
-                            .foregroundStyle(c.on2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if flow.isBusy {
-                UpdateProgressBar(progress: flow.progress)
-                    .padding(.top, 12)
-            }
-            if case let .available(offer) = flow, let notes = offer.notes {
-                Group {
-                    if snapshot {
-                        notesText(notes)  // ImageRenderer does not draw ScrollView content
-                    } else {
-                        ScrollView { notesText(notes).textSelection(.enabled) }
-                            .frame(maxHeight: 160)
-                    }
-                }
-                .padding(10)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(c.s3.opacity(0.5)))
-                .padding(.top, 12)
-            }
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                UpdateFlowButtons(flow: flow, actions: actions, height: 32)
-            }
-            .padding(.top, 12)
-        }
     }
 }

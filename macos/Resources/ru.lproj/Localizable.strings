@@ -438,18 +438,14 @@
 "thisMac.failed" = "Не удалось подключиться";
 "thisMac.idle" = "Не подключено";
 "transfers.cancelAll" = "Отменить все";
-"updates.automatic" = "Проверять обновления автоматически";
+"updates.automatic" = "Проверять автоматически";
 "updates.channel" = "Канал выпусков";
 "updates.channel.note" = "При переходе на более стабильный канал Bridgey ждёт его следующего выпуска; версия не понижается.";
 "updates.checkNow" = "Проверить";
-"updates.checked" = "Проверено %@.";
-"updates.checkedToday" = "Проверено сегодня в %@.";
-"updates.installedHere" = "Установлено на этом Mac";
-"updates.notChecked" = "Ещё не проверялось.";
+"updates.notChecked" = "Ещё не проверялось";
 "updates.releaseNotes" = "Что изменилось";
 "updates.unavailable" = "Обновления работают только в установленном приложении.";
 "updates.version" = "Версия %@";
-"updates.whatsNew" = "Что нового";
 "welcome.body" = "Подключите Mac и телефон к одной локальной сети. Выберите устройство, сравните код сопряжения и подтвердите его на обоих устройствах. Необязательные разрешения запрашиваются только при использовании соответствующей функции.";
 "welcome.continue" = "Начать";
 "welcome.continue.hint" = "Закрывает приветствие и начинает поиск устройств";
@@ -505,9 +501,6 @@
 "rediscover.none" = "Новых устройств не найдено";
 "rediscover.count" = "устройств: %d";
 /* In-app updates (Sparkle custom user driver) */
-"update.available" = "Доступно обновление %@";
-"update.available.detail" = "Установите сейчас или позже в Настройках.";
-"update.available.downloaded" = "Загружено и готово. Перезапустите Bridgey, чтобы обновить.";
 "update.checking" = "Проверка обновлений…";
 "update.downloading" = "Загрузка %@";
 "update.downloading.detail" = "%@ из %@";
@@ -526,12 +519,23 @@
 "update.later" = "Позже";
 "update.preparing" = "Подготовка %@";
 "update.preparing.detail" = "Проверка и распаковка загрузки";
-"update.ready" = "Обновление %@ готово";
-"update.ready.detail" = "Перезапустите, чтобы обновить";
 "update.restart" = "Перезапустить и обновить";
 "update.skip" = "Пропустить версию";
 "update.upToDate" = "Установлена последняя версия";
-"update.upToDate.detail" = "Версия %@ самая новая в вашем канале.";
+"updates.current" = "Bridgey %@";
+"updates.isReady" = "Версия %@ готова";
+"updates.downloaded" = "Загружено. Перезапустите Bridgey, чтобы завершить.";
+"updates.youHave" = "Сейчас у вас %@";
+"updates.waiting" = "Доступна версия %@";
+"updates.onQuit" = "%@ установится при выходе из Bridgey";
+"updates.skipped" = "Вы пропустили %@";
+"updates.upToDate.checked" = "Последняя версия · проверено %@";
+"updates.showUpdate" = "Показать";
+"updates.fullNotes" = "Подробнее о выпуске";
+"updates.showAll" = "Показать все (%d)";
+"updates.showLess" = "Свернуть";
+"update.ready.short" = "%@ готова";
+"action.more" = "Ещё";
 
 /* Pairing file (replaces the Keychain) */
 "pairingStore.file" = "Bridgey не может открыть файл сопряжения, поэтому телефоны не подключены.";

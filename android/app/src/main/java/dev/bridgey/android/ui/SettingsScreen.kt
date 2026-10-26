@@ -1,6 +1,7 @@
 package dev.bridgey.android.ui
 
 import android.text.format.DateUtils
+import android.text.format.Formatter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -28,6 +30,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
@@ -43,27 +47,29 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.bridgey.android.BridgeyFeature
 import dev.bridgey.android.LoggingPolicy
 import dev.bridgey.android.R
+import dev.bridgey.android.ReleaseNotesList
+import dev.bridgey.android.UpdateCardPhase
 import dev.bridgey.android.UpdateChannel
+import dev.bridgey.android.UpdateFeeds
 import dev.bridgey.android.UpdateUiState
-import dev.bridgey.android.ui.theme.Aurora
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import dev.bridgey.android.ui.theme.BridgeyType
 import dev.bridgey.android.ui.theme.OnBand
 import dev.bridgey.android.ui.theme.ScreenBackdrop
+import dev.bridgey.android.updateCardPhase
+import dev.bridgey.android.updateErrorText
 
 data class SettingsState(
     val deviceName: String,
@@ -136,6 +142,10 @@ class SettingsActions(
     val checkNow: () -> Unit = {},
     val setChannel: (UpdateChannel) -> Unit = {},
     val install: () -> Unit = {},
+    val laterUpdate: () -> Unit = {},
+    val skipUpdate: () -> Unit = {},
+    val showUpdate: () -> Unit = {},
+    val dismissUpdateError: () -> Unit = {},
     val openUrl: (String) -> Unit = {},
     val openPerfTest: () -> Unit = {},
     val setRemotePointerSpeed: (Int) -> Unit = {},
@@ -752,126 +762,165 @@ private fun channelDescription(channel: UpdateChannel): String = stringResource(
     },
 )
 
-/** The Updates card: version and status, the channel as a three-way button group, and what is new. */
+/**
+ * Settings > Updates: one status card that shows one state at a time, then the channel and the
+ * daily check. The version appears once, in the status card.
+ */
 @Composable
 fun UpdatesCard(state: UpdateUiState, installedVersion: String, now: Long, actions: SettingsActions) {
     val colors = BridgeyTheme.colors
-    val update = state.available
-    Column(
-        Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(colors.surface1).padding(20.dp),
-    ) {
+    val cardModifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(colors.surface1)
+    Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        UpdateStatusCard(updateCardPhase(state), installedVersion, now, actions, cardModifier.padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 16.dp))
+        Column(cardModifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+            Text(stringResource(R.string.updates_channel), style = BridgeyType.itemTitle, modifier = Modifier.semantics { heading() })
+            ChannelPicker(state.channel, actions.setChannel, Modifier.padding(top = 10.dp))
+            Text(channelDescription(state.channel), style = BridgeyType.itemBody, color = colors.onSurface, modifier = Modifier.padding(top = 10.dp))
+            Text(stringResource(R.string.updates_channel_note), style = BridgeyType.small, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
+            Box(Modifier.padding(vertical = 14.dp).fillMaxWidth().height(1.dp).background(colors.outlineVariant))
+            Text(stringResource(R.string.updates_auto_title), style = BridgeyType.itemTitle)
+            Text(stringResource(R.string.updates_auto_detail), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun UpdateStatusCard(phase: UpdateCardPhase, installedVersion: String, now: Long, actions: SettingsActions, modifier: Modifier) {
+    val colors = BridgeyTheme.colors
+    val context = LocalContext.current
+    val short = { version: String -> UpdateFeeds.shortVersion(version, installedVersion) }
+    val title = when (phase) {
+        is UpdateCardPhase.Current, is UpdateCardPhase.Waiting, is UpdateCardPhase.Skipped -> stringResource(R.string.updates_current, installedVersion)
+        UpdateCardPhase.Checking -> stringResource(R.string.updates_checking)
+        is UpdateCardPhase.Available -> stringResource(R.string.updates_is_ready, phase.update.versionName)
+        is UpdateCardPhase.Confirming -> stringResource(R.string.updates_is_ready, phase.update.versionName)
+        is UpdateCardPhase.Downloading -> stringResource(R.string.updates_downloading, phase.update.versionName)
+        is UpdateCardPhase.Failed -> stringResource(R.string.updates_failed)
+    }
+    val detail: String? = when (phase) {
+        is UpdateCardPhase.Current -> if (phase.lastCheckedAt > 0) {
+            stringResource(R.string.updates_up_to_date_checked, checkedText(context, phase.lastCheckedAt, now))
+        } else {
+            stringResource(R.string.updates_not_checked)
+        }
+        is UpdateCardPhase.Waiting -> stringResource(R.string.updates_waiting, short(phase.update.versionName))
+        is UpdateCardPhase.Skipped -> stringResource(R.string.updates_skipped, short(phase.versionName))
+        UpdateCardPhase.Checking -> null
+        is UpdateCardPhase.Available -> stringResource(R.string.updates_you_have, UpdateFeeds.shortVersion(installedVersion, phase.update.versionName))
+        is UpdateCardPhase.Confirming -> stringResource(R.string.updates_confirm)
+        is UpdateCardPhase.Downloading -> stringResource(
+            R.string.updates_downloading_detail,
+            Formatter.formatShortFileSize(context, (phase.update.size * phase.progress.coerceIn(0f, 1f)).toLong()),
+            Formatter.formatShortFileSize(context, phase.update.size),
+        )
+        is UpdateCardPhase.Failed -> updateErrorText(phase.error)
+    }
+    val (icon, tint) = when (phase) {
+        is UpdateCardPhase.Current -> if (phase.lastCheckedAt > 0) BridgeyIcons.CheckCircle to Tint.GREEN else BridgeyIcons.Refresh to Tint.NEUTRAL
+        is UpdateCardPhase.Skipped, UpdateCardPhase.Checking -> BridgeyIcons.Refresh to Tint.NEUTRAL
+        is UpdateCardPhase.Failed -> BridgeyIcons.Error to Tint.NEUTRAL
+        is UpdateCardPhase.Confirming -> BridgeyIcons.Update to Tint.GREEN
+        else -> BridgeyIcons.Download to Tint.PURPLE
+    }
+    Column(modifier) {
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.updates_version, installedVersion), style = BridgeyType.cardTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    if (state.lastCheckedAt > 0) {
-                        stringResource(
-                            R.string.updates_checked,
-                            DateUtils.getRelativeTimeSpanString(state.lastCheckedAt, maxOf(now, state.lastCheckedAt), DateUtils.MINUTE_IN_MILLIS).toString(),
+            IconTile(icon, tint, size = 40.dp, corner = 14.dp, iconSize = 22.dp)
+            Column(Modifier.weight(1f).padding(start = 12.dp, end = 12.dp)) {
+                Text(title, style = BridgeyType.itemTitle, color = colors.onSurface)
+                if (detail != null) {
+                    Text(detail, style = BridgeyType.itemBody, color = if (phase is UpdateCardPhase.Failed) colors.warn else colors.onSurfaceVariant)
+                }
+            }
+            if (phase is UpdateCardPhase.Available) {
+                Box {
+                    var menu by remember { mutableStateOf(false) }
+                    BarIconButton(BridgeyIcons.MoreVert, stringResource(R.string.updates_more), { menu = true })
+                    DropdownMenu(
+                        expanded = menu,
+                        onDismissRequest = { menu = false },
+                        containerColor = colors.surface2,
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.updates_skip)) },
+                            onClick = {
+                                menu = false
+                                actions.skipUpdate()
+                            },
                         )
-                    } else {
-                        stringResource(R.string.updates_not_checked)
-                    },
-                    style = BridgeyType.itemBody,
-                    color = colors.onSurfaceVariant,
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            when {
-                state.checking -> StatusPill(stringResource(R.string.updates_checking), BridgeyIcons.Refresh, Tint.NEUTRAL)
-                update != null -> StatusPill(stringResource(R.string.updates_available), BridgeyIcons.Download, Tint.BLUE)
-                state.lastCheckedAt > 0 -> StatusPill(stringResource(R.string.updates_up_to_date), BridgeyIcons.Check, Tint.GREEN)
+                    }
+                }
+            } else {
+                Spacer(Modifier.width(12.dp))
             }
         }
-
-        Text(stringResource(R.string.updates_channel), style = BridgeyType.section.copy(letterSpacing = BridgeyType.label.letterSpacing), color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 18.dp).semantics { heading() })
-        ChannelPicker(state.channel, actions.setChannel, Modifier.padding(top = 10.dp))
-        Text(channelDescription(state.channel), style = BridgeyType.itemBody, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
-        Text(stringResource(R.string.updates_channel_note), style = BridgeyType.small, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
-
-        Row(Modifier.fillMaxWidth().padding(top = 12.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.updates_auto_title), style = BridgeyType.itemTitle)
-                Text(stringResource(R.string.updates_auto_detail), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
-            }
-            OutlinePillButton(stringResource(R.string.updates_check_now), BridgeyIcons.Refresh, actions.checkNow, enabled = !state.checking)
-        }
-
-        if (update != null && state.downloadProgress == null) {
-            GradientButton(
-                stringResource(R.string.updates_install, update.versionName),
-                BridgeyIcons.Download,
-                actions.install,
-                Modifier.fillMaxWidth().padding(top = 12.dp),
-            )
-        }
-        state.downloadProgress?.let { progress ->
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(6.dp),
+        val inset = Modifier.padding(start = 52.dp, end = 12.dp)
+        when (phase) {
+            is UpdateCardPhase.Downloading -> LinearProgressIndicator(
+                progress = { phase.progress },
+                modifier = inset.padding(top = 12.dp).fillMaxWidth().height(6.dp),
                 color = colors.primary,
                 trackColor = colors.surface3,
                 strokeCap = StrokeCap.Round,
                 drawStopIndicator = {},
             )
-        }
-        state.status?.takeIf { update == null || state.downloadProgress != null || !it.startsWith("Version ") }?.takeIf { it != "Bridgey is up to date." }?.let {
-            Text(it, style = BridgeyType.small, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
-        }
-
-        val notesUrl = update?.notesUrl?.takeIf { it.isNotEmpty() } ?: RELEASES_URL
-        Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.updates_whats_new), style = BridgeyType.section.copy(letterSpacing = BridgeyType.label.letterSpacing), color = colors.onSurfaceVariant, modifier = Modifier.weight(1f).semantics { heading() })
-            Row(
-                Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).clickable(role = Role.Button) { actions.openUrl(notesUrl) }.padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(stringResource(R.string.updates_release_notes), style = BridgeyType.smallStrong.copy(fontSize = BridgeyType.itemBody.fontSize), color = colors.primary)
-                Icon(BridgeyIcons.OpenInNew, null, tint = colors.primary, modifier = Modifier.size(14.dp))
+            is UpdateCardPhase.Available -> {
+                val notesUrl = phase.update.notesUrl.takeIf { it.isNotEmpty() } ?: RELEASES_URL
+                val link: @Composable RowScope.() -> Unit = {
+                    Row(
+                        Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).clickable(role = Role.Button) { actions.openUrl(notesUrl) },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(stringResource(R.string.updates_full_notes), style = BridgeyType.smallStrong.copy(fontSize = BridgeyType.itemBody.fontSize), color = colors.primary)
+                        Icon(BridgeyIcons.OpenInNew, null, tint = colors.primary, modifier = Modifier.size(14.dp))
+                    }
+                }
+                if (phase.update.notes.isNotBlank()) {
+                    ReleaseNotesList(phase.update.notes, phase.update.versionName, inset.padding(top = 12.dp), link)
+                } else {
+                    Row(inset, content = link)
+                }
             }
+            else -> Unit
         }
-        val entries = buildList {
-            if (update != null) add(update.versionName to (update.notes.lineSequence().map { it.trim().trimStart('-', '*', ' ') }.firstOrNull { it.isNotBlank() } ?: ""))
-            add(installedVersion to "")
-        }
-        Column {
-            entries.forEachIndexed { index, (version, line) ->
-                WhatsNewRow(
-                    version,
-                    line.ifBlank { if (index == entries.lastIndex) stringResource(R.string.updates_installed_here) else stringResource(R.string.updates_ready) },
-                    first = index == 0,
-                    last = index == entries.lastIndex,
-                )
+        val buttons = Modifier.fillMaxWidth().padding(top = 8.dp, end = 12.dp)
+        when (phase) {
+            is UpdateCardPhase.Current, is UpdateCardPhase.Skipped -> Row(buttons, horizontalArrangement = Arrangement.End) {
+                OutlinePillButton(stringResource(R.string.updates_check_now), BridgeyIcons.Refresh, actions.checkNow)
             }
+            is UpdateCardPhase.Waiting -> Row(buttons, horizontalArrangement = Arrangement.End) {
+                TonalPillButton(stringResource(R.string.updates_show_update), actions.showUpdate)
+            }
+            is UpdateCardPhase.Available -> Row(buttons, horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                OutlinePillButton(stringResource(R.string.updates_later), null, actions.laterUpdate)
+                GradientButton(stringResource(R.string.updates_install), BridgeyIcons.Download, actions.install, height = 40.dp, textStyle = BridgeyType.label)
+            }
+            is UpdateCardPhase.Failed -> Row(buttons, horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                OutlinePillButton(stringResource(R.string.action_dismiss), null, actions.dismissUpdateError)
+                TonalPillButton(stringResource(R.string.action_retry), if (phase.retryInstalls) actions.install else actions.checkNow)
+            }
+            else -> Unit
         }
     }
+}
+
+/** "3:58 PM" on the day of [now], "24 Oct" before. */
+private fun checkedText(context: android.content.Context, at: Long, now: Long): String =
+    if (sameDay(at, now)) {
+        DateUtils.formatDateTime(context, at, DateUtils.FORMAT_SHOW_TIME)
+    } else {
+        DateUtils.formatDateTime(context, at, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH or DateUtils.FORMAT_NO_YEAR)
+    }
+
+private fun sameDay(a: Long, b: Long): Boolean {
+    val first = java.util.Calendar.getInstance().apply { timeInMillis = a }
+    val second = java.util.Calendar.getInstance().apply { timeInMillis = b }
+    return first.get(java.util.Calendar.YEAR) == second.get(java.util.Calendar.YEAR) &&
+        first.get(java.util.Calendar.DAY_OF_YEAR) == second.get(java.util.Calendar.DAY_OF_YEAR)
 }
 
 const val RELEASES_URL = "https://github.com/round-robin-solutions/bridgey/releases"
-
-@Composable
-private fun WhatsNewRow(version: String, line: String, first: Boolean, last: Boolean) {
-    val colors = BridgeyTheme.colors
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 40.dp).drawBehind {
-            val x = 5.dp.toPx()
-            val top = if (first) size.height / 2 else 0f
-            val bottom = if (last) size.height / 2 else size.height
-            if (bottom > top) drawLine(colors.outlineVariant, Offset(x, top), Offset(x, bottom), 2.dp.toPx())
-        },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Box(
-            Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).then(
-                if (first) Modifier.drawBehind { drawRect(androidx.compose.ui.graphics.Brush.linearGradient(listOf(Aurora.Ring[0], Aurora.Ring[2]))) } else Modifier.background(colors.surface4),
-            ),
-        )
-        Text(version, style = BridgeyType.itemBody.copy(fontWeight = BridgeyType.label.fontWeight), color = colors.onSurface, modifier = Modifier.widthIn(min = 40.dp))
-        Text(line, style = BridgeyType.itemBody, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-    }
-}
 
 /** Stable, Beta, Nightly as one connected button group. */
 @Composable

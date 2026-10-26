@@ -710,11 +710,13 @@ private struct LiveCards: View {
             if model.update.showsInPanel {
                 let visual = updateFlowSymbol(model.update)
                 LiveCard(symbol: visual.symbol, tint: visual.tint,
-                         title: UpdateFlowText.title(model.update),
-                         detail: UpdateFlowText.detail(model.update, currentVersion: model.appVersion),
+                         title: UpdateFlowText.title(model.update, currentVersion: model.appVersion),
+                         detail: UpdateFlowText.detail(model.update),
                          progress: model.update.isBusy ? .some(model.update.progress) : nil) {
-                    UpdateFlowButtons(flow: model.update, actions: actions.update, compact: true)
+                    UpdateFlowButtons(flow: model.update, actions: actions.update)
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(UpdateFlowText.line(model.update, currentVersion: model.appVersion))
                 .id("update")
                 .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
             }

@@ -20,11 +20,63 @@ final class UpdateFlowTests: XCTestCase {
         XCTAssertFalse(UpdateFlow.idle.showsInPanel)
     }
 
-    func testReadyLineMatchesTheDesign() {
+    func testPanelLinesMatchTheDesign() {
+        let offer = UpdateOffer(version: "0.6.0-rr.1-beta.10", notes: nil, downloaded: false, userInitiated: false)
+        XCTAssertEqual(UpdateFlowText.line(.available(offer), currentVersion: "0.6.0-rr.1-beta.9"), "beta.10 ready · Install")
         XCTAssertEqual(
-            UpdateFlowText.line(.ready(version: "0.6.0-rr.1-beta.8"), currentVersion: "0.6.0-rr.1-beta.7"),
-            "Update 0.6.0-rr.1-beta.8 ready · Restart to update"
+            UpdateFlowText.line(.ready(version: "0.6.0-rr.1-beta.10"), currentVersion: "0.6.0-rr.1-beta.9"),
+            "beta.10 ready · Restart to update"
         )
+        var downloaded = offer
+        downloaded.downloaded = true
+        XCTAssertEqual(UpdateFlowText.line(.available(downloaded), currentVersion: "0.6.0-rr.1-beta.9"), "beta.10 ready · Restart to update")
+        XCTAssertNil(UpdateFlowText.detail(.available(offer)), "the panel card no longer says Install now, or later from Settings")
+    }
+
+    func testSettingsNamesTheFullVersionOnce() {
+        let offer = UpdateOffer(version: "0.6.0-rr.1-beta.10", notes: nil, downloaded: false, userInitiated: true)
+        XCTAssertEqual(UpdateFlowText.settingsTitle(.available(offer), currentVersion: "0.6.0-rr.1-beta.9"), "0.6.0-rr.1-beta.10 is ready")
+        XCTAssertEqual(UpdateFlowText.settingsDetail(.available(offer), currentVersion: "0.6.0-rr.1-beta.9"), "You have beta.9")
+        XCTAssertEqual(UpdateFlowText.settingsTitle(.idle, currentVersion: "0.6.0-rr.1-beta.9"), "Bridgey 0.6.0-rr.1-beta.9")
+        XCTAssertEqual(UpdateFlowText.settingsDetail(.ready(version: "0.6.0-rr.1-beta.10"), currentVersion: "0.6.0-rr.1-beta.9"),
+                       "Downloaded. Restart Bridgey to finish.")
+    }
+
+    func testShortVersionKeepsOnlyWhatDiffers() {
+        XCTAssertEqual(UpdateFlowText.shortVersion("0.6.0-rr.1-beta.10", comparedTo: "0.6.0-rr.1-beta.9"), "beta.10")
+        XCTAssertEqual(UpdateFlowText.shortVersion("0.6.0-rr.1-nightly.20261026", comparedTo: "0.6.0-rr.1-beta.9"), "nightly.20261026")
+        XCTAssertEqual(UpdateFlowText.shortVersion("0.7.0-rr.1-beta.1", comparedTo: "0.6.0-rr.1-beta.9"), "0.7.0-rr.1-beta.1")
+        XCTAssertEqual(UpdateFlowText.shortVersion("0.6.0-rr.1", comparedTo: "0.6.0-rr.1-beta.9"), "0.6.0-rr.1")
+    }
+
+    func testIdleDetailSaysWhenAndWhatWaits() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let now = Date(timeIntervalSince1970: 1_793_000_000)
+        let current = "0.6.0-rr.1-beta.9"
+        func detail(_ check: Date?, _ deferral: UpdateDeferral? = nil, available: Bool = true) -> String {
+            UpdateFlowText.idleDetail(updatesAvailable: available, lastCheck: check, deferral: deferral,
+                                      currentVersion: current, now: now, calendar: calendar)
+        }
+        XCTAssertTrue(detail(now.addingTimeInterval(-60)).hasPrefix("Up to date · checked "))
+        XCTAssertEqual(detail(nil), "Not checked yet")
+        XCTAssertEqual(detail(now, available: false), "Updates work only in the installed app.")
+        XCTAssertEqual(detail(now, UpdateDeferral(version: "0.6.0-rr.1-beta.10", kind: .later)), "beta.10 is available")
+        XCTAssertEqual(detail(now, UpdateDeferral(version: "0.6.0-rr.1-beta.10", kind: .skipped)), "You skipped beta.10")
+        XCTAssertEqual(detail(now, UpdateDeferral(version: "0.6.0-rr.1-beta.10", kind: .onQuit)), "beta.10 installs when Bridgey quits")
+    }
+
+    func testDeferralFollowsTheFlow() {
+        let offer = UpdateOffer(version: "2", notes: nil, downloaded: false, userInitiated: false)
+        XCTAssertEqual(UpdateDeferral.putOff(.available(offer), skipped: false), UpdateDeferral(version: "2", kind: .later))
+        XCTAssertEqual(UpdateDeferral.putOff(.available(offer), skipped: true), UpdateDeferral(version: "2", kind: .skipped))
+        XCTAssertEqual(UpdateDeferral.putOff(.ready(version: "2"), skipped: false), UpdateDeferral(version: "2", kind: .onQuit))
+        XCTAssertNil(UpdateDeferral.putOff(.idle, skipped: false))
+        let kept = UpdateDeferral(version: "2", kind: .later)
+        XCTAssertEqual(UpdateDeferral.after(.idle, keeping: kept), kept)
+        XCTAssertEqual(UpdateDeferral.after(.checking, keeping: kept), kept)
+        XCTAssertNil(UpdateDeferral.after(.upToDate, keeping: kept))
+        XCTAssertNil(UpdateDeferral.after(.available(offer), keeping: kept))
     }
 
     func testReleaseNotesBecomePlainLines() {
