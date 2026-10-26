@@ -149,6 +149,12 @@ bouncing back). Automatic and manual moves are both recorded in the activity str
   `0.6.0-rr.2-nightly.20261025` for Nightly. The first part is the upstream version the
   edition is based on; `rr.N` counts our releases on it. Betas and nightlies carry the
   number of the stable release they lead to (`EDITION_NEXT_VERSION`).
+- **Nightly tags**: one per build, `nightly-YYYYMMDD.HHMM` (the UTC minute of the build, the same
+  minute as the build number), for example `nightly-20261026.0905`. Several nightlies a day share
+  the version name `...-nightly.YYYYMMDD`, because the apps accept only that form; the build number
+  tells them apart and orders them (Android snoozes and installs by `versionCode`, Sparkle compares
+  `CFBundleVersion`). A per-build version name needs the apps' version pattern in
+  `UpdateLogic.kt` and `UpdateLogic.swift` widened first.
 - **Build number** (Android `versionCode`, macOS `CFBundleVersion`): the UTC build time as
   `YYDDDHHMM` (two-digit year, day of year, hour, minute). 25 October 2026 13:15 UTC is
   `262981315`. It grows with time on every channel, so one number orders all builds, and it
@@ -212,7 +218,7 @@ How channels combine:
   Nightly allows `beta` and `nightly`. Sparkle always considers the default (Stable) items
   too and never offers a build older than the installed `CFBundleVersion`.
 - Updates are the ZIP, signed with EdDSA (`sparkle:edSignature`). The appcast keeps the newest
-  5 Stable, 5 Beta and 7 Nightly items.
+  5 Stable, 5 Beta and 10 Nightly items.
 - Settings → Updates: channel, automatic checks (on by default, daily), Check Now, version
   and last check. Sparkle shows its own update window.
 - `build-app.sh` embeds `Sparkle.framework` in `Contents/Frameworks`, adds the
@@ -257,9 +263,15 @@ The RR CI project `bridgey` (policy in `rbansal42/rr-ci` `examples/app_policies.
   (`swift test -Xswiftc -warnings-as-errors` and `./build-app.sh` on macOS 15 runners) and
   `python` (`scripts/rr/tests`, where present). They run on GitHub-hosted runners without any
   secret and post `rr-ci/<task>` statuses.
-- **Nightly** at 21:30 UTC when `rr/main` has a revision without a passing nightly:
-  `scripts/rr/ci-release.sh nightly` on rr-dev-1, with notes from the commits since the previous
-  nightly.
+- **Nightly** on every push to `rr/main`, once that revision's checks have passed, built and
+  published on GitHub-hosted runners by `.github/workflows/rr-ci-nightly.yml`: Android on Ubuntu,
+  the Mac app on macOS 15, then appcast signing and publishing. Notes are the commit subjects since
+  the previous nightly or beta (`scripts/rr/release-notes.sh`). RR CI builds one nightly at a time
+  and only the newest revision: a queued nightly for an older revision is dropped when a newer
+  push passes, and a revision that already has a beta or stable tag gets no nightly.
+  Its secrets are environment secrets of `rr-ci-release` (deployment rule: `rr/main` only), read
+  by name only in the jobs that need them; publishing uses the run's `GITHUB_TOKEN`
+  (`contents: write`). `scripts/rr/ci-release.sh nightly` on rr-dev-1 remains as a fallback.
 - **Releases** from annotated tags on `rr/main`: push `v0.6.0-rr.1` for Stable or
   `v0.6.0-rr.1-beta.2` for Beta (betas lead to `EDITION_NEXT_VERSION`); the tag message is the
   release notes. RR CI checks the tag is on `rr/main` before starting.
@@ -271,9 +283,9 @@ git tag -a v0.6.0-rr.1 -m "Release notes for people, in plain words"
 git push origin v0.6.0-rr.1
 ```
 
-Failures of the nightly or a release reach Rahul on Telegram. Release jobs run only on rr-dev-1,
-where the keys are, and need `~/.config/bridgey-rr/github-token` there (a token with write access
-to the fork's releases). They never run on GitHub.
+Failures of the nightly or a release reach Rahul on Telegram. Beta and stable releases run only on
+rr-dev-1, where the keys are, and need `~/.config/bridgey-rr/github-token` there (a token with
+write access to the fork's releases).
 
 ```sh
 # Dry run into dist/<tag>/ (builds both apps, checksums, feeds, signed appcast; publishes nothing)
@@ -303,12 +315,16 @@ A release directory `dist/<tag>/` holds:
 `publish.sh` then:
 
 1. verifies the directory again (`rrrelease.py verify`),
-2. creates the GitHub release: Stable `v<version>` as a normal release marked latest; Beta
-   `v<version>` and Nightly `nightly-YYYYMMDD` as prereleases (a second nightly on the same day
-   replaces the first),
-3. uploads `<channel>.json` and `appcast.xml` to the `channels` release with `--clobber`, only
+2. takes the channels lock, the git ref `refs/rr-ci/channels-lock` (creating a ref is atomic on
+   GitHub; a lock older than 30 minutes is taken over), because nightlies publish from GitHub
+   Actions and betas and stable from rr-dev-1, and every channel shares `appcast.xml`,
+3. downloads the feeds as published now and re-merges this release into them
+   (`rrrelease.py rebase`); if the channel already has a newer build it stops without publishing,
+4. creates the GitHub release: Stable `v<version>` as a normal release marked latest; Beta
+   `v<version>` and Nightly `nightly-YYYYMMDD.HHMM` as prereleases,
+5. uploads `<channel>.json` and `appcast.xml` to the `channels` release with `--clobber`, only
    after the release assets exist,
-4. for Nightly, deletes all but the newest 7 nightly releases and their tags.
+6. for Nightly, deletes all but the newest 10 nightly releases and their tags, and releases the lock.
 
 After a Stable release, bump `EDITION_NEXT_VERSION` (for example to `0.6.0-rr.2`) and commit.
 

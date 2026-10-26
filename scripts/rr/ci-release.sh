@@ -1,6 +1,6 @@
 #!/bin/sh
 # RR CI entry point for Bridgey by Round Robin releases on our own worker (rr-dev-1).
-# Usage: scripts/rr/ci-release.sh nightly   nightly from rr/main, notes from the commits since the last nightly
+# Usage: scripts/rr/ci-release.sh nightly   nightly from rr/main (fallback; RR CI builds nightlies on GitHub), notes from release-notes.sh
 #        scripts/rr/ci-release.sh tag       beta or stable from the annotated tag in RR_CI_REF, notes from its message
 #   v0.6.0-rr.1         -> stable 0.6.0-rr.1
 #   v0.6.0-rr.1-beta.2  -> beta 0.6.0-rr.1-beta.2 (betas lead to EDITION_NEXT_VERSION)
@@ -46,21 +46,9 @@ trap 'exit 143' TERM
 SHORT=$(printf '%.7s' "$HEAD")
 
 if [ "$MODE" = nightly ]; then
-  PREVIOUS=$(gh release list -R "$REPO" --limit 100 --json tagName --jq '.[].tagName' | grep '^nightly-[0-9]\{8\}$' | sort -r | head -n 1 || true)
-  # A nightly republished the same day replaces its release, so compare with an older one.
-  TODAY=nightly-$(date -u +%Y%m%d)
-  [ "$PREVIOUS" = "$TODAY" ] && PREVIOUS=$(gh release list -R "$REPO" --limit 100 --json tagName --jq '.[].tagName' | grep '^nightly-[0-9]\{8\}$' | sort -r | sed -n 2p || true)
-  {
-    printf 'Nightly build of %s at %s.\n\n' "$BRANCH" "$SHORT"
-    if [ -n "$PREVIOUS" ]; then
-      BASE=$(gh api "repos/$REPO/git/ref/tags/$PREVIOUS" --jq .object.sha)
-      printf 'Changes since %s:\n\n' "$PREVIOUS"
-      gh api "repos/$REPO/compare/$BASE...$HEAD" --jq '.commits | reverse | .[] | "- " + (.commit.message | split("\n")[0]) + " (" + .sha[0:7] + ")"' | head -n 100
-    else
-      printf 'Recent changes:\n\n'
-      gh api "repos/$REPO/commits?sha=$HEAD&per_page=20" --jq '.[] | "- " + (.commit.message | split("\n")[0]) + " (" + .sha[0:7] + ")"'
-    fi
-  } > "$NOTES"
+  # Nightlies normally build on GitHub-hosted runners (.github/workflows/rr-ci-nightly.yml); this
+  # self-hosted path stays as a fallback. Notes: commits since the previous nightly or beta.
+  sh "$RR_ROOT/scripts/rr/release-notes.sh" "$HEAD" > "$NOTES"
   set -- nightly
 else
   REF=${RR_CI_REF:?RR_CI_REF must name the release tag}

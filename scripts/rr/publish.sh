@@ -2,9 +2,15 @@
 # Publishes an assembled release directory (dist/<tag>) to GitHub Releases with gh.
 # Stable is a normal release marked latest; beta and nightly are prereleases.
 # Then overwrites the channel feed and appcast on the fixed `channels` release and
-# keeps only the newest 7 nightly releases. Requires gh auth (GH_TOKEN) with write access
+# keeps only the newest 10 nightly releases. Requires gh auth (GH_TOKEN) with write access
 # and the release commit already pushed to the fork. A tag that already exists (a release
 # started by pushing an annotated tag) is used as it is, if it points at the release commit.
+#
+# The feeds hold every channel (the appcast has stable, beta and nightly items), and nightlies
+# publish from GitHub Actions while betas and stable publish from rr-dev-1. So the whole publish
+# runs under one lock, the git ref refs/rr-ci/channels-lock (creating a ref is atomic on GitHub),
+# and re-merges this release into the feeds downloaded under that lock (rrrelease.py rebase). A
+# lock older than BRIDGEY_RR_LOCK_STALE_SECONDS (default 1800) is taken over.
 # Usage: scripts/rr/publish.sh <dist-dir>
 set -eu
 . "$(dirname -- "$0")/common.sh"
@@ -13,6 +19,7 @@ DIST=${1:?usage: publish.sh <dist-dir>}
 . "$DIST/release.env"
 REPO=$(edition_value GITHUB_REPO)
 CHANNELS_TAG=$(edition_value UPDATE_CHANNELS_TAG)
+FEED_BASE=$(edition_value UPDATE_FEED_BASE_URL)
 DISPLAY_NAME=$(edition_value EDITION_DISPLAY_NAME)
 TARGET=$(git -C "$RR_ROOT" rev-parse HEAD)
 if ! git -C "$RR_ROOT" branch -r --contains "$TARGET" 2>/dev/null | grep -q .; then
@@ -32,12 +39,68 @@ if [ ! -f "$NOTES" ]; then
   printf '%s %s (%s channel).\n\nBuilt on Bridgey by Semyon Mikhailov.\n' "$DISPLAY_NAME" "$VERSION_NAME" "$CHANNEL" > "$NOTES"
 fi
 
-if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
-  [ "$CHANNEL" = nightly ] || die "release $TAG already exists"
-  # A second nightly on the same day replaces the first.
-  gh release delete "$TAG" -R "$REPO" --cleanup-tag --yes
-fi
+# ---- channels lock
+LOCK_REF=refs/rr-ci/channels-lock
+STALE=${BRIDGEY_RR_LOCK_STALE_SECONDS:-1800}
+HOLDER="$CHANNEL $TAG on ${RR_CI_HOLDER:-$(hostname)}"
+LOCK_OBJECT=""
+release_lock() {
+  [ -n "$LOCK_OBJECT" ] || return 0
+  # Only remove the lock while it is still ours.
+  if [ "$(gh api "repos/$REPO/git/$LOCK_REF" --jq .object.sha 2>/dev/null || true)" = "$LOCK_OBJECT" ]; then
+    gh api -X DELETE "repos/$REPO/git/$LOCK_REF" >/dev/null 2>&1 || true
+  fi
+  LOCK_OBJECT=""
+}
+trap release_lock EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# The lock points at a tag object whose tagger date tells its age and whose message names the holder.
+LOCK_OBJECT=$(gh api "repos/$REPO/git/tags" -f tag=channels-lock -f message="$HOLDER" -f object="$TARGET" -f type=commit \
+  -f "tagger[name]=Bridgey release" -f "tagger[email]=noreply@roundrobin.in" -f "tagger[date]=$(date -u +%Y-%m-%dT%H:%M:%SZ)" --jq .sha)
+WAITED=0
+until gh api "repos/$REPO/git/refs" -f ref="$LOCK_REF" -f sha="$LOCK_OBJECT" >/dev/null 2>&1; do
+  CURRENT=$(gh api "repos/$REPO/git/$LOCK_REF" --jq .object.sha 2>/dev/null || true)
+  if [ -n "$CURRENT" ]; then
+    INFO=$(gh api "repos/$REPO/git/tags/$CURRENT" --jq '.tagger.date + " " + .message' 2>/dev/null || true)
+    SINCE=$(python3 -c 'import datetime,sys;d=sys.argv[1].split(" ")[0];print(int((datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(d.replace("Z","+00:00"))).total_seconds()) if d else 0)' "$INFO")
+    if [ "$SINCE" -gt "$STALE" ]; then
+      echo "taking over a stale channels lock (${SINCE}s old: ${INFO#* })"
+      gh api -X DELETE "repos/$REPO/git/$LOCK_REF" >/dev/null 2>&1 || true
+      continue
+    fi
+    echo "waiting for the channels lock (held ${SINCE}s by ${INFO#* })"
+  fi
+  [ "$WAITED" -lt 3600 ] || die "the channels lock was not free within an hour"
+  sleep 15
+  WAITED=$((WAITED + 15))
+done
+echo "holding the channels lock"
 
+# ---- re-merge into the feeds as published now
+FRESH="$DIST/fresh-channels"
+rm -rf "$FRESH"
+mkdir -p "$FRESH"
+for name in "$CHANNEL.json" appcast.xml; do
+  # A missing asset (first release of a channel) is fine; any other error stops the release.
+  code=$(curl -sS -L -o "$FRESH/$name" -w '%{http_code}' "$FEED_BASE/$name?nocache=$(date +%s)") || die "could not download $name"
+  case "$code" in 200) ;; 404) rm -f "$FRESH/$name" ;; *) die "downloading $name returned HTTP $code" ;; esac
+done
+set +e
+python3 "$RR_ROOT/scripts/rr/rrrelease.py" rebase --dist "$DIST" --previous-channels "$FRESH"
+status=$?
+set -e
+if [ $status -eq 3 ]; then
+  echo "not published: a newer $CHANNEL build is already out"
+  exit 3
+fi
+[ $status -eq 0 ] || die "could not merge into the published feeds"
+python3 "$RR_ROOT/scripts/rr/rrrelease.py" verify --dist "$DIST"
+
+# ---- release
+if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
+  die "release $TAG already exists"
+fi
 if [ "$CHANNEL" != nightly ] && OBJECT=$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha' 2>/dev/null); then
   TAGGED=${OBJECT#* }
   [ "${OBJECT%% *}" = tag ] && TAGGED=$(gh api "repos/$REPO/git/tags/$TAGGED" --jq .object.sha)
@@ -62,11 +125,13 @@ set -- "$DIST/channels/$CHANNEL.json"
 gh release upload "$CHANNELS_TAG" -R "$REPO" --clobber "$@"
 
 if [ "$CHANNEL" = nightly ]; then
+  # Keep the newest 10 nightly releases (tags nightly-YYYYMMDD.HHMM, and the older nightly-YYYYMMDD).
   gh release list -R "$REPO" --limit 200 --json tagName --jq '.[].tagName' |
-    grep '^nightly-[0-9]\{8\}$' | sort -r | tail -n +8 |
+    grep -E '^nightly-[0-9]{8}(\.[0-9]{4})?$' | sort -r | tail -n +11 |
     while read -r old; do
       echo "removing old nightly $old"
       gh release delete "$old" -R "$REPO" --cleanup-tag --yes
     done
 fi
+release_lock
 echo "published https://github.com/$REPO/releases/tag/$TAG"

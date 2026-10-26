@@ -9,6 +9,8 @@
 #   --skip-macos         Android only (the channel feed keeps the previous macOS entry)
 #   --skip-android       macOS only (the channel feed keeps the previous Android entry)
 #   --apk FILE           use an existing signed APK instead of building one
+#   --now ISO            UTC time the version, build number and tag derive from (default now; the hosted
+#                        nightly passes one value to its Android, macOS and publish jobs)
 #   --publish            create the GitHub release and update the channel feeds (default: dry run into dist/)
 #
 # Runs on rr-dev-1 (Android build, Sparkle signing key) and drives the Mac over ssh. See docs/rr-edition.md.
@@ -17,7 +19,7 @@ set -eu
 
 CHANNEL=${1:-}
 case "$CHANNEL" in stable|beta|nightly) shift ;; *) sed -n '2,15p' "$0"; exit 2 ;; esac
-VERSION="" NOTES_FILE="" MAC_HOST="" MAC_ARTIFACTS="" SKIP_MAC=0 SKIP_ANDROID=0 APK_IN="" PUBLISH=0
+VERSION="" NOTES_FILE="" MAC_HOST="" MAC_ARTIFACTS="" SKIP_MAC=0 SKIP_ANDROID=0 APK_IN="" PUBLISH=0 NOW=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) VERSION=$2; shift 2 ;;
@@ -27,6 +29,7 @@ while [ $# -gt 0 ]; do
     --skip-macos) SKIP_MAC=1; shift ;;
     --skip-android) SKIP_ANDROID=1; shift ;;
     --apk) APK_IN=$2; shift 2 ;;
+    --now) NOW=$2; shift 2 ;;
     --publish) PUBLISH=1; shift ;;
     *) die "unknown option $1" ;;
   esac
@@ -35,11 +38,10 @@ done
 ED_KEY=${BRIDGEY_RR_SPARKLE_KEY:-$HOME/.config/bridgey-rr/sparkle_ed25519_private.key}
 [ $SKIP_MAC = 1 ] || [ -f "$ED_KEY" ] || die "Sparkle private key not found at $ED_KEY"
 
-if [ -n "$VERSION" ]; then
-  VERSION_ENV=$(python3 "$RR_ROOT/scripts/rr/rrrelease.py" version "$CHANNEL" --version "$VERSION")
-else
-  VERSION_ENV=$(python3 "$RR_ROOT/scripts/rr/rrrelease.py" version "$CHANNEL")
-fi
+set --
+[ -n "$VERSION" ] && set -- "$@" --version "$VERSION"
+[ -n "$NOW" ] && set -- "$@" --now "$NOW"
+VERSION_ENV=$(python3 "$RR_ROOT/scripts/rr/rrrelease.py" version "$CHANNEL" "$@")
 eval "$VERSION_ENV"
 export BRIDGEY_VERSION_NAME="$VERSION_NAME" BRIDGEY_BUILD_NUMBER="$BUILD_NUMBER"
 DIST="$RR_ROOT/dist/$TAG"
