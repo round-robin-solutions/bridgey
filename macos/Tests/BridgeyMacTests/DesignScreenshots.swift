@@ -135,6 +135,32 @@ final class DesignScreenshots: XCTestCase {
         model.shortVersion = "0.6.0"
         model.versionDescription = "0.6.0 (60)"
         model.now = now
+        // Remote control: on, granted to the phone, a session running, and a short log.
+        model.deviceFeatures = [phoneID: [.remoteInput: true]]
+        model.accessibilityTrusted = true
+        model.remoteSession = RemoteInputHost.ActiveSession(inputSessionID: "s", deviceID: phoneID, deviceName: "OnePlus 11",
+                                                            mode: .presentation, startedAt: at(9, 30))
+        model.remoteAudit = [
+            RemoteControlAuditEntry(id: "1", deviceID: phoneID, deviceName: "OnePlus 11", mode: "touchpad", accepted: true,
+                                    startedAt: at(8, 2), endedAt: at(8, 14).addingTimeInterval(37), endReason: "local_stop",
+                                    counts: ["pointer": 2140, "button": 36, "scroll": 48, "key": 12, "text": 3], dropped: 0, rejected: 0),
+            RemoteControlAuditEntry(id: "2", deviceID: tabletID, deviceName: "Pixel Tablet", mode: "presentation", accepted: false,
+                                    startedAt: at(7, 50), endedAt: at(7, 50), endReason: "disabled", counts: [:], dropped: 0, rejected: 0),
+            RemoteControlAuditEntry(id: "3", deviceID: phoneID, deviceName: "OnePlus 11", mode: "presentation", accepted: true,
+                                    startedAt: calendar.date(byAdding: .day, value: -1, to: at(16, 0))!,
+                                    endedAt: calendar.date(byAdding: .day, value: -1, to: at(16, 41))!, endReason: "user",
+                                    counts: ["present": 64], dropped: 0, rejected: 0),
+        ]
+        return model
+    }
+
+    private var remoteOffModel: SettingsModel {
+        var model = settingsModel
+        model.globalFeatures[.remoteInput] = false
+        model.deviceFeatures = [:]
+        model.accessibilityTrusted = false
+        model.remoteSession = nil
+        model.remoteAudit = []
         return model
     }
 
@@ -156,6 +182,37 @@ final class DesignScreenshots: XCTestCase {
         for pane in SettingsPane.allCases {
             try render(settings: settingsModel, pane: pane, scheme: .dark, name: "settings-dark-\(pane.rawValue)")
             try render(settings: settingsModel, pane: pane, scheme: .light, name: "settings-light-\(pane.rawValue)")
+        }
+    }
+
+    /// Remote control before it is set up: off, no Accessibility, nothing granted.
+    @MainActor func testRemoteControlSettingsOff() throws {
+        try render(settings: remoteOffModel, pane: .remoteControl, scheme: .light, name: "settings-light-remoteControl-off")
+        try render(settings: remoteOffModel, pane: .remoteControl, scheme: .dark, name: "settings-dark-remoteControl-off")
+    }
+
+    /// The whole Remote control pane at its natural height (the window scrolls it), for review.
+    @MainActor func testRemoteControlPaneFull() throws {
+        for scheme in [ColorScheme.dark, .light] {
+            let view = BrandRoot(reduceMotion: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    RemoteControlPane(model: settingsModel, actions: SettingsActions())
+                }
+                .padding(32)
+                .frame(width: 670)
+                .background(scheme == .dark ? Color(hex: 0x0A101D) : BrandPalette.light.bg)
+            }
+            try write(view, scheme: scheme, name: "settings-\(scheme == .dark ? "dark" : "light")-remoteControl-full")
+        }
+    }
+
+    /// The pill at the top of the screen while a phone controls this Mac, over a slide.
+    @MainActor func testRemoteControlPill() throws {
+        for scheme in [ColorScheme.dark, .light] {
+            let view = BrandRoot(reduceMotion: false) {
+                RemoteControlPillScene(scheme: scheme)
+            }
+            try write(view, scheme: scheme, name: "remote-pill-\(scheme == .dark ? "dark" : "light")")
         }
     }
 
@@ -225,5 +282,42 @@ private struct Desk<Content: View>: View {
                 RadialGradient(colors: [BrandPalette.auroraBlue.opacity(scheme == .dark ? 0.22 : 0.18), .clear], center: UnitPoint(x: 1, y: 0.3), startRadius: 0, endRadius: 420)
             }
         )
+    }
+}
+
+/// The top of a screen during a slideshow: menu bar, the pill, a slide and the laser dot.
+private struct RemoteControlPillScene: View {
+    let scheme: ColorScheme
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 16) {
+                Spacer()
+                Image(systemName: "cursorarrow.rays")
+                    .font(.system(size: 14))
+                    .frame(width: 28, height: 22)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(scheme == .dark ? Color.white.opacity(0.18) : Color.black.opacity(0.12)))
+                Image(systemName: "wifi").font(.system(size: 13))
+                Text("Sat 25 Oct 9:41").font(.system(size: 13, weight: .medium))
+            }
+            .foregroundStyle(scheme == .dark ? Color(hex: 0xF4F7FA) : Color(hex: 0x050B18))
+            .padding(.horizontal, 14)
+            .frame(height: 28)
+            .background(scheme == .dark ? Color(hex: 0x050B18).opacity(0.55) : Color.white.opacity(0.6))
+            RemoteControlPill(deviceName: "OnePlus 11", mode: .presentation, onStop: {})
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 6).fill(Color.white)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Q3 roadmap").font(.system(size: 30, weight: .bold)).foregroundStyle(Color(hex: 0x050B18))
+                    Text("Ship remote input, then Files 2.0").font(.system(size: 17)).foregroundStyle(Color(hex: 0x4C5262))
+                }
+                .padding(28)
+                RemoteLaserDot().offset(x: 420, y: 96)
+            }
+            .frame(width: 760, height: 220)
+            .padding(.bottom, 20)
+        }
+        .frame(width: 860)
+        .background(scheme == .dark ? Color(hex: 0x0A1428) : Color(hex: 0xDFE7F0))
     }
 }
