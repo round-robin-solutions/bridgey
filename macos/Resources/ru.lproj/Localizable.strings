@@ -294,3 +294,32 @@
 "perf.cancelled" = "Остановлено. Ничего не сохранено.";
 "perf.copy" = "Скопировать результаты";
 "perf.share" = "Поделиться в JSON";
+
+/* In-app updates (Sparkle custom user driver) */
+"update.available" = "Доступно обновление %@";
+"update.available.detail" = "Установите сейчас или позже в Настройках.";
+"update.available.downloaded" = "Загружено и готово. Перезапустите Bridgey, чтобы обновить.";
+"update.checking" = "Проверка обновлений…";
+"update.downloading" = "Загрузка %@";
+"update.downloading.detail" = "%@ из %@";
+"update.error.canceled" = "Обновление отменено. Ничего не изменилось.";
+"update.error.download" = "Загрузка не завершилась. Проверьте подключение и попробуйте снова.";
+"update.error.feed" = "Не удалось прочитать список обновлений. Попробуйте позже.";
+"update.error.generic" = "Что-то пошло не так. Попробуйте позже.";
+"update.error.location" = "Bridgey не может заменить себя в этой папке. Переместите приложение в «Программы» и попробуйте снова.";
+"update.error.network" = "Не удалось связаться с сервером обновлений. Проверьте подключение и попробуйте снова.";
+"update.error.signature" = "Загрузка не прошла проверку безопасности, поэтому ничего не установлено.";
+"update.error.unpack" = "Не удалось распаковать загрузку. Попробуйте позже.";
+"update.failed" = "Обновление не завершено";
+"update.install" = "Установить";
+"update.installing" = "Установка %@";
+"update.installing.detail" = "Bridgey сейчас перезапустится";
+"update.later" = "Позже";
+"update.preparing" = "Подготовка %@";
+"update.preparing.detail" = "Проверка и распаковка загрузки";
+"update.ready" = "Обновление %@ готово";
+"update.ready.detail" = "Перезапустите, чтобы обновить";
+"update.restart" = "Перезапустить и обновить";
+"update.skip" = "Пропустить версию";
+"update.upToDate" = "Установлена последняя версия";
+"update.upToDate.detail" = "Версия %@ самая новая в вашем канале.";

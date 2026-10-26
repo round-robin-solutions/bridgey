@@ -7,6 +7,9 @@ struct UpdatesPane: View {
     @Environment(\.brand) private var c
 
     var body: some View {
+        if model.updateFlow != .idle {
+            UpdateFlowCard(flow: model.updateFlow, currentVersion: model.shortVersion, actions: actions.update)
+        }
         versionCard
         HStack(alignment: .top, spacing: 16) {
             channelCard
@@ -109,7 +112,7 @@ struct UpdatesPane: View {
     }
 }
 
-private struct UpdatesCard<Content: View>: View {
+struct UpdatesCard<Content: View>: View {
     @ViewBuilder let content: Content
     @Environment(\.brand) private var c
 
@@ -185,5 +188,148 @@ private struct WhatsNewRow: View {
                 .lineLimit(1)
         }
         .frame(height: 40)
+    }
+}
+
+// MARK: - In-app update flow (shared by Settings and the Stream panel)
+
+struct UpdateFlowActions {
+    var install: () -> Void = {}
+    var later: () -> Void = {}
+    var skip: () -> Void = {}
+    var cancel: () -> Void = {}
+    var dismiss: () -> Void = {}
+    var checkAgain: () -> Void = {}
+}
+
+/// The buttons each step offers. `compact` drops Skip for the narrow panel card.
+struct UpdateFlowButtons: View {
+    let flow: UpdateFlow
+    let actions: UpdateFlowActions
+    var compact = false
+    var height: CGFloat = 28
+
+    var body: some View {
+        switch flow {
+        case let .available(offer):
+            if !compact {
+                Button(L10n.text("update.skip", fallback: "Skip this version"), action: actions.skip)
+                    .buttonStyle(PillButtonStyle(kind: .neutral, height: height))
+            }
+            Button(L10n.text("update.later", fallback: "Later"), action: actions.later)
+                .buttonStyle(PillButtonStyle(kind: .neutral, height: height))
+            Button(offer.downloaded
+                   ? L10n.text("update.restart", fallback: "Restart to update")
+                   : L10n.text("update.install", fallback: "Install"), action: actions.install)
+                .buttonStyle(PillButtonStyle(kind: .gradient, height: height))
+        case .checking, .downloading:
+            Button(L10n.text("action.cancel", fallback: "Cancel"), action: actions.cancel)
+                .buttonStyle(PillButtonStyle(kind: .neutral, height: height))
+        case .ready:
+            Button(L10n.text("update.later", fallback: "Later"), action: actions.later)
+                .buttonStyle(PillButtonStyle(kind: .neutral, height: height))
+            Button(L10n.text("update.restart", fallback: "Restart to update"), action: actions.install)
+                .buttonStyle(PillButtonStyle(kind: .gradient, height: height))
+        case .upToDate:
+            Button(L10n.text("action.dismiss", fallback: "Dismiss"), action: actions.dismiss)
+                .buttonStyle(PillButtonStyle(kind: .neutral, height: height))
+        case .failed:
+            Button(L10n.text("action.dismiss", fallback: "Dismiss"), action: actions.dismiss)
+                .buttonStyle(PillButtonStyle(kind: .neutral, height: height))
+            Button(L10n.text("action.retry", fallback: "Retry"), action: actions.checkAgain)
+                .buttonStyle(PillButtonStyle(kind: .tonal, height: height))
+        case .idle, .extracting, .installing:
+            EmptyView()
+        }
+    }
+}
+
+/// Thin progress track in brand colours. Nil progress draws a short static segment.
+struct UpdateProgressBar: View {
+    let progress: Double?
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(c.s3)
+                Capsule()
+                    .fill(LinearGradient(colors: [BrandPalette.auroraPurple, BrandPalette.auroraGreen], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: max(6, proxy.size.width * (progress ?? 0.3)))
+                    .opacity(progress == nil ? 0.6 : 1)
+            }
+        }
+        .frame(height: 4)
+        .accessibilityElement()
+        .accessibilityValue(progress.map { "\(Int(($0 * 100).rounded())) %" } ?? "")
+    }
+}
+
+func updateFlowSymbol(_ flow: UpdateFlow) -> (symbol: String, tint: TileTint) {
+    switch flow {
+    case .failed: ("exclamationmark.triangle", .neutral)
+    case .upToDate: ("checkmark.circle", .green)
+    case .ready, .installing: ("arrow.clockwise.circle", .green)
+    default: ("arrow.down.circle", .purple)
+    }
+}
+
+/// Settings > Updates: the current step, its notes and its buttons. Hidden when idle.
+struct UpdateFlowCard: View {
+    let flow: UpdateFlow
+    let currentVersion: String
+    let actions: UpdateFlowActions
+    @Environment(\.brand) private var c
+    @Environment(\.snapshotRendering) private var snapshot
+
+    private func notesText(_ notes: String) -> some View {
+        Text(notes)
+            .font(BrandFont.body(13))
+            .foregroundStyle(c.on)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    var body: some View {
+        UpdatesCard {
+            HStack(alignment: .top, spacing: 12) {
+                let visual = updateFlowSymbol(flow)
+                IconTile(symbol: visual.symbol, tint: visual.tint, size: 32, corner: 9)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(UpdateFlowText.title(flow))
+                        .font(BrandFont.body(15, .semibold))
+                        .foregroundStyle(c.on)
+                    if let detail = UpdateFlowText.detail(flow, currentVersion: currentVersion) {
+                        Text(detail)
+                            .font(BrandFont.body(12))
+                            .foregroundStyle(c.on2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if flow.isBusy {
+                UpdateProgressBar(progress: flow.progress)
+                    .padding(.top, 12)
+            }
+            if case let .available(offer) = flow, let notes = offer.notes {
+                Group {
+                    if snapshot {
+                        notesText(notes)  // ImageRenderer does not draw ScrollView content
+                    } else {
+                        ScrollView { notesText(notes).textSelection(.enabled) }
+                            .frame(maxHeight: 160)
+                    }
+                }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(c.s3.opacity(0.5)))
+                .padding(.top, 12)
+            }
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                UpdateFlowButtons(flow: flow, actions: actions, height: 32)
+            }
+            .padding(.top, 12)
+        }
     }
 }

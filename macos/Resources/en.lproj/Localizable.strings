@@ -294,3 +294,32 @@
 "perf.cancelled" = "Stopped. Nothing was kept.";
 "perf.copy" = "Copy results";
 "perf.share" = "Share as JSON";
+
+/* In-app updates (Sparkle custom user driver) */
+"update.available" = "Update %@ available";
+"update.available.detail" = "Install now, or later from Settings.";
+"update.available.downloaded" = "Downloaded and ready. Restart Bridgey to update.";
+"update.checking" = "Checking for updates…";
+"update.downloading" = "Downloading %@";
+"update.downloading.detail" = "%@ of %@";
+"update.error.canceled" = "The update was cancelled. Nothing changed.";
+"update.error.download" = "The download didn't finish. Check the connection and try again.";
+"update.error.feed" = "The update list couldn't be read. Try again later.";
+"update.error.generic" = "Something went wrong. Try again later.";
+"update.error.location" = "Bridgey can't replace itself where it is. Move it to Applications and try again.";
+"update.error.network" = "Couldn't reach the update server. Check the connection and try again.";
+"update.error.signature" = "The download failed its safety check, so nothing was installed.";
+"update.error.unpack" = "The download couldn't be unpacked. Try again later.";
+"update.failed" = "Update didn't finish";
+"update.install" = "Install";
+"update.installing" = "Installing %@";
+"update.installing.detail" = "Bridgey restarts in a moment";
+"update.later" = "Later";
+"update.preparing" = "Preparing %@";
+"update.preparing.detail" = "Checking the download and unpacking it";
+"update.ready" = "Update %@ ready";
+"update.ready.detail" = "Restart to update";
+"update.restart" = "Restart to update";
+"update.skip" = "Skip this version";
+"update.upToDate" = "You're up to date";
+"update.upToDate.detail" = "Version %@ is the newest on your channel.";

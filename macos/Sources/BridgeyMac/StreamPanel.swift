@@ -48,6 +48,9 @@ struct PanelModel {
     var fileTransferActive = false
     /// Automatic clipboard is running for the connected device.
     var autoClipboard = false
+    /// In-app update progress (Sparkle drives it; no system windows).
+    var update: UpdateFlow = .idle
+    var appVersion = ""
 
     var connectedName: String? {
         if case let .connected(_, name) = state { return name }
@@ -86,6 +89,7 @@ struct PanelActions {
     var retryTransfer: (String) -> Void = { _ in }
     var callAction: (RemoteCallAction) -> Void = { _ in }
     var enableNotifications: () -> Void = {}
+    var update = UpdateFlowActions()
 }
 
 struct StreamPanelView: View {
@@ -148,7 +152,7 @@ struct StreamPanelView: View {
     }
 
     private var hasLiveCards: Bool {
-        !model.transfers.isEmpty || model.receivedLink != nil || model.ringing != nil || model.call != nil
+        !model.transfers.isEmpty || model.receivedLink != nil || model.ringing != nil || model.call != nil || model.update.showsInPanel
     }
 
     @ViewBuilder private var stateCard: some View {
@@ -611,6 +615,17 @@ private struct LiveCards: View {
                 }
                 .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
             }
+            if model.update.showsInPanel {
+                let visual = updateFlowSymbol(model.update)
+                LiveCard(symbol: visual.symbol, tint: visual.tint,
+                         title: UpdateFlowText.title(model.update),
+                         detail: UpdateFlowText.detail(model.update, currentVersion: model.appVersion),
+                         progress: model.update.isBusy ? .some(model.update.progress) : nil) {
+                    UpdateFlowButtons(flow: model.update, actions: actions.update, compact: true)
+                }
+                .id("update")
+                .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
+            }
             ForEach(model.transfers) { transfer in
                 LiveCard(symbol: transfer.active ? "arrow.up.arrow.down" : "exclamationmark.arrow.triangle.2.circlepath",
                          tint: transfer.active ? .green : .neutral,
@@ -640,6 +655,7 @@ private struct LiveCards: View {
         if model.call != nil { keys.append("call") }
         if model.ringing != nil { keys.append("ringing") }
         if model.receivedLink != nil { keys.append("link") }
+        if model.update.showsInPanel { keys.append("update") }
         keys += model.transfers.map { "transfer:\($0.id)" }
         return keys
     }
@@ -665,6 +681,8 @@ private struct LiveCard<Buttons: View>: View {
     let tint: TileTint
     let title: String
     let detail: String?
+    /// Outer nil: no bar. Inner nil: a step of unknown length.
+    var progress: Double?? = nil
     @ViewBuilder let buttons: Buttons
     @Environment(\.brand) private var c
 
@@ -673,6 +691,10 @@ private struct LiveCard<Buttons: View>: View {
             HStack(alignment: .top, spacing: 10) {
                 IconTile(symbol: symbol, tint: tint, size: 28, corner: 8)
                 CardText(title: title, detail: detail)
+            }
+            if let progress {
+                UpdateProgressBar(progress: progress)
+                    .padding(.leading, 38)
             }
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
@@ -1058,12 +1080,14 @@ struct BridgeyPanel: View {
     @ObservedObject var activity: ActivityLog
     @ObservedObject var quickActions: QuickActions
     @ObservedObject var media: MediaController
+    @ObservedObject var updater: AppUpdater
     let onOpenSettings: () -> Void
     @State private var clipboard = PasteboardPreview()
     @State private var now = Date()
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    init(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings, onOpenSettings: @escaping () -> Void) {
+    init(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings, updater: AppUpdater, onOpenSettings: @escaping () -> Void) {
+        self.updater = updater
         self.discovery = discovery
         self.pairing = pairing
         self.settings = settings
@@ -1126,6 +1150,8 @@ struct BridgeyPanel: View {
         }
         model.mediaPlayer = media.player
         model.mediaDetail = media.snapshot.detail
+        model.update = updater.flow
+        model.appVersion = updater.shortVersion
         return model
     }
 
@@ -1166,6 +1192,7 @@ struct BridgeyPanel: View {
         actions.retryTransfer = { pairing.retryFileTransfer(id: $0) }
         actions.callAction = { pairing.performRemoteCallAction($0) }
         actions.enableNotifications = { pairing.enableNotifications() }
+        actions.update = updater.flowActions
         return actions
     }
 }

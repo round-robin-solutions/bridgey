@@ -98,6 +98,7 @@ struct SettingsModel {
     var lastCheck: Date?
     var updatesAvailable = false
     var canCheckForUpdates = false
+    var updateFlow: UpdateFlow = .idle
     var shortVersion = "Development"
     var versionDescription = "Development"
     var phoneLinkStatus: String?
@@ -146,6 +147,7 @@ struct SettingsActions {
     var setChannel: (UpdateChannel) -> Void = { _ in }
     var setAutomaticallyChecks: (Bool) -> Void = { _ in }
     var checkForUpdates: () -> Void = {}
+    var update = UpdateFlowActions()
     var openURL: (URL) -> Void = { _ in }
 }
 
@@ -1137,6 +1139,7 @@ private struct LiveSettingsView: View {
         model.lastCheck = updater.lastCheck
         model.updatesAvailable = updater.isAvailable
         model.canCheckForUpdates = updater.canCheckForUpdates
+        model.updateFlow = updater.flow
         model.shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
         model.versionDescription = updater.versionDescription
         model.phoneLinkStatus = phoneLinkStatus
@@ -1188,6 +1191,7 @@ private struct LiveSettingsView: View {
         actions.setChannel = { updater.setChannel($0) }
         actions.setAutomaticallyChecks = { updater.setAutomaticallyChecks($0) }
         actions.checkForUpdates = { updater.checkForUpdates() }
+        actions.update = updater.flowActions
         actions.openURL = { NSWorkspace.shared.open($0) }
         return actions
     }
