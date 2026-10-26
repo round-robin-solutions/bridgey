@@ -290,6 +290,17 @@
     <!-- Clipboard offers: images, files and long text (draft protocol clipboard_files_draft1) -->
     <string name="clipboard_files_title">Копировать изображения и файлы</string>
     <string name="clipboard_files_detail">Изображения, видео, файлы и длинный текст. Большие объёмы передаются при вставке.</string>
+    <!-- Clipboard > Send a fresh screenshot: Send copied item sends a screenshot from the last minute -->
+    <string name="screenshot_send_title">Отправлять свежий скриншот</string>
+    <string name="screenshot_send_detail">Если вы сделали скриншот за последнюю минуту, «Отправить скопированное» отправит его</string>
+    <string name="screenshot_sent">Скриншот отправлен на %1$s</string>
+    <string name="screenshot_off_denied">«Отправлять свежий скриншот» выключено. Bridgey нужен доступ к фото, чтобы находить скриншоты.</string>
+    <string name="screenshot_off_partial">«Отправлять свежий скриншот» выключено. Нужен доступ ко всем фото, а не только к выбранным.</string>
+    <string name="screenshot_access_title">Разрешите доступ ко всем фото</string>
+    <string name="screenshot_access_partial">Bridgey видит только выбранные вами фото, поэтому не видит новый скриншот. Чтобы отправлять свежие скриншоты, откройте Настройки, затем Разрешения, затем Фото и видео, и выберите «Разрешить все».</string>
+    <string name="screenshot_access_blocked">Доступ к фото для Bridgey выключен. Чтобы отправлять свежие скриншоты, откройте Настройки, затем Разрешения, затем Фото и видео, и разрешите доступ.</string>
+    <string name="screenshot_access_open_settings">Открыть настройки</string>
+    <string name="screenshot_access_not_now">Не сейчас</string>
     <string name="clipboard_eager_title">Сразу отправлять до</string>
     <string name="clipboard_eager_detail">Что меньше, передаётся сразу при копировании, и вставка мгновенная.</string>
     <string name="clipboard_eager_5">5 МБ</string>

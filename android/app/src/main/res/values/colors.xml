@@ -1,4 +1,9 @@
 <resources>
     <color name="bridgey_icon_background">#050B18</color>
     <color name="bridgey_window">#F4F7FA</color>
+    <!-- Round Robin aurora for the notification's Send copied item pill; midnight text on it. -->
+    <color name="notification_aurora_purple">#9B7CFF</color>
+    <color name="notification_aurora_blue">#54C7F5</color>
+    <color name="notification_aurora_green">#5EF2B2</color>
+    <color name="notification_on_aurora">#050B18</color>
 </resources>

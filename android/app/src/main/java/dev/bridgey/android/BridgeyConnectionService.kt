@@ -407,6 +407,12 @@ class BridgeyConnectionService : Service() {
 }
 
 class ClipboardCaptureActivity : Activity() {
+    /** onResume runs again when the photo access dialog closes: send once. */
+    private var started = false
+
+    /** The clip read before asking for photo access, sent once the answer is in. */
+    private var waitingForPhotos: Pair<LocalClip?, Long>? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setDimAmount(0f)
@@ -415,10 +421,13 @@ class ClipboardCaptureActivity : Activity() {
     companion object {
         /** Set by the optional background clipboard source to auto-send silently (no toasts). */
         const val EXTRA_AUTOMATIC = "dev.bridgey.android.extra.AUTOMATIC"
+        private const val REQUEST_PHOTOS = 7_301
     }
 
     override fun onResume() {
         super.onResume()
+        if (started) return
+        started = true
         Handler(Looper.getMainLooper()).postDelayed({
             // Clipboard access is allowed only once this user-initiated activity is foreground.
             val pairing = (application as BridgeyApplication).pairing
@@ -426,36 +435,101 @@ class ClipboardCaptureActivity : Activity() {
             // path as a copy made while Bridgey is open, with the same skip rules.
             if (intent?.getBooleanExtra(EXTRA_AUTOMATIC, false) == true) {
                 pairing.autoSendClip(pairing.readClipForAutomaticSend())
-                finishAndRemoveTask()
-                overridePendingTransition(0, 0)
+                close()
                 return@postDelayed
             }
             val clip = pairing.readClipForManualSend()
-            if (clip == null || clip == LocalClip.Own) {
-                Toast.makeText(
-                    this@ClipboardCaptureActivity,
-                    if (clip == null) "Clipboard is empty" else "This clip came from your Mac",
-                    Toast.LENGTH_SHORT,
-                ).show()
-            } else {
-                val appContext = applicationContext
-                pairing.sendClip(clip) { result ->
-                    Handler(Looper.getMainLooper()).post {
-                        val message = when (result) {
-                            ClipboardSendResult.DELIVERED -> "Clipboard sent to Mac"
-                            ClipboardSendResult.EMPTY -> "Clipboard is empty"
-                            ClipboardSendResult.DISABLED -> "Clipboard is turned off on one of your devices"
-                            ClipboardSendResult.NOT_CONNECTED -> "Not connected — clipboard not sent"
-                            ClipboardSendResult.CONNECTION_LOST -> "Send failed — connection lost"
-                            ClipboardSendResult.NO_ACKNOWLEDGEMENT -> "Mac did not confirm delivery"
-                            ClipboardSendResult.TOO_LARGE -> "Clipboard exceeds 32 KiB. Send it as a file."
-                        }
-                        Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show()
-                    }
-                }
+            val timestamp = readClipTimestamp(this)
+            if (photoAccessNeeded()) {
+                // Send a fresh screenshot is on (the default) and has never had photo access: ask once,
+                // on this tap, then send.
+                waitingForPhotos = clip to timestamp
+                requestPermissions(PhotoPermissions.request, REQUEST_PHOTOS)
+                return@postDelayed
             }
-            finishAndRemoveTask()
-            overridePendingTransition(0, 0)
+            send(clip, timestamp)
         }, 150)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQUEST_PHOTOS) return
+        val (clip, timestamp) = waitingForPhotos ?: return close()
+        waitingForPhotos = null
+        when (PhotoPermissions.access(this)) {
+            PhotoAccess.FULL -> Unit
+            PhotoAccess.PARTIAL -> turnScreenshotsOff(R.string.screenshot_off_partial)
+            PhotoAccess.NONE -> turnScreenshotsOff(R.string.screenshot_off_denied)
+        }
+        send(clip, timestamp)
+    }
+
+    /** True when photo access should be asked for now. Selected photos only cannot see new screenshots: the setting goes off. */
+    private fun photoAccessNeeded(): Boolean {
+        val app = application as BridgeyApplication
+        if (!app.settings.state.value.screenshotSendEnabled || !app.pairing.clipboardOffersAvailable()) return false
+        return when (PhotoPermissions.access(this)) {
+            PhotoAccess.FULL -> false
+            PhotoAccess.PARTIAL -> {
+                turnScreenshotsOff(R.string.screenshot_off_partial)
+                false
+            }
+            PhotoAccess.NONE -> true
+        }
+    }
+
+    private fun turnScreenshotsOff(reason: Int) {
+        (application as BridgeyApplication).settings.setScreenshotSendEnabled(false)
+        Toast.makeText(applicationContext, reason, Toast.LENGTH_LONG).show()
+    }
+
+    private fun send(clip: LocalClip?, timestamp: Long) {
+        val pairing = (application as BridgeyApplication).pairing
+        val appContext = applicationContext
+        val main = Handler(Looper.getMainLooper())
+        pairing.sendCopiedItem(timestamp, deviceId = null, sendClipboard = { sendClipboard(appContext, pairing, clip) }) { result, peerName ->
+            main.post {
+                val message = if (result == ClipboardSendResult.DELIVERED) {
+                    appContext.getString(R.string.screenshot_sent, peerName)
+                } else {
+                    sendResultMessage(result)
+                }
+                Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show()
+            }
+        }
+        close()
+    }
+
+    private fun sendClipboard(appContext: android.content.Context, pairing: PairingCoordinator, clip: LocalClip?) {
+        if (clip == null || clip == LocalClip.Own) {
+            Toast.makeText(
+                appContext,
+                if (clip == null) "Clipboard is empty" else "This clip came from your Mac",
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
+        pairing.sendClip(clip) { result ->
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(appContext, sendResultMessage(result), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun sendResultMessage(result: ClipboardSendResult): String = when (result) {
+        ClipboardSendResult.DELIVERED -> "Clipboard sent to Mac"
+        ClipboardSendResult.EMPTY -> "Clipboard is empty"
+        ClipboardSendResult.DISABLED -> "Clipboard is turned off on one of your devices"
+        ClipboardSendResult.NOT_CONNECTED -> "Not connected — clipboard not sent"
+        ClipboardSendResult.CONNECTION_LOST -> "Send failed — connection lost"
+        ClipboardSendResult.NO_ACKNOWLEDGEMENT -> "Mac did not confirm delivery"
+        ClipboardSendResult.TOO_LARGE -> "Clipboard exceeds 32 KiB. Send it as a file."
+    }
+
+    private fun close() {
+        if (isFinishing) return
+        finishAndRemoveTask()
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
     }
 }

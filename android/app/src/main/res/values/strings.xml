@@ -280,6 +280,17 @@
     <!-- Clipboard offers: images, files and long text (draft protocol clipboard_files_draft1) -->
     <string name="clipboard_files_title">Copy images and files</string>
     <string name="clipboard_files_detail">Images, videos, files and long text. Big items move when you paste.</string>
+    <!-- Clipboard > Send a fresh screenshot: Send copied item sends a screenshot from the last minute -->
+    <string name="screenshot_send_title">Send a fresh screenshot</string>
+    <string name="screenshot_send_detail">If you took a screenshot in the last minute, Send copied item sends it</string>
+    <string name="screenshot_sent">Sent screenshot to %1$s</string>
+    <string name="screenshot_off_denied">Send a fresh screenshot is off. Bridgey needs photo access to find your screenshots.</string>
+    <string name="screenshot_off_partial">Send a fresh screenshot is off. It needs access to all photos, not only selected ones.</string>
+    <string name="screenshot_access_title">Allow access to all photos</string>
+    <string name="screenshot_access_partial">Bridgey can see only the photos you selected, so it can\'t see a new screenshot. To send fresh screenshots, open Settings, then Permissions, then Photos and videos, and choose Allow all.</string>
+    <string name="screenshot_access_blocked">Photo access is off for Bridgey. To send fresh screenshots, open Settings, then Permissions, then Photos and videos, and allow it.</string>
+    <string name="screenshot_access_open_settings">Open Settings</string>
+    <string name="screenshot_access_not_now">Not now</string>
     <string name="clipboard_eager_title">Send right away up to</string>
     <string name="clipboard_eager_detail">Smaller copies move as soon as you copy, so pasting is instant.</string>
     <string name="clipboard_eager_5">5 MB</string>

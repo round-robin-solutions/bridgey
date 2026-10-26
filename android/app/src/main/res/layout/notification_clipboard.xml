@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Connection notification content for DecoratedCustomViewStyle: the status above, then one
-  full-width "Send copied text" button that is easy to hit. Text colours use framework attributes
-  so they adapt to light and dark shades; the button is a fixed accent pill with white text.
+  Connection notification content for DecoratedCustomViewStyle. The header already says
+  "Bridgey by Round Robin", so the content is the status, then one full-width "Send copied item"
+  button that is easy to hit.
+
+  The system inflates RemoteViews with the app's theme (Theme.Material.Light), so theme attributes
+  such as ?android:textColorPrimary stay dark on a dark shade. The status uses the framework
+  notification text appearance instead: its colour follows the shade, light or dark, and Material You.
+  The button is a fixed Round Robin aurora pill with midnight text, readable on either shade.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -12,23 +17,12 @@
     android:paddingBottom="4dp">
 
     <TextView
-        android:id="@+id/notification_title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/brand_name"
-        android:textColor="?android:attr/textColorPrimary"
-        android:textStyle="bold"
-        android:textSize="14sp" />
-
-    <TextView
         android:id="@+id/notification_status"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="1dp"
         android:ellipsize="end"
         android:maxLines="1"
-        android:textColor="?android:attr/textColorSecondary"
-        android:textSize="13sp" />
+        android:textAppearance="@android:style/TextAppearance.Material.Notification.Title" />
 
     <TextView
         android:id="@+id/notification_send"
@@ -40,7 +34,7 @@
         android:minHeight="48dp"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
-        android:textColor="@android:color/white"
+        android:textColor="@color/notification_on_aurora"
         android:textSize="14sp"
         android:textStyle="bold" />
 </LinearLayout>

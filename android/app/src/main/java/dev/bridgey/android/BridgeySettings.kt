@@ -50,6 +50,8 @@ data class BridgeySettingsState(
     val clipboardFilesEnabled: Boolean = true,
     /** Clipboard > Send right away up to, in bytes; 0 is "Always ask when pasting". */
     val clipboardEagerLimit: Long = ClipLimits.DEFAULT_EAGER_LIMIT,
+    /** Clipboard > Send a fresh screenshot: Send copied item sends a screenshot from the last minute. On by default. */
+    val screenshotSendEnabled: Boolean = true,
     /** This phone > Keep Wi-Fi awake: a Wi-Fi lock while connected (Android 13 and older; off by default). */
     val keepWifiAwake: Boolean = false,
     /** Files > Folders sent to this phone (3.2). Synced later with settings sync; per phone for now. */
@@ -176,6 +178,11 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         mutableState.value = mutableState.value.copy(clipboardEagerLimit = value)
     }
 
+    fun setScreenshotSendEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_SCREENSHOT_SEND, enabled).apply()
+        mutableState.value = mutableState.value.copy(screenshotSendEnabled = enabled)
+    }
+
     fun setKeepWifiAwake(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_KEEP_WIFI_AWAKE, enabled).apply()
         mutableState.value = mutableState.value.copy(keepWifiAwake = enabled)
@@ -272,6 +279,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
             clipboardFilesEnabled = preferences.getBoolean(KEY_CLIPBOARD_FILES, true),
             clipboardEagerLimit = preferences.getLong(KEY_CLIPBOARD_EAGER_LIMIT, ClipLimits.DEFAULT_EAGER_LIMIT)
                 .takeIf { it in ClipLimits.EAGER_LIMIT_CHOICES } ?: ClipLimits.DEFAULT_EAGER_LIMIT,
+            screenshotSendEnabled = preferences.getBoolean(KEY_SCREENSHOT_SEND, true),
             keepWifiAwake = preferences.getBoolean(KEY_KEEP_WIFI_AWAKE, false),
             folderMode = DestinationMode.fromWire(preferences.getString(KEY_FOLDER_MODE, null)) ?: DestinationMode.SENDER_PICKS,
             folderConflict = ConflictPolicy.fromWire(preferences.getString(KEY_FOLDER_CONFLICT, null)) ?: ConflictPolicy.ASK,
@@ -291,6 +299,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         private const val KEY_BACKGROUND_CLIPBOARD = "clipboard.background.enabled"
         private const val KEY_CLIPBOARD_FILES = "clipboard.files.enabled"
         private const val KEY_CLIPBOARD_EAGER_LIMIT = "clipboard.files.eager_limit"
+        private const val KEY_SCREENSHOT_SEND = "clipboard.screenshot.enabled"
         private const val KEY_KEEP_WIFI_AWAKE = "connection.keep_wifi_awake"
         private const val KEY_FOLDER_MODE = "files.folder_destination"
         private const val KEY_FOLDER_CONFLICT = "files.folder_conflict"

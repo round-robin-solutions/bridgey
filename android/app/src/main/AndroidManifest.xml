@@ -21,6 +21,12 @@
          the read activity start from the background once that same command allows it. -->
     <uses-permission android:name="android.permission.READ_LOGS" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Clipboard > Send a fresh screenshot (on by default, asked for on first use): finds a screenshot
+         taken in the last minute. Selected photos only (Android 14+) is declared so it can be told
+         apart from full access; it cannot see new screenshots. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <queries>
