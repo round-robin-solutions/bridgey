@@ -125,8 +125,11 @@ final class FolderVectorsTests: XCTestCase {
     }
 
     func testDirectoryEntriesEncodeWithoutFileFields() throws {
-        let json = String(decoding: try FolderJSON.encoder.encode(ManifestEntry.dir("a/b")), as: UTF8.self)
-        XCTAssertEqual(json, #"{"type":"dir","path":"a/b"}"#)
+        // Key order is not fixed by JSONEncoder; compare the object (and that the slash is not escaped).
+        let data = try FolderJSON.encoder.encode(ManifestEntry.dir("a/b"))
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: String])
+        XCTAssertEqual(object, ["type": "dir", "path": "a/b"])
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains(#""a/b""#))
     }
 
     func testOfferRoundTripsWithWireNames() throws {
