@@ -124,18 +124,41 @@ final class DesignScreenshots: XCTestCase {
     private func updateModel(_ flow: UpdateFlow) -> PanelModel {
         var model = connectedModel
         model.update = flow
-        model.appVersion = "0.6.0-rr.1-beta.7"
+        model.appVersion = "0.6.0-rr.1-beta.9"
         return model
     }
 
     private var updateSettingsModel: SettingsModel {
+        updatesModel(.available(longOffer))
+    }
+
+    /// Notes as rrrelease.py publishes them: a version heading, then one paragraph per Markdown line.
+    private var longOffer: UpdateOffer {
+        let lines = [
+            "- Settings > Updates is one status card: what you have, what is ready, and one main button.",
+            "- Release notes show as a list with Show all, and the full notes are one click away.",
+            "- The menu bar card says beta.10 ready, then Restart to update.",
+            "- Skip this version moved into the ⋯ menu.",
+            "- One Keychain question per update instead of two.",
+            "- Reconnects after sleep no longer wait for the next",
+            "  discovery round.",
+            "## Fixes",
+            "- Several phones at once no longer fight over the clipboard.",
+            "- The Files window remembers its size.",
+        ]
+        let html = "<h2>0.6.0-rr.1-beta.10</h2>" + lines.map { "<p>\($0)</p>" }.joined()
+        return UpdateOffer(version: "0.6.0-rr.1-beta.10", notes: UpdateFlowText.plainNotes(html), downloaded: false, userInitiated: true,
+                           notesURL: URL(string: "https://github.com/round-robin-solutions/bridgey/releases/tag/v0.6.0-rr.1-beta.10"))
+    }
+
+    private func updatesModel(_ flow: UpdateFlow, deferral: UpdateDeferral? = nil) -> SettingsModel {
         var model = settingsModel
-        model.updateFlow = .available(UpdateOffer(
-            version: "0.6.0-rr.1-beta.8",
-            notes: "• Settings > Updates shows updates inside Bridgey\n• One Keychain question per update instead of two\n• Fixes for several phones at once",
-            downloaded: false,
-            userInitiated: true
-        ))
+        model.shortVersion = "0.6.0-rr.1-beta.9"
+        model.versionDescription = "0.6.0-rr.1-beta.9 (69)"
+        model.channel = .beta
+        model.lastCheck = at(9, 30)
+        model.updateFlow = flow
+        model.updateDeferral = deferral
         return model
     }
 
@@ -227,9 +250,42 @@ final class DesignScreenshots: XCTestCase {
         var storeIssue = offlineModel
         storeIssue.pairingStoreIssue = .keychainAccessDenied(-128)
         try render(panel: storeIssue, scheme: .light, name: "panel-light-pairing-store-keychain")
-        try render(panel: updateModel(.ready(version: "0.6.0-rr.1-beta.8")), scheme: .dark, name: "panel-dark-update-ready")
-        try render(panel: updateModel(.downloading(version: "0.6.0-rr.1-beta.8", received: 6_400_000, expected: 15_200_000)),
-                   scheme: .light, name: "panel-light-update-downloading")
+    }
+
+    /// Settings > Updates in every state, plus the Stream panel's update card, light and dark,
+    /// at the Settings window's real size (880 x 600).
+    @MainActor func testUpdatesPaneStates() throws {
+        let beta10 = "0.6.0-rr.1-beta.10"
+        let states: [(String, SettingsModel)] = [
+            ("up-to-date", updatesModel(.idle)),
+            ("available", updatesModel(.available(longOffer))),
+            ("checking", updatesModel(.checking)),
+            ("downloading", updatesModel(.downloading(version: beta10, received: 6_400_000, expected: 15_200_000))),
+            ("ready", updatesModel(.ready(version: beta10))),
+            ("installing", updatesModel(.installing(version: beta10))),
+            ("error", updatesModel(.failed(message: UpdateFlowText.errorMessage(domain: NSURLErrorDomain, code: -1009)))),
+            ("later", updatesModel(.idle, deferral: UpdateDeferral(version: beta10, kind: .later))),
+        ]
+        for (name, model) in states {
+            let height = try paneHeight(model, pane: .updates)
+            let room = SettingsWindowView.size.height - 40  // the window footer
+            XCTAssertLessThanOrEqual(height, room, "\(name): the Updates pane needs \(height) pt but the window has \(room) pt")
+            print("updates pane \(name): \(height) of \(room) pt")
+            for scheme in [ColorScheme.light, .dark] {
+                try render(settings: model, pane: .updates, scheme: scheme, name: "mac-updates-\(name)-\(scheme == .dark ? "dark" : "light")")
+            }
+        }
+        let panelStates: [(String, UpdateFlow)] = [
+            ("available", .available(longOffer)),
+            ("downloading", .downloading(version: beta10, received: 6_400_000, expected: 15_200_000)),
+            ("ready", .ready(version: beta10)),
+            ("error", .failed(message: UpdateFlowText.errorMessage(domain: NSURLErrorDomain, code: -1009))),
+        ]
+        for (name, flow) in panelStates {
+            for scheme in [ColorScheme.light, .dark] {
+                try render(panel: updateModel(flow), scheme: scheme, name: "mac-panel-update-\(name)-\(scheme == .dark ? "dark" : "light")")
+            }
+        }
     }
 
     @MainActor func testSettings() throws {
@@ -288,6 +344,25 @@ final class DesignScreenshots: XCTestCase {
         }
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         try write(view.padding(24).background(scheme == .dark ? Color(hex: 0x0A1428) : Color(hex: 0xDFE7F0)), scheme: scheme, name: name)
+    }
+
+    /// The scrolling column's natural height (title, pane and paddings) at the window's width.
+    @MainActor private func paneHeight(_ model: SettingsModel, pane: SettingsPane) throws -> CGFloat {
+        let view = BrandRoot(reduceMotion: false) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(pane.title).font(BrandFont.heading(24)).frame(height: 30)
+                SettingsPaneView(pane: pane, model: model, actions: SettingsActions())
+            }
+            .padding(.horizontal, 40)
+            .padding(.top, 32)
+            .padding(.bottom, 24)
+            .frame(width: SettingsWindowView.size.width - 210, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        let renderer = ImageRenderer(content: view.environment(\.snapshotRendering, true))
+        renderer.scale = 1
+        guard let image = renderer.cgImage else { throw XCTSkip("ImageRenderer produced no image") }
+        return CGFloat(image.height)
     }
 
     @MainActor private func write<V: View>(_ view: V, scheme: ColorScheme, name: String) throws {

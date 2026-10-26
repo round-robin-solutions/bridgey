@@ -436,18 +436,14 @@
 "thisMac.failed" = "Couldn’t connect";
 "thisMac.idle" = "Not connected";
 "transfers.cancelAll" = "Cancel All";
-"updates.automatic" = "Check for updates automatically";
+"updates.automatic" = "Check automatically";
 "updates.channel" = "Release channel";
 "updates.channel.note" = "Switching to a steadier channel waits for its next release; nothing is downgraded.";
 "updates.checkNow" = "Check now";
-"updates.checked" = "Checked %@.";
-"updates.checkedToday" = "Checked today at %@.";
-"updates.installedHere" = "Installed on this Mac";
-"updates.notChecked" = "Not checked yet.";
+"updates.notChecked" = "Not checked yet";
 "updates.releaseNotes" = "Release notes";
 "updates.unavailable" = "Updates work only in the installed app.";
 "updates.version" = "Version %@";
-"updates.whatsNew" = "What's new";
 "welcome.body" = "Keep your Mac and phone on the same local network. Choose a device, compare the pairing code, and confirm it on both devices. Optional permissions are requested only when you use the related feature.";
 "welcome.continue" = "Get started";
 "welcome.continue.hint" = "Closes the welcome guide and starts device discovery";
@@ -503,9 +499,6 @@
 "rediscover.none" = "No new devices found";
 "rediscover.count" = "%d devices";
 /* In-app updates (Sparkle custom user driver) */
-"update.available" = "Update %@ available";
-"update.available.detail" = "Install now, or later from Settings.";
-"update.available.downloaded" = "Downloaded and ready. Restart Bridgey to update.";
 "update.checking" = "Checking for updates…";
 "update.downloading" = "Downloading %@";
 "update.downloading.detail" = "%@ of %@";
@@ -524,12 +517,23 @@
 "update.later" = "Later";
 "update.preparing" = "Preparing %@";
 "update.preparing.detail" = "Checking the download and unpacking it";
-"update.ready" = "Update %@ ready";
-"update.ready.detail" = "Restart to update";
 "update.restart" = "Restart to update";
 "update.skip" = "Skip this version";
 "update.upToDate" = "You're up to date";
-"update.upToDate.detail" = "Version %@ is the newest on your channel.";
+"updates.current" = "Bridgey %@";
+"updates.isReady" = "%@ is ready";
+"updates.downloaded" = "Downloaded. Restart Bridgey to finish.";
+"updates.youHave" = "You have %@";
+"updates.waiting" = "%@ is available";
+"updates.onQuit" = "%@ installs when Bridgey quits";
+"updates.skipped" = "You skipped %@";
+"updates.upToDate.checked" = "Up to date · checked %@";
+"updates.showUpdate" = "Show update";
+"updates.fullNotes" = "Full release notes";
+"updates.showAll" = "Show all (%d)";
+"updates.showLess" = "Show less";
+"update.ready.short" = "%@ ready";
+"action.more" = "More";
 
 /* Pairing file (replaces the Keychain) */
 "pairingStore.file" = "Bridgey can't open its pairing file, so phones stay disconnected.";

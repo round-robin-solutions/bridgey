@@ -112,11 +112,13 @@ final class InAppUpdateDriver: NSObject, SPUUserDriver {
         version = appcastItem.displayVersionString
         foundReply = reply
         let notes = appcastItem.itemDescription.flatMap(UpdateFlowText.plainNotes)
+        let notesURL = appcastItem.fullReleaseNotesURL.flatMap { $0.scheme == "https" ? $0 : nil }
         flow = .available(UpdateOffer(
             version: version,
             notes: notes,
             downloaded: state.stage != .notDownloaded,
-            userInitiated: state.userInitiated
+            userInitiated: state.userInitiated,
+            notesURL: notesURL
         ))
     }
 
@@ -211,6 +213,8 @@ final class AppUpdater: ObservableObject {
     @Published private(set) var lastCheck: Date?
     @Published private(set) var automaticallyChecks = false
     @Published private(set) var flow: UpdateFlow = .idle
+    /// An update put off with Later or Skip, so Settings says what is waiting instead of "Up to date".
+    @Published private(set) var deferral: UpdateDeferral?
 
     /// Sparkle only runs inside a built .app that carries a feed URL (not under `swift run`).
     let isAvailable: Bool
@@ -232,7 +236,11 @@ final class AppUpdater: ObservableObject {
         isAvailable = bundle.bundleURL.pathExtension == "app" && bundle.object(forInfoDictionaryKey: "SUFeedURL") != nil
         channelDelegate = UpdateChannelDelegate(defaults: defaults)
         updater = SPUUpdater(hostBundle: bundle, applicationBundle: bundle, userDriver: driver, delegate: channelDelegate)
-        driver.onChange = { [weak self] in self?.flow = $0 }
+        driver.onChange = { [weak self] flow in
+            guard let self else { return }
+            self.deferral = UpdateDeferral.after(flow, keeping: self.deferral)
+            self.flow = flow
+        }
         guard isAvailable else { return }
         do {
             try updater.start()
@@ -286,8 +294,19 @@ final class AppUpdater: ObservableObject {
     }
 
     func install() { driver.install() }
-    func later() { driver.later() }
-    func skip() { driver.skip() }
+
+    func later() {
+        let putOff = UpdateDeferral.putOff(flow, skipped: false)
+        driver.later()
+        deferral = putOff ?? deferral
+    }
+
+    func skip() {
+        let putOff = UpdateDeferral.putOff(flow, skipped: true)
+        driver.skip()
+        deferral = putOff ?? deferral
+    }
+
     func cancel() { driver.cancel() }
     func dismissMessage() { driver.dismissMessage() }
 }
