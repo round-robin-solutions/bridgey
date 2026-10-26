@@ -17,6 +17,8 @@ enum BridgeyLog {
     static let reconnect = Logger(subsystem: subsystem, category: "reconnect")
     static let pairing = Logger(subsystem: subsystem, category: "pairing")
     static let plugin = Logger(subsystem: subsystem, category: "plugin")
+    /// Phone call cards: state changes, removals and reasons with 8-character ids, never callers.
+    static let calls = Logger(subsystem: subsystem, category: "calls")
 }
 
 /// The first eight characters of a device id: enough to tell devices apart in logs.

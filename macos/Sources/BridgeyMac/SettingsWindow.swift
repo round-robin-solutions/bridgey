@@ -93,6 +93,7 @@ struct SettingsModel {
     var shortcutError: String?
     var mediaPlayer: MediaPlayer = .off
     var pauseForCalls = false
+    var ringForCalls = true
     var mediaDetail = ""
     var showPreviews = true
     var reduceMotion = false
@@ -159,6 +160,7 @@ struct SettingsActions {
     var setShortcutShift: (Bool) -> Void = { _ in }
     var setPlayer: (MediaPlayer) -> Void = { _ in }
     var setPauseForCalls: (Bool) -> Void = { _ in }
+    var setRingForCalls: (Bool) -> Void = { _ in }
     var refreshPlayer: () -> Void = {}
     var setShowPreviews: (Bool) -> Void = { _ in }
     var clearActivity: () -> Void = {}
@@ -624,6 +626,7 @@ private struct CallsPane: View {
         SettingsCard {
             FeatureSwitch(feature: .calls, model: model, actions: actions)
             PhoneLinksRow(status: model.phoneLinkStatus, use: actions.usePhoneLinks)
+            RingForCallsToggle(model: model, actions: actions)
             PauseForCallsToggle(model: model, actions: actions)
         }
         ShortcutsCard(model: model, actions: actions, only: [.call])
@@ -951,6 +954,18 @@ struct MediaPlayerRow: View {
     }
 }
 
+struct RingForCallsToggle: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+    var divider = true
+
+    var body: some View {
+        SettingsToggle(title: L10n.text("settings.calls.ring", fallback: "Ring for incoming calls"),
+                       subtitle: L10n.text("settings.calls.ring.detail", fallback: "A soft ring repeats until you answer, decline or hide the call."),
+                       divider: divider, isOn: model.ringForCalls, set: actions.setRingForCalls)
+    }
+}
+
 struct PauseForCallsToggle: View {
     let model: SettingsModel
     let actions: SettingsActions
@@ -1198,6 +1213,7 @@ private struct LiveSettingsView: View {
         model.shortcutError = shortcuts.error
         model.mediaPlayer = media.player
         model.pauseForCalls = media.pauseForCalls
+        model.ringForCalls = settings.ringForIncomingCalls
         model.mediaDetail = media.snapshot.detail
         model.showPreviews = settings.showActivityPreviews
         model.reduceMotion = settings.reduceMotion
@@ -1262,6 +1278,10 @@ private struct LiveSettingsView: View {
         actions.setShortcutShift = { shortcuts.setShift($0) }
         actions.setPlayer = { media.player = $0 }
         actions.setPauseForCalls = { media.pauseForCalls = $0 }
+        actions.setRingForCalls = { enabled in
+            settings.setRingForIncomingCalls(enabled)
+            pairing.refreshCallRinging()
+        }
         actions.refreshPlayer = { media.refresh() }
         actions.setShowPreviews = { settings.setShowActivityPreviews($0) }
         actions.clearActivity = { pairing.clearActivity() }

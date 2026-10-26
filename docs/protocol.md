@@ -557,6 +557,18 @@ are the only ongoing notifications forwarded. Call controls reuse the same
 scoped notification action tokens and therefore exist only when the Android
 phone application supplies the corresponding `PendingIntent`.
 
+Call cards are persistent. Once Android forwards a call, the filters above never
+retract it: an update of that call which is not forwardable leaves the Mac card
+as it was, and an ongoing update without `CATEGORY_CALL` (dialers built on AOSP
+re-post a ringing call that way) stays a call. A call notification the phone app
+replaces with a new one within 1.5 s keeps the same `notificationId`, so the Mac
+updates the same card. Android sends `notifications.remove` for a call only when
+the call ends (the notification is gone and, for cellular calls, the phone state
+is idle; an idle state must hold for 1.5 s) and then adds `"callEnded": true` to
+the reference payload. macOS removes a call card at once when `callEnded` is
+true; without it (an older Android release) the card stays for 2 s and survives
+if the call is posted again in that time.
+
 ### Find device (`find-device.v1`)
 
 Either connected peer can send an encrypted `find.start` payload containing an

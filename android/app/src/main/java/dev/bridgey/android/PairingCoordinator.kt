@@ -1362,16 +1362,26 @@ class PairingCoordinator(
         return registry.connections().filter { it.deviceId in ids }
     }
 
-    fun sendNotificationRemoved(notificationId: String) {
-        sendNotificationReference("notifications.remove", notificationId)
+    /**
+     * Retracts a mirrored notification on every Mac. [callEnded] marks a call the phone saw end, so
+     * the Mac drops its call card at once instead of waiting for a re-post.
+     */
+    fun sendNotificationRemoved(notificationId: String, callEnded: Boolean = false) {
+        sendNotificationReference("notifications.remove", notificationId, callEnded)
     }
 
-    private fun sendNotificationReference(kind: String, notificationId: String) {
+    /** Call lifecycle event for the exported diagnostics: public tokens only, never caller or app. */
+    fun recordCallDiagnostic(event: String, reason: String) {
+        diagnostics.record("call", event, detail = reason)
+    }
+
+    private fun sendNotificationReference(kind: String, notificationId: String, callEnded: Boolean = false) {
         if (notificationId.isBlank()) return
         val targets = broadcastTargets(BridgeyFeature.NOTIFICATIONS)
         if (targets.isEmpty()) return
         val payload = JSONObject()
             .put("notificationId", notificationId.take(512))
+            .apply { if (callEnded) put("callEnded", true) }
             .toString()
             .toByteArray()
         scope.launch { targets.forEach { sendEncrypted(it, kind, payload) } }

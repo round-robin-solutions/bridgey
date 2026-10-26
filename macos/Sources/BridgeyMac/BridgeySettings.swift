@@ -78,6 +78,9 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var notificationHistoryEnabled: Bool
     /// Settings > Privacy > Show previews in activity. On by default.
     @Published private(set) var showActivityPreviews: Bool
+    /// Settings > Calls > Ring for incoming calls: a soft ring repeats until the call is answered,
+    /// declined, hidden or ends. On by default.
+    @Published private(set) var ringForIncomingCalls: Bool
     /// Settings > General > Reduce motion: cross-fades only, like the system setting.
     @Published private(set) var reduceMotion: Bool
     /// Automatic clipboard for every device. On by default, like Universal Clipboard.
@@ -103,6 +106,7 @@ final class BridgeySettings: ObservableObject {
         notificationHistoryEnabled = storedDefaults.bool(forKey: "settings.notificationHistory.enabled")
         showActivityPreviews = storedDefaults.object(forKey: "settings.activity.previews") as? Bool ?? true
         reduceMotion = storedDefaults.bool(forKey: "settings.reduceMotion")
+        ringForIncomingCalls = storedDefaults.object(forKey: "settings.calls.ring") as? Bool ?? true
         autoClipboardEnabled = storedDefaults.object(forKey: "settings.autoClipboard.enabled") as? Bool ?? true
         var autoDevices: [String: Bool] = [:]
         for (key, value) in storedDefaults.dictionaryRepresentation() where key.hasPrefix(Self.autoClipboardDevicePrefix) {
@@ -161,6 +165,11 @@ final class BridgeySettings: ObservableObject {
     func setShowActivityPreviews(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.activity.previews")
         showActivityPreviews = enabled
+    }
+
+    func setRingForIncomingCalls(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.calls.ring")
+        ringForIncomingCalls = enabled
     }
 
     func setReduceMotion(_ enabled: Bool) {

@@ -30,7 +30,8 @@ import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 
 class BridgeyNotificationListenerService : NotificationListenerService() {
-    private val forwardedNotifications = ForwardedNotificationRegistry()
+    // A call in progress is never evicted: its removal must still reach the Mac when it ends.
+    private val forwardedNotifications = ForwardedNotificationRegistry(isPinned = { callLifecycle.isTrackedId(it) })
     private val storedActions = linkedMapOf<String, StoredNotificationAction>()
     private val actionTokensByNotificationId = mutableMapOf<String, List<String>>()
     private val applicationIcons = linkedMapOf<String, String>()
@@ -38,9 +39,21 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     private val pendingCallPosts = mutableMapOf<String, Runnable>()
     private val forwardedNotificationIds = mutableSetOf<String>()
     private var telephonyCallback: TelephonyCallback? = null
+    private val callLifecycle = CallLifecycle(
+        scheduler = { delayMs, task ->
+            val runnable = Runnable(task)
+            mainHandler.postDelayed(runnable, delayMs)
+            val cancel: () -> Unit = { mainHandler.removeCallbacks(runnable) }
+            cancel
+        },
+        telephonyState = ::currentTelephonyCallType,
+        endCall = ::endForwardedCall,
+        log = ::logCallEvent,
+    )
 
     override fun onDestroy() {
         unregisterTelephonyCallback()
+        callLifecycle.clear()
         pendingCallPosts.values.forEach(mainHandler::removeCallbacks)
         pendingCallPosts.clear()
         if (activeService?.get() === this) activeService = null
@@ -51,7 +64,9 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         super.onListenerConnected()
         activeService = java.lang.ref.WeakReference(this)
         val active = activeNotifications.orEmpty().filterNot { it.packageName == packageName }
-        active.forEach { forwardedNotifications.record(notificationToken(it.key), it.key, it.packageName) }
+        // A tracked call keeps its own id even when the dialer re-posted it under a new key.
+        active.filterNot { callLifecycle.isTracked(it.key) }
+            .forEach { forwardedNotifications.record(notificationToken(it.key), it.key, it.packageName) }
         // Removals are not delivered while unbound, so retract anything that disappeared meanwhile.
         retractStaleForwardedNotifications(active.mapTo(mutableSetOf()) { notificationToken(it.key) })
         updateTelephonyCallback()
@@ -74,23 +89,29 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         val bridgey = application as BridgeyApplication
         if (!bridgey.isPrimaryUser || !bridgey.isBridgeyEnabled || sbn.packageName == packageName) return
 
-        // An update that is no longer forwardable retracts any earlier mirrored state for the same key.
+        // An update that is no longer forwardable retracts any earlier mirrored state for the same key,
+        // except a call: its card stays until the call ends (see CallLifecycle).
         val notification = sbn.notification
-        if (notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return retractForwardedNotification(sbn.key)
-        val isCall = notification.category == Notification.CATEGORY_CALL
-        if (shouldIgnoreOngoingNotification(notification.flags, notification.category)) {
-            return retractForwardedNotification(sbn.key)
-        }
-        if (notification.visibility == Notification.VISIBILITY_SECRET) return retractForwardedNotification(sbn.key)
-
         val ranking = Ranking()
-        if (rankingMap.getRanking(sbn.key, ranking) && ranking.importance <= NotificationManager.IMPORTANCE_MIN) {
-            return retractForwardedNotification(sbn.key)
-        }
-
+        val importance = if (rankingMap.getRanking(sbn.key, ranking)) ranking.importance else null
         val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
         val text = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim().orEmpty()
-        if (title.isEmpty() && text.isEmpty()) return retractForwardedNotification(sbn.key)
+        val outcome = classifyNotificationUpdate(
+            NotificationUpdate(
+                systemKey = sbn.key,
+                flags = notification.flags,
+                category = notification.category,
+                visibility = notification.visibility,
+                importance = importance,
+                hasContent = title.isNotEmpty() || text.isNotEmpty(),
+            ),
+            callLifecycle,
+        )
+        val isCall = when (outcome) {
+            is UpdateOutcome.KeepCall -> return
+            is UpdateOutcome.Retract -> return retractForwardedNotification(sbn.key)
+            is UpdateOutcome.Forward -> outcome.isCall
+        }
 
         val applicationName = runCatching {
             val info = packageManager.getApplicationInfo(sbn.packageName, 0)
@@ -98,17 +119,24 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         }.getOrDefault(sbn.packageName)
         bridgey.settings.observeNotificationApplication(sbn.packageName, applicationName)
         if (!bridgey.settings.isNotificationApplicationEnabled(sbn.packageName)) {
+            // The app was turned off: an explicit choice, so its call card goes too.
             return retractForwardedNotification(sbn.key)
         }
         val applicationIcon = applicationIcon(sbn.packageName)
 
-        val isTelephonyCall = isCall && isTelephonyCallSource(sbn.packageName)
+        val isTelephonyCall = isCall && (callLifecycle.isTelephonyCall(sbn.key) || isTelephonyCallSource(sbn.packageName))
         val telephonyCallType = if (isTelephonyCall) currentTelephonyCallType() else null
         if (telephonyCallType == "idle") {
+            // A dialer update while the phone reports no call: a tracked call ends only if IDLE holds.
+            if (callLifecycle.isTracked(sbn.key)) return callLifecycle.telephonyChanged("idle")
             retractForwardedNotification(sbn.key)
             return
         }
-        val notificationId = notificationToken(sbn.key)
+        val notificationId = if (isCall) {
+            callLifecycle.callIdFor(sbn.key, sbn.packageName, notificationToken(sbn.key))
+        } else {
+            notificationToken(sbn.key)
+        }
         forwardedNotifications.record(notificationId, sbn.key, sbn.packageName)
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
         val callType = if (isCall) resolvedNotificationCallType(notification, telephonyCallType, isTelephonyCall) else null
@@ -130,6 +158,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
                 applicationIcon = applicationIcon,
                 callType = callType,
             )
+            if (callType != null) callLifecycle.forwarded(notificationId, sbn.key, sbn.packageName, isTelephonyCall)
             val firstForward = notificationId !in forwardedNotificationIds
             if (firstForward && (callType == null || callType == "incoming") && forwardedTo.isNotEmpty()) {
                 bridgey.activity.notificationForwarded(
@@ -142,7 +171,8 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
             }
             forwardedNotificationIds += notificationId
             while (forwardedNotificationIds.size > MAX_TRACKED_FORWARDED_NOTIFICATIONS) {
-                forwardedNotificationIds.remove(forwardedNotificationIds.first())
+                val oldest = forwardedNotificationIds.firstOrNull { !callLifecycle.isTrackedId(it) } ?: break
+                forwardedNotificationIds.remove(oldest)
             }
         }
         if (shouldDelayCallPost(callType)) {
@@ -155,6 +185,11 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         super.onNotificationRemoved(sbn)
+        // A call's card waits for the call to end; a re-posted call continues it.
+        callLifecycle.notificationRemoved(sbn.key)?.let { callId ->
+            pendingCallPosts.remove(callId)?.let(mainHandler::removeCallbacks)
+            return
+        }
         val notificationId = forwardedNotifications.removeSystemKey(sbn.key) ?: return
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
         removeActions(notificationId)
@@ -175,6 +210,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         if (enabled) return
         val bridgey = application as BridgeyApplication
         forwardedNotifications.removePackage(packageName).forEach { notificationId ->
+            callLifecycle.forget(notificationId)
             pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
             removeActions(notificationId)
             if (forwardedNotificationIds.remove(notificationId) && bridgey.isPrimaryUser && bridgey.isBridgeyEnabled) {
@@ -345,21 +381,25 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     private fun refreshActiveCallNotifications() {
         val ranking = currentRanking ?: return
         activeNotifications.orEmpty()
-            .filter { it.packageName != packageName && it.notification.category == Notification.CATEGORY_CALL }
+            .filter {
+                it.packageName != packageName &&
+                    (it.notification.category == Notification.CATEGORY_CALL || callLifecycle.isTracked(it.key))
+            }
             .forEach { onNotificationPosted(it, ranking) }
-    }
-
-    private fun removeActiveForwardedCalls() {
-        activeNotifications.orEmpty()
-            .filter { it.packageName != packageName && it.notification.category == Notification.CATEGORY_CALL }
-            .filter { isTelephonyCallSource(it.packageName) }
-            .forEach { retractForwardedNotification(it.key) }
     }
 
     private fun retractStaleForwardedNotifications(activeNotificationIds: Set<String>) {
         val bridgey = application as BridgeyApplication
         val tracked = forwardedNotificationIds + pendingCallPosts.keys
         staleForwardedNotificationIds(tracked, activeNotificationIds).forEach { notificationId ->
+            // A call's id stays after a re-key, so compare its current key; its end is decided by the lifecycle.
+            if (callLifecycle.isTrackedId(notificationId)) {
+                val key = forwardedNotifications.systemKey(notificationId)
+                if (key == null || notificationToken(key) !in activeNotificationIds) {
+                    key?.let(callLifecycle::notificationRemoved)
+                }
+                return@forEach
+            }
             forwardedNotifications.systemKey(notificationId)?.let(forwardedNotifications::removeSystemKey)
             pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
             removeActions(notificationId)
@@ -372,8 +412,29 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         }
     }
 
+    /** The call ended: its card goes from every Mac, marked as ended so they drop it at once. */
+    private fun endForwardedCall(notificationId: String, reason: String) {
+        forwardedNotifications.removeNotificationId(notificationId)
+        pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
+        removeActions(notificationId)
+        val bridgey = application as BridgeyApplication
+        if (
+            forwardedNotificationIds.remove(notificationId) &&
+            bridgey.isPrimaryUser && bridgey.isBridgeyEnabled
+        ) {
+            bridgey.pairing.sendNotificationRemoved(notificationId, callEnded = true)
+        }
+    }
+
+    private fun logCallEvent(event: String, notificationId: String?, reason: String) {
+        val id = notificationId?.take(8) ?: "-"
+        android.util.Log.i("Bridgey", "CALL $event id=$id reason=$reason")
+        (application as? BridgeyApplication)?.pairing?.recordCallDiagnostic(event, reason)
+    }
+
     private fun retractForwardedNotification(systemKey: String) {
         val notificationId = forwardedNotifications.removeSystemKey(systemKey) ?: return
+        callLifecycle.forget(notificationId)
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
         removeActions(notificationId)
         val bridgey = application as BridgeyApplication
@@ -389,11 +450,11 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     private inner class BridgeyCallStateCallback : TelephonyCallback(), TelephonyCallback.CallStateListener {
         override fun onCallStateChanged(state: Int) {
             android.util.Log.d("Bridgey", "PLUGIN telephony state=${telephonyCallType(state) ?: "idle"}")
+            callLifecycle.telephonyChanged(telephonyCallType(state))
             when (state) {
                 TelephonyManager.CALL_STATE_RINGING,
                 TelephonyManager.CALL_STATE_OFFHOOK,
                 -> refreshActiveCallNotifications()
-                TelephonyManager.CALL_STATE_IDLE -> removeActiveForwardedCalls()
             }
         }
     }
@@ -600,7 +661,10 @@ private data class StoredNotificationAction(
     val systemCallAction: SystemCallAction?,
 )
 
-internal class ForwardedNotificationRegistry(private val limit: Int = 512) {
+internal class ForwardedNotificationRegistry(
+    private val limit: Int = 512,
+    private val isPinned: (String) -> Boolean = { false },
+) {
     private data class Entry(val systemKey: String, val packageName: String)
     private val entriesByNotificationId = linkedMapOf<String, Entry>()
 
@@ -609,12 +673,16 @@ internal class ForwardedNotificationRegistry(private val limit: Int = 512) {
         entriesByNotificationId.remove(notificationId)
         entriesByNotificationId[notificationId] = Entry(systemKey, packageName)
         while (entriesByNotificationId.size > limit) {
-            entriesByNotificationId.remove(entriesByNotificationId.keys.first())
+            val oldest = entriesByNotificationId.keys.firstOrNull { !isPinned(it) } ?: break
+            entriesByNotificationId.remove(oldest)
         }
     }
 
     @Synchronized
     fun systemKey(notificationId: String): String? = entriesByNotificationId[notificationId]?.systemKey
+
+    @Synchronized
+    fun removeNotificationId(notificationId: String): String? = entriesByNotificationId.remove(notificationId)?.systemKey
 
     @Synchronized
     fun removeSystemKey(systemKey: String): String? {
