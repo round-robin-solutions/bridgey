@@ -100,6 +100,8 @@ private struct RemoteNotificationActionPayload: Codable {
 
 private struct NotificationReferencePayload: Codable {
     let notificationId: String
+    /// notifications.remove only: the phone saw the call end, so its card goes at once.
+    var callEnded: Bool? = nil
 }
 
 private struct NotificationActionCommandPayload: Codable {
@@ -297,6 +299,9 @@ final class PairingCoordinator: ObservableObject {
     private var hiddenCallOverlayIdentities = Set<String>()
     private var audibleCallIdentities = Set<String>()
     private var recordedCallIdentities = Set<String>()
+    /// Calls the user hid or acted on from the Mac: they no longer ring.
+    private var silencedCallIdentities = Set<String>()
+    private let callRinger = CallRinger()
     /// The clipboard being sent, as a stream preview, until the phone acknowledges it.
     private var pendingClipboardActivity: (preview: String?, sensitive: Bool, automatic: Bool)?
     private let autoClipboard = AutoClipboardWatcher()
@@ -415,7 +420,7 @@ final class PairingCoordinator: ObservableObject {
                     self.mediaController.reset()
                     if !self.featureEnabled(.clipboard) { self.clearClipboardSendStatus() }
                     for id in self.registry.connectedIDs where !self.settings.isEnabled(.notifications, for: id) {
-                        self.clearRemoteCall(for: id)
+                        self.clearRemoteCall(for: id, reason: "notifications_off_mac")
                     }
                     if !self.featureEnabled(.calls) {
                         self.clearPendingCall()
@@ -466,9 +471,9 @@ final class PairingCoordinator: ObservableObject {
                 self?.notificationPermissionDetermined = true
             }
             if let error {
-                BridgeyLog.plugin.error("notifications authorization failed error=\(String(describing: error), privacy: .public)")
+                BridgeyLog.notifications.error("notifications authorization failed error=\(String(describing: error), privacy: .public)")
             } else {
-                BridgeyLog.plugin.notice("notifications authorization granted=\(granted, privacy: .public)")
+                BridgeyLog.notifications.notice("notifications authorization granted=\(granted, privacy: .public)")
             }
         }
     }
@@ -670,7 +675,7 @@ final class PairingCoordinator: ObservableObject {
         if clipboardInbox.current?.deviceID == id || clipboardOutbox.current?.deviceID == id {
             clipboardConnectionLost()
         }
-        clearRemoteCall(for: id)
+        clearRemoteCall(for: id, reason: "disconnected")
         if macRingingFrom == id { stopMacSound() }
         if registry.connectedIDs.isEmpty {
             clearClipboardSendStatus()
@@ -1036,7 +1041,7 @@ final class PairingCoordinator: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: timeout)
         clipboardStatus = automatic ? nil : "Sending\u{2026}"
         diagnostics.record(category: "clipboard", event: "offer_sent")
-        BridgeyLog.plugin.info("clipboard offer sent automatic=\(automatic, privacy: .public)")
+        BridgeyLog.line(BridgeyLog.clipboard, LogLines.clipboard(BridgeyLog.policy, event: "offer sent automatic=\(automatic)"))
     }
 
     private func receiveClipboardOffer(_ message: PairingMessage, in current: Session) {
@@ -1057,7 +1062,7 @@ final class PairingCoordinator: ObservableObject {
         recordClipActivity(.clipOfferReceived, summary: ClipboardOfferSummary(offer), deviceID: current.remoteDeviceID, deviceName: current.peerName)
         diagnostics.record(category: "clipboard", event: "offer_received")
         current.send(PairingMessage(kind: "clipboard.ack", sessionId: current.id, messageId: messageID))
-        BridgeyLog.plugin.info("clipboard offer received")
+        BridgeyLog.line(BridgeyLog.clipboard, LogLines.clipboard(BridgeyLog.policy, event: "offer received"))
     }
 
     private func receiveClipboardFetch(_ message: PairingMessage, in current: Session) {
@@ -1174,7 +1179,7 @@ final class PairingCoordinator: ObservableObject {
         }
         clipboardTimeoutWorkItem = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: timeout)
-        BridgeyLog.plugin.info("clipboard sent automatic=\(automatic, privacy: .public)")
+        BridgeyLog.line(BridgeyLog.clipboard, LogLines.clipboard(BridgeyLog.policy, event: "sent automatic=\(automatic)"))
     }
 
     /// Runs the pasteboard watcher only while connected, with Clipboard available on both sides
@@ -1497,6 +1502,12 @@ final class PairingCoordinator: ObservableObject {
             return false
         }
         return sendItems(urls)
+    }
+
+    /// Settings > Privacy > Logging > Clear logs: the diagnostics log on this Mac. The unified log
+    /// is the system's and ages out on its own.
+    func clearDiagnostics() {
+        diagnostics.clear()
     }
 
     func exportDiagnostics() {
@@ -1980,7 +1991,7 @@ final class PairingCoordinator: ObservableObject {
                 }
                 mediaController.reset()
                 mediaController.refresh()
-                if features[.notifications] == false { clearRemoteCall(for: phoneID) }
+                if features[.notifications] == false { clearRemoteCall(for: phoneID, reason: "notifications_off_phone") }
                 if features[.findDevice] == false && macRingingFrom == phoneID { stopMacSound() }
                 flushPendingCallIfPossible()
                 publishLocalBattery(force: true)
@@ -2046,7 +2057,7 @@ final class PairingCoordinator: ObservableObject {
                 }
                 diagnostics.record(category: "clipboard", event: html == nil ? "text_received" : "rich_received")
                 recordActivity(.clipboardReceived, in: current, preview: text)
-                BridgeyLog.plugin.info("clipboard received")
+                BridgeyLog.line(BridgeyLog.clipboard, LogLines.clipboard(BridgeyLog.policy, event: "received", preview: text))
                 current.send(PairingMessage(kind: "clipboard.ack", sessionId: current.id, messageId: messageID))
             case "clipboard.ack":
                 if let pending = pendingOfferAck, message.messageId == pending.messageID {
@@ -2069,7 +2080,7 @@ final class PairingCoordinator: ObservableObject {
                     clipboardStatus = "Delivered"
                 }
                 pendingClipboardActivity = nil
-                BridgeyLog.plugin.info("clipboard acknowledged")
+                BridgeyLog.line(BridgeyLog.clipboard, LogLines.clipboard(BridgeyLog.policy, event: "acknowledged"))
             case "clipboard.rejected":
                 if let pending = pendingOfferAck, message.messageId == pending.messageID {
                     pending.timeout.cancel()
@@ -2136,7 +2147,11 @@ final class PairingCoordinator: ObservableObject {
             case "notifications.remove":
                 guard featureEnabled(.notifications, current: current),
                       let reference = try receiveNotificationReference(message, in: current) else { return }
-                removeRemoteNotification(reference.notificationId, deviceID: current.remoteDeviceID)
+                removeRemoteNotification(
+                    reference.notificationId,
+                    deviceID: current.remoteDeviceID,
+                    callEnded: reference.callEnded == true
+                )
             case "calls.started", "calls.confirmation_required", "calls.rejected":
                 guard message.messageId == callRequestID else { return }
                 callTimeoutWorkItem?.cancel()
@@ -2187,7 +2202,7 @@ final class PairingCoordinator: ObservableObject {
                     sessionId: current.id,
                     transferId: offer.transferId
                 ))
-                BridgeyLog.plugin.notice("file accepted name=\(transfer.displayName, privacy: .private) size=\(offer.size, privacy: .public)")
+                BridgeyLog.line(BridgeyLog.files, LogLines.file(BridgeyLog.policy, event: "accepted", transfer: offer.transferId, name: transfer.displayName, extra: "size=\(offer.size)"))
             case "files.chunk":
                 if clipboardInbox.owns(message.transferId) {
                     guard registry.isActive(current), message.sessionId == current.id,
@@ -2256,7 +2271,7 @@ final class PairingCoordinator: ObservableObject {
                     ))
                     recordActivity(.fileReceived, in: current, fileName: transfer.displayName)
                     NSWorkspace.shared.activateFileViewerSelecting([destination])
-                    BridgeyLog.plugin.notice("file received name=\(transfer.displayName, privacy: .private)")
+                    BridgeyLog.line(BridgeyLog.files, LogLines.file(BridgeyLog.policy, event: "received", transfer: completion.transferId, name: transfer.displayName))
                 } catch {
                     transfer.cancel()
                     fileTransferStatus = "File verification failed"
@@ -2338,7 +2353,7 @@ final class PairingCoordinator: ObservableObject {
                 recordActivity(.fileSent, in: current, fileName: transfer.displayName)
                 updateFileTransfer(id: transferID, name: transfer.displayName, status: fileTransferStatus!, active: false)
                 fileTransferActive = fileTransfers.values.contains(where: { $0.active })
-                BridgeyLog.plugin.notice("file sent transfer=\(String(transferID.prefix(8)), privacy: .public)")
+                BridgeyLog.files.notice("file sent transfer=\(String(transferID.prefix(8)), privacy: .public)")
                 finishQueuedFile(transferID)
             case "files.cancel":
                 guard let transferID = message.transferId else { return }
@@ -2355,7 +2370,7 @@ final class PairingCoordinator: ObservableObject {
                 markFileTransferFinished(id: transferID, status: "Transfer cancelled by Android")
                 fileTransferStatus = "Transfer cancelled by Android"
                 current.send(PairingMessage(kind: "files.cancel.ack", sessionId: current.id, transferId: transferID))
-                BridgeyLog.plugin.notice("file cancellation received transfer=\(String(transferID.prefix(8)), privacy: .public)")
+                BridgeyLog.files.notice("file cancellation received transfer=\(String(transferID.prefix(8)), privacy: .public)")
                 finishQueuedFile(transferID)
             case "files.cancel.ack":
                 if clipboardInbox.owns(message.transferId) || clipboardOutbox.owns(message.transferId) { return }
@@ -2823,15 +2838,19 @@ final class PairingCoordinator: ObservableObject {
         )
         UNUserNotificationCenter.current().add(request) { error in
             if let error {
-                BridgeyLog.plugin.error("notification delivery failed package=\(payload.packageName, privacy: .private) error=\(String(describing: error), privacy: .private)")
+                BridgeyLog.notifications.error("notification delivery failed error=\(String(describing: error), privacy: .private)")
             } else {
-                BridgeyLog.plugin.info("notification received package=\(payload.packageName, privacy: .private)")
+                BridgeyLog.line(BridgeyLog.notifications, LogLines.notification(BridgeyLog.policy, event: "shown", appName: payload.applicationName, title: payload.title, text: payload.text))
             }
         }
     }
 
     func performRemoteCallAction(_ action: RemoteCallAction) {
         guard let call = remoteCall else { return }
+        // Answering or declining from the Mac stops the ring right away; the phone confirms the rest.
+        silencedCallIdentities.insert(callOverlayIdentity(call.notificationID, deviceID: call.deviceID))
+        logCall("action", call, reason: String(describing: callActionRole(action.title)))
+        refreshCallRinging()
         performAndroidNotificationAction(
             call.notificationID,
             deviceID: call.deviceID,
@@ -2840,11 +2859,27 @@ final class PairingCoordinator: ObservableObject {
         )
     }
 
+    /// Hide is the only way the call card leaves the screen before the call ends; the menu bar
+    /// panel keeps the call. Hiding also stops the ring for that call.
     func hideCallOverlay() {
         if let call = remoteCall {
-            hiddenCallOverlayIdentities.insert(callOverlayIdentity(call.notificationID, deviceID: call.deviceID))
+            let identity = callOverlayIdentity(call.notificationID, deviceID: call.deviceID)
+            hiddenCallOverlayIdentities.insert(identity)
+            silencedCallIdentities.insert(identity)
+            logCall("overlay_hidden", call, reason: "user")
         }
         callOverlayWindow.hide()
+        refreshCallRinging()
+    }
+
+    /// Settings > Calls > Ring for incoming calls changed.
+    func refreshCallRinging() {
+        let ringing = ringingRemoteCallIdentities(
+            activeRemoteCalls.all,
+            enabled: settings.ringForIncomingCalls,
+            silenced: silencedCallIdentities
+        ) { self.callOverlayIdentity($0.notificationID, deviceID: $0.deviceID) }
+        callRinger.update(ringing: !ringing.isEmpty)
     }
 
     private func updateRemoteCall(_ payload: RemoteNotificationPayload, deviceID: String) {
@@ -2854,7 +2889,10 @@ final class PairingCoordinator: ObservableObject {
         let actions = (payload.actions ?? []).filter { !$0.allowsReply }.prefix(4).map {
             RemoteCallAction(id: $0.actionToken, title: $0.title)
         }
-        activeRemoteCalls.update(RemoteCallStatus(
+        let previousType = activeRemoteCalls.all.first {
+            $0.deviceID == deviceID && $0.notificationID == payload.notificationId
+        }?.type
+        let resumed = activeRemoteCalls.update(RemoteCallStatus(
             notificationID: payload.notificationId,
             deviceID: deviceID,
             applicationName: payload.applicationName,
@@ -2863,6 +2901,15 @@ final class PairingCoordinator: ObservableObject {
             type: callType,
             actions: actions
         ))
+        if resumed {
+            logCall("removal_cancelled", notificationID: payload.notificationId, deviceID: deviceID, reason: "reposted")
+        }
+        if previousType != callType {
+            logCall(
+                previousType == nil ? "shown" : "state",
+                notificationID: payload.notificationId, deviceID: deviceID, reason: callType, caller: payload.title
+            )
+        }
         publishRemoteCall()
         if !recordedCallIdentities.contains(identity) {
             recordedCallIdentities.insert(identity)
@@ -2870,12 +2917,14 @@ final class PairingCoordinator: ObservableObject {
             let caller = payload.title.trimmingCharacters(in: .whitespacesAndNewlines)
             recordActivity(.callShown, deviceID: deviceID, deviceName: name, preview: caller.isEmpty ? nil : caller)
         }
-        if callType == "incoming", !audibleCallIdentities.contains(identity) {
+        // With ringing off, an incoming call still beeps once (the ring itself is in refreshCallRinging).
+        if callType == "incoming", !settings.ringForIncomingCalls, !audibleCallIdentities.contains(identity) {
             NSSound.beep()
             audibleCallIdentities.insert(identity)
         }
     }
 
+    /// Only call events reach this: an ordinary notification never shows, hides or moves the card.
     private func publishRemoteCall() {
         remoteCall = activeRemoteCalls.mostRelevant
         mediaController.callChanged(active: activeRemoteCalls.pausesMedia)
@@ -2885,6 +2934,21 @@ final class PairingCoordinator: ObservableObject {
         } else {
             callOverlayWindow.hide()
         }
+        refreshCallRinging()
+    }
+
+    /// Call lifecycle for the unified log and the exported diagnostics. Diagnostics get the event,
+    /// reason and 8-character ids only; the local log adds the caller when Logging allows it
+    /// (numbers masked unless "Include phone numbers" is on).
+    private func logCall(_ event: String, notificationID: String, deviceID: String, reason: String, caller: String? = nil) {
+        BridgeyLog.line(BridgeyLog.calls, LogLines.call(
+            BridgeyLog.policy, event: event, id: notificationID, peer: deviceID, reason: reason, caller: caller
+        ))
+        diagnostics.record(category: "call", event: event, device: deviceID, detail: reason)
+    }
+
+    private func logCall(_ event: String, _ call: RemoteCallStatus, reason: String) {
+        logCall(event, notificationID: call.notificationID, deviceID: call.deviceID, reason: reason)
     }
 
     // MARK: Activity stream
@@ -2982,7 +3046,7 @@ final class PairingCoordinator: ObservableObject {
                 options: [UNNotificationAttachmentOptionsTypeHintKey: UTType.png.identifier]
             )
         } catch {
-            BridgeyLog.plugin.error("notification icon attachment failed package=\(payload.packageName, privacy: .private) error=\(String(describing: error), privacy: .private)")
+            BridgeyLog.notifications.error("notification icon attachment failed error=\(String(describing: error), privacy: .private)")
             return nil
         }
     }
@@ -3085,13 +3149,29 @@ final class PairingCoordinator: ObservableObject {
         return payload
     }
 
-    private func removeRemoteNotification(_ notificationID: String, deviceID: String) {
-        if activeRemoteCalls.remove(notificationID: notificationID, deviceID: deviceID) != nil {
-            let identity = callOverlayIdentity(notificationID, deviceID: deviceID)
-            hiddenCallOverlayIdentities.remove(identity)
-            audibleCallIdentities.remove(identity)
-            recordedCallIdentities.remove(identity)
-            publishRemoteCall()
+    /// A call card is persistent: a retraction the phone did not mark as the call's end keeps the
+    /// card for `remoteCallRemovalGrace`, and a re-post of the call meanwhile keeps it for good.
+    private func removeRemoteNotification(_ notificationID: String, deviceID: String, callEnded: Bool = false) {
+        if activeRemoteCalls.contains(notificationID: notificationID, deviceID: deviceID) {
+            if !callEnded {
+                if !activeRemoteCalls.isPendingRemoval(notificationID: notificationID, deviceID: deviceID) {
+                    activeRemoteCalls.scheduleRemoval(
+                        notificationID: notificationID,
+                        deviceID: deviceID,
+                        deadline: Date().addingTimeInterval(remoteCallRemovalGrace)
+                    )
+                    logCall("removal_deferred", notificationID: notificationID, deviceID: deviceID, reason: "no_end_flag")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + remoteCallRemovalGrace + 0.05) { [weak self] in
+                        self?.finishExpiredCallRemovals()
+                    }
+                }
+                return
+            }
+            if let call = activeRemoteCalls.remove(notificationID: notificationID, deviceID: deviceID) {
+                forgetCallIdentity(call)
+                logCall("ended", call, reason: "phone_confirmed")
+                publishRemoteCall()
+            }
         }
         let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: notificationID)
         alertedNotificationIdentifiers.remove(identifier)
@@ -3101,15 +3181,37 @@ final class PairingCoordinator: ObservableObject {
         diagnostics.record(category: "notification", event: "removed_remotely")
     }
 
+    private func finishExpiredCallRemovals() {
+        let calls = activeRemoteCalls.removeExpired(now: Date())
+        guard !calls.isEmpty else { return }
+        for call in calls {
+            forgetCallIdentity(call)
+            logCall("ended", call, reason: "removal_grace")
+        }
+        let identifiers = calls.map {
+            remoteNotificationRequestIdentifier(deviceID: $0.deviceID, notificationID: $0.notificationID)
+        }
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        center.removePendingNotificationRequests(withIdentifiers: identifiers)
+        publishRemoteCall()
+    }
+
+    private func forgetCallIdentity(_ call: RemoteCallStatus) {
+        let identity = callOverlayIdentity(call.notificationID, deviceID: call.deviceID)
+        hiddenCallOverlayIdentities.remove(identity)
+        audibleCallIdentities.remove(identity)
+        recordedCallIdentities.remove(identity)
+        silencedCallIdentities.remove(identity)
+    }
+
     /// One phone's calls go when it disconnects or turns notifications off; the others stay.
-    private func clearRemoteCall(for id: String) {
+    private func clearRemoteCall(for id: String, reason: String) {
         let calls = activeRemoteCalls.removeAll(deviceID: id)
         guard !calls.isEmpty else { return }
         for call in calls {
-            let identity = callOverlayIdentity(call.notificationID, deviceID: call.deviceID)
-            hiddenCallOverlayIdentities.remove(identity)
-            audibleCallIdentities.remove(identity)
-            recordedCallIdentities.remove(identity)
+            forgetCallIdentity(call)
+            logCall("cleared", call, reason: reason)
         }
         let identifiers = calls.map {
             remoteNotificationRequestIdentifier(deviceID: $0.deviceID, notificationID: $0.notificationID)
@@ -3127,6 +3229,8 @@ final class PairingCoordinator: ObservableObject {
         hiddenCallOverlayIdentities.removeAll()
         audibleCallIdentities.removeAll()
         recordedCallIdentities.removeAll()
+        silencedCallIdentities.removeAll()
+        callRinger.update(ringing: false)
         guard !calls.isEmpty else { return }
         callOverlayWindow.hide()
         let identifiers = calls.map {

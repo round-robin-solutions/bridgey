@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
-import android.util.Log
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.util.UUID
@@ -59,7 +58,7 @@ class NsdDiscoveryService(
         if (wanted) return@post
         wanted = true
         begin()
-        Log.i(TAG, "DISCOVERY browsing started")
+        DiscoveryLog.i("DISCOVERY browsing started")
     }
 
     override fun stop() = post {
@@ -72,7 +71,7 @@ class NsdDiscoveryService(
         tearDown()
         found.clear()
         emitPeers()
-        Log.i(TAG, "DISCOVERY browsing stopped")
+        DiscoveryLog.i("DISCOVERY browsing stopped")
     }
 
     /**
@@ -81,7 +80,7 @@ class NsdDiscoveryService(
      */
     fun restart(reason: String) = post {
         if (!wanted || restartTask != null) return@post
-        Log.i(TAG, "DISCOVERY restart reason=$reason")
+        DiscoveryLog.i("DISCOVERY restart reason=$reason")
         tearDown()
         pruneTask?.cancel(false)
         refreshed = HashSet()
@@ -96,7 +95,7 @@ class NsdDiscoveryService(
                 if (gone.isEmpty()) return@schedule
                 gone.forEach(found::remove)
                 emitPeers()
-                Log.i(TAG, "DISCOVERY restart dropped peers=${gone.size}")
+                DiscoveryLog.i("DISCOVERY restart dropped peers=${gone.size}")
             }, PRUNE_AFTER_RESTART_MILLIS, TimeUnit.MILLISECONDS)
         }, RESTART_GAP_MILLIS, TimeUnit.MILLISECONDS)
     }
@@ -112,7 +111,7 @@ class NsdDiscoveryService(
     }
 
     private fun post(block: () -> Unit) {
-        worker.execute { runCatching(block).onFailure { Log.w(TAG, "DISCOVERY call failed", it) } }
+        worker.execute { runCatching(block).onFailure { DiscoveryLog.w("DISCOVERY call failed", it) } }
     }
 
     private fun begin() {
@@ -131,9 +130,9 @@ class NsdDiscoveryService(
         registration = registrationListener
         discovery = discoveryListener
         runCatching { nsd.registerService(info, NsdManager.PROTOCOL_DNS_SD, registrationListener) }
-            .onFailure { Log.w(TAG, "DISCOVERY publish call failed", it) }
+            .onFailure { DiscoveryLog.w("DISCOVERY publish call failed", it) }
         runCatching { nsd.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener) }
-            .onFailure { Log.w(TAG, "DISCOVERY browse call failed", it) }
+            .onFailure { DiscoveryLog.w("DISCOVERY browse call failed", it) }
     }
 
     private fun tearDown() {
@@ -150,36 +149,36 @@ class NsdDiscoveryService(
 
     private fun registrationListener(owner: Int) = object : NsdManager.RegistrationListener {
         override fun onServiceRegistered(info: NsdServiceInfo) = post {
-            Log.i(TAG, "DISCOVERY service published name=${info.serviceName} current=${owner == generation}")
+            DiscoveryLog.i("DISCOVERY service published name=${info.serviceName} current=${owner == generation}")
         }
         override fun onRegistrationFailed(info: NsdServiceInfo, errorCode: Int) = post {
-            Log.w(TAG, "DISCOVERY publish failed code=$errorCode")
+            DiscoveryLog.w("DISCOVERY publish failed code=$errorCode")
             if (owner == generation) onEvent?.invoke("publish_failed", errorCode.toString())
         }
         override fun onServiceUnregistered(info: NsdServiceInfo) = post {
-            Log.i(TAG, "DISCOVERY service unpublished")
+            DiscoveryLog.i("DISCOVERY service unpublished")
         }
         override fun onUnregistrationFailed(info: NsdServiceInfo, errorCode: Int) = post {
-            Log.w(TAG, "DISCOVERY unpublish failed code=$errorCode")
+            DiscoveryLog.w("DISCOVERY unpublish failed code=$errorCode")
         }
     }
 
     private fun discoveryListener(owner: Int) = object : NsdManager.DiscoveryListener {
         override fun onDiscoveryStarted(type: String) = post {
-            Log.i(TAG, "DISCOVERY browse started current=${owner == generation}")
+            DiscoveryLog.i("DISCOVERY browse started current=${owner == generation}")
         }
         override fun onDiscoveryStopped(type: String) = post {
-            Log.i(TAG, "DISCOVERY browse stopped")
+            DiscoveryLog.i("DISCOVERY browse stopped")
         }
         override fun onStartDiscoveryFailed(type: String, errorCode: Int) = post {
-            Log.w(TAG, "DISCOVERY browse start failed code=$errorCode")
+            DiscoveryLog.w("DISCOVERY browse start failed code=$errorCode")
             if (owner == generation) {
                 discovery = null
                 onEvent?.invoke("browse_failed", errorCode.toString())
             }
         }
         override fun onStopDiscoveryFailed(type: String, errorCode: Int) = post {
-            Log.w(TAG, "DISCOVERY browse stop failed code=$errorCode")
+            DiscoveryLog.w("DISCOVERY browse stop failed code=$errorCode")
         }
         override fun onServiceFound(info: NsdServiceInfo) = post {
             if (owner != generation || info.serviceName == registeredServiceName) return@post
@@ -192,7 +191,7 @@ class NsdDiscoveryService(
             if (owner != generation) return@post
             resolveQueue.removeAll { it.serviceName == info.serviceName }
             if (found.remove(info.serviceName) != null) emitPeers()
-            Log.i(TAG, "DISCOVERY peer lost service=${info.serviceName}")
+            DiscoveryLog.i("DISCOVERY peer lost service=${info.serviceName}")
         }
     }
 
@@ -204,7 +203,7 @@ class NsdDiscoveryService(
         resolving = next.serviceName
         val listener = object : NsdManager.ResolveListener {
             override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = post {
-                Log.w(TAG, "DISCOVERY resolve failed code=$errorCode")
+                DiscoveryLog.w("DISCOVERY resolve failed code=$errorCode")
                 finishResolve(owner, serviceInfo.serviceName)
             }
             override fun onServiceResolved(serviceInfo: NsdServiceInfo) = post {
@@ -216,7 +215,7 @@ class NsdDiscoveryService(
         resolveTimeout = worker.schedule({ finishResolve(owner, next.serviceName) }, RESOLVE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
         // The legacy resolver is the minSdk-compatible path; discovery hints stay untrusted.
         runCatching { nsd.resolveService(next, listener) }.onFailure {
-            Log.w(TAG, "DISCOVERY resolve call failed", it)
+            DiscoveryLog.w("DISCOVERY resolve call failed", it)
             finishResolve(owner, next.serviceName)
         }
     }
@@ -242,7 +241,7 @@ class NsdDiscoveryService(
         )
         refreshed += parsed.key
         emitPeers()
-        Log.i(TAG, "DISCOVERY peer discovered service=${info.serviceName} addresses=${addresses.size}")
+        DiscoveryLog.i("DISCOVERY peer discovered service=${info.serviceName} addresses=${addresses.size}")
     }
 
     @Suppress("DEPRECATION")
@@ -257,7 +256,6 @@ class NsdDiscoveryService(
         const val SERVICE_TYPE = "_bridgey._tcp."
         const val DEFAULT_PORT = 42_458
         const val PROTOCOL_VERSION = 1
-        private const val TAG = "Bridgey"
         private const val RESTART_GAP_MILLIS = 1_000L
         private const val PRUNE_AFTER_RESTART_MILLIS = 8_000L
         private const val RESOLVE_TIMEOUT_MILLIS = 10_000L

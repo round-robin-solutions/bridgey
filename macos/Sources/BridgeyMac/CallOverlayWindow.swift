@@ -14,8 +14,13 @@ final class CallOverlayWindowController: NSWindowController {
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        panel.becomesKeyOnlyIfNeeded = true
+        // macOS draws notification banners in a full-screen window at level 21 (measured on macOS
+        // 26), above `.floating` (3): a banner arriving during a call used to cover the card in the
+        // same top-right corner. `.statusBar` (25) keeps the card above banners and other windows.
+        panel.level = callOverlayWindowLevel
+        // On every Space and over full-screen apps; stationary so Mission Control does not hide it.
+        panel.collectionBehavior = callOverlayCollectionBehavior
         panel.animationBehavior = .utilityWindow
         panel.setContentSize(NSSize(width: 390, height: 154))
         super.init(window: panel)
@@ -23,8 +28,9 @@ final class CallOverlayWindowController: NSWindowController {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    /// Placed once when it appears; updates while it is on screen never move it.
     func show() {
-        positionNearTopRight()
+        if window?.isVisible != true { positionNearTopRight() }
         window?.orderFrontRegardless()
     }
 
@@ -40,6 +46,54 @@ final class CallOverlayWindowController: NSWindowController {
             x: visible.maxX - frame.width - 18,
             y: visible.maxY - frame.height - 18
         ))
+    }
+}
+
+let callOverlayWindowLevel = NSWindow.Level.statusBar
+let callOverlayCollectionBehavior: NSWindow.CollectionBehavior = [
+    .canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle,
+]
+
+/// A soft ring repeated while a call rings on the phone, until it is answered, declined, hidden or
+/// ends. Stops by itself after `maximumDuration`, as a phone stops ringing.
+@MainActor
+final class CallRinger {
+    static let interval: TimeInterval = 3
+    static let maximumDuration: TimeInterval = 120
+    private let sound: NSSound?
+    private var startedAt: Date?
+    private var next: DispatchWorkItem?
+
+    init(sound: NSSound? = NSSound(named: NSSound.Name("Glass"))) {
+        self.sound = sound
+        sound?.volume = 0.6
+    }
+
+    var isRinging: Bool { next != nil }
+
+    func update(ringing: Bool) {
+        if ringing {
+            guard startedAt == nil else { return }
+            startedAt = Date()
+            ring()
+        } else {
+            next?.cancel()
+            next = nil
+            startedAt = nil
+            sound?.stop()
+        }
+    }
+
+    private func ring() {
+        guard let startedAt, Date().timeIntervalSince(startedAt) < Self.maximumDuration else {
+            next = nil
+            return
+        }
+        sound?.stop()
+        sound?.play()
+        let work = DispatchWorkItem { [weak self] in self?.ring() }
+        next = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.interval, execute: work)
     }
 }
 

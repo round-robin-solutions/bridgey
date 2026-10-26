@@ -303,7 +303,7 @@ class PairingCoordinator(
         newWorker = { id -> dev.bridgey.android.folders.ThreadFolderWorker("bridgey-folder-${id.take(8)}") },
         scheduler = dev.bridgey.android.folders.ExecutorFolderScheduler(folderTimers),
         runPlaces = { task -> scope.launch { task() } },
-        log = { android.util.Log.i("Bridgey", it) },
+        log = { BridgeyLogging.i(LogCategory.FILES, it) },
     )
 
     /** Questions this phone asks its user about folders (Save to…, conflicts), oldest first. */
@@ -370,7 +370,7 @@ class PairingCoordinator(
     /** A pairing (or reconnect) the user started. Never disturbs other connected devices. */
     fun pair(host: String, port: Int, peerName: String) {
         diagnostics.record("pairing", "connection_started")
-        android.util.Log.i("Bridgey", "PAIRING started peer=$peerName")
+        BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING started peer=$peerName")
         pairingSession?.let { previous ->
             pairingSession = null
             previous.send(Message(kind = "pairing.cancel", sessionId = previous.id))
@@ -436,7 +436,7 @@ class PairingCoordinator(
                 handle(socket, initiatedLocally = true, peerHint = trustedName(id), dialDeviceId = id)
             }.onFailure { error ->
                 val reason = socketDropReason(error)
-                android.util.Log.i("Bridgey", "RECONNECT dial failed peer=${id.take(8)} reason=$reason")
+                BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT dial failed peer=${id.take(8)} reason=$reason")
                 diagnostics.record("reconnect", "dial_failed", reason, device = id)
                 reconnect.dialEnded(id)
             }
@@ -447,15 +447,15 @@ class PairingCoordinator(
         when (event) {
             is ReconnectEvent.Dial -> {
                 val tag = addressTag(event.address.host)
-                android.util.Log.i("Bridgey", "RECONNECT dial peer=${event.deviceId.take(8)} attempt=${event.attempt} reason=${event.reason} source=${event.address.source.key} address=$tag")
+                BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT dial peer=${event.deviceId.take(8)} attempt=${event.attempt} reason=${event.reason} source=${event.address.source.key} address=$tag")
                 diagnostics.record("reconnect", "dial", event.reason, device = event.deviceId, detail = "n${event.attempt}_${event.address.source.key}_$tag")
             }
             is ReconnectEvent.NoAddress -> {
-                android.util.Log.i("Bridgey", "RECONNECT no dialable address peer=${event.deviceId.take(8)} attempt=${event.attempt} reason=${event.reason}")
+                BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT no dialable address peer=${event.deviceId.take(8)} attempt=${event.attempt} reason=${event.reason}")
                 diagnostics.record("reconnect", "no_address", event.reason, device = event.deviceId, detail = "n${event.attempt}")
             }
             is ReconnectEvent.FoundByDiscovery -> {
-                android.util.Log.i("Bridgey", "RECONNECT discovery found peer=${event.deviceId.take(8)} addresses=${event.addresses}")
+                BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT discovery found peer=${event.deviceId.take(8)} addresses=${event.addresses}")
                 diagnostics.record("discovery", "found_trusted", device = event.deviceId, detail = "${event.addresses}_addresses")
             }
         }
@@ -468,7 +468,7 @@ class PairingCoordinator(
 
     /** "Retry now" on a disconnected device: every known address at once. */
     fun retryNow(deviceId: String) {
-        android.util.Log.i("Bridgey", "RECONNECT retry now peer=${deviceId.take(8)}")
+        BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT retry now peer=${deviceId.take(8)}")
         reconnect.dialEverywhere(deviceId, "retry_now")
     }
 
@@ -479,7 +479,7 @@ class PairingCoordinator(
 
     /** A network, Doze or screen event from the application: recovery runs once the burst settles. */
     fun linkEvent(reason: String) {
-        android.util.Log.i("Bridgey", "RECONNECT link event $reason")
+        BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT link event $reason")
         diagnostics.record("link", reason, detail = PowerFacts.summary(appContext))
         linkDebouncer.note(reason)
     }
@@ -498,7 +498,7 @@ class PairingCoordinator(
         // while a device is away (they happen dozens of times a day).
         val networkChanged = reasons.any { it != "screen_on" && it != "doze_exit" }
         if (ids.isEmpty() && !networkChanged) return
-        android.util.Log.i("Bridgey", "RECONNECT recovering after $reason disconnected=${ids.size}")
+        BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT recovering after $reason disconnected=${ids.size}")
         val sinceRestart = SystemClock.elapsedRealtime() - synchronized(discoveryLock) { lastDiscoveryRestart }
         if (sinceRestart >= ReconnectPolicy.EVENT_RESTART_SPACING_MILLIS) restartDiscoveryNow(reason)
         reconnect.resetAll(ids)
@@ -551,7 +551,7 @@ class PairingCoordinator(
             discoveryWindowStart = if (missing.isEmpty()) null else SystemClock.elapsedRealtime()
         }
         mutableRediscover.value = RediscoverState.Running
-        android.util.Log.i("Bridgey", "RECONNECT look for devices again disconnected=${missing.size}")
+        BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT look for devices again disconnected=${missing.size}")
         diagnostics.record("discovery", "manual", detail = "${missing.size}_disconnected")
         restartDiscoveryNow("manual")
         missing.keys.sorted().forEach { reconnect.dialEverywhere(it, "manual") }
@@ -652,7 +652,7 @@ class PairingCoordinator(
         autoClipboardTracker.clear(deviceId)
         clearClipboardCache()
         disconnect(deviceId)
-        android.util.Log.i("Bridgey", "PAIRING revoked peerId=${deviceId.take(8)}")
+        BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING revoked peerId=${deviceId.take(8)}")
     }
 
     fun updateDeviceName(value: String) {
@@ -1058,7 +1058,7 @@ class PairingCoordinator(
                 return@launch
             }
             mutableClipboardStatus.value = "Sending…"
-            android.util.Log.i("Bridgey", "PLUGIN clipboard sent")
+            BridgeyLogging.line(LogLines.clipboard(BridgeyLogging.policy, "sent", text.takeUnless { sensitive }))
             delay(3_000)
             if (pendingClipboardSends.containsKey(messageId) && registry.isActive(current)) {
                 if (!current.send(message)) {
@@ -1119,7 +1119,7 @@ class PairingCoordinator(
         val kinds = dev.bridgey.android.folders.FolderKinds
         if (message.kind == kinds.OFFER && !allowed) {
             message.transferId?.let { current.send(Message(kind = kinds.REJECTED, sessionId = current.id, transferId = it)) }
-            android.util.Log.i("Bridgey", "FOLDER offer rejected code=policy")
+            BridgeyLogging.i(LogCategory.FILES, "FOLDER offer rejected code=policy")
             sendFeatureState(current)
             return
         }
@@ -1134,7 +1134,7 @@ class PairingCoordinator(
             ?.let { runCatching { JSONObject(it.toString(Charsets.UTF_8)) }.getOrNull() }
         val link = FolderSessionLink(current)
         if (json == null) {
-            android.util.Log.i("Bridgey", "FOLDER invalid payload kind=${message.kind}")
+            BridgeyLogging.i(LogCategory.FILES, "FOLDER invalid payload kind=${message.kind}")
             val id = message.transferId?.takeIf { dev.bridgey.android.folders.isWireId(it) }
             when {
                 message.kind == kinds.OFFER && id != null ->
@@ -1253,7 +1253,7 @@ class PairingCoordinator(
         scope.launch {
             targets.forEach { current ->
                 if (sendEncrypted(current, "battery.update", payload)) {
-                    android.util.Log.i("Bridgey", "PLUGIN battery sent level=$level charging=$isCharging")
+                    BridgeyLogging.i(LogCategory.GENERAL, "PLUGIN battery sent level=$level charging=$isCharging")
                 }
             }
         }
@@ -1309,7 +1309,7 @@ class PairingCoordinator(
             RingtoneManager.getRingtone(appContext, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))?.play()
         }
         current.send(Message(kind = "ping.ack", sessionId = current.id, messageId = messageId))
-        android.util.Log.i("Bridgey", "PLUGIN ping received")
+        BridgeyLogging.i(LogCategory.GENERAL, "PLUGIN ping received")
         activityListener?.invoke(PeerEvent(PeerActivity.PING_RECEIVED, current.remoteDeviceId, current.peerName))
     }
 
@@ -1410,7 +1410,7 @@ class PairingCoordinator(
         scope.launch {
             targets.forEach { current ->
                 if (sendEncrypted(current, "notifications.post", payload)) {
-                    android.util.Log.i("Bridgey", "PLUGIN notification sent package=$packageName")
+                    BridgeyLogging.line(LogLines.notification(BridgeyLogging.policy, "sent", applicationName, title, text))
                 }
             }
         }
@@ -1418,16 +1418,37 @@ class PairingCoordinator(
         return registry.connections().filter { it.deviceId in ids }
     }
 
-    fun sendNotificationRemoved(notificationId: String) {
-        sendNotificationReference("notifications.remove", notificationId)
+    /**
+     * Retracts a mirrored notification on every Mac. [callEnded] marks a call the phone saw end, so
+     * the Mac drops its call card at once instead of waiting for a re-post.
+     */
+    fun sendNotificationRemoved(notificationId: String, callEnded: Boolean = false) {
+        sendNotificationReference("notifications.remove", notificationId, callEnded)
     }
 
-    private fun sendNotificationReference(kind: String, notificationId: String) {
+    /** Call lifecycle event for the exported diagnostics: public tokens only, never caller or app. */
+    fun recordCallDiagnostic(event: String, reason: String) {
+        diagnostics.record("call", event, detail = reason)
+    }
+
+    /** Remote control session start or end, for Logcat and diagnostics (category remote). */
+    fun recordRemoteControlEvent(event: String, deviceId: String, detail: String) {
+        BridgeyLogging.i(LogCategory.REMOTE_CONTROL, "REMOTE $event peer=${deviceId.take(8)} detail=$detail")
+        diagnostics.record("remote", event, device = deviceId, detail = detail)
+    }
+
+    /** Settings > Privacy > Logging > Clear logs: the diagnostics log on this phone. */
+    fun clearDiagnostics() {
+        diagnostics.clear()
+    }
+
+    private fun sendNotificationReference(kind: String, notificationId: String, callEnded: Boolean = false) {
         if (notificationId.isBlank()) return
         val targets = broadcastTargets(BridgeyFeature.NOTIFICATIONS)
         if (targets.isEmpty()) return
         val payload = JSONObject()
             .put("notificationId", notificationId.take(512))
+            .apply { if (callEnded) put("callEnded", true) }
             .toString()
             .toByteArray()
         scope.launch { targets.forEach { sendEncrypted(it, kind, payload) } }
@@ -1486,7 +1507,7 @@ class PairingCoordinator(
             publish()
             sendFindCommand(current, "find.stopped")
         }
-        android.util.Log.i("Bridgey", "PLUGIN find-device ${if (start) "started" else "stopped"}")
+        BridgeyLogging.i(LogCategory.GENERAL, "PLUGIN find-device ${if (start) "started" else "stopped"}")
     }
 
     private fun startPhoneRinging(fromDeviceId: String) {
@@ -1907,7 +1928,7 @@ class PairingCoordinator(
         if (pendingPing?.first == deviceId) clearPingStatus()
         // The power state at the moment of the drop: Doze, screen, saver, standby bucket, exemption.
         diagnostics.record("transport", "disconnected", reason, device = deviceId, detail = PowerFacts.summary(appContext))
-        android.util.Log.i("Bridgey", "TRANSPORT disconnected peerId=${deviceId.take(8)} reason=$reason")
+        BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT disconnected peerId=${deviceId.take(8)} reason=$reason")
         publish()
         if (!reconnecting || deviceId !in trust.trustedDeviceIds.value) return
         reconnect.disconnected(deviceId)
@@ -1932,7 +1953,7 @@ class PairingCoordinator(
         current.remoteHost = socket.inetAddress?.hostAddress?.let(::normalizedHost)
         current.remotePort = socket.port
         if (!initiatedLocally) {
-            android.util.Log.i("Bridgey", "TRANSPORT inbound connection address=${current.remoteHost?.let(::addressTag) ?: "unknown"}")
+            BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT inbound connection address=${current.remoteHost?.let(::addressTag) ?: "unknown"}")
         }
         registry.addPending(current, initiatedLocally)
         if (manual) pairingSession = current
@@ -1968,7 +1989,7 @@ class PairingCoordinator(
                                 nowMillis = now,
                             )
                         ) {
-                            android.util.Log.w("Bridgey", "TRANSPORT heartbeat timed out peerId=${current.remoteDeviceId.take(8)}")
+                            BridgeyLogging.w(LogCategory.CONNECTION, "TRANSPORT heartbeat timed out peerId=${current.remoteDeviceId.take(8)}")
                             current.dropReason = "heartbeat_timeout"
                             break
                         }
@@ -1985,7 +2006,7 @@ class PairingCoordinator(
                     } else if (pendingExpired(current, now)) {
                         current.failure = PairingFailure.TIMEOUT
                         current.dropReason = "handshake_timeout"
-                        android.util.Log.w("Bridgey", "PAIRING timed out")
+                        BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING timed out")
                         break
                     }
                 }
@@ -1999,13 +2020,13 @@ class PairingCoordinator(
         when {
             deviceId != null -> deviceDisconnected(deviceId, reason)
             pairingSession === current -> {
-                if (result.exceptionOrNull() != null) android.util.Log.w("Bridgey", "PAIRING disconnected before confirmation")
+                if (result.exceptionOrNull() != null) BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING disconnected before confirmation")
                 failPairing(current, current.failure ?: PairingFailure.CONNECTION_LOST)
             }
             current.dialDeviceId != null && !current.authenticated && reason != "duplicate" -> {
                 // A reconnect that never authenticated: the schedule tries again.
                 val dialed = current.dialDeviceId!!
-                android.util.Log.i("Bridgey", "RECONNECT dial failed peer=${dialed.take(8)} reason=$reason")
+                BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT dial failed peer=${dialed.take(8)} reason=$reason")
                 diagnostics.record("reconnect", "dial_failed", reason, device = dialed)
             }
         }
@@ -2128,7 +2149,7 @@ class PairingCoordinator(
                 pendingClipboardSends.remove(messageId)?.let { callback ->
                     mutableClipboardStatus.value = "Delivered"
                     callback(ClipboardSendResult.DELIVERED)
-                    android.util.Log.i("Bridgey", "PLUGIN clipboard acknowledged")
+                    BridgeyLogging.line(LogLines.clipboard(BridgeyLogging.policy, "acknowledged"))
                 }
             }
             "clipboard.rejected" -> {
@@ -2341,7 +2362,7 @@ class PairingCoordinator(
         val written = runCatching { appContext.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip) }.isSuccess
         if (!written) {
             diagnostics.record("clipboard", if (rich) "rich_received" else "text_received", "write_failed")
-            android.util.Log.w("Bridgey", "PLUGIN clipboard write failed")
+            BridgeyLogging.w(LogCategory.CLIPBOARD, "CLIPBOARD write failed")
             activityListener?.invoke(PeerEvent(PeerActivity.CLIPBOARD_RECEIVE_FAILED, current.remoteDeviceId, current.peerName, automatic = true))
             current.send(Message(kind = "clipboard.ack", sessionId = current.id, messageId = messageId))
             return
@@ -2352,7 +2373,7 @@ class PairingCoordinator(
         clipboardInbox.supersede()
         clipboardOutbox.supersede(SessionClipLink(current))
         diagnostics.record("clipboard", if (rich) "rich_received" else "text_received")
-        android.util.Log.i("Bridgey", "PLUGIN clipboard received")
+        BridgeyLogging.line(LogLines.clipboard(BridgeyLogging.policy, "received", text.takeUnless { sensitive }))
         activityListener?.invoke(
             PeerEvent(PeerActivity.CLIPBOARD_RECEIVED, current.remoteDeviceId, current.peerName, text, sensitive, automatic = true),
         )
@@ -2384,7 +2405,7 @@ class PairingCoordinator(
             clipboardInbox.accept(offer, SessionClipLink(current))
         }
         current.send(Message(kind = "clipboard.ack", sessionId = current.id, messageId = message.messageId))
-        android.util.Log.i("Bridgey", "PLUGIN clipboard offer received")
+        BridgeyLogging.line(LogLines.clipboard(BridgeyLogging.policy, "offer received"))
     }
 
     private fun receiveClipboardFetch(current: Session, message: Message) {
@@ -2503,7 +2524,7 @@ class PairingCoordinator(
         transferDevices[transferId] = current.remoteDeviceId
         updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: ${transfer.progress.status(0, force = true)}", true)
         current.send(Message(kind = "files.accept", sessionId = current.id, transferId = transferId))
-        android.util.Log.i("Bridgey", "PLUGIN file accepted transfer=${transferId.take(8)} size=$size")
+        BridgeyLogging.i(LogCategory.FILES, LogLines.file(BridgeyLogging.policy, "accepted", transferId, transfer.displayName, "size=$size"))
     }
 
     private fun receiveFileChunk(current: Session, message: Message) {
@@ -2565,7 +2586,7 @@ class PairingCoordinator(
         updateFileTransfer(transferId, transfer.displayName, "${transfer.displayName} saved to Download/Bridgey", false, TransferEnd.RECEIVED)
         ReceivedFileNotifier.show(appContext, transfer.displayName, transfer.mimeType, savedUri)
         current.send(Message(kind = "files.complete.ack", sessionId = current.id, transferId = transferId))
-        android.util.Log.i("Bridgey", "PLUGIN file received transfer=${transferId.take(8)}")
+        BridgeyLogging.i(LogCategory.FILES, LogLines.file(BridgeyLogging.policy, "received", transferId, transfer.displayName))
     }
 
     private fun receiveFileCancel(current: Session, transferId: String?) {
@@ -2577,7 +2598,7 @@ class PairingCoordinator(
         pendingFileCompletions.remove(transferId)?.complete(false)
         removeFileTransfer(transferId, "Transfer cancelled by ${current.peerName}")
         current.send(Message(kind = "files.cancel.ack", sessionId = current.id, transferId = transferId))
-        android.util.Log.i("Bridgey", "PLUGIN file cancellation received transfer=${transferId.take(8)}")
+        BridgeyLogging.i(LogCategory.FILES, LogLines.file(BridgeyLogging.policy, "cancellation received", transferId))
     }
 
     /** Ends the current and waiting outgoing files of [deviceId] (null: all) after the session is lost. They remain retryable. */
@@ -2656,7 +2677,7 @@ class PairingCoordinator(
         // A new device: it needs the code prompt, which belongs to one pairing at a time.
         val existing = pairingSession
         if (existing != null && existing !== current && existing.code != null && !existing.closed) {
-            android.util.Log.w("Bridgey", "PAIRING rejected: another pairing is waiting for confirmation")
+            BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING rejected: another pairing is waiting for confirmation")
             current.failure = PairingFailure.BUSY
             current.send(Message(kind = "pairing.cancel", sessionId = current.id))
             current.close()
@@ -2699,7 +2720,7 @@ class PairingCoordinator(
         when (val admission = registry.authenticate(current, current.remoteDeviceId, current.peerName)) {
             SessionRegistry.Admission.Rejected -> {
                 // A live session for this device wins the duplicate rule; this socket closes quietly.
-                android.util.Log.i("Bridgey", "TRANSPORT duplicate session closed peerId=${current.remoteDeviceId.take(8)}")
+                BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT duplicate session closed peerId=${current.remoteDeviceId.take(8)}")
                 diagnostics.record("transport", "duplicate_closed", device = current.remoteDeviceId)
                 if (pairingSession === current) {
                     pairingSession = null
@@ -2712,7 +2733,7 @@ class PairingCoordinator(
                 return
             }
             is SessionRegistry.Admission.Accepted -> admission.replaced?.let {
-                android.util.Log.i("Bridgey", "TRANSPORT duplicate session replaced peerId=${current.remoteDeviceId.take(8)}")
+                BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT duplicate session replaced peerId=${current.remoteDeviceId.take(8)}")
                 diagnostics.record("transport", "duplicate_replaced", device = current.remoteDeviceId)
                 it.dropReason = "replaced"
                 it.close()
@@ -2724,7 +2745,7 @@ class PairingCoordinator(
         val port = if (current.initiatedLocally) current.remotePort else ReconnectPolicy.LISTENING_PORT
         val attempts = reconnect.entry(current.remoteDeviceId)?.attempts ?: 0
         reconnect.connected(current.remoteDeviceId, current.remoteHost, port, source)
-        android.util.Log.i("Bridgey", "RECONNECT connected peer=${current.remoteDeviceId.take(8)} via=${source.key} address=${current.remoteHost?.let(::addressTag) ?: "unknown"} attempts=$attempts")
+        BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT connected peer=${current.remoteDeviceId.take(8)} via=${source.key} address=${current.remoteHost?.let(::addressTag) ?: "unknown"} attempts=$attempts")
         diagnostics.record("transport", "connected", source.key, device = current.remoteDeviceId, detail = "after_${attempts}_attempts")
         if (pairingSession === current) {
             pairingSession = null
@@ -2735,7 +2756,7 @@ class PairingCoordinator(
         diagnostics.record("pairing", "connected")
         sendFeatureState(current)
         BridgeyNotificationListenerService.resendActiveCalls()
-        android.util.Log.i("Bridgey", "PAIRING verified peerId=${current.remoteDeviceId.take(8)}")
+        BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING verified peerId=${current.remoteDeviceId.take(8)}")
         finishRediscoverIfEveryoneAnswered()
     }
 
@@ -2822,12 +2843,12 @@ class PairingCoordinator(
         if (level !in 0..100 || payload.opt("isCharging") !is Boolean) return fail(current, "Invalid battery status")
         registry.update(current.remoteDeviceId) { it.copy(battery = RemoteBatteryStatus(level, payload.getBoolean("isCharging"))) }
         publish()
-        android.util.Log.i("Bridgey", "PLUGIN battery received level=$level")
+        BridgeyLogging.i(LogCategory.GENERAL, "PLUGIN battery received level=$level")
     }
 
     /** A protocol error on one session: that session closes (and reconnects); nothing else changes. */
     private fun fail(current: Session, message: String) {
-        android.util.Log.w("Bridgey", "PROTOCOL session closed: $message")
+        BridgeyLogging.w(LogCategory.CONNECTION, "PROTOCOL session closed: $message")
         diagnostics.record("protocol", "session_failed", "rejected")
         if (current.failure == null) current.failure = PairingFailure.INVALID
         if (current.dropReason == null) current.dropReason = "protocol_error"
@@ -2836,7 +2857,7 @@ class PairingCoordinator(
 
     /** The handshake on [current] failed with [reason]; the pairing flow shows it if it was the user's pairing. */
     private fun failHandshake(current: Session, reason: PairingFailure, message: String) {
-        android.util.Log.w("Bridgey", "PAIRING failed: $message")
+        BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING failed: $message")
         diagnostics.record("protocol", "session_failed", "rejected")
         current.failure = reason
         if (current.dropReason == null) current.dropReason = "handshake_failed"
@@ -2945,7 +2966,7 @@ class PairingCoordinator(
                 writer.flush()
             }
             result.exceptionOrNull()?.let {
-                android.util.Log.e("Bridgey", "TRANSPORT send failed kind=${message.kind}", it)
+                BridgeyLogging.w(LogCategory.CONNECTION, "TRANSPORT send failed kind=${message.kind}", it)
             }
             return result.isSuccess
         }

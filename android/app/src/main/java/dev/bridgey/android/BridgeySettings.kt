@@ -64,6 +64,8 @@ data class BridgeySettingsState(
     val allowReplaceFromOtherDevices: Boolean = false,
     /** The Save to… sheet's recent destinations, newest first. On this phone only. */
     val recentFolderDestinations: List<FolderDestination> = emptyList(),
+    /** Privacy > Logging: what reaches Logcat and exported diagnostics. On this phone only. */
+    val logging: LoggingPolicy = LoggingPolicy(),
 ) {
     /** What a folder transfer to this phone reads when it decides. */
     val folderReceiveSettings: FolderReceiveSettings
@@ -88,6 +90,18 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
     private val preferences = context.getSharedPreferences("bridgey.settings", Context.MODE_PRIVATE)
     private val mutableState = MutableStateFlow(load(defaultDeviceName))
     val state: StateFlow<BridgeySettingsState> = mutableState.asStateFlow()
+
+    init {
+        BridgeyLogging.policy = mutableState.value.logging
+    }
+
+    fun setLogging(policy: LoggingPolicy) {
+        preferences.edit().apply {
+            loggingPreferenceValues(policy).forEach { (key, value) -> putBoolean(key, value) }
+        }.apply()
+        BridgeyLogging.policy = policy
+        mutableState.value = mutableState.value.copy(logging = policy)
+    }
 
     fun setDeviceName(value: String) {
         val name = value.trim().take(64).ifBlank { "Android device" }
@@ -286,6 +300,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
             folderDefaultPlace = preferences.getString(KEY_FOLDER_DEFAULT_PLACE, null)?.takeIf(::isPlaceId) ?: DEFAULT_PLACE_ID,
             allowReplaceFromOtherDevices = preferences.getBoolean(KEY_FOLDER_ALLOW_REPLACE, false),
             recentFolderDestinations = decodeDestinations(preferences.getString(KEY_FOLDER_RECENT, null)),
+            logging = loggingPolicyFrom { key, default -> preferences.getBoolean(key, default) },
         )
     }
 
@@ -316,3 +331,32 @@ internal fun decodeDestinations(json: String?): List<FolderDestination> = runCat
     val array = org.json.JSONArray(json ?: return emptyList())
     (0 until minOf(array.length(), 5)).mapNotNull { array.optJSONObject(it)?.let(FolderDestination::parse) }
 }.getOrDefault(emptyList())
+
+/** Preference keys of [LoggingPolicy], with their values. */
+internal fun loggingPreferenceValues(policy: LoggingPolicy): Map<String, Boolean> = mapOf(
+    "logging.connection" to policy.connection,
+    "logging.calls" to policy.calls,
+    "logging.calls.numbers" to policy.callNumbers,
+    "logging.notifications" to policy.notifications,
+    "logging.notifications.content" to policy.notificationContent,
+    "logging.clipboard" to policy.clipboard,
+    "logging.clipboard.previews" to policy.clipboardPreviews,
+    "logging.files.names" to policy.fileNames,
+    "logging.remote_control" to policy.remoteControl,
+)
+
+internal fun loggingPolicyFrom(read: (key: String, default: Boolean) -> Boolean): LoggingPolicy {
+    val defaults = loggingPreferenceValues(LoggingPolicy())
+    fun value(key: String) = read(key, defaults.getValue(key))
+    return LoggingPolicy(
+        connection = value("logging.connection"),
+        calls = value("logging.calls"),
+        callNumbers = value("logging.calls.numbers"),
+        notifications = value("logging.notifications"),
+        notificationContent = value("logging.notifications.content"),
+        clipboard = value("logging.clipboard"),
+        clipboardPreviews = value("logging.clipboard.previews"),
+        fileNames = value("logging.files.names"),
+        remoteControl = value("logging.remote_control"),
+    )
+}

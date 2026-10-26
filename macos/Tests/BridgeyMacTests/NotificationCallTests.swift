@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import BridgeyMac
 
@@ -115,6 +116,82 @@ final class NotificationCallTests: XCTestCase {
         XCTAssertEqual(calls.removeAll().map(\.notificationID), ["first", "second"])
         XCTAssertTrue(calls.isEmpty)
         XCTAssertNil(calls.mostRelevant)
+    }
+
+    // The reported bug, Mac side: the phone retracts the call notification and re-posts it at once
+    // (a dialer swapping its notification). The card must survive.
+    func testRetractedCallRepostedWithinGraceKeepsItsCard() {
+        var calls = ActiveRemoteCalls()
+        let now = Date()
+        calls.update(remoteCall("call", type: "incoming"))
+
+        XCTAssertTrue(calls.scheduleRemoval(notificationID: "call", deviceID: "phone", deadline: now.addingTimeInterval(remoteCallRemovalGrace)))
+        XCTAssertEqual(calls.mostRelevant?.notificationID, "call")
+        XCTAssertTrue(calls.update(remoteCall("call", type: "incoming")))
+        XCTAssertTrue(calls.removeExpired(now: now.addingTimeInterval(10)).isEmpty)
+        XCTAssertEqual(calls.mostRelevant?.notificationID, "call")
+    }
+
+    func testRetractedCallWithoutRepostGoesAfterGrace() {
+        var calls = ActiveRemoteCalls()
+        let now = Date()
+        calls.update(remoteCall("call", type: "incoming"))
+        calls.scheduleRemoval(notificationID: "call", deviceID: "phone", deadline: now.addingTimeInterval(remoteCallRemovalGrace))
+
+        XCTAssertTrue(calls.removeExpired(now: now.addingTimeInterval(remoteCallRemovalGrace - 0.1)).isEmpty)
+        XCTAssertEqual(calls.removeExpired(now: now.addingTimeInterval(remoteCallRemovalGrace)).map(\.notificationID), ["call"])
+        XCTAssertNil(calls.mostRelevant)
+    }
+
+    func testSecondRetractionDoesNotExtendTheGrace() {
+        var calls = ActiveRemoteCalls()
+        let now = Date()
+        calls.update(remoteCall("call", type: "incoming"))
+        calls.scheduleRemoval(notificationID: "call", deviceID: "phone", deadline: now.addingTimeInterval(2))
+        calls.scheduleRemoval(notificationID: "call", deviceID: "phone", deadline: now.addingTimeInterval(9))
+
+        XCTAssertEqual(calls.removeExpired(now: now.addingTimeInterval(2)).count, 1)
+    }
+
+    func testRetractionOfAnotherNotificationLeavesTheCallCard() {
+        var calls = ActiveRemoteCalls()
+        calls.update(remoteCall("call", type: "incoming"))
+
+        XCTAssertFalse(calls.scheduleRemoval(notificationID: "chat", deviceID: "phone", deadline: Date()))
+        XCTAssertNil(calls.remove(notificationID: "chat", deviceID: "phone"))
+        XCTAssertTrue(calls.removeExpired(now: Date().addingTimeInterval(60)).isEmpty)
+        XCTAssertEqual(calls.mostRelevant?.notificationID, "call")
+    }
+
+    func testOrdinaryNotificationNeverReachesTheCallCard() {
+        // updateRemoteCall only acts on a known call type; an ordinary notification has none.
+        XCTAssertNil(normalizedRemoteCallType(nil))
+        XCTAssertTrue(shouldUseSystemNotification(callType: nil))
+        var calls = ActiveRemoteCalls()
+        calls.update(remoteCall("call", type: "incoming"))
+        let before = calls.all
+        XCTAssertNil(calls.remove(notificationID: "message", deviceID: "phone"))
+        XCTAssertEqual(calls.all, before)
+    }
+
+    func testCallOverlayStaysAboveNotificationBannersOnEverySpace() {
+        // Notification banners are drawn at window level 21; the card must sit above them.
+        XCTAssertGreaterThan(callOverlayWindowLevel.rawValue, 21)
+        XCTAssertLessThan(callOverlayWindowLevel.rawValue, NSWindow.Level.popUpMenu.rawValue)
+        XCTAssertTrue(callOverlayCollectionBehavior.contains(.canJoinAllSpaces))
+        XCTAssertTrue(callOverlayCollectionBehavior.contains(.fullScreenAuxiliary))
+        XCTAssertTrue(callOverlayCollectionBehavior.contains(.stationary))
+        XCTAssertFalse(callOverlayCollectionBehavior.contains(.transient))
+    }
+
+    func testIncomingCallsRingUntilSilencedOrTurnedOff() {
+        let identity: (RemoteCallStatus) -> String = { $0.notificationID }
+        let calls = [remoteCall("ongoing", type: "ongoing"), remoteCall("ringing", type: "incoming")]
+
+        XCTAssertEqual(ringingRemoteCallIdentities(calls, enabled: true, silenced: [], identity: identity), ["ringing"])
+        XCTAssertTrue(ringingRemoteCallIdentities(calls, enabled: true, silenced: ["ringing"], identity: identity).isEmpty)
+        XCTAssertTrue(ringingRemoteCallIdentities(calls, enabled: false, silenced: [], identity: identity).isEmpty)
+        XCTAssertTrue(ringingRemoteCallIdentities([remoteCall("ongoing", type: "ongoing")], enabled: true, silenced: [], identity: identity).isEmpty)
     }
 
     private func remoteCall(

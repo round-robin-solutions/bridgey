@@ -89,7 +89,7 @@ class ThreadFolderWorker(name: String, private val capacity: Int = 64) : FolderW
                 (control.removeFirstOrNull() ?: data.removeFirst()).also { changed.signalAll() }
             }
             runCatching(task).exceptionOrNull()?.let {
-                android.util.Log.w("Bridgey", "FOLDER worker task failed: ${it.javaClass.simpleName}")
+                dev.bridgey.android.BridgeyLogging.w(dev.bridgey.android.LogCategory.FILES, "FOLDER worker task failed: ${it.javaClass.simpleName}")
             }
         }
     }

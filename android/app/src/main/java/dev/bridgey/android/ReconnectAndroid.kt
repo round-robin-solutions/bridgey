@@ -14,7 +14,6 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.PowerManager
 import android.os.SystemClock
-import android.util.Log
 import java.net.Inet4Address
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -35,7 +34,7 @@ internal class AndroidReconnectClock : ReconnectClock {
 
     override fun schedule(delayMillis: Long, action: () -> Unit): ScheduledTask {
         val future = executor.schedule({
-            runCatching(action).onFailure { Log.w("Bridgey", "RECONNECT timer failed", it) }
+            runCatching(action).onFailure { BridgeyLogging.w(LogCategory.CONNECTION, "RECONNECT timer failed", it) }
         }, delayMillis.coerceAtLeast(0), TimeUnit.MILLISECONDS)
         return ScheduledTask { future.cancel(false) }
     }
@@ -158,14 +157,14 @@ internal class NetworkWatcher(
         registered = true
         initialLocal = true
         runCatching { connectivity.registerDefaultNetworkCallback(defaultCallback) }
-            .onFailure { Log.w(TAG, "RECONNECT default network callback failed", it) }
+            .onFailure { BridgeyLogging.w(LogCategory.CONNECTION, "RECONNECT default network callback failed", it) }
         val local = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
         runCatching { connectivity.registerNetworkCallback(local, localCallback) }
-            .onFailure { Log.w(TAG, "RECONNECT local network callback failed", it) }
+            .onFailure { BridgeyLogging.w(LogCategory.CONNECTION, "RECONNECT local network callback failed", it) }
         // Callbacks for networks already up arrive right after registering; later ones are changes.
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ initialLocal = false }, 3_000)
         val filter = IntentFilter().apply {
@@ -191,10 +190,6 @@ internal class NetworkWatcher(
         defaultNetwork = null
         defaultSignature = null
     }
-
-    private companion object {
-        const val TAG = "Bridgey"
-    }
 }
 
 /**
@@ -217,7 +212,7 @@ internal class WifiKeeper(context: Context) {
                     acquire()
                 }
             }.getOrNull()
-            Log.i("Bridgey", "RECONNECT wifi lock held=${lock?.isHeld == true}")
+            BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT wifi lock held=${lock?.isHeld == true}")
         } else {
             lock?.takeIf { it.isHeld }?.release()
             lock = null

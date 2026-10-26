@@ -55,6 +55,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.bridgey.android.BridgeyFeature
+import dev.bridgey.android.LoggingPolicy
 import dev.bridgey.android.R
 import dev.bridgey.android.UpdateChannel
 import dev.bridgey.android.UpdateUiState
@@ -90,6 +91,8 @@ data class SettingsState(
     val reduceMotion: Boolean,
     val showPreviews: Boolean,
     val activityCount: Int,
+    /** Privacy > Logging. */
+    val logging: LoggingPolicy = LoggingPolicy(),
     val update: UpdateUiState,
     val installedVersion: String,
     val now: Long,
@@ -127,6 +130,8 @@ class SettingsActions(
     val setShowPreviews: (Boolean) -> Unit = {},
     val clearActivity: () -> Unit = {},
     val exportDiagnostics: () -> Unit = {},
+    val setLogging: (LoggingPolicy) -> Unit = {},
+    val clearLogs: () -> Unit = {},
     val turnOff: () -> Unit = {},
     val checkNow: () -> Unit = {},
     val setChannel: (UpdateChannel) -> Unit = {},
@@ -434,13 +439,10 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
                         )
                     }
                 }
-                row { shape ->
-                    ListRow(
-                        shape, stringResource(R.string.settings_diagnostics), stringResource(R.string.settings_diagnostics_detail),
-                        BridgeyIcons.BugReport, Tint.NEUTRAL, onClick = actions.exportDiagnostics, onClickLabel = stringResource(R.string.action_share),
-                    ) { Icon(BridgeyIcons.IosShare, null, tint = BridgeyTheme.colors.onSurfaceVariant, modifier = Modifier.size(20.dp)) }
-                }
             }
+        }
+        item(key = "privacy.logging") {
+            LoggingSettingsGroup(state.logging, actions.setLogging, actions.exportDiagnostics, actions.clearLogs)
         }
 
         // 10. Updates
