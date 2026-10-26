@@ -16,6 +16,8 @@ class ManifestPermissionsTest {
         assertEquals(
             setOf(
                 "android.permission.INTERNET",
+                "android.permission.ACCESS_NETWORK_STATE",
+                "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
                 "android.permission.CHANGE_WIFI_MULTICAST_STATE",
                 "android.permission.POST_NOTIFICATIONS",
                 "android.permission.FOREGROUND_SERVICE",

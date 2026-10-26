@@ -32,16 +32,11 @@ private fun ByteArrayOutputStream.toUtf8String(): String = Charsets.UTF_8.newDec
     .decode(ByteBuffer.wrap(toByteArray()))
     .toString()
 
-internal fun reconnectDelayMillis(attempt: Int): Long {
-    val boundedAttempt = attempt.coerceIn(0, 30)
-    return min(1L shl boundedAttempt, 30L) * 1_000L
-}
-
 internal fun heartbeatExpired(
     supported: Boolean,
     lastReceivedAtMillis: Long,
     nowMillis: Long,
-    timeoutMillis: Long = 30_000L,
+    timeoutMillis: Long = ReconnectPolicy.HEARTBEAT_TIMEOUT_MILLIS,
 ): Boolean = supported && nowMillis - lastReceivedAtMillis >= timeoutMillis
 
 internal fun recoverInterruptedTransfers(
@@ -58,3 +53,22 @@ internal fun recoverInterruptedTransfers(
     .sortedByDescending(FileTransferState::startedAtMillis)
     .take(MAX_TRANSFER_HISTORY)
     .associateBy(FileTransferState::id)
+
+/** A short reason token for a socket failure, for logs and diagnostics. */
+internal fun socketDropReason(error: Throwable): String {
+    val message = error.message.orEmpty().lowercase()
+    return when {
+        error is java.net.SocketTimeoutException -> "timed_out"
+        error is java.net.NoRouteToHostException || "host is unreachable" in message || "ehostunreach" in message -> "host_unreachable"
+        "network is unreachable" in message || "enetunreach" in message -> "network_unreachable"
+        error is java.net.ConnectException && "refused" in message -> "refused"
+        "reset" in message -> "reset_by_peer"
+        "broken pipe" in message -> "broken_pipe"
+        "software caused connection abort" in message -> "aborted"
+        "socket closed" in message -> "closed"
+        error is ProtocolFrameTooLargeException -> "frame_too_large"
+        error is java.nio.charset.CharacterCodingException || error is org.json.JSONException -> "protocol_error"
+        error is java.net.UnknownHostException -> "unknown_host"
+        else -> error.javaClass.simpleName.lowercase().ifEmpty { "error" }
+    }
+}

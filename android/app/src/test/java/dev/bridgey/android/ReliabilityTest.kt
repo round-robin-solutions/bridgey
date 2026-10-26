@@ -38,9 +38,22 @@ class ReliabilityTest {
         }
     }
 
-    @Test fun reconnectBackoffIsBounded() {
-        assertEquals(listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L, 30_000L),
-            (0..6).map(::reconnectDelayMillis))
+    @Test fun reconnectBackoffFollowsThePolicy() {
+        // 2 s, 5 s, 15 s, 30 s, then every 60 s during the first hour; every 10 minutes after.
+        assertEquals(listOf(2_000L, 5_000L, 15_000L, 30_000L, 60_000L, 60_000L, 60_000L),
+            (0..6).map { ReconnectPolicy.delayMillis(it, 0) })
+        assertEquals(60_000L, ReconnectPolicy.delayMillis(40, 3_599_999))
+        assertEquals(600_000L, ReconnectPolicy.delayMillis(40, 3_600_000))
+        assertEquals(2_000L, ReconnectPolicy.delayMillis(-1, 0))
+    }
+
+    @Test fun dropReasonsAreShortTokens() {
+        assertEquals("reset_by_peer", socketDropReason(java.net.SocketException("Connection reset")))
+        assertEquals("reset_by_peer", socketDropReason(java.net.SocketException("Connection reset by peer")))
+        assertEquals("timed_out", socketDropReason(java.net.SocketTimeoutException("connect timed out")))
+        assertEquals("refused", socketDropReason(java.net.ConnectException("failed to connect: ECONNREFUSED (Connection refused)")))
+        assertEquals("host_unreachable", socketDropReason(java.net.NoRouteToHostException("Host unreachable")))
+        assertEquals("protocol_error", socketDropReason(org.json.JSONException("bad")))
     }
 
     @Test fun heartbeatTimeoutRequiresNegotiatedSupport() {
