@@ -9,6 +9,9 @@ struct PhoneLinkState: Equatable {
     var featureStateReceived = false
     /// The phone advertised `clipboard_files_draft1`.
     var remoteClipboardFiles = false
+    /// The phone advertised `folders_draft1` (it receives folders) and `places_draft1` (it serves places).
+    var remoteFolders = false
+    var remotePlaces = false
     var battery: RemoteBatteryStatus?
     /// The phone reported that it is ringing (Find device).
     var ringing = false

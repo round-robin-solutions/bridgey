@@ -1894,12 +1894,15 @@ final class PairingCoordinator: ObservableObject {
                 let features = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
                     ($0, payload.features[$0.rawValue] ?? false)
                 })
-                let clipboardFiles = (try? JSONDecoder().decode(ClipboardFeatureProbe.self, from: plaintext))?.features[clipboardFilesFeatureKey] == true
+                let draftKeys = (try? JSONDecoder().decode(ClipboardFeatureProbe.self, from: plaintext))?.features ?? [:]
+                let clipboardFiles = draftKeys[clipboardFilesFeatureKey] == true
                 let phoneID = current.remoteDeviceID
                 registry.update(phoneID) { link in
                     link.remoteFeatures = features
                     link.featureStateReceived = true
                     link.remoteClipboardFiles = clipboardFiles
+                    link.remoteFolders = draftKeys[foldersFeatureKey] == true
+                    link.remotePlaces = draftKeys[placesFeatureKey] == true
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
                 }
@@ -2385,6 +2388,10 @@ final class PairingCoordinator: ObservableObject {
             ($0.rawValue, settings.isEnabled($0, for: current.remoteDeviceID))
         })
         features[clipboardFilesFeatureKey] = clipboardOffersEnabledLocally(current)
+        // Draft, edition only: this Mac sends folders (receiving them comes with phone to Mac). It serves no
+        // places, so places_draft1 is false.
+        features[foldersFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
+        features[placesFeatureKey] = false
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
               let encrypted = try? encrypt(payload, key: key) else { return }
         current.send(PairingMessage(

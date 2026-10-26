@@ -2450,6 +2450,12 @@ class PairingCoordinator(
             CLIPBOARD_FILES_FEATURE_KEY,
             settings.isEnabled(BridgeyFeature.CLIPBOARD, current.remoteDeviceId) && settings.state.value.clipboardFilesEnabled,
         )
+        // Draft, edition only: this phone receives folders and serves its places. Both mirror Files;
+        // receiving needs Android 10 (scoped storage), like receiving files.
+        val receivesFolders = settings.isEnabled(BridgeyFeature.FILES, current.remoteDeviceId) &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        featureValues.put(dev.bridgey.android.folders.FOLDERS_FEATURE_KEY, receivesFolders)
+        featureValues.put(dev.bridgey.android.folders.PLACES_FEATURE_KEY, receivesFolders)
         val payload = JSONObject()
             .put("version", 1)
             .put("features", featureValues)
@@ -2484,6 +2490,8 @@ class PairingCoordinator(
             state.copy(
                 remoteFeatures = received,
                 remoteClipboardFiles = values.opt(CLIPBOARD_FILES_FEATURE_KEY) == true,
+                remoteFolders = values.opt(dev.bridgey.android.folders.FOLDERS_FEATURE_KEY) == true,
+                remotePlaces = values.opt(dev.bridgey.android.folders.PLACES_FEATURE_KEY) == true,
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
                 ringing = state.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
             )
