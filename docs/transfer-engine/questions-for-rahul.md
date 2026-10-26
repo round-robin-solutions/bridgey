@@ -462,3 +462,10 @@ These come from earlier decisions and are built in as they stand:
 
 Judgement calls made in the design without asking are listed in
 [design.md section 20](design.md#20-calls-made-in-this-design).
+
+## Answers from Rahul (2026-10-26)
+
+- A2 (when a file counts as saved): **benchmark first.** Measure hashing speed, CPU time and battery cost on the OnePlus 11 (and both Macs) before choosing between per-piece checks, per-piece plus read-back, and whole-file only. Phase T0 becomes a shipped benchmark.
+- A3 (source changes during a send): **stop and ask** ("This file changed while sending: send new version / skip").
+- A4/A5 (resume window and partial data): **24 hours** after the last progress, then partial data is removed.
+- A6 (Restart): **offer both**, "Restart unfinished" and "Start over completely".
