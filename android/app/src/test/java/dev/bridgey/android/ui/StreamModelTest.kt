@@ -48,6 +48,41 @@ class StreamModelTest {
     }
 
     @Test
+    fun aDroppedMacSaysReconnectingRatherThanLookingIdle() {
+        val trusted = listOf(TrustedDevice("a", "Work Mac"))
+        val fresh = deviceRings(trusted, emptyList(), emptyList(), PairingState.Idle, mapOf("a" to dev.bridgey.android.ReconnectDisplay(now, struggling = false)))
+        assertEquals(RingState.CONNECTING, fresh.single().state)
+        assertTrue(fresh.single().canRetry)
+        val struggling = deviceRings(trusted, emptyList(), emptyList(), PairingState.Idle, mapOf("a" to dev.bridgey.android.ReconnectDisplay(now, struggling = true)))
+        assertEquals(RingState.OFFLINE, struggling.single().state)
+        assertTrue(struggling.single().canRetry)
+        val nearby = deviceRings(trusted, listOf(peer("a", "Work Mac")), emptyList(), PairingState.Idle, mapOf("a" to dev.bridgey.android.ReconnectDisplay(now, struggling = true)))
+        assertEquals(RingState.NEARBY, nearby.single().state)
+        // Connected devices and devices without a reconnect show as before.
+        val connected = deviceRings(
+            trusted, emptyList(), listOf(dev.bridgey.android.DeviceConnection("a", "Work Mac", dev.bridgey.android.DeviceLinkState())), PairingState.Idle,
+            mapOf("a" to dev.bridgey.android.ReconnectDisplay(now, struggling = true)),
+        )
+        assertEquals(RingState.CONNECTED, connected.single().state)
+        assertFalse(connected.single().canRetry)
+        assertEquals(RingState.OFFLINE, deviceRings(trusted, emptyList(), emptyList(), PairingState.Idle).single().state)
+    }
+
+    @Test
+    fun lastSeenIsATimeTodayADayThisWeekElseADate() {
+        val zoneId = zone.toZoneId()
+        val locale = java.util.Locale.UK
+        val seen = Calendar.getInstance(zone).apply {
+            set(2026, Calendar.OCTOBER, 25, 2, 56, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        assertEquals("02:56", lastSeenText(seen, now, zoneId, locale, is24Hour = true))
+        assertEquals("2:56 am", lastSeenText(seen, now, zoneId, locale, is24Hour = false).lowercase())
+        assertEquals("Fri 02:56", lastSeenText(seen - 2 * 86_400_000L, now, zoneId, locale, is24Hour = true))
+        assertEquals("15 Oct", lastSeenText(seen - 10 * 86_400_000L, now, zoneId, locale, is24Hour = true))
+    }
+
+    @Test
     fun connectingIsShownOnTheMatchingRing() {
         val rings = deviceRings(listOf(TrustedDevice("a", "Mac mini")), listOf(peer("a", "Mac mini")), PairingState.Connecting("Mac mini"))
         assertEquals(RingState.CONNECTING, rings.single().state)

@@ -37,6 +37,8 @@ data class BridgeySettingsState(
     val clipboardFilesEnabled: Boolean = true,
     /** Clipboard > Send right away up to, in bytes; 0 is "Always ask when pasting". */
     val clipboardEagerLimit: Long = ClipLimits.DEFAULT_EAGER_LIMIT,
+    /** This phone > Keep Wi-Fi awake: a Wi-Fi lock while connected (Android 13 and older; off by default). */
+    val keepWifiAwake: Boolean = false,
 )
 
 /** Automatic clipboard is on for a device when global and the per-device switch both allow it. */
@@ -147,6 +149,11 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         mutableState.value = mutableState.value.copy(clipboardEagerLimit = value)
     }
 
+    fun setKeepWifiAwake(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_KEEP_WIFI_AWAKE, enabled).apply()
+        mutableState.value = mutableState.value.copy(keepWifiAwake = enabled)
+    }
+
     /** Automatic clipboard for [deviceId], falling back to the global switch when unset. */
     fun isAutoClipboardEnabled(deviceId: String?): Boolean {
         val snapshot = mutableState.value
@@ -202,6 +209,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
             clipboardFilesEnabled = preferences.getBoolean(KEY_CLIPBOARD_FILES, true),
             clipboardEagerLimit = preferences.getLong(KEY_CLIPBOARD_EAGER_LIMIT, ClipLimits.DEFAULT_EAGER_LIMIT)
                 .takeIf { it in ClipLimits.EAGER_LIMIT_CHOICES } ?: ClipLimits.DEFAULT_EAGER_LIMIT,
+            keepWifiAwake = preferences.getBoolean(KEY_KEEP_WIFI_AWAKE, false),
         )
     }
 
@@ -215,5 +223,6 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         private const val KEY_BACKGROUND_CLIPBOARD = "clipboard.background.enabled"
         private const val KEY_CLIPBOARD_FILES = "clipboard.files.enabled"
         private const val KEY_CLIPBOARD_EAGER_LIMIT = "clipboard.files.eager_limit"
+        private const val KEY_KEEP_WIFI_AWAKE = "connection.keep_wifi_awake"
     }
 }

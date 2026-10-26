@@ -4,6 +4,7 @@ import dev.bridgey.android.DeviceConnection
 import dev.bridgey.android.DeviceLinkState
 import dev.bridgey.android.FileTransferState
 import dev.bridgey.android.PairingState
+import dev.bridgey.android.ReconnectDisplay
 import dev.bridgey.android.TrustedDevice
 import dev.bridgey.android.activity.ActivityCategory
 import dev.bridgey.android.activity.ActivityHistory
@@ -42,7 +43,12 @@ data class DeviceRing(
     val platform: String?,
     /** Where to connect to pair or reconnect; null when not on the network. */
     val peer: DiscoveredPeer?,
-)
+    /** Set while a trusted, disconnected device is being retried. */
+    val reconnect: ReconnectDisplay? = null,
+) {
+    /** Offers "Retry now". */
+    val canRetry: Boolean get() = trusted && reconnect != null && state != RingState.CONNECTED
+}
 
 /**
  * Every trusted device plus every device on the network, in reading order: connected, then
@@ -66,6 +72,7 @@ fun deviceRings(
     peers: List<DiscoveredPeer>,
     connections: List<DeviceConnection>,
     pairing: PairingState,
+    reconnecting: Map<String, ReconnectDisplay> = emptyMap(),
 ): List<DeviceRing> {
     val connectedIds = connections.mapTo(HashSet()) { it.deviceId }
     val connectingName = when (pairing) {
@@ -76,13 +83,17 @@ fun deviceRings(
     val trustedIds = trusted.mapTo(HashSet()) { it.id }
     val rings = trusted.map { device ->
         val peer = peers.firstOrNull { it.deviceIdHint == device.id }
+        val retry = reconnecting[device.id]?.takeIf { device.id !in connectedIds }
         val ringState = when {
             device.id in connectedIds -> RingState.CONNECTED
             connectingName != null && (connectingName == device.name || connectingName == peer?.deviceNameHint) -> RingState.CONNECTING
+            // Retrying: the connecting ring while it is fresh; after several misses the ring shows
+            // how it is reached (nearby or offline) and the label says it is still retrying.
+            retry != null && !retry.struggling -> RingState.CONNECTING
             peer != null -> RingState.NEARBY
             else -> RingState.OFFLINE
         }
-        DeviceRing(device.id, device.id, device.name, ringState, trusted = true, platform = peer?.platformHint, peer = peer)
+        DeviceRing(device.id, device.id, device.name, ringState, trusted = true, platform = peer?.platformHint, peer = peer, reconnect = retry)
     }.toMutableList()
     connections.filter { it.deviceId !in trustedIds }.forEach { connected ->
         val peer = peers.firstOrNull { it.deviceIdHint == connected.deviceId }
@@ -208,4 +219,17 @@ class ArrivalTracker {
 
     /** True once for a key that arrived after the first update. */
     fun consume(key: String): Boolean = arrived.remove(key)
+}
+
+/** "02:56" today, "Mon 02:56" this week, else "26 Oct". */
+fun lastSeenText(atMillis: Long, now: Long, zone: java.time.ZoneId, locale: java.util.Locale, is24Hour: Boolean): String {
+    val at = java.time.Instant.ofEpochMilli(atMillis).atZone(zone)
+    val today = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    val time = if (is24Hour) "HH:mm" else "h:mm a"
+    val pattern = when {
+        at.toLocalDate() == today -> time
+        now - atMillis < 6 * 86_400_000L -> "EEE $time"
+        else -> "d MMM"
+    }
+    return java.time.format.DateTimeFormatter.ofPattern(pattern, locale).format(at)
 }
