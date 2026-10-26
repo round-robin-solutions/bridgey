@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 
-@main
 struct BridgeyApp: App {
     @NSApplicationDelegateAdaptor(PhoneURLHandler.self) private var phoneURLHandler
     @StateObject private var discovery: BonjourDiscovery

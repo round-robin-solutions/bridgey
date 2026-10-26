@@ -330,4 +330,34 @@
     <string name="paste_progress_title">Pasting from %1$s</string>
     <string name="paste_progress_detail">%1$s, %2$d%%</string>
     <string name="paste_progress_detail_unnamed">%1$d%%</string>
+    <!-- Performance test (hidden: tap the version 7 times in Settings, About) -->
+    <string name="perf_title">Performance test</string>
+    <string name="perf_channel">Performance test</string>
+    <string name="perf_notification_text">Measuring the cost of file checks</string>
+    <string name="perf_intro">Writes a test file in 1 MiB blocks under five checking modes and measures the time, processor use and battery each one costs. The file lives in the app\'s private cache and is deleted afterwards.</string>
+    <string name="perf_unplug_hint">Unplug the phone before you start. Battery numbers mean nothing while it charges.</string>
+    <string name="perf_plugged_warning">The phone is plugged in. Unplug it first, or the battery numbers will be wrong.</string>
+    <string name="perf_run_quick">Run quick (256 MB)</string>
+    <string name="perf_run_full">Run full (1 GB)</string>
+    <string name="perf_cancel">Stop</string>
+    <string name="perf_running">Step %1$d of %2$d: %3$s</string>
+    <string name="perf_summary">%1$d MiB test file. %2$s</string>
+    <string name="perf_mode_write_only">1. Write only</string>
+    <string name="perf_mode_blake3_block">2. Write + BLAKE3 per block</string>
+    <string name="perf_mode_blake3_readback">3. Mode 2 + read back and hash again</string>
+    <string name="perf_mode_blake3_whole">4. Write, then one BLAKE3 of the whole file</string>
+    <string name="perf_mode_sha256_block">5. Write + SHA-256 per block (comparison)</string>
+    <string name="perf_line_time">%1$.2f s, %2$.0f MB/s, processor %3$.2f s</string>
+    <string name="perf_line_energy">Battery used: %1$.2f mAh</string>
+    <string name="perf_line_mismatch">Read-back mismatches: %1$d</string>
+    <string name="perf_line_extra">Per 10 GB, extra over write only: %1$+.1f s, %2$+.1f s of processor</string>
+    <string name="perf_line_extra_energy">Per 10 GB: %1$+.1f mAh, %2$.2f%% of a 5000 mAh battery</string>
+    <string name="perf_fail_space">Not enough free space. The test needs twice the file size plus 1 GB.</string>
+    <string name="perf_fail_native">The BLAKE3 library did not load on this device.</string>
+    <string name="perf_fail_vectors">BLAKE3 failed its test vectors, so the results would be wrong. Nothing was measured.</string>
+    <string name="perf_fail_io">The test file could not be written.</string>
+    <string name="perf_cancelled">Stopped. Nothing was kept.</string>
+    <string name="perf_copy">Copy results</string>
+    <string name="perf_share">Share as JSON</string>
+    <string name="perf_copied">Results copied</string>
 </resources>

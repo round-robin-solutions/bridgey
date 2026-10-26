@@ -352,4 +352,34 @@
     <string name="paste_progress_title">Вставка с %1$s</string>
     <string name="paste_progress_detail">%1$s, %2$d%%</string>
     <string name="paste_progress_detail_unnamed">%1$d%%</string>
+    <!-- Тест производительности (скрыт: 7 раз нажмите на версию в настройках, О приложении) -->
+    <string name="perf_title">Тест производительности</string>
+    <string name="perf_channel">Тест производительности</string>
+    <string name="perf_notification_text">Измеряем стоимость проверки файлов</string>
+    <string name="perf_intro">Записывает тестовый файл блоками по 1 МиБ в пяти режимах проверки и измеряет время, нагрузку на процессор и расход батареи. Файл лежит в закрытом кэше приложения и после теста удаляется.</string>
+    <string name="perf_unplug_hint">Перед запуском отключите зарядку. Во время зарядки данные о батарее ничего не значат.</string>
+    <string name="perf_plugged_warning">Телефон заряжается. Сначала отключите зарядку, иначе данные о батарее будут неверными.</string>
+    <string name="perf_run_quick">Быстрый (256 МБ)</string>
+    <string name="perf_run_full">Полный (1 ГБ)</string>
+    <string name="perf_cancel">Остановить</string>
+    <string name="perf_running">Шаг %1$d из %2$d: %3$s</string>
+    <string name="perf_summary">Тестовый файл %1$d МиБ. %2$s</string>
+    <string name="perf_mode_write_only">1. Только запись</string>
+    <string name="perf_mode_blake3_block">2. Запись + BLAKE3 для каждого блока</string>
+    <string name="perf_mode_blake3_readback">3. Режим 2 + чтение и повторный хеш</string>
+    <string name="perf_mode_blake3_whole">4. Запись, затем один BLAKE3 на весь файл</string>
+    <string name="perf_mode_sha256_block">5. Запись + SHA-256 для каждого блока (для сравнения)</string>
+    <string name="perf_line_time">%1$.2f с, %2$.0f МБ/с, процессор %3$.2f с</string>
+    <string name="perf_line_energy">Расход батареи: %1$.2f мА·ч</string>
+    <string name="perf_line_mismatch">Расхождений при чтении: %1$d</string>
+    <string name="perf_line_extra">На 10 ГБ сверх простой записи: %1$+.1f с, %2$+.1f с процессора</string>
+    <string name="perf_line_extra_energy">На 10 ГБ: %1$+.1f мА·ч, %2$.2f%% батареи 5000 мА·ч</string>
+    <string name="perf_fail_space">Мало свободного места. Нужно вдвое больше размера файла плюс 1 ГБ.</string>
+    <string name="perf_fail_native">Библиотека BLAKE3 не загрузилась на этом устройстве.</string>
+    <string name="perf_fail_vectors">BLAKE3 не прошёл тестовые векторы, результаты были бы неверными. Ничего не измерено.</string>
+    <string name="perf_fail_io">Не удалось записать тестовый файл.</string>
+    <string name="perf_cancelled">Остановлено. Ничего не сохранено.</string>
+    <string name="perf_copy">Скопировать результаты</string>
+    <string name="perf_share">Поделиться в JSON</string>
+    <string name="perf_copied">Результаты скопированы</string>
 </resources>

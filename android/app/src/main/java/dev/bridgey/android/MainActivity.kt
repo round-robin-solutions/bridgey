@@ -79,6 +79,11 @@ import dev.bridgey.android.ui.PermissionRow
 import dev.bridgey.android.ui.RingState
 import dev.bridgey.android.ui.Route
 import dev.bridgey.android.ui.SettingsActions
+import dev.bridgey.android.ui.PerfTestActions
+import dev.bridgey.android.ui.PerfTestScreen
+import dev.bridgey.android.bench.AndroidBenchProbe
+import dev.bridgey.android.bench.BenchService
+import dev.bridgey.android.bench.BenchState
 import dev.bridgey.android.ui.SettingsScreen
 import dev.bridgey.android.ui.SettingsState
 import dev.bridgey.android.ui.UiPreferences
@@ -642,6 +647,7 @@ private fun BridgeyApp(
                         actions = SettingsActions(
                             back = { stack.pop() },
                             openDevices = { stack.push(Route.Devices) },
+                            openPerfTest = { stack.push(Route.PerfTest) },
                             openNotificationApps = { stack.push(Route.NotificationApps) },
                             appNotifications = {
                                 if (appNotificationsEnabled) onOpenAppNotificationSettings()
@@ -676,6 +682,32 @@ private fun BridgeyApp(
                             setChannel = updater::setChannel,
                             install = updater::install,
                             openUrl = { runCatching { uriHandler.openUri(it) } },
+                        ),
+                    )
+                }
+                Route.PerfTest -> {
+                    val benchState by BenchState.state.collectAsStateWithLifecycle()
+                    PerfTestScreen(
+                        state = benchState,
+                        pluggedIn = AndroidBenchProbe.isPluggedIn(context),
+                        actions = PerfTestActions(
+                            back = { stack.pop() },
+                            run = { BenchService.start(context, it) },
+                            cancel = { BenchService.cancel(context) },
+                            copy = { report ->
+                                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                                    ClipData.newPlainText("Bridgey performance test", report.toText { mode -> mode.english }),
+                                )
+                                android.widget.Toast.makeText(context, context.getString(R.string.perf_copied), android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            share = { report ->
+                                context.startActivity(
+                                    Intent.createChooser(
+                                        Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, report.toJson()),
+                                        context.getString(R.string.perf_share),
+                                    ),
+                                )
+                            },
                         ),
                     )
                 }

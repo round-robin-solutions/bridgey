@@ -10,9 +10,19 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", .upToNextMinor(from: "2.10.0")),
     ],
     targets: [
+        // Official BLAKE3 C code, release 1.8.7, unmodified (CC0-1.0 or Apache-2.0). NEON on arm64.
+        .target(
+            name: "CBlake3",
+            exclude: ["LICENSE_CC0", "LICENSE_A2", "BLAKE3_SOURCE.txt"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .define("BLAKE3_NO_SSE2"), .define("BLAKE3_NO_SSE41"),
+                .define("BLAKE3_NO_AVX2"), .define("BLAKE3_NO_AVX512"),
+            ]
+        ),
         .executableTarget(
             name: "BridgeyMac",
-            dependencies: [.product(name: "Sparkle", package: "Sparkle")]
+            dependencies: [.product(name: "Sparkle", package: "Sparkle"), "CBlake3"]
         ),
         .testTarget(name: "BridgeyMacTests", dependencies: ["BridgeyMac"]),
     ],

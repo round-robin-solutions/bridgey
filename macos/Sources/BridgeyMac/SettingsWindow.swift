@@ -1030,6 +1030,7 @@ struct AboutPane: View {
             SettingsRow(title: L10n.text("about.network", fallback: "Your data"),
                         subtitle: L10n.text("about.network.detail", fallback: "Bridgey talks directly over your local network. Clipboard, files and notification content are encrypted in transit.")) { EmptyView() }
         }
+        PerfTestPanel()
     }
 }
 

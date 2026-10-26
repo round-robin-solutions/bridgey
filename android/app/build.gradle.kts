@@ -30,6 +30,8 @@ android {
         targetSdk = 36
         versionCode = editionVersionCode
         versionName = editionVersionName
+        // Performance test: the official BLAKE3 C code through JNI (NEON on arm64).
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         buildConfigField("String", "UPDATE_FEED_BASE_URL", "\"${editionValue("UPDATE_FEED_BASE_URL")}\"")
         buildConfigField("String", "UPDATE_ASSET_URL_PREFIX", "\"${editionValue("UPDATE_ASSET_URL_PREFIX")}\"")
     }
@@ -52,6 +54,14 @@ android {
             signingConfig = signingConfigs.findByName("release")
         }
     }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+    ndkVersion = "27.1.12297006"
 
     buildFeatures {
         compose = true

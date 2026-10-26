@@ -35,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -118,6 +119,7 @@ class SettingsActions(
     val setChannel: (UpdateChannel) -> Unit = {},
     val install: () -> Unit = {},
     val openUrl: (String) -> Unit = {},
+    val openPerfTest: () -> Unit = {},
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
@@ -166,6 +168,7 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
     var renaming by rememberSaveable { mutableStateOf(false) }
     var confirmClear by rememberSaveable { mutableStateOf(false) }
     var licences by rememberSaveable { mutableStateOf(false) }
+    var versionTaps by remember { mutableIntStateOf(0) }
     SettingsPage(stringResource(R.string.settings_title), actions.back, listState) {
         // 1. This phone
         sectionLabel(SettingsSection.THIS_PHONE, 20.dp)
@@ -390,7 +393,14 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
         item(key = "about") {
             RowGroup(Modifier.padding(top = 8.dp)) {
                 row { shape ->
-                    ListRow(shape, stringResource(R.string.settings_version), state.installedVersion, BridgeyIcons.Info, Tint.BLUE)
+                    ListRow(
+                        shape, stringResource(R.string.settings_version), state.installedVersion, BridgeyIcons.Info, Tint.BLUE,
+                        // Seven taps open the hidden Performance test.
+                        onClick = {
+                            versionTaps += 1
+                            if (versionTaps >= 7) { versionTaps = 0; actions.openPerfTest() }
+                        },
+                    )
                 }
                 row { shape ->
                     ListRow(
