@@ -43,11 +43,17 @@ enum ActivityKind: String, CaseIterable, Codable {
     /// A paste here moved the data from the phone.
     case clipPasted = "clip_pasted"
     case clipPasteFailed = "clip_paste_failed"
+    /// A folder from this Mac was saved on the phone (Files 2.0).
+    case folderSent = "folder_sent"
+    /// A folder from the phone was saved here (phone to Mac comes later; the kind is stored already).
+    case folderReceived = "folder_received"
+    /// A folder transfer ended before every file arrived.
+    case folderIncomplete = "folder_incomplete"
 
     var category: ActivityCategory {
         switch self {
         case .clipboardSent, .clipboardReceived, .clipOfferSent, .clipOfferReceived, .clipPasted, .clipPasteFailed: .clipboard
-        case .fileSent, .fileReceived, .fileFailed: .files
+        case .fileSent, .fileReceived, .fileFailed, .folderSent, .folderReceived, .folderIncomplete: .files
         case .notificationsShown: .alerts
         case .callShown, .callStarted: .calls
         default: .other
@@ -69,6 +75,7 @@ enum ActivityKind: String, CaseIterable, Codable {
     /// Clipboard items carry a text preview; incoming calls the caller.
     var carriesPreview: Bool { self == .clipboardSent || self == .clipboardReceived || self == .callShown }
     var carriesAppName: Bool { self == .notificationsShown }
+    var isFolder: Bool { self == .folderSent || self == .folderReceived || self == .folderIncomplete }
 }
 
 /// One stream item. These fields are the whole record, in memory and on disk.
@@ -89,10 +96,94 @@ struct ActivityItem: Codable, Equatable, Identifiable {
     /// Clipboard offers: the number of items. Merged events: how many.
     let count: Int
     let at: Date
-    /// Clipboard offers: total size in bytes.
+    /// Clipboard offers and folders: total size in bytes.
     var bytes: Int64? = nil
-    /// Clipboard offers: "text", "image" or "file".
+    /// Clipboard offers: "text", "image" or "file". Folders: the detail facts (`FolderActivityDetail`).
     var content: String? = nil
+    /// Folders: how many files the folder has.
+    var fileCount: Int? = nil
+    /// Folders: where it landed, as a display path ("Pictures/Trip"), at most 128 characters.
+    var destination: String? = nil
+}
+
+/// The facts behind a folder item's detail line, stored in `content` as "key=value;..." (values
+/// percent-encoded). Counts and codes only, plus the final folder name after "Save as new folder".
+struct FolderActivityDetail: Equatable {
+    var doneFiles: Int?
+    var doneBytes: Int64?
+    var links = 0
+    var hidden = 0
+    var system = 0
+    var failed = 0
+    /// "cancelled", "phone_cancelled", "lost", "timeout", "unconfirmed" or a rejection code.
+    var end: String?
+    var choice: String?
+    var kept = 0
+    var replaced = 0
+    var savedAs: String?
+
+    static let maximumLength = 512
+
+    var encoded: String {
+        var parts: [String] = []
+        func addText(_ key: String, _ value: String?) {
+            guard let value, !value.isEmpty else { return }
+            let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_. "))
+            parts.append("\(key)=\(value.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")")
+        }
+        func addCount(_ key: String, _ value: Int) { if value > 0 { parts.append("\(key)=\(value)") } }
+        if let doneFiles { parts.append("done=\(doneFiles)") }
+        if let doneBytes { parts.append("doneBytes=\(doneBytes)") }
+        addCount("links", links)
+        addCount("hidden", hidden)
+        addCount("system", system)
+        addCount("failed", failed)
+        addText("end", end)
+        addText("choice", choice)
+        addCount("kept", kept)
+        addCount("replaced", replaced)
+        addText("savedAs", savedAs.map { String($0.prefix(ActivityHistory.maximumNameLength)) })
+        return String(parts.joined(separator: ";").prefix(Self.maximumLength))
+    }
+
+    init(doneFiles: Int? = nil, doneBytes: Int64? = nil, links: Int = 0, hidden: Int = 0, system: Int = 0, failed: Int = 0,
+         end: String? = nil, choice: String? = nil, kept: Int = 0, replaced: Int = 0, savedAs: String? = nil) {
+        self.doneFiles = doneFiles
+        self.doneBytes = doneBytes
+        self.links = links
+        self.hidden = hidden
+        self.system = system
+        self.failed = failed
+        self.end = end
+        self.choice = choice
+        self.kept = kept
+        self.replaced = replaced
+        self.savedAs = savedAs
+    }
+
+    init(_ encoded: String?) {
+        self.init()
+        for part in (encoded ?? "").split(separator: ";") {
+            let pair = part.split(separator: "=", maxSplits: 1).map(String.init)
+            guard pair.count == 2 else { continue }
+            let value = pair[1].removingPercentEncoding ?? pair[1]
+            let number = max(0, min(Int(value) ?? 0, 1_000_000))
+            switch pair[0] {
+            case "done": doneFiles = number
+            case "doneBytes": doneBytes = max(0, Int64(value) ?? 0)
+            case "links": links = number
+            case "hidden": hidden = number
+            case "system": system = number
+            case "failed": failed = number
+            case "end": end = String(value.prefix(32))
+            case "choice": choice = String(value.prefix(16))
+            case "kept": kept = number
+            case "replaced": replaced = number
+            case "savedAs": savedAs = String(value.prefix(ActivityHistory.maximumNameLength))
+            default: break
+            }
+        }
+    }
 }
 
 enum ActivityHistory {
@@ -141,11 +232,13 @@ enum ActivityHistory {
         count: Int = 1,
         bytes: Int64? = nil,
         content: String? = nil,
+        fileCount: Int? = nil,
+        destination: String? = nil,
         now: Date,
         nextID: Int64
     ) -> [ActivityItem] {
-        let cleanContent = kind.isClipOffer ? cleanContentKind(content) : nil
-        let cleanBytes = kind.isClipOffer ? bytes.map { max(0, $0) } : nil
+        let cleanContent = cleanContentValue(content, kind: kind)
+        let cleanBytes = kind.isClipOffer || kind.isFolder ? bytes.map { max(0, $0) } : nil
         if kind == .clipPasted, let match = items.first, match.kind == .clipPasted,
            match.deviceID == deviceID.map({ String($0.prefix(64)) }), now >= match.at, now.timeIntervalSince(match.at) <= 60 {
             // Several files pasted at once read as one event.
@@ -186,13 +279,17 @@ enum ActivityHistory {
             count: kind.isClipOffer ? min(max(count, 1), 9_999) : 1,
             at: now,
             bytes: cleanBytes,
-            content: cleanContent
+            content: cleanContent,
+            fileCount: kind.isFolder ? fileCount.map { min(max($0, 0), 1_000_000) } : nil,
+            destination: kind.isFolder ? clean(destination, limit: maximumNameLength) : nil
         )
         return prune([item] + items, now: now)
     }
 
-    private static func cleanContentKind(_ value: String?) -> String? {
-        ["text", "image", "file"].contains(value ?? "") ? value : nil
+    private static func cleanContentValue(_ value: String?, kind: ActivityKind) -> String? {
+        if kind.isClipOffer { return ["text", "image", "file"].contains(value ?? "") ? value : nil }
+        if kind.isFolder { return clean(value, limit: FolderActivityDetail.maximumLength) }
+        return nil
     }
 
     static func encode(_ items: [ActivityItem]) throws -> Data {
@@ -224,8 +321,10 @@ enum ActivityHistory {
                 automatic: kind.category == .clipboard && value.automatic == true,
                 count: min(max(value.count ?? 1, 1), 9_999),
                 at: at,
-                bytes: kind.isClipOffer ? value.bytes.map { max(0, $0) } : nil,
-                content: kind.isClipOffer ? cleanContentKind(value.content) : nil
+                bytes: kind.isClipOffer || kind.isFolder ? value.bytes.map { max(0, $0) } : nil,
+                content: cleanContentValue(value.content, kind: kind),
+                fileCount: kind.isFolder ? value.fileCount.map { min(max($0, 0), 1_000_000) } : nil,
+                destination: kind.isFolder ? clean(value.destination, limit: maximumNameLength) : nil
             )
         }
         return prune(items, now: now)
@@ -236,7 +335,8 @@ enum ActivityHistory {
         ActivityItem(
             id: item.id, kind: item.kind, deviceID: item.deviceID, deviceName: item.deviceName,
             fileName: item.kind.isClipOffer ? nil : item.fileName, preview: nil, appName: nil, sensitive: item.sensitive,
-            automatic: item.automatic, count: item.count, at: item.at, bytes: item.bytes, content: item.content
+            automatic: item.automatic, count: item.count, at: item.at, bytes: item.bytes, content: item.content,
+            fileCount: item.fileCount, destination: item.destination
         )
     }
 
@@ -263,6 +363,8 @@ enum ActivityHistory {
         let at: Date?
         let bytes: Int64?
         let content: String?
+        let fileCount: Int?
+        let destination: String?
     }
 }
 
@@ -351,6 +453,8 @@ final class ActivityLog: ObservableObject {
         count: Int = 1,
         bytes: Int64? = nil,
         content: String? = nil,
+        fileCount: Int? = nil,
+        destination: String? = nil,
         previews: Bool
     ) {
         let updated = ActivityHistory.add(
@@ -367,6 +471,8 @@ final class ActivityLog: ObservableObject {
             count: count,
             bytes: bytes,
             content: content,
+            fileCount: fileCount,
+            destination: destination,
             now: clock(),
             nextID: nextID
         )

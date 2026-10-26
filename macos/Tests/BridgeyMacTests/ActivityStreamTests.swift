@@ -232,6 +232,71 @@ final class ActivityStreamTests: XCTestCase {
         XCTAssertTrue(ActivityHistory.decode(Data("not json".utf8), now: now).isEmpty)
     }
 
+    // MARK: Folders (Files 2.0)
+
+    /// The record's field set, pinned on purpose: folders added fileCount, bytes (shared with clipboard offers)
+    /// and destination. Folder and destination names stay on this Mac like file names.
+    func testTheRecordFieldsArePinned() throws {
+        let item = ActivityItem(id: 1, kind: .folderSent, deviceID: "d", deviceName: "OnePlus 11", fileName: "Photos", preview: nil, appName: nil,
+                                sensitive: false, automatic: false, count: 1, at: now, bytes: 2_469_606_195, content: "links=3", fileCount: 124,
+                                destination: "Pictures/Trip")
+        let json = try JSONSerialization.jsonObject(with: ActivityHistory.encode([item])) as! [[String: Any]]
+        XCTAssertEqual(Set(json[0].keys), ["id", "kind", "deviceID", "deviceName", "fileName", "sensitive", "automatic", "count", "at",
+                                           "bytes", "content", "fileCount", "destination"])
+        XCTAssertEqual(Set(ActivityKind.allCases.map(\.rawValue)).isSuperset(of: ["folder_sent", "folder_received", "folder_incomplete"]), true)
+        XCTAssertEqual([ActivityKind.folderSent, .folderReceived, .folderIncomplete].map(\.category), [.files, .files, .files])
+    }
+
+    func testFolderItemsKeepCountsAndDestinationAndOldItemsStillDecode() {
+        let long = String(repeating: "p", count: 300)
+        var items = ActivityHistory.add([], kind: .folderSent, deviceID: "d", deviceName: "OnePlus 11", fileName: "Photos", bytes: 2_469_606_195,
+                                        content: FolderActivityDetail(links: 3, hidden: 12).encoded, fileCount: 124, destination: long, now: now, nextID: 1)
+        XCTAssertEqual(items[0].fileCount, 124)
+        XCTAssertEqual(items[0].bytes, 2_469_606_195)
+        XCTAssertEqual(items[0].destination?.count, ActivityHistory.maximumNameLength)
+        // Other kinds never keep folder fields.
+        items = ActivityHistory.add(items, kind: .pingSent, deviceID: "d", deviceName: "OnePlus 11", bytes: 5, content: "links=3", fileCount: 3,
+                                    destination: "x", now: now, nextID: 2)
+        XCTAssertNil(items[0].fileCount)
+        XCTAssertNil(items[0].destination)
+        XCTAssertNil(items[0].bytes)
+        XCTAssertNil(items[0].content)
+        let roundTrip = ActivityHistory.decode(try! ActivityHistory.encode(items), now: now)
+        XCTAssertEqual(roundTrip, items)
+        let old = """
+        [{"id":7,"kind":"file_sent","deviceName":"A","fileName":"a.pdf","sensitive":false,"automatic":false,"count":1,"at":\(Int(now.timeIntervalSince1970 * 1000))}]
+        """
+        let decoded = ActivityHistory.decode(Data(old.utf8), now: now)
+        XCTAssertEqual(decoded.first?.fileName, "a.pdf")
+        XCTAssertNil(decoded.first?.fileCount)
+    }
+
+    func testFolderTitlesAndDetails() {
+        let size = ByteCountFormatter.string(fromByteCount: 2_469_606_195, countStyle: .file)
+        let done = ByteCountFormatter.string(fromByteCount: 812_000_000, countStyle: .file)
+        func item(_ kind: ActivityKind, _ detail: FolderActivityDetail, destination: String? = "Pictures/Trip") -> ActivityItem {
+            ActivityItem(id: 1, kind: kind, deviceID: "d", deviceName: "OnePlus 11", fileName: "Photos", preview: nil, appName: nil,
+                         sensitive: false, automatic: false, count: 1, at: now, bytes: 2_469_606_195, content: detail.encoded,
+                         fileCount: 124, destination: destination)
+        }
+        let sent = item(.folderSent, FolderActivityDetail(links: 3, hidden: 12, choice: "merge", kept: 12))
+        XCTAssertEqual(ActivityText.title(sent, showPreviews: true), "Sent folder Photos (124 files, \(size)) to OnePlus 11 \u{203A} Pictures/Trip")
+        XCTAssertEqual(ActivityText.detail(sent, showPreviews: true), "Merged, 12 kept as copies \u{00B7} 3 links and 12 hidden items skipped")
+        let incomplete = item(.folderIncomplete, FolderActivityDetail(doneFiles: 37, doneBytes: 812_000_000, failed: 3, end: "lost"), destination: nil)
+        XCTAssertEqual(ActivityText.title(incomplete, showPreviews: true), "Folder Photos incomplete: 37 of 124 files (\(done)) to OnePlus 11")
+        XCTAssertEqual(ActivityText.detail(incomplete, showPreviews: true), "Connection lost \u{00B7} 3 files failed")
+        let cancelled = item(.folderIncomplete, FolderActivityDetail(doneFiles: 0, doneBytes: 0, end: "cancelled"))
+        XCTAssertEqual(ActivityText.detail(cancelled, showPreviews: true), "Cancelled")
+        let renamed = item(.folderSent, FolderActivityDetail(choice: "new_folder", replaced: 0, savedAs: "Photos (1)"))
+        XCTAssertEqual(ActivityText.detail(renamed, showPreviews: true), "Saved as Photos (1)")
+        let replaced = item(.folderSent, FolderActivityDetail(system: 48, choice: "replace", replaced: 12))
+        XCTAssertEqual(ActivityText.detail(replaced, showPreviews: true), "12 files replaced \u{00B7} 48 system files skipped")
+        XCTAssertNil(ActivityText.detail(item(.folderSent, FolderActivityDetail()), showPreviews: true))
+        XCTAssertEqual(activityVisual(.folderSent).symbol, "folder")
+        // The detail survives names with separators.
+        XCTAssertEqual(FolderActivityDetail(FolderActivityDetail(savedAs: "a;b=c (1)").encoded).savedAs, "a;b=c (1)")
+    }
+
     // MARK: Privacy
 
     @MainActor func testNothingFromTheStreamReachesDiagnostics() throws {

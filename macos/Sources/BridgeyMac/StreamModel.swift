@@ -224,7 +224,79 @@ enum ActivityText {
         case .paired: return format("stream.paired", "Paired with %@", device)
         case .clipOfferSent, .clipOfferReceived, .clipPasted, .clipPasteFailed:
             return clipTitle(item, device: device, showPreviews: showPreviews)
+        case .folderSent, .folderReceived, .folderIncomplete:
+            return folderTitle(item, device: device)
         }
+    }
+
+    /// "Sent folder Photos (124 files, 2.3 GB) to OnePlus 11 › Pictures/Trip".
+    static func folderTitle(_ item: ActivityItem, device: String) -> String {
+        let name = item.fileName ?? L10n.text("stream.folder", fallback: "Folder")
+        let files = item.fileCount ?? 0
+        let size = ByteCountFormatter.string(fromByteCount: item.bytes ?? 0, countStyle: .file)
+        let place = item.destination.map { "\(device) \u{203A} \($0)" } ?? device
+        let fileText = files == 1
+            ? L10n.text("folders.count.file", fallback: "1 file")
+            : String(format: L10n.text("folders.count.files", fallback: "%@ files"), FolderText.number(files))
+        switch item.kind {
+        case .folderReceived:
+            return String(format: L10n.text("stream.folder.received", fallback: "Received folder %1$@ (%2$@, %3$@) from %4$@"), name, fileText, size, place)
+        case .folderIncomplete:
+            let detail = FolderActivityDetail(item.content)
+            let done = ByteCountFormatter.string(fromByteCount: detail.doneBytes ?? 0, countStyle: .file)
+            return String(format: L10n.text("stream.folder.incomplete", fallback: "Folder %1$@ incomplete: %2$@ of %3$@ files (%4$@) to %5$@"),
+                          name, FolderText.number(detail.doneFiles ?? 0), FolderText.number(files), done, place)
+        default:
+            return String(format: L10n.text("stream.folder.sent", fallback: "Sent folder %1$@ (%2$@, %3$@) to %4$@"), name, fileText, size, place)
+        }
+    }
+
+    /// "Merged, 12 kept as copies · 3 links and 12 hidden items skipped · 3 files failed".
+    static func folderDetail(_ item: ActivityItem) -> String? {
+        let detail = FolderActivityDetail(item.content)
+        let device = item.deviceName.isEmpty ? L10n.text("stream.device.unknown", fallback: "your phone") : item.deviceName
+        var parts: [String] = []
+        switch detail.end {
+        case nil: break
+        case "cancelled": parts.append(L10n.text("folders.end.cancelled", fallback: "Cancelled"))
+        case "lost": parts.append(L10n.text("stream.folder.lost", fallback: "Connection lost"))
+        case "phone_cancelled": parts.append(String(format: L10n.text("folders.end.phoneCancelled", fallback: "Cancelled on %@"), device))
+        case "timeout": parts.append(L10n.text("stream.folder.timeout", fallback: "Nobody answered in time"))
+        case "unconfirmed": parts.append(String(format: L10n.text("folders.end.unconfirmed", fallback: "Not confirmed by %@"), device))
+        case let code?: parts.append(FolderText.rejection(code: code, phone: device, needed: nil, free: nil))
+        }
+        if let savedAs = detail.savedAs {
+            parts.append(String(format: L10n.text("stream.folder.savedAs", fallback: "Saved as %@"), savedAs))
+        } else if detail.choice == ConflictChoice.merge.rawValue {
+            parts.append(detail.kept > 0
+                ? String(format: L10n.text("stream.folder.mergedKept", fallback: "Merged, %@ kept as copies"), FolderText.number(detail.kept))
+                : L10n.text("stream.folder.merged", fallback: "Merged"))
+        }
+        if detail.replaced > 0 {
+            parts.append(detail.replaced == 1
+                ? L10n.text("stream.folder.replacedOne", fallback: "1 file replaced")
+                : String(format: L10n.text("stream.folder.replaced", fallback: "%@ files replaced"), FolderText.number(detail.replaced)))
+        }
+        var skipped: [String] = []
+        if detail.links > 0 {
+            skipped.append(detail.links == 1 ? L10n.text("stream.folder.link", fallback: "1 link")
+                : String(format: L10n.text("stream.folder.links", fallback: "%@ links"), FolderText.number(detail.links)))
+        }
+        if detail.hidden > 0 {
+            skipped.append(detail.hidden == 1 ? L10n.text("stream.folder.hiddenOne", fallback: "1 hidden item")
+                : String(format: L10n.text("stream.folder.hidden", fallback: "%@ hidden items"), FolderText.number(detail.hidden)))
+        }
+        if detail.system > 0 {
+            skipped.append(detail.system == 1 ? L10n.text("stream.folder.systemOne", fallback: "1 system file")
+                : String(format: L10n.text("stream.folder.system", fallback: "%@ system files"), FolderText.number(detail.system)))
+        }
+        if !skipped.isEmpty {
+            let list = skipped.count == 1 ? skipped[0]
+                : skipped.dropLast().joined(separator: ", ") + L10n.text("stream.folder.and", fallback: " and ") + skipped.last!
+            parts.append(String(format: L10n.text("stream.folder.skipped", fallback: "%@ skipped"), list))
+        }
+        if detail.failed > 0 { parts.append(FolderText.failedFiles(detail.failed)) }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }
 
     /// "Copied image (2.1 MB)", "Copied video.mp4 from OnePlus 11 (340 MB)", "Copied 3 files".
@@ -290,6 +362,7 @@ enum ActivityText {
         case .clipOfferReceived: return L10n.text("stream.clip.received.detail", fallback: "Ready to paste here")
         case .clipPasted: return L10n.text("stream.clip.pasted.detail", fallback: "Moved when you pasted")
         case .clipPasteFailed: return L10n.text("stream.clip.failed.detail", fallback: "Copy it again and paste")
+        case .folderSent, .folderReceived, .folderIncomplete: return folderDetail(item)
         default: break
         }
         guard item.kind.category == .clipboard else { return nil }

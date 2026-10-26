@@ -36,6 +36,9 @@ private struct FileTransferView: View {
                         Text("No recent file transfers").foregroundStyle(.secondary)
                     } else {
                         ForEach(pairing.fileTransfers.values.sorted(by: { $0.startedAt > $1.startedAt })) { transfer in
+                            if let folder = transfer.folder {
+                                FolderTransferRow(transfer: transfer, folder: folder, pairing: pairing)
+                            } else {
                             HStack(alignment: .center, spacing: 12) {
                                 if transfer.active && !transfer.queued { ProgressView().controlSize(.small) }
                                 VStack(alignment: .leading, spacing: 3) {
@@ -50,6 +53,7 @@ private struct FileTransferView: View {
                                 } else if transfer.retryable {
                                     Button("Retry") { pairing.retryFileTransfer(id: transfer.id) }
                                 }
+                            }
                             }
                         }
                     }
@@ -70,5 +74,55 @@ private struct FileTransferView: View {
         }
         .padding(24)
         .frame(minWidth: 500, minHeight: 240)
+    }
+}
+
+/// One row per folder: "Photos → OnePlus 11 › Pictures/Trip", a bar by bytes, the live status line, and a
+/// disclosure for the current file, failures and the last completed names.
+private struct FolderTransferRow: View {
+    let transfer: FileTransferRow
+    let folder: FolderRowSummary
+    @ObservedObject var pairing: PairingCoordinator
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 12) {
+                Button { expanded.toggle() } label: {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right").frame(width: 12)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.text("folders.details.toggle", fallback: "Show files"))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(FolderText.title(folder)).fontWeight(.medium).lineLimit(1)
+                    if folder.state == .running, folder.progress.phase == .sending || folder.progress.phase == .completing {
+                        ProgressView(value: Double(folder.progress.bytesDone), total: Double(max(folder.progress.bytesTotal, 1)))
+                    }
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(FolderText.status(folder, now: context.date))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer()
+                if transfer.active {
+                    Button(L10n.text("action.cancel", fallback: "Cancel"), role: .destructive) { pairing.cancelFileTransfer(id: transfer.id) }
+                } else {
+                    if folder.canResume {
+                        Button(L10n.text("folders.action.resume", fallback: "Resume")) { pairing.resumeFolderTransfer(id: transfer.id) }
+                    }
+                    if folder.canSendAgain {
+                        Button(L10n.text("folders.action.sendAgain", fallback: "Send Again")) { pairing.retryFileTransfer(id: transfer.id) }
+                    }
+                }
+            }
+            if expanded {
+                BrandRoot(reduceMotion: false) {
+                    FolderExpandedDetails(progress: folder.progress, maxHeight: 160)
+                }
+                .padding(.leading, 24)
+            }
+        }
     }
 }

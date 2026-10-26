@@ -88,6 +88,10 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var clipboardFilesEnabled: Bool
     /// Clipboard > Send right away up to: bytes pushed right after a copy; 0 = always ask when pasting.
     @Published private(set) var clipboardEagerLimit: Int64
+    /// Files > Include hidden files when sending folders (dotfiles that are not system files). Off by default.
+    @Published private(set) var folderIncludeHidden: Bool
+    /// Files > Include system files when sending folders (.DS_Store, ._*, Thumbs.db, ...). Off by default.
+    @Published private(set) var folderIncludeSystem: Bool
 
     private let defaults = UserDefaults.standard
 
@@ -110,6 +114,8 @@ final class BridgeySettings: ObservableObject {
         clipboardEagerLimit = ClipboardEagerLimit(
             bytes: (storedDefaults.object(forKey: "settings.clipboardFiles.eagerLimit") as? NSNumber)?.int64Value ?? ClipboardEagerLimit.default.bytes
         ).bytes
+        folderIncludeHidden = storedDefaults.bool(forKey: "settings.folders.includeHidden")
+        folderIncludeSystem = storedDefaults.bool(forKey: "settings.folders.includeSystem")
         globalFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
             ($0, storedDefaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media && $0 != .remoteInput))
         })
@@ -190,6 +196,21 @@ final class BridgeySettings: ObservableObject {
     func setClipboardEagerLimit(_ limit: ClipboardEagerLimit) {
         defaults.set(NSNumber(value: limit.bytes), forKey: "settings.clipboardFiles.eagerLimit")
         clipboardEagerLimit = limit.bytes
+    }
+
+    func setFolderIncludeHidden(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.folders.includeHidden")
+        folderIncludeHidden = enabled
+    }
+
+    func setFolderIncludeSystem(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.folders.includeSystem")
+        folderIncludeSystem = enabled
+    }
+
+    /// The defaults for the next folder send.
+    var folderScanOptions: FolderScanOptions {
+        FolderScanOptions(includeHidden: folderIncludeHidden, includeSystem: folderIncludeSystem)
     }
 
     func setForDevice(_ deviceID: String, feature: BridgeyFeature, enabled: Bool) {
