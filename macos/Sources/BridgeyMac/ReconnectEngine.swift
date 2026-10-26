@@ -141,10 +141,12 @@ final class ReconnectEngine {
             let port = peer.port ?? ReconnectPolicy.listeningPort
             list += peer.addresses.map { KnownAddress(host: $0, port: port, source: .discovery, lastSeen: now) }
         }
-        list += addressBook.addresses(for: id)
+        // Bonjour just saw the live addresses on a local network, so they are always worth a try;
+        // the remembered ones only on a network this Mac is on now.
         let networks = networks()
         var seen = Set<String>()
-        return list.filter { seen.insert($0.host).inserted && isDialable($0.host, on: networks) }
+        let live = list.filter { seen.insert($0.host).inserted }
+        return live + addressBook.addresses(for: id).filter { seen.insert($0.host).inserted && isDialable($0.host, on: networks) }
     }
 
     /// One timer for every device: it fires at the earliest due attempt of a device that has no

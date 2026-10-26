@@ -26,6 +26,8 @@ enum ReconnectPolicy {
     static let eventQuietPeriod: TimeInterval = 2
     /// ...which still runs this long after the first event of a long burst.
     static let eventMaxWait: TimeInterval = 10
+    /// Event-driven discovery restarts are at least this far apart (a flapping network).
+    static let eventRestartSpacing: TimeInterval = 30
     /// A reconnect dial that has not connected by then is abandoned; the schedule tries again.
     static let connectTimeout: TimeInterval = 8
     /// Addresses remembered per device.

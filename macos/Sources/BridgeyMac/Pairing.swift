@@ -503,7 +503,8 @@ final class PairingCoordinator: ObservableObject {
                 sessionId: current.id,
                 deviceId: self.deviceID,
                 deviceName: self.deviceName,
-                publicKey: current.localEphemeralKey
+                publicKey: current.localEphemeralKey,
+                targetDeviceId: current.dialDeviceID
             ))
         }
         return current
@@ -1669,6 +1670,13 @@ final class PairingCoordinator: ObservableObject {
                 current.heartbeatSupported = true
             case "pairing.offer":
                 guard !current.initiatedLocally, current.pairingKey == nil else { return }
+                // A reconnect meant for another device (it dialled an address that is now ours):
+                // close without a pairing prompt.
+                if let target = message.targetDeviceId, target.lowercased() != deviceID.lowercased() {
+                    current.dropReason = "not_for_this_device"
+                    current.close()
+                    return
+                }
                 guard let publicKey = message.publicKey else { throw PairingError.invalidMessage }
                 current.id = message.sessionId
                 current.peerName = message.deviceName ?? "Android device"
@@ -1691,6 +1699,12 @@ final class PairingCoordinator: ObservableObject {
                 authenticateOrPrompt(current)
             case "pairing.answer":
                 guard current.pairingKey == nil else { return }
+                // A reconnect reached some other device at the old address: never prompt to pair it.
+                if let expected = current.dialDeviceID, expected.lowercased() != message.deviceId?.lowercased() {
+                    current.dropReason = "wrong_device"
+                    current.close()
+                    return
+                }
                 guard message.sessionId == current.id,
                       let key = current.privateKey,
                       let publicKey = message.publicKey,
@@ -2439,7 +2453,9 @@ final class PairingCoordinator: ObservableObject {
         let now = clock.now
         let ids = disconnectedTrustedIDs
         BridgeyLog.reconnect.notice("recovering after \(reason, privacy: .public) disconnected=\(ids.count, privacy: .public)")
-        restartDiscoveryNow(reason: reason)
+        if now.timeIntervalSince(lastDiscoveryRestart) >= ReconnectPolicy.eventRestartSpacing {
+            restartDiscoveryNow(reason: reason)
+        }
         reconnect.resetAll(ids)
         discoveryWindowStart = ids.isEmpty ? nil : now
         armDiscoveryRestartTimer()
@@ -3053,6 +3069,8 @@ struct PairingMessage: Codable {
     var ciphertext: String? = nil
     var transferId: String? = nil
     var sequence: Int64? = nil
+    /// On a reconnect offer: the trusted device it is meant for. Any other device declines quietly.
+    var targetDeviceId: String? = nil
 }
 
 enum PairingError: Error { case invalidMessage, cancelled }
