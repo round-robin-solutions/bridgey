@@ -238,17 +238,18 @@ class MainActivity : ComponentActivity() {
     }
 
     /** While the presentation remote shows (and Settings allows it), the volume keys change slides. */
-    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
         val handler = VolumeKeyRouter.handler
-        val volume = event.keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP || event.keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN
-        if (handler != null && volume) {
-            if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                handler(event.keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP)
-            }
-            return true
-        }
-        return super.dispatchKeyEvent(event)
+        if (handler == null || !isVolumeKey(keyCode)) return super.onKeyDown(keyCode, event)
+        if (event.repeatCount == 0) handler(keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP)
+        return true
     }
+
+    override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean =
+        if (VolumeKeyRouter.handler != null && isVolumeKey(keyCode)) true else super.onKeyUp(keyCode, event)
+
+    private fun isVolumeKey(keyCode: Int) =
+        keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP || keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN
 
     private fun Intent.toRemoteTarget(): String? =
         if (action == RemoteShortcuts.ACTION_REMOTE_CONTROL) getStringExtra(RemoteShortcuts.EXTRA_DEVICE_ID)?.takeIf { it.isNotBlank() } else null
