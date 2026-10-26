@@ -61,6 +61,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.coroutineContext
@@ -84,6 +85,15 @@ enum class ClipboardSendResult {
     NO_ACKNOWLEDGEMENT,
     TOO_LARGE,
 }
+
+/** A screenshot whose send ended like this did not reach the Mac, so a later tap may send it again. */
+internal val SCREENSHOT_NOT_SENT = setOf(
+    ClipboardSendResult.EMPTY,
+    ClipboardSendResult.DISABLED,
+    ClipboardSendResult.NOT_CONNECTED,
+    ClipboardSendResult.CONNECTION_LOST,
+    ClipboardSendResult.TOO_LARGE,
+)
 
 data class FileTransferState(
     val id: String,
@@ -664,17 +674,63 @@ class PairingCoordinator(
         return effectiveFeatureAvailable(featureEnabled(feature, current), remote != false)
     }
 
-    /** Send clipboard (Home, a device page): the whole clip, images and files included when the Mac takes them. */
+    /**
+     * Send clipboard (Home, a device page): the whole clip, images and files included when the Mac
+     * takes them, or a screenshot from the last minute when Send a fresh screenshot is on.
+     */
     fun sendClipboard(deviceId: String? = null) {
         val clip = readLocalClip(appContext, clipboardOffersAvailable(deviceId), includeHtml = true)
-        if (clip == null || clip == LocalClip.Own) {
-            mutableClipboardStatus.value = if (clip == LocalClip.Own) {
-                "This clip came from your Mac"
+        sendCopiedItem(readClipTimestamp(appContext), deviceId, sendClipboard = {
+            if (clip == null || clip == LocalClip.Own) {
+                mutableClipboardStatus.value = if (clip == LocalClip.Own) {
+                    "This clip came from your Mac"
+                } else {
+                    "Clipboard unavailable. Copy text, return to Bridgey, and try again."
+                }
             } else {
-                "Clipboard unavailable. Copy text, return to Bridgey, and try again."
+                sendClip(clip, deviceId = deviceId)
             }
-        } else {
-            sendClip(clip, deviceId = deviceId)
+        }) { result, peerName ->
+            if (result == ClipboardSendResult.DELIVERED) {
+                mutableClipboardStatus.value = appContext.getString(R.string.screenshot_sent, peerName)
+            }
+        }
+    }
+
+    private val freshScreenshots = FreshScreenshots(appContext, { settings.state.value.screenshotSendEnabled })
+
+    /**
+     * Send copied item (notification button, Quick Settings tile, in-app send). With Clipboard > Send
+     * a fresh screenshot on and access to all photos, a screenshot taken in the last minute, after
+     * the clip on the clipboard ([clipTimestamp]), goes as an image offer and [onScreenshot] gets the
+     * result and the device's name. Otherwise [sendClipboard] runs as before, on the main thread. The
+     * device follows the usual rules: [deviceId], else the selected device.
+     */
+    fun sendCopiedItem(
+        clipTimestamp: Long,
+        deviceId: String?,
+        sendClipboard: () -> Unit,
+        onScreenshot: (ClipboardSendResult, String) -> Unit,
+    ) {
+        val target = sessionFor(deviceId)
+        if (target == null || !freshScreenshots.active() || !clipboardOffersAvailable(target.remoteDeviceId)) {
+            sendClipboard()
+            return
+        }
+        scope.launch {
+            val shot = runCatching { freshScreenshots.find(clipTimestamp) }.getOrNull()
+            withContext(Dispatchers.Main) {
+                if (shot == null) {
+                    sendClipboard()
+                    return@withContext
+                }
+                freshScreenshots.markSent(shot.id)
+                diagnostics.record("clipboard", "screenshot_sent")
+                sendClip(shot.asClip(), target.remoteDeviceId) { result ->
+                    if (result in SCREENSHOT_NOT_SENT) freshScreenshots.unmarkSent(shot.id)
+                    onScreenshot(result, target.peerName)
+                }
+            }
         }
     }
 

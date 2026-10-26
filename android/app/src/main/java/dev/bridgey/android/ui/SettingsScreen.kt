@@ -79,6 +79,8 @@ data class SettingsState(
     val clipboardFilesEnabled: Boolean = true,
     /** Clipboard > Send right away up to, in bytes; 0 is "Always ask when pasting". */
     val clipboardEagerLimit: Long = dev.bridgey.android.ClipLimits.DEFAULT_EAGER_LIMIT,
+    /** Clipboard > Send a fresh screenshot. */
+    val screenshotSendEnabled: Boolean = true,
     val tileAddSupported: Boolean,
     val tileAdded: Boolean,
     val notificationAppsEnabled: Int,
@@ -118,6 +120,7 @@ class SettingsActions(
     val setBackgroundClipboard: (Boolean) -> Unit = {},
     val setClipboardFiles: (Boolean) -> Unit = {},
     val setClipboardEagerLimit: (Long) -> Unit = {},
+    val setScreenshotSend: (Boolean) -> Unit = {},
     val copyCommand: () -> Unit = {},
     val addTile: () -> Unit = {},
     val setReduceMotion: (Boolean) -> Unit = {},
@@ -266,6 +269,15 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
                     )
                 }
                 row { shape -> EagerLimitRow(shape, state, actions) }
+                row { shape ->
+                    // A screenshot goes as an image offer, so it follows Copy images and files.
+                    val on = state.screenshotSendEnabled && state.clipboardFilesEnabled
+                    SwitchRow(
+                        shape, stringResource(R.string.screenshot_send_title), stringResource(R.string.screenshot_send_detail),
+                        BridgeyIcons.Smartphone, if (on) Tint.BLUE else Tint.NEUTRAL,
+                        on, actions.setScreenshotSend, enabled = state.clipboardFilesEnabled,
+                    )
+                }
                 row { shape ->
                     SwitchRow(
                         shape, stringResource(R.string.bg_clipboard_title), stringResource(R.string.bg_clipboard_detail),

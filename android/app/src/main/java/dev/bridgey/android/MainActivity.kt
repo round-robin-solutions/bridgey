@@ -143,6 +143,8 @@ class MainActivity : ComponentActivity() {
     private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         refreshPermissionState()
     }
+    /** Photo access for Settings > Clipboard > Send a fresh screenshot. */
+    private val screenshotAccess = ScreenshotAccessController(this) { bridgeySettings }
     private val callPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         bridgeySettings.setDirectCallsEnabled(hasCallIntegrationPermissions())
         BridgeyNotificationListenerService.callPermissionsChanged()
@@ -202,6 +204,7 @@ class MainActivity : ComponentActivity() {
                     onRequestDirectCalls = ::requestDirectCalls,
                     onExportDiagnostics = ::exportDiagnostics,
                     onAddTile = ::requestAddClipboardTile,
+                    screenshotAccess = screenshotAccess,
                     sharedContent = sharedContent,
                     onSharedContentHandled = ::clearSharedContent,
                     showOnboarding = showOnboarding,
@@ -218,6 +221,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshPermissionState()
+        screenshotAccess.onResume()
         autoSendClipboardOnResume()
     }
 
@@ -454,6 +458,7 @@ private fun BridgeyApp(
     onRequestDirectCalls: () -> Unit,
     onExportDiagnostics: () -> Unit,
     onAddTile: () -> Unit,
+    screenshotAccess: ScreenshotAccessController,
     sharedContent: SharedContent?,
     onSharedContentHandled: () -> Unit,
     showOnboarding: Boolean,
@@ -501,7 +506,7 @@ private fun BridgeyApp(
 
     // Problems reported by the coordinator (clipboard empty, not connected, ...) show once as a snackbar.
     LaunchedEffect(pairing) {
-        merge(pairing.clipboardStatus.drop(1), pairing.pingStatus.drop(1), pairing.quickActions.status.drop(1))
+        merge(pairing.clipboardStatus.drop(1), pairing.pingStatus.drop(1), pairing.quickActions.status.drop(1), screenshotAccess.messages)
             .filterNotNull()
             .collect { status ->
                 if (status !in QuietStatuses && !status.startsWith("Link delivered")) {
@@ -632,7 +637,10 @@ private fun BridgeyApp(
                         pairRing = { ring -> ring.peer?.host?.let { pairing.pair(it, ring.peer.port ?: 42_458, ring.peer.deviceNameHint) } ?: run { pairDialog = true } },
                         addDevice = { pairDialog = true },
                         pickTarget = { pickedTarget = it; pairing.selectDevice(it) },
-                        sendClipboard = { pairing.sendClipboard(target?.deviceId) },
+                        sendClipboard = {
+                            val deviceId = target?.deviceId
+                            screenshotAccess.beforeSend(pairing.clipboardOffersAvailable(deviceId)) { pairing.sendClipboard(deviceId) }
+                        },
                         lookForDevices = pairing::lookForDevices,
                         live = liveActions,
                     ),
@@ -704,7 +712,9 @@ private fun BridgeyApp(
                                     if (notificationAccessEnabled) onOpenNotificationAccessSettings()
                                     else permissionPrompt = PermissionPrompt.NotificationForwarding
                                 },
-                                sendClipboard = { pairing.sendClipboard(ring.deviceId) },
+                                sendClipboard = {
+                                    screenshotAccess.beforeSend(pairing.clipboardOffersAvailable(ring.deviceId)) { pairing.sendClipboard(ring.deviceId) }
+                                },
                                 sendText = { pairing.sendText(it, deviceId = ring.deviceId) },
                                 remoteControl = { ring.deviceId?.let { stack.push(Route.Remote(it)) } },
                                 live = liveActions,
@@ -758,6 +768,7 @@ private fun BridgeyApp(
                             backgroundClipboardCommand = backgroundCommand,
                             clipboardFilesEnabled = settingsState.clipboardFilesEnabled,
                             clipboardEagerLimit = settingsState.clipboardEagerLimit,
+                            screenshotSendEnabled = settingsState.screenshotSendEnabled,
                             tileAddSupported = Build.VERSION.SDK_INT >= 33,
                             tileAdded = tileAdded,
                             notificationAppsEnabled = enabledApps,
@@ -797,6 +808,7 @@ private fun BridgeyApp(
                             setBackgroundClipboard = settings::setBackgroundClipboardEnabled,
                             setClipboardFiles = settings::setClipboardFilesEnabled,
                             setClipboardEagerLimit = settings::setClipboardEagerLimit,
+                            setScreenshotSend = screenshotAccess::setEnabled,
                             copyCommand = {
                                 context.getSystemService(ClipboardManager::class.java)
                                     .setPrimaryClip(ClipData.newPlainText("Bridgey", backgroundCommand))
@@ -969,6 +981,8 @@ private fun BridgeyApp(
         )
         else -> Unit
     }
+
+    ScreenshotAccessDialog(screenshotAccess)
 
     permissionPrompt?.let { prompt ->
         val isForwarding = prompt == PermissionPrompt.NotificationForwarding

@@ -135,6 +135,10 @@ allowed:
 - Mac to phone is always automatic (writing the clipboard is allowed in the background).
 - Phone to Mac is automatic while Bridgey is open, otherwise one tap on "Send copied item" in the
   notification or on the Quick Settings tile.
+- "Send a fresh screenshot" (Settings > Clipboard, on by default): when a screenshot was taken in
+  the last minute, after the last copy, "Send copied item" sends that screenshot as an image
+  instead, once. It asks for photo access on first use (`READ_MEDIA_IMAGES`; selected photos only
+  cannot see new screenshots) and turns itself off if access is refused.
 - The optional "Background clipboard (advanced)" uses the same one-time ADB setup as
   [KDE Connect](https://userbase.kde.org/KDEConnect) (it grants READ_LOGS, reading system logs),
   and is off by default.
