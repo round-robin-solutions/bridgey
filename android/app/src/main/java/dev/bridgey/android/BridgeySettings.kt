@@ -1,6 +1,13 @@
 package dev.bridgey.android
 
 import android.content.Context
+import dev.bridgey.android.folders.ConflictPolicy
+import dev.bridgey.android.folders.DEFAULT_PLACE_ID
+import dev.bridgey.android.folders.DestinationMode
+import dev.bridgey.android.folders.FolderDestination
+import dev.bridgey.android.folders.FolderReceiveSettings
+import dev.bridgey.android.folders.isPlaceId
+import dev.bridgey.android.folders.recentDestinations
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,7 +52,21 @@ data class BridgeySettingsState(
     val clipboardEagerLimit: Long = ClipLimits.DEFAULT_EAGER_LIMIT,
     /** This phone > Keep Wi-Fi awake: a Wi-Fi lock while connected (Android 13 and older; off by default). */
     val keepWifiAwake: Boolean = false,
-)
+    /** Files > Folders sent to this phone (3.2). Synced later with settings sync; per phone for now. */
+    val folderMode: DestinationMode = DestinationMode.SENDER_PICKS,
+    /** Files > When a folder already exists (3.3). */
+    val folderConflict: ConflictPolicy = ConflictPolicy.ASK,
+    /** Files > Default folder: a place ID, `default` for Download/Bridgey. Never synced. */
+    val folderDefaultPlace: String = DEFAULT_PLACE_ID,
+    /** Files > Allow other devices to replace files here: phone only, off by default (Rahul, 2026-10-25). */
+    val allowReplaceFromOtherDevices: Boolean = false,
+    /** The Save to… sheet's recent destinations, newest first. On this phone only. */
+    val recentFolderDestinations: List<FolderDestination> = emptyList(),
+) {
+    /** What a folder transfer to this phone reads when it decides. */
+    val folderReceiveSettings: FolderReceiveSettings
+        get() = FolderReceiveSettings(folderMode, folderConflict, folderDefaultPlace, allowReplaceFromOtherDevices)
+}
 
 /** Automatic clipboard is on for a device when global and the per-device switch both allow it. */
 internal fun effectiveAutoClipboardEnabled(
@@ -160,6 +181,42 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         mutableState.value = mutableState.value.copy(keepWifiAwake = enabled)
     }
 
+    fun setFolderMode(mode: DestinationMode) {
+        preferences.edit().putString(KEY_FOLDER_MODE, mode.wire).apply()
+        mutableState.value = mutableState.value.copy(folderMode = mode)
+    }
+
+    fun setFolderConflict(policy: ConflictPolicy) {
+        preferences.edit().putString(KEY_FOLDER_CONFLICT, policy.wire).apply()
+        mutableState.value = mutableState.value.copy(folderConflict = policy)
+    }
+
+    fun setFolderDefaultPlace(placeId: String) {
+        val value = placeId.takeIf(::isPlaceId) ?: DEFAULT_PLACE_ID
+        preferences.edit().putString(KEY_FOLDER_DEFAULT_PLACE, value).apply()
+        mutableState.value = mutableState.value.copy(folderDefaultPlace = value)
+    }
+
+    fun setAllowReplaceFromOtherDevices(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_FOLDER_ALLOW_REPLACE, enabled).apply()
+        mutableState.value = mutableState.value.copy(allowReplaceFromOtherDevices = enabled)
+    }
+
+    @Synchronized
+    fun addRecentFolderDestination(destination: FolderDestination) {
+        val list = recentDestinations(mutableState.value.recentFolderDestinations, destination)
+        preferences.edit().putString(KEY_FOLDER_RECENT, encodeDestinations(list)).apply()
+        mutableState.value = mutableState.value.copy(recentFolderDestinations = list)
+    }
+
+    /** A removed place leaves the recent list. */
+    @Synchronized
+    fun forgetPlace(placeId: String) {
+        val list = mutableState.value.recentFolderDestinations.filterNot { it.placeId == placeId }
+        preferences.edit().putString(KEY_FOLDER_RECENT, encodeDestinations(list)).apply()
+        mutableState.value = mutableState.value.copy(recentFolderDestinations = list)
+    }
+
     /** Automatic clipboard for [deviceId], falling back to the global switch when unset. */
     fun isAutoClipboardEnabled(deviceId: String?): Boolean {
         val snapshot = mutableState.value
@@ -216,6 +273,11 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
             clipboardEagerLimit = preferences.getLong(KEY_CLIPBOARD_EAGER_LIMIT, ClipLimits.DEFAULT_EAGER_LIMIT)
                 .takeIf { it in ClipLimits.EAGER_LIMIT_CHOICES } ?: ClipLimits.DEFAULT_EAGER_LIMIT,
             keepWifiAwake = preferences.getBoolean(KEY_KEEP_WIFI_AWAKE, false),
+            folderMode = DestinationMode.fromWire(preferences.getString(KEY_FOLDER_MODE, null)) ?: DestinationMode.SENDER_PICKS,
+            folderConflict = ConflictPolicy.fromWire(preferences.getString(KEY_FOLDER_CONFLICT, null)) ?: ConflictPolicy.ASK,
+            folderDefaultPlace = preferences.getString(KEY_FOLDER_DEFAULT_PLACE, null)?.takeIf(::isPlaceId) ?: DEFAULT_PLACE_ID,
+            allowReplaceFromOtherDevices = preferences.getBoolean(KEY_FOLDER_ALLOW_REPLACE, false),
+            recentFolderDestinations = decodeDestinations(preferences.getString(KEY_FOLDER_RECENT, null)),
         )
     }
 
@@ -230,5 +292,18 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         private const val KEY_CLIPBOARD_FILES = "clipboard.files.enabled"
         private const val KEY_CLIPBOARD_EAGER_LIMIT = "clipboard.files.eager_limit"
         private const val KEY_KEEP_WIFI_AWAKE = "connection.keep_wifi_awake"
+        private const val KEY_FOLDER_MODE = "files.folder_destination"
+        private const val KEY_FOLDER_CONFLICT = "files.folder_conflict"
+        private const val KEY_FOLDER_DEFAULT_PLACE = "files.folder_default_place"
+        private const val KEY_FOLDER_ALLOW_REPLACE = "files.folder_allow_replace"
+        private const val KEY_FOLDER_RECENT = "files.folder_recent"
     }
 }
+
+internal fun encodeDestinations(list: List<FolderDestination>): String =
+    org.json.JSONArray().apply { list.forEach { put(it.toJson()) } }.toString()
+
+internal fun decodeDestinations(json: String?): List<FolderDestination> = runCatching {
+    val array = org.json.JSONArray(json ?: return emptyList())
+    (0 until minOf(array.length(), 5)).mapNotNull { array.optJSONObject(it)?.let(FolderDestination::parse) }
+}.getOrDefault(emptyList())

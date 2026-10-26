@@ -31,6 +31,8 @@ struct PanelModel {
     /// The phone single-target actions go to.
     var targetDeviceID: String?
     var transfers: [FileTransferRow] = []
+    /// Folder cards drawn expanded (screenshots; in the app the card's disclosure decides).
+    var expandedTransfers: Set<String> = []
     var hasTransferHistory = false
     var receivedLink: String?
     var ringing: RingingState?
@@ -76,7 +78,7 @@ struct PanelActions {
     var cancel: () -> Void = {}
     var openLocalNetworkSettings: () -> Void = {}
     var sendClipboard: () -> Void = {}
-    var dropFile: (URL) -> Bool = { _ in false }
+    var dropFiles: ([URL]) -> Bool = { _ in false }
     var chooseFile: () -> Void = {}
     var openDropWindow: () -> Void = {}
     var showTransfers: () -> Void = {}
@@ -90,7 +92,9 @@ struct PanelActions {
     var openLink: () -> Void = {}
     var dismissLink: () -> Void = {}
     var cancelTransfer: (String) -> Void = { _ in }
+    var cancelAllTransfers: () -> Void = {}
     var retryTransfer: (String) -> Void = { _ in }
+    var resumeTransfer: (String) -> Void = { _ in }
     var callAction: (RemoteCallAction) -> Void = { _ in }
     var enableNotifications: () -> Void = {}
     var retryDevice: (String) -> Void = { _ in }
@@ -715,11 +719,21 @@ private struct LiveCards: View {
                 .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
             }
             ForEach(model.transfers) { transfer in
-                LiveCard(symbol: transfer.active ? "arrow.up.arrow.down" : "exclamationmark.arrow.triangle.2.circlepath",
+                if let folder = transfer.folder {
+                    FolderLiveCard(transfer: transfer, folder: folder, now: model.now, expandedAtFirst: model.expandedTransfers.contains(transfer.id),
+                                   showsCancelAll: transfer.id == model.transfers.first?.id && showsCancelAll(model.transfers), actions: actions)
+                        .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
+                } else {
+                LiveCard(symbol: transfer.queued ? "clock" : transfer.active ? "arrow.up.arrow.down" : "exclamationmark.arrow.triangle.2.circlepath",
                          tint: transfer.active ? .green : .neutral,
                          title: transfer.name, detail: transferDetail(transfer)) {
-                    Button(L10n.text("panel.transfer.details", fallback: "Details"), action: actions.showTransfers)
-                        .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
+                    if transfer.id == model.transfers.first?.id, showsCancelAll(model.transfers) {
+                        Button(L10n.text("transfers.cancelAll", fallback: "Cancel All"), action: actions.cancelAllTransfers)
+                            .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
+                    } else {
+                        Button(L10n.text("panel.transfer.details", fallback: "Details"), action: actions.showTransfers)
+                            .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
+                    }
                     if transfer.active {
                         Button(L10n.text("action.cancel", fallback: "Cancel")) { actions.cancelTransfer(transfer.id) }
                             .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
@@ -729,6 +743,7 @@ private struct LiveCards: View {
                     }
                 }
                 .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
+                }
             }
         }
         .padding(.horizontal, 12)
@@ -760,6 +775,133 @@ private struct LiveCards: View {
         case .answer: .good
         case .end: .danger
         case .other: .neutral
+        }
+    }
+}
+
+/// A folder's live card: "Photos → OnePlus 11 › Pictures/Trip", a bar by bytes, "37 of 124 files · 812 MB of
+/// 2.3 GB · 12 MB/s · 2 min left", and a disclosure for the current file, failures and the last names.
+private struct FolderLiveCard: View {
+    let transfer: FileTransferRow
+    let folder: FolderRowSummary
+    let now: Date
+    let expandedAtFirst: Bool
+    let showsCancelAll: Bool
+    let actions: PanelActions
+    @State private var expanded: Bool?
+    @Environment(\.brand) private var c
+    @Environment(\.snapshotRendering) private var snapshot
+
+    private var isExpanded: Bool { expanded ?? expandedAtFirst }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                IconTile(symbol: symbol, tint: tint, size: 28, corner: 8)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(FolderText.title(folder))
+                        .font(BrandFont.body(13, .semibold))
+                        .foregroundStyle(c.on)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    status
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Button { expanded = !isExpanded } label: {
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(c.on2)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(L10n.text("folders.details.toggle", fallback: "Show files"))
+            }
+            if showsBar {
+                UpdateProgressBar(progress: folder.progress.bytesTotal > 0 ? Double(folder.progress.bytesDone) / Double(folder.progress.bytesTotal) : (folder.hashing ?? 0))
+                    .padding(.leading, 38)
+            }
+            if isExpanded {
+                FolderExpandedDetails(progress: folder.progress, maxHeight: 110)
+                    .padding(.leading, 38)
+            }
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                if showsCancelAll {
+                    Button(L10n.text("transfers.cancelAll", fallback: "Cancel All"), action: actions.cancelAllTransfers)
+                        .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
+                } else {
+                    Button(L10n.text("panel.transfer.details", fallback: "Details"), action: actions.showTransfers)
+                        .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
+                }
+                if transfer.active {
+                    Button(L10n.text("action.cancel", fallback: "Cancel")) { actions.cancelTransfer(transfer.id) }
+                        .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
+                } else {
+                    if folder.canSendAgain {
+                        Button(L10n.text("folders.action.sendAgain", fallback: "Send Again")) { actions.retryTransfer(transfer.id) }
+                            .buttonStyle(PillButtonStyle(kind: folder.canResume ? .neutral : .tonal, height: 28))
+                    }
+                    if folder.canResume {
+                        Button(L10n.text("folders.action.resume", fallback: "Resume")) { actions.resumeTransfer(transfer.id) }
+                            .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                    }
+                }
+            }
+            .foregroundStyle(c.on2)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(c.s2))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(c.tb, lineWidth: 1))
+    }
+
+    @ViewBuilder private var status: some View {
+        if snapshot || !folder.progress.phase.hasCountdown {
+            statusText(now: snapshot ? now : Date())
+        } else {
+            TimelineView(.periodic(from: .now, by: 1)) { context in statusText(now: context.date) }
+        }
+    }
+
+    private func statusText(now: Date) -> some View {
+        Text(FolderText.status(folder, now: now))
+            .font(BrandFont.body(12).monospacedDigit())
+            .foregroundStyle(c.on2)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var showsBar: Bool {
+        switch folder.state {
+        case .preparing: folder.hashing != nil
+        case .running: folder.progress.phase == .sending || folder.progress.phase == .completing
+        default: false
+        }
+    }
+
+    private var symbol: String {
+        switch folder.state {
+        case .queued: "clock"
+        case .done: "checkmark.circle"
+        case .interrupted, .incomplete: "exclamationmark.arrow.triangle.2.circlepath"
+        default: "folder"
+        }
+    }
+
+    private var tint: TileTint {
+        switch folder.state {
+        case .interrupted, .incomplete: .neutral
+        case .queued: .blue
+        default: .green
+        }
+    }
+}
+
+extension FolderPhase {
+    var hasCountdown: Bool {
+        switch self {
+        case .waiting, .asking: true
+        default: false
         }
     }
 }
@@ -884,6 +1026,8 @@ func activityVisual(_ kind: ActivityKind) -> (symbol: String, tint: TileTint) {
     case .paired: ("laptopcomputer.and.iphone", .purple)
     case .clipOfferSent, .clipOfferReceived, .clipPasted: ("doc.on.clipboard", .blue)
     case .clipPasteFailed: ("exclamationmark.circle", .neutral)
+    case .folderSent, .folderReceived: ("folder", .green)
+    case .folderIncomplete: ("folder.badge.questionmark", .neutral)
     }
 }
 
@@ -948,7 +1092,7 @@ private struct QuickActionBar: View {
         HStack(spacing: 2) {
             PopUpMenuButton(items: {
                 [
-                    PopUpMenuItem(title: L10n.text("quick.file.choose", fallback: "Choose a File\u{2026}"), action: actions.chooseFile),
+                    PopUpMenuItem(title: L10n.text("quick.file.choose", fallback: "Send Files or Folders\u{2026}"), action: actions.chooseFile),
                     PopUpMenuItem(title: L10n.text("drop.open", fallback: "Open file drop window"), action: actions.openDropWindow),
                     .separator,
                     PopUpMenuItem(title: L10n.text("quick.file.transfers", fallback: "Show File Transfers"), enabled: model.hasTransferHistory || !model.transfers.isEmpty, action: actions.showTransfers),
@@ -1109,8 +1253,8 @@ private struct SendBar: View {
         .background(Capsule().fill(c.s2))
         .overlay(Capsule().strokeBorder(targeted ? c.pri : Color.clear, lineWidth: 2))
         .modifier(FileDrop(enabled: !snapshot) { urls in
-            guard canDrop, let url = urls.first else { return false }
-            return actions.dropFile(url)
+            guard canDrop, !urls.isEmpty else { return false }
+            return actions.dropFiles(urls)
         } targeted: { targeted = $0 && canDrop })
     }
 
@@ -1266,7 +1410,7 @@ struct BridgeyPanel: View {
             }
         }
         actions.sendClipboard = { pairing.sendClipboard() }
-        actions.dropFile = { pairing.sendDroppedFile($0) }
+        actions.dropFiles = { pairing.sendDroppedFiles($0) }
         actions.chooseFile = { pairing.chooseAndSendFile() }
         actions.openDropWindow = { pairing.showFileDropWindow() }
         actions.showTransfers = { pairing.showFileTransferWindow() }
@@ -1280,7 +1424,9 @@ struct BridgeyPanel: View {
         actions.openLink = { quickActions.openLink() }
         actions.dismissLink = { quickActions.dismissLink() }
         actions.cancelTransfer = { pairing.cancelFileTransfer(id: $0) }
+        actions.cancelAllTransfers = { pairing.cancelFileTransfer() }
         actions.retryTransfer = { pairing.retryFileTransfer(id: $0) }
+        actions.resumeTransfer = { pairing.resumeFolderTransfer(id: $0) }
         actions.callAction = { pairing.performRemoteCallAction($0) }
         actions.enableNotifications = { pairing.enableNotifications() }
         actions.retryDevice = { pairing.retryNow(deviceID: $0) }

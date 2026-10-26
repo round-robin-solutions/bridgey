@@ -85,6 +85,8 @@ class BridgeyConnectionService : Service() {
             }
         }
         serviceScope.launch { bridgey.pairing.fileTransfers.collect(::updateTransferNotifications) }
+        FolderNotifier.ensureChannels(this)
+        serviceScope.launch { bridgey.pairing.folderQuestions.collect(::updateFolderQuestionNotifications) }
         serviceScope.launch { bridgey.pairing.clipboardInbox.progress.collect(::updatePasteNotifications) }
         serviceScope.launch { bridgey.updater.runPeriodicChecks() }
         // Optional background clipboard: run the READ_LOGS source only while it is enabled, automatic
@@ -114,7 +116,8 @@ class BridgeyConnectionService : Service() {
     private val transferNotificationUpdatedAt = mutableMapOf<String, Long>()
 
     private fun updateTransferNotifications(transfers: Map<String, FileTransferState>) {
-        val active = transfers.values.filter { it.active }
+        // Queued files get no notification until they start: 50 queued files must not post 50 "Cancel" notifications.
+        val active = notifiableTransfers(transfers)
         val activeIds = active.map { transferNotificationId(it.id) }.toSet()
         (shownTransferNotifications - activeIds).forEach(notificationManager::cancel)
         transferNotificationUpdatedAt.keys.retainAll(active.map { it.id }.toSet())
@@ -135,21 +138,53 @@ class BridgeyConnectionService : Service() {
                     .putExtra(EXTRA_TRANSFER_ID, transfer.id),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
+            val folder = transfer.folder
+            // One notification per folder: "Photos · 37 of 124 files", Cancel cancels the whole folder.
             val builder = android.app.Notification.Builder(this, TRANSFER_CHANNEL_ID)
                 .setSmallIcon(dev.bridgey.android.R.drawable.ic_bridgey_notification)
-                .setContentTitle(transfer.name)
-                .setContentText(compactTransferStatus(transfer))
+                .setContentTitle(if (folder != null) FolderNotifier.progressTitle(this, folder) else transfer.name)
+                .setContentText(if (folder != null) FolderNotifier.progressText(this, folder) else compactTransferStatus(transfer))
                 .setSubText(transfer.progressPercent?.let { "$it%" })
                 .setOnlyAlertOnce(true)
                 .setOngoing(true)
                 .setCategory(android.app.Notification.CATEGORY_PROGRESS)
-                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel this file", cancelTransfer)
+                .addAction(
+                    android.R.drawable.ic_menu_close_clear_cancel,
+                    if (folder != null) getString(R.string.action_cancel) else "Cancel this file",
+                    cancelTransfer,
+                )
             transfer.progressPercent?.let { builder.setProgress(100, it, false) }
                 ?: builder.setProgress(0, 0, true)
             notificationManager.notify(
                 notificationId,
                 builder.build(),
             )
+        }
+    }
+
+    private val shownFolderQuestions = mutableMapOf<String, dev.bridgey.android.folders.FolderQuestion>()
+
+    /** The phone's folder questions (6.4); a question that is answered, cancelled or timed out loses its notification. */
+    private fun updateFolderQuestionNotifications(questions: List<dev.bridgey.android.folders.FolderQuestion>) {
+        val current = questions.associateBy { it.folderTransferId }
+        (shownFolderQuestions.keys - current.keys).forEach { notificationManager.cancel(FolderNotifier.questionNotificationId(it)) }
+        shownFolderQuestions.keys.retainAll(current.keys)
+        current.values.forEach { question ->
+            if (shownFolderQuestions[question.folderTransferId] == question) return@forEach
+            shownFolderQuestions[question.folderTransferId] = question
+            val notification = FolderNotifier.question(this, question) { choice ->
+                PendingIntent.getService(
+                    this,
+                    FolderNotifier.questionNotificationId(question.folderTransferId) * 8 + choice.ordinal,
+                    Intent()
+                        .setComponent(ComponentName(this, BridgeyConnectionService::class.java))
+                        .setAction(ACTION_FOLDER_ANSWER)
+                        .putExtra(EXTRA_TRANSFER_ID, question.folderTransferId)
+                        .putExtra(EXTRA_FOLDER_CHOICE, choice.wire),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+            }
+            notificationManager.notify(FolderNotifier.questionNotificationId(question.folderTransferId), notification)
         }
     }
 
@@ -324,6 +359,12 @@ class BridgeyConnectionService : Service() {
             startForeground(NOTIFICATION_ID, buildNotification(lastStatus))
             return START_STICKY
         }
+        if (intent?.action == ACTION_FOLDER_ANSWER) {
+            val id = intent.getStringExtra(EXTRA_TRANSFER_ID)
+            val choice = dev.bridgey.android.folders.ConflictChoice.fromWire(intent.getStringExtra(EXTRA_FOLDER_CHOICE))
+            if (id != null && choice != null) (application as BridgeyApplication).pairing.answerFolderConflict(id, choice)
+            return START_STICKY
+        }
         if (intent?.action == ACTION_CANCEL_PASTE) {
             intent.getStringExtra(EXTRA_TRANSFER_ID)?.let((application as BridgeyApplication).pairing.clipboardInbox::cancel)
             return START_STICKY
@@ -360,6 +401,8 @@ class BridgeyConnectionService : Service() {
         private const val ACTION_CANCEL_PASTE = "dev.bridgey.android.CANCEL_PASTE"
         private const val PASTE_NOTIFICATION_MIN_BYTES = 1_000_000L
         private const val EXTRA_TRANSFER_ID = "dev.bridgey.android.extra.TRANSFER_ID"
+        private const val ACTION_FOLDER_ANSWER = "dev.bridgey.android.FOLDER_ANSWER"
+        private const val EXTRA_FOLDER_CHOICE = "dev.bridgey.android.extra.FOLDER_CHOICE"
     }
 }
 

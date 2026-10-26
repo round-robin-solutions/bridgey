@@ -79,6 +79,8 @@ struct SettingsModel {
     var autoClipboardDevices: [String: Bool] = [:]
     var clipboardFiles = true
     var clipboardEagerLimit: ClipboardEagerLimit = .default
+    var folderIncludeHidden = false
+    var folderIncludeSystem = false
     var launchAtLogin = false
     var loginItemMessage: String?
     var receiveFolderPath = ""
@@ -144,6 +146,8 @@ struct SettingsActions {
     var setAutoClipboardForDevice: (String, Bool) -> Void = { _, _ in }
     var setClipboardFiles: (Bool) -> Void = { _ in }
     var setClipboardEagerLimit: (ClipboardEagerLimit) -> Void = { _ in }
+    var setFolderIncludeHidden: (Bool) -> Void = { _ in }
+    var setFolderIncludeSystem: (Bool) -> Void = { _ in }
     var forget: (String) -> Void = { _ in }
     var pair: (DeviceRing) -> Void = { _ in }
     var retryDevice: (String) -> Void = { _ in }
@@ -634,6 +638,14 @@ private struct FilesPane: View {
         SettingsCard {
             FeatureSwitch(feature: .files, model: model, actions: actions)
             ReceiveFolderRow(path: model.receiveFolderPath, choose: actions.chooseReceiveFolder)
+        }
+        SettingsCard(footnote: L10n.text("settings.folders.note", fallback: "These are the defaults; the send sheet can change them for one folder. Links and Finder aliases are never sent.")) {
+            SettingsToggle(title: L10n.text("settings.folders.hidden", fallback: "Include hidden files when sending folders"),
+                           subtitle: L10n.text("settings.folders.hidden.detail", fallback: "Files and folders whose names start with a dot, such as .gitignore or .config."),
+                           divider: false, isOn: model.folderIncludeHidden, set: actions.setFolderIncludeHidden)
+            SettingsToggle(title: L10n.text("settings.folders.system", fallback: "Include system files when sending folders"),
+                           subtitle: L10n.text("settings.folders.system.detail", fallback: "Clutter the system makes, such as .DS_Store, ._ files and Thumbs.db."),
+                           isOn: model.folderIncludeSystem, set: actions.setFolderIncludeSystem)
         }
     }
 }
@@ -1171,6 +1183,8 @@ private struct LiveSettingsView: View {
         model.autoClipboard = settings.autoClipboardEnabled
         model.autoClipboardDevices = settings.autoClipboardDevices
         model.clipboardFiles = settings.clipboardFilesEnabled
+        model.folderIncludeHidden = settings.folderIncludeHidden
+        model.folderIncludeSystem = settings.folderIncludeSystem
         model.clipboardEagerLimit = ClipboardEagerLimit(bytes: settings.clipboardEagerLimit)
         model.launchAtLogin = settings.launchAtLogin
         model.loginItemMessage = settings.loginItemMessage
@@ -1231,6 +1245,8 @@ private struct LiveSettingsView: View {
         actions.setAutoClipboard = { settings.setAutoClipboard($0) }
         actions.setAutoClipboardForDevice = { deviceID, enabled in settings.setAutoClipboard(enabled, for: deviceID) }
         actions.setClipboardFiles = { settings.setClipboardFilesEnabled($0) }
+        actions.setFolderIncludeHidden = { settings.setFolderIncludeHidden($0) }
+        actions.setFolderIncludeSystem = { settings.setFolderIncludeSystem($0) }
         actions.setClipboardEagerLimit = { settings.setClipboardEagerLimit($0) }
         actions.forget = { pairing.forget(deviceID: $0) }
         actions.pair = { ring in

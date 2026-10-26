@@ -58,6 +58,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
@@ -95,7 +96,20 @@ data class FileTransferState(
     /** The device on the other end of the transfer. */
     val deviceId: String? = null,
     val deviceName: String = "",
+    /** Waiting in the send queue; not offered to the device yet. */
+    val queued: Boolean = false,
+    /** A file, or a whole folder in one row (6.5). */
+    val kind: TransferKind = TransferKind.FILE,
+    /** Folders: files and bytes, destination, waiting state, current file, failures and the last names. */
+    val folder: dev.bridgey.android.folders.FolderSnapshot? = null,
+    /** How it ended, set where it ends; the activity stream reads this instead of the status text. */
+    val outcome: TransferEnd? = null,
 )
+
+enum class TransferKind { FILE, FOLDER }
+
+/** How a transfer ended. Folders keep the details in [FileTransferState.folder]. */
+enum class TransferEnd { SENT, RECEIVED, FAILED, CANCELLED, INTERRUPTED }
 
 data class TrustedDevice(val id: String, val name: String)
 
@@ -237,6 +251,9 @@ class PairingCoordinator(
 
     /** Which device each file transfer belongs to. */
     private val transferDevices = ConcurrentHashMap<String, String>()
+
+    /** One sequential send queue per device: a device gets one file at a time. */
+    private val fileSendQueues = ConcurrentHashMap<String, FileSendQueue<Uri>>()
     val deviceId: String get() = localDeviceId
     private var server: ServerSocket? = null
     private var acceptJob: Job? = null
@@ -259,6 +276,29 @@ class PairingCoordinator(
     @Volatile
     var activityListener: ((PeerEvent) -> Unit)? = null
 
+    /** Places on this phone (granted folders plus Download/Bridgey). */
+    val placesStore = dev.bridgey.android.folders.PlacesStore(appContext)
+    val placeDirectory = dev.bridgey.android.folders.AndroidPlaceDirectory(appContext.contentResolver, placesStore)
+    private val folderJournals = dev.bridgey.android.folders.FolderJournals(java.io.File(appContext.noBackupFilesDir, FOLDER_JOURNAL_DIRECTORY))
+    private val folderTimers = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { runnable ->
+        Thread(runnable, "bridgey-folder-timers").apply { isDaemon = true }
+    }
+
+    /** Folders sent to this phone (draft folders protocol): sessions, places serving and the phone's questions. */
+    internal val folders = dev.bridgey.android.folders.FolderReceiver(
+        places = placeDirectory,
+        settings = { settings.state.value.folderReceiveSettings },
+        journals = folderJournals,
+        listener = FolderEvents(),
+        newWorker = { id -> dev.bridgey.android.folders.ThreadFolderWorker("bridgey-folder-${id.take(8)}") },
+        scheduler = dev.bridgey.android.folders.ExecutorFolderScheduler(folderTimers),
+        runPlaces = { task -> scope.launch { task() } },
+        log = { android.util.Log.i("Bridgey", it) },
+    )
+
+    /** Questions this phone asks its user about folders (Save to…, conflicts), oldest first. */
+    val folderQuestions: StateFlow<List<dev.bridgey.android.folders.FolderQuestion>> = folders.questions
+
     /** Remote input (draft): decrypted input.* messages from a device, for the remote input controller. */
     @Volatile
     var remoteInputListener: ((deviceId: String, kind: String, payload: ByteArray) -> Unit)? = null
@@ -276,6 +316,12 @@ class PairingCoordinator(
             runCatching {
                 clipboardCache.removePartials()
                 clipboardCache.evict()
+            }
+        }
+        // Folder journals (6.6): drop the stale ones, delete part files, finish interrupted replaces.
+        scope.launch {
+            runCatching {
+                folderJournals.recover(::journalStore).forEach { record -> record.header.oneOffTree?.let(placesStore::releaseOneOff) }
             }
         }
         scope.launch {
@@ -588,6 +634,8 @@ class PairingCoordinator(
     }
 
     fun forget(deviceId: String) {
+        folderJournals.deleteForPeer(deviceId).forEach { record -> record.header.oneOffTree?.let(placesStore::releaseOneOff) }
+        mutableFileTransfers.update { transfers -> transfers.filterValues { it.kind != TransferKind.FOLDER || it.active || it.deviceId != deviceId } }
         trust.remove(deviceId)
         reconnect.forget(deviceId)
         settings.removeDevice(deviceId)
@@ -973,13 +1021,162 @@ class PairingCoordinator(
     }
 
     /** Sends one encrypted message to [current] if it is still a live device session. */
-    private fun sendEncrypted(current: Session, kind: String, payload: ByteArray, messageId: String = UUID.randomUUID().toString()): Boolean {
+    private fun sendEncrypted(
+        current: Session,
+        kind: String,
+        payload: ByteArray,
+        messageId: String = UUID.randomUUID().toString(),
+        transferId: String? = null,
+    ): Boolean {
         if (!registry.isActive(current)) return false
         val key = current.pairingKey ?: return false
         val encrypted = Crypto.encrypt(key, payload)
         return current.send(
-            Message(kind = kind, sessionId = current.id, messageId = messageId, nonce = encrypted.nonce, ciphertext = encrypted.ciphertext),
+            Message(kind = kind, sessionId = current.id, messageId = messageId, nonce = encrypted.nonce, ciphertext = encrypted.ciphertext, transferId = transferId),
         )
+    }
+
+    /** This phone receives folders from [deviceId]: Files on for it, Android 10 or newer (what it advertised). */
+    private fun receivesFolders(deviceId: String): Boolean =
+        settings.isEnabled(BridgeyFeature.FILES, deviceId) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+
+    /** A folder session's way back to its device. */
+    private inner class FolderSessionLink(private val current: Session) : dev.bridgey.android.folders.FolderLink {
+        override fun send(kind: String, payload: JSONObject, outerTransferId: String?) {
+            sendEncrypted(current, kind, payload.toString().toByteArray(Charsets.UTF_8), transferId = outerTransferId)
+        }
+
+        override fun sendOuter(kind: String, transferId: String, sequence: Long?) {
+            if (registry.isActive(current)) current.send(Message(kind = kind, sessionId = current.id, transferId = transferId, sequence = sequence))
+        }
+    }
+
+    /**
+     * folders.* and places.* (draft). A device whose Files is off here gets an outer-only folders.rejected for an
+     * offer, without decrypting, then the feature state again. A payload that fails decryption closes the
+     * session as before; one that decrypts but is invalid is answered and the session stays.
+     */
+    private fun receiveFolderMessage(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val deviceId = current.remoteDeviceId
+        val allowed = receivesFolders(deviceId)
+        val kinds = dev.bridgey.android.folders.FolderKinds
+        if (message.kind == kinds.OFFER && !allowed) {
+            message.transferId?.let { current.send(Message(kind = kinds.REJECTED, sessionId = current.id, transferId = it)) }
+            android.util.Log.i("Bridgey", "FOLDER offer rejected code=policy")
+            sendFeatureState(current)
+            return
+        }
+        val messageId = message.messageId ?: return
+        if (!current.acceptMessageId(messageId)) return
+        val plaintext = Crypto.decrypt(
+            current.pairingKey ?: return,
+            message.nonce ?: return fail(current, "Invalid encrypted folder message"),
+            message.ciphertext ?: return fail(current, "Invalid encrypted folder message"),
+        ) ?: return fail(current, "Invalid encrypted folder message")
+        val json = plaintext.takeIf { it.size <= kinds.plaintextLimit(message.kind) }
+            ?.let { runCatching { JSONObject(it.toString(Charsets.UTF_8)) }.getOrNull() }
+        val link = FolderSessionLink(current)
+        if (json == null) {
+            android.util.Log.i("Bridgey", "FOLDER invalid payload kind=${message.kind}")
+            val id = message.transferId?.takeIf { dev.bridgey.android.folders.isWireId(it) }
+            when {
+                message.kind == kinds.OFFER && id != null ->
+                    link.send(kinds.REJECTED, dev.bridgey.android.folders.foldersRejectedJson(id, dev.bridgey.android.folders.FolderCodes.INVALID_MESSAGE), id)
+                id != null -> folders.invalid(deviceId, JSONObject().put("folderTransferId", id))
+            }
+            return
+        }
+        when (message.kind) {
+            kinds.PLACES_LIST, kinds.PLACES_BROWSE, kinds.PLACES_CREATE_FOLDER -> if (allowed) {
+                folders.places(deviceId, link, message.kind, json)
+            } else {
+                json.optString("requestId").takeIf { dev.bridgey.android.folders.isWireId(it) }?.let {
+                    link.send(kinds.PLACES_ERROR, dev.bridgey.android.folders.placesErrorJson(it, dev.bridgey.android.folders.FolderCodes.POLICY))
+                }
+                sendFeatureState(current)
+            }
+            kinds.OFFER -> folders.offer(deviceId, current.peerName, link, json)
+            kinds.MANIFEST -> folders.manifest(deviceId, json, plaintext.size)
+            kinds.RESOLVE -> folders.resolve(deviceId, json)
+            kinds.COMPLETE -> folders.complete(deviceId, json)
+            kinds.CANCEL -> folders.cancel(deviceId, link, json)
+        }
+    }
+
+    private fun receiveFolderChunk(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val messageId = message.messageId ?: return
+        if (!current.acceptMessageId(messageId)) return
+        val transferId = message.transferId ?: return
+        val chunk = Crypto.decrypt(
+            current.pairingKey!!,
+            message.nonce ?: return fail(current, "Invalid encrypted file chunk"),
+            message.ciphertext ?: return fail(current, "Invalid encrypted file chunk"),
+        ) ?: return fail(current, "Invalid encrypted file chunk")
+        folders.chunk(current.remoteDeviceId, transferId, message.sequence ?: -1, chunk)
+    }
+
+    /** The journal's storage, for recovery on start: its place, or the one-off tree it used. */
+    private fun journalStore(record: dev.bridgey.android.folders.FolderJournals.Record): dev.bridgey.android.folders.TreeStore? {
+        record.header.oneOffTree?.let { tree ->
+            return if (placesStore.hasGrant(tree)) dev.bridgey.android.folders.SafTreeStore(appContext.contentResolver, Uri.parse(tree)) else null
+        }
+        return placeDirectory.place(record.header.placeId)?.takeIf { it.available }?.open()
+    }
+
+    /** Folder sessions report here: the transfer row, recent destinations, one-off grants, lost access. */
+    private inner class FolderEvents : dev.bridgey.android.folders.FolderReceiverListener {
+        override fun snapshot(snapshot: dev.bridgey.android.folders.FolderSnapshot) = updateFolderTransfer(snapshot)
+
+        override fun finished(snapshot: dev.bridgey.android.folders.FolderSnapshot) {
+            updateFolderTransfer(snapshot)
+            diagnostics.record("folder", snapshot.end?.name?.lowercase() ?: "ended", snapshot.endCode ?: "none")
+            FolderNotifier.finished(appContext, snapshot)
+        }
+
+        override fun usedDestination(destination: dev.bridgey.android.folders.FolderDestination) = settings.addRecentFolderDestination(destination)
+        override fun releaseOneOff(treeUri: String) = placesStore.releaseOneOff(treeUri)
+        override fun lostAccess(placeLabel: String) = FolderNotifier.lostAccess(appContext, placeLabel)
+    }
+
+    /** One row per folder (6.5): the coordinator's transfer list carries the folder summary. */
+    private fun updateFolderTransfer(folder: dev.bridgey.android.folders.FolderSnapshot) {
+        val id = folder.folderTransferId
+        transferDevices[id] = folder.deviceId
+        mutableFileTransfers.update { transfers ->
+            val previous = transfers[id]
+            val percent = if (folder.bytesTotal > 0) ((folder.bytesDone * 100) / folder.bytesTotal).toInt().coerceIn(0, 100) else null
+            transfers + (id to FileTransferState(
+                id = id,
+                name = folder.rootName,
+                status = folderStatus(folder),
+                active = folder.active,
+                progressPercent = percent.takeIf { folder.active && folder.waiting == null },
+                startedAtMillis = previous?.startedAtMillis ?: System.currentTimeMillis(),
+                retryable = folder.end == dev.bridgey.android.folders.FolderEnd.INTERRUPTED && folder.resumable,
+                deviceId = folder.deviceId,
+                deviceName = folder.deviceName,
+                kind = TransferKind.FOLDER,
+                folder = folder,
+                outcome = when (folder.end) {
+                    dev.bridgey.android.folders.FolderEnd.COMPLETE -> TransferEnd.RECEIVED
+                    dev.bridgey.android.folders.FolderEnd.INCOMPLETE, dev.bridgey.android.folders.FolderEnd.TIMED_OUT -> TransferEnd.FAILED
+                    dev.bridgey.android.folders.FolderEnd.CANCELLED -> TransferEnd.CANCELLED
+                    dev.bridgey.android.folders.FolderEnd.INTERRUPTED -> TransferEnd.INTERRUPTED
+                    null -> null
+                },
+            ))
+        }
+        pruneTransferHistory()
+        refreshFileTransferSummary()
+    }
+
+    /** The plain status behind the folder row (summary only; the UI builds its own text from the summary). */
+    private fun folderStatus(folder: dev.bridgey.android.folders.FolderSnapshot): String = when {
+        folder.waiting != null -> "Waiting"
+        folder.end == null -> "Receiving folder: ${folder.filesDone} of ${folder.filesTotal} files"
+        else -> "Folder ${folder.end.name.lowercase()}"
     }
 
     /** Connected devices where [feature] is on at both ends: the targets of a broadcast. */
@@ -1260,22 +1457,98 @@ class PairingCoordinator(
     }
 
     /** Sends a file to [deviceId] (null: the selected device). */
-    fun sendFile(uri: Uri, deviceId: String? = null) {
+    fun sendFile(uri: Uri, deviceId: String? = null) = sendFiles(listOf(uri), deviceId)
+
+    /**
+     * Adds files to [deviceId]'s outgoing queue (null: the selected device). Files are offered one
+     * after another, each as its own transfer, so a failure or cancellation affects only that file.
+     */
+    fun sendFiles(uris: List<Uri>, deviceId: String? = null) {
+        if (uris.isEmpty()) return
         val connectedSession = sessionFor(deviceId)
         if (connectedSession == null) {
             mutableFileTransferStatus.value = "Not connected — file was not sent"
             return
         }
-        if (!isFeatureAvailable(BridgeyFeature.FILES, connectedSession.remoteDeviceId)) {
+        val target = connectedSession.remoteDeviceId
+        if (!isFeatureAvailable(BridgeyFeature.FILES, target)) {
             mutableFileTransferStatus.value = "File transfer is turned off on one of your devices"
             return
         }
+        val queuedAt = System.currentTimeMillis()
+        val status = appContext.getString(R.string.file_queued)
+        val queued = uris.distinct().mapIndexed { index, uri ->
+            val transferId = UUID.randomUUID().toString()
+            outgoingFileSources[transferId] = uri
+            transferDevices[transferId] = target
+            FileTransferState(
+                id = transferId,
+                name = "Selected file",
+                status = status,
+                active = true,
+                progressPercent = null,
+                startedAtMillis = queuedAt + index,
+                deviceId = target,
+                deviceName = connectedSession.peerName,
+                queued = true,
+            ) to uri
+        }
+        mutableFileTransfers.update { transfers -> transfers + queued.associate { (transfer, _) -> transfer.id to transfer } }
+        val queue = fileSendQueues.getOrPut(target) { FileSendQueue() }
+        queued.forEach { (transfer, uri) -> queue.enqueue(transfer.id, uri) }
+        pruneTransferHistory()
+        refreshFileTransferSummary(status)
+        scope.launch {
+            queued.forEach { (transfer, uri) ->
+                val name = runCatching { displayName(uri) }.getOrNull() ?: return@forEach
+                mutableFileTransfers.update { transfers ->
+                    val current = transfers[transfer.id]?.takeIf(FileTransferState::queued) ?: return@update transfers
+                    transfers + (transfer.id to current.copy(name = name))
+                }
+            }
+        }
+        startNextQueuedFile(target)
+    }
+
+    private fun displayName(uri: Uri): String? =
+        appContext.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let(cursor::getString)?.take(255)
+        }
+
+    private fun startNextQueuedFile(deviceId: String) {
+        val queue = fileSendQueues[deviceId] ?: return
+        if (registry.session(deviceId) == null) return
+        if (!isFeatureAvailable(BridgeyFeature.FILES, deviceId)) {
+            stopFileQueue(deviceId, "File transfer is turned off on one of your devices")
+            return
+        }
+        val (transferId, uri) = queue.startNext() ?: return
+        startFile(transferId, uri, deviceId)
+    }
+
+    private fun finishQueuedFile(transferId: String) {
+        val deviceId = transferDevices[transferId] ?: return
+        if (fileSendQueues[deviceId]?.finish(transferId) == true) startNextQueuedFile(deviceId)
+    }
+
+    /** Ends every file of [deviceId] that has not started yet with the given status. They remain retryable. */
+    private fun stopFileQueue(deviceId: String, status: String) {
+        fileSendQueues[deviceId]?.removeAllPending()?.forEach {
+            removeFileTransfer(it, status, if (status.contains("cancel", ignoreCase = true)) TransferEnd.CANCELLED else TransferEnd.FAILED)
+        }
+    }
+
+    private fun startFile(transferId: String, uri: Uri, deviceId: String) {
+        val connectedSession = registry.session(deviceId)
+        if (connectedSession == null) {
+            removeFileTransfer(transferId, "Transfer interrupted — reconnect to retry", TransferEnd.INTERRUPTED)
+            finishQueuedFile(transferId)
+            return
+        }
         val peer = connectedSession.peerName
-        val transferId = UUID.randomUUID().toString()
-        outgoingFileSources[transferId] = uri
-        transferDevices[transferId] = connectedSession.remoteDeviceId
         diagnostics.record("transfer", "send_started")
-        updateFileTransfer(transferId, "Selected file", "Preparing…", true)
+        updateFileTransfer(transferId, mutableFileTransfers.value[transferId]?.name ?: "Selected file", "Preparing…", true)
         val job = scope.launch {
             val resolver = appContext.contentResolver
             val metadata = runCatching {
@@ -1402,7 +1675,7 @@ class PairingCoordinator(
             }
             if (withTimeoutOrNull(15_000) { completed.await() } == true) {
                 outgoingFileSources.remove(transferId)
-                updateFileTransfer(transferId, metadata.first, "${metadata.first} saved on $peer", false)
+                updateFileTransfer(transferId, metadata.first, "${metadata.first} saved on $peer", false, TransferEnd.SENT)
                 diagnostics.record("transfer", "send_completed")
             } else {
                 pendingFileCompletions.remove(transferId)
@@ -1411,10 +1684,37 @@ class PairingCoordinator(
             }
         }
         outgoingFileJobs[transferId] = job
-        job.invokeOnCompletion { outgoingFileJobs.remove(transferId, job) }
+        job.invokeOnCompletion {
+            outgoingFileJobs.remove(transferId, job)
+            finishQueuedFile(transferId)
+        }
     }
 
+    /** The Save to… answer for a waiting folder. */
+    fun answerFolderDestination(folderTransferId: String, answer: dev.bridgey.android.folders.DestinationAnswer) =
+        folders.answerDestination(folderTransferId, answer)
+
+    /** The conflict answer for a waiting folder (Merge, Replace, New folder or Cancel). */
+    fun answerFolderConflict(folderTransferId: String, choice: dev.bridgey.android.folders.ConflictChoice) =
+        folders.answerConflict(folderTransferId, choice)
+
     fun cancelFileTransfer(transferId: String) {
+        if (folders.cancel(transferId)) return
+        if (mutableFileTransfers.value[transferId]?.kind == TransferKind.FOLDER) {
+            // An interrupted folder: cancel means it no longer resumes. Completed files stay.
+            folderJournals.read(transferId)?.header?.oneOffTree?.let(placesStore::releaseOneOff)
+            folderJournals.delete(transferId)
+            mutableFileTransfers.update { it - transferId }
+            transferDevices.remove(transferId)
+            refreshFileTransferSummary()
+            return
+        }
+        val queueDevice = transferDevices[transferId]
+        if (queueDevice != null && fileSendQueues[queueDevice]?.removePending(transferId) == true) {
+            removeFileTransfer(transferId, "Transfer cancelled")
+            diagnostics.record("transfer", "cancelled")
+            return
+        }
         val current = transferDevices[transferId]?.let(registry::session)
         markTransferCancelled(transferId)
         if (current != null) {
@@ -1433,18 +1733,21 @@ class PairingCoordinator(
         diagnostics.record("transfer", "cancelled")
     }
 
-    fun cancelFileTransfer() = mutableFileTransfers.value.values.filter { it.active }.forEach { cancelFileTransfer(it.id) }
+    fun cancelFileTransfer() {
+        fileSendQueues.keys.forEach { stopFileQueue(it, "Transfer cancelled") }
+        mutableFileTransfers.value.values.filter { it.active }.forEach { cancelFileTransfer(it.id) }
+    }
 
     /** Retries to the same device the file first went to. */
     fun retryFileTransfer(transferId: String) {
         val uri = outgoingFileSources[transferId] ?: return
         val deviceId = transferDevices[transferId] ?: mutableFileTransfers.value[transferId]?.deviceId
         if (deviceId == null || registry.session(deviceId) == null) {
-            removeFileTransfer(transferId, "Reconnect before retrying")
+            removeFileTransfer(transferId, "Reconnect before retrying", TransferEnd.FAILED)
             return
         }
         if (!isFeatureAvailable(BridgeyFeature.FILES, deviceId)) {
-            removeFileTransfer(transferId, "File transfer is turned off on one of your devices")
+            removeFileTransfer(transferId, "File transfer is turned off on one of your devices", TransferEnd.FAILED)
             return
         }
         mutableFileTransfers.value = mutableFileTransfers.value.toMutableMap().apply { remove(transferId) }
@@ -1511,6 +1814,8 @@ class PairingCoordinator(
         pendingFileCompletions.clear()
         incomingFiles.values.forEach(IncomingFileTransfer::cancel)
         incomingFiles.clear()
+        folders.deviceGone(null)
+        interruptFileQueue()
         outgoingFileJobs.values.forEach(Job::cancel)
         outgoingFileJobs.clear()
         mutableFileTransfers.value = recoverInterruptedTransfers(mutableFileTransfers.value)
@@ -1805,7 +2110,8 @@ class PairingCoordinator(
             }
             "files.offer" -> {
                 if (receiveClipboardTransferOffer(current, message)) return
-                if (settings.isEnabled(BridgeyFeature.FILES, current.remoteDeviceId)) {
+                // A folder that was accepted finishes even if Files is turned off meanwhile (receiveFileOffer routes it).
+                if (settings.isEnabled(BridgeyFeature.FILES, current.remoteDeviceId) || folders.activeFor(current.remoteDeviceId) != null) {
                     receiveFileOffer(current, message)
                 } else {
                     current.send(Message(kind = "files.rejected", sessionId = current.id, transferId = message.transferId))
@@ -1815,15 +2121,25 @@ class PairingCoordinator(
             "files.rejected" -> message.transferId?.let { transferId ->
                 if (clipboardOutbox.handles(transferId)) return clipboardOutbox.onCancelled(transferId)
                 if (!ownsTransfer(current, transferId)) return
+                stopFileQueue(current.remoteDeviceId, "File transfer is turned off on ${current.peerName}")
                 pendingFileAccepts.remove(transferId)?.complete(false)
                 outgoingFileJobs.remove(transferId)?.cancel()
-                removeFileTransfer(transferId, "File transfer is turned off on ${current.peerName}")
+                removeFileTransfer(transferId, "File transfer is turned off on ${current.peerName}", TransferEnd.FAILED)
             }
             // Once an offer has been accepted, let that transfer finish even if the
             // setting changes. Disabling Files blocks the next offer instead.
-            "files.chunk" -> if (clipboardInbox.handles(message.transferId)) receiveClipboardChunk(current, message) else receiveFileChunk(current, message)
+            "files.chunk" -> when {
+                clipboardInbox.handles(message.transferId) -> receiveClipboardChunk(current, message)
+                folders.handles(message.transferId) -> receiveFolderChunk(current, message)
+                else -> receiveFileChunk(current, message)
+            }
             "files.complete" -> if (clipboardInbox.handles(message.transferId)) receiveClipboardComplete(current, message) else receiveFileComplete(current, message)
             "files.cancel" -> when {
+                folders.handles(message.transferId) -> {
+                    if (registry.isActive(current) && message.sessionId == current.id) {
+                        folders.fileCancel(current.remoteDeviceId, message.transferId!!, FolderSessionLink(current))
+                    }
+                }
                 clipboardInbox.handles(message.transferId) || clipboardOutbox.handles(message.transferId) -> {
                     val transferId = message.transferId!!
                     clipboardInbox.onCancelled(transferId)
@@ -1833,6 +2149,13 @@ class PairingCoordinator(
                 else -> receiveFileCancel(current, message.transferId)
             }
             "files.cancel.ack" -> message.transferId?.let { if (ownsTransfer(current, it)) removeFileTransfer(it, "Transfer cancelled") }
+            dev.bridgey.android.folders.FolderKinds.PLACES_LIST, dev.bridgey.android.folders.FolderKinds.PLACES_BROWSE,
+            dev.bridgey.android.folders.FolderKinds.PLACES_CREATE_FOLDER, dev.bridgey.android.folders.FolderKinds.OFFER,
+            dev.bridgey.android.folders.FolderKinds.MANIFEST, dev.bridgey.android.folders.FolderKinds.RESOLVE,
+            dev.bridgey.android.folders.FolderKinds.COMPLETE, dev.bridgey.android.folders.FolderKinds.CANCEL,
+            -> receiveFolderMessage(current, message)
+            // This phone only receives folders: nothing waits for a cancel acknowledgement here.
+            dev.bridgey.android.folders.FolderKinds.CANCEL_ACK -> Unit
             else -> if (message.kind.startsWith("input.")) receiveRemoteInput(current, message)
         }
     }
@@ -2093,6 +2416,18 @@ class PairingCoordinator(
         ) ?: return fail(current, "Invalid encrypted file offer")
         val payload = runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)) }.getOrNull()
             ?: return fail(current, "Invalid file offer")
+        // A file inside a folder transfer (4.6): the folder session checks it against the manifest.
+        if (payload.has("folderTransferId")) {
+            val folderFileId = payload.optString("transferId").takeIf { dev.bridgey.android.folders.isWireId(it) } ?: return
+            if (message.transferId != null && message.transferId != folderFileId) return
+            folders.fileOffer(current.remoteDeviceId, folderFileId, payload)
+            return
+        }
+        if (!settings.isEnabled(BridgeyFeature.FILES, current.remoteDeviceId)) {
+            current.send(Message(kind = "files.rejected", sessionId = current.id, transferId = message.transferId))
+            sendFeatureState(current)
+            return
+        }
         val transferId = payload.optString("transferId")
         val name = payload.optString("name")
         val mimeType = payload.optString("mimeType", "application/octet-stream")
@@ -2112,7 +2447,7 @@ class PairingCoordinator(
         transferDevices[transferId] = current.remoteDeviceId
         updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: ${transfer.progress.status(0, force = true)}", true)
         current.send(Message(kind = "files.accept", sessionId = current.id, transferId = transferId))
-        android.util.Log.i("Bridgey", "PLUGIN file accepted name=${transfer.displayName} size=$size")
+        android.util.Log.i("Bridgey", "PLUGIN file accepted transfer=${transferId.take(8)} size=$size")
     }
 
     private fun receiveFileChunk(current: Session, message: Message) {
@@ -2159,6 +2494,7 @@ class PairingCoordinator(
         val payload = runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)) }.getOrNull()
             ?: return fail(current, "Invalid file completion")
         val transferId = payload.optString("transferId")
+        if (folders.handles(transferId)) return folders.fileComplete(current.remoteDeviceId, transferId, payload.optString("sha256"))
         if (!ownsTransfer(current, transferId)) return
         val transfer = incomingFiles.remove(transferId) ?: run {
             if (transferId in cancelledTransferIds) return
@@ -2170,10 +2506,10 @@ class PairingCoordinator(
             mutableFileTransferStatus.value = "File verification failed"
             return fail(current, "File verification failed")
         }
-        updateFileTransfer(transferId, transfer.displayName, "${transfer.displayName} saved to Download/Bridgey", false)
+        updateFileTransfer(transferId, transfer.displayName, "${transfer.displayName} saved to Download/Bridgey", false, TransferEnd.RECEIVED)
         ReceivedFileNotifier.show(appContext, transfer.displayName, transfer.mimeType, savedUri)
         current.send(Message(kind = "files.complete.ack", sessionId = current.id, transferId = transferId))
-        android.util.Log.i("Bridgey", "PLUGIN file received name=${transfer.displayName}")
+        android.util.Log.i("Bridgey", "PLUGIN file received transfer=${transferId.take(8)}")
     }
 
     private fun receiveFileCancel(current: Session, transferId: String?) {
@@ -2188,12 +2524,18 @@ class PairingCoordinator(
         android.util.Log.i("Bridgey", "PLUGIN file cancellation received transfer=${transferId.take(8)}")
     }
 
+    /** Ends the current and waiting outgoing files of [deviceId] (null: all) after the session is lost. They remain retryable. */
+    private fun interruptFileQueue(deviceId: String? = null) {
+        val queues = if (deviceId == null) fileSendQueues.values.toList() else listOfNotNull(fileSendQueues[deviceId])
+        queues.flatMap { it.removeAll() }.forEach { removeFileTransfer(it, "Transfer interrupted — reconnect to retry", TransferEnd.INTERRUPTED) }
+    }
+
     private fun markTransferCancelled(transferId: String) {
         cancelledTransferIds += transferId
         while (cancelledTransferIds.size > 64) cancelledTransferIds.firstOrNull()?.let(cancelledTransferIds::remove)
     }
 
-    private fun updateFileTransfer(id: String, name: String, status: String, active: Boolean) {
+    private fun updateFileTransfer(id: String, name: String, status: String, active: Boolean, outcome: TransferEnd? = if (active) null else TransferEnd.FAILED) {
         val deviceId = transferDevices[id]
         val deviceName = deviceId?.let { device ->
             registry.connections().firstOrNull { it.deviceId == device }?.peerName
@@ -2212,13 +2554,14 @@ class PairingCoordinator(
                 retryable = !active && outgoingFileSources.containsKey(id),
                 deviceId = deviceId ?: previous?.deviceId,
                 deviceName = deviceName ?: previous?.deviceName.orEmpty(),
+                outcome = outcome,
             ))
         }
         pruneTransferHistory()
         refreshFileTransferSummary(status)
     }
 
-    private fun removeFileTransfer(id: String, status: String) {
+    private fun removeFileTransfer(id: String, status: String, outcome: TransferEnd = TransferEnd.CANCELLED) {
         mutableFileTransfers.value[id]?.let { previous ->
             mutableFileTransfers.value = mutableFileTransfers.value.toMutableMap().apply {
                 put(id, previous.copy(
@@ -2226,6 +2569,8 @@ class PairingCoordinator(
                     active = false,
                     progressPercent = null,
                     retryable = outgoingFileSources.containsKey(id),
+                    queued = false,
+                    outcome = outcome,
                 ))
             }
         }
@@ -2244,7 +2589,7 @@ class PairingCoordinator(
     private fun refreshFileTransferSummary(fallback: String? = null) {
         val activeTransfers = mutableFileTransfers.value.values.filter { it.active }
         mutableFileTransferActive.value = activeTransfers.isNotEmpty()
-        mutableFileTransferStatus.value = activeTransfers.firstOrNull()?.status ?: fallback
+        mutableFileTransferStatus.value = (activeTransfers.firstOrNull { !it.queued } ?: activeTransfers.firstOrNull())?.status ?: fallback
     }
 
     private fun authenticateOrPrompt(current: Session) {
@@ -2349,6 +2694,12 @@ class PairingCoordinator(
             CLIPBOARD_FILES_FEATURE_KEY,
             settings.isEnabled(BridgeyFeature.CLIPBOARD, current.remoteDeviceId) && settings.state.value.clipboardFilesEnabled,
         )
+        // Draft, edition only: this phone receives folders and serves its places. Both mirror Files;
+        // receiving needs Android 10 (scoped storage), like receiving files.
+        val receivesFolders = settings.isEnabled(BridgeyFeature.FILES, current.remoteDeviceId) &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        featureValues.put(dev.bridgey.android.folders.FOLDERS_FEATURE_KEY, receivesFolders)
+        featureValues.put(dev.bridgey.android.folders.PLACES_FEATURE_KEY, receivesFolders)
         val payload = JSONObject()
             .put("version", 1)
             .put("features", featureValues)
@@ -2383,11 +2734,14 @@ class PairingCoordinator(
             state.copy(
                 remoteFeatures = received,
                 remoteClipboardFiles = values.opt(CLIPBOARD_FILES_FEATURE_KEY) == true,
+                remoteFolders = values.opt(dev.bridgey.android.folders.FOLDERS_FEATURE_KEY) == true,
+                remotePlaces = values.opt(dev.bridgey.android.folders.PLACES_FEATURE_KEY) == true,
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
                 ringing = state.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
             )
         }
         if (!clipboardOffersAvailable(deviceId)) clipboardOutbox.disconnected(deviceId)
+        if (received[BridgeyFeature.FILES] == false) stopFileQueue(deviceId, "File transfer is turned off on ${current.peerName}")
         if (received[BridgeyFeature.FIND_DEVICE] == false && phoneRingingFrom == deviceId) stopPhoneRinging()
         val isTarget = registry.target(selectedDeviceId) == deviceId
         if (isTarget && received[BridgeyFeature.CLIPBOARD] == false) mutableClipboardStatus.value = null
@@ -2444,9 +2798,12 @@ class PairingCoordinator(
 
     /** Cancels the file transfers of [deviceId] (null: all). */
     private fun cancelTransfers(deviceId: String?) {
+        // Folders: the session deletes the file in progress and keeps its journal, so the folder resumes.
+        folders.deviceGone(deviceId)
         val ids = if (deviceId == null) null else transferDevices.filterValues { it == deviceId }.keys
-        fun mine(transferId: String) = ids == null || transferId in ids
+        fun mine(transferId: String) = (ids == null || transferId in ids) && mutableFileTransfers.value[transferId]?.kind != TransferKind.FOLDER
         val hadActiveTransfers = mutableFileTransfers.value.values.any { it.active && mine(it.id) }
+        interruptFileQueue(deviceId)
         incomingFiles.entries.filter { mine(it.key) }.forEach { (id, transfer) ->
             transfer.cancel()
             incomingFiles.remove(id)
@@ -2480,6 +2837,7 @@ class PairingCoordinator(
         const val HANDSHAKE_TIMEOUT_MILLIS = 20_000L
         const val VERIFICATION_TIMEOUT_MILLIS = 120_000L
         const val CLIPBOARD_CACHE_DIRECTORY = "clipboard-cache"
+        const val FOLDER_JOURNAL_DIRECTORY = "folder-transfers"
         const val REMOTE_INPUT_MAX_BYTES = 2_048
     }
 

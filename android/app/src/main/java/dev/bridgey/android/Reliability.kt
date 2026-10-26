@@ -43,10 +43,13 @@ internal fun recoverInterruptedTransfers(
     transfers: Map<String, FileTransferState>,
 ): Map<String, FileTransferState> = transfers
     .mapValues { (_, transfer) ->
-        if (transfer.active) transfer.copy(
+        // Folders report their own interruption (their journal decides whether they resume).
+        if (transfer.active && transfer.kind == TransferKind.FILE) transfer.copy(
             status = "Transfer interrupted — reconnect to retry",
             active = false,
             progressPercent = null,
+            queued = false,
+            outcome = TransferEnd.INTERRUPTED,
         ) else transfer
     }
     .values

@@ -8,6 +8,9 @@ data class DeviceLinkState(
     val remoteFeatures: Map<BridgeyFeature, Boolean> = BridgeyFeature.entries.associateWith(::featureEnabledByLegacyPeer),
     /** The device advertised clipboard_files_draft1. */
     val remoteClipboardFiles: Boolean = false,
+    /** The device advertised folders_draft1 and places_draft1 (draft folders protocol). */
+    val remoteFolders: Boolean = false,
+    val remotePlaces: Boolean = false,
     val battery: RemoteBatteryStatus? = null,
     /** The device reported that it is ringing (Find device). */
     val ringing: Boolean = false,

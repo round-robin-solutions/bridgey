@@ -193,9 +193,17 @@ fun streamRows(
     return rows
 }
 
-/** Transfers that need a card with an action: running ones (Cancel) and failed ones that can be retried. */
-fun liveTransfers(transfers: Map<String, FileTransferState>): List<FileTransferState> =
-    transfers.values.filter { it.active || it.retryable }.sortedByDescending { it.startedAtMillis }
+/**
+ * Transfers that need a card with an action: running ones (Cancel) and failed ones that can be retried,
+ * newest first, then the queued files in the order they will be sent.
+ */
+fun liveTransfers(transfers: Map<String, FileTransferState>): List<FileTransferState> {
+    val (queued, others) = transfers.values.filter { it.active || it.retryable }.partition { it.queued }
+    return others.sortedByDescending { it.startedAtMillis } + queued.sortedBy { it.startedAtMillis }
+}
+
+/** Cancel all appears on the first transfer card once more than one transfer is running or queued. */
+fun showsCancelAll(transfers: Collection<FileTransferState>): Boolean = transfers.count { it.active } > 1
 
 /** Notification apps that may forward, out of all seen. */
 fun notificationAppCounts(applications: Map<String, String>, disabled: Set<String>): Pair<Int, Int> =

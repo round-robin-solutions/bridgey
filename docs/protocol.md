@@ -490,6 +490,19 @@ rename of the partial file. The macOS v1 receiver saves collision-safe names in
 a user-selected directory (default `~/Downloads/Bridgey`) and removes partial
 files when a transfer is interrupted.
 
+Sending several files does not add messages. The sender keeps a local queue and
+offers one file at a time; the next `files.offer` follows only after the
+previous transfer completes, fails, or is cancelled. Each queued file has its
+own transfer ID, so cancelling or retrying one file does not affect the others.
+Waiting files never reach the receiver, which therefore applies its limits and
+feature policy to every file separately.
+
+Receivers resolve name conflicts deterministically and never overwrite an
+existing file. macOS uses Finder-style numbering (`photo.jpg`, `photo 2.jpg`,
+`photo 3.jpg`) and also treats a name as taken while its `.bridgey-part` file
+exists. Android lets `MediaStore` choose a unique name in `Download/Bridgey`,
+which appends a number such as `photo (1).jpg`.
+
 Version 1 does not resume a partial file stream. If a connection is interrupted,
 the receiver deletes its pending partial file and both clients mark the transfer
 as interrupted. A user-initiated retry creates a new transfer identifier,
@@ -591,6 +604,172 @@ action tokens. Bridgey uses the platform telecom service and never starts a
 number the platform identifies as an emergency number. It does not request
 contacts or call-log access. Local feature policy is checked again immediately
 before any side effect. Number content is not logged.
+
+## Draft: folders, places and settings sync
+
+**Draft, edition only until accepted upstream.** Bridgey by Round Robin implements
+this first; upstream clients never receive these messages. Implemented so far
+(Files 2.0, first slice): folders Mac to phone and places on the phone. Phone to
+Mac and settings sync are not built yet; clients do not advertise
+`settings_sync_draft1`. The full design, user
+experience and reasons are in [folders-and-settings-sync.md](folders-and-settings-sync.md).
+
+### Negotiation
+
+Three keys join the encrypted `features.update` map. A missing key is false, and
+a client sends the messages below only while the peer's latest map shows the key
+true (all three count as false until the first map of a session arrives):
+
+- `folders`: folder transfers; mirrors `files` (no separate switch); Android 10+.
+- `places`: the receiver serves `places.*`; mirrors `files`.
+- `settings_sync`: settings sync; global and per-device switches, on by default.
+
+Until upstream accepts this draft, the edition advertises `folders_draft1`,
+`places_draft1` and `settings_sync_draft1` instead, so a different upstream design
+under the final keys can never be confused with this one.
+
+### Common rules
+
+All messages are AES-GCM payloads in the current transport (`kind`, `sessionId`,
+unique `messageId`, `nonce`, `ciphertext`), accepted only in the connected session
+after the replay check. `folders.offer`, `folders.rejected`, `folders.cancel` and
+`folders.cancel.ack` repeat the folder transfer ID in the outer `transferId`; a
+receiver with Files off answers an outer-only `folders.rejected` without decrypting
+and resends `features.update`. Folder and places payloads carry `version: 1`,
+settings payloads `schema: 1`. Plaintext is at most 8 KiB, except
+`folders.manifest`, `folders.complete`, `folders.result`, `places.listed` and
+`places.children` (32 KiB) and `settings.snapshot`/`settings.update` (16 KiB).
+A payload that fails decryption closes the session as today; one that decrypts
+but fails validation is answered with an error and leaves the session up. IDs are
+lowercase UUIDs and are never reused.
+
+### Places
+
+Places are folders on the receiver that its user granted (on Android, persisted
+Storage Access Framework tree grants) plus its default received-files folder
+(`placeId` `default`). `places.list` always answers with the receiver's folder
+destination mode; places, browsing and folder creation are served only in
+`sender_picks`. Senders send `places.list` before every folder.
+
+- `places.list` `{version, requestId}` answers `places.listed` `{version, requestId,
+  mode, places[], fixedLabel}`: `mode` is `sender_picks`, `receiver_asks` or
+  `fixed`; `places` (empty unless `sender_picks`, at most 17) holds `placeId`
+  (`default` or 22-character base64url random ID, never a URI or path), `label`
+  (64 characters), `available` (bool), `freeBytes` (integer or null);
+  `fixedLabel` is the display path of the default folder in `fixed` mode.
+- `places.browse` `{version, requestId, placeId, path, cursor}` answers
+  `places.children` `{version, requestId, placeId, path, folders[], fileCount,
+  folderCount, nextCursor}`: folder names only, at most 500 per page, hidden
+  folders excluded. Never file names, sizes, dates or contents.
+- `places.create_folder` `{version, requestId, placeId, path, name}` answers
+  `places.folder_created` `{version, requestId, placeId, path, name}`; a repeated
+  `requestId` returns the first answer.
+- Failures answer `places.error` `{version, requestId, code}`. At most 4 requests
+  in flight and 20 per 10 seconds; senders time out after 8 seconds.
+
+### Folder transfer
+
+1. The sender sends `folders.offer` `{version, folderTransferId, rootName,
+   fileCount, folderCount, totalSize, pageCount, manifestSha256, destination?,
+   resume, skipped?}`, then `pageCount` `folders.manifest` pages `{version,
+   folderTransferId, page, entries[]}` in order. `destination` `{placeId, path}`
+   is present only when the sender picked it. Entries are `{type: "dir", path}`
+   or `{type: "file", path, size, sha256, modified?}` in depth-first pre-order,
+   siblings by UTF-8 byte order; each entry's index is its position across pages.
+   `manifestSha256` is SHA-256 over `"folder-manifest-v1\n" + rootName + "\n"`
+   followed, per entry, by `type \0 path \0 size \0 sha256 \n` (`0` and empty
+   for folders). An empty folder has no entries: `pageCount` 0 and no pages
+   (edition call; every other offer has 1 to 128 pages). `skipped` counts what the
+   sender left out (`links`, `hidden`, `system`, `unreadable`, `tooLarge`,
+   `notDownloaded`, `tooLong`, `other`); unknown counters are ignored.
+2. Within 15 seconds of the last page the receiver answers `folders.accept`,
+   `folders.waiting` `{version, folderTransferId, reason, timeoutSeconds}`
+   (`destination` or `conflict`, while its user answers), `folders.conflict` or
+   `folders.rejected` `{version, folderTransferId, code, entry?, neededBytes?,
+   freeBytes?}`. The receiver's own mode decides; an offer without `destination`
+   reaching a receiver in `sender_picks` is handled as `receiver_asks`.
+3. When the target exists, the receiver applies its preset choice if it has one.
+   If it asks and the sender picked the destination, the receiver
+   sends `folders.conflict` `{version, folderTransferId, existing, clashingFiles,
+   clashingFolders, newFolderName, choices[], timeoutSeconds}` and the sender
+   answers `folders.resolve` `{version, folderTransferId, choice}` with `merge`
+   (clashing files kept as `name (1).ext`), `replace` (clashing files replaced
+   after verification), `new_folder` (`Name (1)`) or `cancel`. Otherwise the
+   receiver asks its own user. A `replace` answered by the sender asks the
+   receiver's user again unless that device allows other devices to replace
+   files (a local switch, off by default); meanwhile the receiver sends
+   `folders.waiting` with reason `conflict`. Questions time out after 180 seconds and cancel;
+   nothing is written and nothing is overwritten. A folder is never replaced by a
+   file or the reverse; such clashes keep both.
+4. `folders.accept` `{version, folderTransferId, rootName, destinationLabel,
+   choice, completedBitmap}` gives the final root name and display path.
+5. Each file then uses the existing `files.offer`, `files.chunk` and
+   `files.complete` messages. The offer adds `folderTransferId`, `entry` (strictly
+   increasing since accept) and `path`, which must match the manifest entry
+   (`name`, `size` and `sha256` too). Inside a folder transfer the sender does not
+   wait for `files.accept` or for a file's last chunk acknowledgement; at most 64
+   chunks are unacknowledged across the folder and at most 32 files await
+   `files.complete.ack`. Chunks of different files never interleave. A file the
+   receiver cannot save is answered `folders.entry_failed` `{version,
+   folderTransferId, entry, transferId, code}`, its remaining chunks are dropped,
+   and the transfer goes on; 50 failures cancel it. The receiver creates folders
+   in manifest order as it reaches them and the remaining empty folders at the end.
+   Outside a folder transfer, sender paths are still never accepted.
+6. The sender ends with `folders.complete` `{version, folderTransferId, sentFiles,
+   failedCount, failed[]}`; the receiver answers `folders.result` `{version,
+   folderTransferId, status, savedFiles, savedBytes, createdFolders, renamedFiles,
+   replacedFiles, failedCount, failed[]}` with `status` `complete` or `incomplete`
+   (`failed` lists at most 500 `{entry, code}`).
+
+Either side may send `folders.cancel` `{version, folderTransferId, reason, code?}`
+(`user`, `timeout`, `policy` or `error`), answered by outer-only
+`folders.cancel.ack`. Completed files stay; the file in progress is deleted.
+One folder transfer is active per direction per session.
+
+**Resume.** Both sides keep a journal per transfer until 24 hours after its last
+progress, and the sender resumes by itself whenever the devices reconnect in that
+window (Rahul, 2026-10-26). After a
+reconnect the sender resends the offer with the same `folderTransferId`,
+`resume: true` and the manifest; a receiver whose journal matches peer and
+`manifestSha256` answers `folders.accept` with its stored choice and
+`completedBitmap` (base64, bit `i` set when entry `i` is done, least significant
+bit first), else `folders.rejected` `resume_unavailable`. Finished files are not
+sent again; an interrupted file restarts from byte 0 under a new transfer ID.
+
+**Names and limits.** Every new name (root, path components, created folders) is
+a portable name: NFC; U+0000 to U+001F, U+007F and `" * / : < > ? \ |` replaced
+by `_`; no leading spaces and no trailing spaces or dots; never empty; Windows
+device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`) get `_`;
+names ending `.bridgey-part` get `_`; at most 220 UTF-8 bytes. Senders convert,
+receivers reject anything that is not already portable. Siblings may not clash
+after NFC and lowercasing. Paths: at most 32 components and 1,024 bytes, no
+empty, `.` or `..` components. Per transfer: 10,000 files, 2,000 folders, files up
+to 10 GiB, 1 TiB in all, manifest at most 128 pages of 256 entries and 4 MiB.
+
+**Error codes:** `unsupported`, `unsupported_schema`, `policy`, `busy`,
+`invalid_message`, `invalid_manifest`, `limit_exceeded`, `insufficient_space`,
+`place_unavailable`, `not_found`, `exists`, `invalid_name`, `timeout`,
+`declined`, `io_error`, `verification_failed`, `source_changed`, `unreadable`,
+`resume_unavailable`, `too_many_failures`, `cancelled`.
+
+### Settings sync
+
+When both peers report `settings_sync`, each sends `settings.snapshot` `{schema,
+maxSchema, records}`; local edits follow as `settings.update` `{schema, records}`.
+A record is `{value, changedAt, version, changedBy}` (bool or string value, Unix
+ms, counter, device ID or empty). Schema 1 keys: `files.folder_destination`,
+`files.folder_conflict` (`ask`, `merge`, `replace`, `new_folder`),
+`clipboard.automatic`, `pair.clipboard.automatic` (scoped to the two devices),
+`activity.previews`, `display.reduce_motion`. Device names, folders, places,
+feature switches and update channels never sync.
+
+A local edit sets `changedAt` to the larger of now and the current `changedAt`
+plus one, and increments `version`. The higher `changedAt` wins, then the higher
+`version`, then the larger `changedBy`. A winning remote record is stored
+unchanged and never re-sent as a new edit, so updates cannot ping-pong. Receivers
+answer `settings.ack` `{schema, ackOf, applied[], kept[]}` and send their newer
+records for `kept` keys unless already sent to that peer; unknown keys and invalid records are skipped one by
+one; an unsupported schema is answered `settings.error` `{schema, code, maxSchema}`.
 
 ## Compatibility
 
