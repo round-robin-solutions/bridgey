@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bridgey.dev/schema/folders-draft1.schema.json",
+  "title": "Bridgey draft folders and places payloads (folders_draft1, places_draft1)",
+  "description": "Decrypted payloads of the draft folders protocol (docs/protocol.md, 'Draft: folders, places and settings sync'). Each message kind maps to one definition in $defs, named after the kind. Receivers ignore unknown fields; a missing optional field and null mean the same.",
+  "$defs": {
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "placeId": { "type": "string", "pattern": "^(default|[A-Za-z0-9_-]{22})$" },
+    "existingPath": { "type": "string", "maxLength": 1024 },
+    "manifestPath": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "portableName": { "type": "string", "minLength": 1, "maxLength": 220 },
+    "sha256": { "type": "string", "pattern": "^[A-Za-z0-9+/]{43}=$" },
+    "version": { "const": 1 },
+    "count": { "type": "integer", "minimum": 0 },
+    "code": {
+      "enum": ["unsupported", "unsupported_schema", "policy", "busy", "invalid_message", "invalid_manifest", "limit_exceeded",
+        "insufficient_space", "place_unavailable", "not_found", "exists", "invalid_name", "timeout", "declined", "io_error",
+        "verification_failed", "source_changed", "unreadable", "resume_unavailable", "too_many_failures", "cancelled"]
+    },
+    "choice": { "enum": ["none", "merge", "replace", "new_folder", "cancel"] },
+    "failedList": {
+      "type": "array", "maxItems": 500,
+      "items": { "type": "object", "required": ["entry", "code"], "properties": { "entry": { "$ref": "#/$defs/count" }, "code": { "type": "string" } } }
+    },
+    "places.list": {
+      "type": "object", "required": ["version", "requestId"],
+      "properties": { "version": { "$ref": "#/$defs/version" }, "requestId": { "$ref": "#/$defs/uuid" } }
+    },
+    "places.listed": {
+      "type": "object", "required": ["version", "requestId", "mode", "places"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" },
+        "requestId": { "$ref": "#/$defs/uuid" },
+        "mode": { "enum": ["sender_picks", "receiver_asks", "fixed"] },
+        "places": {
+          "type": "array", "maxItems": 17,
+          "items": {
+            "type": "object", "required": ["placeId", "label", "available"],
+            "properties": {
+              "placeId": { "$ref": "#/$defs/placeId" },
+              "label": { "type": "string", "maxLength": 64 },
+              "available": { "type": "boolean" },
+              "freeBytes": { "type": ["integer", "null"], "minimum": 0 }
+            }
+          }
+        },
+        "fixedLabel": { "type": ["string", "null"], "maxLength": 128 }
+      }
+    },
+    "places.browse": {
+      "type": "object", "required": ["version", "requestId", "placeId", "path"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" }, "requestId": { "$ref": "#/$defs/uuid" }, "placeId": { "$ref": "#/$defs/placeId" },
+        "path": { "$ref": "#/$defs/existingPath" }, "cursor": { "type": ["string", "null"], "maxLength": 64 }
+      }
+    },
+    "places.children": {
+      "type": "object", "required": ["version", "requestId", "placeId", "path", "folders", "fileCount", "folderCount"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" }, "requestId": { "$ref": "#/$defs/uuid" }, "placeId": { "$ref": "#/$defs/placeId" },
+        "path": { "$ref": "#/$defs/existingPath" },
+        "folders": { "type": "array", "maxItems": 500, "items": { "type": "string", "minLength": 1, "maxLength": 255 } },
+        "fileCount": { "$ref": "#/$defs/count" }, "folderCount": { "$ref": "#/$defs/count" },
+        "nextCursor": { "type": ["string", "null"], "maxLength": 64 }
+      }
+    },
+    "places.create_folder": {
+      "type": "object", "required": ["version", "requestId", "placeId", "path", "name"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" }, "requestId": { "$ref": "#/$defs/uuid" }, "placeId": { "$ref": "#/$defs/placeId" },
+        "path": { "$ref": "#/$defs/existingPath" }, "name": { "$ref": "#/$defs/portableName" }
+      }
+    },
+    "places.folder_created": { "$ref": "#/$defs/places.create_folder" },
+    "places.error": {
+      "type": "object", "required": ["version", "requestId", "code"],
+      "properties": { "version": { "$ref": "#/$defs/version" }, "requestId": { "$ref": "#/$defs/uuid" }, "code": { "$ref": "#/$defs/code" } }
+    },
+    "folders.offer": {
+      "type": "object",
+      "required": ["version", "folderTransferId", "rootName", "fileCount", "folderCount", "totalSize", "pageCount", "manifestSha256"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" },
+        "folderTransferId": { "$ref": "#/$defs/uuid" },
+        "rootName": { "$ref": "#/$defs/portableName" },
+        "fileCount": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "folderCount": { "type": "integer", "minimum": 0, "maximum": 2000 },
+        "totalSize": { "type": "integer", "minimum": 0, "maximum": 1099511627776 },
+        "pageCount": { "type": "integer", "minimum": 0, "maximum": 128, "description": "0 only for an empty folder (no entries)" },
+        "manifestSha256": { "$ref": "#/$defs/sha256" },
+        "destination": {
+          "type": "object", "required": ["placeId", "path"],
+          "properties": { "placeId": { "$ref": "#/$defs/placeId" }, "path": { "$ref": "#/$defs/existingPath" } }
+        },
+        "resume": { "type": "boolean", "default": false },
+        "skipped": {
+          "type": "object",
+          "properties": {
+            "links": { "$ref": "#/$defs/count" }, "hidden": { "$ref": "#/$defs/count" }, "system": { "$ref": "#/$defs/count" },
+            "unreadable": { "$ref": "#/$defs/count" }, "tooLarge": { "$ref": "#/$defs/count" }, "notDownloaded": { "$ref": "#/$defs/count" },
+            "tooLong": { "$ref": "#/$defs/count" }, "other": { "$ref": "#/$defs/count" }
+          }
+        }
+      }
+    },
+    "folders.manifest": {
+      "type": "object", "required": ["version", "folderTransferId", "page", "entries"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" },
+        "folderTransferId": { "$ref": "#/$defs/uuid" },
+        "page": { "type": "integer", "minimum": 0, "maximum": 127 },
+        "entries": {
+          "type": "array", "minItems": 1, "maxItems": 256,
+          "items": {
+            "oneOf": [
+              { "type": "object", "required": ["type", "path"], "properties": { "type": { "const": "dir" }, "path": { "$ref": "#/$defs/manifestPath" } } },
+              {
+                "type": "object", "required": ["type", "path", "size", "sha256"],
+                "properties": {
+                  "type": { "const": "file" }, "path": { "$ref": "#/$defs/manifestPath" },
+                  "size": { "type": "integer", "minimum": 0, "maximum": 10737418240 }, "sha256": { "$ref": "#/$defs/sha256" },
+                  "modified": { "type": "integer", "minimum": 0 }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "folders.waiting": {
+      "type": "object", "required": ["version", "folderTransferId", "reason", "timeoutSeconds"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" }, "folderTransferId": { "$ref": "#/$defs/uuid" },
+        "reason": { "enum": ["destination", "conflict"] }, "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 180 }
+      }
+    },
+    "folders.conflict": {
+      "type": "object", "required": ["version", "folderTransferId", "existing", "newFolderName", "choices", "timeoutSeconds"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" }, "folderTransferId": { "$ref": "#/$defs/uuid" },
+        "existing": { "enum": ["folder", "file"] },
+        "clashingFiles": { "type": ["integer", "null"], "minimum": 0 }, "clashingFolders": { "type": ["integer", "null"], "minimum": 0 },
+        "newFolderName": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "choices": { "type": "array", "minItems": 1, "items": { "enum": ["merge", "replace", "new_folder"] } },
+        "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 180 }
+      }
+    },
+    "folders.resolve": {
+      "type": "object", "required": ["version", "folderTransferId", "choice"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" }, "folderTransferId": { "$ref": "#/$defs/uuid" },
+        "choice": { "enum": ["merge", "replace", "new_folder", "cancel"] }
+      }
+    },
+    "folders.accept": {
+      "type": "object", "required": ["version", "folderTransferId", "rootName", "destinationLabel", "choice"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" }, "folderTransferId": { "$ref": "#/$defs/uuid" },
+        "rootName": { "type": "string", "minLength": 1, "maxLength": 255 }, "destinationLabel": { "type": "string", "maxLength": 128 },
+        "choice": { "enum": ["none", "merge", "replace", "new_folder"] }, "completedBitmap": { "type": ["string", "null"] }
+      }
+    },
+    "folders.rejected": {
+      "type": "object", "required": ["version", "folderTransferId", "code"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" }, "folderTransferId": { "$ref": "#/$defs/uuid" }, "code": { "$ref": "#/$defs/code" },
+        "entry": { "type": ["integer", "null"], "minimum": 0 },
+        "neededBytes": { "type": ["integer", "null"], "minimum": 0 }, "freeBytes": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "folders.entry_failed": {
+      "type": "object", "required": ["version", "folderTransferId", "entry", "transferId", "code"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" }, "folderTransferId": { "$ref": "#/$defs/uuid" }, "entry": { "$ref": "#/$defs/count" },
+        "transferId": { "$ref": "#/$defs/uuid" }, "code": { "$ref": "#/$defs/code" }
+      }
+    },
+    "folders.complete": {
+      "type": "object", "required": ["version", "folderTransferId", "sentFiles", "failedCount"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" }, "folderTransferId": { "$ref": "#/$defs/uuid" },
+        "sentFiles": { "$ref": "#/$defs/count" }, "failedCount": { "$ref": "#/$defs/count" }, "failed": { "$ref": "#/$defs/failedList" }
+      }
+    },
+    "folders.result": {
+      "type": "object", "required": ["version", "folderTransferId", "status", "savedFiles", "savedBytes", "createdFolders", "failedCount"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" }, "folderTransferId": { "$ref": "#/$defs/uuid" },
+        "status": { "enum": ["complete", "incomplete"] }, "savedFiles": { "$ref": "#/$defs/count" }, "savedBytes": { "$ref": "#/$defs/count" },
+        "createdFolders": { "$ref": "#/$defs/count" }, "renamedFiles": { "$ref": "#/$defs/count" }, "replacedFiles": { "$ref": "#/$defs/count" },
+        "failedCount": { "$ref": "#/$defs/count" }, "failed": { "$ref": "#/$defs/failedList" }
+      }
+    },
+    "folders.cancel": {
+      "type": "object", "required": ["version", "folderTransferId", "reason"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" }, "folderTransferId": { "$ref": "#/$defs/uuid" },
+        "reason": { "enum": ["user", "timeout", "policy", "error"] }, "code": { "type": ["string", "null"] }
+      }
+    },
+    "files.offer": {
+      "description": "files.offer inside a folder transfer: the files.v1 fields plus folderTransferId, entry and path",
+      "type": "object", "required": ["transferId", "name", "mimeType", "size", "sha256", "folderTransferId", "entry", "path"],
+      "properties": {
+        "transferId": { "$ref": "#/$defs/uuid" }, "name": { "$ref": "#/$defs/portableName" }, "mimeType": { "type": "string" },
+        "size": { "type": "integer", "minimum": 0, "maximum": 10737418240 }, "sha256": { "$ref": "#/$defs/sha256" },
+        "folderTransferId": { "$ref": "#/$defs/uuid" }, "entry": { "$ref": "#/$defs/count" }, "path": { "$ref": "#/$defs/manifestPath" }
+      }
+    }
+  }
+}
