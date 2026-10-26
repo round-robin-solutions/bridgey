@@ -37,7 +37,10 @@ data class AndroidUpdate(
     val minSdk: Int,
 )
 
-class UpdateFeedException(message: String) : Exception(message)
+/** Why an update step stopped, in words the Settings card can show. */
+enum class UpdateError { CHECK, DOWNLOAD, SAFETY, INSTALLER, CANCELLED }
+
+class UpdateFeedException(message: String, val error: UpdateError = UpdateError.SAFETY) : Exception(message)
 
 object UpdateFeeds {
     const val SCHEMA = 1
@@ -126,6 +129,29 @@ object UpdateFeeds {
             .filter { it.versionCode > installedVersionCode && it.minSdk <= sdkInt }
             .maxByOrNull { it.versionCode }
 
+    /**
+     * What a finished check offers. A skipped version stays hidden from automatic checks; a check
+     * the user started shows it again (as Sparkle does on the Mac).
+     */
+    fun offer(update: AndroidUpdate?, skippedVersionCode: Long, userInitiated: Boolean): AndroidUpdate? =
+        update?.takeIf { userInitiated || it.versionCode != skippedVersionCode }
+
+    /**
+     * The part of [versionName] that differs from [other]: "beta.10" when both are pre-releases
+     * of the same release, otherwise the whole name.
+     */
+    fun shortVersion(versionName: String, other: String): String {
+        fun split(value: String): Pair<String, String?> {
+            for (marker in listOf("-beta.", "-nightly.")) {
+                val index = value.indexOf(marker)
+                if (index >= 0) return value.substring(0, index) to value.substring(index + 1)
+            }
+            return value to null
+        }
+        val (base, pre) = split(versionName)
+        return if (pre != null && base == split(other).first) pre else versionName
+    }
+
     fun isCheckDue(lastCheckedAt: Long, now: Long, intervalMillis: Long): Boolean =
         lastCheckedAt <= 0 || now < lastCheckedAt || now - lastCheckedAt >= intervalMillis
 
@@ -149,4 +175,97 @@ object UpdateFeeds {
     /** The downloaded APK must be signed by exactly the certificates of the installed app. */
     fun signersMatch(installed: Set<String>, candidate: Set<String>): Boolean =
         installed.isNotEmpty() && installed == candidate
+}
+
+/** One piece of release notes as Settings draws it. */
+sealed interface ReleaseNoteBlock {
+    val text: String
+
+    data class Heading(override val text: String) : ReleaseNoteBlock
+    data class Bullet(override val text: String) : ReleaseNoteBlock
+    data class Paragraph(override val text: String) : ReleaseNoteBlock
+}
+
+/**
+ * Turns release notes (Markdown, one item per line) into headings, bullets and paragraphs, so
+ * Settings can draw a real list. The Mac app has the same rules (ReleaseNotes in UpdateFlow.swift).
+ */
+object ReleaseNotes {
+    private val bullet = Regex("""^(?:[-*+•–]|\d{1,3}[.)])\s+""")
+    private val heading = Regex("""^#{1,6}\s*""")
+    private val link = Regex("""\[([^\]]+)]\((?:[^)]+)\)""")
+    private val emphasis = Regex("""(\*\*|__|`)""")
+
+    /** [version] is dropped where the notes repeat it as a line or heading (the card names it already). */
+    fun blocks(notes: String, version: String? = null): List<ReleaseNoteBlock> {
+        val blocks = mutableListOf<ReleaseNoteBlock>()
+        var open = false
+        for (raw in notes.lines()) {
+            val line = raw.trim()
+            if (line.isEmpty() || line.all { it in "-*_=" }) {
+                open = false
+                continue
+            }
+            if (line.startsWith("#")) {
+                val text = plain(line.replaceFirst(heading, "").trim())
+                if (text.isNotEmpty() && !isVersion(text, version)) blocks += ReleaseNoteBlock.Heading(text)
+                open = false
+                continue
+            }
+            if (isVersion(line, version)) {
+                open = false
+                continue
+            }
+            val marker = bullet.find(line)
+            if (marker != null) {
+                val text = plain(line.substring(marker.range.last + 1).trim())
+                if (text.isNotEmpty()) {
+                    blocks += ReleaseNoteBlock.Bullet(text)
+                    open = true
+                }
+                continue
+            }
+            val last = blocks.lastOrNull()
+            if (open && last != null && continues(last.text, line)) {
+                blocks[blocks.lastIndex] = when (last) {
+                    is ReleaseNoteBlock.Bullet -> ReleaseNoteBlock.Bullet("${last.text} ${plain(line)}")
+                    is ReleaseNoteBlock.Paragraph -> ReleaseNoteBlock.Paragraph("${last.text} ${plain(line)}")
+                    is ReleaseNoteBlock.Heading -> last
+                }
+                continue
+            }
+            blocks += ReleaseNoteBlock.Paragraph(plain(line))
+            open = true
+        }
+        return blocks
+    }
+
+    /** The first blocks that fit about [lines] lines of [charsPerLine] characters; always at least one. */
+    fun preview(blocks: List<ReleaseNoteBlock>, lines: Int = 4, charsPerLine: Int = 44): List<ReleaseNoteBlock> {
+        var used = 0
+        val result = mutableListOf<ReleaseNoteBlock>()
+        for (block in blocks) {
+            val cost = maxOf(1, (block.text.length + charsPerLine - 1) / maxOf(1, charsPerLine))
+            if (result.isNotEmpty() && used + cost > lines) break
+            result += block
+            used += cost
+        }
+        while (result.size > 1 && result.last() is ReleaseNoteBlock.Heading) result.removeAt(result.lastIndex)
+        return result
+    }
+
+    /** Inline Markdown as plain words: link text, no bold or code markers. */
+    fun plain(text: String): String = text.replace(link, "$1").replace(emphasis, "")
+
+    private fun isVersion(text: String, version: String?): Boolean {
+        if (version.isNullOrEmpty()) return false
+        return listOf(version, "v$version", "bridgey $version", "bridgey v$version").any { it.equals(text, ignoreCase = true) }
+    }
+
+    /** A wrapped line continues the item above unless that item already ended a sentence. */
+    private fun continues(previous: String, line: String): Boolean {
+        val end = previous.lastOrNull() ?: return false
+        if (line.first().isLowerCase()) return true
+        return end !in ".!?:"
+    }
 }

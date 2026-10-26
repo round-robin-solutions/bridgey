@@ -33,10 +33,16 @@ data class UpdateUiState(
     val lastCheckedAt: Long,
     val checking: Boolean = false,
     val available: AndroidUpdate? = null,
-    val status: String? = null,
     val downloadProgress: Float? = null,
     val needsInstallPermission: Boolean = false,
     val promptVisible: Boolean = false,
+    /** Later was tapped: Settings says the update is waiting instead of showing it in full. */
+    val deferred: Boolean = false,
+    /** The version the user skipped, hidden until they check by hand. */
+    val skippedVersion: String? = null,
+    /** The APK is with the Android installer, waiting for the user to confirm. */
+    val awaitingConfirmation: Boolean = false,
+    val error: UpdateError? = null,
 )
 
 /**
@@ -68,17 +74,18 @@ class AppUpdater(
     fun setChannel(channel: UpdateChannel) {
         if (channel == mutableState.value.channel) return
         preferences.edit().putString(KEY_CHANNEL, channel.key).apply()
-        mutableState.update { it.copy(channel = channel, available = null, promptVisible = false, status = null) }
+        mutableState.update { it.copy(channel = channel, available = null, promptVisible = false, deferred = false, skippedVersion = null, error = null) }
         checkNow()
     }
 
+    /** A check the user started: it also shows a version they skipped. */
     fun checkNow() {
-        scope.launch { check(notify = false) }
+        scope.launch { check(notify = false, userInitiated = true) }
     }
 
     fun checkOnAppOpen() {
         if (UpdateFeeds.isCheckDue(lastCheckedAt(), System.currentTimeMillis(), UpdateFeeds.APP_OPEN_MIN_INTERVAL_MILLIS)) {
-            scope.launch { check(notify = false) }
+            scope.launch { check(notify = false, userInitiated = false) }
         }
     }
 
@@ -86,7 +93,7 @@ class AppUpdater(
     suspend fun runPeriodicChecks() {
         while (true) {
             if (UpdateFeeds.isCheckDue(lastCheckedAt(), System.currentTimeMillis(), UpdateFeeds.CHECK_INTERVAL_MILLIS)) {
-                check(notify = true)
+                check(notify = true, userInitiated = false)
             }
             delay(PERIODIC_WAKE_MILLIS)
         }
@@ -98,7 +105,23 @@ class AppUpdater(
             .putLong(KEY_SNOOZED_CODE, update.versionCode)
             .putLong(KEY_SNOOZED_UNTIL, System.currentTimeMillis() + UpdateFeeds.CHECK_INTERVAL_MILLIS)
             .apply()
-        mutableState.update { it.copy(promptVisible = false) }
+        mutableState.update { it.copy(promptVisible = false, deferred = true) }
+    }
+
+    /** Shows a deferred update in full again. */
+    fun showUpdate() {
+        mutableState.update { it.copy(deferred = false) }
+    }
+
+    /** Hides this version from automatic checks; Check now still finds it. */
+    fun skip() {
+        val update = mutableState.value.available ?: return
+        preferences.edit().putLong(KEY_SKIPPED_CODE, update.versionCode).apply()
+        mutableState.update { it.copy(available = null, promptVisible = false, deferred = false, skippedVersion = update.versionName) }
+    }
+
+    fun dismissError() {
+        mutableState.update { it.copy(error = null) }
     }
 
     fun dismissInstallPermission() {
@@ -114,22 +137,24 @@ class AppUpdater(
         }
         installJob = scope.launch {
             mutableState.update {
-                it.copy(promptVisible = false, needsInstallPermission = false, downloadProgress = 0f, status = "Downloading ${update.versionName}…")
+                it.copy(promptVisible = false, needsInstallPermission = false, deferred = false, downloadProgress = 0f, error = null)
             }
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val apk = download(update)
                     verifyApk(apk, update)
-                    commitInstallSession(apk)
+                    try {
+                        commitInstallSession(apk)
+                    } catch (error: Exception) {
+                        throw UpdateFeedException(error.message ?: "Installer failed", UpdateError.INSTALLER)
+                    }
                 }
             }
             mutableState.update {
                 it.copy(
                     downloadProgress = null,
-                    status = result.fold(
-                        onSuccess = { "Confirm the update in the Android installer." },
-                        onFailure = { error -> (error as? UpdateFeedException)?.message ?: "The update could not be downloaded. Try again later." },
-                    ),
+                    awaitingConfirmation = result.isSuccess,
+                    error = result.exceptionOrNull()?.let { error -> (error as? UpdateFeedException)?.error ?: UpdateError.DOWNLOAD },
                 )
             }
         }
@@ -137,7 +162,7 @@ class AppUpdater(
 
     fun onInstallNeedsConfirmation(intent: Intent?) {
         if (intent == null) {
-            onInstallFinished("Android did not open the installer.")
+            onInstallFinished(UpdateError.INSTALLER)
         } else {
             mutableConfirmation.value = intent
         }
@@ -147,22 +172,25 @@ class AppUpdater(
         mutableConfirmation.value = null
     }
 
-    fun onInstallFinished(errorMessage: String?) {
-        mutableState.update { it.copy(status = errorMessage ?: "Update installed.") }
+    /** The installer's answer. Success replaces this process, so only failures stay on screen. */
+    fun onInstallFinished(error: UpdateError?) {
+        mutableState.update { it.copy(awaitingConfirmation = false, error = error) }
     }
 
     private fun lastCheckedAt(): Long = preferences.getLong(KEY_LAST_CHECKED, 0L)
 
-    private suspend fun check(notify: Boolean) = checkMutex.withLock {
-        mutableState.update { it.copy(checking = true) }
+    private suspend fun check(notify: Boolean, userInitiated: Boolean) = checkMutex.withLock {
+        mutableState.update { it.copy(checking = true, error = if (userInitiated) null else it.error) }
         val channel = mutableState.value.channel
         val result = withContext(Dispatchers.IO) { runCatching { fetchCandidates(channel) } }
         val now = System.currentTimeMillis()
         result.fold(
             onSuccess = { candidates ->
                 preferences.edit().putLong(KEY_LAST_CHECKED, now).apply()
-                val update = UpdateFeeds.selectUpdate(installedVersionCode, candidates, Build.VERSION.SDK_INT)
-                val snoozed = update != null &&
+                val newest = UpdateFeeds.selectUpdate(installedVersionCode, candidates, Build.VERSION.SDK_INT)
+                val update = UpdateFeeds.offer(newest, preferences.getLong(KEY_SKIPPED_CODE, 0L), userInitiated)
+                // A check from Settings shows the update in the Settings card, not in a dialog on top of it.
+                val snoozed = update != null && !userInitiated &&
                     preferences.getLong(KEY_SNOOZED_CODE, 0L) == update.versionCode &&
                     now < preferences.getLong(KEY_SNOOZED_UNTIL, 0L)
                 mutableState.update {
@@ -170,14 +198,15 @@ class AppUpdater(
                         checking = false,
                         lastCheckedAt = now,
                         available = update,
-                        promptVisible = update != null && !snoozed && it.downloadProgress == null,
-                        status = if (update != null) "Version ${update.versionName} is available." else "Bridgey is up to date.",
+                        promptVisible = update != null && !userInitiated && !snoozed && it.downloadProgress == null,
+                        deferred = update != null && snoozed,
+                        skippedVersion = if (update == null) newest?.versionName else null,
                     )
                 }
                 if (notify && update != null && !snoozed) notifyUpdate(update)
             },
             onFailure = {
-                mutableState.update { it.copy(checking = false, status = "Could not check for updates. Try again later.") }
+                mutableState.update { it.copy(checking = false, error = if (userInitiated) UpdateError.CHECK else it.error) }
             },
         )
     }
@@ -244,7 +273,9 @@ class AppUpdater(
         val partial = File(directory, "bridgey-${update.versionCode}.apk.part")
         val connection = openConnection(update.apkUrl)
         try {
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) throw UpdateFeedException("The update download failed (HTTP ${connection.responseCode}).")
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                throw UpdateFeedException("The update download failed (HTTP ${connection.responseCode}).", UpdateError.DOWNLOAD)
+            }
             if (connection.url.protocol != "https") throw UpdateFeedException("The update download left HTTPS.")
             var written = 0L
             connection.inputStream.use { input ->
@@ -261,7 +292,7 @@ class AppUpdater(
                     }
                 }
             }
-            if (written != update.size) throw UpdateFeedException("The download was incomplete.")
+            if (written != update.size) throw UpdateFeedException("The download was incomplete.", UpdateError.DOWNLOAD)
         } catch (error: Exception) {
             partial.delete()
             throw error
@@ -396,6 +427,7 @@ class AppUpdater(
         private const val KEY_SNOOZED_CODE = "snoozed_version_code"
         private const val KEY_SNOOZED_UNTIL = "snoozed_until"
         private const val KEY_NOTIFIED_CODE = "notified_version_code"
+        private const val KEY_SKIPPED_CODE = "skipped_version_code"
         private const val NETWORK_TIMEOUT_MILLIS = 15_000
         private const val PERIODIC_WAKE_MILLIS = 60L * 60 * 1000
         private const val NOTIFICATION_CHANNEL_ID = "bridgey.updates"
