@@ -95,7 +95,10 @@ import dev.bridgey.android.bench.AndroidBenchProbe
 import dev.bridgey.android.bench.BenchService
 import dev.bridgey.android.bench.BenchState
 import dev.bridgey.android.ui.SettingsScreen
+import dev.bridgey.android.ui.SettingsSection
 import dev.bridgey.android.ui.SettingsState
+import dev.bridgey.android.ui.SettingsDeepLink
+import dev.bridgey.android.ui.settingsRoute
 import dev.bridgey.android.ui.UiPreferences
 import dev.bridgey.android.ui.deviceIcon
 import dev.bridgey.android.ui.deviceRings
@@ -158,6 +161,8 @@ class MainActivity : ComponentActivity() {
     private var sharedContent by mutableStateOf<SharedContent?>(null)
     /** The launcher's Remote control quick action asked for this Mac. */
     private var remoteTarget by mutableStateOf<String?>(null)
+    /** A notification asked for a Settings page (a [SettingsSection] name), e.g. Updates. */
+    private var settingsTarget by mutableStateOf<String?>(null)
     private var showOnboarding by mutableStateOf(false)
     private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         refreshPermissionState()
@@ -206,6 +211,7 @@ class MainActivity : ComponentActivity() {
         bridgeySettings = bridgey.settings
         sharedContent = intent.toSharedContent()
         remoteTarget = intent.toRemoteTarget()
+        if (savedInstanceState == null) settingsTarget = intent.getStringExtra(SettingsDeepLink.EXTRA_SECTION)
         folderQuestion = intent.getStringExtra(FolderNotifier.EXTRA_FOLDER_QUESTION)
         linkRequest = intent.toLinkRequest()
         startForegroundService(Intent(this, BridgeyConnectionService::class.java))
@@ -223,6 +229,8 @@ class MainActivity : ComponentActivity() {
                     remotePreferences = bridgey.remotePreferences,
                     remoteTarget = remoteTarget,
                     onRemoteTargetHandled = ::clearRemoteTarget,
+                    settingsTarget = settingsTarget,
+                    onSettingsTargetHandled = { settingsTarget = null },
                     folderQuestion = folderQuestion,
                     onFolderQuestionHandled = { folderQuestion = null },
                     onDeviceNameChanged = bridgey::updateDeviceName,
@@ -298,6 +306,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         sharedContent = intent.toSharedContent()
         remoteTarget = intent.toRemoteTarget()
+        intent.getStringExtra(SettingsDeepLink.EXTRA_SECTION)?.let { settingsTarget = it }
         intent.getStringExtra(FolderNotifier.EXTRA_FOLDER_QUESTION)?.let { folderQuestion = it }
         intent.toLinkRequest()?.let { linkRequest = it }
     }
@@ -574,6 +583,8 @@ private fun BridgeyApp(
     remotePreferences: RemoteInputPreferences,
     remoteTarget: String?,
     onRemoteTargetHandled: () -> Unit,
+    settingsTarget: String?,
+    onSettingsTargetHandled: () -> Unit,
     folderQuestion: String?,
     onFolderQuestionHandled: () -> Unit,
     onDeviceNameChanged: (String) -> Unit,
@@ -727,10 +738,11 @@ private fun BridgeyApp(
         }
     }
 
-    // The Mac's "Link this phone to the Mac" notification: Settings, and the link starts.
+    // The Mac's "Link this phone to the Mac" notification: Settings › Notifications, where Codes
+    // from messages lives, and the link starts. Back goes to the Settings home.
     LaunchedEffect(codes.linkRequest) {
         if (codes.linkRequest == null) return@LaunchedEffect
-        stack.push(Route.Settings)
+        stack.openSettings(settingsRoute(SettingsSection.NOTIFICATIONS))
         codes.linker.start()
         codes.onLinkRequestHandled()
     }
@@ -749,6 +761,13 @@ private fun BridgeyApp(
         val deviceId = remoteTarget ?: return@LaunchedEffect
         if (rings.any { it.deviceId == deviceId }) stack.push(Route.Remote(deviceId))
         onRemoteTargetHandled()
+    }
+
+    // A notification opens its Settings page, e.g. the update notification opens Updates.
+    LaunchedEffect(settingsTarget) {
+        val section = SettingsDeepLink.section(settingsTarget ?: return@LaunchedEffect)
+        if (section != null) stack.openSettings(settingsRoute(section))
+        onSettingsTargetHandled()
     }
 
     val onSetGlobalFeature: (BridgeyFeature, Boolean) -> Unit = { feature, enabled ->
@@ -884,7 +903,7 @@ private fun BridgeyApp(
                     preferences = remotePrefs,
                     onBack = { stack.pop() },
                 )
-                Route.Settings -> {
+                Route.Settings, is Route.SettingsPane -> {
                     val (enabledApps, totalApps) = notificationAppCounts(settingsState.notificationApplications, settingsState.disabledNotificationPackages)
                     val bridgeyApp = context.applicationContext as BridgeyApplication
                     val bgSourceStatus by bridgeyApp.backgroundClipboardSource.status.collectAsStateWithLifecycle()
@@ -908,6 +927,7 @@ private fun BridgeyApp(
                         }
                     }
                     SettingsScreen(
+                        section = (route as? Route.SettingsPane)?.section,
                         state = SettingsState(
                             deviceName = settingsState.deviceName,
                             connectionStatus = connectionStatus,
@@ -952,6 +972,7 @@ private fun BridgeyApp(
                         actions = SettingsActions(
                             back = { stack.pop() },
                             openDevices = { stack.push(Route.Devices) },
+                            openSection = { stack.push(settingsRoute(it)) },
                             openPerfTest = { stack.push(Route.PerfTest) },
                             openNotificationApps = { stack.push(Route.NotificationApps) },
                             appNotifications = {

@@ -173,8 +173,7 @@ class NotificationAndScreenshotSettingTest {
                                 now = 0L,
                             ),
                             actions = SettingsActions(),
-                            // The Clipboard section label leads the page.
-                            listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = 5),
+                            section = SettingsSection.CLIPBOARD,
                         )
                     }
                 }

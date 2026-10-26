@@ -175,7 +175,6 @@
     <string name="permission_needs_notification_access">Нужен доступ к уведомлениям, нажмите</string>
 
     <string name="settings_updates">Обновления</string>
-    <string name="settings_devices_section">Устройства</string>
     <string name="settings_notifications">Уведомления</string>
     <string name="settings_media">Медиа и быстрые действия</string>
     <string name="settings_general">Основные</string>
@@ -465,6 +464,35 @@
 
     <!-- Remote control (draft remote_input_draft1): touchpad, keyboard and slides. -->
     <string name="settings_remote_control">Удалённое управление</string>
+    <!-- Settings home: the live one-line summary under each section row. -->
+    <string name="settings_summary_off">Выкл.</string>
+    <string name="settings_summary_on">Вкл.</string>
+    <string name="settings_summary_all_on">Всё включено</string>
+    <string name="settings_summary_some_on">Включено %1$d из %2$d</string>
+    <string name="settings_summary_pair">%1$s, %2$s</string>
+    <string name="settings_summary_dot">%1$s · %2$s</string>
+    <string name="settings_summary_clipboard_auto">Автоматически</string>
+    <string name="settings_summary_clipboard_manual">Вручную</string>
+    <string name="settings_summary_clipboard_images">изображения до %1$s</string>
+    <string name="settings_summary_clipboard_images_on_paste">изображения при вставке</string>
+    <string name="settings_summary_clipboard_text_only">только текст</string>
+    <string name="settings_summary_notifications_access">Нужен доступ к уведомлениям</string>
+    <string name="settings_summary_calls_ring">Звонок на Mac</string>
+    <string name="settings_summary_calls_controls">Звонок и управление вызовами на Mac</string>
+    <string name="settings_summary_remote_volume_keys">Вкл., клавиши громкости листают слайды</string>
+    <string name="settings_summary_previews_shown">Превью в активности показаны</string>
+    <string name="settings_summary_previews_hidden">Превью в активности скрыты</string>
+    <string name="settings_summary_updates_current">актуальная версия</string>
+    <string name="settings_summary_updates_not_checked">ещё не проверялось</string>
+    <string name="settings_summary_updates_checking">проверка</string>
+    <string name="settings_summary_updates_ready">%1$s готова</string>
+    <string name="settings_summary_updates_downloading">загрузка</string>
+    <string name="settings_summary_updates_failed">не удалось обновить</string>
+    <string name="settings_summary_update_dot">Обновление готово</string>
+    <string name="settings_summary_general_background">Работает в фоне</string>
+    <string name="settings_summary_general_reduced">Работает в фоне, меньше движения</string>
+    <string name="settings_summary_general_battery">Оптимизация батареи может приостанавливать Bridgey</string>
+    <string name="settings_summary_version">Версия %1$s</string>
     <string name="settings_remote_detail">Телефон как тачпад, клавиатура и пульт для презентаций на Mac, который это разрешает</string>
     <string name="remote_settings_note">Mac должен разрешить этот телефон в настройках Bridgey › Удалённое управление. Пока вы управляете, Mac это показывает и может остановить вас в любой момент.</string>
     <string name="remote_speed_title">Скорость указателя</string>

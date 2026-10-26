@@ -371,7 +371,10 @@ class AppUpdater(
         val open = PendingIntent.getActivity(
             context,
             NOTIFICATION_ID,
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            // Opens Settings > Updates, where the update waits with its notes and Install.
+            Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .putExtra(dev.bridgey.android.ui.SettingsDeepLink.EXTRA_SECTION, dev.bridgey.android.ui.SettingsSection.UPDATES.name),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         manager.notify(
