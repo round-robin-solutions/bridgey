@@ -248,7 +248,7 @@
     <string name="channel_nightly">Nightly</string>
     <string name="channel_stable_detail">Tested releases. Best for most people.</string>
     <string name="channel_beta_detail">New features before they reach Stable.</string>
-    <string name="channel_nightly_detail">Daily builds. Expect rough edges.</string>
+    <string name="channel_nightly_detail">Built from every change. Expect rough edges.</string>
     <string name="updates_channel_note">Switching to a steadier channel waits for its next release; nothing is downgraded.</string>
     <string name="updates_auto_title">Checks every day</string>
     <string name="updates_auto_detail">Installing always asks you first</string>
@@ -360,4 +360,34 @@
     <string name="perf_copy">Copy results</string>
     <string name="perf_share">Share as JSON</string>
     <string name="perf_copied">Results copied</string>
+    <!-- Reconnecting and Look for devices again -->
+    <string name="ring_reconnecting">Reconnecting…</string>
+    <string name="ring_retrying">Retrying…</string>
+    <string name="live_reconnecting_title">Reconnecting to %1$s…</string>
+    <string name="live_cant_reach_title">Can’t reach %1$s. Retrying</string>
+    <string name="live_last_seen">Last seen %1$s</string>
+    <string name="live_reconnecting_detail">Trying where it was last seen</string>
+    <string name="action_retry_now">Retry now</string>
+    <string name="action_allow">Allow</string>
+    <string name="action_not_now">Not now</string>
+    <string name="look_again">Look for devices again</string>
+    <string name="look_again_detail">Announces this phone again and retries every paired device now</string>
+    <string name="rediscover_looking">Looking for devices…</string>
+    <string name="rediscover_found">Found %1$s</string>
+    <string name="rediscover_missing">Still can’t reach %1$s</string>
+    <string name="rediscover_found_missing">Found %1$s. Still can’t reach %2$s</string>
+    <string name="rediscover_none">No new devices found</string>
+    <plurals name="rediscover_many">
+        <item quantity="one">%1$d device</item>
+        <item quantity="other">%1$d devices</item>
+    </plurals>
+    <string name="settings_background_title">Stay connected while the phone sleeps</string>
+    <string name="settings_background_on">Allowed: Bridgey can keep your Mac connected overnight</string>
+    <string name="settings_background_off">Battery optimisation can pause Bridgey while the phone is idle</string>
+    <string name="settings_background_open">Open battery settings</string>
+    <string name="settings_background_note">Some phones add their own limits. On OnePlus, also open App info, then Battery usage, and allow background activity.</string>
+    <string name="settings_wifi_awake_title">Keep Wi-Fi awake</string>
+    <string name="settings_wifi_awake_detail">Fewer drops while connected, at some battery cost. Android 13 and older.</string>
+    <string name="battery_prompt_title">Stay connected while the phone sleeps?</string>
+    <string name="battery_prompt_body">When the phone is idle, Android can pause Bridgey, and your Mac loses the connection overnight. Let Bridgey run in the background to keep it. It stays quiet while nothing is happening.</string>
 </resources>

@@ -5,6 +5,7 @@
 #   --version V          version name (stable defaults to EDITION_NEXT_VERSION; beta requires it; nightly is generated)
 #   --notes-file F       release notes (plain text) for GitHub, the feeds and the appcast
 #   --mac-host HOST      build macOS on HOST over ssh (for example: personal)
+#   --mac-sign           sign the Mac build with the Round Robin code signing identity (see docs/rr-mac-signing.md)
 #   --macos-artifacts D  use an existing <prefix>-macOS.dmg and .zip from D (built by build-macos.sh)
 #   --skip-macos         Android only (the channel feed keeps the previous macOS entry)
 #   --skip-android       macOS only (the channel feed keeps the previous Android entry)
@@ -18,13 +19,14 @@ set -eu
 . "$(dirname -- "$0")/common.sh"
 
 CHANNEL=${1:-}
-case "$CHANNEL" in stable|beta|nightly) shift ;; *) sed -n '2,15p' "$0"; exit 2 ;; esac
+case "$CHANNEL" in stable|beta|nightly) shift ;; *) sed -n '2,17p' "$0"; exit 2 ;; esac
 VERSION="" NOTES_FILE="" MAC_HOST="" MAC_ARTIFACTS="" SKIP_MAC=0 SKIP_ANDROID=0 APK_IN="" PUBLISH=0 NOW=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) VERSION=$2; shift 2 ;;
     --notes-file) NOTES_FILE=$(cd "$(dirname -- "$2")" && pwd)/$(basename -- "$2"); shift 2 ;;
     --mac-host) MAC_HOST=$2; shift 2 ;;
+    --mac-sign) export BRIDGEY_RR_MAC_SIGN=1; shift ;;
     --macos-artifacts) MAC_ARTIFACTS=$2; shift 2 ;;
     --skip-macos) SKIP_MAC=1; shift ;;
     --skip-android) SKIP_ANDROID=1; shift ;;

@@ -20,7 +20,7 @@
 "action.save" = "Save";
 "action.stop" = "Stop";
 "channel.beta.detail" = "New features before they reach Stable.";
-"channel.nightly.detail" = "Daily builds. Expect rough edges.";
+"channel.nightly.detail" = "Built from every change. Expect rough edges.";
 "channel.stable.detail" = "Tested releases. Best for most people.";
 "devices.forget.body" = "This Mac stops trusting it. To use it again, pair and compare the code once more.";
 "devices.forget.title" = "Forget %@?";
@@ -294,3 +294,52 @@
 "perf.cancelled" = "Stopped. Nothing was kept.";
 "perf.copy" = "Copy results";
 "perf.share" = "Share as JSON";
+
+/* Reconnecting and Look for devices again */
+"ring.reconnecting" = "Reconnecting…";
+"ring.retrying" = "Retrying…";
+"ring.cantReach" = "Can’t reach. Retrying";
+"ring.lastSeen" = "%1$@ (last seen %2$@)";
+"ring.reconnecting.help" = "Reconnecting to %@. Click to retry now.";
+"ring.cantReach.help" = "Can’t reach %@. Bridgey keeps retrying. Click to retry now.";
+"panel.retryNow" = "Retry now";
+"panel.lookAgain" = "Look for devices again";
+"devices.lookAgain.detail" = "Announces this Mac again and retries every paired device now";
+"devices.lookAgain.action" = "Look again";
+"rediscover.looking" = "Looking for devices…";
+"rediscover.found" = "Found %@";
+"rediscover.missing" = "Still can’t reach %@";
+"rediscover.none" = "No new devices found";
+"rediscover.count" = "%d devices";
+/* In-app updates (Sparkle custom user driver) */
+"update.available" = "Update %@ available";
+"update.available.detail" = "Install now, or later from Settings.";
+"update.available.downloaded" = "Downloaded and ready. Restart Bridgey to update.";
+"update.checking" = "Checking for updates…";
+"update.downloading" = "Downloading %@";
+"update.downloading.detail" = "%@ of %@";
+"update.error.canceled" = "The update was cancelled. Nothing changed.";
+"update.error.download" = "The download didn't finish. Check the connection and try again.";
+"update.error.feed" = "The update list couldn't be read. Try again later.";
+"update.error.generic" = "Something went wrong. Try again later.";
+"update.error.location" = "Bridgey can't replace itself where it is. Move it to Applications and try again.";
+"update.error.network" = "Couldn't reach the update server. Check the connection and try again.";
+"update.error.signature" = "The download failed its safety check, so nothing was installed.";
+"update.error.unpack" = "The download couldn't be unpacked. Try again later.";
+"update.failed" = "Update didn't finish";
+"update.install" = "Install";
+"update.installing" = "Installing %@";
+"update.installing.detail" = "Bridgey restarts in a moment";
+"update.later" = "Later";
+"update.preparing" = "Preparing %@";
+"update.preparing.detail" = "Checking the download and unpacking it";
+"update.ready" = "Update %@ ready";
+"update.ready.detail" = "Restart to update";
+"update.restart" = "Restart to update";
+"update.skip" = "Skip this version";
+"update.upToDate" = "You're up to date";
+"update.upToDate.detail" = "Version %@ is the newest on your channel.";
+
+/* Pairing file (replaces the Keychain) */
+"pairingStore.file" = "Bridgey can't open its pairing file, so phones stay disconnected.";
+"pairingStore.keychain" = "Bridgey needs Keychain access one last time to move your pairing keys into a private file. After that, updates never ask. Phones stay disconnected until then.";

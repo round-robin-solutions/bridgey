@@ -20,6 +20,7 @@ import android.media.RingtoneManager
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import dev.bridgey.core.discovery.DiscoveredPeer
 import java.io.BufferedWriter
 import java.io.BufferedInputStream
 import java.io.OutputStreamWriter
@@ -98,8 +99,11 @@ data class FileTransferState(
 
 data class TrustedDevice(val id: String, val name: String)
 
-/** A trusted device seen on the network that this phone may dial (it has the lower device id). */
-data class DialCandidate(val deviceId: String, val host: String, val port: Int, val name: String)
+/** "Look for devices again": running, or done with who answered and who did not. */
+sealed interface RediscoverState {
+    data object Running : RediscoverState
+    data class Done(val found: List<String>, val stillMissing: List<String>) : RediscoverState
+}
 
 /** Events reported to the activity stream. Only clipboard events carry text, for the stream's preview. */
 enum class PeerActivity {
@@ -144,10 +148,35 @@ class PairingCoordinator(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val quickActions = QuickActions(appContext, scope, { isFeatureAvailable(it) }, ::sendQuickPayload)
     private val registry = SessionRegistry<Session>(localDeviceId)
-    private val backoff = ReconnectBackoff()
-    private val dialing = ConcurrentHashMap.newKeySet<String>()
-    @Volatile private var lastCandidates: List<DialCandidate> = emptyList()
-    private var recheckJob: Job? = null
+
+    /**
+     * Reconnects. Both sides keep trying a dropped trusted device at its known addresses, whoever
+     * dialled before; the session registry keeps one socket when both dial at once.
+     */
+    private val reconnectClock = AndroidReconnectClock()
+    internal val reconnect = ReconnectEngine(KnownAddressBook(SharedPreferencesAddressBookStore(context.applicationContext)), reconnectClock)
+    private val linkDebouncer = EventDebouncer(reconnectClock) { reasons -> linkChanged(reasons) }
+
+    /** Set by the application: restarts NSD (re-register and browse) with a reason. */
+    @Volatile var restartDiscovery: (String) -> Unit = {}
+
+    /** Set by the application: the Wi-Fi and Ethernet networks this phone is on. */
+    @Volatile var localNetworks: () -> List<LocalIPv4Network> = { emptyList() }
+    @Volatile private var reconnecting = false
+    @Volatile private var lastPeers: List<DiscoveredPeer> = emptyList()
+    private val discoveryLock = Any()
+    private var discoveryRestartTask: ScheduledTask? = null
+    private var lastDiscoveryRestart = 0L
+    private var discoveryWindowStart: Long? = null
+    private val mutableReconnectStates = MutableStateFlow<Map<String, ReconnectDisplay>>(emptyMap())
+
+    /** Each disconnected trusted device's reconnect state, for the rings. */
+    val reconnectStates: StateFlow<Map<String, ReconnectDisplay>> = mutableReconnectStates.asStateFlow()
+    private val mutableRediscover = MutableStateFlow<RediscoverState?>(null)
+
+    /** "Look for devices again" feedback. */
+    val rediscover: StateFlow<RediscoverState?> = mutableRediscover.asStateFlow()
+    private var rediscoverRun: Triple<Map<String, String>, Set<String>, ScheduledTask>? = null
     private val publishLock = Any()
     private var publishedTarget: String? = null
 
@@ -212,7 +241,8 @@ class PairingCoordinator(
     private var server: ServerSocket? = null
     private var acceptJob: Job? = null
     private var findRingtone: Ringtone? = null
-    private val diagnostics = BridgeyDiagnostics()
+    /** Kept on disk, so the night's drops and retries are still in a report exported next morning. */
+    private val diagnostics = BridgeyDiagnostics(limit = 1_000, file = java.io.File(appContext.noBackupFilesDir, "diagnostics.json"))
     private val remoteCallRequest = RemoteCallRequest(appContext)
     private var lastRemoteCallRequestAt = 0L
     private val clipboardCache = ClipboardCache(java.io.File(appContext.noBackupFilesDir, CLIPBOARD_CACHE_DIRECTORY))
@@ -230,6 +260,12 @@ class PairingCoordinator(
     var activityListener: ((PeerEvent) -> Unit)? = null
 
     init {
+        reconnect.isTrusted = { reconnecting && it in trust.trustedDeviceIds.value }
+        reconnect.isConnected = { registry.session(it) != null }
+        reconnect.networks = { localNetworks() }
+        reconnect.dial = ::dialTrusted
+        reconnect.onEvent = ::recordReconnect
+        reconnect.onChange = ::publishReconnectStates
         clipboardInbox.listener = ::onClipboardInboxEvent
         clipboardInbox.linkFor = { id -> registry.session(id)?.takeIf { it.pairingKey != null }?.let(::SessionClipLink) }
         scope.launch {
@@ -256,6 +292,7 @@ class PairingCoordinator(
     fun start() {
         if (acceptJob != null) return
         diagnostics.record("transport", "listener_started")
+        startReconnecting()
         acceptJob = scope.launch {
             runCatching {
                 ServerSocket(port).also { server = it }.use { listener ->
@@ -292,48 +329,220 @@ class PairingCoordinator(
         }
     }
 
-    /**
-     * Discovery saw these trusted devices. Dials each one this phone should dial (lower device id)
-     * that is not connected or being dialled, with backoff per device.
-     */
-    fun reconnectTrusted(candidates: List<DialCandidate>) {
-        lastCandidates = candidates
-        val now = SystemClock.elapsedRealtime()
-        val trusted = trust.trustedDeviceIds.value
-        var wait = Long.MAX_VALUE
-        candidates.filter { it.deviceId in trusted && localDeviceId < it.deviceId }.forEach { candidate ->
-            val id = candidate.deviceId
-            if (registry.session(id) != null || id in dialing) return@forEach
-            if (!backoff.mayDial(id, now)) {
-                wait = minOf(wait, backoff.waitMillis(id, now))
-                return@forEach
+    // region Reconnect
+
+    /** NSD's current list: the engine remembers trusted devices' addresses and tries new arrivals. */
+    fun discoveryChanged(peers: List<DiscoveredPeer>) {
+        lastPeers = peers
+        reconnect.discoveryChanged(
+            peers.mapNotNull { peer ->
+                val id = peer.deviceIdHint ?: return@mapNotNull null
+                // IP addresses work when mDNS lookups do not; the host only when there is no IP.
+                val hosts = peer.addresses.ifEmpty { listOfNotNull(peer.host) }
+                LivePeer(id, hosts, peer.port ?: ReconnectPolicy.LISTENING_PORT)
+            },
+        )
+    }
+
+    /** Every trusted device that is not connected is tried straight away at its last known addresses. */
+    private fun startReconnecting() {
+        reconnecting = true
+        reconnect.addressBook.retain(trust.trustedDeviceIds.value)
+        val ids = disconnectedTrustedIds()
+        ids.forEach { reconnect.disconnected(it, seenNow = false) }
+        reconnect.resetAll(ids)
+        synchronized(discoveryLock) {
+            discoveryWindowStart = if (ids.isEmpty()) null else SystemClock.elapsedRealtime()
+            // NSD has only just started; the first periodic restart is five minutes away.
+            lastDiscoveryRestart = SystemClock.elapsedRealtime()
+        }
+        armDiscoveryRestart()
+    }
+
+    private fun disconnectedTrustedIds(): List<String> =
+        trust.trustedDeviceIds.value.filter { registry.session(it) == null }.sorted()
+
+    private fun trustedName(id: String): String =
+        trust.trustedDevices.value.firstOrNull { it.id == id }?.name
+            ?: lastPeers.firstOrNull { it.deviceIdHint == id }?.deviceNameHint
+            ?: "Mac"
+
+    /** The engine's dial: a socket to [address]; [handle] reports the outcome back to the engine. */
+    private fun dialTrusted(id: String, address: KnownAddress) {
+        scope.launch {
+            runCatching {
+                Socket().apply { connect(InetSocketAddress(address.host, address.port), ReconnectPolicy.CONNECT_TIMEOUT_MILLIS) }
+            }.onSuccess { socket ->
+                handle(socket, initiatedLocally = true, peerHint = trustedName(id), dialDeviceId = id)
+            }.onFailure { error ->
+                val reason = socketDropReason(error)
+                android.util.Log.i("Bridgey", "RECONNECT dial failed peer=${id.take(8)} reason=$reason")
+                diagnostics.record("reconnect", "dial_failed", reason, device = id)
+                reconnect.dialEnded(id)
             }
-            backoff.dialed(id, now)
-            dialing += id
-            scope.launch {
-                try {
-                    val socket = runCatching {
-                        Socket().apply { connect(InetSocketAddress(candidate.host, candidate.port), CONNECT_TIMEOUT_MILLIS) }
-                    }.getOrNull()
-                    if (socket != null) handle(socket, initiatedLocally = true, peerHint = candidate.name)
-                } finally {
-                    dialing -= id
-                    reconnectTrusted(lastCandidates)
+        }
+    }
+
+    private fun recordReconnect(event: ReconnectEvent) {
+        when (event) {
+            is ReconnectEvent.Dial -> {
+                val tag = addressTag(event.address.host)
+                android.util.Log.i("Bridgey", "RECONNECT dial peer=${event.deviceId.take(8)} attempt=${event.attempt} reason=${event.reason} source=${event.address.source.key} address=$tag")
+                diagnostics.record("reconnect", "dial", event.reason, device = event.deviceId, detail = "n${event.attempt}_${event.address.source.key}_$tag")
+            }
+            is ReconnectEvent.NoAddress -> {
+                android.util.Log.i("Bridgey", "RECONNECT no dialable address peer=${event.deviceId.take(8)} attempt=${event.attempt} reason=${event.reason}")
+                diagnostics.record("reconnect", "no_address", event.reason, device = event.deviceId, detail = "n${event.attempt}")
+            }
+            is ReconnectEvent.FoundByDiscovery -> {
+                android.util.Log.i("Bridgey", "RECONNECT discovery found peer=${event.deviceId.take(8)} addresses=${event.addresses}")
+                diagnostics.record("discovery", "found_trusted", device = event.deviceId, detail = "${event.addresses}_addresses")
+            }
+        }
+    }
+
+    /** NSD trouble (publish or browse failed) or a restart, for diagnostics. */
+    fun discoveryEvent(event: String, detail: String) {
+        diagnostics.record("discovery", event, detail)
+    }
+
+    /** "Retry now" on a disconnected device: every known address at once. */
+    fun retryNow(deviceId: String) {
+        android.util.Log.i("Bridgey", "RECONNECT retry now peer=${deviceId.take(8)}")
+        reconnect.dialEverywhere(deviceId, "retry_now")
+    }
+
+    private fun publishReconnectStates() {
+        val states = trust.trustedDeviceIds.value.mapNotNull { id -> reconnect.display(id)?.let { id to it } }.toMap()
+        if (mutableReconnectStates.value != states) mutableReconnectStates.value = states
+    }
+
+    /** A network, Doze or screen event from the application: recovery runs once the burst settles. */
+    fun linkEvent(reason: String) {
+        android.util.Log.i("Bridgey", "RECONNECT link event $reason")
+        diagnostics.record("link", reason, detail = PowerFacts.summary(appContext))
+        linkDebouncer.note(reason)
+    }
+
+    /** A power change worth seeing next to a drop in diagnostics (screen off, Doze entered). */
+    fun observe(event: String) {
+        diagnostics.record("power", event, detail = PowerFacts.summary(appContext))
+    }
+
+    /** The network changed, the phone left Doze or the screen came on: look again and try every dropped device now. */
+    private fun linkChanged(reasons: List<String>) {
+        if (!reconnecting) return
+        val reason = reasons.joinToString("+")
+        val ids = disconnectedTrustedIds()
+        // A new network needs this phone announced on it; screen on and Doze exit matter only
+        // while a device is away (they happen dozens of times a day).
+        val networkChanged = reasons.any { it != "screen_on" && it != "doze_exit" }
+        if (ids.isEmpty() && !networkChanged) return
+        android.util.Log.i("Bridgey", "RECONNECT recovering after $reason disconnected=${ids.size}")
+        val sinceRestart = SystemClock.elapsedRealtime() - synchronized(discoveryLock) { lastDiscoveryRestart }
+        if (sinceRestart >= ReconnectPolicy.EVENT_RESTART_SPACING_MILLIS) restartDiscoveryNow(reason)
+        reconnect.resetAll(ids)
+        synchronized(discoveryLock) { discoveryWindowStart = if (ids.isEmpty()) null else SystemClock.elapsedRealtime() }
+        armDiscoveryRestart()
+    }
+
+    private fun restartDiscoveryNow(reason: String) {
+        synchronized(discoveryLock) { lastDiscoveryRestart = SystemClock.elapsedRealtime() }
+        diagnostics.record("discovery", "restart", reason)
+        restartDiscovery(reason)
+    }
+
+    /** Every five minutes while a trusted device is away, for the first hour; after a drop the first waits 30 s. */
+    private fun armDiscoveryRestart() {
+        synchronized(discoveryLock) {
+            discoveryRestartTask?.cancel()
+            discoveryRestartTask = null
+            val start = discoveryWindowStart ?: return
+            val now = SystemClock.elapsedRealtime()
+            if (!reconnecting || disconnectedTrustedIds().isEmpty() || now - start >= ReconnectPolicy.DISCOVERY_RESTART_WINDOW_MILLIS) return
+            val next = maxOf(lastDiscoveryRestart + ReconnectPolicy.DISCOVERY_RESTART_INTERVAL_MILLIS, now + 30_000)
+            discoveryRestartTask = reconnectClock.schedule(next - now) {
+                val due = synchronized(discoveryLock) {
+                    discoveryRestartTask = null
+                    val windowStart = discoveryWindowStart
+                    reconnecting && windowStart != null && disconnectedTrustedIds().isNotEmpty() &&
+                        SystemClock.elapsedRealtime() - windowStart < ReconnectPolicy.DISCOVERY_RESTART_WINDOW_MILLIS
+                }
+                if (due) {
+                    restartDiscoveryNow("periodic")
+                    armDiscoveryRestart()
                 }
             }
         }
-        if (wait != Long.MAX_VALUE) scheduleRecheck(wait)
     }
 
-    private fun scheduleRecheck(waitMillis: Long) {
-        synchronized(publishLock) {
-            if (recheckJob?.isActive == true) return
-            recheckJob = scope.launch {
-                delay(waitMillis.coerceAtLeast(250))
-                reconnectTrusted(lastCandidates)
-            }
+    /**
+     * "Look for devices again": restarts NSD, re-announces this phone, resets every backoff and
+     * dials every known address of each disconnected trusted device. One run at a time.
+     */
+    fun lookForDevices() {
+        val missing: Map<String, String>
+        synchronized(discoveryLock) {
+            if (rediscoverRun != null) return
+            missing = disconnectedTrustedIds().associateWith(::trustedName)
+            val nearbyBefore = lastPeers.mapNotNullTo(HashSet()) { it.deviceIdHint }
+            val finish = reconnectClock.schedule(ReconnectPolicy.REDISCOVER_WINDOW_MILLIS) { finishRediscover() }
+            rediscoverRun = Triple(missing, nearbyBefore, finish)
+            discoveryWindowStart = if (missing.isEmpty()) null else SystemClock.elapsedRealtime()
+        }
+        mutableRediscover.value = RediscoverState.Running
+        android.util.Log.i("Bridgey", "RECONNECT look for devices again disconnected=${missing.size}")
+        diagnostics.record("discovery", "manual", detail = "${missing.size}_disconnected")
+        restartDiscoveryNow("manual")
+        missing.keys.sorted().forEach { reconnect.dialEverywhere(it, "manual") }
+        armDiscoveryRestart()
+    }
+
+    private fun finishRediscoverIfEveryoneAnswered() {
+        val everyone = synchronized(discoveryLock) {
+            val run = rediscoverRun ?: return
+            run.first.isNotEmpty() && run.first.keys.all { registry.session(it) != null }
+        }
+        if (everyone) finishRediscover()
+    }
+
+    private fun finishRediscover() {
+        val run = synchronized(discoveryLock) {
+            val current = rediscoverRun ?: return
+            rediscoverRun = null
+            current
+        }
+        run.third.cancel()
+        val (missing, nearbyBefore, _) = run
+        val found = missing.filterKeys { registry.session(it) != null }.values.sorted()
+        val stillMissing = missing.filterKeys { registry.session(it) == null }.values.sorted()
+        val trusted = trust.trustedDeviceIds.value
+        val newNearby = lastPeers.filter { peer -> peer.deviceIdHint?.let { it !in trusted && it !in nearbyBefore } == true }.map { it.deviceNameHint }
+        mutableRediscover.value = RediscoverState.Done(found + newNearby, stillMissing)
+        diagnostics.record("discovery", "manual_done", detail = "${found.size}_found_${stillMissing.size}_missing")
+    }
+
+    /** The UI showed the result. */
+    fun clearRediscover() {
+        if (mutableRediscover.value is RediscoverState.Done) mutableRediscover.value = null
+    }
+
+    /** Per trusted device, for the diagnostics report: no names and no addresses. */
+    private fun diagnosticDevices(): JSONArray = JSONArray().apply {
+        trust.trustedDeviceIds.value.sorted().forEach { id ->
+            val addresses = reconnect.addressBook.addresses(id)
+            put(JSONObject().apply {
+                put("device", id.take(8))
+                put("connected", registry.session(id) != null)
+                put("knownAddresses", addresses.size)
+                put("addressSources", JSONArray(addresses.map { it.source.key }))
+                put("reconnectAttempts", reconnect.entry(id)?.attempts ?: 0)
+                reconnect.addressBook.lastConnected(id)?.let { put("lastConnectedAt", java.time.Instant.ofEpochMilli(it).toString()) }
+            })
         }
     }
+
+    // endregion
 
     /** The send bar's device picker. Outgoing actions without an explicit device go here. */
     fun selectDevice(deviceId: String?) {
@@ -365,16 +574,18 @@ class PairingCoordinator(
     /** Clears a pairing failure, as [cancel]. */
     fun dismiss() = cancel()
 
-    /** Disconnects one device; the others stay connected. */
+    /** Disconnects one device; the others stay connected. The link comes back through the normal reconnect, as before. */
     fun disconnect(deviceId: String) {
         val current = registry.session(deviceId) ?: return
         registry.remove(current)
+        current.dropReason = "user_disconnect"
         current.close()
-        deviceDisconnected(deviceId)
+        deviceDisconnected(deviceId, "user_disconnect")
     }
 
     fun forget(deviceId: String) {
         trust.remove(deviceId)
+        reconnect.forget(deviceId)
         settings.removeDevice(deviceId)
         autoClipboardTracker.clear(deviceId)
         clearClipboardCache()
@@ -1232,7 +1443,11 @@ class PairingCoordinator(
             is PairingState.Failed -> "failed"
         }
         val localFeatures = BridgeyFeature.entries.associateWith { settings.isEnabled(it, null) }
-        return diagnostics.report(appContext, stateName, mutableFileTransfers.value.values, localFeatures, mutableRemoteFeatures.value)
+        return diagnostics.report(
+            appContext, stateName, mutableFileTransfers.value.values, localFeatures, mutableRemoteFeatures.value,
+            devices = diagnosticDevices(),
+            power = PowerFacts.summary(appContext),
+        )
     }
 
     fun clearTransferHistory() {
@@ -1250,8 +1465,14 @@ class PairingCoordinator(
         scope.cancel()
     }
 
-    /** Bridgey turned off: every session closes. */
+    /** Bridgey turned off: every session closes and nothing redials. */
     fun pause() {
+        reconnecting = false
+        synchronized(discoveryLock) {
+            discoveryRestartTask?.cancel()
+            discoveryRestartTask = null
+            discoveryWindowStart = null
+        }
         pairingSession = null
         registry.clear().forEach(Session::close)
         stopPhoneRinging()
@@ -1297,23 +1518,41 @@ class PairingCoordinator(
         }
     }
 
-    /** One device's session ended: only its state, transfers and clipboard fetches go. */
-    private fun deviceDisconnected(deviceId: String) {
+    /** One device's session ended: only its state, transfers and clipboard fetches go, and its reconnect starts. */
+    private fun deviceDisconnected(deviceId: String, reason: String) {
         cancelTransfers(deviceId)
         clipboardSessionEnded(deviceId)
         if (phoneRingingFrom == deviceId) stopPhoneRinging()
         if (pendingPing?.first == deviceId) clearPingStatus()
-        diagnostics.record("transport", "disconnected", "reconnecting")
-        android.util.Log.i("Bridgey", "TRANSPORT disconnected peerId=${deviceId.take(8)}")
+        // The power state at the moment of the drop: Doze, screen, saver, standby bucket, exemption.
+        diagnostics.record("transport", "disconnected", reason, device = deviceId, detail = PowerFacts.summary(appContext))
+        android.util.Log.i("Bridgey", "TRANSPORT disconnected peerId=${deviceId.take(8)} reason=$reason")
         publish()
+        if (!reconnecting || deviceId !in trust.trustedDeviceIds.value) return
+        reconnect.disconnected(deviceId)
+        synchronized(discoveryLock) { discoveryWindowStart = SystemClock.elapsedRealtime() }
+        armDiscoveryRestart()
     }
 
-    private fun handle(socket: Socket, initiatedLocally: Boolean, peerHint: String?, manual: Boolean = false) {
-        socket.keepAlive = true
-        socket.tcpNoDelay = true
-        socket.soTimeout = HEARTBEAT_INTERVAL_MILLIS.toInt()
-        val current = Session(socket)
+    private fun handle(socket: Socket, initiatedLocally: Boolean, peerHint: String?, manual: Boolean = false, dialDeviceId: String? = null) {
+        val current = runCatching {
+            socket.keepAlive = true
+            socket.tcpNoDelay = true
+            socket.soTimeout = ReconnectPolicy.HEARTBEAT_INTERVAL_MILLIS.toInt()
+            Session(socket)
+        }.getOrElse {
+            runCatching { socket.close() }
+            dialDeviceId?.let(reconnect::dialEnded)
+            return
+        }
         current.initiatedLocally = initiatedLocally
+        current.dialDeviceId = dialDeviceId
+        // Where the other end is: once it authenticates, the next reconnect can dial it there.
+        current.remoteHost = socket.inetAddress?.hostAddress?.let(::normalizedHost)
+        current.remotePort = socket.port
+        if (!initiatedLocally) {
+            android.util.Log.i("Bridgey", "TRANSPORT inbound connection address=${current.remoteHost?.let(::addressTag) ?: "unknown"}")
+        }
         registry.addPending(current, initiatedLocally)
         if (manual) pairingSession = current
         if (initiatedLocally) {
@@ -1328,6 +1567,7 @@ class PairingCoordinator(
                     deviceId = localDeviceId,
                     deviceName = localDeviceName,
                     publicKey = current.localEphemeralKey,
+                    targetDeviceId = dialDeviceId,
                 ),
             )
         }
@@ -1347,7 +1587,8 @@ class PairingCoordinator(
                                 nowMillis = now,
                             )
                         ) {
-                            android.util.Log.w("Bridgey", "TRANSPORT heartbeat timed out")
+                            android.util.Log.w("Bridgey", "TRANSPORT heartbeat timed out peerId=${current.remoteDeviceId.take(8)}")
+                            current.dropReason = "heartbeat_timeout"
                             break
                         }
                         if (!current.send(Message(
@@ -1355,24 +1596,45 @@ class PairingCoordinator(
                                 sessionId = current.id,
                                 messageId = UUID.randomUUID().toString(),
                             ))
-                        ) break
+                        ) {
+                            current.dropReason = "send_failed"
+                            break
+                        }
+                        reconnect.stillConnected(current.remoteDeviceId)
                     } else if (pendingExpired(current, now)) {
                         current.failure = PairingFailure.TIMEOUT
+                        current.dropReason = "handshake_timeout"
                         android.util.Log.w("Bridgey", "PAIRING timed out")
                         break
                     }
                 }
             }
         }
+        // Why it ended: set on purpose (heartbeat, replaced, user), else from the socket.
+        val reason = current.dropReason ?: result.exceptionOrNull()?.let(::socketDropReason) ?: if (current.closed) "closed" else "closed_by_peer"
         current.close()
+        dialFinished(current)
         val deviceId = registry.remove(current)
         when {
-            deviceId != null -> deviceDisconnected(deviceId)
+            deviceId != null -> deviceDisconnected(deviceId, reason)
             pairingSession === current -> {
                 if (result.exceptionOrNull() != null) android.util.Log.w("Bridgey", "PAIRING disconnected before confirmation")
                 failPairing(current, current.failure ?: PairingFailure.CONNECTION_LOST)
             }
+            current.dialDeviceId != null && !current.authenticated && reason != "duplicate" -> {
+                // A reconnect that never authenticated: the schedule tries again.
+                val dialed = current.dialDeviceId!!
+                android.util.Log.i("Bridgey", "RECONNECT dial failed peer=${dialed.take(8)} reason=$reason")
+                diagnostics.record("reconnect", "dial_failed", reason, device = dialed)
+            }
         }
+    }
+
+    /** A dial is over (connected, lost the duplicate rule or failed): it no longer blocks the next attempt. */
+    private fun dialFinished(current: Session) {
+        val dialed = current.dialDeviceId ?: return
+        if (current.dialFinished.getAndSet(true)) return
+        reconnect.dialEnded(dialed)
     }
 
     /** A pending session waits 20 s for the handshake, or two minutes for the user to confirm the code. */
@@ -1400,6 +1662,13 @@ class PairingCoordinator(
             }
             "pairing.offer" -> {
                 if (current.initiatedLocally || current.pairingKey != null) return
+                // A reconnect meant for another device (it dialled an address that is now ours):
+                // close without a pairing prompt.
+                if (message.targetDeviceId != null && !message.targetDeviceId.equals(localDeviceId, ignoreCase = true)) {
+                    current.dropReason = "not_for_this_device"
+                    current.close()
+                    return
+                }
                 current.id = message.sessionId
                 current.peerName = message.deviceName ?: "Android device"
                 current.remoteDeviceId = message.deviceId ?: return
@@ -1422,6 +1691,13 @@ class PairingCoordinator(
             }
             "pairing.answer" -> {
                 if (message.sessionId != current.id || current.pairingKey != null) return
+                // A reconnect reached some other device at the old address: never prompt to pair it.
+                val expected = current.dialDeviceId
+                if (expected != null && !expected.equals(message.deviceId, ignoreCase = true)) {
+                    current.dropReason = "wrong_device"
+                    current.close()
+                    return
+                }
                 current.peerName = message.deviceName ?: current.peerName
                 current.remoteDeviceId = message.deviceId ?: return
                 current.remoteEphemeralKey = message.publicKey ?: return
@@ -1457,6 +1733,7 @@ class PairingCoordinator(
             "pairing.cancel" -> {
                 if (message.sessionId != current.id && current.id.isNotEmpty()) return
                 current.failure = PairingFailure.CANCELLED_REMOTE
+                current.dropReason = "cancelled_remote"
                 current.close()
             }
             "features.update" -> receiveFeatureState(current, message)
@@ -2001,21 +2278,32 @@ class PairingCoordinator(
             SessionRegistry.Admission.Rejected -> {
                 // A live session for this device wins the duplicate rule; this socket closes quietly.
                 android.util.Log.i("Bridgey", "TRANSPORT duplicate session closed peerId=${current.remoteDeviceId.take(8)}")
+                diagnostics.record("transport", "duplicate_closed", device = current.remoteDeviceId)
                 if (pairingSession === current) {
                     pairingSession = null
                     mutablePairingFlow.value = PairingState.Idle
                 }
+                current.dropReason = "duplicate"
+                dialFinished(current)
                 current.close()
                 publish()
                 return
             }
             is SessionRegistry.Admission.Accepted -> admission.replaced?.let {
                 android.util.Log.i("Bridgey", "TRANSPORT duplicate session replaced peerId=${current.remoteDeviceId.take(8)}")
+                diagnostics.record("transport", "duplicate_replaced", device = current.remoteDeviceId)
+                it.dropReason = "replaced"
                 it.close()
             }
         }
         current.authenticated = true
-        backoff.connected(current.remoteDeviceId)
+        dialFinished(current)
+        val source = if (current.initiatedLocally) AddressSource.OUTBOUND else AddressSource.INBOUND
+        val port = if (current.initiatedLocally) current.remotePort else ReconnectPolicy.LISTENING_PORT
+        val attempts = reconnect.entry(current.remoteDeviceId)?.attempts ?: 0
+        reconnect.connected(current.remoteDeviceId, current.remoteHost, port, source)
+        android.util.Log.i("Bridgey", "RECONNECT connected peer=${current.remoteDeviceId.take(8)} via=${source.key} address=${current.remoteHost?.let(::addressTag) ?: "unknown"} attempts=$attempts")
+        diagnostics.record("transport", "connected", source.key, device = current.remoteDeviceId, detail = "after_${attempts}_attempts")
         if (pairingSession === current) {
             pairingSession = null
             mutablePairingFlow.value = PairingState.Idle
@@ -2025,7 +2313,8 @@ class PairingCoordinator(
         diagnostics.record("pairing", "connected")
         sendFeatureState(current)
         BridgeyNotificationListenerService.resendActiveCalls()
-        android.util.Log.i("Bridgey", "PAIRING verified peer=${current.peerName}")
+        android.util.Log.i("Bridgey", "PAIRING verified peerId=${current.remoteDeviceId.take(8)}")
+        finishRediscoverIfEveryoneAnswered()
     }
 
     private fun sendFeatureState(current: Session) {
@@ -2110,6 +2399,7 @@ class PairingCoordinator(
         android.util.Log.w("Bridgey", "PROTOCOL session closed: $message")
         diagnostics.record("protocol", "session_failed", "rejected")
         if (current.failure == null) current.failure = PairingFailure.INVALID
+        if (current.dropReason == null) current.dropReason = "protocol_error"
         current.close()
     }
 
@@ -2118,6 +2408,7 @@ class PairingCoordinator(
         android.util.Log.w("Bridgey", "PAIRING failed: $message")
         diagnostics.record("protocol", "session_failed", "rejected")
         current.failure = reason
+        if (current.dropReason == null) current.dropReason = "handshake_failed"
         current.close()
     }
 
@@ -2164,8 +2455,7 @@ class PairingCoordinator(
         const val FILE_CHUNK_SIZE = 24 * 1024
         const val MAX_FILE_SIZE = 10L * 1024 * 1024 * 1024
         const val MAX_NOTIFICATION_ICON_BASE64_LENGTH = 28 * 1024
-        const val HEARTBEAT_INTERVAL_MILLIS = 10_000L
-        const val CONNECT_TIMEOUT_MILLIS = 8_000
+        const val CONNECT_TIMEOUT_MILLIS = ReconnectPolicy.CONNECT_TIMEOUT_MILLIS
         const val HANDSHAKE_TIMEOUT_MILLIS = 20_000L
         const val VERIFICATION_TIMEOUT_MILLIS = 120_000L
         const val CLIPBOARD_CACHE_DIRECTORY = "clipboard-cache"
@@ -2193,6 +2483,17 @@ class PairingCoordinator(
 
         /** Why the session ended, for the pairing flow. */
         @Volatile var failure: PairingFailure? = null
+
+        /** Why the socket ended, for logs and diagnostics ("reset_by_peer", "heartbeat_timeout"). */
+        @Volatile var dropReason: String? = null
+
+        /** A reconnect to this trusted device; null for pairings and incoming sessions. */
+        @Volatile var dialDeviceId: String? = null
+        val dialFinished = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        /** The other end's address (normalized) and port. */
+        @Volatile var remoteHost: String? = null
+        @Volatile var remotePort: Int = ReconnectPolicy.LISTENING_PORT
         val createdAtMillis = SystemClock.elapsedRealtime()
 
         /** The device's last media.state, replayed when it becomes the selected device. */
@@ -2353,6 +2654,8 @@ private data class Message(
     val ciphertext: String? = null,
     val transferId: String? = null,
     val sequence: Long? = null,
+    /** On a reconnect offer: the trusted device it is meant for. Any other device declines quietly. */
+    val targetDeviceId: String? = null,
 ) {
     fun encode(): String = JSONObject().apply {
         put("kind", kind)
@@ -2368,6 +2671,7 @@ private data class Message(
         ciphertext?.let { put("ciphertext", it) }
         transferId?.let { put("transferId", it) }
         sequence?.let { put("sequence", it) }
+        targetDeviceId?.let { put("targetDeviceId", it) }
     }.toString()
 
     companion object {
@@ -2386,6 +2690,7 @@ private data class Message(
                 ciphertext = it.optString("ciphertext").takeIf(String::isNotEmpty),
                 transferId = it.optString("transferId").takeIf(String::isNotEmpty),
                 sequence = if (it.has("sequence")) it.getLong("sequence") else null,
+                targetDeviceId = it.optString("targetDeviceId").takeIf(String::isNotEmpty),
             )
         }
     }

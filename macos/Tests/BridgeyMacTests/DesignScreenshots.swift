@@ -77,6 +77,21 @@ final class DesignScreenshots: XCTestCase {
         return model
     }
 
+    /// The bug Rahul reported: the phone dropped at 02:56 and Bridgey keeps retrying it.
+    private func reconnectingModel(struggling: Bool, single: Bool) -> PanelModel {
+        var model = PanelModel()
+        model.state = .idle
+        let devices = single ? Array(trusted.prefix(1)) : trusted
+        model.rings = deviceRings(trusted: devices, peers: [], connected: [], pairing: .idle,
+                                  reconnecting: [phoneID: ReconnectDisplay(lastSeen: at(2, 56), struggling: struggling)])
+        model.rows = streamRows(sampleItems, now: now)
+        model.now = now
+        model.clipboardLine = "Room 2 at 4, bring the deck"
+        model.status = struggling ? nil : "Looking for devices\u{2026}"
+        model.rediscovering = !struggling
+        return model
+    }
+
     private var liveModel: PanelModel {
         var model = connectedModel
         model.call = RemoteCallStatus(notificationID: "n", deviceID: phoneID, applicationName: "Phone", caller: "Mum", detail: "",
@@ -103,6 +118,24 @@ final class DesignScreenshots: XCTestCase {
         model.rings = deviceRings(trusted: trusted, peers: [], state: .idle)
         model.now = now
         model.notificationPrompt = .request
+        return model
+    }
+
+    private func updateModel(_ flow: UpdateFlow) -> PanelModel {
+        var model = connectedModel
+        model.update = flow
+        model.appVersion = "0.6.0-rr.1-beta.7"
+        return model
+    }
+
+    private var updateSettingsModel: SettingsModel {
+        var model = settingsModel
+        model.updateFlow = .available(UpdateOffer(
+            version: "0.6.0-rr.1-beta.8",
+            notes: "• Settings > Updates shows updates inside Bridgey\n• One Keychain question per update instead of two\n• Fixes for several phones at once",
+            downloaded: false,
+            userInitiated: true
+        ))
         return model
     }
 
@@ -150,6 +183,27 @@ final class DesignScreenshots: XCTestCase {
         try render(panel: pairingModel, scheme: .light, name: "panel-light-pairing-code")
         try render(panel: failureModel, scheme: .dark, name: "panel-dark-failure")
         try render(panel: welcomeModel, scheme: .light, name: "panel-light-welcome")
+        try render(panel: reconnectingModel(struggling: false, single: true), scheme: .light, name: "panel-light-reconnecting")
+        try render(panel: reconnectingModel(struggling: true, single: true), scheme: .dark, name: "panel-dark-cant-reach")
+        try render(panel: reconnectingModel(struggling: true, single: false), scheme: .light, name: "panel-light-cant-reach-two")
+        var searching = welcomeModel
+        searching.onboardingDone = true
+        try render(panel: searching, scheme: .dark, name: "panel-dark-searching")
+    }
+
+    @MainActor func testReconnectingSettings() throws {
+        var model = settingsModel
+        model.state = .idle
+        model.rings = deviceRings(trusted: trusted, peers: [], connected: [], pairing: .idle,
+                                  reconnecting: [phoneID: ReconnectDisplay(lastSeen: at(2, 56), struggling: true)])
+        model.rediscoverStatus = "Still can\u{2019}t reach OnePlus 11"
+        try render(settings: model, pane: .devices, scheme: .light, name: "settings-light-devices-reconnecting")
+        var storeIssue = offlineModel
+        storeIssue.pairingStoreIssue = .keychainAccessDenied(-128)
+        try render(panel: storeIssue, scheme: .light, name: "panel-light-pairing-store-keychain")
+        try render(panel: updateModel(.ready(version: "0.6.0-rr.1-beta.8")), scheme: .dark, name: "panel-dark-update-ready")
+        try render(panel: updateModel(.downloading(version: "0.6.0-rr.1-beta.8", received: 6_400_000, expected: 15_200_000)),
+                   scheme: .light, name: "panel-light-update-downloading")
     }
 
     @MainActor func testSettings() throws {
@@ -157,6 +211,8 @@ final class DesignScreenshots: XCTestCase {
             try render(settings: settingsModel, pane: pane, scheme: .dark, name: "settings-dark-\(pane.rawValue)")
             try render(settings: settingsModel, pane: pane, scheme: .light, name: "settings-light-\(pane.rawValue)")
         }
+        try render(settings: updateSettingsModel, pane: .updates, scheme: .dark, name: "settings-dark-updates-available")
+        try render(settings: updateSettingsModel, pane: .updates, scheme: .light, name: "settings-light-updates-available")
     }
 
     @MainActor private func render(panel model: PanelModel, scheme: ColorScheme, name: String) throws {

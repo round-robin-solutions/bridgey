@@ -20,7 +20,7 @@
 "action.save" = "Сохранить";
 "action.stop" = "Стоп";
 "channel.beta.detail" = "Новые функции до выхода в Stable.";
-"channel.nightly.detail" = "Ежедневные сборки. Возможны шероховатости.";
+"channel.nightly.detail" = "Сборка после каждого изменения. Возможны шероховатости.";
 "channel.stable.detail" = "Проверенные выпуски. Подходят большинству.";
 "devices.forget.body" = "Этот Mac перестанет ему доверять. Чтобы снова пользоваться им, свяжите устройства и ещё раз сравните код.";
 "devices.forget.title" = "Забыть %@?";
@@ -294,3 +294,52 @@
 "perf.cancelled" = "Остановлено. Ничего не сохранено.";
 "perf.copy" = "Скопировать результаты";
 "perf.share" = "Поделиться в JSON";
+
+/* Reconnecting and Look for devices again */
+"ring.reconnecting" = "Переподключение…";
+"ring.retrying" = "Повторные попытки…";
+"ring.cantReach" = "Нет связи. Пробуем снова";
+"ring.lastSeen" = "%1$@ (был в сети %2$@)";
+"ring.reconnecting.help" = "Переподключение к %@. Нажмите, чтобы повторить сейчас.";
+"ring.cantReach.help" = "Нет связи с %@. Bridgey продолжает попытки. Нажмите, чтобы повторить сейчас.";
+"panel.retryNow" = "Повторить сейчас";
+"panel.lookAgain" = "Искать устройства снова";
+"devices.lookAgain.detail" = "Заново объявляет этот Mac и сразу пробует подключить все сопряжённые устройства";
+"devices.lookAgain.action" = "Искать снова";
+"rediscover.looking" = "Поиск устройств…";
+"rediscover.found" = "Найдено: %@";
+"rediscover.missing" = "По-прежнему нет связи: %@";
+"rediscover.none" = "Новых устройств не найдено";
+"rediscover.count" = "устройств: %d";
+/* In-app updates (Sparkle custom user driver) */
+"update.available" = "Доступно обновление %@";
+"update.available.detail" = "Установите сейчас или позже в Настройках.";
+"update.available.downloaded" = "Загружено и готово. Перезапустите Bridgey, чтобы обновить.";
+"update.checking" = "Проверка обновлений…";
+"update.downloading" = "Загрузка %@";
+"update.downloading.detail" = "%@ из %@";
+"update.error.canceled" = "Обновление отменено. Ничего не изменилось.";
+"update.error.download" = "Загрузка не завершилась. Проверьте подключение и попробуйте снова.";
+"update.error.feed" = "Не удалось прочитать список обновлений. Попробуйте позже.";
+"update.error.generic" = "Что-то пошло не так. Попробуйте позже.";
+"update.error.location" = "Bridgey не может заменить себя в этой папке. Переместите приложение в «Программы» и попробуйте снова.";
+"update.error.network" = "Не удалось связаться с сервером обновлений. Проверьте подключение и попробуйте снова.";
+"update.error.signature" = "Загрузка не прошла проверку безопасности, поэтому ничего не установлено.";
+"update.error.unpack" = "Не удалось распаковать загрузку. Попробуйте позже.";
+"update.failed" = "Обновление не завершено";
+"update.install" = "Установить";
+"update.installing" = "Установка %@";
+"update.installing.detail" = "Bridgey сейчас перезапустится";
+"update.later" = "Позже";
+"update.preparing" = "Подготовка %@";
+"update.preparing.detail" = "Проверка и распаковка загрузки";
+"update.ready" = "Обновление %@ готово";
+"update.ready.detail" = "Перезапустите, чтобы обновить";
+"update.restart" = "Перезапустить и обновить";
+"update.skip" = "Пропустить версию";
+"update.upToDate" = "Установлена последняя версия";
+"update.upToDate.detail" = "Версия %@ самая новая в вашем канале.";
+
+/* Pairing file (replaces the Keychain) */
+"pairingStore.file" = "Bridgey не может открыть файл сопряжения, поэтому телефоны не подключены.";
+"pairingStore.keychain" = "Bridgey в последний раз нужен доступ к Связке ключей, чтобы перенести ключи сопряжения в отдельный защищённый файл. После этого обновления больше не спрашивают пароль. До тех пор телефоны не подключатся.";
