@@ -74,7 +74,10 @@ class VersionTests(unittest.TestCase):
         now = dt.datetime(2026, 10, 25, 13, 15, tzinfo=dt.timezone.utc)
         self.assertEqual(rrrelease.resolve_version("stable", "0.6.0-rr.1", None, now), ("0.6.0-rr.1", "v0.6.0-rr.1"))
         self.assertEqual(rrrelease.resolve_version("beta", "0.6.0-rr.2", "0.6.0-rr.2-beta.1", now), ("0.6.0-rr.2-beta.1", "v0.6.0-rr.2-beta.1"))
-        self.assertEqual(rrrelease.resolve_version("nightly", "0.6.0-rr.2", None, now), ("0.6.0-rr.2-nightly.20261025", "nightly-20261025"))
+        # One tag per build (UTC minute); the version name keeps the date the apps accept.
+        self.assertEqual(rrrelease.resolve_version("nightly", "0.6.0-rr.2", None, now), ("0.6.0-rr.2-nightly.20261025", "nightly-20261025.1315"))
+        later = dt.datetime(2026, 10, 25, 18, 2, tzinfo=dt.timezone.utc)
+        self.assertEqual(rrrelease.resolve_version("nightly", "0.6.0-rr.2", None, later)[1], "nightly-20261025.1802")
         for channel, requested in [("beta", None), ("beta", "0.6.0-rr.2"), ("stable", "0.6.0-rr.2-beta.1"),
                                    ("nightly", "0.6.0-rr.2-nightly.20261025"), ("beta", "0.7.0-rr.1-beta.1"), ("canary", None)]:
             with self.assertRaises(rrrelease.ReleaseError, msg=f"{channel} {requested}"):
@@ -127,7 +130,7 @@ class AssembleTests(unittest.TestCase):
     def test_appcast_merges_channels_and_keeps_newest(self):
         previous = self.root / "published"
         builds = []
-        for day in range(1, 10):
+        for day in range(1, 13):
             dist = self.root / f"n{day}"
             build = 263000000 + day * 10_000
             builds.append(build)
@@ -138,10 +141,10 @@ class AssembleTests(unittest.TestCase):
             for name in ("nightly.json", "appcast.xml"):
                 (previous / name).write_bytes((dist / "channels" / name).read_bytes())
         dist = self.root / "stable"
-        self.fixture.assemble(dist, "stable", "0.6.0-rr.1", 263100000, "v0.6.0-rr.1", previous=previous)
+        self.fixture.assemble(dist, "stable", "0.6.0-rr.1", 263200000, "v0.6.0-rr.1", previous=previous)
         items = rrrelease.parse_appcast((dist / "channels" / "appcast.xml").read_bytes())
         nightly = [int(i["version"]) for i in items if i["channel"] == "nightly"]
-        self.assertEqual(nightly, sorted(builds, reverse=True)[:7])
+        self.assertEqual(nightly, sorted(builds, reverse=True)[:10])
         self.assertEqual(items[0]["channel"], "stable")
         self.assertNotIn("<sparkle:channel>stable", (dist / "channels" / "appcast.xml").read_text())
 
@@ -153,6 +156,61 @@ class AssembleTests(unittest.TestCase):
         (published / "beta.json").write_bytes((first / "channels" / "beta.json").read_bytes())
         code = self.fixture.assemble(self.root / "second", "beta", "0.6.0-rr.1-beta.3", 262000000, "v0.6.0-rr.1-beta.3", previous=published)
         self.assertEqual(code, 1)
+
+    def test_two_nightlies_on_one_day_both_publish_in_build_order(self):
+        published = self.root / "published"
+        first = self.root / "first"
+        self.fixture.assemble(first, "nightly", "0.6.0-rr.1-nightly.20261026", 262990900, "nightly-20261026.0900")
+        published.mkdir()
+        for name in ("nightly.json", "appcast.xml"):
+            (published / name).write_bytes((first / "channels" / name).read_bytes())
+        second = self.root / "second"
+        self.assertEqual(self.fixture.assemble(second, "nightly", "0.6.0-rr.1-nightly.20261026", 262991400, "nightly-20261026.1400", previous=published), 0)
+        items = rrrelease.parse_appcast((second / "channels" / "appcast.xml").read_bytes())
+        # Same version name, two builds: both stay, newest first, like the releases on GitHub.
+        self.assertEqual([i["version"] for i in items if i["channel"] == "nightly"], ["262991400", "262990900"])
+        older = self.root / "older"
+        self.assertEqual(self.fixture.assemble(older, "nightly", "0.6.0-rr.1-nightly.20261026", 262990800, "nightly-20261026.0800", previous=published), 1)
+
+    def publish_feeds(self, dist, published):
+        published.mkdir(exist_ok=True)
+        for name in ("beta.json", "nightly.json", "stable.json", "appcast.xml"):
+            if (dist / "channels" / name).is_file():
+                (published / name).write_bytes((dist / "channels" / name).read_bytes())
+
+    def test_rebase_keeps_items_published_meanwhile(self):
+        # A beta and a nightly both assembled from the same published feeds; the beta publishes first.
+        start = self.root / "start"
+        self.fixture.assemble(self.root / "s", "stable", "0.6.0-rr.1", 262900000, "v0.6.0-rr.1")
+        self.publish_feeds(self.root / "s", start)
+        beta = self.root / "beta"
+        nightly = self.root / "nightly"
+        self.fixture.assemble(beta, "beta", "0.6.0-rr.1-beta.1", 262980000, "v0.6.0-rr.1-beta.1", previous=start)
+        self.fixture.assemble(nightly, "nightly", "0.6.0-rr.1-nightly.20261026", 262990900, "nightly-20261026.0900", previous=start)
+        live = self.root / "live"
+        self.publish_feeds(self.root / "s", live)
+        self.assertEqual(rrrelease.main(["rebase", "--dist", str(beta), "--previous-channels", str(live)]), 0)
+        self.publish_feeds(beta, live)
+        # The nightly's own appcast predates the beta; rebasing on the live feeds keeps the beta item.
+        self.assertEqual(rrrelease.main(["rebase", "--dist", str(nightly), "--previous-channels", str(live)]), 0)
+        channels = [i["channel"] for i in rrrelease.parse_appcast((nightly / "channels" / "appcast.xml").read_bytes())]
+        self.assertEqual(sorted(channels), ["beta", "nightly", "stable"])
+        self.assertEqual(rrrelease.main(["verify", "--dist", str(nightly), "--ed-public-key", self.fixture.public]), 0)
+
+    def test_rebase_refuses_when_a_newer_build_is_out_and_keeps_the_other_platform(self):
+        live = self.root / "live"
+        newer = self.root / "newer"
+        self.fixture.assemble(newer, "nightly", "0.6.0-rr.1-nightly.20261026", 262991400, "nightly-20261026.1400")
+        self.publish_feeds(newer, live)
+        older = self.root / "older"
+        self.fixture.assemble(older, "nightly", "0.6.0-rr.1-nightly.20261026", 262990900, "nightly-20261026.0900")
+        self.assertEqual(rrrelease.main(["rebase", "--dist", str(older), "--previous-channels", str(live)]), 3)
+        android_only = self.root / "android-only"
+        self.fixture.assemble(android_only, "nightly", "0.6.0-rr.1-nightly.20261026", 262991500, "nightly-20261026.1500", mac=False)
+        self.assertEqual(rrrelease.main(["rebase", "--dist", str(android_only), "--previous-channels", str(live)]), 0)
+        feed = json.loads((android_only / "channels" / "nightly.json").read_text())
+        self.assertEqual(feed["macos"]["build"], 262991400)
+        self.assertFalse((android_only / "channels" / "appcast.xml").exists())
 
     def test_platform_missing_from_release_keeps_previous_entry(self):
         published = self.root / "published"

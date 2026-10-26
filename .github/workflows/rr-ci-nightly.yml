@@ -1,0 +1,208 @@
+# Bridgey by Round Robin nightly, built and published on GitHub-hosted runners.
+# Started only by the RR CI coordinator (workflow_dispatch on rr/main, after that revision's checks
+# passed). The "authorize" job verifies the coordinator's HMAC signature over the job spec with
+# RR_CI_DISPATCH_KEY and that the run is on the protected rr/main head before anything else runs.
+# Secrets live in the rr-ci-release environment, whose deployment rule allows rr/main only, and are
+# read by name only in the jobs that need them: the Android keystore in "android", the Sparkle key
+# in "publish". The macOS build has no secrets (ad-hoc signed; Sparkle trusts the EdDSA signature).
+# "publish" uses this run's GITHUB_TOKEN with contents: write, and scripts/rr/publish.sh takes the
+# channels lock shared with beta and stable releases from rr-dev-1.
+name: RR CI nightly
+run-name: rr-ci ${{ inputs.task }} ${{ inputs.attempt }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      attempt: {description: RR CI attempt id, required: true, type: string}
+      task: {description: RR CI task, required: true, type: string}
+      runs_on: {description: Runner label, required: true, type: string}
+      trusted: {description: Release secrets (true or false), required: true, type: string, default: 'false'}
+      job: {description: Job specification (JSON), required: true, type: string}
+      signature: {description: Coordinator signature, required: false, type: string, default: ''}
+
+permissions: {}
+
+concurrency:
+  group: bridgey-nightly
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: authorize
+    runs-on: ubuntu-latest
+    environment: rr-ci-release
+    permissions:
+      contents: read
+    outputs:
+      go: ${{ steps.check.outputs.go }}
+      now: ${{ steps.version.outputs.now }}
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+    env:
+      RR_CI_JOB: ${{ inputs.job }}
+      RR_CI_ATTEMPT: ${{ inputs.attempt }}
+    steps:
+      - name: Check the coordinator's signature and the ref
+        id: check
+        env:
+          REF_PROTECTED: ${{ github.ref_protected }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          TASK: ${{ inputs.task }}
+          RUNS_ON: ${{ inputs.runs_on }}
+          TRUSTED: ${{ inputs.trusted }}
+          SIGNATURE: ${{ inputs.signature }}
+          RR_CI_DISPATCH_KEY: ${{ secrets.RR_CI_DISPATCH_KEY }}
+        shell: bash
+        run: |
+          test "$TRUSTED" = true
+          test "$REF_NAME" = rr/main
+          test "$REF_PROTECTED" = true
+          python3 - <<'PY'
+          import hashlib, hmac, json, os, sys, time
+          key = os.environ['RR_CI_DISPATCH_KEY']
+          message = '\n'.join(os.environ[k] for k in ('RR_CI_ATTEMPT', 'TASK', 'RUNS_ON', 'REF_NAME', 'RR_CI_JOB'))
+          expected = hmac.new(key.encode(), message.encode(), hashlib.sha256).hexdigest()
+          if not key or not hmac.compare_digest(expected, os.environ['SIGNATURE']):
+              sys.exit('the job spec is not signed by the RR CI coordinator')
+          job = json.loads(os.environ['RR_CI_JOB'])
+          if not 0 <= time.time() - job.get('signed_at', 0) <= 1800:
+              sys.exit('the signed dispatch is older than 30 minutes')
+          go = 'true'
+          if job['revision'] != os.environ['SHA']:
+              # rr/main moved after the coordinator dispatched: the newer revision gets its own nightly.
+              print('[rr-ci] superseded: rr/main is now at %s' % os.environ['SHA'][:7], flush=True)
+              go = 'false'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as handle:
+              handle.write('go=%s\n' % go)
+          PY
+      - if: steps.check.outputs.go == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Version
+        id: version
+        if: steps.check.outputs.go == 'true'
+        shell: bash
+        run: |
+          now=$(date -u +%Y-%m-%dT%H:%M:00Z)
+          eval "$(python3 scripts/rr/rrrelease.py version nightly --now "$now")"
+          printf 'now=%s\nversion=%s\nbuild=%s\n' "$now" "$VERSION_NAME" "$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "nightly $VERSION_NAME build $BUILD_NUMBER tag $TAG"
+
+  android:
+    needs: authorize
+    if: needs.authorize.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    environment: rr-ci-release
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          java-version: '17'
+          distribution: temurin
+      - name: Build the signed APK
+        env:
+          KEYSTORE_B64: ${{ secrets.BRIDGEY_ANDROID_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.BRIDGEY_ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.BRIDGEY_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.BRIDGEY_ANDROID_KEY_PASSWORD }}
+          BRIDGEY_VERSION_NAME: ${{ needs.authorize.outputs.version }}
+          BRIDGEY_BUILD_NUMBER: ${{ needs.authorize.outputs.build }}
+        shell: bash
+        run: |
+          umask 077
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/rr-bridgey.jks"
+          python3 - <<'PY'
+          import os
+          with open(os.path.join(os.environ['RUNNER_TEMP'], 'android-signing.env'), 'w') as handle:
+              for name, env in (('ANDROID_STORE_PASSWORD', 'STORE_PASSWORD'), ('ANDROID_KEY_ALIAS', 'KEY_ALIAS'), ('ANDROID_KEY_PASSWORD', 'KEY_PASSWORD')):
+                  handle.write("%s='%s'\n" % (name, os.environ[env].replace("'", "'\\''")))
+          PY
+          unset KEYSTORE_B64 STORE_PASSWORD KEY_ALIAS KEY_PASSWORD
+          chmod +x android/gradlew
+          BRIDGEY_RR_KEYSTORE="$RUNNER_TEMP/rr-bridgey.jks" BRIDGEY_RR_SIGNING_ENV="$RUNNER_TEMP/android-signing.env" \
+            sh scripts/rr/build-android.sh "$RUNNER_TEMP/out/app-release.apk"
+          rm -f "$RUNNER_TEMP/rr-bridgey.jks" "$RUNNER_TEMP/android-signing.env"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android
+          path: ${{ runner.temp }}/out/app-release.apk
+          retention-days: 1
+          if-no-files-found: error
+
+  macos:
+    needs: authorize
+    if: needs.authorize.outputs.go == 'true'
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Build the app, DMG and ZIP
+        env:
+          BRIDGEY_VERSION_NAME: ${{ needs.authorize.outputs.version }}
+          BRIDGEY_BUILD_NUMBER: ${{ needs.authorize.outputs.build }}
+        run: sh scripts/rr/build-macos.sh "$RUNNER_TEMP/out"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos
+          path: |
+            ${{ runner.temp }}/out/*.dmg
+            ${{ runner.temp }}/out/*.zip
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    needs: [authorize, android, macos]
+    if: needs.authorize.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    environment: rr-ci-release
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: android
+          path: ${{ runner.temp }}/android
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: macos
+          path: ${{ runner.temp }}/macos
+      - name: Sign the appcast and publish
+        env:
+          SPARKLE_KEY: ${{ secrets.BRIDGEY_SPARKLE_ED_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          NOW: ${{ needs.authorize.outputs.now }}
+          RR_CI_HOLDER: GitHub Actions run ${{ github.run_id }}
+        shell: bash
+        run: |
+          python3 -c "import cryptography" 2>/dev/null || python3 -m pip install --quiet cryptography
+          umask 077
+          printf '%s' "$SPARKLE_KEY" > "$RUNNER_TEMP/sparkle.key"
+          unset SPARKLE_KEY
+          sh scripts/rr/release-notes.sh "$GITHUB_SHA" > "$RUNNER_TEMP/notes.md"
+          set +e
+          BRIDGEY_RR_SPARKLE_KEY="$RUNNER_TEMP/sparkle.key" sh scripts/rr/release.sh nightly --now "$NOW" \
+            --apk "$RUNNER_TEMP/android/app-release.apk" --macos-artifacts "$RUNNER_TEMP/macos" \
+            --notes-file "$RUNNER_TEMP/notes.md" --publish
+          status=$?
+          rm -f "$RUNNER_TEMP/sparkle.key"
+          if [ $status -eq 3 ]; then echo '[rr-ci] superseded: a newer nightly is already published'; exit 0; fi
+          exit $status

@@ -6,6 +6,8 @@ Subcommands
   assemble  Copy built artifacts into <dist>/release with release file names, write SHA256SUMS,
             <dist>/channels/<channel>.json and the merged, EdDSA-signed <dist>/channels/appcast.xml.
   verify    Validate every feed and appcast item in <dist>/channels against the files in <dist>/release.
+  rebase    Re-merge an assembled release into feeds downloaded just now (publish.sh runs it under the
+            channels lock, so a beta and a nightly published together never drop each other's item).
 
 Settings come from rr-edition.properties; the Sparkle public key from macos/Resources/Info.plist.
 Nothing here talks to GitHub except an optional read-only download of the current feeds
@@ -39,7 +41,7 @@ CHANNELS = ("stable", "beta", "nightly")
 ANDROID_MIN_SDK = 26
 MACOS_MINIMUM_SYSTEM_VERSION = "13.0"
 # Appcast items kept per channel. Nightly matches the number of nightly releases kept on GitHub.
-APPCAST_RETENTION = {"stable": 5, "beta": 5, "nightly": 7}
+APPCAST_RETENTION = {"stable": 5, "beta": 5, "nightly": 10}
 MAX_NOTES_LENGTH = 4000
 
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
@@ -58,6 +60,10 @@ SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 class ReleaseError(Exception):
     pass
+
+
+class Superseded(ReleaseError):
+    """A newer build of the channel was published while this one was being prepared."""
 
 
 # ---------------------------------------------------------------- settings
@@ -98,8 +104,11 @@ def resolve_version(channel: str, next_version: str, requested: str | None, mome
     if channel == "nightly":
         if requested:
             raise ReleaseError("Nightly versions are generated; do not pass --version")
-        date = moment.astimezone(dt.timezone.utc).strftime("%Y%m%d")
-        return f"{next_version}-nightly.{date}", f"nightly-{date}"
+        moment = moment.astimezone(dt.timezone.utc)
+        date = moment.strftime("%Y%m%d")
+        # Every build gets its own tag (UTC minute, like the build number). The version name keeps the
+        # date only: the apps accept "-nightly.YYYYMMDD" and order builds by build number.
+        return f"{next_version}-nightly.{date}", f"nightly-{date}.{moment.strftime('%H%M')}"
     version = requested or (next_version if channel == "stable" else None)
     if not version:
         raise ReleaseError(f"Pass --version for {channel}, for example {next_version}-beta.1")
@@ -239,12 +248,14 @@ def parse_appcast(xml_bytes: bytes | None) -> list[dict]:
 
 
 def merge_appcast_items(existing: list[dict], new_item: dict) -> list[dict]:
-    """Replace any item with the same build or version, then keep the newest N per channel."""
-    kept = [
-        item
-        for item in existing
-        if item["version"] != new_item["version"] and item["shortVersion"] != new_item["shortVersion"]
-    ]
+    """Replace the item of the same build in the same channel (and, for beta and stable, the same
+    version name), then keep the newest N per channel. Nightly builds of one day share a version
+    name, so they are told apart by build, like the nightly releases kept on GitHub."""
+    def same(item):
+        if item["channel"] != new_item["channel"]:
+            return False
+        return item["version"] == new_item["version"] or (new_item["channel"] != "nightly" and item["shortVersion"] == new_item["shortVersion"])
+    kept = [item for item in existing if not same(item)]
     kept.append(new_item)
     kept.sort(key=lambda item: int(item["version"]), reverse=True)
     counts: dict[str, int] = {}
@@ -343,7 +354,7 @@ def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
         previous_feed = json.loads(raw) if raw else None
         previous_appcast = fetch(f"{feed_base}/appcast.xml")
 
-    if previous_feed and int(previous_feed.get("build", 0)) >= build and previous_feed.get("version") != version:
+    if previous_feed and (int(previous_feed.get("build", 0)) > build or (int(previous_feed.get("build", 0)) == build and previous_feed.get("tag") != tag)):
         raise ReleaseError(f"Build {build} is not newer than the published {channel} build {previous_feed['build']}")
 
     feed: dict = {
@@ -497,6 +508,51 @@ def verify(dist: Path, props: dict[str, str], public_key: str) -> list[str]:
     return report
 
 
+# ---------------------------------------------------------------- rebase
+
+
+def rebase(dist: Path, previous_dir: Path, props: dict[str, str]) -> list[str]:
+    """Merge the assembled release into the feeds published right now. The channel feed takes the
+    fresh feed's entry for a platform this release does not include; the appcast gets this release's
+    item added to the fresh items. Refuses (Superseded) when the channel already has a newer build."""
+    env = dict(line.split("=", 1) for line in (dist / "release.env").read_text(encoding="utf-8").splitlines() if "=" in line)
+    channel, build, tag = env["CHANNEL"], int(env["BUILD_NUMBER"]), env["TAG"]
+    channels_dir, release_dir = dist / "channels", dist / "release"
+    feed_path = channels_dir / f"{channel}.json"
+    feed = json.loads(feed_path.read_text(encoding="utf-8"))
+    fresh_path = previous_dir / f"{channel}.json"
+    fresh = json.loads(fresh_path.read_text(encoding="utf-8")) if fresh_path.is_file() else None
+    if fresh and (int(fresh.get("build", 0)) > build or (int(fresh.get("build", 0)) == build and fresh.get("tag") != tag)):
+        raise Superseded(f"{channel} already has build {fresh['build']} ({fresh.get('tag')}), newer than {build}")
+    names = {path.name for path in release_dir.iterdir()} if release_dir.is_dir() else set()
+    included = {"android": any(n.endswith("-Android.apk") for n in names), "macos": any(n.endswith("-macOS.zip") for n in names)}
+    for platform, present in included.items():
+        if present:
+            continue
+        if fresh and fresh.get(platform):
+            feed[platform] = fresh[platform]
+        else:
+            feed.pop(platform, None)
+    validate_feed(feed, channel, props["EDITION_APP_ID"], props["UPDATE_ASSET_URL_PREFIX"])
+    feed_path.write_text(json.dumps(feed, indent=2) + "\n", encoding="utf-8")
+    report = [f"{channel}.json rebased on the published feed" + (f" (build {fresh['build']})" if fresh else " (none published yet)")]
+    appcast = channels_dir / "appcast.xml"
+    fresh_appcast_path = previous_dir / "appcast.xml"
+    fresh_appcast = fresh_appcast_path.read_bytes() if fresh_appcast_path.is_file() else None
+    if included["macos"]:
+        ours = [item for item in parse_appcast(appcast.read_bytes() if appcast.is_file() else None) if item["version"] == str(build)]
+        if not ours:
+            raise ReleaseError("the assembled appcast has no item for this build")
+        items = merge_appcast_items(parse_appcast(fresh_appcast), ours[0])
+        appcast.write_bytes(render_appcast(items, props["EDITION_DISPLAY_NAME"], props["UPDATE_FEED_BASE_URL"].rstrip("/") + "/appcast.xml"))
+        report.append(f"appcast.xml: {len(items)} item(s) after adding build {build}")
+    elif appcast.is_file():
+        # Nothing to add: leave the published appcast alone.
+        appcast.unlink()
+        report.append("appcast.xml unchanged (no macOS build in this release)")
+    return report
+
+
 # ---------------------------------------------------------------- CLI
 
 
@@ -530,6 +586,10 @@ def main(argv: list[str] | None = None) -> int:
     verify_parser.add_argument("--dist", required=True)
     verify_parser.add_argument("--ed-public-key", help=argparse.SUPPRESS)
 
+    rebase_parser = sub.add_parser("rebase", help="re-merge an assembled release into freshly downloaded feeds")
+    rebase_parser.add_argument("--dist", required=True)
+    rebase_parser.add_argument("--previous-channels", required=True, help="directory with the feeds published right now")
+
     args = parser.parse_args(argv)
     props = load_properties()
     try:
@@ -549,6 +609,12 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "verify":
             for line in verify(Path(args.dist), props, args.ed_public_key or sparkle_public_key()):
                 print(line)
+        elif args.command == "rebase":
+            for line in rebase(Path(args.dist), Path(args.previous_channels), props):
+                print(line)
+    except Superseded as error:
+        print(f"superseded: {error}", file=sys.stderr)
+        return 3
     except ReleaseError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
