@@ -21,6 +21,14 @@ enum RingState: Equatable {
     case privateNetwork
 }
 
+/// A trusted device that is not connected while both apps keep trying to reach it.
+struct ReconnectDisplay: Equatable {
+    /// When it was last connected.
+    let lastSeen: Date?
+    /// Several attempts failed: the chip says "Can't reach" rather than "Reconnecting".
+    let struggling: Bool
+}
+
 struct DeviceRing: Identifiable, Equatable {
     /// Stable key for lists; the device id when known.
     let id: String
@@ -32,8 +40,12 @@ struct DeviceRing: Identifiable, Equatable {
     let platform: String?
     /// Where to connect to pair or reconnect; nil when not on the network.
     let peer: DiscoveredPeer?
+    /// Set while a trusted, disconnected device is being retried.
+    var reconnect: ReconnectDisplay? = nil
 
     var canConnect: Bool { peer?.host != nil && peer?.port != nil && (state == .nearby) }
+    /// Offers "Retry now".
+    var canRetry: Bool { trusted && reconnect != nil && state != .connected }
 }
 
 /// Every trusted device plus every device on the network, in reading order: connected, then
@@ -47,7 +59,13 @@ func deviceRings(trusted: [TrustedDeviceInfo], peers: [DiscoveredPeer], state: P
 
 /// Multi-device: every connected phone shows as connected at once; `pairing` (the pairing
 /// flow) marks the device being paired as connecting.
-func deviceRings(trusted: [TrustedDeviceInfo], peers: [DiscoveredPeer], connected: [PhoneConnection], pairing: PairingState) -> [DeviceRing] {
+func deviceRings(
+    trusted: [TrustedDeviceInfo],
+    peers: [DiscoveredPeer],
+    connected: [PhoneConnection],
+    pairing: PairingState,
+    reconnecting: [String: ReconnectDisplay] = [:]
+) -> [DeviceRing] {
     let connectedNames = Dictionary(connected.map { ($0.id, $0.name) }, uniquingKeysWith: { $1 })
     var connectingName: String?
     switch pairing {
@@ -62,10 +80,16 @@ func deviceRings(trusted: [TrustedDeviceInfo], peers: [DiscoveredPeer], connecte
     var rings: [DeviceRing] = trusted.map { device in
         let peer = peers.first { $0.deviceIDHint == device.id }
         let ringState: RingState
+        var reconnect: ReconnectDisplay?
         if connectedNames[device.id] != nil {
             ringState = .connected
         } else if let connectingName, connectingName == device.name || connectingName == peer?.deviceNameHint {
             ringState = .connecting
+        } else if let retry = reconnecting[device.id] {
+            // Retrying: the connecting ring while it is fresh; after several misses the ring shows
+            // how it is reached (nearby or offline) and the text says it is still retrying.
+            reconnect = retry
+            ringState = retry.struggling ? (peer != nil ? .nearby : .offline) : .connecting
         } else if peer != nil {
             ringState = .nearby
         } else {
@@ -73,7 +97,7 @@ func deviceRings(trusted: [TrustedDeviceInfo], peers: [DiscoveredPeer], connecte
         }
         let connectedName = connectedNames[device.id] ?? ""
         let name = !connectedName.isEmpty ? connectedName : device.name
-        return DeviceRing(id: device.id, deviceID: device.id, name: name, state: ringState, trusted: true, platform: peer?.platformHint, peer: peer)
+        return DeviceRing(id: device.id, deviceID: device.id, name: name, state: ringState, trusted: true, platform: peer?.platformHint, peer: peer, reconnect: reconnect)
     }
     for phone in connected where !trustedIDs.contains(phone.id) {
         let peer = peers.first { $0.deviceIDHint == phone.id }
@@ -299,9 +323,14 @@ enum ActivityText {
     }
 }
 
-/// A ring's one-line status under the device name.
+/// A ring's one-line status under the device name (short form, for narrow chips).
 func ringStatusText(_ ring: DeviceRing) -> String {
-    switch ring.state {
+    if let retry = ring.reconnect, ring.state != .connected {
+        return retry.struggling
+            ? L10n.text("ring.retrying", fallback: "Retrying\u{2026}")
+            : L10n.text("ring.reconnecting", fallback: "Reconnecting\u{2026}")
+    }
+    return switch ring.state {
     case .connected: L10n.text("ring.connected", fallback: "Same Wi-Fi")
     case .connecting: L10n.text("ring.connecting", fallback: "Connecting")
     case .nearby: ring.trusted ? L10n.text("ring.nearby", fallback: "Nearby") : L10n.text("ring.new", fallback: "New device")
@@ -309,4 +338,40 @@ func ringStatusText(_ ring: DeviceRing) -> String {
     case .relay: L10n.text("ring.relay", fallback: "Relay")
     case .privateNetwork: L10n.text("ring.private", fallback: "Private")
     }
+}
+
+/// The long status, where there is room (a wide chip, Settings): "Reconnecting… (last seen 02:56)"
+/// or "Can't reach. Retrying (last seen 02:56)". Other states use the short text.
+func ringStatusDetail(_ ring: DeviceRing, now: Date, locale: Locale = .current, calendar: Calendar = .current) -> String {
+    guard let retry = ring.reconnect, ring.state != .connected else { return ringStatusText(ring) }
+    let base = retry.struggling
+        ? L10n.text("ring.cantReach", fallback: "Can\u{2019}t reach. Retrying")
+        : L10n.text("ring.reconnecting", fallback: "Reconnecting\u{2026}")
+    guard let seen = retry.lastSeen else { return base }
+    let when = lastSeenText(seen, now: now, locale: locale, calendar: calendar)
+    return String(format: L10n.text("ring.lastSeen", fallback: "%1$@ (last seen %2$@)"), base, when)
+}
+
+/// The chip's tooltip: what is happening, with the device's name, and what a click does.
+func ringRetryHelp(_ ring: DeviceRing) -> String {
+    let struggling = ring.reconnect?.struggling == true
+    return String(format: struggling
+        ? L10n.text("ring.cantReach.help", fallback: "Can\u{2019}t reach %@. Bridgey keeps retrying. Click to retry now.")
+        : L10n.text("ring.reconnecting.help", fallback: "Reconnecting to %@. Click to retry now."), ring.name)
+}
+
+/// "02:56" today, "Mon 02:56" this week, else "26 Oct".
+func lastSeenText(_ date: Date, now: Date, locale: Locale = .current, calendar: Calendar = .current) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = locale
+    formatter.calendar = calendar
+    formatter.timeZone = calendar.timeZone
+    if calendar.isDate(date, inSameDayAs: now) {
+        formatter.setLocalizedDateFormatFromTemplate("jmm")
+    } else if now.timeIntervalSince(date) < 6 * 86_400 {
+        formatter.setLocalizedDateFormatFromTemplate("EEEjmm")
+    } else {
+        formatter.setLocalizedDateFormatFromTemplate("dMMM")
+    }
+    return formatter.string(from: date)
 }

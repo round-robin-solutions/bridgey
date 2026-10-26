@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 enum LegacyPreferences {
     static func migrateIfNeeded() {
@@ -25,6 +26,9 @@ struct DiscoveredPeer: Identifiable, Equatable {
     let protocolVersionHint: Int?
     var host: String?
     var port: Int?
+    /// Resolved IP addresses (IPv4 first; link-local IPv6 left out). Dialling an IP works even
+    /// when mDNS name lookups do not.
+    var addresses: [String] = []
 
     var id: String { serviceName }
 }
@@ -66,15 +70,24 @@ final class BonjourDiscovery: NSObject, ObservableObject {
 
     @Published private(set) var peers: [DiscoveredPeer] = []
 
-    private let browser = NetServiceBrowser()
+    /// A fresh browser per run: a restarted NetServiceBrowser sends new queries straight away,
+    /// where a long-running one backs off to about one query an hour (RFC 6762, section 5.2).
+    private var browser: NetServiceBrowser?
     private var publishedService: NetService?
     private var services: [String: NetService] = [:]
     private var isRunning = false
+    private var restartWorkItem: DispatchWorkItem?
+    private var pruneWorkItem: DispatchWorkItem?
+    /// Services resolved since the last restart; peers not among them are dropped after a grace
+    /// period, so a restart never makes devices blink out of the panel.
+    private var refreshed = Set<String>()
     private let deviceID: String
     private var deviceName: String
     var localDeviceID: String { deviceID }
     var localDeviceName: String { deviceName }
     private lazy var ownServiceName = "Bridgey-\(deviceID.prefix(8))"
+    /// Called after each restart, with the reason (for diagnostics).
+    var onRestart: ((String) -> Void)?
 
     init(deviceName preferredName: String? = nil) {
         let defaults = UserDefaults.standard
@@ -86,36 +99,86 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         }
         deviceName = preferredName ?? Host.current().localizedName ?? "Mac"
         super.init()
-        browser.delegate = self
         start()
     }
 
     func updateDeviceName(_ value: String) {
         let name = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(64))
         guard !name.isEmpty, name != deviceName else { return }
-        let restart = isRunning
-        if restart { stop() }
         deviceName = name
-        if restart { DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.start() } }
+        if isRunning { restart(reason: "rename") }
     }
 
     func start() {
         guard !isRunning else { return }
         isRunning = true
-        publish()
-        browser.searchForServices(ofType: Self.serviceType, inDomain: "local.")
-        BridgeyLog.discovery("browsing started")
+        begin()
+        BridgeyLog.discovery.notice("browsing started")
     }
 
     func stop() {
+        restartWorkItem?.cancel()
+        restartWorkItem = nil
+        pruneWorkItem?.cancel()
+        pruneWorkItem = nil
         guard isRunning else { return }
         isRunning = false
-        browser.stop()
+        tearDown()
+        peers.removeAll()
+        BridgeyLog.discovery.notice("browsing stopped")
+    }
+
+    /// Stops browsing and publishing, then starts both again: this Mac announces itself afresh
+    /// and asks the network again, instead of waiting for a long-running browse to re-query.
+    /// Peers stay listed meanwhile; any not seen again within a few seconds are dropped.
+    /// Repeated calls while a restart is pending collapse into one.
+    func restart(reason: String) {
+        guard isRunning else {
+            start()
+            return
+        }
+        guard restartWorkItem == nil else { return }
+        BridgeyLog.discovery.notice("restart reason=\(reason, privacy: .public)")
+        tearDown()
+        pruneWorkItem?.cancel()
+        refreshed.removeAll()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.isRunning else { return }
+            self.restartWorkItem = nil
+            self.begin()
+            self.onRestart?(reason)
+            let prune = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.pruneWorkItem = nil
+                let gone = self.peers.filter { !self.refreshed.contains($0.serviceName) }
+                guard !gone.isEmpty else { return }
+                self.peers.removeAll { !self.refreshed.contains($0.serviceName) }
+                BridgeyLog.discovery.notice("restart dropped peers=\(gone.count, privacy: .public)")
+            }
+            self.pruneWorkItem = prune
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: prune)
+        }
+        restartWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
+    private func begin() {
+        publish()
+        let browser = NetServiceBrowser()
+        browser.delegate = self
+        browser.searchForServices(ofType: Self.serviceType, inDomain: "local.")
+        self.browser = browser
+    }
+
+    private func tearDown() {
+        browser?.delegate = nil
+        browser?.stop()
+        browser = nil
+        publishedService?.delegate = nil
         publishedService?.stop()
         publishedService = nil
+        services.values.forEach { $0.delegate = nil; $0.stop() }
         services.removeAll()
-        peers.removeAll()
-        BridgeyLog.discovery("browsing stopped")
     }
 
     private func publish() {
@@ -136,22 +199,59 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         publishedService = service
     }
 
+    private func isOwn(_ service: NetService) -> Bool {
+        service === publishedService || service.name == ownServiceName
+    }
+
     private func accept(_ service: NetService) {
-        guard service.name != ownServiceName else { return }
+        guard isRunning, !isOwn(service) else { return }
         let attributes = service.txtRecordData().map(NetService.dictionary(fromTXTRecord:)) ?? [:]
         var peer = DiscoveryTXTRecord.parse(serviceName: service.name, attributes: attributes)
+        // A renamed copy of this Mac's own service (name conflict after a restart) is not a peer.
+        guard peer.deviceIDHint != deviceID else { return }
         peer.host = service.hostName
         peer.port = service.port > 0 ? service.port : nil
+        peer.addresses = Self.ipAddresses(service.addresses ?? [])
+        refreshed.insert(service.name)
         let otherPeers = peers.filter { $0.id != peer.id }
         peers = (otherPeers + [peer]).sorted { $0.deviceNameHint.localizedCaseInsensitiveCompare($1.deviceNameHint) == .orderedAscending }
-        BridgeyLog.discovery("peer discovered service=\(service.name)")
+        BridgeyLog.discovery.notice("peer discovered service=\(service.name, privacy: .public) addresses=\(peer.addresses.count, privacy: .public)")
+    }
+
+    /// IP literals from resolved socket addresses: IPv4 first, then IPv6 that is not link-local.
+    nonisolated static func ipAddresses(_ data: [Data]) -> [String] {
+        var v4: [String] = []
+        var v6: [String] = []
+        for item in data {
+            item.withUnsafeBytes { raw in
+                guard raw.count >= MemoryLayout<sockaddr>.size else { return }
+                let family = raw.loadUnaligned(as: sockaddr.self).sa_family
+                if family == sa_family_t(AF_INET), raw.count >= MemoryLayout<sockaddr_in>.size {
+                    var address = raw.loadUnaligned(as: sockaddr_in.self).sin_addr
+                    var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                    if inet_ntop(AF_INET, &address, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil {
+                        v4.append(String(cString: buffer))
+                    }
+                } else if family == sa_family_t(AF_INET6), raw.count >= MemoryLayout<sockaddr_in6>.size {
+                    var address = raw.loadUnaligned(as: sockaddr_in6.self).sin6_addr
+                    var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+                    if inet_ntop(AF_INET6, &address, &buffer, socklen_t(INET6_ADDRSTRLEN)) != nil {
+                        let text = String(cString: buffer)
+                        if !text.lowercased().hasPrefix("fe80") { v6.append(text) }
+                    }
+                }
+            }
+        }
+        var seen = Set<String>()
+        return (v4 + v6).filter { seen.insert($0).inserted }
     }
 }
 
 extension BonjourDiscovery: NetServiceBrowserDelegate {
     nonisolated func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
         Task { @MainActor in
-            guard service.name != ownServiceName else { return }
+            guard browser === self.browser, !isOwn(service) else { return }
+            services[service.name]?.stop()
             services[service.name] = service
             service.delegate = self
             service.resolve(withTimeout: 5)
@@ -160,14 +260,16 @@ extension BonjourDiscovery: NetServiceBrowserDelegate {
 
     nonisolated func netServiceBrowser(_ browser: NetServiceBrowser, didRemove service: NetService, moreComing: Bool) {
         Task { @MainActor in
+            guard browser === self.browser else { return }
             services.removeValue(forKey: service.name)
             peers.removeAll { $0.serviceName == service.name }
-            BridgeyLog.discovery("peer lost service=\(service.name)")
+            BridgeyLog.discovery.notice("peer lost service=\(service.name, privacy: .public)")
         }
     }
 
     nonisolated func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
-        BridgeyLog.discovery("browse failed")
+        let code = errorDict[NetService.errorCode]?.intValue ?? 0
+        BridgeyLog.discovery.error("browse failed code=\(code, privacy: .public)")
     }
 }
 
@@ -177,17 +279,16 @@ extension BonjourDiscovery: NetServiceDelegate {
     }
 
     nonisolated func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
-        BridgeyLog.discovery("resolve failed service=\(sender.name)")
+        let code = errorDict[NetService.errorCode]?.intValue ?? 0
+        BridgeyLog.discovery.notice("resolve failed service=\(sender.name, privacy: .public) code=\(code, privacy: .public)")
     }
 
     nonisolated func netServiceDidPublish(_ sender: NetService) {
-        BridgeyLog.discovery("service published name=\(sender.name)")
+        BridgeyLog.discovery.notice("service published name=\(sender.name, privacy: .public)")
     }
-}
 
-enum BridgeyLog {
-    static func discovery(_ message: String) {
-        // Discovery service names are untrusted hints; no payload or secret is logged.
-        NSLog("DISCOVERY %@", message)
+    nonisolated func netService(_ sender: NetService, didNotPublish errorDict: [String: NSNumber]) {
+        let code = errorDict[NetService.errorCode]?.intValue ?? 0
+        BridgeyLog.discovery.error("publish failed code=\(code, privacy: .public)")
     }
 }

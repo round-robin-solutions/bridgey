@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 struct NotificationHistoryItem: Codable, Identifiable, Equatable {
     let id: String
@@ -50,7 +51,7 @@ final class NotificationHistoryStore {
             try data.write(to: fileURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
-            NSLog("PLUGIN notification history persistence failed error=%@", String(describing: error))
+            BridgeyLog.plugin.error("notification history persistence failed error=\(String(describing: error), privacy: .private)")
         }
     }
 
