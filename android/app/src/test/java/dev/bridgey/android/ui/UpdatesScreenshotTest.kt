@@ -6,11 +6,7 @@ import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -19,7 +15,6 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.captureRoboImage
 import dev.bridgey.android.AndroidUpdate
-import dev.bridgey.android.R
 import dev.bridgey.android.UpdateChannel
 import dev.bridgey.android.UpdateError
 import dev.bridgey.android.UpdateUiState
@@ -34,7 +29,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * Settings > Updates in every state, on the Settings page at the design's 412 x 915 dp phone
+ * Settings > Updates in every state, on its own page at the design's 412 x 915 dp phone
  * size, light and dark. PNGs are written only with -Pscreenshots=<dir>.
  */
 @RunWith(AndroidJUnit4::class)
@@ -91,11 +86,13 @@ class UpdatesScreenshotTest {
         }
     }
 
+    /** Settings > Updates, the page the update notification opens. */
     private fun updates(name: String, state: UpdateUiState) = capture("android-updates-$name-${if (dark()) "dark" else "light"}") {
-        SettingsPage(stringResource(R.string.settings_title), onBack = {}) {
-            item(key = "updates.label") { SectionLabel(stringResource(R.string.settings_updates), Modifier.padding(top = 20.dp)) }
-            item(key = "updates") { UpdatesCard(state, installed, now, SettingsActions()) }
-        }
+        SettingsScreen(
+            state = sampleSettingsState(now).copy(update = state, installedVersion = installed),
+            actions = SettingsActions(),
+            section = SettingsSection.UPDATES,
+        )
     }
 
     private fun dark(): Boolean =

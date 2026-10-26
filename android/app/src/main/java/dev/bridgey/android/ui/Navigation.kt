@@ -50,6 +50,11 @@ sealed interface Route {
         override val key = "settings"
     }
 
+    /** Settings › one section's page (Clipboard, Notifications, Updates...). See [settingsRoute]. */
+    data class SettingsPane(val section: SettingsSection) : Route {
+        override val key get() = "settings:${section.name.lowercase()}"
+    }
+
     data object Devices : Route {
         override val key = "devices"
     }
@@ -75,11 +80,32 @@ sealed interface Route {
             key == NotificationApps.key -> NotificationApps
             key == PerfTest.key -> PerfTest
             key == Places.key -> Places
+            key.startsWith("settings:") -> SettingsSection.entries
+                .firstOrNull { it.name.lowercase() == key.removePrefix("settings:") }
+                ?.let(::settingsRoute)
             key.startsWith("device:") -> Device(key.removePrefix("device:"))
             key.startsWith("remote:") -> Remote(key.removePrefix("remote:"))
             else -> null
         }
     }
+}
+
+/**
+ * The page a Settings section opens: Devices and permissions is its own screen ([Route.Devices]),
+ * This phone is the home's header card, and every other section has a [Route.SettingsPane].
+ */
+fun settingsRoute(section: SettingsSection): Route = when (section) {
+    SettingsSection.THIS_PHONE -> Route.Settings
+    SettingsSection.DEVICES -> Route.Devices
+    else -> Route.SettingsPane(section)
+}
+
+/** Opening the app on a Settings page, e.g. Updates from the update notification. */
+object SettingsDeepLink {
+    /** The [SettingsSection] name to open. */
+    const val EXTRA_SECTION = "dev.bridgey.android.extra.SETTINGS_SECTION"
+
+    fun section(name: String?): SettingsSection? = SettingsSection.entries.firstOrNull { it.name == name }
 }
 
 class BackStack(initial: List<Route>) {
@@ -94,6 +120,21 @@ class BackStack(initial: List<Route>) {
         if (entries.size <= 1) return false
         entries.removeAt(entries.lastIndex)
         return true
+    }
+
+    /**
+     * Shows [target] (a Settings page) with the Settings home below it, so back goes to the home,
+     * then to where you were. Pages already above the Settings home are closed first.
+     */
+    fun openSettings(target: Route) {
+        if (top == target) return
+        val home = entries.indexOf(Route.Settings)
+        if (home >= 0) {
+            while (entries.lastIndex > home) entries.removeAt(entries.lastIndex)
+        } else {
+            entries += Route.Settings
+        }
+        if (target != Route.Settings) entries += target
     }
 
     /** Drops pages for devices that no longer exist, e.g. after Forget. */

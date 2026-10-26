@@ -51,10 +51,12 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.bridgey.android.BridgeyFeature
 import dev.bridgey.android.LoggingPolicy
@@ -119,6 +121,8 @@ data class SettingsState(
 class SettingsActions(
     val back: () -> Unit = {},
     val openDevices: () -> Unit = {},
+    /** Settings home: open a section's page. */
+    val openSection: (SettingsSection) -> Unit = {},
     val openNotificationApps: () -> Unit = {},
     val appNotifications: () -> Unit = {},
     val notificationAccess: () -> Unit = {},
@@ -158,25 +162,36 @@ class SettingsActions(
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
 
+/** The three groups of rows on the Settings home, each drawn as its own card. */
+enum class SettingsGroup { DEVICES, FEATURES, APP }
+
 /**
- * The order of Settings sections, top to bottom: what people come to change, most used first.
- * Each feature section leads with its on/off switch, then its options. The macOS app mirrors
- * this order. [SettingsScreen] draws its section labels from this list; a unit test pins the order.
+ * The Settings sections, top to bottom: what people come to change, most used first. The Settings
+ * home shows This phone as a header card, then one row per section in its [group]; each row opens
+ * the section's page, which leads with the feature's on/off switch, then its options. The macOS
+ * sidebar mirrors this order. A unit test pins the order and the groups.
  */
-enum class SettingsSection(val titleRes: Int) {
-    THIS_PHONE(R.string.settings_this_phone),
-    DEVICES(R.string.settings_devices_section),
-    CLIPBOARD(R.string.feature_clipboard),
-    NOTIFICATIONS(R.string.settings_notifications),
-    CALLS(R.string.feature_calls),
-    FILES(R.string.feature_files),
-    MEDIA(R.string.settings_media),
-    REMOTE_CONTROL(R.string.settings_remote_control),
-    PRIVACY(R.string.settings_privacy),
-    UPDATES(R.string.settings_updates),
-    GENERAL(R.string.settings_general),
-    ABOUT(R.string.settings_about),
+enum class SettingsSection(val titleRes: Int, val group: SettingsGroup?) {
+    THIS_PHONE(R.string.settings_this_phone, null),
+    DEVICES(R.string.settings_devices, SettingsGroup.DEVICES),
+    CLIPBOARD(R.string.feature_clipboard, SettingsGroup.FEATURES),
+    NOTIFICATIONS(R.string.settings_notifications, SettingsGroup.FEATURES),
+    CALLS(R.string.feature_calls, SettingsGroup.FEATURES),
+    FILES(R.string.feature_files, SettingsGroup.FEATURES),
+    MEDIA(R.string.settings_media, SettingsGroup.FEATURES),
+    REMOTE_CONTROL(R.string.settings_remote_control, SettingsGroup.FEATURES),
+    PRIVACY(R.string.settings_privacy, SettingsGroup.APP),
+    UPDATES(R.string.settings_updates, SettingsGroup.APP),
+    GENERAL(R.string.settings_general, SettingsGroup.APP),
+    ABOUT(R.string.settings_about, SettingsGroup.APP),
+    ;
+
+    companion object {
+        /** The rows on the Settings home: every section but This phone, which is the header card. */
+        val homeRows: List<SettingsSection> get() = entries.filter { it.group != null }
+    }
 }
+
 
 /** Light mode band behind the page bar: status bar + 56 dp + 8 dp. */
 private val PageBandHeight = 64.dp
@@ -195,63 +210,68 @@ fun SettingsPage(title: String, onBack: () -> Unit, listState: LazyListState = r
 }
 
 /**
- * Settings, grouped by what people come to change. Each feature section leads with its on/off
- * switch, then its options. A pushed page, not a tab; the stream is the whole app.
+ * Settings. With no [section], the home: a This phone header card, then one row per section with a
+ * live summary, in three groups. With a [section], that section's page. Pushed pages, not tabs; the
+ * stream is the whole app.
  */
 @Composable
-fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: LazyListState = rememberLazyListState()) {
+fun SettingsScreen(
+    state: SettingsState,
+    actions: SettingsActions,
+    listState: LazyListState = rememberLazyListState(),
+    section: SettingsSection? = null,
+) {
+    when (section) {
+        null, SettingsSection.THIS_PHONE -> SettingsHome(state, actions, listState)
+        SettingsSection.DEVICES -> DevicesPage(state, actions, listState)
+        SettingsSection.CLIPBOARD -> ClipboardPage(state, actions, listState)
+        SettingsSection.NOTIFICATIONS -> NotificationsPage(state, actions, listState)
+        SettingsSection.CALLS -> CallsPage(state, actions, listState)
+        SettingsSection.FILES -> FilesPage(state, actions, listState)
+        SettingsSection.MEDIA -> MediaPage(state, actions, listState)
+        SettingsSection.REMOTE_CONTROL -> RemoteControlPage(state, actions, listState)
+        SettingsSection.PRIVACY -> PrivacyPage(state, actions, listState)
+        SettingsSection.UPDATES -> UpdatesPage(state, actions, listState)
+        SettingsSection.GENERAL -> GeneralPage(state, actions, listState)
+        SettingsSection.ABOUT -> AboutPage(state, actions, listState)
+    }
+}
+
+/** Settings home: This phone (tap to rename), then a row per section, grouped Devices, Features, App. */
+@Composable
+private fun SettingsHome(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
     var renaming by rememberSaveable { mutableStateOf(false) }
-    var confirmClear by rememberSaveable { mutableStateOf(false) }
-    var licences by rememberSaveable { mutableStateOf(false) }
-    var versionTaps by remember { mutableIntStateOf(0) }
     SettingsPage(stringResource(R.string.settings_title), actions.back, listState) {
-        // 1. This phone
-        sectionLabel(SettingsSection.THIS_PHONE, 20.dp)
-        item(key = "phone") {
-            RowGroup(Modifier.padding(top = 8.dp)) {
-                row { shape ->
-                    ListRow(
-                        shape, stringResource(R.string.settings_device_name), state.deviceName, BridgeyIcons.Smartphone, Tint.BLUE,
-                        onClick = { renaming = true }, onClickLabel = stringResource(R.string.action_rename),
-                    ) { Icon(BridgeyIcons.Edit, null, tint = BridgeyTheme.colors.onSurfaceVariant, modifier = Modifier.size(20.dp)) }
-                }
-                row { shape ->
-                    ListRow(
-                        shape, stringResource(R.string.settings_connection), state.connectionStatus,
-                        if (state.connected) BridgeyIcons.Wifi else BridgeyIcons.WifiOff,
-                        if (state.connected) Tint.GREEN else Tint.NEUTRAL,
-                    )
-                }
-                row { shape ->
-                    ListRow(
-                        shape, stringResource(R.string.settings_background_title),
-                        stringResource(if (state.batteryExempt) R.string.settings_background_on else R.string.settings_background_off),
-                        BridgeyIcons.Bolt, if (state.batteryExempt) Tint.GREEN else Tint.NEUTRAL,
-                        detailWarning = !state.batteryExempt,
-                        onClick = actions.openBatterySettings, onClickLabel = stringResource(R.string.settings_background_open),
-                    ) {
-                        if (state.batteryExempt) {
-                            Icon(BridgeyIcons.Check, null, tint = BridgeyTheme.colors.onTintGreen)
-                        } else {
-                            OutlinePillButton(stringResource(R.string.action_allow), null, actions.requestBatteryExemption)
-                        }
-                    }
-                }
-                if (state.keepWifiAwakeSupported) {
-                    row { shape ->
-                        SwitchRow(
-                            shape, stringResource(R.string.settings_wifi_awake_title), stringResource(R.string.settings_wifi_awake_detail),
-                            BridgeyIcons.Wifi, if (state.keepWifiAwake) Tint.BLUE else Tint.NEUTRAL,
-                            state.keepWifiAwake, actions.setKeepWifiAwake,
-                        )
+        item(key = "phone") { ThisPhoneCard(state, onRename = { renaming = true }, Modifier.padding(top = 20.dp)) }
+        SettingsGroup.entries.forEach { group ->
+            item(key = "group.${group.name}") {
+                RowGroup(Modifier.padding(top = if (group == SettingsGroup.DEVICES) 16.dp else 24.dp)) {
+                    SettingsSection.homeRows.filter { it.group == group }.forEach { section ->
+                        row { shape -> SectionRow(shape, section, state) { actions.openSection(section) } }
                     }
                 }
             }
         }
-        item(key = "phone.note") { Note(stringResource(R.string.settings_background_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) }
+    }
+    if (renaming) RenameDialog(state.deviceName, onDismiss = { renaming = false }, onSave = { renaming = false; actions.rename(it) })
+}
 
-        // 2. Devices and permissions
-        sectionLabel(SettingsSection.DEVICES, 24.dp)
+/** One section's page: the section's title on the page bar, then its rows as they were on the long page. */
+@Composable
+private fun SectionPage(section: SettingsSection, actions: SettingsActions, listState: LazyListState, content: LazyListScope.() -> Unit) {
+    SettingsPage(stringResource(section.titleRes), actions.back, listState) {
+        item(key = "${section.name}.top") { Spacer(Modifier.height(12.dp)) }
+        content()
+    }
+}
+
+/**
+ * Devices and permissions. The home's row opens [DevicesSettingsScreen] directly; this page is only
+ * drawn when a caller asks for the section itself.
+ */
+@Composable
+private fun DevicesPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
+    SectionPage(SettingsSection.DEVICES, actions, listState) {
         item(key = "devices") {
             RowGroup(Modifier.padding(top = 8.dp)) {
                 row { shape ->
@@ -263,9 +283,13 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
                 }
             }
         }
+    }
+}
 
-        // 3. Clipboard
-        sectionLabel(SettingsSection.CLIPBOARD, 24.dp)
+/** Clipboard: the switch, then automatic copy, images and files, screenshots, background clipboard, the tile. */
+@Composable
+private fun ClipboardPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
+    SectionPage(SettingsSection.CLIPBOARD, actions, listState) {
         item(key = "clipboard") {
             RowGroup(Modifier.padding(top = 8.dp)) {
                 row { shape -> FeatureSwitch(shape, BridgeyFeature.CLIPBOARD, state, actions) }
@@ -322,10 +346,14 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
         if (state.backgroundClipboardEnabled) {
             item(key = "clipboard.background") { BackgroundClipboardCard(state, actions) }
         }
+    }
+}
 
-        // 4. Notifications
+/** Notifications: forwarding, its access and apps, and Bridgey's own notifications. */
+@Composable
+private fun NotificationsPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
+    SectionPage(SettingsSection.NOTIFICATIONS, actions, listState) {
         val notificationsOn = state.featureOn(BridgeyFeature.NOTIFICATIONS)
-        sectionLabel(SettingsSection.NOTIFICATIONS, 24.dp)
         item(key = "notifications") {
             RowGroup(Modifier.padding(top = 8.dp)) {
                 row { shape ->
@@ -365,10 +393,14 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
                 }
             }
         }
+    }
+}
 
-        // 5. Calls
+/** Calls: the switch, then call status and controls. */
+@Composable
+private fun CallsPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
+    SectionPage(SettingsSection.CALLS, actions, listState) {
         val callsOn = state.featureOn(BridgeyFeature.CALLS)
-        sectionLabel(SettingsSection.CALLS, 24.dp)
         item(key = "calls") {
             RowGroup(Modifier.padding(top = 8.dp)) {
                 row { shape -> FeatureSwitch(shape, BridgeyFeature.CALLS, state, actions) }
@@ -382,9 +414,13 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
                 }
             }
         }
+    }
+}
 
-        // 6. Files
-        sectionLabel(SettingsSection.FILES, 24.dp)
+/** Files: the switch, then folders sent to this phone and Places. */
+@Composable
+private fun FilesPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
+    SectionPage(SettingsSection.FILES, actions, listState) {
         item(key = "files") {
             val filesOn = state.featureOn(BridgeyFeature.FILES)
             Column {
@@ -397,9 +433,13 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
                 }
             }
         }
+    }
+}
 
-        // 7. Media and quick actions
-        sectionLabel(SettingsSection.MEDIA, 24.dp)
+/** Media and quick actions: one switch per feature. */
+@Composable
+private fun MediaPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
+    SectionPage(SettingsSection.MEDIA, actions, listState) {
         item(key = "media") {
             RowGroup(Modifier.padding(top = 8.dp)) {
                 listOf(
@@ -410,10 +450,14 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
                 }
             }
         }
+    }
+}
 
-        // 8. Remote control: this phone as a Mac's touchpad, keyboard and presentation remote.
+/** Remote control: this phone as a Mac's touchpad, keyboard and presentation remote. */
+@Composable
+private fun RemoteControlPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
+    SectionPage(SettingsSection.REMOTE_CONTROL, actions, listState) {
         val remoteOn = state.featureOn(BridgeyFeature.REMOTE_INPUT)
-        sectionLabel(SettingsSection.REMOTE_CONTROL, 24.dp)
         item(key = "remote") {
             RowGroup(Modifier.padding(top = 8.dp)) {
                 row { shape -> FeatureSwitch(shape, BridgeyFeature.REMOTE_INPUT, state, actions) }
@@ -430,9 +474,14 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
             }
         }
         item(key = "remote.note") { Note(stringResource(R.string.remote_settings_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) }
+    }
+}
 
-        // 9. Privacy
-        sectionLabel(SettingsSection.PRIVACY, 24.dp)
+/** Privacy: previews, activity, and Logging. */
+@Composable
+private fun PrivacyPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
+    var confirmClear by rememberSaveable { mutableStateOf(false) }
+    SectionPage(SettingsSection.PRIVACY, actions, listState) {
         item(key = "privacy") {
             RowGroup(Modifier.padding(top = 8.dp)) {
                 row { shape ->
@@ -454,15 +503,64 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
         item(key = "privacy.logging") {
             LoggingSettingsGroup(state.logging, actions.setLogging, actions.exportDiagnostics, actions.clearLogs)
         }
+    }
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text(stringResource(R.string.clear_activity_title)) },
+            text = { Text(stringResource(R.string.clear_activity_body)) },
+            confirmButton = { TextButton(onClick = { confirmClear = false; actions.clearActivity() }) { Text(stringResource(R.string.action_clear)) } },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.action_cancel)) } },
+        )
+    }
+}
 
-        // 10. Updates
-        sectionLabel(SettingsSection.UPDATES, 24.dp)
+/** Updates: the status card, the channel and the daily check. */
+@Composable
+private fun UpdatesPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
+    SectionPage(SettingsSection.UPDATES, actions, listState) {
         item(key = "updates") { UpdatesCard(state.update, state.installedVersion, state.now, actions) }
+    }
+}
 
-        // 11. General
-        sectionLabel(SettingsSection.GENERAL, 24.dp)
-        item(key = "general") {
+/**
+ * General: staying connected while the phone sleeps (the Mac's Launch at login sits in its General
+ * too), then Reduce motion and Turn off.
+ */
+@Composable
+private fun GeneralPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
+    SectionPage(SettingsSection.GENERAL, actions, listState) {
+        item(key = "general.background") {
             RowGroup(Modifier.padding(top = 8.dp)) {
+                row { shape ->
+                    ListRow(
+                        shape, stringResource(R.string.settings_background_title),
+                        stringResource(if (state.batteryExempt) R.string.settings_background_on else R.string.settings_background_off),
+                        BridgeyIcons.Bolt, if (state.batteryExempt) Tint.GREEN else Tint.NEUTRAL,
+                        detailWarning = !state.batteryExempt,
+                        onClick = actions.openBatterySettings, onClickLabel = stringResource(R.string.settings_background_open),
+                    ) {
+                        if (state.batteryExempt) {
+                            Icon(BridgeyIcons.Check, null, tint = BridgeyTheme.colors.onTintGreen)
+                        } else {
+                            OutlinePillButton(stringResource(R.string.action_allow), null, actions.requestBatteryExemption)
+                        }
+                    }
+                }
+                if (state.keepWifiAwakeSupported) {
+                    row { shape ->
+                        SwitchRow(
+                            shape, stringResource(R.string.settings_wifi_awake_title), stringResource(R.string.settings_wifi_awake_detail),
+                            BridgeyIcons.Wifi, if (state.keepWifiAwake) Tint.BLUE else Tint.NEUTRAL,
+                            state.keepWifiAwake, actions.setKeepWifiAwake,
+                        )
+                    }
+                }
+            }
+        }
+        item(key = "general.background.note") { Note(stringResource(R.string.settings_background_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) }
+        item(key = "general") {
+            RowGroup(Modifier.padding(top = 24.dp)) {
                 row { shape ->
                     SwitchRow(
                         shape, stringResource(R.string.settings_reduce_motion), stringResource(R.string.settings_reduce_motion_detail),
@@ -480,9 +578,15 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
                 }
             }
         }
+    }
+}
 
-        // 12. About
-        sectionLabel(SettingsSection.ABOUT, 24.dp)
+/** About: the version (seven taps open the Performance test), licences and the credit. */
+@Composable
+private fun AboutPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
+    var licences by rememberSaveable { mutableStateOf(false) }
+    var versionTaps by remember { mutableIntStateOf(0) }
+    SectionPage(SettingsSection.ABOUT, actions, listState) {
         item(key = "about") {
             RowGroup(Modifier.padding(top = 8.dp)) {
                 row { shape ->
@@ -505,17 +609,6 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
         }
         item(key = "credit") { Credit(actions) }
     }
-
-    if (renaming) RenameDialog(state.deviceName, onDismiss = { renaming = false }, onSave = { renaming = false; actions.rename(it) })
-    if (confirmClear) {
-        AlertDialog(
-            onDismissRequest = { confirmClear = false },
-            title = { Text(stringResource(R.string.clear_activity_title)) },
-            text = { Text(stringResource(R.string.clear_activity_body)) },
-            confirmButton = { TextButton(onClick = { confirmClear = false; actions.clearActivity() }) { Text(stringResource(R.string.action_clear)) } },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.action_cancel)) } },
-        )
-    }
     if (licences) {
         AlertDialog(
             onDismissRequest = { licences = false },
@@ -524,6 +617,189 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
             confirmButton = { TextButton(onClick = { licences = false }) { Text(stringResource(R.string.action_close)) } },
         )
     }
+}
+
+/** The home's header: this phone's ring, name and connection. Tap to rename. */
+@Composable
+private fun ThisPhoneCard(state: SettingsState, onRename: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = BridgeyTheme.colors
+    Row(
+        modifier
+            .padding(horizontal = 16.dp)
+            .fillMaxWidth()
+            .heightIn(min = 76.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(colors.surface1)
+            .clickable(onClickLabel = stringResource(R.string.action_rename), role = Role.Button, onClick = onRename)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        DeviceGlyph(if (state.connected) RingStyle.SAME_WIFI else RingStyle.OFFLINE, BridgeyIcons.Smartphone, 48.dp, iconSize = 22.dp)
+        Column(Modifier.weight(1f)) {
+            Text(state.deviceName, style = BridgeyType.rowTitle, color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                state.connectionStatus,
+                style = BridgeyType.itemBody,
+                color = if (state.connected) colors.onTintGreen else colors.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 1.dp),
+            )
+        }
+        Icon(BridgeyIcons.Edit, null, tint = colors.onSurfaceVariant, modifier = Modifier.size(20.dp))
+    }
+}
+
+/** A home row: the section's icon, title and live summary; a dot when an update is ready. */
+@Composable
+private fun SectionRow(shape: androidx.compose.ui.graphics.Shape, section: SettingsSection, state: SettingsState, onClick: () -> Unit) {
+    val summary = sectionSummary(section, state)
+    val (icon, tint) = sectionVisual(section, state)
+    ListRow(
+        shape, stringResource(section.titleRes), summary.text, icon, tint,
+        // Compact rows keep the whole home on one phone screen.
+        compact = true, detailWarning = summary.warning, onClick = onClick,
+    ) {
+        if (summary.badge) UpdateDot()
+        Chevron()
+    }
+}
+
+/** What a home row says under its title, and whether it warns or carries the update dot. */
+private data class SectionSummary(val text: String, val warning: Boolean = false, val badge: Boolean = false)
+
+/** A section's tile: its feature's icon, tinted while the feature is on. */
+private fun sectionVisual(section: SettingsSection, state: SettingsState): Pair<androidx.compose.ui.graphics.vector.ImageVector, Tint> {
+    fun feature(feature: BridgeyFeature, on: Boolean = state.featureOn(feature)): Pair<androidx.compose.ui.graphics.vector.ImageVector, Tint> {
+        val (icon, tint) = permissionVisual(feature)
+        return icon to if (on) tint else Tint.NEUTRAL
+    }
+    return when (section) {
+        SettingsSection.THIS_PHONE -> BridgeyIcons.Smartphone to Tint.BLUE
+        SettingsSection.DEVICES -> BridgeyIcons.Devices to Tint.BLUE
+        SettingsSection.CLIPBOARD -> feature(BridgeyFeature.CLIPBOARD)
+        SettingsSection.NOTIFICATIONS -> feature(BridgeyFeature.NOTIFICATIONS)
+        SettingsSection.CALLS -> feature(BridgeyFeature.CALLS)
+        SettingsSection.FILES -> feature(BridgeyFeature.FILES)
+        SettingsSection.MEDIA -> feature(BridgeyFeature.MEDIA, MediaSectionFeatures.any(state::featureOn))
+        SettingsSection.REMOTE_CONTROL -> feature(BridgeyFeature.REMOTE_INPUT)
+        SettingsSection.PRIVACY -> BridgeyIcons.Shield to Tint.BLUE
+        SettingsSection.UPDATES -> BridgeyIcons.SystemUpdate to Tint.PURPLE
+        SettingsSection.GENERAL -> BridgeyIcons.Settings to Tint.NEUTRAL
+        SettingsSection.ABOUT -> BridgeyIcons.Info to Tint.NEUTRAL
+    }
+}
+
+/** The features on the Media and quick actions page, in its order. */
+private val MediaSectionFeatures = listOf(
+    BridgeyFeature.MEDIA, BridgeyFeature.LINKS, BridgeyFeature.PING,
+    BridgeyFeature.FIND_DEVICE, BridgeyFeature.BATTERY,
+)
+
+/** The live one-line summary under each home row, e.g. "Automatic, images up to 25 MB". */
+@Composable
+private fun sectionSummary(section: SettingsSection, state: SettingsState): SectionSummary {
+    val off = stringResource(R.string.settings_summary_off)
+    fun featureOff(feature: BridgeyFeature) = !state.featureOn(feature)
+    return when (section) {
+        SettingsSection.THIS_PHONE -> SectionSummary(state.connectionStatus)
+        SettingsSection.DEVICES -> SectionSummary(
+            androidx.compose.ui.res.pluralStringResource(R.plurals.settings_devices_count, state.pairedCount, state.pairedCount),
+        )
+        SettingsSection.CLIPBOARD -> if (featureOff(BridgeyFeature.CLIPBOARD)) {
+            SectionSummary(off)
+        } else {
+            val mode = stringResource(if (state.autoClipboardEnabled) R.string.settings_summary_clipboard_auto else R.string.settings_summary_clipboard_manual)
+            val files = when {
+                !state.clipboardFilesEnabled -> stringResource(R.string.settings_summary_clipboard_text_only)
+                state.clipboardEagerLimit == 0L -> stringResource(R.string.settings_summary_clipboard_images_on_paste)
+                else -> stringResource(R.string.settings_summary_clipboard_images, eagerLimitLabel(state.clipboardEagerLimit))
+            }
+            SectionSummary(stringResource(R.string.settings_summary_pair, mode, files))
+        }
+        SettingsSection.NOTIFICATIONS -> when {
+            featureOff(BridgeyFeature.NOTIFICATIONS) -> SectionSummary(off)
+            !state.notificationAccessEnabled -> SectionSummary(stringResource(R.string.settings_summary_notifications_access), warning = true)
+            else -> SectionSummary(stringResource(R.string.settings_notification_apps_count, state.notificationAppsEnabled, state.notificationAppsTotal))
+        }
+        SettingsSection.CALLS -> SectionSummary(
+            when {
+                featureOff(BridgeyFeature.CALLS) -> off
+                state.directCallsEnabled -> stringResource(R.string.settings_summary_calls_controls)
+                else -> stringResource(R.string.settings_summary_calls_ring)
+            },
+        )
+        SettingsSection.FILES -> SectionSummary(
+            when {
+                featureOff(BridgeyFeature.FILES) -> off
+                state.folders.supported -> folderModeLabel(state.folders.mode, state.folders.defaultLabel)
+                else -> stringResource(R.string.settings_summary_on)
+            },
+        )
+        SettingsSection.MEDIA -> {
+            val on = MediaSectionFeatures.count(state::featureOn)
+            SectionSummary(
+                when (on) {
+                    0 -> off
+                    MediaSectionFeatures.size -> stringResource(R.string.settings_summary_all_on)
+                    else -> stringResource(R.string.settings_summary_some_on, on, MediaSectionFeatures.size)
+                },
+            )
+        }
+        SettingsSection.REMOTE_CONTROL -> SectionSummary(
+            when {
+                featureOff(BridgeyFeature.REMOTE_INPUT) -> off
+                state.remoteVolumeKeys -> stringResource(R.string.settings_summary_remote_volume_keys)
+                else -> stringResource(R.string.settings_summary_on)
+            },
+        )
+        SettingsSection.PRIVACY -> SectionSummary(
+            stringResource(if (state.showPreviews) R.string.settings_summary_previews_shown else R.string.settings_summary_previews_hidden),
+        )
+        SettingsSection.UPDATES -> updatesSummary(state)
+        SettingsSection.GENERAL -> when {
+            !state.batteryExempt -> SectionSummary(stringResource(R.string.settings_summary_general_battery), warning = true)
+            state.reduceMotion -> SectionSummary(stringResource(R.string.settings_summary_general_reduced))
+            else -> SectionSummary(stringResource(R.string.settings_summary_general_background))
+        }
+        SettingsSection.ABOUT -> SectionSummary(stringResource(R.string.settings_summary_version, state.installedVersion))
+    }
+}
+
+/** "Beta · up to date", "Beta · 0.6.1 is ready" (with the dot), "Beta · downloading". */
+@Composable
+private fun updatesSummary(state: SettingsState): SectionSummary {
+    val channel = channelTitle(state.update.channel)
+    val short = { version: String -> UpdateFeeds.shortVersion(version, state.installedVersion) }
+    val phase = updateCardPhase(state.update)
+    val (status, warning) = when (phase) {
+        is UpdateCardPhase.Current -> stringResource(
+            if (phase.lastCheckedAt > 0) R.string.settings_summary_updates_current else R.string.settings_summary_updates_not_checked,
+        ) to false
+        is UpdateCardPhase.Skipped -> stringResource(R.string.settings_summary_updates_current) to false
+        UpdateCardPhase.Checking -> stringResource(R.string.settings_summary_updates_checking) to false
+        is UpdateCardPhase.Available -> stringResource(R.string.settings_summary_updates_ready, short(phase.update.versionName)) to false
+        is UpdateCardPhase.Waiting -> stringResource(R.string.settings_summary_updates_ready, short(phase.update.versionName)) to false
+        is UpdateCardPhase.Confirming -> stringResource(R.string.settings_summary_updates_ready, short(phase.update.versionName)) to false
+        is UpdateCardPhase.Downloading -> stringResource(R.string.settings_summary_updates_downloading) to false
+        is UpdateCardPhase.Failed -> stringResource(R.string.settings_summary_updates_failed) to true
+    }
+    val ready = phase is UpdateCardPhase.Available || phase is UpdateCardPhase.Waiting || phase is UpdateCardPhase.Confirming
+    return SectionSummary(stringResource(R.string.settings_summary_dot, channel, status), warning = warning, badge = ready)
+}
+
+/** The Updates row's "update ready" dot. */
+@Composable
+private fun UpdateDot() {
+    val label = stringResource(R.string.settings_summary_update_dot)
+    Box(
+        Modifier
+            .size(10.dp)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .background(BridgeyTheme.colors.primary)
+            .semantics { contentDescription = label },
+    )
 }
 
 @Composable
@@ -622,11 +898,6 @@ private fun PointerSpeedRow(shape: androidx.compose.ui.graphics.Shape, state: Se
             }
         }
     }
-}
-
-/** A section label item, keyed and titled from [SettingsSection] so the order stays testable. */
-private fun LazyListScope.sectionLabel(section: SettingsSection, top: androidx.compose.ui.unit.Dp) {
-    item(key = "${section.name}.label") { SectionLabel(stringResource(section.titleRes), Modifier.padding(top = top)) }
 }
 
 /** A feature's global on/off switch row. Title, generic detail, icon and tint from the feature. */

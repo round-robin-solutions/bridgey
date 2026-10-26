@@ -167,7 +167,6 @@
     <string name="permission_needs_notification_access">Needs notification access, tap to allow</string>
 
     <string name="settings_updates">Updates</string>
-    <string name="settings_devices_section">Devices</string>
     <string name="settings_notifications">Notifications</string>
     <string name="settings_media">Media and quick actions</string>
     <string name="settings_general">General</string>
@@ -441,6 +440,35 @@
 
     <!-- Remote control (draft remote_input_draft1): touchpad, keyboard and slides. -->
     <string name="settings_remote_control">Remote control</string>
+    <!-- Settings home: the live one-line summary under each section row. -->
+    <string name="settings_summary_off">Off</string>
+    <string name="settings_summary_on">On</string>
+    <string name="settings_summary_all_on">All on</string>
+    <string name="settings_summary_some_on">%1$d of %2$d on</string>
+    <string name="settings_summary_pair">%1$s, %2$s</string>
+    <string name="settings_summary_dot">%1$s · %2$s</string>
+    <string name="settings_summary_clipboard_auto">Automatic</string>
+    <string name="settings_summary_clipboard_manual">Manual</string>
+    <string name="settings_summary_clipboard_images">images up to %1$s</string>
+    <string name="settings_summary_clipboard_images_on_paste">images when you paste</string>
+    <string name="settings_summary_clipboard_text_only">text only</string>
+    <string name="settings_summary_notifications_access">Needs notification access</string>
+    <string name="settings_summary_calls_ring">Ring on Mac</string>
+    <string name="settings_summary_calls_controls">Ring and call controls on Mac</string>
+    <string name="settings_summary_remote_volume_keys">On, volume keys change slides</string>
+    <string name="settings_summary_previews_shown">Previews shown in activity</string>
+    <string name="settings_summary_previews_hidden">Previews hidden in activity</string>
+    <string name="settings_summary_updates_current">up to date</string>
+    <string name="settings_summary_updates_not_checked">not checked yet</string>
+    <string name="settings_summary_updates_checking">checking</string>
+    <string name="settings_summary_updates_ready">%1$s is ready</string>
+    <string name="settings_summary_updates_downloading">downloading</string>
+    <string name="settings_summary_updates_failed">could not update</string>
+    <string name="settings_summary_update_dot">Update ready</string>
+    <string name="settings_summary_general_background">Runs in the background</string>
+    <string name="settings_summary_general_reduced">Runs in the background, reduce motion on</string>
+    <string name="settings_summary_general_battery">Battery optimisation can pause Bridgey</string>
+    <string name="settings_summary_version">Version %1$s</string>
     <string name="settings_remote_detail">Use this phone as a touchpad, keyboard and presentation remote for a Mac that allows it</string>
     <string name="remote_settings_note">The Mac must allow this phone in Bridgey Settings › Remote control. While you are in control the Mac shows it, and can stop you at any time.</string>
     <string name="remote_speed_title">Pointer speed</string>

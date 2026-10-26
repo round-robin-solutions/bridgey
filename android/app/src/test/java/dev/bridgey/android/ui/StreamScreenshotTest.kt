@@ -188,13 +188,9 @@ class StreamScreenshotTest {
         SettingsScreen(state = settingsState(), actions = SettingsActions())
     }
 
-    /** Scrolled so the Clipboard section (its label is item index 5) leads the page. */
+    /** Settings > Clipboard. */
     private fun settingsClipboard() = capture(if (dark()) "settings-clipboard-dark" else "settings-clipboard-light") {
-        SettingsScreen(
-            state = settingsState(),
-            actions = SettingsActions(),
-            listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = 5),
-        )
+        SettingsScreen(state = settingsState(), actions = SettingsActions(), section = SettingsSection.CLIPBOARD)
     }
 
     private val remoteActive = dev.bridgey.android.remote.RemoteSessionState.Active(
@@ -216,12 +212,12 @@ class StreamScreenshotTest {
         )
     }
 
-    /** Scrolled to the end of Media and quick actions, so Remote control shows below its neighbour. */
+    /** Settings > Remote control, switched on. */
     private fun settingsRemote() = capture(if (dark()) "settings-remote-dark" else "settings-remote-light") {
         SettingsScreen(
             state = settingsState().copy(globalFeatures = settingsState().globalFeatures + (BridgeyFeature.REMOTE_INPUT to true), remoteVolumeKeys = true),
             actions = SettingsActions(),
-            listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = 16),
+            section = SettingsSection.REMOTE_CONTROL,
         )
     }
 

@@ -241,8 +241,7 @@ class FolderScreenshotTest {
                 folders = FolderSettingsState(places = places, defaultPlaceId = "default"),
             ),
             actions = SettingsActions(),
-            // The Files section label leads the page.
-            listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = 13),
+            section = SettingsSection.FILES,
         )
     }
 
