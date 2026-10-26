@@ -73,6 +73,18 @@ class PlacesStore(context: Context) {
         return AddResult.Added(place)
     }
 
+    /** Grant again: the picker's tree replaces the place's old one (same ID and label). */
+    @Synchronized
+    fun regrant(placeId: String, treeUri: Uri): Boolean {
+        val place = mutablePlaces.value.firstOrNull { it.placeId == placeId } ?: return false
+        if (!takeGrant(treeUri)) return false
+        if (place.treeUri != treeUri.toString()) {
+            release(Uri.parse(place.treeUri))
+            save(mutablePlaces.value.map { if (it.placeId == placeId) it.copy(treeUri = treeUri.toString()) else it })
+        }
+        return true
+    }
+
     @Synchronized
     fun remove(placeId: String) {
         val place = mutablePlaces.value.firstOrNull { it.placeId == placeId } ?: return

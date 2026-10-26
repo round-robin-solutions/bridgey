@@ -62,6 +62,11 @@ sealed interface Route {
         override val key = "perf_test"
     }
 
+    /** Settings › Files › Places. */
+    data object Places : Route {
+        override val key = "places"
+    }
+
     companion object {
         fun fromKey(key: String): Route? = when {
             key == Home.key -> Home
@@ -69,6 +74,7 @@ sealed interface Route {
             key == Devices.key -> Devices
             key == NotificationApps.key -> NotificationApps
             key == PerfTest.key -> PerfTest
+            key == Places.key -> Places
             key.startsWith("device:") -> Device(key.removePrefix("device:"))
             key.startsWith("remote:") -> Remote(key.removePrefix("remote:"))
             else -> null

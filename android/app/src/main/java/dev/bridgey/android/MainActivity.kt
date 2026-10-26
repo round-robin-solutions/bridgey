@@ -133,6 +133,8 @@ class MainActivity : ComponentActivity() {
     private var notificationAccessEnabled by mutableStateOf(false)
     private var appNotificationsEnabled by mutableStateOf(false)
     private var readLogsGranted by mutableStateOf(false)
+    /** A folder question notification was tapped: show that question's sheet. */
+    private var folderQuestion by mutableStateOf<String?>(null)
     private var batteryExempt by mutableStateOf(true)
     private var sharedContent by mutableStateOf<SharedContent?>(null)
     /** The launcher's Remote control quick action asked for this Mac. */
@@ -163,6 +165,7 @@ class MainActivity : ComponentActivity() {
         bridgeySettings = bridgey.settings
         sharedContent = intent.toSharedContent()
         remoteTarget = intent.toRemoteTarget()
+        folderQuestion = intent.getStringExtra(FolderNotifier.EXTRA_FOLDER_QUESTION)
         startForegroundService(Intent(this, BridgeyConnectionService::class.java))
         if (savedInstanceState == null) bridgey.updater.checkOnAppOpen()
         setContent {
@@ -178,6 +181,8 @@ class MainActivity : ComponentActivity() {
                     remotePreferences = bridgey.remotePreferences,
                     remoteTarget = remoteTarget,
                     onRemoteTargetHandled = ::clearRemoteTarget,
+                    folderQuestion = folderQuestion,
+                    onFolderQuestionHandled = { folderQuestion = null },
                     onDeviceNameChanged = bridgey::updateDeviceName,
                     appNotificationsEnabled = appNotificationsEnabled,
                     notificationAccessEnabled = notificationAccessEnabled,
@@ -236,6 +241,7 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         sharedContent = intent.toSharedContent()
         remoteTarget = intent.toRemoteTarget()
+        intent.getStringExtra(FolderNotifier.EXTRA_FOLDER_QUESTION)?.let { folderQuestion = it }
     }
 
     /** While the presentation remote shows (and Settings allows it), the volume keys change slides. */
@@ -432,6 +438,8 @@ private fun BridgeyApp(
     remotePreferences: RemoteInputPreferences,
     remoteTarget: String?,
     onRemoteTargetHandled: () -> Unit,
+    folderQuestion: String?,
+    onFolderQuestionHandled: () -> Unit,
     onDeviceNameChanged: (String) -> Unit,
     appNotificationsEnabled: Boolean,
     notificationAccessEnabled: Boolean,
@@ -551,6 +559,7 @@ private fun BridgeyApp(
         val cancelAll = showsCancelAll(fileTransfers.values)
         liveTransfers(fileTransfers).forEachIndexed { index, transfer -> add(LiveCard.Transfer(transfer, cancelAll = cancelAll && index == 0)) }
     }
+    val folderUi = rememberFolderUi(pairing, settings, snackbar, { stack.push(Route.Places) }, folderQuestion, onFolderQuestionHandled)
     val liveActions = LiveActions(
         cancelTransfer = pairing::cancelFileTransfer,
         cancelAllTransfers = { pairing.cancelFileTransfer() },
@@ -561,6 +570,7 @@ private fun BridgeyApp(
         stopRinging = pairing::stopFinding,
         media = { action, value -> pairing.quickActions.request(BridgeyFeature.MEDIA, action, value) },
         retryDevice = pairing::retryNow,
+        answerFolder = folderUi.showQuestion,
     )
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> if (uris.isNotEmpty()) pairing.sendFiles(uris, fileTarget) }
     val readClipboard = {
@@ -765,6 +775,7 @@ private fun BridgeyApp(
                             batteryExempt = batteryExempt,
                             keepWifiAwakeSupported = WifiKeeper.SUPPORTED,
                             keepWifiAwake = settingsState.keepWifiAwake,
+                            folders = folderUi.settingsState,
                         ),
                         actions = SettingsActions(
                             back = { stack.pop() },
@@ -809,6 +820,7 @@ private fun BridgeyApp(
                             requestBatteryExemption = onRequestBatteryExemption,
                             openBatterySettings = onOpenBatterySettings,
                             setKeepWifiAwake = settings::setKeepWifiAwake,
+                            folders = folderUi.settingsActions,
                         ),
                     )
                 }
@@ -838,6 +850,17 @@ private fun BridgeyApp(
                         ),
                     )
                 }
+                Route.Places -> dev.bridgey.android.ui.PlacesScreen(
+                    state = folderUi.placesState,
+                    actions = dev.bridgey.android.ui.PlacesScreenActions(
+                        back = { stack.pop() },
+                        add = folderUi.placesActions.add,
+                        allowFullAccess = folderUi.placesActions.allowFullAccess,
+                        grantAgain = folderUi.placesActions.grantAgain,
+                        remove = folderUi.placesActions.remove,
+                        rename = folderUi.placesActions.rename,
+                    ),
+                )
                 Route.Devices -> DevicesSettingsScreen(
                     state = DevicesSettingsState(rings = rings, rediscovering = rediscover == RediscoverState.Running),
                     actions = DevicesSettingsActions(
@@ -865,6 +888,7 @@ private fun BridgeyApp(
     }
 
     UpdatePrompts(updater)
+    FolderQuestionHost(folderUi)
 
     // Asked once, after the first connection, while Android may still pause Bridgey in Doze.
     if (!batteryExempt && !batteryPromptShown && !showOnboarding && connections.isNotEmpty() && pairingFlow !is PairingState.Verification) {

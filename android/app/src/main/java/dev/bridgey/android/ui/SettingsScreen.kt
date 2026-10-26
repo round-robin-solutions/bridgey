@@ -99,6 +99,8 @@ data class SettingsState(
     /** Keep Wi-Fi awake is offered (Android 13 and older, where a Wi-Fi lock works with the screen off). */
     val keepWifiAwakeSupported: Boolean = false,
     val keepWifiAwake: Boolean = false,
+    /** Files: folders sent to this phone, default folder, conflicts, Replace from other devices, places. */
+    val folders: FolderSettingsState = FolderSettingsState(),
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean = globalFeatures[feature] != false
 }
@@ -133,6 +135,7 @@ class SettingsActions(
     val requestBatteryExemption: () -> Unit = {},
     val openBatterySettings: () -> Unit = {},
     val setKeepWifiAwake: (Boolean) -> Unit = {},
+    val folders: FolderSettingsActions = FolderSettingsActions(),
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
@@ -356,8 +359,15 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
         // 6. Files
         sectionLabel(SettingsSection.FILES, 24.dp)
         item(key = "files") {
-            RowGroup(Modifier.padding(top = 8.dp)) {
-                row { shape -> FeatureSwitch(shape, BridgeyFeature.FILES, state, actions) }
+            val filesOn = state.featureOn(BridgeyFeature.FILES)
+            Column {
+                RowGroup(Modifier.padding(top = 8.dp)) {
+                    row { shape -> FeatureSwitch(shape, BridgeyFeature.FILES, state, actions) }
+                    if (filesOn && state.folders.supported) folderRows(state.folders, actions.folders)
+                }
+                if (filesOn && state.folders.supported) {
+                    Note(stringResource(R.string.settings_folders_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp))
+                }
             }
         }
 
