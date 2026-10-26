@@ -2,40 +2,84 @@ import Foundation
 
 /*
  * Codes from messages (edition): finds a one-time code in an SMS the phone forwarded, so the Mac can
- * show "Code 482913 from HDFC Bank" with a Copy button. Off by default; when on, the message text is
- * sent to Round Robin's relay (services/otp-proxy), which asks Cloudflare Workers AI. The model
- * decides; the guard here only refuses an answer that is not literally in the message or does not
- * look like a code. Any refusal, error or timeout shows the plain notification instead.
+ * show "Code 482913 from HDFC Bank" with a Copy button. Off by default. Two engines read the message,
+ * chosen in Settings > Notifications > Codes from messages:
+ *   - On this Mac (the default): a small fine-tuned model (CodeModel.swift) runs here through
+ *     llama.cpp; the message never leaves the Mac.
+ *   - Cloud: the text goes to Round Robin's relay (services/otp-proxy), which asks Cloudflare
+ *     Workers AI.
+ * Either way the model decides; the guard here only refuses an answer that is not literally in the
+ * message or does not look like a code. Any refusal, error or timeout shows the plain notification.
  *
  * Message text and codes are never logged, whatever Settings > Privacy > Logging says.
  */
 
-/// Accepts the model's code only if it appears verbatim in the message and looks like a code.
+/// Accepts the model's code only if it appears in the message as a whole token and looks like a code.
+/// Can only refuse; it never finds a code itself. Same rule as `strict_guard` in the model research
+/// (outputs/bridgey/research/otp-tiny-model/common.py) and Android's CodeGuard.
 enum CodeGuard {
     /// The code to show and copy (separators and a short prefix such as "G-" removed, letter case as in
     /// the message), or nil to fall back to the plain notification.
     ///
-    /// Rules: every part (split on spaces and hyphens) contains a digit, except one leading prefix of
-    /// one or two letters; 4 to 10 letters or digits in all; and the code is in the message as a whole
-    /// token, with an optional space or hyphen between characters ("591-047", "441 902").
+    /// Rules:
+    /// - a leading prefix of one or two letters ("G-482913") is dropped; every remaining part (split on
+    ///   spaces and hyphens) contains a digit, and when there are several parts each has at least three
+    ///   characters ("482 913", not "30-10-26");
+    /// - the code is 4 to 8 letters or digits in all;
+    /// - the answer is in the message literally, as a whole token (any letter case), or the message
+    ///   has a split token ("482 913", "PP-301842") whose groups each have 3 or more characters and a
+    ///   digit, and which equals the answer once its separators are removed. A space or hyphen is never
+    ///   allowed between any two characters, so "5minMe" does not match "5 min me".
     static func accept(_ answer: String?, in text: String) -> String? {
-        guard let raw = answer?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty, raw.count <= 24 else { return nil }
-        var parts = raw.split(whereSeparator: { $0 == " " || $0 == "-" }).map(String.init)
-        if parts.count > 1, (1...2).contains(parts[0].count), parts[0].allSatisfy(\.isASCIILetter) {
+        guard var raw = answer?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty, raw.count <= 24 else { return nil }
+        var parts = raw.split(whereSeparator: isSeparator).map(String.init)
+        if parts.count > 1, isShortPrefix(parts[0]) {
             parts.removeFirst()
+            raw = String(raw.drop(while: { !isSeparator($0) }).drop(while: isSeparator))
         }
         guard !parts.isEmpty, parts.allSatisfy({ $0.contains(where: \.isASCIIDigit) }) else { return nil }
+        guard parts.count == 1 || parts.allSatisfy({ $0.count >= 3 }) else { return nil }
         let core = parts.joined()
-        guard (4...10).contains(core.count), core.allSatisfy(\.isASCIIAlphanumeric) else { return nil }
-        let body = core.map { NSRegularExpression.escapedPattern(for: String($0)) }.joined(separator: "[\\s-]?")
-        guard let regex = try? NSRegularExpression(
-            pattern: "(?<![0-9A-Za-z])" + body + "(?![0-9A-Za-z])",
-            options: [.caseInsensitive]
-        ),
-            let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-            let range = Range(match.range, in: text) else { return nil }
-        return String(text[range].filter(\.isASCIIAlphanumeric))
+        guard (4...8).contains(core.count), core.allSatisfy(\.isASCIIAlphanumeric) else { return nil }
+        let whole = NSRange(text.startIndex..., in: text)
+
+        // 1. Literally in the message, as a whole token.
+        if let literal = try? NSRegularExpression(pattern: tokenEdgeLeft + NSRegularExpression.escapedPattern(for: raw) + tokenEdgeRight, options: [.caseInsensitive]),
+           let match = literal.firstMatch(in: text, range: whole), let range = Range(match.range, in: text) {
+            return String(text[range].filter(\.isASCIIAlphanumeric))
+        }
+
+        // 2. A split token in the message whose groups, joined, are the answer.
+        let wanted = core.uppercased()
+        for match in splitToken.matches(in: text, range: whole) {
+            guard let range = Range(match.range(at: 1), in: text) else { continue }
+            let token = String(text[range])
+            guard token.contains(where: isSeparator) else { continue }
+            var groups = token.split(whereSeparator: isSeparator).map(String.init)
+            var prefix = ""
+            if isShortPrefix(groups[0]) { prefix = groups.removeFirst().uppercased() }
+            guard !groups.isEmpty, groups.allSatisfy({ $0.contains(where: \.isASCIIDigit) }) else { continue }
+            let joined = groups.joined()
+            if wanted == joined.uppercased() || wanted == prefix + joined.uppercased() {
+                return joined
+            }
+        }
+        return nil
     }
+
+    private static func isSeparator(_ character: Character) -> Bool { character == " " || character == "-" || character.isWhitespace }
+
+    private static func isShortPrefix(_ part: String) -> Bool { (1...2).contains(part.count) && part.allSatisfy(\.isASCIILetter) }
+
+    private static let tokenEdgeLeft = "(?<![0-9A-Za-z])"
+    private static let tokenEdgeRight = "(?![0-9A-Za-z])"
+    /// 3 or more letters or digits with at least one digit.
+    private static let digitGroup = "(?=[0-9A-Za-z]*[0-9])[0-9A-Za-z]{3,}"
+    /// A lookahead, so overlapping candidates are all tried: an optional 1 or 2 letter prefix, then
+    /// digit groups joined by one space or hyphen each.
+    private static let splitToken = try! NSRegularExpression(
+        pattern: "(?=" + tokenEdgeLeft + "((?:[A-Za-z]{1,2}[ \\-])?" + digitGroup + "(?:[ \\-]" + digitGroup + ")*)" + tokenEdgeRight + ")"
+    )
 }
 
 private extension Character {
@@ -156,6 +200,8 @@ enum CodeRelay {
 
 enum CodeReadFailure: String, Equatable {
     case timeout, rateLimited = "rate_limited", unavailable, invalidResponse = "invalid_response", notConfigured = "not_configured"
+    /// On this Mac was chosen but the model is not downloaded (or was removed).
+    case modelMissing = "model_missing"
 }
 
 enum CodeRelayAnswer: Equatable {
@@ -206,41 +252,60 @@ struct URLSessionCodeRelayTransport: CodeRelayTransport {
     }
 }
 
-/// One message in, one outcome out, within `budget` seconds.
-struct CodeReader: Sendable {
-    let baseURL: URL?
+/// Where the answer comes from: the relay (cloud) or the model on this Mac. Either returns the same
+/// `CodeRelayAnswer`, so the budget, the guard and the fallback are shared.
+protocol CodeAnswerSource: Sendable {
+    func answer(text: String, sender: String?) async -> CodeRelayAnswer
+}
+
+/// The cloud engine: Round Robin's relay to Cloudflare Workers AI.
+struct CloudCodeSource: CodeAnswerSource {
+    let baseURL: URL
     let installID: String
     var transport: CodeRelayTransport = URLSessionCodeRelayTransport()
+
+    func answer(text: String, sender: String?) async -> CodeRelayAnswer {
+        guard let request = CodeRelay.request(baseURL: baseURL, installID: installID, text: text, sender: sender) else {
+            return .failed(.notConfigured)
+        }
+        do {
+            let (status, data) = try await transport.send(request)
+            return CodeRelay.parse(status: status, data: data)
+        } catch {
+            return .failed((error as? URLError)?.code == .timedOut ? .timeout : .unavailable)
+        }
+    }
+}
+
+/// One message in, one outcome out, within `budget` seconds.
+struct CodeReader: Sendable {
+    /// Nil when the chosen engine cannot run (no relay address in this build).
+    let source: CodeAnswerSource?
     var budget: TimeInterval = CodeRelay.budget
 
+    init(source: CodeAnswerSource?, budget: TimeInterval = CodeRelay.budget) {
+        self.source = source
+        self.budget = budget
+    }
+
+    /// The cloud engine.
+    init(baseURL: URL?, installID: String, transport: CodeRelayTransport = URLSessionCodeRelayTransport(), budget: TimeInterval = CodeRelay.budget) {
+        self.init(source: baseURL.map { CloudCodeSource(baseURL: $0, installID: installID, transport: transport) }, budget: budget)
+    }
+
     func read(text: String, sender: String?) async -> CodeReadOutcome {
-        guard let baseURL, let request = CodeRelay.request(baseURL: baseURL, installID: installID, text: text, sender: sender) else {
-            return .fallback(.notConfigured)
-        }
-        let transport = transport
+        guard let source else { return .fallback(.notConfigured) }
+        // Whichever comes first, the answer or the budget. The engine is not waited for after the
+        // budget: the model on this Mac cannot be stopped mid-answer, and the plain notification
+        // must not wait for it.
+        let race = CodeAnswerRace()
         let budget = budget
-        let answer: CodeRelayAnswer = await withTaskGroup(of: CodeRelayAnswer?.self) { group in
-            group.addTask {
-                do {
-                    let (status, data) = try await transport.send(request)
-                    return CodeRelay.parse(status: status, data: data)
-                } catch {
-                    return Task.isCancelled ? nil : .failed((error as? URLError)?.code == .timedOut ? .timeout : .unavailable)
-                }
+        let answer: CodeRelayAnswer = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                race.start(continuation, budget: budget) { await source.answer(text: text, sender: sender) }
             }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(budget * 1_000_000_000))
-                return Task.isCancelled ? nil : .failed(.timeout)
-            }
-            var first: CodeRelayAnswer = .failed(.timeout)
-            for await value in group {
-                if let value {
-                    first = value
-                    break
-                }
-            }
-            group.cancelAll()
-            return first
+        } onCancel: {
+            race.finish(.failed(.timeout))
         }
         switch answer {
         case let .candidate(code):
@@ -250,6 +315,49 @@ struct CodeReader: Sendable {
         case let .failed(reason):
             return .fallback(reason)
         }
+    }
+}
+
+/// Resumes once, with the first of the answer and the budget, and cancels the other.
+private final class CodeAnswerRace: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<CodeRelayAnswer, Never>?
+    private var early: CodeRelayAnswer?
+    private var done = false
+    private var tasks: [Task<Void, Never>] = []
+
+    func start(_ continuation: CheckedContinuation<CodeRelayAnswer, Never>, budget: TimeInterval,
+               operation: @escaping @Sendable () async -> CodeRelayAnswer) {
+        lock.lock()
+        if done {
+            let value = early ?? .failed(.timeout)
+            lock.unlock()
+            continuation.resume(returning: value)
+            return
+        }
+        self.continuation = continuation
+        tasks = [
+            Task { self.finish(await operation()) },
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(budget * 1_000_000_000))
+                self.finish(.failed(.timeout))
+            },
+        ]
+        lock.unlock()
+    }
+
+    func finish(_ value: CodeRelayAnswer) {
+        lock.lock()
+        guard !done else { return lock.unlock() }
+        done = true
+        let waiting = continuation
+        continuation = nil
+        if waiting == nil { early = value }
+        let running = tasks
+        tasks = []
+        lock.unlock()
+        waiting?.resume(returning: value)
+        running.forEach { $0.cancel() }
     }
 }
 

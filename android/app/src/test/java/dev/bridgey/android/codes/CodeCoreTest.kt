@@ -122,4 +122,29 @@ class CodeCoreTest {
         assertEquals(CodeRelay.Answer.Failed("timeout"), CodeRelay.parse(504, "{}"))
         assertEquals(CodeRelay.Answer.Failed("unavailable"), CodeRelay.parse(502, "{}"))
     }
+
+    @Test
+    fun strictGuardRefusesWordsAndDatesThatLookLikeCodes() {
+        assertNull(CodeGuard.accept("5minMe", "Order #2231 25 min me aa jayega. 5 min me pahunch jayenge."))
+        assertNull(CodeGuard.accept("30-10-26", "Your bill of Rs 499 is due on 30-10-26. Pay now."))
+        assertNull(CodeGuard.accept("301026", "Your bill of Rs 499 is due on 30-10-26. Pay now."))
+        assertNull(CodeGuard.accept("4 8 2 9 1 3", "Code 4 8 2 9 1 3"))
+        assertNull(CodeGuard.accept("12 34", "Seat 12 34"))
+        assertNull(CodeGuard.accept("48291", "Use 48 291 now"))
+        assertNull(CodeGuard.accept("123456789", "Ref 123456789"))
+        assertNull(CodeGuard.accept("AB-CDEF", "Use AB-CDEF"))
+    }
+
+    @Test
+    fun strictGuardAcceptsRealSplitAndPrefixedCodes() {
+        assertEquals("482913", CodeGuard.accept("482913", "Your code is 482 913."))
+        assertEquals("482913", CodeGuard.accept("482 913", "Your code is 482 913."))
+        assertEquals("591047", CodeGuard.accept("591047", "OTP: 591-047"))
+        assertEquals("301842", CodeGuard.accept("PP301842", "Passport Seva code PP-301842"))
+        assertEquals("482917", CodeGuard.accept("G-482917", "G-482917 is your Google verification code."))
+        assertEquals("7392", CodeGuard.accept("7392", "Zepto login ke liye OTP 7392 hai. Order 25 min me aa jayega."))
+        assertEquals("12345678", CodeGuard.accept("12345678", "PIN 12345678"))
+        assertEquals("X7KP92", CodeGuard.accept("x7Kp92", "Code: X7KP92"))
+        assertEquals("0042", CodeGuard.accept("0042", "OTP 0042 for login"))
+    }
 }

@@ -75,6 +75,33 @@ final class CodeReaderTests: XCTestCase {
 
     // MARK: Pre-check
 
+    /// The holes the model research found in the old guard (a space or hyphen between any two
+    /// characters), and the rest of the stricter rule from otp-tiny-model/common.py.
+    func testStrictGuardRefusesWordsAndDatesThatLookLikeCodes() {
+        XCTAssertNil(CodeGuard.accept("5minMe", in: "Order #2231 25 min me aa jayega. 5 min me pahunch jayenge."), "\"5 min me\" is three words")
+        XCTAssertNil(CodeGuard.accept("30-10-26", in: "Your bill of Rs 499 is due on 30-10-26. Pay now."), "a date: groups shorter than 3")
+        XCTAssertNil(CodeGuard.accept("301026", in: "Your bill of Rs 499 is due on 30-10-26. Pay now."), "the joined date is not in the text")
+        XCTAssertNil(CodeGuard.accept("4 8 2 9 1 3", in: "Code 4 8 2 9 1 3"), "single-character groups")
+        XCTAssertNil(CodeGuard.accept("12 34", in: "Seat 12 34"), "two short groups")
+        XCTAssertNil(CodeGuard.accept("48291", in: "Use 48 291 now"), "the text splits it into a short group")
+        XCTAssertNil(CodeGuard.accept("123456789", in: "Ref 123456789"), "longer than 8")
+        XCTAssertNil(CodeGuard.accept("AB-CDEF", in: "Use AB-CDEF"), "no digit")
+    }
+
+    func testStrictGuardAcceptsRealSplitAndPrefixedCodes() {
+        XCTAssertEqual(CodeGuard.accept("482913", in: "Your code is 482 913."), "482913")
+        XCTAssertEqual(CodeGuard.accept("482 913", in: "Your code is 482 913."), "482913")
+        XCTAssertEqual(CodeGuard.accept("591047", in: "OTP: 591-047"), "591047")
+        XCTAssertEqual(CodeGuard.accept("PP301842", in: "Passport Seva code PP-301842"), "301842")
+        XCTAssertEqual(CodeGuard.accept("301842", in: "Passport Seva code PP-301842"), "301842")
+        XCTAssertEqual(CodeGuard.accept("G-482917", in: "G-482917 is your Google verification code."), "482917")
+        XCTAssertEqual(CodeGuard.accept("482917", in: "G-482917 is your Google verification code."), "482917")
+        XCTAssertEqual(CodeGuard.accept("7392", in: "Zepto login ke liye OTP 7392 hai. Order 25 min me aa jayega."), "7392")
+        XCTAssertEqual(CodeGuard.accept("12345678", in: "PIN 12345678"), "12345678", "8 is the longest")
+        XCTAssertEqual(CodeGuard.accept("x7Kp92", in: "Code: X7KP92"), "X7KP92", "letter case as in the message")
+        XCTAssertEqual(CodeGuard.accept("0042", in: "OTP 0042 for login"), "0042", "leading zeros")
+    }
+
     func testPreCheckMatchesTheRelayGate() {
         for item in samples where !item.codes.isEmpty {
             XCTAssertTrue(looksLikeOtpTraffic(item.body), item.id)

@@ -39,6 +39,8 @@ struct PanelModel {
     var call: RemoteCallStatus?
     /// Codes from messages: the newest code, for ten minutes.
     var code: LiveCodeCard?
+    /// Codes from messages > On this Mac: the model download, then "ready" until dismissed.
+    var codeModel: CodeModelPanelState?
     var rows: [StreamRow] = []
     var showPreviews = true
     var now = Date()
@@ -100,6 +102,7 @@ struct PanelActions {
     var callAction: (RemoteCallAction) -> Void = { _ in }
     var copyCode: (String) -> Void = { _ in }
     var dismissCode: () -> Void = {}
+    var codeModel = CodeModelPanelActions()
     var enableNotifications: () -> Void = {}
     var retryDevice: (String) -> Void = { _ in }
     var lookForDevices: () -> Void = {}
@@ -178,7 +181,7 @@ struct StreamPanelView: View {
     }
 
     private var hasLiveCards: Bool {
-        !model.transfers.isEmpty || model.receivedLink != nil || model.ringing != nil || model.call != nil || model.code != nil || model.update.showsInPanel
+        !model.transfers.isEmpty || model.receivedLink != nil || model.ringing != nil || model.call != nil || model.code != nil || model.codeModel != nil || model.update.showsInPanel
     }
 
     @ViewBuilder private var stateCard: some View {
@@ -705,6 +708,16 @@ private struct LiveCards: View {
                 .id("code")
                 .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
             }
+            if let state = model.codeModel {
+                LiveCard(symbol: CodeModelPanelText.symbol(state).name, tint: CodeModelPanelText.symbol(state).tint,
+                         title: CodeModelPanelText.title(state), detail: CodeModelPanelText.detail(state),
+                         modelProgress: state.download.flatMap { $0.showsBar ? .some($0.state == .verifying ? nil : $0.fraction) : nil }) {
+                    CodeModelPanelButtons(state: state, actions: actions.codeModel)
+                }
+                .accessibilityElement(children: .contain)
+                .id("codeModel")
+                .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
+            }
             if let ringing = model.ringing {
                 LiveCard(symbol: "location.fill", tint: .purple, title: ringingTitle(ringing),
                          detail: L10n.text("panel.find.detail", fallback: "Find device")) {
@@ -776,6 +789,7 @@ private struct LiveCards: View {
         var keys: [String] = []
         if model.call != nil { keys.append("call") }
         if model.code != nil { keys.append("code") }
+        if model.codeModel != nil { keys.append("codeModel") }
         if model.ringing != nil { keys.append("ringing") }
         if model.receivedLink != nil { keys.append("link") }
         if model.update.showsInPanel { keys.append("update") }
@@ -933,6 +947,8 @@ private struct LiveCard<Buttons: View>: View {
     let detail: String?
     /// Outer nil: no bar. Inner nil: a step of unknown length.
     var progress: Double?? = nil
+    /// The code model's bar (transform-only fill); same meaning as `progress`.
+    var modelProgress: Double?? = nil
     @ViewBuilder let buttons: Buttons
     @Environment(\.brand) private var c
 
@@ -944,6 +960,10 @@ private struct LiveCard<Buttons: View>: View {
             }
             if let progress {
                 UpdateProgressBar(progress: progress)
+                    .padding(.leading, 38)
+            }
+            if let modelProgress {
+                CodeModelProgressBar(fraction: modelProgress)
                     .padding(.leading, 38)
             }
             HStack(spacing: 8) {
@@ -1333,6 +1353,7 @@ struct BridgeyPanel: View {
     @ObservedObject var quickActions: QuickActions
     @ObservedObject var media: MediaController
     @ObservedObject var updater: AppUpdater
+    @ObservedObject var codeModel: CodeModelStore
     let onOpenSettings: () -> Void
     @State private var clipboard = PasteboardPreview()
     @State private var now = Date()
@@ -1346,6 +1367,7 @@ struct BridgeyPanel: View {
         activity = pairing.activity
         quickActions = pairing.quickActions
         media = pairing.mediaController
+        codeModel = pairing.codeModel
         self.onOpenSettings = onOpenSettings
     }
 
@@ -1395,6 +1417,7 @@ struct BridgeyPanel: View {
         }
         model.call = pairing.remoteCall
         model.code = pairing.liveCode
+        model.codeModel = CodeModelPanelState.shown(download: codeModel.download, finished: codeModel.justFinished)
         model.rows = streamRows(activity.items, now: now)
         model.showPreviews = settings.showActivityPreviews
         model.now = now
@@ -1453,6 +1476,10 @@ struct BridgeyPanel: View {
         actions.callAction = { pairing.performRemoteCallAction($0) }
         actions.copyCode = { pairing.copyCode(reference: $0) }
         actions.dismissCode = { pairing.dismissLiveCode() }
+        actions.codeModel = CodeModelPanelActions(
+            pause: { codeModel.pause() }, resume: { codeModel.resume() }, cancel: { codeModel.cancel() },
+            retry: { codeModel.retry() }, dismiss: { codeModel.dismissFinished() }
+        )
         actions.enableNotifications = { pairing.enableNotifications() }
         actions.retryDevice = { pairing.retryNow(deviceID: $0) }
         actions.lookForDevices = { pairing.lookForDevices() }

@@ -297,7 +297,9 @@ final class PairingCoordinator: ObservableObject {
     /// Codes from messages: the newest code card in the panel (ten minutes), and its link status line.
     @Published private(set) var liveCode: LiveCodeCard?
     @Published private(set) var codeLinkStatus: String?
-    /// Reads waiting for the relay, by notification request identifier.
+    /// Codes from messages > On this Mac: the model file, its download and the engine.
+    let codeModel: CodeModelStore
+    /// Reads waiting for the engine, by notification request identifier.
     private var codeReads: [String: Task<Void, Never>] = [:]
     /// Codes that can still be copied, in memory only.
     private var liveCodes: [String: LiveCodeCard] = [:]
@@ -345,6 +347,7 @@ final class PairingCoordinator: ObservableObject {
         self.notificationHistoryStore = notificationHistoryStore
         activity = ActivityLog(store: ActivityStore())
         remoteInput = RemoteInputHost.live()
+        codeModel = CodeModelStore.live()
         if settings.notificationHistoryEnabled {
             notificationHistory = notificationHistoryStore.load()
         }
@@ -2900,7 +2903,7 @@ final class PairingCoordinator: ObservableObject {
             postNotification(payload, deviceID: deviceID)
             return
         }
-        let reader = CodeReader(baseURL: CodeRelay.baseURL, installID: settings.codesInstallID)
+        let reader = codeReader(engine: settings.codesEngine, local: codeModel.engine, relay: CodeRelay.baseURL, installID: settings.codesInstallID)
         codeReads[identifier] = Task { @MainActor [weak self] in
             let outcome = await reader.read(text: payload.text, sender: payload.title)
             guard let self, !Task.isCancelled else { return }

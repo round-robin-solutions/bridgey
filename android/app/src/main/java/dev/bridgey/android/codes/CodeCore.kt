@@ -56,24 +56,60 @@ private fun Char.isAsciiDigit() = this in '0'..'9'
 private fun Char.isAsciiLetter() = this in 'a'..'z' || this in 'A'..'Z'
 private fun Char.isAsciiAlphanumeric() = isAsciiDigit() || isAsciiLetter()
 
-/** Accepts a model's code only if it appears verbatim in the message and looks like a code. */
+/**
+ * Accepts a model's code only if it appears in the message as a whole token and looks like a code.
+ * Can only refuse. Same rule as the Mac's CodeGuard and `strict_guard` in the model research.
+ */
 object CodeGuard {
+    private const val EDGE_L = "(?<![0-9A-Za-z])"
+    private const val EDGE_R = "(?![0-9A-Za-z])"
+    /** 3 or more letters or digits with at least one digit. */
+    private const val DIGIT_GROUP = "(?=[0-9A-Za-z]*[0-9])[0-9A-Za-z]{3,}"
+    /** Lookahead, so overlapping candidates are all tried: an optional 1 or 2 letter prefix, then digit groups. */
+    private val SPLIT_TOKEN = Regex("(?=$EDGE_L((?:[A-Za-z]{1,2}[ \\-])?$DIGIT_GROUP(?:[ \\-]$DIGIT_GROUP)*)$EDGE_R)")
+
+    private fun isSeparator(c: Char) = c == ' ' || c == '-' || c.isWhitespace()
+    private fun isShortPrefix(part: String) = part.length in 1..2 && part.all { it.isAsciiLetter() }
+
     /**
      * The code (separators and a 1 or 2 letter prefix such as "G-" removed, letter case as in the
-     * message), or null. Every part must contain a digit; 4 to 10 letters or digits in all; the code
-     * must be in the message as a whole token, with an optional space or hyphen between characters.
+     * message), or null. Every part contains a digit, and when there are several parts each has 3 or
+     * more characters; 4 to 8 letters or digits in all; the answer is in the message literally as a
+     * whole token, or the message has a split token ("482 913", "PP-301842") whose groups each have 3
+     * or more characters and a digit and which equals the answer without separators. A space or
+     * hyphen is never allowed between any two characters, so "5minMe" does not match "5 min me".
      */
     fun accept(answer: String?, text: String): String? {
-        val raw = answer?.trim().orEmpty()
+        var raw = answer?.trim().orEmpty()
         if (raw.isEmpty() || raw.length > 24) return null
-        var parts = raw.split(' ', '-').filter { it.isNotEmpty() }
-        if (parts.size > 1 && parts[0].length in 1..2 && parts[0].all { it.isAsciiLetter() }) parts = parts.drop(1)
+        var parts = raw.split(Regex("[\\s-]+")).filter { it.isNotEmpty() }
+        if (parts.size > 1 && isShortPrefix(parts[0])) {
+            parts = parts.drop(1)
+            raw = raw.dropWhile { !isSeparator(it) }.dropWhile { isSeparator(it) }
+        }
         if (parts.isEmpty() || parts.any { part -> part.none { it.isAsciiDigit() } }) return null
+        if (parts.size > 1 && parts.any { it.length < 3 }) return null
         val core = parts.joinToString("")
-        if (core.length !in 4..10 || !core.all { it.isAsciiAlphanumeric() }) return null
-        val body = core.map { Regex.escape(it.toString()) }.joinToString("[\\s-]?")
-        val match = Regex("(?<![0-9A-Za-z])$body(?![0-9A-Za-z])", RegexOption.IGNORE_CASE).find(text) ?: return null
-        return match.value.filter { it.isAsciiAlphanumeric() }
+        if (core.length !in 4..8 || !core.all { it.isAsciiAlphanumeric() }) return null
+
+        Regex(EDGE_L + Regex.escape(raw) + EDGE_R, RegexOption.IGNORE_CASE).find(text)?.let { literal ->
+            return literal.value.filter { it.isAsciiAlphanumeric() }
+        }
+        val wanted = core.uppercase()
+        for (match in SPLIT_TOKEN.findAll(text)) {
+            val token = match.groupValues[1]
+            if (token.none { isSeparator(it) }) continue
+            var groups = token.split(' ', '-')
+            var prefix = ""
+            if (isShortPrefix(groups[0])) {
+                prefix = groups[0].uppercase()
+                groups = groups.drop(1)
+            }
+            if (groups.isEmpty() || groups.any { group -> group.none { it.isAsciiDigit() } }) continue
+            val joined = groups.joinToString("")
+            if (wanted == joined.uppercase() || wanted == prefix + joined.uppercase()) return joined
+        }
+        return null
     }
 }
 
