@@ -8,6 +8,8 @@ data class DiscoveredPeer(
     val protocolVersionHint: Int?,
     val host: String?,
     val port: Int?,
+    /** Resolved IP addresses, IPv4 first. Dialling an IP works even when mDNS name lookups do not. */
+    val addresses: List<String> = emptyList(),
 ) {
     val key: String get() = serviceName
 }

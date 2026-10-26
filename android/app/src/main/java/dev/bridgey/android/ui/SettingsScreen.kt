@@ -94,6 +94,11 @@ data class SettingsState(
     /** Remote control: pointer speed (1 to 5) and the volume keys for slides. */
     val remotePointerSpeed: Int = 3,
     val remoteVolumeKeys: Boolean = false,
+    /** Bridgey is exempt from battery optimisation, so Doze does not pause its connection. */
+    val batteryExempt: Boolean = true,
+    /** Keep Wi-Fi awake is offered (Android 13 and older, where a Wi-Fi lock works with the screen off). */
+    val keepWifiAwakeSupported: Boolean = false,
+    val keepWifiAwake: Boolean = false,
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean = globalFeatures[feature] != false
 }
@@ -125,6 +130,9 @@ class SettingsActions(
     val openPerfTest: () -> Unit = {},
     val setRemotePointerSpeed: (Int) -> Unit = {},
     val setRemoteVolumeKeys: (Boolean) -> Unit = {},
+    val requestBatteryExemption: () -> Unit = {},
+    val openBatterySettings: () -> Unit = {},
+    val setKeepWifiAwake: (Boolean) -> Unit = {},
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
@@ -193,8 +201,33 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
                         if (state.connected) Tint.GREEN else Tint.NEUTRAL,
                     )
                 }
+                row { shape ->
+                    ListRow(
+                        shape, stringResource(R.string.settings_background_title),
+                        stringResource(if (state.batteryExempt) R.string.settings_background_on else R.string.settings_background_off),
+                        BridgeyIcons.Bolt, if (state.batteryExempt) Tint.GREEN else Tint.NEUTRAL,
+                        detailWarning = !state.batteryExempt,
+                        onClick = actions.openBatterySettings, onClickLabel = stringResource(R.string.settings_background_open),
+                    ) {
+                        if (state.batteryExempt) {
+                            Icon(BridgeyIcons.Check, null, tint = BridgeyTheme.colors.onTintGreen)
+                        } else {
+                            OutlinePillButton(stringResource(R.string.action_allow), null, actions.requestBatteryExemption)
+                        }
+                    }
+                }
+                if (state.keepWifiAwakeSupported) {
+                    row { shape ->
+                        SwitchRow(
+                            shape, stringResource(R.string.settings_wifi_awake_title), stringResource(R.string.settings_wifi_awake_detail),
+                            BridgeyIcons.Wifi, if (state.keepWifiAwake) Tint.BLUE else Tint.NEUTRAL,
+                            state.keepWifiAwake, actions.setKeepWifiAwake,
+                        )
+                    }
+                }
             }
         }
+        item(key = "phone.note") { Note(stringResource(R.string.settings_background_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) }
 
         // 2. Devices and permissions
         sectionLabel(SettingsSection.DEVICES, 24.dp)
@@ -863,12 +896,14 @@ private fun Credit(actions: SettingsActions) {
 
 data class DevicesSettingsState(
     val rings: List<DeviceRing>,
+    val rediscovering: Boolean = false,
 )
 
 class DevicesSettingsActions(
     val back: () -> Unit = {},
     val openDevice: (DeviceRing) -> Unit = {},
     val addDevice: () -> Unit = {},
+    val lookForDevices: () -> Unit = {},
 )
 
 /**
@@ -889,7 +924,7 @@ fun DevicesSettingsScreen(state: DevicesSettingsState, actions: DevicesSettingsA
                     paired.forEach { ring ->
                         row { shape ->
                             ListRow(
-                                shape, ring.name, ringStateLabel(ring.state), null, Tint.NEUTRAL,
+                                shape, ring.name, ringStatusLabel(ring), null, Tint.NEUTRAL,
                                 onClick = { actions.openDevice(ring) },
                                 leading = { DeviceGlyph(ring.state.style(), deviceIcon(ring.platform), 40.dp, iconSize = 18.dp) },
                             ) { Chevron() }
@@ -900,6 +935,13 @@ fun DevicesSettingsScreen(state: DevicesSettingsState, actions: DevicesSettingsA
         }
         item(key = "add") {
             RowGroup(Modifier.padding(top = 24.dp)) {
+                row { shape ->
+                    ListRow(
+                        shape, stringResource(R.string.look_again), stringResource(R.string.look_again_detail),
+                        BridgeyIcons.Refresh, Tint.NEUTRAL,
+                        onClick = if (state.rediscovering) null else actions.lookForDevices,
+                    )
+                }
                 row { shape ->
                     ListRow(
                         shape, stringResource(R.string.devices_pair_new), stringResource(R.string.devices_pair_new_detail),

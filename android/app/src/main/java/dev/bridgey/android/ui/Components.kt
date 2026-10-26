@@ -434,7 +434,7 @@ fun StatusPill(text: String, icon: ImageVector?, tint: Tint) {
 
 /** Route pill under a device name. */
 @Composable
-fun RoutePill(state: RingState) {
+fun RoutePill(state: RingState, label: String? = null) {
     val colors = BridgeyTheme.colors
     val (bg, fg) = when (state) {
         RingState.CONNECTED -> colors.tintGreen to colors.onTintGreen
@@ -449,7 +449,7 @@ fun RoutePill(state: RingState) {
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Icon(icon, null, tint = fg, modifier = Modifier.size(15.dp))
-            Text(ringStateLabel(shown), style = BridgeyType.smallStrong, color = fg, maxLines = 1)
+            Text(label ?: ringStateLabel(shown), style = BridgeyType.smallStrong, color = fg, maxLines = 1)
         }
     }
 }
@@ -463,6 +463,14 @@ fun ringStateLabel(state: RingState): String = stringResource(
         RingState.OFFLINE -> R.string.ring_offline
     },
 )
+
+/** A ring's one-line status: "Reconnecting…" or "Retrying…" while a dropped device is retried, else its route. */
+@Composable
+fun ringStatusLabel(ring: DeviceRing): String = when {
+    !ring.canRetry -> ringStateLabel(ring.state)
+    ring.reconnect?.struggling == true -> stringResource(R.string.ring_retrying)
+    else -> stringResource(R.string.ring_reconnecting)
+}
 
 @Composable
 fun ringStateColor(state: RingState): Color {

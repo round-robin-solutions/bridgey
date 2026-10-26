@@ -37,6 +37,7 @@ struct BridgeyApp: App {
                 discovery: discovery,
                 pairing: pairing,
                 settings: settings,
+                updater: updater,
                 onOpenSettings: settingsWindow.show
             )
         }

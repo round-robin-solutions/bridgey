@@ -48,6 +48,13 @@ struct PanelModel {
     var fileTransferActive = false
     /// Automatic clipboard is running for the connected device.
     var autoClipboard = false
+    /// "Look for devices again" is running.
+    var rediscovering = false
+    /// In-app update progress (Sparkle drives it; no system windows).
+    var update: UpdateFlow = .idle
+    var appVersion = ""
+    /// The pairing file could not be loaded; phones wait until Try again succeeds.
+    var pairingStoreIssue: PairingStoreIssue?
 
     var connectedName: String? {
         if case let .connected(_, name) = state { return name }
@@ -86,6 +93,10 @@ struct PanelActions {
     var retryTransfer: (String) -> Void = { _ in }
     var callAction: (RemoteCallAction) -> Void = { _ in }
     var enableNotifications: () -> Void = {}
+    var retryDevice: (String) -> Void = { _ in }
+    var lookForDevices: () -> Void = {}
+    var update = UpdateFlowActions()
+    var retryPairingStore: () -> Void = {}
 }
 
 struct StreamPanelView: View {
@@ -115,15 +126,26 @@ struct StreamPanelView: View {
 
     @ViewBuilder private var main: some View {
         if model.rings.isEmpty {
-            SearchingCard()
+            SearchingCard(rediscovering: model.rediscovering, onLookAgain: actions.lookForDevices)
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
         } else {
             DeviceChips(rings: model.rings, batteries: model.batteries, targetDeviceID: model.targetDeviceID,
-                        fileTransferActive: model.fileTransferActive, actions: actions)
+                        fileTransferActive: model.fileTransferActive, rediscovering: model.rediscovering,
+                        now: model.now, actions: actions)
                 .padding(.top, 12)
         }
         stateCard
+        if let issue = model.pairingStoreIssue {
+            NoticeBanner(
+                symbol: "key",
+                text: pairingStoreIssueText(issue),
+                button: L10n.text("action.retry", fallback: "Retry"),
+                action: actions.retryPairingStore
+            )
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+        }
         if let prompt = model.notificationPrompt {
             NoticeBanner(
                 symbol: "bell.badge",
@@ -148,7 +170,7 @@ struct StreamPanelView: View {
     }
 
     private var hasLiveCards: Bool {
-        !model.transfers.isEmpty || model.receivedLink != nil || model.ringing != nil || model.call != nil
+        !model.transfers.isEmpty || model.receivedLink != nil || model.ringing != nil || model.call != nil || model.update.showsInPanel
     }
 
     @ViewBuilder private var stateCard: some View {
@@ -254,6 +276,8 @@ private struct DeviceChips: View {
     let batteries: [String: RemoteBatteryStatus]
     let targetDeviceID: String?
     let fileTransferActive: Bool
+    let rediscovering: Bool
+    let now: Date
     let actions: PanelActions
     @Environment(\.snapshotRendering) private var snapshot
 
@@ -261,24 +285,48 @@ private struct DeviceChips: View {
         if rings.count <= 2 {
             HStack(spacing: 8) {
                 ForEach(rings) { ring in chip(ring).frame(maxWidth: .infinity) }
+                LookAgainButton(rediscovering: rediscovering, action: actions.lookForDevices)
             }
             .padding(.horizontal, 12)
         } else if snapshot {
-            HStack(spacing: 8) { ForEach(rings) { chip($0).frame(width: 164) } }
+            HStack(spacing: 8) {
+                ForEach(rings) { chip($0).frame(width: 164) }
+                LookAgainButton(rediscovering: rediscovering, action: actions.lookForDevices)
+            }
                 .padding(.horizontal, 12)
                 .frame(width: StreamPanelView.width, alignment: .leading)
                 .clipped()
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) { ForEach(rings) { chip($0).frame(width: 164) } }
+                HStack(spacing: 8) {
+                    ForEach(rings) { chip($0).frame(width: 164) }
+                    LookAgainButton(rediscovering: rediscovering, action: actions.lookForDevices)
+                }
                     .padding(.horizontal, 12)
             }
         }
     }
 
     @ViewBuilder private func chip(_ ring: DeviceRing) -> some View {
-        let content = DeviceChip(ring: ring, battery: ring.state == .connected ? ring.deviceID.flatMap { batteries[$0] } : nil)
+        let content = DeviceChip(ring: ring, battery: ring.state == .connected ? ring.deviceID.flatMap { batteries[$0] } : nil, now: now)
         switch ring.state {
+        case _ where ring.canRetry:
+            // A trusted device Bridgey is still trying to reach: say so, and offer to try now.
+            PopUpMenuButton(items: {
+                [
+                    PopUpMenuItem(
+                        title: L10n.text("panel.retryNow", fallback: "Retry now"),
+                        enabled: true,
+                        action: { if let id = ring.deviceID { actions.retryDevice(id) } }
+                    ),
+                    PopUpMenuItem(
+                        title: L10n.text("panel.lookAgain", fallback: "Look for devices again"),
+                        enabled: !rediscovering,
+                        action: actions.lookForDevices
+                    ),
+                ]
+            }) { content }
+            .help(ringRetryHelp(ring))
         case .connected:
             PopUpMenuButton(items: {
                 var items: [PopUpMenuItem] = []
@@ -310,9 +358,34 @@ private struct DeviceChips: View {
     }
 }
 
+/// "Look for devices again": restarts discovery and tries every dropped device now.
+private struct LookAgainButton: View {
+    let rediscovering: Bool
+    let action: () -> Void
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        let label = L10n.text("panel.lookAgain", fallback: "Look for devices again")
+        Button(action: action) {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(c.on2)
+                .frame(width: 32, height: 48)
+                .background(Capsule().fill(c.s2))
+                .contentShape(Capsule())
+                .opacity(rediscovering ? 0.4 : 1)
+        }
+        .buttonStyle(PressScaleStyle())
+        .disabled(rediscovering)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
 private struct DeviceChip: View {
     let ring: DeviceRing
     let battery: RemoteBatteryStatus?
+    let now: Date
     @Environment(\.brand) private var c
     @Environment(\.brandReduceMotion) private var reduce
 
@@ -325,7 +398,11 @@ private struct DeviceChip: View {
                     .font(BrandFont.body(13, .semibold))
                     .foregroundStyle(c.on)
                     .lineLimit(1)
-                Text(status)
+                // The long form ("Reconnecting… (last seen 02:56)") when the chip is wide enough.
+                ViewThatFits(in: .horizontal) {
+                    Text(ringStatusDetail(ring, now: now))
+                    Text(status)
+                }
                     .font(BrandFont.body(11, .medium))
                     .foregroundStyle(statusColor)
                     .lineLimit(1)
@@ -458,6 +535,9 @@ private struct WelcomeCard: View {
 }
 
 private struct SearchingCard: View {
+    var rediscovering = false
+    var onLookAgain: () -> Void = {}
+
     var body: some View {
         CardShell {
             HStack(spacing: 10) {
@@ -467,6 +547,9 @@ private struct SearchingCard: View {
                     detail: L10n.text("panel.searching.detail", fallback: "Keep both devices on the same Wi-Fi network.")
                 )
             }
+            Button(L10n.text("panel.lookAgain", fallback: "Look for devices again"), action: onLookAgain)
+                .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+                .disabled(rediscovering)
         }
     }
 }
@@ -567,6 +650,15 @@ private struct NoticeBanner: View {
     }
 }
 
+func pairingStoreIssueText(_ issue: PairingStoreIssue) -> String {
+    switch issue {
+    case .keychainAccessDenied:
+        L10n.text("pairingStore.keychain", fallback: "Bridgey needs Keychain access one last time to move your pairing keys into a private file. After that, updates never ask. Phones stay disconnected until then.")
+    case .fileUnreadable:
+        L10n.text("pairingStore.file", fallback: "Bridgey can't open its pairing file, so phones stay disconnected.")
+    }
+}
+
 // MARK: - Live cards
 
 private struct LiveCards: View {
@@ -611,6 +703,17 @@ private struct LiveCards: View {
                 }
                 .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
             }
+            if model.update.showsInPanel {
+                let visual = updateFlowSymbol(model.update)
+                LiveCard(symbol: visual.symbol, tint: visual.tint,
+                         title: UpdateFlowText.title(model.update),
+                         detail: UpdateFlowText.detail(model.update, currentVersion: model.appVersion),
+                         progress: model.update.isBusy ? .some(model.update.progress) : nil) {
+                    UpdateFlowButtons(flow: model.update, actions: actions.update, compact: true)
+                }
+                .id("update")
+                .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
+            }
             ForEach(model.transfers) { transfer in
                 LiveCard(symbol: transfer.active ? "arrow.up.arrow.down" : "exclamationmark.arrow.triangle.2.circlepath",
                          tint: transfer.active ? .green : .neutral,
@@ -640,6 +743,7 @@ private struct LiveCards: View {
         if model.call != nil { keys.append("call") }
         if model.ringing != nil { keys.append("ringing") }
         if model.receivedLink != nil { keys.append("link") }
+        if model.update.showsInPanel { keys.append("update") }
         keys += model.transfers.map { "transfer:\($0.id)" }
         return keys
     }
@@ -665,6 +769,8 @@ private struct LiveCard<Buttons: View>: View {
     let tint: TileTint
     let title: String
     let detail: String?
+    /// Outer nil: no bar. Inner nil: a step of unknown length.
+    var progress: Double?? = nil
     @ViewBuilder let buttons: Buttons
     @Environment(\.brand) private var c
 
@@ -673,6 +779,10 @@ private struct LiveCard<Buttons: View>: View {
             HStack(alignment: .top, spacing: 10) {
                 IconTile(symbol: symbol, tint: tint, size: 28, corner: 8)
                 CardText(title: title, detail: detail)
+            }
+            if let progress {
+                UpdateProgressBar(progress: progress)
+                    .padding(.leading, 38)
             }
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
@@ -1058,12 +1168,14 @@ struct BridgeyPanel: View {
     @ObservedObject var activity: ActivityLog
     @ObservedObject var quickActions: QuickActions
     @ObservedObject var media: MediaController
+    @ObservedObject var updater: AppUpdater
     let onOpenSettings: () -> Void
     @State private var clipboard = PasteboardPreview()
     @State private var now = Date()
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    init(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings, onOpenSettings: @escaping () -> Void) {
+    init(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings, updater: AppUpdater, onOpenSettings: @escaping () -> Void) {
+        self.updater = updater
         self.discovery = discovery
         self.pairing = pairing
         self.settings = settings
@@ -1097,7 +1209,9 @@ struct BridgeyPanel: View {
         model.onboardingDone = settings.hasCompletedOnboarding
         model.state = pairing.state
         model.pairingFlow = pairing.pairingFlow
-        model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, connected: pairing.connectedPhones, pairing: pairing.pairingFlow)
+        model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, connected: pairing.connectedPhones,
+                                  pairing: pairing.pairingFlow, reconnecting: pairing.reconnectStates)
+        model.rediscovering = pairing.isRediscovering
         model.battery = pairing.isFeatureAvailable(.battery) ? pairing.remoteBattery : nil
         model.batteries = Dictionary(pairing.connectedPhones.compactMap { phone in
             pairing.isFeatureAvailable(.battery, for: phone.id) ? phone.state.battery.map { (phone.id, $0) } : nil
@@ -1120,12 +1234,15 @@ struct BridgeyPanel: View {
         model.available = Set(BridgeyFeature.allCases.filter { pairing.isFeatureAvailable($0) })
         model.clipboardLine = clipboard.line
         model.clipboardHidden = clipboard.hidden
-        model.status = pairing.clipboardStatus ?? pairing.callStatus ?? pairing.pingStatus ?? quickActions.status ?? pairing.fileTransferStatus.flatMap { pairing.fileTransferActive ? nil : $0 }
+        model.status = pairing.rediscoverStatus ?? pairing.clipboardStatus ?? pairing.callStatus ?? pairing.pingStatus ?? quickActions.status ?? pairing.fileTransferStatus.flatMap { pairing.fileTransferActive ? nil : $0 }
         if pairing.isFeatureAvailable(.notifications) && !pairing.notificationsAuthorized {
             model.notificationPrompt = pairing.notificationPermissionDetermined ? .openSettings : .request
         }
         model.mediaPlayer = media.player
         model.mediaDetail = media.snapshot.detail
+        model.update = updater.flow
+        model.appVersion = updater.shortVersion
+        model.pairingStoreIssue = pairing.pairingStoreIssue
         return model
     }
 
@@ -1166,6 +1283,10 @@ struct BridgeyPanel: View {
         actions.retryTransfer = { pairing.retryFileTransfer(id: $0) }
         actions.callAction = { pairing.performRemoteCallAction($0) }
         actions.enableNotifications = { pairing.enableNotifications() }
+        actions.retryDevice = { pairing.retryNow(deviceID: $0) }
+        actions.lookForDevices = { pairing.lookForDevices() }
+        actions.update = updater.flowActions
+        actions.retryPairingStore = { pairing.retryPairingStore() }
         return actions
     }
 }

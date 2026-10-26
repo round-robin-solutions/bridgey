@@ -16,6 +16,15 @@ is derived from the first four key bytes modulo 1,000,000. Confirmation HMACs
 bind identity keys; P-256 signatures bind session ID, ordered device IDs and
 ephemeral keys. Trusted reconnects verify the stored peer signing identity.
 
+Reconnects (Round Robin edition): both peers redial a dropped trusted peer at
+its last known addresses, whichever side dialled before. A reconnect's
+`pairing.offer` carries an optional `targetDeviceId`, the trusted peer it is
+meant for; a receiver with another device ID closes the socket without a
+pairing prompt, and a dialler whose `pairing.answer` names another device
+closes too. Older clients ignore the field. When both sides dial at once, both
+keep the socket dialled by the lower device ID (newer one if the same side
+dialled both). Values and trade-offs: `docs/reconnect-reliability.md`.
+
 Payload encryption is application-layer protection, not TLS. Routing headers
 and some acknowledgements remain outside the encrypted payload; traffic
 metadata is visible. Replay caches are bounded and session-local, not persistent.

@@ -71,6 +71,7 @@ import dev.bridgey.android.ui.HomeScreen
 import dev.bridgey.android.ui.HomeState
 import dev.bridgey.android.ui.LiveActions
 import dev.bridgey.android.ui.LiveCard
+import dev.bridgey.android.ui.lastSeenText
 import dev.bridgey.android.ui.LocalShowPreviews
 import dev.bridgey.android.ui.MotionNavHost
 import dev.bridgey.android.ui.NotificationAppsScreen
@@ -131,6 +132,7 @@ class MainActivity : ComponentActivity() {
     private var notificationAccessEnabled by mutableStateOf(false)
     private var appNotificationsEnabled by mutableStateOf(false)
     private var readLogsGranted by mutableStateOf(false)
+    private var batteryExempt by mutableStateOf(true)
     private var sharedContent by mutableStateOf<SharedContent?>(null)
     /** The launcher's Remote control quick action asked for this Mac. */
     private var remoteTarget by mutableStateOf<String?>(null)
@@ -179,6 +181,9 @@ class MainActivity : ComponentActivity() {
                     appNotificationsEnabled = appNotificationsEnabled,
                     notificationAccessEnabled = notificationAccessEnabled,
                     readLogsGranted = readLogsGranted,
+                    batteryExempt = batteryExempt,
+                    onRequestBatteryExemption = ::requestBatteryExemption,
+                    onOpenBatterySettings = ::openBatterySettings,
                     onTurnOff = {
                         startService(Intent(this, BridgeyConnectionService::class.java).setAction(BridgeyConnectionService.ACTION_TURN_OFF))
                         finishAndRemoveTask()
@@ -284,6 +289,7 @@ class MainActivity : ComponentActivity() {
         appNotificationsEnabled = getSystemService(NotificationManager::class.java).areNotificationsEnabled()
         notificationAccessEnabled = NotificationAccess.isEnabled(this)
         readLogsGranted = checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
+        batteryExempt = PowerFacts.ignoringBatteryOptimizations(this)
         if (
             ::bridgeySettings.isInitialized && bridgeySettings.state.value.directCallsEnabled &&
             !hasCallIntegrationPermissions()
@@ -324,6 +330,20 @@ class MainActivity : ComponentActivity() {
             Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                 .putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
         )
+    }
+
+    /** The system's "Let Bridgey always run in the background?" dialog. */
+    @android.annotation.SuppressLint("BatteryLife")
+    private fun requestBatteryExemption() {
+        val request = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+        runCatching { startActivity(request) }.onFailure { openBatterySettings() }
+    }
+
+    /** App info, where phones such as OnePlus keep their own battery limits too. */
+    private fun openBatterySettings() {
+        runCatching {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        }
     }
 
     private fun requestAddClipboardTile() {
@@ -414,6 +434,9 @@ private fun BridgeyApp(
     appNotificationsEnabled: Boolean,
     notificationAccessEnabled: Boolean,
     readLogsGranted: Boolean,
+    batteryExempt: Boolean,
+    onRequestBatteryExemption: () -> Unit,
+    onOpenBatterySettings: () -> Unit,
     onTurnOff: () -> Unit,
     onRequestAppNotifications: () -> Unit,
     onOpenAppNotificationSettings: () -> Unit,
@@ -442,6 +465,9 @@ private fun BridgeyApp(
     val showPreviews by uiPreferences.showPreviews.collectAsStateWithLifecycle()
     val tileAdded by uiPreferences.tileAdded.collectAsStateWithLifecycle()
     val remotePrefs by remotePreferences.state.collectAsStateWithLifecycle()
+    val reconnectStates by pairing.reconnectStates.collectAsStateWithLifecycle()
+    val rediscover by pairing.rediscover.collectAsStateWithLifecycle()
+    val batteryPromptShown by uiPreferences.batteryPromptShown.collectAsStateWithLifecycle()
     var permissionPrompt by remember { mutableStateOf<PermissionPrompt?>(null) }
     var pairDialog by rememberSaveable { mutableStateOf(false) }
     var forgetting by remember { mutableStateOf<DeviceRing?>(null) }
@@ -476,7 +502,32 @@ private fun BridgeyApp(
     }
 
     val connected = pairingState as? PairingState.Connected
-    val rings = remember(trustedDevices, peers, connections, pairingFlow) { deviceRings(trustedDevices, peers, connections, pairingFlow) }
+    val rings = remember(trustedDevices, peers, connections, pairingFlow, reconnectStates) {
+        deviceRings(trustedDevices, peers, connections, pairingFlow, reconnectStates)
+    }
+    // "Look for devices again": "Looking for devices…", then who answered and who did not.
+    LaunchedEffect(rediscover) {
+        when (val result = rediscover) {
+            RediscoverState.Running -> {
+                snackbar.currentSnackbarData?.dismiss()
+                snackbar.showSnackbar(context.getString(R.string.rediscover_looking))
+            }
+            is RediscoverState.Done -> {
+                snackbar.currentSnackbarData?.dismiss()
+                pairing.clearRediscover()
+                snackbar.showSnackbar(rediscoverMessage(context, result))
+            }
+            null -> Unit
+        }
+    }
+    fun reconnectCard(ring: DeviceRing?): LiveCard.Reconnecting? {
+        if (ring?.canRetry != true) return null
+        val retry = ring.reconnect ?: return null
+        val seen = retry.lastSeenMillis?.let {
+            lastSeenText(it, now, java.time.ZoneId.systemDefault(), java.util.Locale.getDefault(), android.text.format.DateFormat.is24HourFormat(context))
+        }
+        return LiveCard.Reconnecting(ring.deviceId!!, ring.name, seen, retry.struggling)
+    }
     val target = sendTarget(rings, pickedTarget)
     // The send bar's pick is the coordinator's target for actions without an explicit device.
     LaunchedEffect(target?.deviceId) { pairing.selectDevice(target?.deviceId) }
@@ -492,6 +543,7 @@ private fun BridgeyApp(
     }
     val linksAvailable = BridgeyFeature.LINKS in availableWith(connected?.deviceId)
     val homeLive = buildList {
+        reconnectCard(target)?.let(::add)
         if (phoneRinging && connected != null) add(LiveCard.Ringing(connected.peerName))
         receivedLink?.takeIf { linksAvailable && connected != null }?.let { add(LiveCard.Link(it, connected!!.peerName)) }
         liveTransfers(fileTransfers).forEach { add(LiveCard.Transfer(it)) }
@@ -504,6 +556,7 @@ private fun BridgeyApp(
         dismissLink = pairing.quickActions::dismissLink,
         stopRinging = pairing::stopFinding,
         media = { action, value -> pairing.quickActions.request(BridgeyFeature.MEDIA, action, value) },
+        retryDevice = pairing::retryNow,
     )
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { pairing.sendFile(it, fileTarget) } }
     val readClipboard = {
@@ -556,6 +609,7 @@ private fun BridgeyApp(
                         live = homeLive,
                         canSendClipboard = target != null && BridgeyFeature.CLIPBOARD in availableWith(target.deviceId),
                         now = now,
+                        rediscovering = rediscover == RediscoverState.Running,
                     ),
                     actions = HomeActions(
                         openSettings = { stack.push(Route.Settings) },
@@ -565,6 +619,7 @@ private fun BridgeyApp(
                         addDevice = { pairDialog = true },
                         pickTarget = { pickedTarget = it; pairing.selectDevice(it) },
                         sendClipboard = { pairing.sendClipboard(target?.deviceId) },
+                        lookForDevices = pairing::lookForDevices,
                         live = liveActions,
                     ),
                     snackbar = snackbar,
@@ -582,7 +637,7 @@ private fun BridgeyApp(
                         val isConnected = connection != null
                         val available = availableWith(ring.deviceId)
                         val artwork = remember(media.artwork) { decodeArtwork(media.artwork) }
-                        val deviceLive = if (!isConnected) emptyList() else buildList {
+                        val deviceLive = if (!isConnected) listOfNotNull<LiveCard>(reconnectCard(ring)) else buildList {
                             if (BridgeyFeature.MEDIA in available) add(LiveCard.Media(media, artwork))
                             addAll(homeLive)
                         }
@@ -703,6 +758,9 @@ private fun BridgeyApp(
                             now = now,
                             remotePointerSpeed = remotePrefs.pointerSpeed,
                             remoteVolumeKeys = remotePrefs.volumeKeysChangeSlides,
+                            batteryExempt = batteryExempt,
+                            keepWifiAwakeSupported = WifiKeeper.SUPPORTED,
+                            keepWifiAwake = settingsState.keepWifiAwake,
                         ),
                         actions = SettingsActions(
                             back = { stack.pop() },
@@ -744,6 +802,9 @@ private fun BridgeyApp(
                             openUrl = { runCatching { uriHandler.openUri(it) } },
                             setRemotePointerSpeed = remotePreferences::setPointerSpeed,
                             setRemoteVolumeKeys = remotePreferences::setVolumeKeysChangeSlides,
+                            requestBatteryExemption = onRequestBatteryExemption,
+                            openBatterySettings = onOpenBatterySettings,
+                            setKeepWifiAwake = settings::setKeepWifiAwake,
                         ),
                     )
                 }
@@ -774,11 +835,12 @@ private fun BridgeyApp(
                     )
                 }
                 Route.Devices -> DevicesSettingsScreen(
-                    state = DevicesSettingsState(rings = rings),
+                    state = DevicesSettingsState(rings = rings, rediscovering = rediscover == RediscoverState.Running),
                     actions = DevicesSettingsActions(
                         back = { stack.pop() },
                         openDevice = { ring -> ring.deviceId?.let { stack.push(Route.Device(it)) } },
                         addDevice = { pairDialog = true },
+                        lookForDevices = pairing::lookForDevices,
                     ),
                 )
                 Route.NotificationApps -> NotificationAppsScreen(
@@ -799,6 +861,22 @@ private fun BridgeyApp(
     }
 
     UpdatePrompts(updater)
+
+    // Asked once, after the first connection, while Android may still pause Bridgey in Doze.
+    if (!batteryExempt && !batteryPromptShown && !showOnboarding && connections.isNotEmpty() && pairingFlow !is PairingState.Verification) {
+        AlertDialog(
+            onDismissRequest = uiPreferences::setBatteryPromptShown,
+            title = { Text(stringResource(R.string.battery_prompt_title)) },
+            text = { Text(stringResource(R.string.battery_prompt_body)) },
+            confirmButton = {
+                Button(onClick = {
+                    uiPreferences.setBatteryPromptShown()
+                    onRequestBatteryExemption()
+                }) { Text(stringResource(R.string.action_allow)) }
+            },
+            dismissButton = { TextButton(onClick = uiPreferences::setBatteryPromptShown) { Text(stringResource(R.string.action_not_now)) } },
+        )
+    }
 
     if (showOnboarding) {
         AlertDialog(
@@ -1017,3 +1095,16 @@ private val CALL_INTEGRATION_PERMISSIONS = arrayOf(
     Manifest.permission.READ_PHONE_STATE,
     Manifest.permission.ANSWER_PHONE_CALLS,
 )
+
+/** The feedback line after "Look for devices again". */
+private fun rediscoverMessage(context: android.content.Context, result: RediscoverState.Done): String {
+    fun names(list: List<String>): String =
+        if (list.size > 2) context.resources.getQuantityString(R.plurals.rediscover_many, list.size, list.size) else list.joinToString(", ")
+    return when {
+        result.found.isNotEmpty() && result.stillMissing.isNotEmpty() ->
+            context.getString(R.string.rediscover_found_missing, names(result.found), names(result.stillMissing))
+        result.found.isNotEmpty() -> context.getString(R.string.rediscover_found, names(result.found))
+        result.stillMissing.isNotEmpty() -> context.getString(R.string.rediscover_missing, names(result.stillMissing))
+        else -> context.getString(R.string.rediscover_none)
+    }
+}
