@@ -25,6 +25,7 @@ upstream clients.
 | Android activity stream | none | Local, private history of what moved between devices (see below) |
 | macOS design | SwiftUI defaults | Direction B "Stream": 360 pt menu-bar panel with device chips, live cards, activity stream, quick actions and send bar; Settings window with a sidebar (Round Robin theme, bundled Space Grotesk and Inter) |
 | macOS activity stream | none | The same private, local history on the Mac (see below) |
+| Remote control | planned for 0.7 | Phone as touchpad, keyboard and presentation remote for the Mac, through the draft `remote_input_draft1` (see below) |
 
 Unchanged on purpose: the wire protocol, the Bonjour service type `_bridgey._tcp`, the default
 port 42458, and the Kotlin and Swift package names. Because the port is the
@@ -142,6 +143,39 @@ Skip rules apply in both directions: never send sensitive or empty content (or t
 re-send identical content (a per-device hash also stops a clip written because the Mac sent it from
 bouncing back). Automatic and manual moves are both recorded in the activity stream, marked
 "Automatic", and respect the previews switch.
+
+### Remote control (draft protocol)
+
+The phone can be a touchpad, keyboard and presentation remote for a Mac, through the draft
+`remote_input_draft1` messages in `docs/protocol.md` (with its security review). It is off on both
+sides until turned on, and only works between two edition devices.
+
+- **Mac:** Settings > Remote control turns it on for this Mac; each phone then needs its own
+  "Allow remote control" (in that pane, or Settings > Devices > [phone]). Bridgey asks macOS for
+  Accessibility only when remote control first becomes usable (on, and a phone allowed), and
+  explains why; sessions are refused while Accessibility is missing. During a session the menu-bar
+  icon changes and a pill at the top of the screen says "OnePlus 11 is controlling this Mac" with
+  Stop; Control-Option-Escape also stops it. The pill and the laser dot stay above full-screen
+  slideshows. The session log (`remote-control-audit.json` in
+  `~/Library/Application Support/in.roundrobin.bridgey`, `0600`, 30 days, at most 500 entries,
+  Clear in the pane) records device, start, end, the reason and how many moves, clicks, keys and
+  slide actions there were. Never typed text, key names or positions.
+- **Android:** Settings > Remote control turns it on for this phone (pointer speed, and volume
+  keys for slides, off by default). A Mac that allows it gets "Remote control" on its device page
+  and a launcher quick action ("Control Personal Mac"). The screen has a touchpad (one finger moves,
+  tap clicks, two-finger tap right-clicks, two fingers scroll, touch and hold then move drags), a
+  keyboard with the allowed special keys and a text field, and a slides remote (Previous, Next,
+  Start, Black screen, End, and a laser pad). The screen stays on while it is open; leaving it,
+  turning the screen off or losing the connection ends the session, and coming back shows Start
+  again.
+- **Keys:** named keys only, with Shift; the one shortcut is "Previous app" (Command-Tab). Start
+  maps to the frontmost app: Keynote Option-Command-P, PowerPoint and Google Slides Command-Return,
+  anything else Control-Command-F. Next and previous are Page Down and Page Up, like clickers.
+- **Accessibility after updates:** macOS records the app's code requirement with the grant. Whether
+  it still honours the grant after an ad-hoc signed update is not tested yet (see the device test
+  plan in `docs/testing-remote-input.md`). If it does not, sessions are refused with
+  `permission_required`, the pane shows the grant as needed with Open System Settings, and
+  Bridgey has to be switched off and on again in that list.
 
 ## Versions
 
