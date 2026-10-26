@@ -248,12 +248,14 @@ def parse_appcast(xml_bytes: bytes | None) -> list[dict]:
 
 
 def merge_appcast_items(existing: list[dict], new_item: dict) -> list[dict]:
-    """Replace any item with the same build or version, then keep the newest N per channel."""
-    kept = [
-        item
-        for item in existing
-        if item["version"] != new_item["version"] and item["shortVersion"] != new_item["shortVersion"]
-    ]
+    """Replace the item of the same build in the same channel (and, for beta and stable, the same
+    version name), then keep the newest N per channel. Nightly builds of one day share a version
+    name, so they are told apart by build, like the nightly releases kept on GitHub."""
+    def same(item):
+        if item["channel"] != new_item["channel"]:
+            return False
+        return item["version"] == new_item["version"] or (new_item["channel"] != "nightly" and item["shortVersion"] == new_item["shortVersion"])
+    kept = [item for item in existing if not same(item)]
     kept.append(new_item)
     kept.sort(key=lambda item: int(item["version"]), reverse=True)
     counts: dict[str, int] = {}

@@ -315,7 +315,7 @@ A release directory `dist/<tag>/` holds:
 `publish.sh` then:
 
 1. verifies the directory again (`rrrelease.py verify`),
-2. takes the channels lock, the git ref `refs/rr-ci/channels-lock` (creating a ref is atomic on
+2. takes the channels lock (`scripts/rr/channels-lock.sh`), the git ref `refs/rr-ci/channels-lock` (creating a ref is atomic on
    GitHub; a lock older than 30 minutes is taken over), because nightlies publish from GitHub
    Actions and betas and stable from rr-dev-1, and every channel shares `appcast.xml`,
 3. downloads the feeds as published now and re-merges this release into them

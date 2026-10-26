@@ -167,8 +167,8 @@ class AssembleTests(unittest.TestCase):
         second = self.root / "second"
         self.assertEqual(self.fixture.assemble(second, "nightly", "0.6.0-rr.1-nightly.20261026", 262991400, "nightly-20261026.1400", previous=published), 0)
         items = rrrelease.parse_appcast((second / "channels" / "appcast.xml").read_bytes())
-        # Same version name: the newer build replaces the morning's appcast item.
-        self.assertEqual([i["version"] for i in items if i["channel"] == "nightly"], ["262991400"])
+        # Same version name, two builds: both stay, newest first, like the releases on GitHub.
+        self.assertEqual([i["version"] for i in items if i["channel"] == "nightly"], ["262991400", "262990900"])
         older = self.root / "older"
         self.assertEqual(self.fixture.assemble(older, "nightly", "0.6.0-rr.1-nightly.20261026", 262990800, "nightly-20261026.0800", previous=published), 1)
 

@@ -55,7 +55,9 @@ jobs:
           RR_CI_DISPATCH_KEY: ${{ secrets.RR_CI_DISPATCH_KEY }}
         shell: bash
         run: |
-          test "$TRUSTED" = true && test "$REF_NAME" = rr/main && test "$REF_PROTECTED" = true
+          test "$TRUSTED" = true
+          test "$REF_NAME" = rr/main
+          test "$REF_PROTECTED" = true
           python3 - <<'PY'
           import hashlib, hmac, json, os, sys, time
           key = os.environ['RR_CI_DISPATCH_KEY']
@@ -191,10 +193,10 @@ jobs:
           RR_CI_HOLDER: GitHub Actions run ${{ github.run_id }}
         shell: bash
         run: |
+          python3 -c "import cryptography" 2>/dev/null || python3 -m pip install --quiet cryptography
           umask 077
           printf '%s' "$SPARKLE_KEY" > "$RUNNER_TEMP/sparkle.key"
           unset SPARKLE_KEY
-          python3 -c "import cryptography" 2>/dev/null || python3 -m pip install --quiet cryptography
           sh scripts/rr/release-notes.sh "$GITHUB_SHA" > "$RUNNER_TEMP/notes.md"
           set +e
           BRIDGEY_RR_SPARKLE_KEY="$RUNNER_TEMP/sparkle.key" sh scripts/rr/release.sh nightly --now "$NOW" \
