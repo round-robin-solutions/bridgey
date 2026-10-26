@@ -45,7 +45,14 @@ enum class ActivityKind(val key: String, val category: ActivityCategory, val mer
     /** An item moved when it was pasted here. A burst from one paste folds into one item. */
     CLIP_PASTED("clip_pasted", ActivityCategory.CLIPBOARD, mergeWindowMillis = 60_000L),
     CLIP_PASTE_FAILED("clip_paste_failed", ActivityCategory.CLIPBOARD, mergeWindowMillis = 60_000L),
+
+    /** A whole folder: name in fileName, plus file count, bytes, destination and a detail line (3.5). */
+    FOLDER_SENT("folder_sent", ActivityCategory.FILES),
+    FOLDER_RECEIVED("folder_received", ActivityCategory.FILES),
+    FOLDER_INCOMPLETE("folder_incomplete", ActivityCategory.FILES),
     ;
+
+    val isFolder: Boolean get() = this == FOLDER_SENT || this == FOLDER_RECEIVED || this == FOLDER_INCOMPLETE
 
     /** Clipboard offers: what moved (text, image or file), how many and how big. */
     val isClipOffer: Boolean get() = this == CLIP_OFFER_SENT || this == CLIP_OFFER_RECEIVED || this == CLIP_PASTED || this == CLIP_PASTE_FAILED
@@ -87,7 +94,46 @@ data class ActivityItem(
     val bytes: Long? = null,
     /** Clipboard offers: "text", "image" or "file". */
     val content: String? = null,
+    /** Folders: how many files were saved (or sent). */
+    val fileCount: Int? = null,
+    /** Folders: display path of where it landed ("Pictures/Trip"), at most 128 characters. */
+    val destination: String? = null,
+    /**
+     * Folders: what the detail line says, as tokens without names ("merged=12,links=3,failed=2", "timeout").
+     * See [FolderDetail].
+     */
+    val detail: String? = null,
 )
+
+/** The folder detail tokens (3.5): counts and states only, never names. */
+object FolderDetail {
+    const val MERGED = "merged"
+    const val REPLACED = "replaced"
+    const val SAVED_AS_COPY = "saved_as_copy"
+    const val LINKS = "links"
+    const val HIDDEN = "hidden"
+    const val SYSTEM = "system"
+    const val OTHER_SKIPPED = "skipped"
+    const val FAILED = "failed"
+    const val EMPTY_SKIPPED = "empty_skipped"
+    const val CANCELLED = "cancelled"
+    const val CONNECTION_LOST = "connection_lost"
+    const val TIMEOUT = "timeout"
+    const val LOST_ACCESS = "lost_access"
+    const val NO_SPACE = "no_space"
+
+    private val pattern = Regex("^[a-z_]{1,24}(=[0-9]{1,7})?(,[a-z_]{1,24}(=[0-9]{1,7})?){0,15}$")
+
+    fun encode(tokens: List<Pair<String, Int?>>): String? =
+        tokens.joinToString(",") { (key, count) -> if (count == null) key else "$key=$count" }.takeIf { it.isNotEmpty() && pattern.matches(it) }
+
+    fun decode(value: String?): List<Pair<String, Int?>> {
+        if (value == null || !pattern.matches(value)) return emptyList()
+        return value.split(',').map { token -> token.substringBefore('=') to token.substringAfter('=', "").toIntOrNull() }
+    }
+
+    fun clean(value: String?): String? = value?.takeIf { pattern.matches(it) }
+}
 
 /** The content kinds a clipboard offer item can record. */
 internal val ClipContents = setOf("text", "image", "file")
@@ -111,6 +157,7 @@ object ActivityHistory {
     private const val FUTURE_TOLERANCE_MILLIS = 5L * 60 * 1000
     private const val MAX_NAME_LENGTH = 128
     private const val MAX_FILE_NAME_LENGTH = 255
+    private const val MAX_DESTINATION_LENGTH = 128
 
     fun prune(items: List<ActivityItem>, now: Long): List<ActivityItem> =
         items.asSequence()
@@ -135,11 +182,14 @@ object ActivityHistory {
         bytes: Long? = null,
         content: String? = null,
         itemCount: Int = 1,
+        fileCount: Int? = null,
+        destination: String? = null,
+        detail: String? = null,
     ): List<ActivityItem> {
         val isSensitive = sensitive && kind.carriesPreview
         val cleanPreview = if (kind.carriesPreview && !isSensitive) clipboardPreview(preview) else null
         val cleanApp = if (kind.carriesAppName) appName?.trim()?.take(MAX_NAME_LENGTH)?.ifBlank { null } else null
-        val cleanBytes = if (kind.isClipOffer) bytes?.coerceAtLeast(0) else null
+        val cleanBytes = if (kind.isClipOffer || kind.isFolder) bytes?.coerceAtLeast(0) else null
         val cleanContent = if (kind.isClipOffer) content?.takeIf { it in ClipContents } else null
         val cleanCount = if (kind.isClipOffer) itemCount.coerceIn(1, 9_999) else 1
         if (kind.isClipOffer && kind.mergeWindowMillis > 0) {
@@ -181,6 +231,9 @@ object ActivityHistory {
             atMillis = now,
             bytes = cleanBytes,
             content = cleanContent,
+            fileCount = if (kind.isFolder) fileCount?.coerceIn(0, 1_000_000) else null,
+            destination = if (kind.isFolder) destination?.trim()?.take(MAX_DESTINATION_LENGTH)?.ifBlank { null } else null,
+            detail = if (kind.isFolder) FolderDetail.clean(detail) else null,
         )
         return prune(listOf(item) + items, now)
     }
@@ -203,7 +256,10 @@ object ActivityHistory {
                     .put("count", item.count)
                     .put("at", item.atMillis)
                     .put("bytes", item.bytes ?: JSONObject.NULL)
-                    .put("content", item.content ?: JSONObject.NULL),
+                    .put("content", item.content ?: JSONObject.NULL)
+                    .put("fileCount", item.fileCount ?: JSONObject.NULL)
+                    .put("destination", item.destination ?: JSONObject.NULL)
+                    .put("detail", item.detail ?: JSONObject.NULL),
             )
         }
     }.toString()
@@ -229,8 +285,15 @@ object ActivityHistory {
                 automatic = kind.category == ActivityCategory.CLIPBOARD && value.optBoolean("automatic", false),
                 count = value.optInt("count", 1).coerceIn(1, 9_999),
                 atMillis = value.optLong("at", 0L),
-                bytes = if (kind.isClipOffer && !value.isNull("bytes") && value.has("bytes")) value.optLong("bytes", -1L).takeIf { it >= 0 } else null,
+                bytes = if ((kind.isClipOffer || kind.isFolder) && !value.isNull("bytes") && value.has("bytes")) value.optLong("bytes", -1L).takeIf { it >= 0 } else null,
                 content = if (kind.isClipOffer && !value.isNull("content")) value.optString("content").takeIf { it in ClipContents } else null,
+                fileCount = if (kind.isFolder && value.has("fileCount") && !value.isNull("fileCount")) value.optInt("fileCount", -1).takeIf { it >= 0 } else null,
+                destination = if (kind.isFolder && value.has("destination") && !value.isNull("destination")) {
+                    value.optString("destination").take(MAX_DESTINATION_LENGTH).ifBlank { null }
+                } else {
+                    null
+                },
+                detail = if (kind.isFolder && value.has("detail") && !value.isNull("detail")) FolderDetail.clean(value.optString("detail")) else null,
             )
         }
         return prune(items, now)
@@ -264,10 +327,13 @@ class ActivityLog(
         bytes: Long? = null,
         content: String? = null,
         itemCount: Int = 1,
+        fileCount: Int? = null,
+        destination: String? = null,
+        detail: String? = null,
     ) {
         val updated = ActivityHistory.add(
             mutableItems.value, kind, deviceId, deviceName, fileName, clock(), nextId, preview, appName, sensitive, automatic,
-            bytes, content, itemCount,
+            bytes, content, itemCount, fileCount, destination, detail,
         )
         if (updated.any { it.id == nextId }) nextId += 1
         mutableItems.value = updated

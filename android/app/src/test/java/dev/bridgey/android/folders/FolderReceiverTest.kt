@@ -56,8 +56,8 @@ class FolderReceiverTest {
             .put("size", content.size).put("sha256", sha(content)).put("folderTransferId", folderId).put("entry", folder.index(path)).put("path", path)
         assertTrue(receiver.fileOffer(device, transferId, payload))
         assertTrue(receiver.handles(transferId))
-        receiver.chunk(transferId, 0, content)
-        receiver.fileComplete(transferId, sha(content))
+        receiver.chunk(device, transferId, 0, content)
+        receiver.fileComplete(device, transferId, sha(content))
         return transferId
     }
 
@@ -117,7 +117,7 @@ class FolderReceiverTest {
         val sentBefore = link.sent.size
         assertTrue(receiver.fileOffer("mac-1", transferId, JSONObject().put("folderTransferId", id).put("entry", 1).put("path", "a.txt")))
         assertTrue(receiver.handles(transferId))
-        receiver.chunk(transferId, 0, ByteArray(3))
+        receiver.chunk("mac-1", transferId, 0, ByteArray(3))
         assertEquals(sentBefore, link.sent.size)
         // A late folders.cancel is still acknowledged, outside the ciphertext.
         val late = RecordingLink()

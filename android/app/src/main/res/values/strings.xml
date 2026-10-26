@@ -470,4 +470,186 @@
     <string name="remote_reason_no_answer">%1$s did not answer. Check that Bridgey is open there and up to date.</string>
     <string name="file_queued">Queued</string>
     <string name="transfers_cancel_all">Cancel all</string>
+    <!-- Folders (Files 2.0): activity stream -->
+    <plurals name="folder_files">
+        <item quantity="one">%1$d file</item>
+        <item quantity="other">%1$d files</item>
+    </plurals>
+    <string name="stream_folder_received_title">Received folder %1$s (%2$s, %3$s)</string>
+    <string name="stream_folder_sent_title">Sent folder %1$s (%2$s, %3$s)</string>
+    <plurals name="stream_folder_incomplete_title">
+        <item quantity="one">Folder %2$s incomplete: %1$d file saved (%3$s)</item>
+        <item quantity="other">Folder %2$s incomplete: %1$d files saved (%3$s)</item>
+    </plurals>
+    <string name="stream_folder_timeout_title">Folder from %1$s cancelled: nobody chose a folder</string>
+    <string name="stream_folder_not_saved_title">Folder %1$s from %2$s not saved</string>
+    <string name="stream_folder_from">From %1$s</string>
+    <string name="stream_folder_from_to">From %1$s › %2$s</string>
+    <string name="stream_folder_sent_to">To %1$s › %2$s</string>
+    <string name="folder_detail_merged">Merged</string>
+    <plurals name="folder_detail_merged_copies">
+        <item quantity="one">Merged, %1$d kept as a copy</item>
+        <item quantity="other">Merged, %1$d kept as copies</item>
+    </plurals>
+    <plurals name="folder_detail_replaced">
+        <item quantity="one">%1$d file replaced</item>
+        <item quantity="other">%1$d files replaced</item>
+    </plurals>
+    <string name="folder_detail_saved_as">Saved as %1$s</string>
+    <plurals name="folder_detail_links">
+        <item quantity="one">%1$d link</item>
+        <item quantity="other">%1$d links</item>
+    </plurals>
+    <plurals name="folder_detail_hidden">
+        <item quantity="one">%1$d hidden item</item>
+        <item quantity="other">%1$d hidden items</item>
+    </plurals>
+    <plurals name="folder_detail_system">
+        <item quantity="one">%1$d system file</item>
+        <item quantity="other">%1$d system files</item>
+    </plurals>
+    <plurals name="folder_detail_other_skipped">
+        <item quantity="one">%1$d other item</item>
+        <item quantity="other">%1$d other items</item>
+    </plurals>
+    <string name="folder_detail_skipped">%1$s skipped</string>
+    <string name="list_two">%1$s and %2$s</string>
+    <string name="list_more">%1$s, %2$s</string>
+    <plurals name="folder_detail_empty_skipped">
+        <item quantity="one">%1$d empty folder needs full access to Download/Bridgey</item>
+        <item quantity="other">%1$d empty folders need full access to Download/Bridgey</item>
+    </plurals>
+    <plurals name="folder_detail_failed">
+        <item quantity="one">%1$d file failed</item>
+        <item quantity="other">%1$d files failed</item>
+    </plurals>
+    <string name="folder_detail_cancelled">Cancelled</string>
+    <string name="folder_detail_connection_lost">Connection lost</string>
+    <string name="folder_detail_lost_access">Bridgey lost access to the folder</string>
+    <string name="folder_detail_no_space">Not enough space</string>
+    <string name="folder_detail_timeout">Nobody chose a folder</string>
+
+    <!-- Folders: live card and progress notification -->
+    <string name="live_folder_title">%1$s from %2$s › %3$s</string>
+    <string name="live_folder_title_plain">%1$s from %2$s</string>
+    <plurals name="folder_files_progress">
+        <item quantity="one">%1$d of %2$d file</item>
+        <item quantity="other">%1$d of %2$d files</item>
+    </plurals>
+    <string name="folder_bytes_progress">%1$s of %2$s</string>
+    <string name="folder_speed">%1$s/s</string>
+    <string name="folder_time_left">%1$s left</string>
+    <string name="duration_seconds">%1$d sec</string>
+    <string name="duration_minutes">%1$d min</string>
+    <string name="duration_hours">%1$d h %2$d min</string>
+    <string name="live_folder_checking">Checking the folder…</string>
+    <string name="live_folder_waiting_destination">Waiting for you to choose a folder (%1$s)</string>
+    <string name="live_folder_waiting_conflict">Waiting for your answer (%1$s)</string>
+    <string name="live_folder_waiting_sender">Waiting for %1$s (%2$s)</string>
+    <string name="live_folder_interrupted">Interrupted, resumes when %1$s reconnects</string>
+    <string name="live_folder_now">Now: %1$s</string>
+    <string name="live_folder_failed_heading">Failed</string>
+    <string name="live_folder_saved_heading">Saved</string>
+    <string name="live_folder_show_files">Show files</string>
+    <string name="live_folder_hide_files">Hide files</string>
+    <string name="live_folder_more_saved">and %1$d earlier</string>
+    <string name="action_choose">Choose</string>
+    <string name="action_answer">Answer</string>
+    <string name="folder_reason_io_error">Could not be saved</string>
+    <string name="folder_reason_verification_failed">Did not match after the transfer</string>
+    <string name="folder_reason_invalid_message">Not as announced by the sender</string>
+    <string name="folder_reason_source_changed">Changed on the sender while sending</string>
+    <string name="folder_reason_unreadable">Could not be read on the sender</string>
+    <string name="folder_reason_other">Failed</string>
+    <plurals name="notification_folder_title">
+        <item quantity="one">%1$s · %2$d of %3$d file</item>
+        <item quantity="other">%1$s · %2$d of %3$d files</item>
+    </plurals>
+    <plurals name="notification_folder_saved">
+        <item quantity="one">Folder %1$s saved to %2$s (%3$d file)</item>
+        <item quantity="other">Folder %1$s saved to %2$s (%3$d files)</item>
+    </plurals>
+    <plurals name="notification_folder_incomplete">
+        <item quantity="one">Folder %1$s incomplete: %2$d of %3$d file saved</item>
+        <item quantity="other">Folder %1$s incomplete: %2$d of %3$d files saved</item>
+    </plurals>
+    <string name="notification_folder_from">From %1$s</string>
+    <string name="notification_lost_access">Bridgey lost access to %1$s</string>
+    <string name="notification_lost_access_detail">Grant it again in Settings, Files, Places.</string>
+    <string name="notification_channel_folder_questions">Folder questions</string>
+    <string name="notification_channel_folder_questions_detail">Where to save folders sent to this phone, and what to do when a folder already exists</string>
+    <string name="notification_channel_received_folders">Received folders</string>
+    <string name="notification_folder_destination_title">Save folder %1$s from %2$s</string>
+    <string name="notification_folder_destination_text">Tap to choose where it goes. Cancels in 3 minutes.</string>
+    <string name="notification_folder_conflict_title">“%1$s” already exists in %2$s</string>
+    <string name="notification_folder_confirm_title">%1$s wants to replace files in %2$s</string>
+    <string name="action_merge">Merge</string>
+    <string name="action_replace">Replace</string>
+    <string name="action_new_folder">New folder</string>
+
+    <!-- Folders: Save to… and the conflict question -->
+    <string name="sheet_save_to_title">Save “%1$s”</string>
+    <string name="sheet_save_to_subtitle">From %1$s · %2$s · %3$s</string>
+    <string name="sheet_reason_default_unavailable">Your default folder %1$s is no longer available.</string>
+    <string name="sheet_reason_no_destination">%1$s did not choose a folder. Choose where it goes on this phone.</string>
+    <string name="sheet_recent">Recent</string>
+    <string name="sheet_places">Places</string>
+    <string name="sheet_other_folder">Other folder…</string>
+    <string name="sheet_other_folder_detail">Pick any folder with Android’s folder picker</string>
+    <string name="sheet_add_to_places">Add to places</string>
+    <string name="sheet_cancels_in">Cancels in %1$s if nobody answers</string>
+    <string name="place_not_available">Not available</string>
+    <string name="place_default_detail">Bridgey’s own folder</string>
+    <string name="conflict_title">“%1$s” already exists in %2$s</string>
+    <plurals name="conflict_clashes">
+        <item quantity="one">%1$d of %2$d file has the same name.</item>
+        <item quantity="other">%1$d of %2$d files have the same names.</item>
+    </plurals>
+    <string name="conflict_clashes_unknown">Some files may have the same names.</string>
+    <string name="conflict_existing_file">A file with that name is already there, so the folder can only be saved under a new name.</string>
+    <string name="conflict_confirm_replace">%1$s chose Replace Files. Files with the same names are replaced only after each new file is verified. Folders are never replaced.</string>
+    <string name="conflict_merge">Merge</string>
+    <string name="conflict_merge_detail">Keep everything; clashing files are saved with a number</string>
+    <string name="conflict_replace">Replace Files</string>
+    <string name="conflict_replace_detail">Files with the same names are replaced; other files stay</string>
+    <string name="conflict_new_folder">Save as “%1$s”</string>
+    <string name="conflict_new_folder_detail">A separate folder next to the existing one</string>
+
+    <!-- Folders: Settings, Files -->
+    <string name="settings_folders_mode">Folders sent to this phone</string>
+    <string name="folder_mode_sender">Choose on the Mac while sending</string>
+    <string name="folder_mode_receiver">Ask on this phone each time</string>
+    <string name="folder_mode_fixed">Always save to: %1$s</string>
+    <string name="settings_default_folder">Default folder</string>
+    <string name="settings_folder_conflict">When a folder already exists</string>
+    <string name="conflict_policy_ask">Ask each time</string>
+    <string name="conflict_policy_merge">Merge</string>
+    <string name="conflict_policy_replace">Replace files</string>
+    <string name="conflict_policy_new_folder">Save as new folder</string>
+    <string name="settings_allow_replace">Allow other devices to replace files here</string>
+    <string name="settings_allow_replace_detail">While off, a Replace chosen on the Mac asks on this phone first</string>
+    <string name="settings_places">Places</string>
+    <plurals name="settings_places_detail">
+        <item quantity="one">Download/Bridgey and %1$d folder you added</item>
+        <item quantity="other">Download/Bridgey and %1$d folders you added</item>
+    </plurals>
+    <string name="settings_places_detail_none">Download/Bridgey; add folders the Mac can save into</string>
+    <string name="settings_folders_note">Folders need Android 10 or newer. The Mac sees only the names of your places and the folders inside them, never your files.</string>
+    <string name="places_intro">Folders Bridgey may save into. The Mac sees their names and the folders inside them, never your files.</string>
+    <string name="places_default_fallback">Without full access Bridgey sees only its own folders here, the Mac cannot make new folders, and empty folders may be skipped.</string>
+    <string name="places_default_full">Full access</string>
+    <string name="places_default_limited">Limited access</string>
+    <string name="places_allow_full_access">Allow full access</string>
+    <string name="places_access_lost">Access lost</string>
+    <string name="places_grant_again">Grant again</string>
+    <string name="places_add">Add folder…</string>
+    <string name="places_add_detail">Pick a folder with Android’s folder picker</string>
+    <string name="places_full">You have 16 places, the most Bridgey keeps. Remove one to add another.</string>
+    <string name="places_not_usable">That folder cannot be used. Android does not allow the root of a storage or the Download folder itself; pick a folder inside one.</string>
+    <string name="places_remove">Remove</string>
+    <string name="places_rename">Rename</string>
+    <string name="places_name">Name</string>
+    <string name="places_may_be_slow">May be slow</string>
+    <string name="places_removed_default">%1$s was the default folder. Folders now ask on this phone until you choose another.</string>
+    <string name="places_added">%1$s added</string>
 </resources>

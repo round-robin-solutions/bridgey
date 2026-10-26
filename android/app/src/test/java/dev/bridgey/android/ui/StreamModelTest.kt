@@ -146,15 +146,15 @@ class StreamModelTest {
 
     @Test
     fun finishedTransfersMapToStreamEvents() {
-        fun t(status: String, active: Boolean = false, retryable: Boolean = false) =
-            FileTransferState("1", "a.pdf", status, active, null, retryable = retryable)
-        assertNull(transferOutcome(t("Sending a.pdf: 10%", active = true)))
-        assertEquals(TransferOutcome.SENT, transferOutcome(t("a.pdf saved on Mac")))
-        assertEquals(TransferOutcome.RECEIVED, transferOutcome(t("a.pdf saved to Download/Bridgey")))
-        assertNull(transferOutcome(t("Transfer cancelled")))
-        assertNull(transferOutcome(t("Transfer cancelled by Mac")))
-        assertNull(transferOutcome(t("File transfer failed", retryable = true)))
-        assertEquals(TransferOutcome.FAILED, transferOutcome(t("File transfer failed")))
+        // The outcome is set where a transfer ends (FolderActivityTest covers folders); the status is only text.
+        fun t(outcome: dev.bridgey.android.TransferEnd?, active: Boolean = false, retryable: Boolean = false) =
+            FileTransferState("1", "a.pdf", "status", active, null, retryable = retryable, outcome = outcome)
+        assertNull(transferOutcome(t(null, active = true)))
+        assertEquals(TransferOutcome.SENT, transferOutcome(t(dev.bridgey.android.TransferEnd.SENT)))
+        assertEquals(TransferOutcome.RECEIVED, transferOutcome(t(dev.bridgey.android.TransferEnd.RECEIVED)))
+        assertNull(transferOutcome(t(dev.bridgey.android.TransferEnd.CANCELLED)))
+        assertNull(transferOutcome(t(dev.bridgey.android.TransferEnd.FAILED, retryable = true)))
+        assertEquals(TransferOutcome.FAILED, transferOutcome(t(dev.bridgey.android.TransferEnd.FAILED)))
     }
 
     @Test

@@ -494,4 +494,218 @@
     <string name="remote_reason_no_answer">%1$s не ответил. Проверьте, что там открыт Bridgey последней версии.</string>
     <string name="file_queued">В очереди</string>
     <string name="transfers_cancel_all">Отменить все</string>
+    <!-- Папки (Files 2.0): лента -->
+    <plurals name="folder_files">
+        <item quantity="one">%1$d файл</item>
+        <item quantity="few">%1$d файла</item>
+        <item quantity="many">%1$d файлов</item>
+        <item quantity="other">%1$d файла</item>
+    </plurals>
+    <string name="stream_folder_received_title">Получена папка %1$s (%2$s, %3$s)</string>
+    <string name="stream_folder_sent_title">Отправлена папка %1$s (%2$s, %3$s)</string>
+    <plurals name="stream_folder_incomplete_title">
+        <item quantity="one">Папка %2$s не полностью: сохранён %1$d файл (%3$s)</item>
+        <item quantity="few">Папка %2$s не полностью: сохранено %1$d файла (%3$s)</item>
+        <item quantity="many">Папка %2$s не полностью: сохранено %1$d файлов (%3$s)</item>
+        <item quantity="other">Папка %2$s не полностью: сохранено %1$d файла (%3$s)</item>
+    </plurals>
+    <string name="stream_folder_timeout_title">Папка с %1$s отменена: никто не выбрал, куда сохранить</string>
+    <string name="stream_folder_not_saved_title">Папка %1$s с %2$s не сохранена</string>
+    <string name="stream_folder_from">С %1$s</string>
+    <string name="stream_folder_from_to">С %1$s › %2$s</string>
+    <string name="stream_folder_sent_to">На %1$s › %2$s</string>
+    <string name="folder_detail_merged">Объединено</string>
+    <plurals name="folder_detail_merged_copies">
+        <item quantity="one">Объединено, %1$d сохранён как копия</item>
+        <item quantity="few">Объединено, %1$d сохранены как копии</item>
+        <item quantity="many">Объединено, %1$d сохранены как копии</item>
+        <item quantity="other">Объединено, %1$d сохранены как копии</item>
+    </plurals>
+    <plurals name="folder_detail_replaced">
+        <item quantity="one">Заменён %1$d файл</item>
+        <item quantity="few">Заменено %1$d файла</item>
+        <item quantity="many">Заменено %1$d файлов</item>
+        <item quantity="other">Заменено %1$d файла</item>
+    </plurals>
+    <string name="folder_detail_saved_as">Сохранена как %1$s</string>
+    <plurals name="folder_detail_links">
+        <item quantity="one">%1$d ссылка</item>
+        <item quantity="few">%1$d ссылки</item>
+        <item quantity="many">%1$d ссылок</item>
+        <item quantity="other">%1$d ссылки</item>
+    </plurals>
+    <plurals name="folder_detail_hidden">
+        <item quantity="one">%1$d скрытый объект</item>
+        <item quantity="few">%1$d скрытых объекта</item>
+        <item quantity="many">%1$d скрытых объектов</item>
+        <item quantity="other">%1$d скрытого объекта</item>
+    </plurals>
+    <plurals name="folder_detail_system">
+        <item quantity="one">%1$d системный файл</item>
+        <item quantity="few">%1$d системных файла</item>
+        <item quantity="many">%1$d системных файлов</item>
+        <item quantity="other">%1$d системного файла</item>
+    </plurals>
+    <plurals name="folder_detail_other_skipped">
+        <item quantity="one">%1$d другой объект</item>
+        <item quantity="few">%1$d других объекта</item>
+        <item quantity="many">%1$d других объектов</item>
+        <item quantity="other">%1$d другого объекта</item>
+    </plurals>
+    <string name="folder_detail_skipped">Пропущено: %1$s</string>
+    <string name="list_two">%1$s и %2$s</string>
+    <string name="list_more">%1$s, %2$s</string>
+    <plurals name="folder_detail_empty_skipped">
+        <item quantity="one">%1$d пустой папке нужен полный доступ к Download/Bridgey</item>
+        <item quantity="few">%1$d пустым папкам нужен полный доступ к Download/Bridgey</item>
+        <item quantity="many">%1$d пустым папкам нужен полный доступ к Download/Bridgey</item>
+        <item quantity="other">%1$d пустым папкам нужен полный доступ к Download/Bridgey</item>
+    </plurals>
+    <plurals name="folder_detail_failed">
+        <item quantity="one">Не удалось сохранить %1$d файл</item>
+        <item quantity="few">Не удалось сохранить %1$d файла</item>
+        <item quantity="many">Не удалось сохранить %1$d файлов</item>
+        <item quantity="other">Не удалось сохранить %1$d файла</item>
+    </plurals>
+    <string name="folder_detail_cancelled">Отменено</string>
+    <string name="folder_detail_connection_lost">Связь потеряна</string>
+    <string name="folder_detail_lost_access">Bridgey потерял доступ к папке</string>
+    <string name="folder_detail_no_space">Недостаточно места</string>
+    <string name="folder_detail_timeout">Никто не выбрал, куда сохранить</string>
+
+    <!-- Папки: карточка и уведомление о ходе -->
+    <string name="live_folder_title">%1$s с %2$s › %3$s</string>
+    <string name="live_folder_title_plain">%1$s с %2$s</string>
+    <plurals name="folder_files_progress">
+        <item quantity="one">%1$d из %2$d файла</item>
+        <item quantity="few">%1$d из %2$d файлов</item>
+        <item quantity="many">%1$d из %2$d файлов</item>
+        <item quantity="other">%1$d из %2$d файла</item>
+    </plurals>
+    <string name="folder_bytes_progress">%1$s из %2$s</string>
+    <string name="folder_speed">%1$s/с</string>
+    <string name="folder_time_left">осталось %1$s</string>
+    <string name="duration_seconds">%1$d с</string>
+    <string name="duration_minutes">%1$d мин</string>
+    <string name="duration_hours">%1$d ч %2$d мин</string>
+    <string name="live_folder_checking">Проверка папки…</string>
+    <string name="live_folder_waiting_destination">Выберите, куда сохранить (%1$s)</string>
+    <string name="live_folder_waiting_conflict">Ждём вашего ответа (%1$s)</string>
+    <string name="live_folder_waiting_sender">Ждём ответа на %1$s (%2$s)</string>
+    <string name="live_folder_interrupted">Прервано, продолжится, когда %1$s снова подключится</string>
+    <string name="live_folder_now">Сейчас: %1$s</string>
+    <string name="live_folder_failed_heading">Не удалось</string>
+    <string name="live_folder_saved_heading">Сохранено</string>
+    <string name="live_folder_show_files">Показать файлы</string>
+    <string name="live_folder_hide_files">Скрыть файлы</string>
+    <string name="live_folder_more_saved">и ещё %1$d раньше</string>
+    <string name="action_choose">Выбрать</string>
+    <string name="action_answer">Ответить</string>
+    <string name="folder_reason_io_error">Не удалось сохранить</string>
+    <string name="folder_reason_verification_failed">Не совпал после передачи</string>
+    <string name="folder_reason_invalid_message">Не совпадает с описанием отправителя</string>
+    <string name="folder_reason_source_changed">Изменился у отправителя во время отправки</string>
+    <string name="folder_reason_unreadable">Отправитель не смог прочитать файл</string>
+    <string name="folder_reason_other">Ошибка</string>
+    <plurals name="notification_folder_title">
+        <item quantity="one">%1$s · %2$d из %3$d файла</item>
+        <item quantity="few">%1$s · %2$d из %3$d файлов</item>
+        <item quantity="many">%1$s · %2$d из %3$d файлов</item>
+        <item quantity="other">%1$s · %2$d из %3$d файла</item>
+    </plurals>
+    <plurals name="notification_folder_saved">
+        <item quantity="one">Папка %1$s сохранена в %2$s (%3$d файл)</item>
+        <item quantity="few">Папка %1$s сохранена в %2$s (%3$d файла)</item>
+        <item quantity="many">Папка %1$s сохранена в %2$s (%3$d файлов)</item>
+        <item quantity="other">Папка %1$s сохранена в %2$s (%3$d файла)</item>
+    </plurals>
+    <plurals name="notification_folder_incomplete">
+        <item quantity="one">Папка %1$s не полностью: сохранено %2$d из %3$d файла</item>
+        <item quantity="few">Папка %1$s не полностью: сохранено %2$d из %3$d файлов</item>
+        <item quantity="many">Папка %1$s не полностью: сохранено %2$d из %3$d файлов</item>
+        <item quantity="other">Папка %1$s не полностью: сохранено %2$d из %3$d файла</item>
+    </plurals>
+    <string name="notification_folder_from">С %1$s</string>
+    <string name="notification_lost_access">Bridgey потерял доступ к %1$s</string>
+    <string name="notification_lost_access_detail">Выдайте доступ снова: Настройки, Файлы, Места.</string>
+    <string name="notification_channel_folder_questions">Вопросы о папках</string>
+    <string name="notification_channel_folder_questions_detail">Куда сохранять папки, присланные на этот телефон, и что делать, если папка уже есть</string>
+    <string name="notification_channel_received_folders">Полученные папки</string>
+    <string name="notification_folder_destination_title">Сохранить папку %1$s с %2$s</string>
+    <string name="notification_folder_destination_text">Нажмите, чтобы выбрать, куда сохранить. Отмена через 3 минуты.</string>
+    <string name="notification_folder_conflict_title">«%1$s» уже есть в %2$s</string>
+    <string name="notification_folder_confirm_title">%1$s хочет заменить файлы в %2$s</string>
+    <string name="action_merge">Объединить</string>
+    <string name="action_replace">Заменить</string>
+    <string name="action_new_folder">Новая папка</string>
+
+    <!-- Папки: «Сохранить в…» и вопрос о существующей папке -->
+    <string name="sheet_save_to_title">Сохранить «%1$s»</string>
+    <string name="sheet_save_to_subtitle">С %1$s · %2$s · %3$s</string>
+    <string name="sheet_reason_default_unavailable">Папка по умолчанию %1$s больше недоступна.</string>
+    <string name="sheet_reason_no_destination">%1$s не выбрал папку. Выберите, куда сохранить на этом телефоне.</string>
+    <string name="sheet_recent">Недавние</string>
+    <string name="sheet_places">Места</string>
+    <string name="sheet_other_folder">Другая папка…</string>
+    <string name="sheet_other_folder_detail">Выбрать любую папку через системный выбор папок</string>
+    <string name="sheet_add_to_places">Добавить в места</string>
+    <string name="sheet_cancels_in">Отмена через %1$s, если никто не ответит</string>
+    <string name="place_not_available">Недоступно</string>
+    <string name="place_default_detail">Папка Bridgey</string>
+    <string name="conflict_title">«%1$s» уже есть в %2$s</string>
+    <plurals name="conflict_clashes">
+        <item quantity="one">У %1$d из %2$d файла такое же имя.</item>
+        <item quantity="few">У %1$d из %2$d файлов такие же имена.</item>
+        <item quantity="many">У %1$d из %2$d файлов такие же имена.</item>
+        <item quantity="other">У %1$d из %2$d файла такие же имена.</item>
+    </plurals>
+    <string name="conflict_clashes_unknown">У некоторых файлов могут быть такие же имена.</string>
+    <string name="conflict_existing_file">Там уже есть файл с таким именем, поэтому папку можно сохранить только под новым именем.</string>
+    <string name="conflict_confirm_replace">%1$s выбрал замену файлов. Файлы с такими же именами заменяются только после проверки каждого нового файла. Папки никогда не заменяются.</string>
+    <string name="conflict_merge">Объединить</string>
+    <string name="conflict_merge_detail">Сохранить всё; совпадающие файлы получат номер</string>
+    <string name="conflict_replace">Заменить файлы</string>
+    <string name="conflict_replace_detail">Файлы с такими же именами заменяются, остальные остаются</string>
+    <string name="conflict_new_folder">Сохранить как «%1$s»</string>
+    <string name="conflict_new_folder_detail">Отдельная папка рядом с существующей</string>
+
+    <!-- Папки: Настройки, Файлы -->
+    <string name="settings_folders_mode">Папки, присланные на этот телефон</string>
+    <string name="folder_mode_sender">Выбирать на Mac при отправке</string>
+    <string name="folder_mode_receiver">Каждый раз спрашивать на телефоне</string>
+    <string name="folder_mode_fixed">Всегда сохранять в: %1$s</string>
+    <string name="settings_default_folder">Папка по умолчанию</string>
+    <string name="settings_folder_conflict">Если папка уже есть</string>
+    <string name="conflict_policy_ask">Спрашивать каждый раз</string>
+    <string name="conflict_policy_merge">Объединять</string>
+    <string name="conflict_policy_replace">Заменять файлы</string>
+    <string name="conflict_policy_new_folder">Сохранять как новую папку</string>
+    <string name="settings_allow_replace">Разрешить другим устройствам заменять файлы</string>
+    <string name="settings_allow_replace_detail">Пока выключено, замена, выбранная на Mac, сначала спрашивает на телефоне</string>
+    <string name="settings_places">Места</string>
+    <plurals name="settings_places_detail">
+        <item quantity="one">Download/Bridgey и %1$d добавленная папка</item>
+        <item quantity="few">Download/Bridgey и %1$d добавленные папки</item>
+        <item quantity="many">Download/Bridgey и %1$d добавленных папок</item>
+        <item quantity="other">Download/Bridgey и %1$d добавленной папки</item>
+    </plurals>
+    <string name="settings_places_detail_none">Download/Bridgey; добавьте папки, куда Mac может сохранять</string>
+    <string name="settings_folders_note">Для папок нужен Android 10 или новее. Mac видит только названия ваших мест и папок внутри них, но не ваши файлы.</string>
+    <string name="places_intro">Папки, в которые Bridgey может сохранять. Mac видит их названия и папки внутри, но не ваши файлы.</string>
+    <string name="places_default_fallback">Без полного доступа Bridgey видит здесь только свои папки, Mac не может создавать новые папки, а пустые папки могут быть пропущены.</string>
+    <string name="places_default_full">Полный доступ</string>
+    <string name="places_default_limited">Ограниченный доступ</string>
+    <string name="places_allow_full_access">Разрешить полный доступ</string>
+    <string name="places_access_lost">Доступ потерян</string>
+    <string name="places_grant_again">Выдать снова</string>
+    <string name="places_add">Добавить папку…</string>
+    <string name="places_add_detail">Выбрать папку через системный выбор папок</string>
+    <string name="places_full">У вас 16 мест, это максимум. Удалите одно, чтобы добавить другое.</string>
+    <string name="places_not_usable">Эту папку нельзя использовать. Android не разрешает выбирать корень хранилища или саму папку Download; выберите папку внутри.</string>
+    <string name="places_remove">Удалить</string>
+    <string name="places_rename">Переименовать</string>
+    <string name="places_name">Название</string>
+    <string name="places_may_be_slow">Может работать медленно</string>
+    <string name="places_removed_default">%1$s была папкой по умолчанию. Пока вы не выберете другую, папки будут спрашивать на телефоне.</string>
+    <string name="places_added">%1$s добавлена</string>
 </resources>

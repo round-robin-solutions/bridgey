@@ -165,17 +165,20 @@ class FolderReceiver(
     /** Whether a per-file transfer belongs to a folder here (its chunks, completion and cancel come here). */
     fun handles(transferId: String?): Boolean = transferId != null && (byTransfer.containsKey(transferId) || transferId in droppedTransfers)
 
-    fun chunk(transferId: String, sequence: Long, bytes: ByteArray) {
-        byTransfer[transferId]?.chunk(transferId, sequence, bytes)
+    /** The session a per-file transfer belongs to, only for the device it came from. */
+    private fun fileSession(deviceId: String, transferId: String): FolderReceiveSession? = byTransfer[transferId]?.takeIf { it.peerId == deviceId }
+
+    fun chunk(deviceId: String, transferId: String, sequence: Long, bytes: ByteArray) {
+        fileSession(deviceId, transferId)?.chunk(transferId, sequence, bytes)
     }
 
-    fun fileComplete(transferId: String, sha256: String) {
-        byTransfer[transferId]?.fileComplete(transferId, sha256)
+    fun fileComplete(deviceId: String, transferId: String, sha256: String) {
+        fileSession(deviceId, transferId)?.fileComplete(transferId, sha256)
     }
 
     /** files.cancel for a file inside a folder; answered by the session (or here when it is gone). */
-    fun fileCancel(transferId: String, link: FolderLink) {
-        val session = byTransfer[transferId]
+    fun fileCancel(deviceId: String, transferId: String, link: FolderLink) {
+        val session = fileSession(deviceId, transferId)
         if (session == null) link.sendOuter("files.cancel.ack", transferId) else session.fileCancelled(transferId)
     }
 

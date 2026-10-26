@@ -72,7 +72,8 @@ val LocalShowPreviews = androidx.compose.runtime.staticCompositionLocalOf { true
 sealed interface LiveCard {
     val key: String
 
-    data class Transfer(val transfer: FileTransferState, val cancelAll: Boolean = false) : LiveCard {
+    /** [expanded] opens a folder card on its file list at first (screenshots); the user toggles it by tapping. */
+    data class Transfer(val transfer: FileTransferState, val cancelAll: Boolean = false, val expanded: Boolean = false) : LiveCard {
         override val key get() = "transfer:${transfer.id}"
     }
 
@@ -104,7 +105,12 @@ class LiveActions(
     val stopRinging: () -> Unit = {},
     val media: (action: String, value: String) -> Unit = { _, _ -> },
     val retryDevice: (String) -> Unit = {},
+    /** A folder waits for this phone's answer: open its sheet. */
+    val answerFolder: (String) -> Unit = {},
 )
+
+/** The clock for live countdowns; screenshots fix it. */
+val LocalNow = androidx.compose.runtime.staticCompositionLocalOf<() -> Long> { System::currentTimeMillis }
 
 /** Icon and tint for a stream item. */
 fun ActivityKind.visual(): Pair<ImageVector, Tint> = when (this) {
@@ -120,6 +126,8 @@ fun ActivityKind.visual(): Pair<ImageVector, Tint> = when (this) {
     ActivityKind.PAIRED -> BridgeyIcons.Devices to Tint.PURPLE
     ActivityKind.CLIP_OFFER_SENT, ActivityKind.CLIP_OFFER_RECEIVED, ActivityKind.CLIP_PASTED -> BridgeyIcons.ContentPaste to Tint.BLUE
     ActivityKind.CLIP_PASTE_FAILED -> BridgeyIcons.Error to Tint.NEUTRAL
+    ActivityKind.FOLDER_SENT, ActivityKind.FOLDER_RECEIVED -> BridgeyIcons.Folder to Tint.GREEN
+    ActivityKind.FOLDER_INCOMPLETE -> BridgeyIcons.Folder to Tint.NEUTRAL
 }
 
 /** Clipboard offers show what they carried: an image or a file, else the clipboard. */
@@ -140,6 +148,7 @@ fun itemTitle(item: ActivityItem, device: String): String {
         return stringResource(R.string.stream_call_from_title, item.preview)
     }
     if (item.kind.isClipOffer) return clipTitle(item, device, if (show) item.fileName else null)
+    if (item.kind.isFolder) return FolderText.itemTitle(LocalContext.current, item, device)
     return itemTitleWithoutPreview(item, device)
 }
 
@@ -215,6 +224,7 @@ private fun itemTitleWithoutPreview(item: ActivityItem, device: String): String 
     ActivityKind.PAIRED -> stringResource(R.string.stream_paired_title, device)
     ActivityKind.CLIP_OFFER_SENT, ActivityKind.CLIP_OFFER_RECEIVED, ActivityKind.CLIP_PASTED, ActivityKind.CLIP_PASTE_FAILED ->
         clipTitle(item, device, null)
+    ActivityKind.FOLDER_SENT, ActivityKind.FOLDER_RECEIVED, ActivityKind.FOLDER_INCOMPLETE -> FolderText.itemTitle(LocalContext.current, item, device)
 }
 
 @Composable
@@ -240,6 +250,7 @@ fun itemDetail(item: ActivityItem, device: String): String = when (item.kind) {
     ActivityKind.PING_SENT, ActivityKind.PING_RECEIVED -> stringResource(R.string.stream_ping_detail)
     ActivityKind.FIND_MAC, ActivityKind.FIND_PHONE -> stringResource(R.string.stream_find_detail)
     ActivityKind.PAIRED -> stringResource(R.string.stream_paired_detail)
+    ActivityKind.FOLDER_SENT, ActivityKind.FOLDER_RECEIVED, ActivityKind.FOLDER_INCOMPLETE -> FolderText.itemDetail(LocalContext.current, item, device)
 }
 
 @Composable
@@ -407,7 +418,7 @@ private fun StreamItemRow(row: StreamRow.Item, device: String, now: Long, first:
         ) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(title, style = BridgeyType.itemTitle, maxLines = if (item.kind.isClipOffer) 2 else 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text(title, style = BridgeyType.itemTitle, maxLines = if (item.kind.isClipOffer || item.kind.isFolder) 2 else 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     Text(time, style = BridgeyType.small, color = colors.onSurfaceVariant, maxLines = 1)
                 }
                 Text(
@@ -427,7 +438,7 @@ private fun StreamItemRow(row: StreamRow.Item, device: String, now: Long, first:
 private fun LiveCardRow(card: LiveCard, actions: LiveActions, first: Boolean, last: Boolean) {
     val colors = BridgeyTheme.colors
     val (icon, tint) = when (card) {
-        is LiveCard.Transfer -> BridgeyIcons.Description to Tint.GREEN
+        is LiveCard.Transfer -> (if (card.transfer.kind == dev.bridgey.android.TransferKind.FOLDER) BridgeyIcons.Folder else BridgeyIcons.Description) to Tint.GREEN
         is LiveCard.Link -> BridgeyIcons.Link to Tint.BLUE
         is LiveCard.Ringing -> BridgeyIcons.MyLocation to Tint.PURPLE
         is LiveCard.Media -> BridgeyIcons.MusicNote to Tint.BLUE
@@ -445,7 +456,11 @@ private fun LiveCardRow(card: LiveCard, actions: LiveActions, first: Boolean, la
             Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).background(colors.surface1).padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
             when (card) {
-                is LiveCard.Transfer -> TransferCardContent(card.transfer, card.cancelAll, actions)
+                is LiveCard.Transfer -> if (card.transfer.kind == dev.bridgey.android.TransferKind.FOLDER) {
+                    FolderCardContent(card.transfer, card.cancelAll, card.expanded, actions)
+                } else {
+                    TransferCardContent(card.transfer, card.cancelAll, actions)
+                }
                 is LiveCard.Link -> {
                     CardText(stringResource(R.string.live_link_title, card.deviceName), card.url, singleLineDetail = false)
                     CardActions {
@@ -471,7 +486,7 @@ private fun LiveCardRow(card: LiveCard, actions: LiveActions, first: Boolean, la
 }
 
 @Composable
-private fun CardText(title: String, detail: String?, singleLineDetail: Boolean = true) {
+internal fun CardText(title: String, detail: String?, singleLineDetail: Boolean = true) {
     Text(title, style = BridgeyType.itemTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
     if (!detail.isNullOrBlank()) {
         Text(
@@ -486,7 +501,7 @@ private fun CardText(title: String, detail: String?, singleLineDetail: Boolean =
 }
 
 @Composable
-private fun CardActions(content: @Composable () -> Unit) {
+internal fun CardActions(content: @Composable () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End)) { content() }
 }
 

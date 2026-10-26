@@ -95,7 +95,12 @@ class ActivityLogTest {
             .map { it.name }
             .toSet()
         assertEquals(
-            setOf("id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "automatic", "count", "atMillis", "bytes", "content"),
+            // Folders added fileCount, destination and detail (Files 2.0, section 3.5): counts, a display path and
+            // name-free tokens. Changed on purpose.
+            setOf(
+                "id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "automatic", "count", "atMillis", "bytes", "content",
+                "fileCount", "destination", "detail",
+            ),
             fields,
         )
     }
@@ -107,7 +112,10 @@ class ActivityLogTest {
         ActivityKind.entries.forEach { log.record(it, "mac", "Mac", fileName = "a.txt") }
         val array = JSONArray(file.readText())
         val keys = (0 until array.length()).flatMap { array.getJSONObject(it).keys().asSequence().toList() }.toSet()
-        assertEquals(setOf("id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "automatic", "count", "at", "bytes", "content"), keys)
+        assertEquals(
+            setOf("id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "automatic", "count", "at", "bytes", "content", "fileCount", "destination", "detail"),
+            keys,
+        )
         // File names only on file events.
         (0 until array.length()).map { array.getJSONObject(it) }.forEach { item ->
             val kind = ActivityKind.fromKey(item.getString("kind"))!!
