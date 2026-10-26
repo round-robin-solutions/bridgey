@@ -287,8 +287,10 @@ final class PairingCoordinator: ObservableObject {
         if settings.notificationHistoryEnabled {
             notificationHistory = notificationHistoryStore.load()
         }
-        identity = MacIdentity()
-        let trustRegistry = MacTrustRegistry()
+        // One Keychain read for identity and trust, so macOS asks at most once after an update.
+        let keychainState = MacKeychainState.shared
+        identity = MacIdentity(state: keychainState)
+        let trustRegistry = MacTrustRegistry(state: keychainState)
         self.trustRegistry = trustRegistry
         trustedDeviceIDs = trustRegistry.deviceIDs
         notificationPresenter.onDismiss = { [weak self] notificationID, deviceID in
@@ -3097,35 +3099,21 @@ private final class IncomingFileTransfer {
 }
 
 private final class MacIdentity {
-    private let service = Edition.identityKeychainService
-    private let account = "p256-signing-v1"
     private let key: P256.Signing.PrivateKey
 
-    init() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-           let data = item as? Data,
+    /// Reads the key from the shared Keychain item. A new key is created only when nothing is
+    /// stored. If the item cannot be read (the user chose Deny), this launch uses a temporary key
+    /// and the stored one is left alone, so allowing access next time restores pairing.
+    init(state: MacKeychainState) {
+        if let data = state.contents.identityKey,
            let stored = try? P256.Signing.PrivateKey(rawRepresentation: data) {
             key = stored
-        } else {
-            let generated = P256.Signing.PrivateKey()
-            key = generated
-            let add: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: account,
-                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-                kSecValueData as String: generated.rawRepresentation,
-            ]
-            SecItemDelete(query as CFDictionary)
-            SecItemAdd(add as CFDictionary, nil)
+            return
+        }
+        let generated = P256.Signing.PrivateKey()
+        key = generated
+        if state.canWrite {
+            state.update { $0.identityKey = generated.rawRepresentation }
         }
     }
 
