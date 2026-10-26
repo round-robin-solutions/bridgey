@@ -15,6 +15,11 @@ import android.os.UserManager
 import android.provider.Settings
 import dev.bridgey.android.activity.ActivityLog
 import dev.bridgey.android.activity.ActivityRecorder
+import dev.bridgey.android.remote.RemoteInputController
+import dev.bridgey.android.remote.RemoteInputPreferences
+import dev.bridgey.android.remote.RemoteInputTransport
+import dev.bridgey.android.remote.RemoteShortcuts
+import dev.bridgey.android.remote.remoteShortcutTargets
 import dev.bridgey.android.ui.UiPreferences
 import dev.bridgey.core.discovery.LocalDiscoveryIdentity
 import dev.bridgey.core.discovery.NsdDiscoveryService
@@ -47,6 +52,12 @@ class BridgeyApplication : Application() {
     lateinit var uiPreferences: UiPreferences
         private set
     lateinit var backgroundClipboardSource: ClipboardChangeSource
+        private set
+
+    /** Remote control of a Mac (draft remote_input_draft1). */
+    lateinit var remoteInput: RemoteInputController
+        private set
+    lateinit var remotePreferences: RemoteInputPreferences
         private set
     var isBridgeyEnabled: Boolean = false
         private set
@@ -121,8 +132,31 @@ class BridgeyApplication : Application() {
                 lastBatteryIntent?.let(::publishBattery)
             }
         }
+        startRemoteInput()
         registerForegroundClipboardWatcher()
         if (preferences.getBoolean(PREFERENCE_ENABLED, true)) enableBridgey()
+    }
+
+    private fun startRemoteInput() {
+        remotePreferences = RemoteInputPreferences(this)
+        remoteInput = RemoteInputController(
+            applicationScope,
+            object : RemoteInputTransport {
+                override fun send(deviceId: String, kind: String, payload: ByteArray) = pairing.sendRemoteInput(deviceId, kind, payload)
+                override fun isAvailable(deviceId: String) = pairing.isFeatureAvailable(BridgeyFeature.REMOTE_INPUT, deviceId)
+            },
+            clock = android.os.SystemClock::elapsedRealtime,
+        )
+        pairing.remoteInputListener = remoteInput::onHostMessage
+        val shortcuts = RemoteShortcuts(this)
+        applicationScope.launch {
+            // A session ends when its Mac disconnects or stops allowing it; the launcher's
+            // Remote control quick action follows the same rule.
+            combine(pairing.connections, settings.state) { connections, _ -> connections }.collect { connections ->
+                remoteInput.connectionsChanged(connections.mapTo(HashSet()) { it.deviceId })
+                shortcuts.publish(remoteShortcutTargets(connections) { settings.isEnabled(BridgeyFeature.REMOTE_INPUT, it) })
+            }
+        }
     }
 
     private fun registerForegroundClipboardWatcher() {
@@ -199,6 +233,7 @@ class BridgeyApplication : Application() {
             batteryReceiverRegistered = false
         }
         discovery.stop()
+        remoteInput.stop()
         pairing.pause()
     }
 

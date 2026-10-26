@@ -135,6 +135,7 @@ class StreamScreenshotTest {
                     listOf(BridgeyFeature.NOTIFICATIONS),
                     listOf(BridgeyFeature.CALLS),
                     listOf(BridgeyFeature.MEDIA),
+                    listOf(BridgeyFeature.REMOTE_INPUT),
                     listOf(BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING),
                     listOf(BridgeyFeature.LINKS),
                     listOf(BridgeyFeature.BATTERY),
@@ -195,6 +196,60 @@ class StreamScreenshotTest {
             listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = 4),
         )
     }
+
+    private val remoteActive = dev.bridgey.android.remote.RemoteSessionState.Active(
+        "work", dev.bridgey.android.remote.RemoteMode.TOUCHPAD, "0b9a54a2-6a4c-4b9e-8f45-3c2a1d0e9f11",
+    )
+
+    private fun remote(
+        name: String,
+        mode: dev.bridgey.android.remote.RemoteMode,
+        session: dev.bridgey.android.remote.RemoteSessionState = remoteActive,
+        keyboard: Boolean = false,
+        volumeKeys: Boolean = false,
+    ) = capture("$name-${if (dark()) "dark" else "light"}") {
+        RemoteScreen(
+            state = RemoteScreenState("Work MacBook", session, pointerSpeed = 3, volumeKeys = volumeKeys),
+            actions = RemoteActions(),
+            initialMode = mode,
+            initialKeyboard = keyboard,
+        )
+    }
+
+    /** Scrolled so the Remote control section (its label is item index 16) leads the page. */
+    private fun settingsRemote() = capture(if (dark()) "settings-remote-dark" else "settings-remote-light") {
+        SettingsScreen(
+            state = settingsState().copy(globalFeatures = settingsState().globalFeatures + (BridgeyFeature.REMOTE_INPUT to true), remoteVolumeKeys = true),
+            actions = SettingsActions(),
+            listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = 16),
+        )
+    }
+
+    @Test fun remoteTouchpadLight() = remote("remote-touchpad", dev.bridgey.android.remote.RemoteMode.TOUCHPAD)
+
+    @Test @Config(qualifiers = "+night") fun remoteTouchpadDark() = remote("remote-touchpad", dev.bridgey.android.remote.RemoteMode.TOUCHPAD)
+
+    @Test fun remoteKeyboardLight() = remote("remote-keyboard", dev.bridgey.android.remote.RemoteMode.TOUCHPAD, keyboard = true)
+
+    @Test @Config(qualifiers = "+night") fun remoteKeyboardDark() = remote("remote-keyboard", dev.bridgey.android.remote.RemoteMode.TOUCHPAD, keyboard = true)
+
+    @Test fun remoteSlidesLight() = remote("remote-slides", dev.bridgey.android.remote.RemoteMode.PRESENTATION, volumeKeys = true)
+
+    @Test @Config(qualifiers = "+night") fun remoteSlidesDark() = remote("remote-slides", dev.bridgey.android.remote.RemoteMode.PRESENTATION, volumeKeys = true)
+
+    @Test fun remoteNotAllowedLight() = remote(
+        "remote-not-allowed", dev.bridgey.android.remote.RemoteMode.TOUCHPAD,
+        session = dev.bridgey.android.remote.RemoteSessionState.Ended("work", dev.bridgey.android.remote.RemoteStopReason.PERMISSION_REQUIRED),
+    )
+
+    @Test @Config(qualifiers = "+night") fun remoteNotAllowedDark() = remote(
+        "remote-not-allowed", dev.bridgey.android.remote.RemoteMode.TOUCHPAD,
+        session = dev.bridgey.android.remote.RemoteSessionState.Ended("work", dev.bridgey.android.remote.RemoteStopReason.PERMISSION_REQUIRED),
+    )
+
+    @Test fun settingsRemoteLight() = settingsRemote()
+
+    @Test @Config(qualifiers = "+night") fun settingsRemoteDark() = settingsRemote()
 
     private fun dark(): Boolean =
         ApplicationProvider.getApplicationContext<Application>().resources.configuration.uiMode and

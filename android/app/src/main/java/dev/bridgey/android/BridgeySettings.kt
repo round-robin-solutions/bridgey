@@ -15,10 +15,16 @@ enum class BridgeyFeature(val key: String, val title: String) {
     LINKS("links", "Web links"),
     MEDIA("media", "Mac media controls"),
     CALLS("calls", "Calls from Mac"),
+
+    /** Draft, edition only until accepted upstream: this phone may control the Mac. Off by default. */
+    REMOTE_INPUT("remote_input_draft1", "Remote control"),
 }
 
 internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
-    feature !in setOf(BridgeyFeature.CALLS, BridgeyFeature.PING, BridgeyFeature.LINKS, BridgeyFeature.MEDIA)
+    feature !in setOf(BridgeyFeature.CALLS, BridgeyFeature.PING, BridgeyFeature.LINKS, BridgeyFeature.MEDIA, BridgeyFeature.REMOTE_INPUT)
+
+/** Features that start off until the person turns them on. */
+internal fun featureOnByDefault(feature: BridgeyFeature): Boolean = feature != BridgeyFeature.REMOTE_INPUT
 
 data class BridgeySettingsState(
     val deviceName: String,
@@ -169,7 +175,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
 
     private fun load(defaultDeviceName: String): BridgeySettingsState {
         val globals = BridgeyFeature.entries.associateWith {
-            preferences.getBoolean("global.${it.key}", true)
+            preferences.getBoolean("global.${it.key}", featureOnByDefault(it))
         }
         val perDevice = mutableMapOf<String, MutableMap<BridgeyFeature, Boolean>>()
         preferences.all.forEach { (key, value) ->
