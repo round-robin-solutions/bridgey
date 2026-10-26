@@ -91,6 +91,9 @@ data class SettingsState(
     val update: UpdateUiState,
     val installedVersion: String,
     val now: Long,
+    /** Remote control: pointer speed (1 to 5) and the volume keys for slides. */
+    val remotePointerSpeed: Int = 3,
+    val remoteVolumeKeys: Boolean = false,
     /** Bridgey is exempt from battery optimisation, so Doze does not pause its connection. */
     val batteryExempt: Boolean = true,
     /** Keep Wi-Fi awake is offered (Android 13 and older, where a Wi-Fi lock works with the screen off). */
@@ -125,6 +128,8 @@ class SettingsActions(
     val install: () -> Unit = {},
     val openUrl: (String) -> Unit = {},
     val openPerfTest: () -> Unit = {},
+    val setRemotePointerSpeed: (Int) -> Unit = {},
+    val setRemoteVolumeKeys: (Boolean) -> Unit = {},
     val requestBatteryExemption: () -> Unit = {},
     val openBatterySettings: () -> Unit = {},
     val setKeepWifiAwake: (Boolean) -> Unit = {},
@@ -145,6 +150,7 @@ enum class SettingsSection(val titleRes: Int) {
     CALLS(R.string.feature_calls),
     FILES(R.string.feature_files),
     MEDIA(R.string.settings_media),
+    REMOTE_CONTROL(R.string.settings_remote_control),
     PRIVACY(R.string.settings_privacy),
     UPDATES(R.string.settings_updates),
     GENERAL(R.string.settings_general),
@@ -368,7 +374,27 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
             }
         }
 
-        // 8. Privacy
+        // 8. Remote control: this phone as a Mac's touchpad, keyboard and presentation remote.
+        val remoteOn = state.featureOn(BridgeyFeature.REMOTE_INPUT)
+        sectionLabel(SettingsSection.REMOTE_CONTROL, 24.dp)
+        item(key = "remote") {
+            RowGroup(Modifier.padding(top = 8.dp)) {
+                row { shape -> FeatureSwitch(shape, BridgeyFeature.REMOTE_INPUT, state, actions) }
+                if (remoteOn) {
+                    row { shape -> PointerSpeedRow(shape, state, actions) }
+                    row { shape ->
+                        SwitchRow(
+                            shape, stringResource(R.string.remote_volume_keys_title), stringResource(R.string.remote_volume_keys_detail),
+                            BridgeyIcons.VolumeUp, if (state.remoteVolumeKeys) Tint.PURPLE else Tint.NEUTRAL,
+                            state.remoteVolumeKeys, actions.setRemoteVolumeKeys,
+                        )
+                    }
+                }
+            }
+        }
+        item(key = "remote.note") { Note(stringResource(R.string.remote_settings_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) }
+
+        // 9. Privacy
         sectionLabel(SettingsSection.PRIVACY, 24.dp)
         item(key = "privacy") {
             RowGroup(Modifier.padding(top = 8.dp)) {
@@ -395,11 +421,11 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
             }
         }
 
-        // 9. Updates
+        // 10. Updates
         sectionLabel(SettingsSection.UPDATES, 24.dp)
         item(key = "updates") { UpdatesCard(state.update, state.installedVersion, state.now, actions) }
 
-        // 10. General
+        // 11. General
         sectionLabel(SettingsSection.GENERAL, 24.dp)
         item(key = "general") {
             RowGroup(Modifier.padding(top = 8.dp)) {
@@ -421,7 +447,7 @@ fun SettingsScreen(state: SettingsState, actions: SettingsActions, listState: La
             }
         }
 
-        // 11. About
+        // 12. About
         sectionLabel(SettingsSection.ABOUT, 24.dp)
         item(key = "about") {
             RowGroup(Modifier.padding(top = 8.dp)) {
@@ -519,6 +545,51 @@ private fun EagerLimitRow(shape: androidx.compose.ui.graphics.Shape, state: Sett
     }
 }
 
+@Composable
+private fun pointerSpeedLabel(level: Int): String = stringResource(
+    when (level) {
+        1 -> R.string.remote_speed_1
+        2 -> R.string.remote_speed_2
+        4 -> R.string.remote_speed_4
+        5 -> R.string.remote_speed_5
+        else -> R.string.remote_speed_3
+    },
+)
+
+/** Pointer speed: the current choice as the detail, five choices in a menu. */
+@Composable
+private fun PointerSpeedRow(shape: androidx.compose.ui.graphics.Shape, state: SettingsState, actions: SettingsActions) {
+    val colors = BridgeyTheme.colors
+    var open by remember { mutableStateOf(false) }
+    Box {
+        ListRow(
+            shape, stringResource(R.string.remote_speed_title), pointerSpeedLabel(state.remotePointerSpeed),
+            BridgeyIcons.Mouse, Tint.PURPLE, onClick = { open = true }, role = Role.DropdownList,
+        ) {
+            Icon(BridgeyIcons.ArrowDropDown, null, tint = colors.onSurfaceVariant, modifier = Modifier.size(24.dp))
+        }
+        androidx.compose.material3.DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            containerColor = colors.surface2,
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.widthIn(max = 320.dp),
+        ) {
+            dev.bridgey.android.remote.RemotePreferencesState.POINTER_SPEEDS.forEach { level ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(pointerSpeedLabel(level), style = BridgeyType.label, color = colors.onSurface) },
+                    trailingIcon = if (level == state.remotePointerSpeed) ({ Icon(BridgeyIcons.Check, null, tint = colors.primary) }) else null,
+                    onClick = {
+                        open = false
+                        actions.setRemotePointerSpeed(level)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                )
+            }
+        }
+    }
+}
+
 /** A section label item, keyed and titled from [SettingsSection] so the order stays testable. */
 private fun LazyListScope.sectionLabel(section: SettingsSection, top: androidx.compose.ui.unit.Dp) {
     item(key = "${section.name}.label") { SectionLabel(stringResource(section.titleRes), Modifier.padding(top = top)) }
@@ -557,6 +628,7 @@ private fun globalFeatureDetail(feature: BridgeyFeature): String = stringResourc
         BridgeyFeature.PING -> R.string.settings_ping_detail
         BridgeyFeature.LINKS -> R.string.feature_links_detail
         BridgeyFeature.BATTERY -> R.string.settings_battery_detail
+        BridgeyFeature.REMOTE_INPUT -> R.string.settings_remote_detail
     },
 )
 

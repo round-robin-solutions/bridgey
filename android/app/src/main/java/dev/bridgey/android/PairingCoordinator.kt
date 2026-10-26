@@ -259,6 +259,10 @@ class PairingCoordinator(
     @Volatile
     var activityListener: ((PeerEvent) -> Unit)? = null
 
+    /** Remote input (draft): decrypted input.* messages from a device, for the remote input controller. */
+    @Volatile
+    var remoteInputListener: ((deviceId: String, kind: String, payload: ByteArray) -> Unit)? = null
+
     init {
         reconnect.isTrusted = { reconnecting && it in trust.trustedDeviceIds.value }
         reconnect.isConnected = { registry.session(it) != null }
@@ -1061,6 +1065,22 @@ class PairingCoordinator(
         mutablePingStatus.value = null
     }
 
+    /**
+     * Sends one encrypted input.* message to [deviceId]. The controller numbers and orders them;
+     * blocking, so call it off the main thread.
+     */
+    fun sendRemoteInput(deviceId: String, kind: String, payload: ByteArray): Boolean =
+        registry.session(deviceId)?.let { sendEncrypted(it, kind, payload) } == true
+
+    /** Input messages skip the shared message-ID window: their encrypted sequence guards replays. */
+    private fun receiveRemoteInput(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        if (data.size > REMOTE_INPUT_MAX_BYTES) return
+        remoteInputListener?.invoke(current.remoteDeviceId, message.kind, data)
+    }
+
     /** Quick actions (links, media) go to the selected device. */
     private fun sendQuickPayload(kind: String, payload: JSONObject): Boolean {
         val current = sessionFor(null) ?: return false
@@ -1813,6 +1833,7 @@ class PairingCoordinator(
                 else -> receiveFileCancel(current, message.transferId)
             }
             "files.cancel.ack" -> message.transferId?.let { if (ownsTransfer(current, it)) removeFileTransfer(it, "Transfer cancelled") }
+            else -> if (message.kind.startsWith("input.")) receiveRemoteInput(current, message)
         }
     }
 
@@ -2459,6 +2480,7 @@ class PairingCoordinator(
         const val HANDSHAKE_TIMEOUT_MILLIS = 20_000L
         const val VERIFICATION_TIMEOUT_MILLIS = 120_000L
         const val CLIPBOARD_CACHE_DIRECTORY = "clipboard-cache"
+        const val REMOTE_INPUT_MAX_BYTES = 2_048
     }
 
     private class Session(private val socket: Socket) {
