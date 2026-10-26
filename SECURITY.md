@@ -92,3 +92,32 @@ are encrypted and replay-protected, and are subject to per-peer feature policy,
 strict phone-number validation, and rate limiting. Android requires local
 confirmation by default. The higher-risk direct-call path is a separate local
 opt-in and never handles a platform-recognized emergency number directly.
+
+## Bridgey by Round Robin edition: Mac key storage
+
+The Round Robin edition of the Mac app does not keep its pairing state in the
+Keychain. Its long-term P-256 signing key (raw bytes, base64) and the list of
+trusted phones live in
+`~/Library/Application Support/in.roundrobin.bridgey/trust-v3.json`, in a 0700
+folder with a 0600 file, written atomically, excluded from backups, and
+validated on every load (looser modes are tightened; symlinks and files owned by
+another user are refused).
+
+Why: the edition is not signed with an Apple-issued certificate. For such code
+the login keychain's partition list records the build's code directory hash
+(`cdhash:`), so every update made macOS ask for the login password before the
+app could read its own items. A self-signed certificate does not change this;
+only an Apple team ID does.
+
+Threat model: the same as `~/.ssh` keys, Syncthing and KDE Connect. Any process
+running as the user (or root) can read the file and could impersonate this Mac
+to paired phones; such a process could also read the clipboard and files
+directly. Other accounts cannot read it. At rest it is protected by FileVault,
+and it does not travel in Time Machine backups. Revoke a lost or copied key by
+forgetting the Mac on each phone and pairing again.
+
+The first launch after an update from a Keychain build reads the old items once
+(macOS may ask once per item), writes the file, verifies it, then overwrites the
+old items with a marker and tries to delete them. If the read is denied,
+nothing changes, no new identity is created, and the app asks again on the next
+launch. Details and test results: `docs/rr-mac-signing.md`.

@@ -248,7 +248,7 @@
     <string name="channel_nightly">Nightly</string>
     <string name="channel_stable_detail">Tested releases. Best for most people.</string>
     <string name="channel_beta_detail">New features before they reach Stable.</string>
-    <string name="channel_nightly_detail">Daily builds. Expect rough edges.</string>
+    <string name="channel_nightly_detail">Built from every change. Expect rough edges.</string>
     <string name="updates_channel_note">Switching to a steadier channel waits for its next release; nothing is downgraded.</string>
     <string name="updates_auto_title">Checks every day</string>
     <string name="updates_auto_detail">Installing always asks you first</string>

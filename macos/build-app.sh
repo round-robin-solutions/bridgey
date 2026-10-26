@@ -82,13 +82,36 @@ else
 fi
 # Sign Sparkle's nested code inside-out (Sparkle's documented order), then the
 # app itself. No --deep, so the app's entitlements never reach Sparkle's helpers.
+#
+# Three modes:
+#   MACOS_SIGNING_IDENTITY  an Apple-issued identity (Developer ID); timestamped.
+#   RR_SIGNING_IDENTITY     SHA-1 of the Round Robin self-signed identity, already in a keychain on
+#                           the search list (scripts/rr/build-macos.sh sets this up). The designated
+#                           requirement pins the bundle ID and that certificate.
+#   neither                 ad-hoc, for local development builds.
 SPARKLE_VERSIONED="$APP_PATH/Contents/Frameworks/Sparkle.framework/Versions/B"
+if [ -n "${MACOS_SIGNING_IDENTITY:-}" ]; then
+  SIGN_MODE=apple
+  APP_REQUIREMENT=""
+elif [ -n "${RR_SIGNING_IDENTITY:-}" ]; then
+  SIGN_MODE=rr
+  RR_LEAF=$(printf '%s' "$RR_SIGNING_IDENTITY" | tr 'A-F' 'a-f')
+  printf '%s' "$RR_LEAF" | grep -Eq '^[0-9a-f]{40}$' || { echo "RR_SIGNING_IDENTITY must be a SHA-1 fingerprint" >&2; exit 1; }
+  APP_REQUIREMENT="=designated => identifier \"$EDITION_APP_ID\" and certificate leaf = H\"$RR_LEAF\""
+else
+  SIGN_MODE=adhoc
+  # Keep an explicit, stable designated requirement for ad-hoc builds. System
+  # services such as Notification Center and Local Network privacy otherwise
+  # see only a changing code hash after each update and can lose bundle metadata.
+  APP_REQUIREMENT="=designated => identifier \"$EDITION_APP_ID\""
+fi
 sign_code() {
-  if [ -n "${MACOS_SIGNING_IDENTITY:-}" ]; then
-    codesign --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$@"
-  else
-    codesign --force --sign - "$@"
-  fi
+  case "$SIGN_MODE" in
+    apple) codesign --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$@" ;;
+    # Apple's timestamp service only serves Apple-issued certificates.
+    rr) codesign --force --options runtime --timestamp=none --sign "$RR_LEAF" "$@" ;;
+    *) codesign --force --sign - "$@" ;;
+  esac
 }
 for xpc in "$SPARKLE_VERSIONED"/XPCServices/*.xpc; do
   [ -d "$xpc" ] || continue
@@ -97,16 +120,10 @@ done
 sign_code "$SPARKLE_VERSIONED/Autoupdate"
 sign_code "$SPARKLE_VERSIONED/Updater.app"
 sign_code "$APP_PATH/Contents/Frameworks/Sparkle.framework"
-if [ -n "${MACOS_SIGNING_IDENTITY:-}" ]; then
-  codesign --force --options runtime --timestamp --entitlements Resources/Bridgey.entitlements --sign "$MACOS_SIGNING_IDENTITY" "$APP_PATH"
+if [ -n "$APP_REQUIREMENT" ]; then
+  sign_code --entitlements Resources/Bridgey.entitlements --requirements "$APP_REQUIREMENT" "$APP_PATH"
 else
-  # Keep an explicit, stable designated requirement for ad-hoc builds. System
-  # services such as Notification Center and Local Network privacy otherwise
-  # see only a changing code hash after each update and can lose bundle metadata.
-  codesign --force --sign - \
-    --entitlements Resources/Bridgey.entitlements \
-    --requirements "=designated => identifier \"$EDITION_APP_ID\"" \
-    "$APP_PATH"
+  sign_code --entitlements Resources/Bridgey.entitlements "$APP_PATH"
 fi
 codesign --verify --deep --strict "$APP_PATH"
 

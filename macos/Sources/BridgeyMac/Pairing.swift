@@ -181,6 +181,9 @@ final class PairingCoordinator: ObservableObject {
     /// The phone outgoing actions aim at (nil: the latest connection).
     @Published private(set) var selectedDeviceID: String?
     @Published private(set) var trustedDeviceIDs: Set<String>
+    /// Set while the pairing file cannot be loaded (for example the one-time Keychain move was
+    /// denied). Pairing and reconnects wait until it clears; the panel explains why.
+    @Published private(set) var pairingStoreIssue: PairingStoreIssue?
     @Published private(set) var clipboardStatus: String? = nil
     @Published private(set) var remoteBattery: RemoteBatteryStatus? = nil
     @Published private(set) var notificationsAuthorized = false
@@ -210,7 +213,8 @@ final class PairingCoordinator: ObservableObject {
     private let deviceID: String
     private var deviceName: String
     private let settings: BridgeySettings
-    private let identity: MacIdentity
+    private var identity: MacIdentity?
+    private let pairingStore: MacPairingStore
     private let trustRegistry: MacTrustRegistry
     private var listener: NWListener?
     /// Multi-device sessions: pending (handshaking or pairing) and one per phone.
@@ -301,8 +305,13 @@ final class PairingCoordinator: ObservableObject {
         if settings.notificationHistoryEnabled {
             notificationHistory = notificationHistoryStore.load()
         }
-        identity = MacIdentity()
-        let trustRegistry = MacTrustRegistry()
+        // Identity and trust come from the private pairing file, never the Keychain (no prompts
+        // after updates). The first launch after a Keychain build moves the old items once.
+        let pairingStore = MacPairingStore.shared
+        self.pairingStore = pairingStore
+        identity = pairingStore.contents.flatMap { MacIdentity(rawKey: $0.identityKey) }
+        pairingStoreIssue = pairingStore.issue
+        let trustRegistry = MacTrustRegistry(store: pairingStore)
         self.trustRegistry = trustRegistry
         trustedDeviceIDs = trustRegistry.deviceIDs
         notificationPresenter.onDismiss = { [weak self] notificationID, deviceID in
@@ -330,7 +339,7 @@ final class PairingCoordinator: ObservableObject {
         UNUserNotificationCenter.current().setNotificationCategories(Set(remoteNotificationCategories.values))
         UNUserNotificationCenter.current().delegate = notificationPresenter
         refreshNotificationAuthorization()
-        startListener()
+        if identity != nil { startListener() }
         quickActions.available = { [weak self] in self?.isFeatureAvailable($0) == true }
         quickActions.send = { [weak self] in self?.sendQuickPayload(kind: $0, payload: $1) == true }
         quickActions.onActivity = { [weak self] kind in self?.recordConnectedActivity(kind) }
@@ -455,8 +464,27 @@ final class PairingCoordinator: ObservableObject {
         }
     }
 
+    /// Try again from the panel card: reads the pairing file or the old Keychain items again
+    /// (macOS may ask once), then starts pairing as a normal launch would.
+    func retryPairingStore() {
+        pairingStore.load()
+        pairingStoreIssue = pairingStore.issue
+        guard identity == nil, let contents = pairingStore.contents,
+              let loaded = MacIdentity(rawKey: contents.identityKey) else {
+            publish()
+            return
+        }
+        identity = loaded
+        trustedDeviceIDs = trustRegistry.deviceIDs
+        if listener == nil { startListener() }
+        publish()
+        connectTrustedPeerIfNeeded(lastPeers)
+    }
+
     /// A pairing (or reconnect) the user started. Never disturbs other connected phones.
     func pair(host: String, port: Int, peerName: String) {
+        // Without the stored identity a pairing would bind the phone to a key we cannot keep.
+        guard identity != nil else { return }
         diagnostics.record(category: "pairing", event: "connection_started")
         guard let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
             failPairing(.couldNotConnect, detail: "Invalid peer port")
@@ -517,6 +545,10 @@ final class PairingCoordinator: ObservableObject {
 
     private func confirm(_ current: Session) {
         guard !current.localConfirmed, !current.ended else { return }
+        guard let identity else {
+            current.close()
+            return
+        }
         current.localConfirmed = true
         let identityKey = identity.publicKey
         current.send(PairingMessage(
@@ -3340,36 +3372,13 @@ private final class IncomingFileTransfer {
 }
 
 private final class MacIdentity {
-    private let service = Edition.identityKeychainService
-    private let account = "p256-signing-v1"
     private let key: P256.Signing.PrivateKey
 
-    init() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-           let data = item as? Data,
-           let stored = try? P256.Signing.PrivateKey(rawRepresentation: data) {
-            key = stored
-        } else {
-            let generated = P256.Signing.PrivateKey()
-            key = generated
-            let add: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: account,
-                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-                kSecValueData as String: generated.rawRepresentation,
-            ]
-            SecItemDelete(query as CFDictionary)
-            SecItemAdd(add as CFDictionary, nil)
-        }
+    /// The key always comes from the pairing file. It is created only by `MacPairingStore`, and
+    /// never because a read failed.
+    init?(rawKey: Data) {
+        guard let key = try? P256.Signing.PrivateKey(rawRepresentation: rawKey) else { return nil }
+        self.key = key
     }
 
     var publicKey: String { key.publicKey.x963Representation.base64EncodedString() }

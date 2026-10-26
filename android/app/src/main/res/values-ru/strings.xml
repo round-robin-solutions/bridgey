@@ -258,7 +258,7 @@
     <string name="channel_nightly">Ночной</string>
     <string name="channel_stable_detail">Проверенные выпуски. Подходит большинству.</string>
     <string name="channel_beta_detail">Новые функции до выхода в стабильном канале.</string>
-    <string name="channel_nightly_detail">Ежедневные сборки. Возможны шероховатости.</string>
+    <string name="channel_nightly_detail">Сборка после каждого изменения. Возможны шероховатости.</string>
     <string name="updates_channel_note">При переходе на более стабильный канал Bridgey ждёт его следующего выпуска; версия не понижается.</string>
     <string name="updates_auto_title">Проверка каждый день</string>
     <string name="updates_auto_detail">Перед установкой всегда спрашивает</string>

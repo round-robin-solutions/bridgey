@@ -14,7 +14,7 @@ upstream clients.
 | macOS bundle id | `dev.bridgey.mac` | `in.roundrobin.bridgey` |
 | Name | Bridgey | Bridgey by Round Robin (launcher label "Bridgey RR"; macOS `CFBundleName` "Bridgey RR") |
 | macOS app file | `Bridgey.app` | `Bridgey by Round Robin.app`, so both can sit in /Applications |
-| macOS Keychain items | `dev.bridgey.mac.trust`, `dev.bridgey.identity` | `in.roundrobin.bridgey.trust`, `in.roundrobin.bridgey.identity` |
+| macOS pairing state | Keychain items `dev.bridgey.mac.trust`, `dev.bridgey.identity` | private file `~/Library/Application Support/in.roundrobin.bridgey/trust-v3.json` (0600, no Keychain prompts after updates; older Keychain items are moved once, see [rr-mac-signing.md](rr-mac-signing.md)) |
 | macOS support folders | `~/Library/Application Support/Bridgey`, `~/Library/Caches/Bridgey` | `.../in.roundrobin.bridgey` |
 | macOS legacy import | reads the old `BridgeyMac` defaults suite | never reads it (it belongs to upstream) |
 | URL handler name, Services item | `dev.bridgey.mac.phone`, "Call with Bridgey" | `in.roundrobin.bridgey.phone`, "Call with Bridgey RR" |
@@ -214,13 +214,20 @@ How channels combine:
 - Updates are the ZIP, signed with EdDSA (`sparkle:edSignature`). The appcast keeps the newest
   5 Stable, 5 Beta and 7 Nightly items.
 - Settings → Updates: channel, automatic checks (on by default, daily), Check Now, version
-  and last check. Sparkle shows its own update window.
+  and last check. A custom Sparkle user driver (`InAppUpdateDriver` in `AppUpdater.swift`)
+  shows every step in the app instead of Sparkle's windows: update found (notes, Install,
+  Later, Skip), download progress, preparing, ready (Restart to update), installing, plain
+  errors, and "You're up to date" after Check Now. The Stream panel shows the same step as a
+  live card.
 - `build-app.sh` embeds `Sparkle.framework` in `Contents/Frameworks`, adds the
   `@executable_path/../Frameworks` rpath, and signs Sparkle's XPC services, `Autoupdate`,
   `Updater.app` and the framework before the app (no `--deep`).
 
-**Ad-hoc signing.** We have no Apple Developer ID yet, so builds are ad-hoc signed with the
-designated requirement `identifier "in.roundrobin.bridgey"`. Sparkle's validator
+**Signing.** We have no Apple Developer ID yet. Builds are ad-hoc signed with the designated
+requirement `identifier "in.roundrobin.bridgey"`, or, with `release.sh --mac-sign`, signed with
+the self-signed "Bridgey by Round Robin Code Signing" identity (requirement pins that
+certificate). Pairing state is a private file, not the Keychain, so updates never ask for the
+login password. Details and test results: [rr-mac-signing.md](rr-mac-signing.md). Sparkle's validator
 (`SUUpdateValidator.m`, Sparkle 2.10) accepts an update when the EdDSA signature matches the
 installed app's `SUPublicEDKey`, or when the Apple code signature matches. Ad-hoc apps count
 as code signed, so every update must stay at least ad-hoc signed, and the EdDSA key is the
@@ -236,6 +243,7 @@ Security → Open Anyway).
 | Android release keystore | rr-dev-1 `~/.config/bridgey-rr/rr-bridgey.jks`; vault note `Keychain/Bridgey by Round Robin` | Every APK must be signed with it, or updates fail the certificate check |
 | Android passwords and alias | rr-dev-1 `~/.config/bridgey-rr/android-signing.env` (`ANDROID_STORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`); vault note | Gradle reads them from the environment of the build only |
 | Sparkle EdDSA private key | rr-dev-1 `~/.config/bridgey-rr/sparkle_ed25519_private.key` (chmod 600); vault note | Base64 32-byte seed. Not in any Mac Keychain |
+| macOS code signing identity (self-signed) | rr-dev-1 `~/.config/bridgey-rr/macos-codesign.p12` and `.p12.password` (chmod 600); vault note | Used only with `--mac-sign`. Piped to the Mac per build, imported into a throwaway keychain, then deleted |
 | Sparkle EdDSA public key | `macos/Resources/Info.plist` `SUPublicEDKey` | Public |
 | Android certificate SHA-256 | `rr-edition.properties` `ANDROID_CERT_SHA256` | Public; the build script checks it |
 

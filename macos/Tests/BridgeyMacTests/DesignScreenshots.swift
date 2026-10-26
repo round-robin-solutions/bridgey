@@ -121,6 +121,24 @@ final class DesignScreenshots: XCTestCase {
         return model
     }
 
+    private func updateModel(_ flow: UpdateFlow) -> PanelModel {
+        var model = connectedModel
+        model.update = flow
+        model.appVersion = "0.6.0-rr.1-beta.7"
+        return model
+    }
+
+    private var updateSettingsModel: SettingsModel {
+        var model = settingsModel
+        model.updateFlow = .available(UpdateOffer(
+            version: "0.6.0-rr.1-beta.8",
+            notes: "• Settings > Updates shows updates inside Bridgey\n• One Keychain question per update instead of two\n• Fixes for several phones at once",
+            downloaded: false,
+            userInitiated: true
+        ))
+        return model
+    }
+
     private var welcomeModel: PanelModel {
         var model = PanelModel()
         model.onboardingDone = false
@@ -180,6 +198,12 @@ final class DesignScreenshots: XCTestCase {
                                   reconnecting: [phoneID: ReconnectDisplay(lastSeen: at(2, 56), struggling: true)])
         model.rediscoverStatus = "Still can\u{2019}t reach OnePlus 11"
         try render(settings: model, pane: .devices, scheme: .light, name: "settings-light-devices-reconnecting")
+        var storeIssue = offlineModel
+        storeIssue.pairingStoreIssue = .keychainAccessDenied(-128)
+        try render(panel: storeIssue, scheme: .light, name: "panel-light-pairing-store-keychain")
+        try render(panel: updateModel(.ready(version: "0.6.0-rr.1-beta.8")), scheme: .dark, name: "panel-dark-update-ready")
+        try render(panel: updateModel(.downloading(version: "0.6.0-rr.1-beta.8", received: 6_400_000, expected: 15_200_000)),
+                   scheme: .light, name: "panel-light-update-downloading")
     }
 
     @MainActor func testSettings() throws {
@@ -187,6 +211,8 @@ final class DesignScreenshots: XCTestCase {
             try render(settings: settingsModel, pane: pane, scheme: .dark, name: "settings-dark-\(pane.rawValue)")
             try render(settings: settingsModel, pane: pane, scheme: .light, name: "settings-light-\(pane.rawValue)")
         }
+        try render(settings: updateSettingsModel, pane: .updates, scheme: .dark, name: "settings-dark-updates-available")
+        try render(settings: updateSettingsModel, pane: .updates, scheme: .light, name: "settings-light-updates-available")
     }
 
     @MainActor private func render(panel model: PanelModel, scheme: ColorScheme, name: String) throws {
