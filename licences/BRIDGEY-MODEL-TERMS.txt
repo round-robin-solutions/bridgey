@@ -1,0 +1,56 @@
+Bridgey model terms
+
+Version 1, 26 October 2026. Round Robin.
+
+These terms cover the on-device code model ("the model") that Bridgey by Round Robin can download
+for Codes from messages > On this Mac. They do not change the licence of Bridgey's own code, which
+stays under the MIT License. You accept these terms, the Gemma Terms of Use and the Gemma
+Prohibited Use Policy by ticking the box before the download; Bridgey keeps a record on your Mac of
+the date and the model version.
+
+1. What the model is
+
+The model is a Model Derivative of Gemma 3 270M by Google LLC. Round Robin fine-tuned it on
+synthetic text messages so that it finds one-time codes, merged the changes into the weights and
+converted it to the GGUF format. It runs only on your Mac, through llama.cpp. Bridgey does not send
+the messages it reads, or the codes it finds, anywhere.
+
+2. The Gemma Terms of Use apply
+
+Gemma is provided under and subject to the Gemma Terms of Use found at ai.google.dev/gemma/terms.
+By downloading or using the model you agree to those terms. A copy comes with Bridgey (Settings >
+About > Licences) and with the model's release.
+
+3. Use restrictions
+
+You must not use the model, or allow anyone else to use it:
+
+- for any of the restricted uses set out in the Gemma Prohibited Use Policy at
+  ai.google.dev/gemma/prohibited_use_policy, which is part of these terms; or
+- in violation of applicable laws and regulations.
+
+These restrictions are a condition of your permission to use the model. If you break them, that
+permission ends and you must delete the model (Settings > Notifications > Codes from messages >
+Remove). Google may restrict, remotely or otherwise, use of the model that it reasonably believes
+breaks the Gemma Terms of Use.
+
+4. If you pass the model on
+
+If you give the model file to anyone else, you must pass on these use restrictions as an
+enforceable condition, give them a copy of the Gemma Terms of Use, keep the NOTICE file with the
+model, and keep the notice that the files were modified.
+
+5. No warranty
+
+The model is provided "as is", without warranty of any kind. It can be wrong. Bridgey only shows a
+code that appears word for word in the message, and otherwise shows the plain notification, but you
+are responsible for checking a code before you use it. Google claims no rights in the model's
+outputs; you are responsible for them and their use.
+
+6. Removing the model
+
+You can remove the model at any time in Settings > Notifications > Codes from messages. That
+deletes the file from your Mac.
+
+Gemma is a trademark of Google LLC. Nothing here suggests that Google endorses Bridgey or Round
+Robin.

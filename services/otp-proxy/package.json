@@ -1,0 +1,10 @@
+{
+  "name": "bridgey-otp-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker proxy that asks Workers AI which token in one SMS is the one-time code.",
+  "scripts": {
+    "test": "node --test"
+  }
+}

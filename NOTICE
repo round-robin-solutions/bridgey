@@ -1,0 +1,26 @@
+Bridgey by Round Robin
+
+The app's code is open source under the MIT License (see LICENSE). This notice covers the
+optional on-device code model and the code that runs it.
+
+On-device code model (Codes from messages > On this Mac)
+
+Gemma is provided under and subject to the Gemma Terms of Use found at ai.google.dev/gemma/terms
+
+The model that Bridgey by Round Robin downloads on first use (bridgey-otp-v<N>.gguf, from the
+`models` release of github.com/round-robin-solutions/bridgey) is a Model Derivative of Gemma 3
+270M (gemma-3-270m-it) by Google LLC. Round Robin modified it: the model was fine-tuned with LoRA
+on synthetic text messages to find one-time codes, the adapter was merged into the weights, and
+the result was converted and quantised to GGUF (Q4_K_M). It is not the original Gemma model and
+is not endorsed by Google.
+
+Use of the model is subject to the use restrictions in Section 3.2 of the Gemma Terms of Use,
+including the Gemma Prohibited Use Policy (ai.google.dev/gemma/prohibited_use_policy). Bridgey's
+model terms (licences/BRIDGEY-MODEL-TERMS.txt) make them a condition of using the model. Copies of
+the Gemma Terms of Use and the Prohibited Use Policy are in licences/ and in the app under
+Settings > About > Licences.
+
+llama.cpp
+
+Bridgey runs the model with llama.cpp and ggml (release b11899), MIT License, Copyright (c)
+2023-2026 The ggml authors. See licences/LLAMA-CPP-LICENSE.txt.

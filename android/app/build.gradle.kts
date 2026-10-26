@@ -19,6 +19,10 @@ fun editionValue(key: String): String = requireNotNull(edition.getProperty(key))
 // Release builds get BRIDGEY_VERSION_NAME/BRIDGEY_BUILD_NUMBER from scripts/rr; local builds use a dev version.
 val editionVersionName = System.getenv("BRIDGEY_VERSION_NAME") ?: "${editionValue("EDITION_NEXT_VERSION")}-dev"
 val editionVersionCode = System.getenv("BRIDGEY_BUILD_NUMBER")?.toInt() ?: 1
+// Stable releases are "x.y.z-rr.N"; betas, nightlies and local builds are lab builds. Only lab builds
+// carry the Code reader test and its READ_SMS permission (src/lab/AndroidManifest.xml), so a stable
+// APK never declares SMS access.
+val isStableBuild = Regex("""^\d+\.\d+\.\d+-rr\.\d+$""").matches(editionVersionName)
 
 android {
     namespace = "dev.bridgey.android"
@@ -34,6 +38,14 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         buildConfigField("String", "UPDATE_FEED_BASE_URL", "\"${editionValue("UPDATE_FEED_BASE_URL")}\"")
         buildConfigField("String", "UPDATE_ASSET_URL_PREFIX", "\"${editionValue("UPDATE_ASSET_URL_PREFIX")}\"")
+        // Codes from messages: the relay the Code reader test may use (the Mac reads codes in the app).
+        buildConfigField("String", "OTP_PROXY_URL", "\"${edition.getProperty("OTP_PROXY_URL").orEmpty()}\"")
+        buildConfigField("boolean", "CODE_TEST_AVAILABLE", (!isStableBuild).toString())
+    }
+    if (!isStableBuild) {
+        // Manifest overlays merge on top of main; the build type source sets have none of their own.
+        sourceSets.getByName("debug").manifest.srcFile("src/lab/AndroidManifest.xml")
+        sourceSets.getByName("release").manifest.srcFile("src/lab/AndroidManifest.xml")
     }
 
     signingConfigs {

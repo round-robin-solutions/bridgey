@@ -114,6 +114,8 @@ data class SettingsState(
     val keepWifiAwake: Boolean = false,
     /** Files: folders sent to this phone, default folder, conflicts, Replace from other devices, places. */
     val folders: FolderSettingsState = FolderSettingsState(),
+    /** Notifications > Codes from messages: code access and the companion link. */
+    val codes: CodesSettingsState = CodesSettingsState(),
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean = globalFeatures[feature] != false
 }
@@ -158,6 +160,7 @@ class SettingsActions(
     val openBatterySettings: () -> Unit = {},
     val setKeepWifiAwake: (Boolean) -> Unit = {},
     val folders: FolderSettingsActions = FolderSettingsActions(),
+    val codes: CodesSettingsActions = CodesSettingsActions(),
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
@@ -349,7 +352,7 @@ private fun ClipboardPage(state: SettingsState, actions: SettingsActions, listSt
     }
 }
 
-/** Notifications: forwarding, its access and apps, and Bridgey's own notifications. */
+/** Notifications: forwarding, its access and apps, Codes from messages, and Bridgey's own notifications. */
 @Composable
 private fun NotificationsPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
     SectionPage(SettingsSection.NOTIFICATIONS, actions, listState) {
@@ -382,6 +385,7 @@ private fun NotificationsPage(state: SettingsState, actions: SettingsActions, li
                             BridgeyIcons.Notifications, Tint.PURPLE, onClick = actions.openNotificationApps,
                         ) { Chevron() }
                     }
+                    codesRows(state.codes, actions.codes)
                 }
                 row { shape ->
                     ListRow(
@@ -392,6 +396,9 @@ private fun NotificationsPage(state: SettingsState, actions: SettingsActions, li
                     ) { ManageLabel(state.appNotificationsEnabled) }
                 }
             }
+        }
+        if (notificationsOn) {
+            item(key = "notifications.codes") { CodesFootnote(state.codes, actions.codes) }
         }
     }
 }

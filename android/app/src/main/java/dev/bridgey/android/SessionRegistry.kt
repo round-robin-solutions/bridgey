@@ -11,6 +11,8 @@ data class DeviceLinkState(
     /** The device advertised folders_draft1 and places_draft1 (draft folders protocol). */
     val remoteFolders: Boolean = false,
     val remotePlaces: Boolean = false,
+    /** The device advertised sms_codes_draft1: it reads codes and advertises for the companion link. */
+    val remoteSmsCodes: Boolean = false,
     val battery: RemoteBatteryStatus? = null,
     /** The device reported that it is ringing (Find device). */
     val ringing: Boolean = false,

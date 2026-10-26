@@ -20,9 +20,16 @@ let package = Package(
                 .define("BLAKE3_NO_AVX2"), .define("BLAKE3_NO_AVX512"),
             ]
         ),
+        // llama.cpp release b11899 (MIT): the Apple framework, with Metal, that runs the on-device
+        // code model (Codes from messages > On this Mac). build-app.sh embeds and signs it.
+        .binaryTarget(
+            name: "llama",
+            url: "https://github.com/ggml-org/llama.cpp/releases/download/b11899/llama-b11899-xcframework.zip",
+            checksum: "500a6b8953d10542514daccccd8261e4522e3275692984aa53a380475ee0e625"
+        ),
         .executableTarget(
             name: "BridgeyMac",
-            dependencies: [.product(name: "Sparkle", package: "Sparkle"), "CBlake3"]
+            dependencies: [.product(name: "Sparkle", package: "Sparkle"), "CBlake3", "llama"]
         ),
         .testTarget(name: "BridgeyMacTests", dependencies: ["BridgeyMac"]),
     ],

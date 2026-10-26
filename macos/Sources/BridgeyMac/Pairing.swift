@@ -90,6 +90,10 @@ private struct RemoteNotificationPayload: Codable {
     let actions: [RemoteNotificationActionPayload]?
     let applicationIcon: String?
     let callType: String?
+    /// Edition (sms_codes_draft1): the notification came from the phone's default SMS app.
+    var smsDefaultApp: Bool? = nil
+    /// Edition (sms_codes_draft1): Android hid the text from Bridgey ("Sensitive notification content hidden").
+    var redacted: Bool? = nil
 }
 
 private struct RemoteNotificationActionPayload: Codable {
@@ -152,6 +156,8 @@ private func defaultRemoteFeatureState() -> [BridgeyFeature: Bool] {
 private final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
     var onDismiss: ((String, String) -> Void)?
     var onAction: ((String, String, String, String?) -> Void)?
+    /// Copy code, or a click on a code banner: the in-memory reference of the code to copy.
+    var onCopyCode: ((String) -> Void)?
 
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
@@ -167,6 +173,12 @@ private final class NotificationPresenter: NSObject, UNUserNotificationCenterDel
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         defer { completionHandler() }
+        let userInfo = response.notification.request.content.userInfo
+        if let codeReference = userInfo[codeReferenceUserInfoKey] as? String,
+           response.actionIdentifier == codeCopyActionIdentifier || response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            onCopyCode?(codeReference)
+            return
+        }
         guard let notificationID = response.notification.request.content.userInfo["androidNotificationId"] as? String,
               let deviceID = response.notification.request.content.userInfo["androidDeviceId"] as? String else { return }
         if response.actionIdentifier == UNNotificationDismissActionIdentifier {
@@ -282,6 +294,19 @@ final class PairingCoordinator: ObservableObject {
     private var clipboardSendID: String?
     private var clipboardTimeoutWorkItem: DispatchWorkItem?
     private let notificationPresenter = NotificationPresenter()
+    /// Codes from messages: the newest code card in the panel (ten minutes), and its link status line.
+    @Published private(set) var liveCode: LiveCodeCard?
+    @Published private(set) var codeLinkStatus: String?
+    /// Codes from messages > On this Mac: the model file, its download and the engine.
+    let codeModel: CodeModelStore
+    /// Reads waiting for the engine, by notification request identifier.
+    private var codeReads: [String: Task<Void, Never>] = [:]
+    /// Codes that can still be copied, in memory only.
+    private var liveCodes: [String: LiveCodeCard] = [:]
+    private var liveCodeOrder: [String] = []
+    private let liveCodeLifetime: TimeInterval = 10 * 60
+    private let codeClipboard = CodeClipboard()
+    private let companionAdvertiser = CompanionLinkAdvertiser()
     private var remoteNotificationCategories: [String: UNNotificationCategory] = [:]
     private var incomingFiles: [String: IncomingFileTransfer] = [:]
     private var outgoingFiles: [String: OutgoingFileTransfer] = [:]
@@ -322,6 +347,7 @@ final class PairingCoordinator: ObservableObject {
         self.notificationHistoryStore = notificationHistoryStore
         activity = ActivityLog(store: ActivityStore())
         remoteInput = RemoteInputHost.live()
+        codeModel = CodeModelStore.live()
         if settings.notificationHistoryEnabled {
             notificationHistory = notificationHistoryStore.load()
         }
@@ -338,6 +364,9 @@ final class PairingCoordinator: ObservableObject {
             Task { @MainActor [weak self] in
                 self?.dismissAndroidNotification(notificationID, deviceID: deviceID)
             }
+        }
+        notificationPresenter.onCopyCode = { [weak self] reference in
+            Task { @MainActor [weak self] in self?.copyCode(reference: reference) }
         }
         notificationPresenter.onAction = { [weak self] notificationID, deviceID, actionToken, replyText in
             Task { @MainActor [weak self] in
@@ -1972,6 +2001,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteClipboardFiles = clipboardFiles
                     link.remoteFolders = draftKeys[foldersFeatureKey] == true
                     link.remotePlaces = draftKeys[placesFeatureKey] == true
+                    link.remoteSmsCodes = draftKeys[smsCodesFeatureKey] == true
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
                 }
@@ -2136,13 +2166,14 @@ final class PairingCoordinator: ObservableObject {
                       (!payload.title.isEmpty || !payload.text.isEmpty) else {
                     throw PairingError.invalidMessage
                 }
-                recordNotificationHistory(payload, deviceID: current.remoteDeviceID)
                 if payload.callType == nil {
                     recordActivity(.notificationsShown, in: current, appName: payload.applicationName)
                 }
                 updateRemoteCall(payload, deviceID: current.remoteDeviceID)
                 if shouldUseSystemNotification(callType: payload.callType) {
-                    postNotification(payload, deviceID: current.remoteDeviceID)
+                    deliverNotification(payload, deviceID: current.remoteDeviceID, deviceName: current.peerName)
+                } else {
+                    recordNotificationHistory(payload, deviceID: current.remoteDeviceID)
                 }
             case "notifications.remove":
                 guard featureEnabled(.notifications, current: current),
@@ -2387,6 +2418,8 @@ final class PairingCoordinator: ObservableObject {
                 try receiveFolderMessage(message, in: current)
             case let kind where kind.hasPrefix("input."):
                 receiveRemoteInput(message, in: current)
+            case let kind where kind.hasPrefix("codes."):
+                receiveCodesMessage(message, in: current)
             default:
                 break
             }
@@ -2474,6 +2507,8 @@ final class PairingCoordinator: ObservableObject {
         // places, so places_draft1 is false.
         features[foldersFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
         features[placesFeatureKey] = false
+        // Draft, edition only: this Mac reads codes from SMS and can advertise for the phone's companion link.
+        features[smsCodesFeatureKey] = settings.isEnabled(.notifications, for: current.remoteDeviceID)
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
               let encrypted = try? encrypt(payload, key: key) else { return }
         current.send(PairingMessage(
@@ -2836,13 +2871,193 @@ final class PairingCoordinator: ObservableObject {
             content: content,
             trigger: nil
         )
+        // Text messages can carry codes: their content never reaches the log, whatever Logging says.
+        let fromSmsApp = isSmsNotification(packageName: payload.packageName, smsDefaultApp: payload.smsDefaultApp)
         UNUserNotificationCenter.current().add(request) { error in
             if let error {
                 BridgeyLog.notifications.error("notification delivery failed error=\(String(describing: error), privacy: .private)")
             } else {
-                BridgeyLog.line(BridgeyLog.notifications, LogLines.notification(BridgeyLog.policy, event: "shown", appName: payload.applicationName, title: payload.title, text: payload.text))
+                BridgeyLog.line(BridgeyLog.notifications, LogLines.notification(
+                    BridgeyLog.policy, event: "shown", appName: payload.applicationName,
+                    title: fromSmsApp ? nil : payload.title, text: fromSmsApp ? nil : payload.text
+                ))
             }
         }
+    }
+
+    // MARK: Codes from messages
+
+    /// A forwarded notification: an SMS that may hold a code waits up to two seconds for the code
+    /// reader; everything else (and every failure) posts the plain notification as before.
+    private func deliverNotification(_ payload: RemoteNotificationPayload, deviceID: String, deviceName: String) {
+        let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: payload.notificationId)
+        codeReads.removeValue(forKey: identifier)?.cancel()
+        if payload.redacted == true, isSmsNotification(packageName: payload.packageName, smsDefaultApp: payload.smsDefaultApp) {
+            // Android hid the text from Bridgey on the phone: Settings shows it until the phone reports otherwise.
+            registry.update(deviceID) { $0.codeAccess = .hidden }
+            publish()
+        }
+        guard settings.codesEnabled,
+              isCodeCandidate(packageName: payload.packageName, smsDefaultApp: payload.smsDefaultApp, redacted: payload.redacted, text: payload.text) else {
+            recordNotificationHistory(payload, deviceID: deviceID)
+            postNotification(payload, deviceID: deviceID)
+            return
+        }
+        let reader = codeReader(engine: settings.codesEngine, local: codeModel.engine, relay: CodeRelay.baseURL, installID: settings.codesInstallID)
+        codeReads[identifier] = Task { @MainActor [weak self] in
+            let outcome = await reader.read(text: payload.text, sender: payload.title)
+            guard let self, !Task.isCancelled else { return }
+            self.codeReads.removeValue(forKey: identifier)
+            self.diagnostics.record(category: "notification", event: "code_read", outcome: outcome.diagnosticName)
+            if case let .code(code) = outcome {
+                self.recordNotificationHistory(payload, deviceID: deviceID, codeShown: true)
+                self.postCodeNotification(payload, code: code, deviceID: deviceID, deviceName: deviceName)
+            } else {
+                self.recordNotificationHistory(payload, deviceID: deviceID)
+                self.postNotification(payload, deviceID: deviceID)
+            }
+        }
+    }
+
+    private func isSmsNotification(packageName: String, smsDefaultApp: Bool?) -> Bool {
+        smsDefaultApp ?? knownSmsPackages.contains(packageName)
+    }
+
+    /// "Code 482913 from HDFC Bank" in place of the plain notification (same identifier, so never two
+    /// banners), with Copy code. The code itself stays in memory; the notification only carries a reference.
+    private func postCodeNotification(_ payload: RemoteNotificationPayload, code: String, deviceID: String, deviceName: String) {
+        let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: payload.notificationId)
+        let card = LiveCodeCard(
+            id: UUID().uuidString.lowercased(),
+            code: code,
+            sender: payload.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? payload.applicationName : payload.title,
+            deviceName: deviceName,
+            receivedAt: Date()
+        )
+        rememberCode(card)
+        let content = UNMutableNotificationContent()
+        content.title = codeNotificationTitle(code: code, sender: payload.title, applicationName: payload.applicationName)
+        content.body = payload.text
+        content.sound = alertedNotificationIdentifiers.insert(identifier) ? .default : nil
+        content.categoryIdentifier = notificationCategoryIdentifier(for: payload, deviceID: deviceID, copyCode: true)
+        if let attachment = notificationIconAttachment(for: payload) {
+            content.attachments = [attachment]
+        }
+        content.userInfo = [
+            "androidPackage": payload.packageName,
+            "androidNotificationId": payload.notificationId,
+            "androidDeviceId": deviceID,
+            codeReferenceUserInfoKey: card.id,
+        ]
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil)) { error in
+            if let error {
+                BridgeyLog.notifications.error("code notification delivery failed error=\(String(describing: error), privacy: .private)")
+            } else {
+                BridgeyLog.line(BridgeyLog.notifications, LogLines.notification(BridgeyLog.policy, event: "code_shown", appName: payload.applicationName))
+            }
+        }
+        if shouldAutoCopyCode(enabled: settings.codesAutoCopy, screenLocked: macScreenIsLocked(), idleSeconds: macIdleSeconds()) {
+            copyCode(reference: card.id, automatic: true)
+        }
+    }
+
+    /// Codes stay in memory for ten minutes (the panel card's life); the newest five can be copied.
+    private func rememberCode(_ card: LiveCodeCard) {
+        liveCodes[card.id] = card
+        liveCodeOrder.append(card.id)
+        while liveCodeOrder.count > 5 { liveCodes.removeValue(forKey: liveCodeOrder.removeFirst()) }
+        liveCode = card
+        let expiry = DispatchWorkItem { [weak self] in self?.expireCode(card.id) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + liveCodeLifetime, execute: expiry)
+    }
+
+    private func expireCode(_ reference: String) {
+        liveCodes.removeValue(forKey: reference)
+        liveCodeOrder.removeAll { $0 == reference }
+        if liveCode?.id == reference { liveCode = nil }
+    }
+
+    /// Copy code (banner, button or panel card): concealed, this Mac only, cleared after 60 s if unchanged.
+    func copyCode(reference: String, automatic: Bool = false) {
+        guard let card = liveCodes[reference] else { return }
+        codeClipboard.copy(card.code)
+        var copied = card
+        copied.copiedAt = Date()
+        copied.copiedAutomatically = automatic
+        liveCodes[reference] = copied
+        if liveCode?.id == reference { liveCode = copied }
+        diagnostics.record(category: "notification", event: automatic ? "code_copied_auto" : "code_copied")
+    }
+
+    /// The panel card's Dismiss: the card goes; the notification and the copy stay as they are.
+    func dismissLiveCode() {
+        liveCode = nil
+    }
+
+    /// Settings > Notifications > Link this phone to the Mac: asks the selected phone to start the
+    /// companion link (it shows a notification to tap, then Android's own dialog).
+    func requestCompanionLink() {
+        guard let current = session, let link = registry.state(for: current.remoteDeviceID), link.remoteSmsCodes else {
+            codeLinkStatus = L10n.text("codes.link.unsupported", fallback: "Update Bridgey on the phone to link it.")
+            return
+        }
+        if sendQuickPayload(kind: "codes.link_request", payload: ["version": 1], to: current) {
+            let line = L10n.text("codes.link.requested", fallback: "On the phone, tap the Bridgey notification, then Allow.")
+            codeLinkStatus = line
+            // The phone's notification times out after five minutes; so does this hint.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5 * 60) { [weak self] in
+                if self?.codeLinkStatus == line { self?.codeLinkStatus = nil }
+            }
+        }
+    }
+
+    /// codes.* (sms_codes_draft1): code access reports and the companion link's advertising.
+    private func receiveCodesMessage(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key), data.count <= 1024,
+              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              payload["version"] as? Int == 1 else { return }
+        let phoneID = current.remoteDeviceID
+        switch message.kind {
+        case "codes.status":
+            guard let wire = payload["status"] as? String, let status = CodeAccessStatus(wire: wire) else { return }
+            registry.update(phoneID) { $0.codeAccess = status }
+            if status == .allowed { codeLinkStatus = nil }
+            publish()
+        case "codes.advertise":
+            guard settings.isEnabled(.notifications, for: phoneID),
+                  let raw = payload["serviceUuid"] as? String, let uuid = UUID(uuidString: raw) else { return }
+            let waiting = L10n.text("codes.link.advertising", fallback: "Waiting for the phone. Tap Allow there.")
+            codeLinkStatus = waiting
+            DispatchQueue.main.asyncAfter(deadline: .now() + CompanionLinkAdvertiser.duration + 30) { [weak self] in
+                if self?.codeLinkStatus == waiting { self?.codeLinkStatus = nil }
+            }
+            companionAdvertiser.start(uuid: uuid, localName: "Bridgey") { [weak self, weak current] failure in
+                guard let self, let current else { return }
+                var reply: [String: Any] = ["version": 1, "serviceUuid": raw, "ok": failure == nil]
+                if let failure {
+                    reply["reason"] = failure.rawValue
+                    self.codeLinkStatus = companionAdvertiseFailureText(failure)
+                }
+                _ = self.sendQuickPayload(kind: "codes.advertise_result", payload: reply, to: current)
+            }
+        case "codes.advertise_stop":
+            guard let raw = payload["serviceUuid"] as? String, let uuid = UUID(uuidString: raw) else { return }
+            companionAdvertiser.stop(uuid: uuid)
+            // Linked, cancelled or failed: the phone shows what happened; the row goes back to the status.
+            codeLinkStatus = nil
+        default:
+            break
+        }
+    }
+
+    /// Code access for Settings: the selected phone's report, or why there is none.
+    var codeAccessForSelectedPhone: CodeAccessDisplay {
+        guard let current = session, let link = registry.state(for: current.remoteDeviceID) else { return .noPhone }
+        guard link.remoteSmsCodes else { return .phoneTooOld }
+        return link.codeAccess.map(CodeAccessDisplay.status) ?? .waiting
     }
 
     func performRemoteCallAction(_ action: RemoteCallAction) {
@@ -3016,14 +3231,15 @@ final class PairingCoordinator: ObservableObject {
         notificationHistory = []
     }
 
-    private func recordNotificationHistory(_ payload: RemoteNotificationPayload, deviceID: String) {
+    /// With [codeShown], history keeps "Sent a one-time code" instead of the message, never the code.
+    private func recordNotificationHistory(_ payload: RemoteNotificationPayload, deviceID: String, codeShown: Bool = false) {
         guard settings.notificationHistoryEnabled else { return }
         let item = NotificationHistoryItem(
             id: remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: payload.notificationId),
             packageName: String(payload.packageName.prefix(256)),
             applicationName: String(payload.applicationName.prefix(128)),
             title: String(payload.title.prefix(1_024)),
-            text: String(payload.text.prefix(8_192)),
+            text: codeShown ? L10n.text("codes.history", fallback: "Sent a one-time code") : String(payload.text.prefix(8_192)),
             receivedAt: Date()
         )
         notificationHistory = notificationHistoryStore.record(item, in: notificationHistory)
@@ -3051,8 +3267,8 @@ final class PairingCoordinator: ObservableObject {
         }
     }
 
-    private func notificationCategoryIdentifier(for payload: RemoteNotificationPayload, deviceID: String) -> String {
-        let actions = (payload.actions ?? []).prefix(4).compactMap { action -> UNNotificationAction? in
+    private func notificationCategoryIdentifier(for payload: RemoteNotificationPayload, deviceID: String, copyCode: Bool = false) -> String {
+        var actions = (payload.actions ?? []).prefix(4).compactMap { action -> UNNotificationAction? in
             guard action.actionToken.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
                   !action.title.isEmpty,
                   action.title.count <= 64 else { return nil }
@@ -3066,6 +3282,13 @@ final class PairingCoordinator: ObservableObject {
                 )
             }
             return UNNotificationAction(identifier: action.actionToken, title: action.title, options: [])
+        }
+        if copyCode {
+            actions.insert(UNNotificationAction(
+                identifier: codeCopyActionIdentifier,
+                title: L10n.text("codes.copy", fallback: "Copy code"),
+                options: []
+            ), at: 0)
         }
         guard !actions.isEmpty else { return "bridgey.android.notification" }
         let categoryID = remoteNotificationCategoryIdentifier(
@@ -3174,6 +3397,7 @@ final class PairingCoordinator: ObservableObject {
             }
         }
         let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: notificationID)
+        codeReads.removeValue(forKey: identifier)?.cancel()
         alertedNotificationIdentifiers.remove(identifier)
         let center = UNUserNotificationCenter.current()
         center.removeDeliveredNotifications(withIdentifiers: [identifier])

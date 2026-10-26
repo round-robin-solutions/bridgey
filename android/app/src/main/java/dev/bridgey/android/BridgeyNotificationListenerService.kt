@@ -27,6 +27,7 @@ import android.telephony.TelephonyManager
 import android.util.Base64
 import androidx.annotation.RequiresApi
 import java.io.ByteArrayOutputStream
+import dev.bridgey.android.codes.isRedactedNotificationText
 import java.security.MessageDigest
 
 class BridgeyNotificationListenerService : NotificationListenerService() {
@@ -123,6 +124,12 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
             return retractForwardedNotification(sbn.key)
         }
         val applicationIcon = applicationIcon(sbn.packageName)
+        // Codes from messages: the Mac reads codes only in SMS from the default SMS app, and needs to
+        // know when Android hid the text from Bridgey. The text is looked at here, never logged.
+        val codeAccess = bridgey.codeAccess
+        val smsDefaultApp = !isCall && sbn.packageName == codeAccess.defaultSmsPackage()
+        val redacted = if (smsDefaultApp) isRedactedNotificationText(text, codeAccess.redactedPlaceholder) else null
+        if (smsDefaultApp) codeAccess.observeSms(redacted == true, text)
 
         val isTelephonyCall = isCall && (callLifecycle.isTelephonyCall(sbn.key) || isTelephonyCallSource(sbn.packageName))
         val telephonyCallType = if (isTelephonyCall) currentTelephonyCallType() else null
@@ -157,6 +164,8 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
                 actions = actions,
                 applicationIcon = applicationIcon,
                 callType = callType,
+                smsDefaultApp = smsDefaultApp,
+                redacted = redacted,
             )
             if (callType != null) {
                 callLifecycle.forwarded(notificationId, sbn.key, sbn.packageName, isTelephonyCall)
@@ -483,6 +492,20 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         fun resendActiveCalls() {
             activeService?.get()?.mainHandler?.post {
                 activeService?.get()?.refreshActiveCallNotifications()
+            }
+        }
+
+        /**
+         * After a companion link: Android decides whether to trust a listener when it connects, so
+         * Bridgey's listener disconnects and asks to be bound again (onListenerDisconnected rebinds).
+         */
+        fun rebindForTrust(context: Context) {
+            val service = activeService?.get()
+            if (service != null) {
+                runCatching { service.requestUnbind() }
+                    .onFailure { BridgeyLogging.w(LogCategory.NOTIFICATIONS, "PLUGIN notification listener unbind failed", it) }
+            } else {
+                runCatching { requestRebind(ComponentName(context, BridgeyNotificationListenerService::class.java)) }
             }
         }
 

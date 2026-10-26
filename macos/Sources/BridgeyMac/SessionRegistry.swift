@@ -12,6 +12,10 @@ struct PhoneLinkState: Equatable {
     /// The phone advertised `folders_draft1` (it receives folders) and `places_draft1` (it serves places).
     var remoteFolders = false
     var remotePlaces = false
+    /// The phone advertised `sms_codes_draft1`: it marks SMS notifications and can make a companion link.
+    var remoteSmsCodes = false
+    /// The phone's last `codes.status`: whether Android shows Bridgey the text of code messages.
+    var codeAccess: CodeAccessStatus?
     var battery: RemoteBatteryStatus?
     /// The phone reported that it is ringing (Find device).
     var ringing = false

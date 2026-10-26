@@ -26,6 +26,7 @@ upstream clients.
 | macOS design | SwiftUI defaults | Direction B "Stream": 360 pt menu-bar panel with device chips, live cards, activity stream, quick actions and send bar; Settings window with a sidebar (Round Robin theme, bundled Space Grotesk and Inter) |
 | macOS activity stream | none | The same private, local history on the Mac (see below) |
 | Remote control | planned for 0.7 | Phone as touchpad, keyboard and presentation remote for the Mac, through the draft `remote_input_draft1` (see below) |
+| Codes from text messages | none | Opt-in: the Mac shows "Code 482913 from HDFC Bank" with Copy code, read on the Mac by a small downloaded model (default) or, if chosen, through Round Robin's relay to Cloudflare Workers AI; a companion link lets Android 15+ show Bridgey the codes (draft `sms_codes_draft1`, see below) |
 
 Unchanged on purpose: the wire protocol, the Bonjour service type `_bridgey._tcp`, the default
 port 42458, and the Kotlin and Swift package names. Because the port is the
@@ -180,6 +181,110 @@ sides until turned on, and only works between two edition devices.
   plan in `docs/testing-remote-input.md`). If it does not, sessions are refused with
   `permission_required`, the pane shows the grant as needed with Open System Settings, and
   Bridgey has to be switched off and on again in that list.
+
+### Codes from text messages (draft protocol)
+
+When a one-time code arrives by SMS, the Mac can show it as "Code 482913 from HDFC Bank" with
+**Copy code**, instead of the plain mirrored notification. The messages are the draft
+`sms_codes_draft1` in `docs/protocol.md`.
+
+- **Mac, Settings > Notifications > Codes from messages:** "Show codes from text messages" is off
+  by default. Only an SMS that looks like it has a code (from the phone's default SMS app, not
+  hidden by Android) is read. **Read codes** picks the engine:
+  - **On this Mac (private)**, the default: a fine-tuned Gemma 3 270M (GGUF Q4_K_M, 253 MB) runs
+    in the app through llama.cpp with Metal, so the message never leaves the Mac. About 0.06 s
+    per message (median, M4); the model loads on the first code message and unloads after 15 idle
+    minutes. It is downloaded once, on first use (see "On-device code model" below).
+  - **Cloud (Cloudflare)**, opt-in with its own warning: the text goes to the relay
+    `services/otp-proxy` (a Cloudflare Worker on the Round Robin account, address in
+    `rr-edition.properties` `OTP_PROXY_URL`), which asks Cloudflare Workers AI (Llama 3.2 3B). No
+    API key ships in either app; the relay keeps no copy, logs nothing and rate-limits per install
+    (a random id), per address and in total. A Mac that had turned codes on before the choice
+    existed keeps the cloud until the user picks again.
+
+  Both engines answer the same way and go through the same guard: the code must appear in the
+  message as a whole token (or as digit groups of 3 or more, such as "482 913"), with 4 to 8
+  letters or digits and a digit in every part; "5 min me" or a date such as 30-10-26 is refused.
+  Otherwise, or after 2 seconds, the plain notification shows.
+- **Copying:** the banner's Copy code button, a click on the banner, or the panel's code card (ten
+  minutes). The copy is marked concealed and transient (clipboard managers and Automatic clipboard
+  skip it), stays on this Mac (no Universal Clipboard), and is cleared after 60 seconds unless
+  something else was copied since; Bridgey compares change counts and never reads the clipboard.
+  "Copy automatically" (off by default) copies a new code only when the Mac is unlocked and was
+  used in the last two minutes.
+- **Privacy:** codes and message text are never logged on either side, whatever Settings > Privacy
+  > Logging says (SMS-app notifications log without title and text). Notification history, when on,
+  keeps "Sent a one-time code" for a code message, never the code. Diagnostics record only the
+  outcome (found, none, timeout, rate limited, unavailable, model missing). llama.cpp's own log is
+  switched off.
+- **Code access (Android 15 and later):** Android hides the text of notifications it thinks hold a
+  code from notification readers it does not trust. Settings > Notifications on the phone shows
+  "Code access: allowed / hidden by Android / not linked" (the Mac shows the same for the selected
+  phone). **Link this phone to the Mac** (on the phone, or from the Mac, which sends the phone a
+  notification to tap) has the Mac advertise over Bluetooth for a minute, Android's own dialog finds
+  it, and one Allow creates a Companion Device Manager association; Bridgey then reconnects its
+  notification access. The fallback is the one-time command
+  `adb shell cmd appops set --user 0 in.roundrobin.bridgey RECEIVE_SENSITIVE_NOTIFICATIONS allow`,
+  shown with Copy on the phone. Removing the link in Android settings may also turn off Bridgey's
+  notification access. The Mac asks for Bluetooth permission the first time it advertises.
+- **Code reader test (Phase 0, beta and nightly only):** Settings > About, tap the version 7 times,
+  Performance test, Code reader test. It reads the last 500, 2,000 or 5,000 SMS on the phone into
+  memory, runs the pattern baseline and, only if "Send code-like test messages to the cloud
+  provider" is ticked (off by default), the relay on up to 120 code-like messages (every one the
+  pattern flagged first). Disagreements and a random audit of 20 agreed "code" and 20 agreed "no
+  code" messages are shown one at a time to confirm (screenshots blocked). The report has totals
+  only (right, wrong, missed, false alarms, latency, by script and sender kind, how many SMS
+  notifications Android hid during the test) and exports as JSON without any message, code or
+  sender. `READ_SMS` is declared only in non-stable builds (`src/lab/AndroidManifest.xml`, applied
+  by `build.gradle.kts` when the version is not `x.y.z-rr.N`), asked for only at Start, and Bridgey
+  asks Android to drop it at the next restart when the test ends (Restart Bridgey button), with the
+  manual path shown.
+
+### On-device code model
+
+- **Where it comes from:** the fixed GitHub release `models` (prerelease, never "latest") on
+  `round-robin-solutions/bridgey` holds `otp-model.json` (the manifest), the model files
+  `bridgey-otp-v<N>.gguf`, `NOTICE`, the Gemma Terms of Use and Prohibited Use Policy, and
+  Bridgey's model terms. The manifest gives version, URL, size, SHA-256, the licence links and a
+  terms version. The app ships the manifest it was built with (`macos/Resources/otp-model.json`)
+  and reads `rr-edition.properties` `OTP_MODEL_MANIFEST_URL` (at most every six hours, when the
+  Codes card opens); a higher version is offered as **Update** without an app update. Model URLs
+  must start with `UPDATE_ASSET_URL_PREFIX`.
+- **Before the download:** a sheet says what it does, that it runs on this Mac and nothing leaves
+  it, the exact size ("253 MB, one time") and that this is normal for an on-device model, the free
+  space, and "Wi-Fi recommended". The Download button needs a tick accepting the Gemma Terms of
+  Use, the Gemma Prohibited Use Policy and Bridgey's model terms (all linked) and enough space
+  (size plus 100 MB). Each acceptance is kept in the app's preferences
+  (`settings.codes.model.acceptance`: date, model version, terms version); an update under the same
+  terms version does not ask again.
+- **Download:** progress with MB of MB, speed and time left, Pause, Resume and Cancel, in Settings
+  and as a card in the menu-bar panel. It resumes with an HTTP Range request after a pause, a lost
+  connection (on its own when the network returns) or an app restart (`Models/download.json` keeps
+  the state; a download the user paused stays paused). The SHA-256 is checked at the end; a damaged
+  file is fetched once more before Bridgey says so. Errors are plain: no space, offline, damaged,
+  server.
+- **After:** "Code model ready" with **Test** (reads a synthetic message and shows the code and the
+  time) and **Remove** (deletes the file and turns codes off while On this Mac is chosen). Right
+  after a download Bridgey reads three synthetic messages once, so the one-time Metal shader
+  compile (several seconds on a Mac's first run; macOS keeps the result) never delays a real code.
+- **Storage:** `~/Library/Application Support/in.roundrobin.bridgey/Models/` (owner only, excluded
+  from backups).
+- **Licence:** the app code stays MIT. The model is a Model Derivative of Gemma, so it ships under
+  the Gemma Terms of Use: `NOTICE` and `licences/` in the repository, the same texts in the app
+  (Settings > About > Licences) and on the `models` release, and Bridgey's model terms
+  (`licences/BRIDGEY-MODEL-TERMS.txt`) pass on Google's use restrictions as a condition of use.
+  llama.cpp (b11899, MIT) is a SwiftPM binary target; `build-app.sh` embeds it, thins it to the
+  app's architectures and signs it. It is built for macOS 13.3 and later; on older systems On this
+  Mac shows as not available.
+- **Published:** model version 1 is `bridgey-otp-v1.gguf` (253,115,744 bytes, SHA-256
+  `69fe14b205ecaebbd1fa5d167f48a25c687b493341ff92476ca163a2ea12390f`) at
+  https://github.com/round-robin-solutions/bridgey/releases/tag/models. Its GGUF metadata
+  (`general.name`, `general.description`) states that Round Robin modified it; the weights are the
+  research model v3 unchanged.
+- **Publishing a new model:** stamp the modification notice into the GGUF metadata, upload `bridgey-otp-v<N>.gguf` to the `models` release, then replace
+  `otp-model.json` with the new version, size and SHA-256, and update `macos/Resources/otp-model.json`
+  for the next app build. Training data, evals and the decision rule are in Round Robin's research
+  notes (`outputs/bridgey/research/otp-tiny-model/`).
 
 ## Versions
 

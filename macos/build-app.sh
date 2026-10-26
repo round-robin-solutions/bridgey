@@ -30,6 +30,17 @@ cp ".build/$CONFIGURATION/BridgeyMac" "$APP_PATH/Contents/MacOS/BridgeyMac"
 cp "Resources/Info.plist" "$APP_PATH/Contents/Info.plist"
 PLIST_BUDDY=/usr/libexec/PlistBuddy
 "$PLIST_BUDDY" -c "Add :SUFeedURL string $FEED_BASE_URL/appcast.xml" "$APP_PATH/Contents/Info.plist"
+# Codes from messages: the relay (services/otp-proxy). Empty means the switch says "not available".
+CODE_RELAY_URL=$(sed -n "s/^OTP_PROXY_URL=//p" ../rr-edition.properties | tail -n 1)
+if [ -n "$CODE_RELAY_URL" ]; then
+  "$PLIST_BUDDY" -c "Add :BridgeyCodeRelayURL string $CODE_RELAY_URL" "$APP_PATH/Contents/Info.plist"
+fi
+# Codes from messages > On this Mac: the model manifest (updates without an app update), and the
+# only place model files may come from.
+CODE_MODEL_MANIFEST_URL=$(edition_value OTP_MODEL_MANIFEST_URL)
+ASSET_URL_PREFIX=$(edition_value UPDATE_ASSET_URL_PREFIX)
+"$PLIST_BUDDY" -c "Add :BridgeyCodeModelManifestURL string $CODE_MODEL_MANIFEST_URL" "$APP_PATH/Contents/Info.plist"
+"$PLIST_BUDDY" -c "Add :BridgeyAssetURLPrefix string $ASSET_URL_PREFIX" "$APP_PATH/Contents/Info.plist"
 test "$("$PLIST_BUDDY" -c "Print :CFBundleIdentifier" "$APP_PATH/Contents/Info.plist")" = "$EDITION_APP_ID"
 # Release builds get their version from scripts/rr (see docs/rr-edition.md).
 if [ -n "${BRIDGEY_VERSION_NAME:-}" ]; then
@@ -50,6 +61,28 @@ ditto "$SPARKLE_FRAMEWORK" "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 if ! otool -l "$APP_PATH/Contents/MacOS/BridgeyMac" | grep -q "@executable_path/../Frameworks"; then
   install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_PATH/Contents/MacOS/BridgeyMac"
 fi
+# llama.cpp (MIT) for the on-device code model, also a SwiftPM binary framework. The release
+# framework is universal; keep only the architectures the app itself was built for.
+LLAMA_FRAMEWORK=".build/$CONFIGURATION/llama.framework"
+if [ ! -d "$LLAMA_FRAMEWORK" ]; then
+  LLAMA_FRAMEWORK=$(find .build/artifacts -path "*macos*/llama.framework" -type d -prune | head -n 1)
+fi
+[ -d "$LLAMA_FRAMEWORK" ] || { echo "llama.framework not found; run swift build first" >&2; exit 1; }
+ditto "$LLAMA_FRAMEWORK" "$APP_PATH/Contents/Frameworks/llama.framework"
+LLAMA_BINARY="$APP_PATH/Contents/Frameworks/llama.framework/Versions/A/llama"
+APP_ARCHS=$(lipo -archs "$APP_PATH/Contents/MacOS/BridgeyMac")
+if [ "$(lipo -archs "$LLAMA_BINARY")" != "$APP_ARCHS" ]; then
+  set --
+  for arch in $APP_ARCHS; do set -- "$@" -extract "$arch"; done
+  lipo "$LLAMA_BINARY" "$@" -output "$LLAMA_BINARY.thin"
+  mv "$LLAMA_BINARY.thin" "$LLAMA_BINARY"
+fi
+# The bundled model manifest, the licences (About > Licences) and the Gemma notice.
+cp Resources/otp-model.json "$APP_PATH/Contents/Resources/otp-model.json"
+mkdir -p "$APP_PATH/Contents/Resources/Licences"
+cp ../NOTICE "$APP_PATH/Contents/Resources/Licences/NOTICE.txt"
+cp ../LICENSE "$APP_PATH/Contents/Resources/Licences/LICENSE.txt"
+cp ../licences/*.txt "$APP_PATH/Contents/Resources/Licences/"
 # Space Grotesk and Inter (SIL OFL), with their licences.
 mkdir -p "$APP_PATH/Contents/Resources/Fonts"
 cp Resources/Fonts/*.ttf Resources/Fonts/*-OFL.txt "$APP_PATH/Contents/Resources/Fonts/"
@@ -120,6 +153,7 @@ done
 sign_code "$SPARKLE_VERSIONED/Autoupdate"
 sign_code "$SPARKLE_VERSIONED/Updater.app"
 sign_code "$APP_PATH/Contents/Frameworks/Sparkle.framework"
+sign_code "$APP_PATH/Contents/Frameworks/llama.framework"
 if [ -n "$APP_REQUIREMENT" ]; then
   sign_code --entitlements Resources/Bridgey.entitlements --requirements "$APP_REQUIREMENT" "$APP_PATH"
 else

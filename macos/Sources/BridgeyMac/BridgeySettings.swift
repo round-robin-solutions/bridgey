@@ -97,6 +97,15 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var folderIncludeHidden: Bool
     /// Files > Include system files when sending folders (.DS_Store, ._*, Thumbs.db, ...). Off by default.
     @Published private(set) var folderIncludeSystem: Bool
+    /// Notifications > Codes from messages: read SMS text that looks like it has a code and show the
+    /// code with a Copy button. Off by default.
+    @Published private(set) var codesEnabled: Bool
+    /// Notifications > Codes from messages > Read codes: on this Mac (default) or the cloud relay.
+    @Published private(set) var codesEngine: CodeEngine
+    /// Every acceptance of the on-device model's terms, oldest first, with its date and model version.
+    @Published private(set) var codeModelAcceptances: [CodeModelAcceptance]
+    /// Notifications > Codes from messages > Copy automatically. Off by default.
+    @Published private(set) var codesAutoCopy: Bool
 
     private let defaults = UserDefaults.standard
 
@@ -125,6 +134,14 @@ final class BridgeySettings: ObservableObject {
         ).bytes
         folderIncludeHidden = storedDefaults.bool(forKey: "settings.folders.includeHidden")
         folderIncludeSystem = storedDefaults.bool(forKey: "settings.folders.includeSystem")
+        let codesOn = storedDefaults.bool(forKey: "settings.codes.enabled")
+        codesEnabled = codesOn
+        codesAutoCopy = storedDefaults.bool(forKey: "settings.codes.autoCopy")
+        let engine = CodeEngine.stored(storedDefaults.string(forKey: "settings.codes.engine"), codesWereEnabled: codesOn)
+        // Settle the choice once, so turning codes on later never reads as an old cloud opt-in.
+        storedDefaults.set(engine.rawValue, forKey: "settings.codes.engine")
+        codesEngine = engine
+        codeModelAcceptances = CodeModelAcceptance.decode(storedDefaults.data(forKey: "settings.codes.model.acceptance"))
         globalFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
             ($0, storedDefaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media && $0 != .remoteInput))
         })
@@ -165,6 +182,43 @@ final class BridgeySettings: ObservableObject {
     func setNotificationHistoryEnabled(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.notificationHistory.enabled")
         notificationHistoryEnabled = enabled
+    }
+
+    func setCodesEnabled(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.codes.enabled")
+        codesEnabled = enabled
+    }
+
+    func setCodesAutoCopy(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.codes.autoCopy")
+        codesAutoCopy = enabled
+    }
+
+    func setCodesEngine(_ engine: CodeEngine) {
+        defaults.set(engine.rawValue, forKey: "settings.codes.engine")
+        codesEngine = engine
+    }
+
+    /// The newest acceptance, if it covers `manifest`'s terms.
+    func codeModelAcceptance(for manifest: CodeModelManifest) -> CodeModelAcceptance? {
+        codeModelAcceptances.last.flatMap { $0.covers(manifest) ? $0 : nil }
+    }
+
+    /// Records that the user accepted the Gemma Terms of Use, the Prohibited Use Policy and Bridgey's
+    /// model terms for `manifest`, on `date`.
+    func recordCodeModelAcceptance(_ manifest: CodeModelManifest, at date: Date = Date()) {
+        // Whole seconds, as the ISO 8601 record keeps them.
+        let record = CodeModelAcceptance(acceptedAt: Date(timeIntervalSince1970: date.timeIntervalSince1970.rounded(.down)), modelVersion: manifest.version, termsVersion: manifest.termsVersion)
+        codeModelAcceptances.append(record)
+        if let data = CodeModelAcceptance.encode(codeModelAcceptances) { defaults.set(data, forKey: "settings.codes.model.acceptance") }
+    }
+
+    /// The relay's rate-limit key for this Mac: random, made on first use, never tied to the user.
+    var codesInstallID: String {
+        if let stored = defaults.string(forKey: "settings.codes.installId"), CodeRelay.isInstallID(stored) { return stored }
+        let created = CodeRelay.newInstallID()
+        defaults.set(created, forKey: "settings.codes.installId")
+        return created
     }
 
     func setShowActivityPreviews(_ enabled: Bool) {

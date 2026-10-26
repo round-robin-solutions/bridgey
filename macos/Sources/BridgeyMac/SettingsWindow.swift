@@ -88,6 +88,16 @@ struct SettingsModel {
     var notificationPermissionDetermined = true
     var historyEnabled = false
     var history: [NotificationHistoryItem] = []
+    /// Notifications > Codes from messages.
+    var codesEnabled = false
+    var codesAutoCopy = false
+    /// The build has a relay address (rr-edition.properties OTP_PROXY_URL).
+    var codesAvailable = true
+    var codesEngine: CodeEngine = .local
+    /// On this Mac: the model's download and state.
+    var codeModel = CodeModelDisplay()
+    var codeAccess: CodeAccessDisplay = .noPhone
+    var codeLinkStatus: String?
     var shortcutKeys: [ShortcutAction: String] = [:]
     var shortcutShift = false
     var shortcutError: String?
@@ -157,6 +167,22 @@ struct SettingsActions {
     var lookForDevices: () -> Void = {}
     var enableNotifications: () -> Void = {}
     var setHistoryEnabled: (Bool) -> Void = { _ in }
+    var setCodesEnabled: (Bool) -> Void = { _ in }
+    var setCodesAutoCopy: (Bool) -> Void = { _ in }
+    var setCodesEngine: (CodeEngine) -> Void = { _ in }
+    /// Records the acceptance of the model's terms, then downloads the newest model.
+    var acceptAndDownloadCodeModel: () -> Void = {}
+    /// An update whose terms were already accepted.
+    var downloadCodeModel: () -> Void = {}
+    var pauseCodeModel: () -> Void = {}
+    var resumeCodeModel: () -> Void = {}
+    var cancelCodeModel: () -> Void = {}
+    var retryCodeModel: () -> Void = {}
+    var removeCodeModel: () -> Void = {}
+    var testCodeModel: () -> Void = {}
+    /// Free space and the manifest (for updates), when the card appears.
+    var refreshCodeModel: () -> Void = {}
+    var linkPhone: () -> Void = {}
     var clearHistory: () -> Void = {}
     var setShortcut: (ShortcutAction, String) -> Void = { _, _ in }
     var setShortcutShift: (Bool) -> Void = { _ in }
@@ -618,6 +644,7 @@ private struct NotificationsPane: View {
             FeatureSwitch(feature: .notifications, model: model, actions: actions)
             NotificationPermissionRow(model: model, actions: actions)
         }
+        CodesCard(model: model, actions: actions)
         NotificationHistoryCard(model: model, actions: actions)
     }
 }
@@ -1172,6 +1199,7 @@ struct AboutPane: View {
             SettingsRow(title: L10n.text("about.network", fallback: "Your data"),
                         subtitle: L10n.text("about.network.detail", fallback: "Bridgey talks directly over your local network. Clipboard, files and notification content are encrypted in transit.")) { EmptyView() }
         }
+        LicencesCard()
         PerfTestPanel()
     }
 }
@@ -1222,6 +1250,7 @@ private struct LiveSettingsView: View {
     @ObservedObject var shortcuts: ShortcutSettings
     @ObservedObject var remoteInput: RemoteInputHost
     @ObservedObject var remoteAudit: RemoteControlAuditLog
+    @ObservedObject var codeModel: CodeModelStore
     @State private var pane: SettingsPane = .devices
     @State private var phoneLinkStatus: String?
     /// While Remote control is open: notices Accessibility being allowed in System Settings.
@@ -1237,6 +1266,22 @@ private struct LiveSettingsView: View {
         shortcuts = pairing.shortcuts
         remoteInput = pairing.remoteInput
         remoteAudit = pairing.remoteInput.audit
+        codeModel = pairing.codeModel
+    }
+
+    private var codeModelDisplay: CodeModelDisplay {
+        var display = CodeModelDisplay()
+        display.available = codeModel.isAvailable
+        display.manifest = codeModel.manifest
+        display.installed = codeModel.installed
+        display.download = codeModel.download
+        display.update = codeModel.update
+        display.availableSpace = codeModel.availableSpace
+        display.testResult = codeModel.testResult
+        display.testing = codeModel.testing
+        display.acceptance = settings.codeModelAcceptances.last
+        display.acceptanceCovers = codeModel.manifest.map { settings.codeModelAcceptance(for: $0) != nil } ?? false
+        return display
     }
 
     var body: some View {
@@ -1281,6 +1326,13 @@ private struct LiveSettingsView: View {
         model.notificationPermissionDetermined = pairing.notificationPermissionDetermined
         model.historyEnabled = settings.notificationHistoryEnabled
         model.history = pairing.notificationHistory
+        model.codesEnabled = settings.codesEnabled
+        model.codesAutoCopy = settings.codesAutoCopy
+        model.codesAvailable = CodeRelay.baseURL != nil
+        model.codesEngine = settings.codesEngine
+        model.codeModel = codeModelDisplay
+        model.codeAccess = pairing.codeAccessForSelectedPhone
+        model.codeLinkStatus = pairing.codeLinkStatus
         model.shortcutKeys = shortcuts.keys
         model.shortcutShift = shortcuts.useShift
         model.shortcutError = shortcuts.error
@@ -1348,6 +1400,32 @@ private struct LiveSettingsView: View {
         actions.lookForDevices = { pairing.lookForDevices() }
         actions.enableNotifications = { pairing.enableNotifications() }
         actions.setHistoryEnabled = { settings.setNotificationHistoryEnabled($0) }
+        actions.setCodesEnabled = { settings.setCodesEnabled($0) }
+        actions.setCodesAutoCopy = { settings.setCodesAutoCopy($0) }
+        actions.setCodesEngine = { settings.setCodesEngine($0) }
+        actions.acceptAndDownloadCodeModel = {
+            guard let manifest = codeModel.manifest else { return }
+            settings.recordCodeModelAcceptance(manifest)
+            codeModel.start()
+        }
+        actions.downloadCodeModel = {
+            guard let manifest = codeModel.manifest, settings.codeModelAcceptance(for: manifest) != nil else { return }
+            codeModel.start()
+        }
+        actions.pauseCodeModel = { codeModel.pause() }
+        actions.resumeCodeModel = { codeModel.resume() }
+        actions.cancelCodeModel = { codeModel.cancel() }
+        actions.retryCodeModel = { codeModel.retry() }
+        actions.removeCodeModel = {
+            codeModel.remove()
+            if settings.codesEngine == .local { settings.setCodesEnabled(false) }
+        }
+        actions.testCodeModel = { codeModel.runTest() }
+        actions.refreshCodeModel = {
+            codeModel.refreshSpace()
+            Task { await codeModel.refreshManifest() }
+        }
+        actions.linkPhone = { pairing.requestCompanionLink() }
         actions.clearHistory = { pairing.clearNotificationHistory() }
         actions.setShortcut = { action, key in shortcuts.setKey(key, for: action) }
         actions.setShortcutShift = { shortcuts.setShift($0) }

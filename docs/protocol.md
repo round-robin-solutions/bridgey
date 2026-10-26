@@ -106,8 +106,9 @@ version 1 payload contains a complete boolean map for `clipboard`, `files`,
 available only when both peers report the corresponding feature as enabled. Clients
 predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
-advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`) are
-optional booleans described in their own sections; a missing draft key means `false`.
+advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
+`sms_codes_draft1`) are optional booleans described in their own sections; a missing draft key
+means `false`.
 
 ## Pairing flow
 
@@ -568,6 +569,55 @@ is idle; an idle state must hold for 1.5 s) and then adds `"callEnded": true` to
 the reference payload. macOS removes a call card at once when `callEnded` is
 true; without it (an older Android release) the card stays for 2 s and survives
 if the call is posted again in that time.
+
+### Codes from messages (`sms_codes_draft1`)
+
+Status: **Draft, edition only.** Bridgey by Round Robin shows one-time codes from text messages on
+the Mac ("Code 482913 from HDFC Bank" with Copy code). The Mac finds the code; the phone marks SMS
+notifications and makes Android show their text to Bridgey. Upstream peers never see any of this:
+they ignore the extra fields and never receive the messages below.
+
+**Negotiation.** `features.update` gains the boolean key `sms_codes_draft1`. Each side sets it when
+notifications are on for that peer. A missing key means `false`; the `codes.*` messages go only to a
+peer whose latest `features.update` showed `true`.
+
+**Fields on `notifications.post`** (phone to Mac, inside the encrypted payload):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `smsDefaultApp` | boolean, every notification | the notification came from the phone's default SMS app |
+| `redacted` | boolean, only with `smsDefaultApp: true` | Android replaced the text with its "Sensitive notification content hidden" placeholder |
+
+A Mac without these fields (an older phone) treats a short list of known SMS packages as SMS apps.
+The Mac looks for a code only in an SMS-app notification that is not `redacted`, when its own
+"Codes from messages" setting is on (off by default). It sends the text to the relay described in
+`services/otp-proxy/README.md`, accepts the answer only if it appears verbatim in the message and
+looks like a code (4 to 10 letters or digits, every part with a digit, an optional one or two letter
+prefix such as `G-`), and otherwise, or after 2 seconds, posts the plain notification. The code
+notification replaces the plain one under the same request identifier, so there is never a second
+banner. Message text and codes are never logged on either side, whatever the logging settings say.
+
+**Messages.** All are encrypted on the authenticated session like `quick.request` (outer `kind`,
+`sessionId`, unique `messageId`, `nonce`, `ciphertext`; the `messageId` goes into the replay
+window). The plaintext is UTF-8 JSON of at most 1,024 bytes with `version: 1`.
+
+| Message | Direction | Fields | Meaning |
+| --- | --- | --- | --- |
+| `codes.status` | phone to Mac | `status`: `allowed`, `hidden` or `not_linked` | whether Android shows Bridgey the text of code messages; sent after each `features.update` with the key and whenever it changes |
+| `codes.link_request` | Mac to phone | none | the Mac's "Link this phone to the Mac" button; the phone shows a notification that opens the link flow |
+| `codes.advertise` | phone to Mac | `serviceUuid` (a random UUID per attempt) | start a Bluetooth LE advertisement of that 128-bit service UUID for 60 seconds |
+| `codes.advertise_result` | Mac to phone | `serviceUuid`, `ok`; `reason` when not ok: `bluetooth_off`, `unauthorized`, `unsupported` or `failed` | the advertisement started, or why not |
+| `codes.advertise_stop` | phone to Mac | `serviceUuid`, `linked` | stop advertising (the link was made, or the attempt ended) |
+
+**Companion link.** Since Android 15, Android hides the text of notifications it thinks hold a code
+from notification listeners it does not trust; an app with any Companion Device Manager association
+is trusted. After `codes.advertise_result` with `ok: true`, the phone calls
+`CompanionDeviceManager.associate` with a single-device `BluetoothLeDeviceFilter` for that service
+UUID. Android shows its own dialog; when the person allows it, the phone reconnects its notification
+listener (Android decides trust when a listener connects) and sends `codes.advertise_stop` with
+`linked: true`. Nothing ever connects over Bluetooth. A Mac that receives `codes.advertise` while
+notifications are off for that phone ignores it, and the phone gives up after 45 seconds. The
+one-time fallback is `adb shell cmd appops set --user 0 <package> RECEIVE_SENSITIVE_NOTIFICATIONS allow`.
 
 ### Find device (`find-device.v1`)
 

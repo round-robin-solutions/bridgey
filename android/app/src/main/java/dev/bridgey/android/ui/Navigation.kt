@@ -67,6 +67,11 @@ sealed interface Route {
         override val key = "perf_test"
     }
 
+    /** Lab builds: the Code reader test (Phase 0), opened from the Performance test. */
+    data object CodeTest : Route {
+        override val key = "code_test"
+    }
+
     /** Settings › Files › Places. */
     data object Places : Route {
         override val key = "places"
@@ -79,6 +84,7 @@ sealed interface Route {
             key == Devices.key -> Devices
             key == NotificationApps.key -> NotificationApps
             key == PerfTest.key -> PerfTest
+            key == CodeTest.key -> CodeTest
             key == Places.key -> Places
             key.startsWith("settings:") -> SettingsSection.entries
                 .firstOrNull { it.name.lowercase() == key.removePrefix("settings:") }
