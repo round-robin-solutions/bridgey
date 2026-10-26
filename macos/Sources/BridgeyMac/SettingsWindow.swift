@@ -109,7 +109,13 @@ struct SettingsModel {
     }
 
     func isEnabled(_ feature: BridgeyFeature, for deviceID: String) -> Bool {
-        globalFeatures[feature] != false && deviceFeatures[deviceID]?[feature] != false
+        if feature.needsDeviceGrant { return globalFeatures[feature] == true && remoteGrant(for: deviceID) }
+        return globalFeatures[feature] != false && deviceFeatures[deviceID]?[feature] != false
+    }
+
+    /// Remote control is granted to each phone on its own; nothing is granted by default.
+    func remoteGrant(for deviceID: String) -> Bool {
+        deviceFeatures[deviceID]?[.remoteInput] == true
     }
 
     func isAutoClipboardEnabled(for deviceID: String) -> Bool {
@@ -772,6 +778,7 @@ extension BridgeyFeature {
         case .links: L10n.text("feature.links.detail", fallback: "Open links in either direction")
         case .media: L10n.text("feature.media.detail", fallback: "Control this Mac\u{2019}s music from the phone")
         case .calls: L10n.text("feature.calls.detail", fallback: "Start calls on the phone from this Mac")
+        case .remoteInput: L10n.text("feature.remoteInput.detail", fallback: "Let a phone you allow move the pointer, type and change slides")
         }
     }
 }
