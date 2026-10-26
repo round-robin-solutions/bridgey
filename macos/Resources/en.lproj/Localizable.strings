@@ -294,3 +294,20 @@
 "perf.cancelled" = "Stopped. Nothing was kept.";
 "perf.copy" = "Copy results";
 "perf.share" = "Share as JSON";
+
+/* Reconnecting and Look for devices again */
+"ring.reconnecting" = "Reconnecting…";
+"ring.retrying" = "Retrying…";
+"ring.cantReach" = "Can’t reach. Retrying";
+"ring.lastSeen" = "%1$@ (last seen %2$@)";
+"ring.reconnecting.help" = "Reconnecting to %@. Click to retry now.";
+"ring.cantReach.help" = "Can’t reach %@. Bridgey keeps retrying. Click to retry now.";
+"panel.retryNow" = "Retry now";
+"panel.lookAgain" = "Look for devices again";
+"devices.lookAgain.detail" = "Announces this Mac again and retries every paired device now";
+"devices.lookAgain.action" = "Look again";
+"rediscover.looking" = "Looking for devices…";
+"rediscover.found" = "Found %@";
+"rediscover.missing" = "Still can’t reach %@";
+"rediscover.none" = "No new devices found";
+"rediscover.count" = "%d devices";
