@@ -193,18 +193,44 @@ class SessionRegistryTest {
         assertEquals(workMac, registry.target("offline-mac"))
     }
 
+    /**
+     * Both apps now redial, so after a drop the phone's socket (A) and the Mac's (B) often
+     * authenticate together. In every order, both ends keep A and closing B never reports the
+     * device as disconnected (no flapping).
+     */
     @Test
-    fun backoffIsPerDevice() {
-        val backoff = ReconnectBackoff()
-        assertTrue(backoff.mayDial(workMac, 0))
-        backoff.dialed(workMac, 0)
-        assertFalse(backoff.mayDial(workMac, 500))
-        assertTrue(backoff.mayDial("other-mac", 500))
-        assertTrue(backoff.mayDial(workMac, 1_000))
-        backoff.dialed(workMac, 1_000)
-        assertEquals(2_000, backoff.waitMillis(workMac, 1_000))
-        backoff.connected(workMac)
-        assertTrue(backoff.mayDial(workMac, 1_000))
+    fun bothSidesDialingAtOnceSettleOnTheSameSocket() {
+        val phone = "m-phone"
+        val mac = "z-mac"
+        for (macFirst in listOf(true, false)) {
+            for (phoneFirst in listOf(true, false)) {
+                val a = FakeSession("A: phone dialled")
+                val b = FakeSession("B: Mac dialled")
+                val onMac = SessionRegistry<FakeSession>(mac)
+                val onPhone = SessionRegistry<FakeSession>(phone)
+                onMac.addPending(a, initiatedLocally = false)
+                onMac.addPending(b, initiatedLocally = true)
+                onPhone.addPending(a, initiatedLocally = true)
+                onPhone.addPending(b, initiatedLocally = false)
+                fun SessionRegistry<FakeSession>.settle(order: List<FakeSession>, remote: String): List<FakeSession> = order.mapNotNull { session ->
+                    when (val admission = authenticate(session, remote, session.name)) {
+                        SessionRegistry.Admission.Rejected -> session
+                        is SessionRegistry.Admission.Accepted -> admission.replaced
+                    }
+                }
+                val closedOnMac = onMac.settle(if (macFirst) listOf(a, b) else listOf(b, a), phone)
+                val closedOnPhone = onPhone.settle(if (phoneFirst) listOf(a, b) else listOf(b, a), mac)
+                assertSame(a, onMac.session(phone))
+                assertSame(a, onPhone.session(mac))
+                assertEquals(listOf(b), closedOnMac)
+                assertEquals(listOf(b), closedOnPhone)
+                // The loser's reader ends on both sides: neither reports a disconnect.
+                assertNull(onMac.remove(b))
+                assertNull(onPhone.remove(b))
+                assertEquals(listOf(phone), onMac.connectedIds())
+                assertEquals(listOf(mac), onPhone.connectedIds())
+            }
+        }
     }
 
     @Test

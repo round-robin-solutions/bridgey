@@ -101,6 +101,9 @@ struct SettingsModel {
     var shortVersion = "Development"
     var versionDescription = "Development"
     var phoneLinkStatus: String?
+    /// "Look for devices again": running, and its feedback line.
+    var rediscovering = false
+    var rediscoverStatus: String?
     var now = Date()
 
     var connectedDeviceID: String? {
@@ -130,6 +133,8 @@ struct SettingsActions {
     var setClipboardEagerLimit: (ClipboardEagerLimit) -> Void = { _ in }
     var forget: (String) -> Void = { _ in }
     var pair: (DeviceRing) -> Void = { _ in }
+    var retryDevice: (String) -> Void = { _ in }
+    var lookForDevices: () -> Void = {}
     var enableNotifications: () -> Void = {}
     var setHistoryEnabled: (Bool) -> Void = { _ in }
     var clearHistory: () -> Void = {}
@@ -788,6 +793,17 @@ private struct DevicesPane: View {
                             divider: false) { EmptyView() }
             }
         }
+        SettingsCard {
+            SettingsRow(
+                title: L10n.text("panel.lookAgain", fallback: "Look for devices again"),
+                subtitle: model.rediscoverStatus ?? L10n.text("devices.lookAgain.detail", fallback: "Announces this Mac again and retries every paired device now"),
+                divider: false
+            ) {
+                Button(L10n.text("devices.lookAgain.action", fallback: "Look again")) { actions.lookForDevices() }
+                    .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+                    .disabled(model.rediscovering)
+            }
+        }
         ForEach(model.trustedDevices) { device in
             DeviceCard(device: device, model: model, actions: actions)
         }
@@ -807,7 +823,12 @@ struct DeviceCard: View {
         SettingsCard {
             HStack(spacing: 12) {
                 DeviceRingView(state: ring?.state ?? .offline, platform: ring?.platform, size: 36)
-                RowText(title: device.name, subtitle: ring.map(ringStatusText) ?? L10n.text("ring.offline", fallback: "Offline"))
+                RowText(title: device.name, subtitle: ring.map { ringStatusDetail($0, now: model.now) } ?? L10n.text("ring.offline", fallback: "Offline"))
+                if ring?.canRetry == true {
+                    Button(L10n.text("panel.retryNow", fallback: "Retry now")) { actions.retryDevice(device.id) }
+                        .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                        .help(ring.map(ringRetryHelp) ?? "")
+                }
                 Button(L10n.text("action.forget", fallback: "Forget")) { confirmForget = true }
                     .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
             }
@@ -1107,7 +1128,10 @@ private struct LiveSettingsView: View {
         model.state = pairing.state
         model.connectedCount = pairing.connectedPhones.count
         model.trustedDevices = pairing.trustedDevices
-        model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, connected: pairing.connectedPhones, pairing: pairing.pairingFlow)
+        model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, connected: pairing.connectedPhones,
+                                  pairing: pairing.pairingFlow, reconnecting: pairing.reconnectStates)
+        model.rediscovering = pairing.isRediscovering
+        model.rediscoverStatus = pairing.rediscoverStatus
         model.globalFeatures = settings.globalFeatures
         model.deviceFeatures = settings.deviceFeatures
         model.remoteFeatures = pairing.remoteFeatures
@@ -1172,6 +1196,8 @@ private struct LiveSettingsView: View {
             guard let host = ring.peer?.host, let port = ring.peer?.port else { return }
             pairing.pair(host: host, port: port, peerName: ring.name)
         }
+        actions.retryDevice = { pairing.retryNow(deviceID: $0) }
+        actions.lookForDevices = { pairing.lookForDevices() }
         actions.enableNotifications = { pairing.enableNotifications() }
         actions.setHistoryEnabled = { settings.setNotificationHistoryEnabled($0) }
         actions.clearHistory = { pairing.clearNotificationHistory() }

@@ -187,13 +187,64 @@ class StreamScreenshotTest {
         SettingsScreen(state = settingsState(), actions = SettingsActions())
     }
 
-    /** Scrolled so the Clipboard section (its label is item index 4) leads the page. */
+    /** Scrolled so the Clipboard section (its label is item index 5) leads the page. */
     private fun settingsClipboard() = capture(if (dark()) "settings-clipboard-dark" else "settings-clipboard-light") {
         SettingsScreen(
             state = settingsState(),
             actions = SettingsActions(),
-            listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = 4),
+            listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = 5),
         )
+    }
+
+    /** The overnight case: the Work MacBook dropped at 02:56 and is being retried. */
+    private val reconnectingRings get() = deviceRings(
+        trusted, peers, emptyList(), PairingState.Idle,
+        mapOf("work" to dev.bridgey.android.ReconnectDisplay(at(2, 56), struggling = true), "mini" to dev.bridgey.android.ReconnectDisplay(at(9, 30), struggling = false)),
+    )
+
+    private fun homeReconnecting() = capture(if (dark()) "home-reconnecting-dark" else "home-reconnecting-light") {
+        val rings = reconnectingRings
+        HomeScreen(
+            state = HomeState(
+                rings = rings,
+                target = rings.first { it.deviceId == "work" },
+                activity = activity,
+                live = listOf(LiveCard.Reconnecting("work", "Work MacBook", "02:56", struggling = true)),
+                canSendClipboard = false,
+                now = now,
+            ),
+            actions = HomeActions(),
+            snackbar = remember { SnackbarHostState() },
+            deviceName = ::nameFor,
+        )
+    }
+
+    private fun deviceReconnecting() = capture(if (dark()) "device-reconnecting-dark" else "device-reconnecting-light") {
+        val ring = reconnectingRings.first { it.deviceId == "mini" }
+        DeviceScreen(
+            state = DeviceState(
+                ring = ring,
+                battery = null,
+                connected = false,
+                available = emptySet(),
+                ringing = false,
+                permissions = emptyList(),
+                notificationAccess = true,
+                notificationAppsEnabled = 12,
+                autoClipboard = true,
+                autoClipboardGlobalOn = true,
+                activity = activity,
+                live = listOf(LiveCard.Reconnecting("mini", "Mac mini", "09:30", struggling = false)),
+                now = now,
+            ),
+            actions = DeviceActions(),
+            snackbar = remember { SnackbarHostState() },
+            deviceName = ::nameFor,
+        )
+    }
+
+    private fun settingsBattery() = capture(if (dark()) "settings-battery-dark" else "settings-battery-light") {
+        SettingsScreen(state = settingsState().copy(batteryExempt = false, keepWifiAwakeSupported = true), actions = SettingsActions())
     }
 
     private fun dark(): Boolean =
@@ -215,6 +266,12 @@ class StreamScreenshotTest {
     @Test fun settingsLight() = settings()
 
     @Test @Config(qualifiers = "+night") fun settingsDark() = settings()
+
+    @Test fun homeReconnectingLight() = homeReconnecting()
+
+    @Test @Config(qualifiers = "+night") fun deviceReconnectingDark() = deviceReconnecting()
+
+    @Test fun settingsBatteryLight() = settingsBattery()
 
     @Test fun settingsClipboardLight() = settingsClipboard()
 

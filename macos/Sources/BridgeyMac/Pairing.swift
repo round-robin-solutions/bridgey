@@ -3,6 +3,7 @@ import Combine
 import CryptoKit
 import Foundation
 import Network
+import os
 import Security
 import Carbon
 import UserNotifications
@@ -224,11 +225,23 @@ final class PairingCoordinator: ObservableObject {
     private var discoveryCancellable: AnyCancellable?
     private var settingsCancellable: AnyCancellable?
     private var lastPeers: [DiscoveredPeer] = []
-    /// Per phone: where this Mac dialled it, reconnect attempts and the pending reconnect.
-    private var trustedEndpoints: [String: (host: String, port: Int, name: String)] = [:]
-    private var reconnectAttempts: [String: Int] = [:]
-    private var reconnectWorkItems: [String: DispatchWorkItem] = [:]
-    private var dialing = Set<String>()
+    /// Reconnects. Both sides keep trying a dropped trusted phone at its known addresses, whoever
+    /// dialled before; the session registry keeps one socket when both dial at once.
+    private let clock: ReconnectClock = MainQueueClock()
+    private lazy var reconnect = ReconnectEngine(addressBook: KnownAddressBook(store: UserDefaultsAddressBookStore()), clock: clock)
+    private var discoveryRestartTimer: ScheduledTask?
+    private var lastDiscoveryRestart = Date.distantPast
+    /// Periodic discovery restarts run for `discoveryRestartWindow` after this moment.
+    private var discoveryWindowStart: Date?
+    private let linkMonitor = LinkEventMonitor()
+    private lazy var linkDebouncer = EventDebouncer(clock: clock) { [weak self] reasons in self?.linkChanged(reasons) }
+    private var restartDiscovery: ((String) -> Void)?
+    /// Each disconnected trusted phone's reconnect state, for the rings and chips.
+    @Published private(set) var reconnectStates: [String: ReconnectDisplay] = [:]
+    /// "Look for devices again": its feedback line, and the run in progress.
+    @Published private(set) var rediscoverStatus: String?
+    private var rediscoverRun: (missing: [String: String], nearbyBefore: Set<String>, finish: ScheduledTask)?
+    private var rediscoverStatusClear: ScheduledTask?
     /// Which phone each file transfer belongs to.
     private var transferDevices: [String: String] = [:]
     private var macRingingFrom: String?
@@ -274,7 +287,8 @@ final class PairingCoordinator: ObservableObject {
     private var cancelledTransferIDs = Set<String>()
     private var findDeviceSound: NSSound?
     private var lastSentBattery: LocalBatteryStatus?
-    private let diagnostics = BridgeyDiagnostics()
+    /// Kept on disk, so the night's drops and retries are still in a report exported next morning.
+    private let diagnostics = BridgeyDiagnostics(limit: 1_000, fileURL: BridgeyDiagnostics.defaultFileURL())
     private let notificationHistoryStore: NotificationHistoryStore
 
     init(deviceID: String, deviceName: String, settings: BridgeySettings) {
@@ -388,6 +402,7 @@ final class PairingCoordinator: ObservableObject {
                     self.refreshAutoClipboard()
                 }
             }
+        startReconnecting()
     }
 
     func refreshNotificationAuthorization() {
@@ -421,9 +436,9 @@ final class PairingCoordinator: ObservableObject {
                 self?.notificationPermissionDetermined = true
             }
             if let error {
-                NSLog("PLUGIN notifications authorization failed error=%@", String(describing: error))
+                BridgeyLog.plugin.error("notifications authorization failed error=\(String(describing: error), privacy: .public)")
             } else {
-                NSLog("PLUGIN notifications authorization granted=%@", String(granted))
+                BridgeyLog.plugin.notice("notifications authorization granted=\(granted, privacy: .public)")
             }
         }
     }
@@ -434,6 +449,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func observe(_ discovery: BonjourDiscovery) {
+        restartDiscovery = { [weak discovery] reason in discovery?.restart(reason: reason) }
         discoveryCancellable = discovery.$peers.sink { [weak self] peers in
             self?.connectTrustedPeerIfNeeded(peers)
         }
@@ -453,22 +469,31 @@ final class PairingCoordinator: ObservableObject {
         }
         pairingFlow = .connecting(peerName)
         publish()
-        NSLog("PAIRING started peer=%@", peerName)
+        BridgeyLog.pairing.notice("pairing started peer=\(peerName, privacy: .private)")
         pairingSession = dial(host: host, port: endpointPort, peerName: peerName, deviceID: nil)
     }
 
     /// Opens a session to a phone. `deviceID` marks a reconnect to a trusted phone (no prompt).
     @discardableResult
     private func dial(host: String, port: NWEndpoint.Port, peerName: String, deviceID dialDeviceID: String?) -> Session {
-        let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: .tcp)
+        let parameters: NWParameters
+        if dialDeviceID != nil {
+            // A reconnect gives up quickly on an address that does not answer; the schedule retries.
+            let tcp = NWProtocolTCP.Options()
+            tcp.connectionTimeout = Int(ReconnectPolicy.connectTimeout)
+            parameters = NWParameters(tls: nil, tcp: tcp)
+        } else {
+            parameters = .tcp
+        }
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: parameters)
         let current = Session(connection: connection, peerName: peerName)
         current.initiatedLocally = true
         current.endpoint = (host, Int(port.rawValue), peerName)
+        current.remoteHost = host
         current.dialDeviceID = dialDeviceID
         current.id = UUID().uuidString.lowercased()
         current.privateKey = P256.KeyAgreement.PrivateKey()
         current.localEphemeralKey = current.privateKey!.publicKey.x963Representation.base64EncodedString()
-        if let dialDeviceID { dialing.insert(dialDeviceID) }
         registry.addPending(current, initiatedLocally: true)
         scheduleConnectionTimeout(for: current)
         configure(current) { [weak self, weak current] in
@@ -478,7 +503,8 @@ final class PairingCoordinator: ObservableObject {
                 sessionId: current.id,
                 deviceId: self.deviceID,
                 deviceName: self.deviceName,
-                publicKey: current.localEphemeralKey
+                publicKey: current.localEphemeralKey,
+                targetDeviceId: current.dialDeviceID
             ))
         }
         return current
@@ -533,7 +559,8 @@ final class PairingCoordinator: ObservableObject {
         disconnect(deviceID: id)
     }
 
-    /// Disconnects one phone; the others stay connected. It reconnects when it next appears.
+    /// Disconnects one phone; the others stay connected. As before, the link comes back through
+    /// the normal reconnect (the phone redials too); Forget is what stops it for good.
     func disconnect(deviceID id: String) {
         guard let current = registry.session(for: id) else { return }
         current.ended = true
@@ -541,7 +568,7 @@ final class PairingCoordinator: ObservableObject {
         current.heartbeat?.cancel()
         registry.remove(current)
         current.close()
-        deviceDisconnected(id)
+        deviceDisconnected(id, reason: "user_disconnect")
     }
 
     /// The send target for single-phone actions (panel chip menu).
@@ -555,10 +582,9 @@ final class PairingCoordinator: ObservableObject {
         trustRegistry.remove(deviceID: deviceID)
         trustedDeviceIDs.remove(deviceID)
         settings.removeDevice(deviceID)
-        trustedEndpoints.removeValue(forKey: deviceID)
-        reconnectWorkItems.removeValue(forKey: deviceID)?.cancel()
+        reconnect.forget(deviceID)
         disconnect(deviceID: deviceID)
-        NSLog("PAIRING revoked peerId=%@", String(deviceID.prefix(8)))
+        BridgeyLog.pairing.notice("pairing revoked peer=\(shortDeviceID(deviceID), privacy: .public)")
     }
 
     /// Recomputes the per-phone list and the selected phone's mirrors (state, features, battery).
@@ -582,8 +608,9 @@ final class PairingCoordinator: ObservableObject {
         }
     }
 
-    /// One phone's session ended: only its calls, transfers and clipboard fetches go.
-    private func deviceDisconnected(_ id: String) {
+    /// One phone's session ended: only its calls, transfers and clipboard fetches go, and its
+    /// reconnect starts.
+    private func deviceDisconnected(_ id: String, reason: String) {
         cancelTransfers(for: id)
         if clipboardInbox.current?.deviceID == id || clipboardOutbox.current?.deviceID == id {
             clipboardConnectionLost()
@@ -598,8 +625,12 @@ final class PairingCoordinator: ObservableObject {
             lastSentBattery = nil
         }
         publish()
-        NSLog("TRANSPORT disconnected peerId=%@", String(id.prefix(8)))
-        diagnostics.record(category: "transport", event: "disconnected", outcome: "reconnecting")
+        BridgeyLog.transport.notice("disconnected peer=\(shortDeviceID(id), privacy: .public) reason=\(reason, privacy: .public)")
+        diagnostics.record(category: "transport", event: "disconnected", outcome: reason, device: id)
+        guard trustedDeviceIDs.contains(id) else { return }
+        reconnect.disconnected(id)
+        discoveryWindowStart = clock.now
+        armDiscoveryRestartTimer()
     }
 
     /// Shows `reason` for the user's pairing; never touches connected phones.
@@ -950,7 +981,7 @@ final class PairingCoordinator: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: timeout)
         clipboardStatus = automatic ? nil : "Sending\u{2026}"
         diagnostics.record(category: "clipboard", event: "offer_sent")
-        NSLog("PLUGIN clipboard offer sent automatic=%@", String(automatic))
+        BridgeyLog.plugin.info("clipboard offer sent automatic=\(automatic, privacy: .public)")
     }
 
     private func receiveClipboardOffer(_ message: PairingMessage, in current: Session) {
@@ -971,7 +1002,7 @@ final class PairingCoordinator: ObservableObject {
         recordClipActivity(.clipOfferReceived, summary: ClipboardOfferSummary(offer), deviceID: current.remoteDeviceID, deviceName: current.peerName)
         diagnostics.record(category: "clipboard", event: "offer_received")
         current.send(PairingMessage(kind: "clipboard.ack", sessionId: current.id, messageId: messageID))
-        NSLog("PLUGIN clipboard offer received")
+        BridgeyLog.plugin.info("clipboard offer received")
     }
 
     private func receiveClipboardFetch(_ message: PairingMessage, in current: Session) {
@@ -1088,7 +1119,7 @@ final class PairingCoordinator: ObservableObject {
         }
         clipboardTimeoutWorkItem = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: timeout)
-        NSLog("PLUGIN clipboard sent automatic=%@", String(automatic))
+        BridgeyLog.plugin.info("clipboard sent automatic=\(automatic, privacy: .public)")
     }
 
     /// Runs the pasteboard watcher only while connected, with Clipboard available on both sides
@@ -1161,7 +1192,7 @@ final class PairingCoordinator: ObservableObject {
         setTransientPingStatus("Ping from \(current.peerName)")
         recordActivity(.pingReceived, in: current)
         current.send(PairingMessage(kind: "ping.ack", sessionId: current.id, messageId: messageID))
-        NSLog("PLUGIN ping received")
+        BridgeyLog.plugin.info("ping received")
     }
 
     private func setTransientPingStatus(_ value: String) {
@@ -1244,7 +1275,7 @@ final class PairingCoordinator: ObservableObject {
                 ciphertext: encrypted.ciphertext
             ))
         }
-        NSLog("PLUGIN battery sent level=%d charging=%@", status.level, String(status.isCharging))
+        BridgeyLog.plugin.debug("battery sent level=\(status.level, privacy: .public) charging=\(status.isCharging, privacy: .public)")
     }
 
     func findAndroid() {
@@ -1296,7 +1327,7 @@ final class PairingCoordinator: ObservableObject {
             publish()
             _ = sendFindCommand(kind: "find.stopped", to: current)
         }
-        NSLog("PLUGIN find-device %@", start ? "started" : "stopped")
+        BridgeyLog.plugin.notice("find-device \(start ? "started" : "stopped", privacy: .public)")
     }
 
     private func receiveFindAcknowledgement(
@@ -1397,7 +1428,8 @@ final class PairingCoordinator: ObservableObject {
             connectionState: stateName,
             transfers: Array(fileTransfers.values),
             localFeatures: localFeatures,
-            remoteFeatures: remoteFeatures
+            remoteFeatures: remoteFeatures,
+            devices: diagnosticDevices()
         ) else { return }
         let panel = NSSavePanel()
         panel.title = "Export Bridgey Diagnostics"
@@ -1545,7 +1577,7 @@ final class PairingCoordinator: ObservableObject {
             }
             listener.stateUpdateHandler = { newState in
                 if case let .failed(error) = newState {
-                    NSLog("PAIRING listener failed error=%@", String(describing: error))
+                    BridgeyLog.transport.error("listener failed error=\(String(describing: error), privacy: .public)")
                 }
             }
             listener.start(queue: .main)
@@ -1560,6 +1592,9 @@ final class PairingCoordinator: ObservableObject {
     private func accept(_ connection: NWConnection) {
         let current = Session(connection: connection, peerName: "Android device")
         current.initiatedLocally = false
+        // Where the phone connected from: once it authenticates, the next reconnect can dial it there.
+        current.remoteHost = endpointHost(connection.endpoint)
+        BridgeyLog.transport.notice("inbound connection address=\(current.remoteHost.map(addressTag) ?? "unknown", privacy: .public)")
         registry.addPending(current, initiatedLocally: false)
         scheduleConnectionTimeout(for: current)
         configure(current, onReady: {})
@@ -1575,15 +1610,16 @@ final class PairingCoordinator: ObservableObject {
             current.ended = true
             current.connectionTimeout?.cancel()
             current.heartbeat?.cancel()
-            if let dialed = current.dialDeviceID { self.dialing.remove(dialed) }
+            self.dialFinished(current)
+            let reason = current.dropReason ?? "closed"
             if let id = self.registry.remove(current) {
-                self.deviceDisconnected(id)
-                self.scheduleReconnect(id)
+                self.deviceDisconnected(id, reason: reason)
             } else if self.pairingSession === current {
                 self.failPairing(current.failure ?? .connectionLost)
-            } else if let dialed = current.dialDeviceID {
-                // A reconnect that never authenticated: try again later.
-                self.scheduleReconnect(dialed)
+            } else if let dialed = current.dialDeviceID, !current.authenticated {
+                // A reconnect that never authenticated: the schedule tries again.
+                BridgeyLog.reconnect.notice("dial failed peer=\(shortDeviceID(dialed), privacy: .public) reason=\(reason, privacy: .public)")
+                self.diagnostics.record(category: "reconnect", event: "dial_failed", outcome: reason, device: dialed)
             }
         }
         current.connection.stateUpdateHandler = { [weak self, weak current] newState in
@@ -1591,18 +1627,27 @@ final class PairingCoordinator: ObservableObject {
                 guard let self, let current else { return }
                 switch newState {
                 case .ready:
-                    NSLog("TRANSPORT connected")
+                    BridgeyLog.transport.info("socket ready outbound=\(current.initiatedLocally, privacy: .public)")
                     current.receive()
                     onReady()
-                case .failed, .cancelled:
-                    if current.failure == nil, self.pairingSession === current, case .failed = newState {
+                case let .failed(error):
+                    if current.dropReason == nil { current.dropReason = connectionDropReason(error) }
+                    if current.failure == nil, self.pairingSession === current {
                         current.failure = current.pairingKey == nil ? .couldNotConnect : .connectionLost
                     }
                     current.onFailure?()
+                case .cancelled:
+                    current.onFailure?()
                 case let .waiting(error) where localNetworkPermissionDenied(error):
                     current.failure = .localNetworkDenied
+                    current.dropReason = "local_network_denied"
                     current.close()
                     self.diagnostics.record(category: "transport", event: "local_network_denied", outcome: "permission_required")
+                case let .waiting(error) where current.dialDeviceID != nil && !current.authenticated:
+                    // Network.framework would wait for a better path; the reconnect schedule owns
+                    // retries, so this dial ends here.
+                    current.dropReason = connectionDropReason(error)
+                    current.close()
                 default:
                     break
                 }
@@ -1625,6 +1670,13 @@ final class PairingCoordinator: ObservableObject {
                 current.heartbeatSupported = true
             case "pairing.offer":
                 guard !current.initiatedLocally, current.pairingKey == nil else { return }
+                // A reconnect meant for another device (it dialled an address that is now ours):
+                // close without a pairing prompt.
+                if let target = message.targetDeviceId, target.lowercased() != deviceID.lowercased() {
+                    current.dropReason = "not_for_this_device"
+                    current.close()
+                    return
+                }
                 guard let publicKey = message.publicKey else { throw PairingError.invalidMessage }
                 current.id = message.sessionId
                 current.peerName = message.deviceName ?? "Android device"
@@ -1647,6 +1699,12 @@ final class PairingCoordinator: ObservableObject {
                 authenticateOrPrompt(current)
             case "pairing.answer":
                 guard current.pairingKey == nil else { return }
+                // A reconnect reached some other device at the old address: never prompt to pair it.
+                if let expected = current.dialDeviceID, expected.lowercased() != message.deviceId?.lowercased() {
+                    current.dropReason = "wrong_device"
+                    current.close()
+                    return
+                }
                 guard message.sessionId == current.id,
                       let key = current.privateKey,
                       let publicKey = message.publicKey,
@@ -1791,7 +1849,7 @@ final class PairingCoordinator: ObservableObject {
                 }
                 diagnostics.record(category: "clipboard", event: html == nil ? "text_received" : "rich_received")
                 recordActivity(.clipboardReceived, in: current, preview: text)
-                NSLog("PLUGIN clipboard received")
+                BridgeyLog.plugin.info("clipboard received")
                 current.send(PairingMessage(kind: "clipboard.ack", sessionId: current.id, messageId: messageID))
             case "clipboard.ack":
                 if let pending = pendingOfferAck, message.messageId == pending.messageID {
@@ -1814,7 +1872,7 @@ final class PairingCoordinator: ObservableObject {
                     clipboardStatus = "Delivered"
                 }
                 pendingClipboardActivity = nil
-                NSLog("PLUGIN clipboard acknowledged")
+                BridgeyLog.plugin.info("clipboard acknowledged")
             case "clipboard.rejected":
                 if let pending = pendingOfferAck, message.messageId == pending.messageID {
                     pending.timeout.cancel()
@@ -1853,7 +1911,7 @@ final class PairingCoordinator: ObservableObject {
                     $0.battery = RemoteBatteryStatus(level: payload.level, isCharging: payload.isCharging)
                 }
                 publish()
-                NSLog("PLUGIN battery received level=%d charging=%@", payload.level, String(payload.isCharging))
+                BridgeyLog.plugin.debug("battery received level=\(payload.level, privacy: .public) charging=\(payload.isCharging, privacy: .public)")
             case "notifications.post":
                 guard featureEnabled(.notifications, current: current) else { return }
                 guard registry.isActive(current),
@@ -1933,7 +1991,7 @@ final class PairingCoordinator: ObservableObject {
                     sessionId: current.id,
                     transferId: offer.transferId
                 ))
-                NSLog("PLUGIN file accepted name=%@ size=%lld", transfer.displayName, offer.size)
+                BridgeyLog.plugin.notice("file accepted name=\(transfer.displayName, privacy: .private) size=\(offer.size, privacy: .public)")
             case "files.chunk":
                 if clipboardInbox.owns(message.transferId) {
                     guard registry.isActive(current), message.sessionId == current.id,
@@ -2003,7 +2061,7 @@ final class PairingCoordinator: ObservableObject {
                     ))
                     recordActivity(.fileReceived, in: current, fileName: transfer.displayName)
                     NSWorkspace.shared.activateFileViewerSelecting([destination])
-                    NSLog("PLUGIN file received name=%@", transfer.displayName)
+                    BridgeyLog.plugin.notice("file received name=\(transfer.displayName, privacy: .private)")
                 } catch {
                     transfer.cancel()
                     fileTransferStatus = "File verification failed"
@@ -2083,7 +2141,7 @@ final class PairingCoordinator: ObservableObject {
                 fileTransferActive = fileTransfers.values.contains(where: { $0.active })
                 fileOperationID = nil
                 filePreparationCancellation = nil
-                NSLog("PLUGIN file sent name=%@", transfer.displayName)
+                BridgeyLog.plugin.notice("file sent name=\(transfer.displayName, privacy: .private)")
             case "files.cancel":
                 guard let transferID = message.transferId else { return }
                 if clipboardInbox.owns(transferID) || clipboardOutbox.owns(transferID) {
@@ -2099,7 +2157,7 @@ final class PairingCoordinator: ObservableObject {
                 fileOperationID = nil
                 fileTransferStatus = "Transfer cancelled by Android"
                 current.send(PairingMessage(kind: "files.cancel.ack", sessionId: current.id, transferId: transferID))
-                NSLog("PLUGIN file cancellation received transfer=%@", String(transferID.prefix(8)))
+                BridgeyLog.plugin.notice("file cancellation received transfer=\(String(transferID.prefix(8)), privacy: .public)")
             case "files.cancel.ack":
                 if clipboardInbox.owns(message.transferId) || clipboardOutbox.owns(message.transferId) { return }
                 if let transferID = message.transferId {
@@ -2127,18 +2185,23 @@ final class PairingCoordinator: ObservableObject {
         switch registry.authenticate(current, deviceID: id, peerName: current.peerName) {
         case .rejected:
             // A live session for this phone wins the duplicate rule; this socket closes quietly.
-            NSLog("TRANSPORT duplicate session closed peerId=%@", String(id.prefix(8)))
+            BridgeyLog.transport.notice("duplicate session closed peer=\(shortDeviceID(id), privacy: .public)")
+            diagnostics.record(category: "transport", event: "duplicate_closed", device: id)
             if pairingSession === current {
                 pairingSession = nil
                 pairingFlow = .idle
             }
             current.ended = true
+            current.connectionTimeout?.cancel()
+            dialFinished(current)
             current.close()
             publish()
             return
         case let .accepted(replaced):
             if let replaced {
-                NSLog("TRANSPORT duplicate session replaced peerId=%@", String(id.prefix(8)))
+                BridgeyLog.transport.notice("duplicate session replaced peer=\(shortDeviceID(id), privacy: .public)")
+                diagnostics.record(category: "transport", event: "duplicate_replaced", device: id)
+                replaced.dropReason = "replaced"
                 replaced.connectionTimeout?.cancel()
                 replaced.heartbeat?.cancel()
                 replaced.close()
@@ -2146,11 +2209,15 @@ final class PairingCoordinator: ObservableObject {
         }
         current.authenticated = true
         current.connectionTimeout?.cancel()
-        if let dialed = current.dialDeviceID { dialing.remove(dialed) }
+        dialFinished(current)
         saveTrust(current)
-        if current.initiatedLocally, let endpoint = current.endpoint { trustedEndpoints[id] = endpoint }
-        reconnectAttempts[id] = 0
-        reconnectWorkItems.removeValue(forKey: id)?.cancel()
+        let source: AddressSource = current.initiatedLocally ? .outbound : .inbound
+        let port = current.initiatedLocally ? current.endpoint?.port ?? ReconnectPolicy.listeningPort : ReconnectPolicy.listeningPort
+        let attempts = reconnect.schedule.entry(id)?.attempts ?? 0
+        reconnect.connected(id, host: current.remoteHost, port: port, source: source)
+        if disconnectedTrustedIDs.isEmpty { discoveryWindowStart = nil }
+        BridgeyLog.reconnect.notice("connected peer=\(shortDeviceID(id), privacy: .public) via=\(source.rawValue, privacy: .public) address=\(current.remoteHost.map(addressTag) ?? "unknown", privacy: .public) attempts=\(attempts, privacy: .public)")
+        diagnostics.record(category: "transport", event: "connected", outcome: source.rawValue, device: id, detail: "after_\(attempts)_attempts")
         if pairingSession === current {
             pairingSession = nil
             pairingFlow = .idle
@@ -2161,7 +2228,16 @@ final class PairingCoordinator: ObservableObject {
         publishLocalBattery(force: true)
         scheduleHeartbeat(for: current)
         refreshAutoClipboard()
-        NSLog("PAIRING verified peer=%@", current.peerName)
+        BridgeyLog.pairing.notice("verified peer=\(shortDeviceID(id), privacy: .public) name=\(current.peerName, privacy: .private)")
+        finishRediscoverIfEveryoneAnswered()
+    }
+
+    /// A dial is over (it connected, lost the duplicate rule or failed): it no longer blocks the
+    /// next attempt to its phone.
+    private func dialFinished(_ current: Session) {
+        guard let dialed = current.dialDeviceID, !current.dialFinished else { return }
+        current.dialFinished = true
+        reconnect.dialEnded(dialed)
     }
 
     /// Feature state goes to every connected phone (each gets its own per-device settings).
@@ -2258,7 +2334,7 @@ final class PairingCoordinator: ObservableObject {
         }
         // A new phone needs the code prompt, which belongs to one pairing at a time.
         if let existing = pairingSession, existing !== current, existing.code != nil, !existing.ended {
-            NSLog("PAIRING rejected: another pairing is waiting for confirmation")
+            BridgeyLog.pairing.notice("rejected: another pairing is waiting for confirmation")
             current.send(PairingMessage(kind: "pairing.cancel", sessionId: current.id))
             current.close()
             return
@@ -2287,39 +2363,186 @@ final class PairingCoordinator: ObservableObject {
         return publicKey.isValidSignature(signature, for: data)
     }
 
-    /// Dials every trusted phone this Mac should dial (lower device id) that is not connected,
-    /// being dialled or waiting for its reconnect backoff.
+    // MARK: - Reconnect
+
+    /// Discovery changed: the engine remembers trusted phones' addresses and tries new arrivals.
     func connectTrustedPeerIfNeeded(_ peers: [DiscoveredPeer]) {
         lastPeers = peers
-        for peer in peers {
-            guard let id = peer.deviceIDHint, trustedDeviceIDs.contains(id), deviceID < id,
-                  registry.session(for: id) == nil, !dialing.contains(id), reconnectWorkItems[id] == nil,
-                  let host = peer.host, let port = peer.port,
-                  let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else { continue }
-            reconnectAttempts[id, default: 0] += 1
-            dial(host: host, port: endpointPort, peerName: peer.deviceNameHint, deviceID: id)
+        reconnect.discoveryChanged(peers)
+    }
+
+    /// At launch every trusted phone that is not connected is tried straight away at its last
+    /// known addresses, and wake and network changes start being watched.
+    private func startReconnecting() {
+        reconnect.isTrusted = { [weak self] in self?.trustedDeviceIDs.contains($0) == true }
+        reconnect.isConnected = { [weak self] in self?.registry.session(for: $0) != nil }
+        reconnect.dial = { [weak self] id, address in
+            guard let self, let port = NWEndpoint.Port(rawValue: UInt16(clamping: address.port)) else {
+                self?.reconnect.dialEnded(id)
+                return
+            }
+            self.dial(host: address.host, port: port, peerName: self.trustedName(id), deviceID: id)
+        }
+        reconnect.onEvent = { [weak self] event in self?.recordReconnect(event) }
+        reconnect.onChange = { [weak self] in self?.publishReconnectStates() }
+        reconnect.addressBook.retain(trustedDeviceIDs)
+        let ids = disconnectedTrustedIDs
+        for id in ids { reconnect.disconnected(id, seenNow: false) }
+        reconnect.resetAll(ids)
+        discoveryWindowStart = ids.isEmpty ? nil : clock.now
+        // Discovery has only just started; the first periodic restart is five minutes away.
+        lastDiscoveryRestart = clock.now
+        linkMonitor.onEvent = { [weak self] reason in self?.linkEvent(reason) }
+        linkMonitor.start()
+        armDiscoveryRestartTimer()
+    }
+
+    private var disconnectedTrustedIDs: [String] {
+        trustedDeviceIDs.filter { registry.session(for: $0) == nil }.sorted()
+    }
+
+    private func trustedName(_ id: String) -> String {
+        lastPeers.first { $0.deviceIDHint == id }?.deviceNameHint
+            ?? trustRegistry.devices.first { $0.id == id }?.name
+            ?? "Android device"
+    }
+
+    private func recordReconnect(_ event: ReconnectEvent) {
+        switch event {
+        case let .dial(id, address, attempt, reason):
+            let tag = addressTag(address.host)
+            BridgeyLog.reconnect.notice("dial peer=\(shortDeviceID(id), privacy: .public) attempt=\(attempt, privacy: .public) reason=\(reason, privacy: .public) source=\(address.source.rawValue, privacy: .public) address=\(tag, privacy: .public)")
+            diagnostics.record(category: "reconnect", event: "dial", outcome: reason, device: id, detail: "n\(attempt)_\(address.source.rawValue)_\(tag)")
+        case let .noAddress(id, attempt, reason):
+            BridgeyLog.reconnect.notice("no dialable address peer=\(shortDeviceID(id), privacy: .public) attempt=\(attempt, privacy: .public) reason=\(reason, privacy: .public)")
+            diagnostics.record(category: "reconnect", event: "no_address", outcome: reason, device: id, detail: "n\(attempt)")
+        case let .foundByDiscovery(id, addresses):
+            BridgeyLog.reconnect.notice("discovery found peer=\(shortDeviceID(id), privacy: .public) addresses=\(addresses, privacy: .public)")
+            diagnostics.record(category: "discovery", event: "found_trusted", device: id, detail: "\(addresses)_addresses")
         }
     }
 
-    /// Backoff per phone: reconnects to where this Mac last dialled it, or where discovery sees it.
-    private func scheduleReconnect(_ id: String) {
-        guard trustedDeviceIDs.contains(id) else { return }
-        let seen = lastPeers.first { $0.deviceIDHint == id && deviceID < id }
-        let endpoint = trustedEndpoints[id] ?? seen.flatMap { peer in
-            peer.host.flatMap { host in peer.port.map { (host: host, port: $0, name: peer.deviceNameHint) } }
+    /// "Look for devices again" is running.
+    var isRediscovering: Bool { rediscoverRun != nil }
+
+    /// "Retry now" on a disconnected phone: every known address at once.
+    func retryNow(deviceID id: String) {
+        BridgeyLog.reconnect.notice("retry now peer=\(shortDeviceID(id), privacy: .public)")
+        reconnect.dialEverywhere(id, reason: "retry_now")
+    }
+
+    private func publishReconnectStates() {
+        var states: [String: ReconnectDisplay] = [:]
+        for id in trustedDeviceIDs {
+            if let display = reconnect.display(for: id) { states[id] = display }
         }
-        guard let endpoint, let port = NWEndpoint.Port(rawValue: UInt16(endpoint.port)) else { return }
-        reconnectWorkItems[id]?.cancel()
-        let attempt = reconnectAttempts[id] ?? 0
-        reconnectAttempts[id] = attempt + 1
-        let work = DispatchWorkItem { [weak self] in
+        if reconnectStates != states { reconnectStates = states }
+    }
+
+    // MARK: Wake, network and discovery restarts
+
+    private func linkEvent(_ reason: String) {
+        BridgeyLog.reconnect.notice("link event \(reason, privacy: .public)")
+        diagnostics.record(category: "link", event: reason)
+        linkDebouncer.note(reason)
+    }
+
+    /// The Mac woke or its network changed: look again and try every dropped phone now.
+    private func linkChanged(_ reasons: [String]) {
+        let reason = reasons.joined(separator: "+")
+        let now = clock.now
+        let ids = disconnectedTrustedIDs
+        BridgeyLog.reconnect.notice("recovering after \(reason, privacy: .public) disconnected=\(ids.count, privacy: .public)")
+        if now.timeIntervalSince(lastDiscoveryRestart) >= ReconnectPolicy.eventRestartSpacing {
+            restartDiscoveryNow(reason: reason)
+        }
+        reconnect.resetAll(ids)
+        discoveryWindowStart = ids.isEmpty ? nil : now
+        armDiscoveryRestartTimer()
+    }
+
+    private func restartDiscoveryNow(reason: String) {
+        lastDiscoveryRestart = clock.now
+        diagnostics.record(category: "discovery", event: "restart", outcome: reason)
+        restartDiscovery?(reason)
+    }
+
+    /// Every five minutes while a trusted phone is away, for the first hour.
+    private func armDiscoveryRestartTimer() {
+        discoveryRestartTimer?.cancel()
+        discoveryRestartTimer = nil
+        let now = clock.now
+        guard !disconnectedTrustedIDs.isEmpty, let start = discoveryWindowStart,
+              now.timeIntervalSince(start) < ReconnectPolicy.discoveryRestartWindow else { return }
+        // At most one restart per interval; after a drop, the first one waits 30 s so a quick
+        // reconnect needs none.
+        let next = max(lastDiscoveryRestart.addingTimeInterval(ReconnectPolicy.discoveryRestartInterval), now.addingTimeInterval(30))
+        discoveryRestartTimer = clock.schedule(after: next.timeIntervalSince(now)) { [weak self] in
             guard let self else { return }
-            self.reconnectWorkItems.removeValue(forKey: id)
-            guard self.registry.session(for: id) == nil, !self.dialing.contains(id), self.trustedDeviceIDs.contains(id) else { return }
-            self.dial(host: endpoint.host, port: port, peerName: endpoint.name, deviceID: id)
+            self.discoveryRestartTimer = nil
+            guard !self.disconnectedTrustedIDs.isEmpty, let start = self.discoveryWindowStart,
+                  self.clock.now.timeIntervalSince(start) < ReconnectPolicy.discoveryRestartWindow else { return }
+            self.restartDiscoveryNow(reason: "periodic")
+            self.armDiscoveryRestartTimer()
         }
-        reconnectWorkItems[id] = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + reconnectDelay(attempt: attempt), execute: work)
+    }
+
+    // MARK: Look for devices again
+
+    /// Restarts discovery, re-announces this Mac, resets every backoff and dials every known
+    /// address of each disconnected trusted phone. One run at a time.
+    func lookForDevices() {
+        guard rediscoverRun == nil else { return }
+        let missing = Dictionary(uniqueKeysWithValues: disconnectedTrustedIDs.map { ($0, trustedName($0)) })
+        rediscoverStatusClear?.cancel()
+        rediscoverStatus = L10n.text("rediscover.looking", fallback: "Looking for devices\u{2026}")
+        BridgeyLog.reconnect.notice("look for devices again disconnected=\(missing.count, privacy: .public)")
+        diagnostics.record(category: "discovery", event: "manual", detail: "\(missing.count)_disconnected")
+        let nearbyBefore = Set(lastPeers.compactMap(\.deviceIDHint))
+        restartDiscoveryNow(reason: "manual")
+        discoveryWindowStart = missing.isEmpty ? nil : clock.now
+        for id in missing.keys.sorted() { reconnect.dialEverywhere(id, reason: "manual") }
+        armDiscoveryRestartTimer()
+        let finish = clock.schedule(after: ReconnectPolicy.rediscoverWindow) { [weak self] in self?.finishRediscover() }
+        rediscoverRun = (missing, nearbyBefore, finish)
+    }
+
+    private func finishRediscoverIfEveryoneAnswered() {
+        guard let run = rediscoverRun, !run.missing.isEmpty,
+              run.missing.keys.allSatisfy({ registry.session(for: $0) != nil }) else { return }
+        finishRediscover()
+    }
+
+    private func finishRediscover() {
+        guard let run = rediscoverRun else { return }
+        run.finish.cancel()
+        rediscoverRun = nil
+        let found = run.missing.filter { registry.session(for: $0.key) != nil }.map(\.value).sorted()
+        let stillMissing = run.missing.filter { registry.session(for: $0.key) == nil }.map(\.value).sorted()
+        let newNearby = lastPeers.filter { peer in
+            guard let id = peer.deviceIDHint else { return false }
+            return !trustedDeviceIDs.contains(id) && !run.nearbyBefore.contains(id)
+        }.map(\.deviceNameHint)
+        rediscoverStatus = rediscoverSummary(found: found + newNearby, stillMissing: stillMissing)
+        diagnostics.record(category: "discovery", event: "manual_done", detail: "\(found.count)_found_\(stillMissing.count)_missing")
+        rediscoverStatusClear = clock.schedule(after: 6) { [weak self] in self?.rediscoverStatus = nil }
+    }
+
+    /// Per trusted phone, for the diagnostics report: no names and no addresses.
+    private func diagnosticDevices() -> [[String: Any]] {
+        let formatter = ISO8601DateFormatter()
+        return trustedDeviceIDs.sorted().map { id in
+            var entry: [String: Any] = [
+                "device": shortDeviceID(id),
+                "connected": registry.session(for: id) != nil,
+                "knownAddresses": reconnect.addressBook.addresses(for: id).count,
+                "addressSources": reconnect.addressBook.addresses(for: id).map(\.source.rawValue),
+                "reconnectAttempts": reconnect.schedule.entry(id)?.attempts ?? 0,
+            ]
+            if let seen = reconnect.addressBook.lastConnected(id) { entry["lastConnectedAt"] = formatter.string(from: seen) }
+            if let next = reconnect.schedule.entry(id)?.nextAt { entry["nextAttemptAt"] = formatter.string(from: next) }
+            return entry
+        }
     }
 
     /// A pending session gets 20 s for the handshake, or two minutes while its code is on screen.
@@ -2332,8 +2555,9 @@ final class PairingCoordinator: ObservableObject {
                 self.scheduleConnectionTimeout(for: current, after: 5)
                 return
             }
-            NSLog("TRANSPORT pending session timed out")
+            BridgeyLog.transport.notice("pending session timed out")
             current.failure = .timeout
+            current.dropReason = "handshake_timeout"
             current.close()
         }
         current.connectionTimeout = timeout
@@ -2345,7 +2569,8 @@ final class PairingCoordinator: ObservableObject {
         let work = DispatchWorkItem { [weak self, weak current] in
             guard let self, let current, self.registry.isActive(current) else { return }
             if heartbeatExpired(supported: current.heartbeatSupported, lastReceivedAt: current.lastReceivedAt) {
-                NSLog("TRANSPORT heartbeat timed out")
+                BridgeyLog.transport.notice("heartbeat timed out peer=\(shortDeviceID(current.remoteDeviceID), privacy: .public)")
+                current.dropReason = "heartbeat_timeout"
                 current.close()
                 return
             }
@@ -2354,12 +2579,13 @@ final class PairingCoordinator: ObservableObject {
                 sessionId: current.id,
                 messageId: UUID().uuidString.lowercased()
             ))
+            self.reconnect.stillConnected(current.remoteDeviceID)
             self.publishLocalBattery()
             self.mediaController.refresh()
             self.scheduleHeartbeat(for: current)
         }
         current.heartbeat = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + ReconnectPolicy.heartbeatInterval, execute: work)
     }
 
     private func postNotification(_ payload: RemoteNotificationPayload, deviceID: String) {
@@ -2385,9 +2611,9 @@ final class PairingCoordinator: ObservableObject {
         )
         UNUserNotificationCenter.current().add(request) { error in
             if let error {
-                NSLog("PLUGIN notification delivery failed package=%@ error=%@", payload.packageName, String(describing: error))
+                BridgeyLog.plugin.error("notification delivery failed package=\(payload.packageName, privacy: .private) error=\(String(describing: error), privacy: .private)")
             } else {
-                NSLog("PLUGIN notification received package=%@", payload.packageName)
+                BridgeyLog.plugin.info("notification received package=\(payload.packageName, privacy: .private)")
             }
         }
     }
@@ -2544,7 +2770,7 @@ final class PairingCoordinator: ObservableObject {
                 options: [UNNotificationAttachmentOptionsTypeHintKey: UTType.png.identifier]
             )
         } catch {
-            NSLog("PLUGIN notification icon attachment failed package=%@ error=%@", payload.packageName, String(describing: error))
+            BridgeyLog.plugin.error("notification icon attachment failed package=\(payload.packageName, privacy: .private) error=\(String(describing: error), privacy: .private)")
             return nil
         }
     }
@@ -2739,7 +2965,13 @@ private final class Session {
     var failure: PairingFailure?
     /// A reconnect to this trusted phone (no prompt); nil for pairings and incoming sessions.
     var dialDeviceID: String?
+    /// The dial no longer counts as in flight.
+    var dialFinished = false
     var endpoint: (host: String, port: Int, name: String)?
+    /// The phone's address: where this Mac dialled, or where the phone connected from.
+    var remoteHost: String?
+    /// Why the socket ended, for logs and diagnostics ("reset_by_peer", "heartbeat_timeout").
+    var dropReason: String?
     let createdAt = Date()
     var connectionTimeout: DispatchWorkItem?
     var heartbeat: DispatchWorkItem?
@@ -2759,7 +2991,7 @@ private final class Session {
     func send(_ message: PairingMessage) {
         guard let encoded = try? JSONEncoder().encode(message) else { return }
         connection.send(content: encoded + Data([0x0A]), completion: .contentProcessed { error in
-            if let error { NSLog("TRANSPORT send failed kind=%@ error=%@", message.kind, String(describing: error)) }
+            if let error { BridgeyLog.transport.error("send failed kind=\(message.kind, privacy: .public) error=\(String(describing: error), privacy: .public)") }
         })
     }
 
@@ -2769,7 +3001,7 @@ private final class Session {
         var succeeded = false
         connection.send(content: encoded + Data([0x0A]), completion: .contentProcessed { error in
             succeeded = error == nil
-            if let error { NSLog("TRANSPORT send failed kind=%@ error=%@", message.kind, String(describing: error)) }
+            if let error { BridgeyLog.transport.error("send failed kind=\(message.kind, privacy: .public) error=\(String(describing: error), privacy: .public)") }
             semaphore.signal()
         })
         return semaphore.wait(timeout: .now() + 15) == .success && succeeded
@@ -2788,19 +3020,28 @@ private final class Session {
                         self.lastReceivedAt = Date()
                         self.onMessage?(message)
                     } catch {
-                        NSLog("TRANSPORT invalid message error=%@", String(describing: error))
+                        BridgeyLog.transport.error("invalid message error=\(String(describing: error), privacy: .public)")
+                        self.dropReason = "protocol_error"
                         self.close()
                         self.onFailure?()
                         return
                     }
                 }
                 guard self.buffer.count <= maximumProtocolFrameBytes else {
-                    NSLog("TRANSPORT protocol frame exceeded size limit")
+                    BridgeyLog.transport.error("protocol frame exceeded size limit")
+                    self.dropReason = "frame_too_large"
                     self.close()
                     self.onFailure?()
                     return
                 }
-                if complete || error != nil { self.onFailure?() } else { self.receive() }
+                if complete || error != nil {
+                    if self.dropReason == nil {
+                        self.dropReason = error.map(connectionDropReason) ?? "closed_by_peer"
+                    }
+                    self.onFailure?()
+                } else {
+                    self.receive()
+                }
             }
         }
     }
@@ -2828,6 +3069,8 @@ struct PairingMessage: Codable {
     var ciphertext: String? = nil
     var transferId: String? = nil
     var sequence: Int64? = nil
+    /// On a reconnect offer: the trusted device it is meant for. Any other device declines quietly.
+    var targetDeviceId: String? = nil
 }
 
 enum PairingError: Error { case invalidMessage, cancelled }

@@ -382,4 +382,36 @@
     <string name="perf_copy">Скопировать результаты</string>
     <string name="perf_share">Поделиться в JSON</string>
     <string name="perf_copied">Результаты скопированы</string>
+    <!-- Reconnecting and Look for devices again -->
+    <string name="ring_reconnecting">Переподключение…</string>
+    <string name="ring_retrying">Повтор…</string>
+    <string name="live_reconnecting_title">Переподключение к %1$s…</string>
+    <string name="live_cant_reach_title">Нет связи с %1$s. Пробуем снова</string>
+    <string name="live_last_seen">Был в сети %1$s</string>
+    <string name="live_reconnecting_detail">Пробуем последний известный адрес</string>
+    <string name="action_retry_now">Повторить сейчас</string>
+    <string name="action_allow">Разрешить</string>
+    <string name="action_not_now">Не сейчас</string>
+    <string name="look_again">Искать устройства снова</string>
+    <string name="look_again_detail">Заново объявляет этот телефон и сразу пробует подключить все сопряжённые устройства</string>
+    <string name="rediscover_looking">Поиск устройств…</string>
+    <string name="rediscover_found">Найдено: %1$s</string>
+    <string name="rediscover_missing">По-прежнему нет связи: %1$s</string>
+    <string name="rediscover_found_missing">Найдено: %1$s. По-прежнему нет связи: %2$s</string>
+    <string name="rediscover_none">Новых устройств не найдено</string>
+    <plurals name="rediscover_many">
+        <item quantity="one">%1$d устройство</item>
+        <item quantity="few">%1$d устройства</item>
+        <item quantity="many">%1$d устройств</item>
+        <item quantity="other">%1$d устройства</item>
+    </plurals>
+    <string name="settings_background_title">Оставаться на связи, пока телефон спит</string>
+    <string name="settings_background_on">Разрешено: Bridgey может держать связь с Mac всю ночь</string>
+    <string name="settings_background_off">Оптимизация батареи может приостанавливать Bridgey, пока телефон не используется</string>
+    <string name="settings_background_open">Открыть настройки батареи</string>
+    <string name="settings_background_note">Некоторые телефоны добавляют свои ограничения. На OnePlus откройте «О приложении», затем «Использование батареи» и разрешите работу в фоне.</string>
+    <string name="settings_wifi_awake_title">Не давать Wi-Fi засыпать</string>
+    <string name="settings_wifi_awake_detail">Меньше обрывов связи ценой небольшого расхода батареи. Android 13 и более ранние версии.</string>
+    <string name="battery_prompt_title">Оставаться на связи, пока телефон спит?</string>
+    <string name="battery_prompt_body">Когда телефон не используется, Android может приостановить Bridgey, и Mac теряет связь на всю ночь. Разрешите Bridgey работать в фоне, чтобы связь сохранялась. Когда ничего не происходит, Bridgey почти не расходует заряд.</string>
 </resources>

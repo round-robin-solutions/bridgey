@@ -19,6 +19,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class BridgeyConnectionService : Service() {
@@ -26,6 +27,7 @@ class BridgeyConnectionService : Service() {
     private lateinit var notificationManager: NotificationManager
     private var supportedProfile = true
     private var lastStatus = "Not connected · waiting for paired device"
+    private var wifiKeeper: WifiKeeper? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -94,6 +96,11 @@ class BridgeyConnectionService : Service() {
             }.distinctUntilChanged().collect { active ->
                 if (active) bridgey.backgroundClipboardSource.start() else bridgey.backgroundClipboardSource.stop()
             }
+        }
+        // Optional Wi-Fi lock (Android 13 and older): held while the service runs and the setting is on.
+        val keeper = WifiKeeper(this).also { wifiKeeper = it }
+        serviceScope.launch {
+            bridgey.settings.state.map { it.keepWifiAwake }.distinctUntilChanged().collect(keeper::set)
         }
         serviceScope.launch {
             bridgey.pairing.phoneRinging.collect { ringing ->
@@ -334,6 +341,7 @@ class BridgeyConnectionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        wifiKeeper?.set(false)
         if (supportedProfile) runCatching { (application as BridgeyApplication).backgroundClipboardSource.stop() }
         serviceScope.cancel()
         super.onDestroy()

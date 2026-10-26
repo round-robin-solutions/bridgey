@@ -5,6 +5,11 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class DiscoveryTxtRecordTest {
+    @Test fun resolvedAddressesPutIpv4FirstAndDropLinkLocal() {
+        val addresses = listOf("fe80::1", "fd00::5", "192.168.29.148").map { java.net.InetAddress.getByName(it) }
+        assertEquals(listOf("192.168.29.148", "fd00:0:0:0:0:0:0:5"), NsdDiscoveryService.orderedAddresses(addresses))
+    }
+
     @Test fun parsesBoundedHints() {
         val peer = DiscoveryTxtRecord.parse(
             "Bridgey-Pixel",

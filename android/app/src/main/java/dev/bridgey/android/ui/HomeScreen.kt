@@ -39,6 +39,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -83,6 +85,8 @@ data class HomeState(
     /** Clipboard can be sent to the target right now. */
     val canSendClipboard: Boolean,
     val now: Long,
+    /** "Look for devices again" is running. */
+    val rediscovering: Boolean = false,
 )
 
 class HomeActions(
@@ -93,6 +97,8 @@ class HomeActions(
     val addDevice: () -> Unit = {},
     val pickTarget: (String) -> Unit = {},
     val sendClipboard: () -> Unit = {},
+    /** Restarts discovery, announces this phone again and retries every paired device now. */
+    val lookForDevices: () -> Unit = {},
     val live: LiveActions = LiveActions(),
 )
 
@@ -103,6 +109,7 @@ private val HomeBand = 192.dp
  * Home: device rings, then what moved between them, newest first. The one main action is
  * Send clipboard in the send bar, aimed at the device on its left.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(state: HomeState, actions: HomeActions, snackbar: SnackbarHostState, deviceName: (ActivityItem) -> String) {
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -112,7 +119,7 @@ fun HomeScreen(state: HomeState, actions: HomeActions, snackbar: SnackbarHostSta
         Column(Modifier.fillMaxSize()) {
             OnBand {
                 Column(Modifier.statusBarsPadding()) {
-                    HomeAppBar(actions.openSettings)
+                    HomeAppBar(actions.openSettings, actions.lookForDevices, state.rediscovering)
                     RingStrip(state, actions)
                 }
             }
@@ -127,27 +134,34 @@ fun HomeScreen(state: HomeState, actions: HomeActions, snackbar: SnackbarHostSta
                 val rows = remember(state.activity, shownFilter, state.now) {
                     streamRows(state.activity, shownFilter, null, state.now, TimeZone.getDefault())
                 }
-                StreamList(
-                    rows = rows,
-                    live = if (shownFilter == StreamFilter.ALL || shownFilter == StreamFilter.FILES) {
-                        state.live.filter { shownFilter == StreamFilter.ALL || it is LiveCard.Transfer }
-                    } else {
-                        emptyList()
-                    },
-                    liveActions = actions.live,
-                    deviceName = deviceName,
-                    now = state.now,
-                    state = rememberLazyListState(),
-                    contentPadding = PaddingValues(bottom = 64.dp + 12.dp + navBottom + 24.dp),
-                    empty = {
-                        if (shownFilter == StreamFilter.ALL) {
-                            StreamEmpty(stringResource(R.string.stream_empty_title), stringResource(if (state.rings.none { it.trusted }) R.string.stream_empty_unpaired else R.string.stream_empty_body))
-                        } else {
-                            StreamEmpty(stringResource(R.string.stream_empty_filter_title), stringResource(R.string.stream_empty_filter_body))
-                        }
-                    },
+                // Pull down on the stream: look for devices again.
+                PullToRefreshBox(
+                    isRefreshing = state.rediscovering,
+                    onRefresh = actions.lookForDevices,
                     modifier = Modifier.fillMaxSize(),
-                )
+                ) {
+                    StreamList(
+                        rows = rows,
+                        live = if (shownFilter == StreamFilter.ALL || shownFilter == StreamFilter.FILES) {
+                            state.live.filter { shownFilter == StreamFilter.ALL || it is LiveCard.Transfer }
+                        } else {
+                            emptyList()
+                        },
+                        liveActions = actions.live,
+                        deviceName = deviceName,
+                        now = state.now,
+                        state = rememberLazyListState(),
+                        contentPadding = PaddingValues(bottom = 64.dp + 12.dp + navBottom + 24.dp),
+                        empty = {
+                            if (shownFilter == StreamFilter.ALL) {
+                                StreamEmpty(stringResource(R.string.stream_empty_title), stringResource(if (state.rings.none { it.trusted }) R.string.stream_empty_unpaired else R.string.stream_empty_body))
+                            } else {
+                                StreamEmpty(stringResource(R.string.stream_empty_filter_title), stringResource(R.string.stream_empty_filter_body))
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
         }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
@@ -160,7 +174,7 @@ fun HomeScreen(state: HomeState, actions: HomeActions, snackbar: SnackbarHostSta
 }
 
 @Composable
-private fun HomeAppBar(openSettings: () -> Unit) {
+private fun HomeAppBar(openSettings: () -> Unit, lookForDevices: () -> Unit, rediscovering: Boolean) {
     val colors = BridgeyTheme.colors
     Row(
         Modifier.fillMaxWidth().height(64.dp).padding(start = 20.dp, end = 8.dp),
@@ -178,6 +192,7 @@ private fun HomeAppBar(openSettings: () -> Unit) {
                 Text(stringResource(R.string.brand_by), style = BridgeyType.brandSub, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 3.dp))
             }
         }
+        BarIconButton(BridgeyIcons.Refresh, stringResource(R.string.look_again), lookForDevices, enabled = !rediscovering)
         BarIconButton(BridgeyIcons.Settings, stringResource(R.string.settings_title), openSettings)
     }
 }
@@ -204,7 +219,7 @@ private fun RingItem(ring: DeviceRing, selected: Boolean, actions: HomeActions) 
     val openLabel = stringResource(R.string.ring_open_device)
     val pairLabel = stringResource(R.string.ring_pair_action)
     val selectLabel = stringResource(R.string.ring_select_action)
-    val status = if (ring.trusted) ringStateLabel(ring.state) else stringResource(R.string.ring_new)
+    val status = if (ring.trusted) ringStatusLabel(ring) else stringResource(R.string.ring_new)
     Column(
         Modifier
             .width(92.dp)
@@ -360,7 +375,7 @@ private fun HomeComposer(state: HomeState, actions: HomeActions) {
                         text = {
                             Column {
                                 Text(ring.name, style = BridgeyType.label, color = colors.onSurface)
-                                Text(ringStateLabel(ring.state), style = BridgeyType.small, color = ringStateColor(ring.state))
+                                Text(ringStatusLabel(ring), style = BridgeyType.small, color = ringStateColor(ring.state))
                             }
                         },
                         leadingIcon = { DeviceGlyph(ring.state.style(), deviceIcon(ring.platform), 36.dp, iconSize = 16.dp) },

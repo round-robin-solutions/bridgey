@@ -294,3 +294,20 @@
 "perf.cancelled" = "Остановлено. Ничего не сохранено.";
 "perf.copy" = "Скопировать результаты";
 "perf.share" = "Поделиться в JSON";
+
+/* Reconnecting and Look for devices again */
+"ring.reconnecting" = "Переподключение…";
+"ring.retrying" = "Повторные попытки…";
+"ring.cantReach" = "Нет связи. Пробуем снова";
+"ring.lastSeen" = "%1$@ (был в сети %2$@)";
+"ring.reconnecting.help" = "Переподключение к %@. Нажмите, чтобы повторить сейчас.";
+"ring.cantReach.help" = "Нет связи с %@. Bridgey продолжает попытки. Нажмите, чтобы повторить сейчас.";
+"panel.retryNow" = "Повторить сейчас";
+"panel.lookAgain" = "Искать устройства снова";
+"devices.lookAgain.detail" = "Заново объявляет этот Mac и сразу пробует подключить все сопряжённые устройства";
+"devices.lookAgain.action" = "Искать снова";
+"rediscover.looking" = "Поиск устройств…";
+"rediscover.found" = "Найдено: %@";
+"rediscover.missing" = "По-прежнему нет связи: %@";
+"rediscover.none" = "Новых устройств не найдено";
+"rediscover.count" = "устройств: %d";

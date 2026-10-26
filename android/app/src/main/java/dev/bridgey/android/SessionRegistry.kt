@@ -150,29 +150,6 @@ internal class SessionRegistry<S : Any>(private val localDeviceId: String) {
     }
 }
 
-/** Per-device reconnect backoff for the side that dials (the lower device id). */
-internal class ReconnectBackoff(private val delayFor: (Int) -> Long = ::reconnectDelayMillis) {
-    private val attempts = HashMap<String, Int>()
-    private val notBefore = HashMap<String, Long>()
-
-    @Synchronized fun mayDial(deviceId: String, nowMillis: Long): Boolean = (notBefore[deviceId] ?: 0L) <= nowMillis
-
-    /** A dial started: the next one waits for the backoff. */
-    @Synchronized fun dialed(deviceId: String, nowMillis: Long) {
-        val attempt = attempts[deviceId] ?: 0
-        attempts[deviceId] = attempt + 1
-        notBefore[deviceId] = nowMillis + delayFor(attempt)
-    }
-
-    @Synchronized fun connected(deviceId: String) {
-        attempts.remove(deviceId)
-        notBefore.remove(deviceId)
-    }
-
-    /** Milliseconds until [deviceId] may be dialled again, or 0. */
-    @Synchronized fun waitMillis(deviceId: String, nowMillis: Long): Long = ((notBefore[deviceId] ?: 0L) - nowMillis).coerceAtLeast(0)
-}
-
 /** The foreground notification's status line: how many devices are connected, or the pairing step. */
 internal fun connectionStatus(connections: List<DeviceConnection>, pairing: PairingState): String = when {
     pairing is PairingState.Verification -> if (connections.isEmpty()) {

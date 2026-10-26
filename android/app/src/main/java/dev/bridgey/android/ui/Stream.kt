@@ -87,6 +87,11 @@ sealed interface LiveCard {
     data class Media(val media: MacMediaState, val artwork: ImageBitmap?) : LiveCard {
         override val key get() = "media"
     }
+
+    /** A trusted device that dropped and is being retried, with Retry now. */
+    data class Reconnecting(val deviceId: String, val deviceName: String, val lastSeen: String?, val struggling: Boolean) : LiveCard {
+        override val key get() = "reconnecting:$deviceId"
+    }
 }
 
 class LiveActions(
@@ -97,6 +102,7 @@ class LiveActions(
     val dismissLink: () -> Unit = {},
     val stopRinging: () -> Unit = {},
     val media: (action: String, value: String) -> Unit = { _, _ -> },
+    val retryDevice: (String) -> Unit = {},
 )
 
 /** Icon and tint for a stream item. */
@@ -424,6 +430,7 @@ private fun LiveCardRow(card: LiveCard, actions: LiveActions, first: Boolean, la
         is LiveCard.Link -> BridgeyIcons.Link to Tint.BLUE
         is LiveCard.Ringing -> BridgeyIcons.MyLocation to Tint.PURPLE
         is LiveCard.Media -> BridgeyIcons.MusicNote to Tint.BLUE
+        is LiveCard.Reconnecting -> (if (card.struggling) BridgeyIcons.WifiOff else BridgeyIcons.Sync) to (if (card.struggling) Tint.NEUTRAL else Tint.BLUE)
     }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp).heightIn(min = 80.dp),
@@ -450,6 +457,13 @@ private fun LiveCardRow(card: LiveCard, actions: LiveActions, first: Boolean, la
                     CardActions { TonalPillButton(stringResource(R.string.action_stop), actions.stopRinging, tint = Tint.PURPLE) }
                 }
                 is LiveCard.Media -> MediaCardContent(card, actions)
+                is LiveCard.Reconnecting -> {
+                    CardText(
+                        stringResource(if (card.struggling) R.string.live_cant_reach_title else R.string.live_reconnecting_title, card.deviceName),
+                        card.lastSeen?.let { stringResource(R.string.live_last_seen, it) } ?: stringResource(R.string.live_reconnecting_detail),
+                    )
+                    CardActions { TonalPillButton(stringResource(R.string.action_retry_now), { actions.retryDevice(card.deviceId) }) }
+                }
             }
         }
     }

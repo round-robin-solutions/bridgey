@@ -36,7 +36,18 @@ class UiPreferences(context: Context) {
         mutableTileAdded.value = added
     }
 
+    private val mutableBatteryPromptShown = MutableStateFlow(preferences.getBoolean(KEY_BATTERY_PROMPT_SHOWN, false))
+
+    /** The one-time "Stay connected while the phone sleeps?" question was answered. */
+    val batteryPromptShown: StateFlow<Boolean> = mutableBatteryPromptShown.asStateFlow()
+
+    fun setBatteryPromptShown() {
+        preferences.edit().putBoolean(KEY_BATTERY_PROMPT_SHOWN, true).apply()
+        mutableBatteryPromptShown.value = true
+    }
+
     private companion object {
+        const val KEY_BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
         const val KEY_REDUCE_MOTION = "reduce_motion"
         const val KEY_SHOW_PREVIEWS = "show_activity_previews"
         const val KEY_TILE_ADDED = "qs_tile_added"

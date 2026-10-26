@@ -13,8 +13,19 @@ final class ReliabilityTests: XCTestCase {
         XCTAssertEqual(try decodeProtocolMessage(valid).kind, "features.update")
     }
 
-    func testReconnectBackoffIsBounded() {
-        XCTAssertEqual((0...6).map(reconnectDelay), [1, 2, 4, 8, 16, 30, 30])
+    func testReconnectBackoffFollowsThePolicy() {
+        // 2 s, 5 s, 15 s, 30 s, then every 60 s during the first hour; every 10 minutes after.
+        XCTAssertEqual((0...6).map { ReconnectPolicy.delay(afterAttempts: $0, elapsed: 0) }, [2, 5, 15, 30, 60, 60, 60])
+        XCTAssertEqual(ReconnectPolicy.delay(afterAttempts: 40, elapsed: 3_599), 60)
+        XCTAssertEqual(ReconnectPolicy.delay(afterAttempts: 40, elapsed: 3_600), 600)
+        XCTAssertEqual(ReconnectPolicy.delay(afterAttempts: -1, elapsed: 0), 2)
+    }
+
+    func testDropReasonsAreShortTokens() {
+        XCTAssertEqual(connectionDropReason(.posix(.ECONNRESET)), "reset_by_peer")
+        XCTAssertEqual(connectionDropReason(.posix(.ETIMEDOUT)), "timed_out")
+        XCTAssertEqual(connectionDropReason(.posix(.EHOSTUNREACH)), "host_unreachable")
+        XCTAssertEqual(connectionDropReason(.posix(.EPERM)), "posix_1")
     }
 
     func testHeartbeatTimeoutRequiresNegotiatedSupport() {
