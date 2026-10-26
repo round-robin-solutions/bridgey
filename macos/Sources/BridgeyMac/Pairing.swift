@@ -203,6 +203,8 @@ final class PairingCoordinator: ObservableObject {
     let activity: ActivityLog
     let mediaController = MediaController()
     let shortcuts = ShortcutSettings()
+    /// Remote input (draft): a paired phone as touchpad, keyboard and presentation remote.
+    let remoteInput: RemoteInputHost
 
     var trustedDevices: [TrustedDeviceInfo] {
         trustRegistry.devices.map { device in
@@ -302,6 +304,7 @@ final class PairingCoordinator: ObservableObject {
         let notificationHistoryStore = NotificationHistoryStore()
         self.notificationHistoryStore = notificationHistoryStore
         activity = ActivityLog(store: ActivityStore())
+        remoteInput = RemoteInputHost.live()
         if settings.notificationHistoryEnabled {
             notificationHistory = notificationHistoryStore.load()
         }
@@ -343,6 +346,11 @@ final class PairingCoordinator: ObservableObject {
         quickActions.available = { [weak self] in self?.isFeatureAvailable($0) == true }
         quickActions.send = { [weak self] in self?.sendQuickPayload(kind: $0, payload: $1) == true }
         quickActions.onActivity = { [weak self] kind in self?.recordConnectedActivity(kind) }
+        remoteInput.isAllowed = { [weak self] id in self?.isFeatureAvailable(.remoteInput, for: id) == true }
+        remoteInput.send = { [weak self] id, kind, payload in
+            guard let self, let current = self.registry.session(for: id) else { return false }
+            return self.sendQuickPayload(kind: kind, payload: payload, to: current)
+        }
         mediaController.allowed = { [weak self] in
             guard let self, case .connected = self.state else { return false }
             return self.isFeatureAvailable(.media)
@@ -644,6 +652,7 @@ final class PairingCoordinator: ObservableObject {
     /// reconnect starts.
     private func deviceDisconnected(_ id: String, reason: String) {
         cancelTransfers(for: id)
+        remoteInput.disconnected(deviceID: id)
         if clipboardInbox.current?.deviceID == id || clipboardOutbox.current?.deviceID == id {
             clipboardConnectionLost()
         }
@@ -1253,6 +1262,15 @@ final class PairingCoordinator: ObservableObject {
         current.send(PairingMessage(kind: kind, sessionId: current.id,
             messageId: UUID().uuidString.lowercased(), nonce: encrypted.nonce, ciphertext: encrypted.ciphertext))
         return true
+    }
+
+    /// Remote input: decrypted here, checked and sequenced by the host. These high-rate messages
+    /// skip the shared message-ID window (see docs/protocol.md) and never close the session.
+    private func receiveRemoteInput(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id, let key = current.pairingKey,
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return }
+        remoteInput.receive(kind: message.kind, payload: data, deviceID: current.remoteDeviceID, deviceName: current.peerName)
     }
 
     private func receiveQuickPayload(_ message: PairingMessage, current: Session) {
@@ -2200,6 +2218,8 @@ final class PairingCoordinator: ObservableObject {
                     outgoingFiles[transferID]?.acknowledge(sequence: sequence)
                     clipboardOutbox.handleChunkAck(transferID, sequence: sequence)
                 }
+            case let kind where kind.hasPrefix("input."):
+                receiveRemoteInput(message, in: current)
             default:
                 break
             }

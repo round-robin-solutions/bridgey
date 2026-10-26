@@ -11,7 +11,7 @@ import SwiftUI
 /// Grouped by what people come to change, most used first. Each feature pane starts with that
 /// feature's switch, followed by its options. Android uses the same order.
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case thisMac, devices, clipboard, notifications, calls, files, media, privacy, updates, general, about
+    case thisMac, devices, clipboard, notifications, calls, files, media, remoteControl, privacy, updates, general, about
 
     var id: String { rawValue }
 
@@ -25,6 +25,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .calls: L10n.text("settings.calls", fallback: "Calls")
         case .files: L10n.text("settings.files", fallback: "Files")
         case .media: L10n.text("settings.mediaActions", fallback: "Media and quick actions")
+        case .remoteControl: L10n.text("settings.remoteControl", fallback: "Remote control")
         case .privacy: L10n.text("settings.privacy", fallback: "Privacy")
         case .updates: L10n.text("settings.updates", fallback: "Updates")
         case .general: L10n.text("settings.general", fallback: "General")
@@ -50,6 +51,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .calls: "phone"
         case .files: "folder"
         case .media: "music.note"
+        case .remoteControl: "cursorarrow.rays"
         case .privacy: "hand.raised"
         case .updates: "arrow.triangle.2.circlepath"
         case .general: "gearshape"
@@ -106,6 +108,10 @@ struct SettingsModel {
     var rediscovering = false
     var rediscoverStatus: String?
     var now = Date()
+    /// Remote control: the running session, Accessibility, and the private session log.
+    var remoteSession: RemoteInputHost.ActiveSession?
+    var accessibilityTrusted = false
+    var remoteAudit: [RemoteControlAuditEntry] = []
 
     var connectedDeviceID: String? {
         if case let .connected(id, _) = state { return id }
@@ -113,7 +119,13 @@ struct SettingsModel {
     }
 
     func isEnabled(_ feature: BridgeyFeature, for deviceID: String) -> Bool {
-        globalFeatures[feature] != false && deviceFeatures[deviceID]?[feature] != false
+        if feature.needsDeviceGrant { return globalFeatures[feature] == true && remoteGrant(for: deviceID) }
+        return globalFeatures[feature] != false && deviceFeatures[deviceID]?[feature] != false
+    }
+
+    /// Remote control is granted to each phone on its own; nothing is granted by default.
+    func remoteGrant(for deviceID: String) -> Bool {
+        deviceFeatures[deviceID]?[.remoteInput] == true
     }
 
     func isAutoClipboardEnabled(for deviceID: String) -> Bool {
@@ -154,6 +166,9 @@ struct SettingsActions {
     var checkForUpdates: () -> Void = {}
     var update = UpdateFlowActions()
     var openURL: (URL) -> Void = { _ in }
+    var stopRemoteControl: () -> Void = {}
+    var openAccessibilitySettings: () -> Void = {}
+    var clearRemoteAudit: () -> Void = {}
 }
 
 enum SettingsLinks {
@@ -490,6 +505,7 @@ struct SettingsPaneView: View {
         case .calls: CallsPane(model: model, actions: actions)
         case .files: FilesPane(model: model, actions: actions)
         case .media: MediaActionsPane(model: model, actions: actions)
+        case .remoteControl: RemoteControlPane(model: model, actions: actions)
         case .privacy: PrivacyPane(model: model, actions: actions)
         case .updates: UpdatesPane(model: model, actions: actions)
         case .general: GeneralPane(model: model, actions: actions)
@@ -779,6 +795,7 @@ extension BridgeyFeature {
         case .links: L10n.text("feature.links.detail", fallback: "Open links in either direction")
         case .media: L10n.text("feature.media.detail", fallback: "Control this Mac\u{2019}s music from the phone")
         case .calls: L10n.text("feature.calls.detail", fallback: "Start calls on the phone from this Mac")
+        case .remoteInput: L10n.text("feature.remoteInput.detail", fallback: "Let a phone you allow move the pointer, type and change slides")
         }
     }
 }
@@ -839,7 +856,7 @@ struct DeviceCard: View {
                 .font(BrandFont.body(12))
                 .foregroundStyle(c.on2)
                 .padding(.bottom, 4)
-            ForEach(BridgeyFeature.allCases) { feature in
+            ForEach(BridgeyFeature.allCases.filter { $0 != .remoteInput }) { feature in
                 SettingsToggle(
                     title: feature.title,
                     subtitle: note(feature),
@@ -858,6 +875,8 @@ struct DeviceCard: View {
                     .disabled(!model.autoClipboard || !model.isEnabled(.clipboard, for: device.id))
                 }
             }
+            // Granted on its own, off by default; see Settings > Remote control.
+            RemoteControlGrantToggle(device: device, model: model, actions: actions)
         }
         .confirmationDialog(
             String(format: L10n.text("devices.forget.title", fallback: "Forget %@?"), device.name),
@@ -1101,8 +1120,12 @@ private struct LiveSettingsView: View {
     @ObservedObject var activity: ActivityLog
     @ObservedObject var media: MediaController
     @ObservedObject var shortcuts: ShortcutSettings
+    @ObservedObject var remoteInput: RemoteInputHost
+    @ObservedObject var remoteAudit: RemoteControlAuditLog
     @State private var pane: SettingsPane = .devices
     @State private var phoneLinkStatus: String?
+    /// While Remote control is open: notices Accessibility being allowed in System Settings.
+    private let accessibilityTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     init(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings, updater: AppUpdater) {
         self.discovery = discovery
@@ -1112,6 +1135,8 @@ private struct LiveSettingsView: View {
         activity = pairing.activity
         media = pairing.mediaController
         shortcuts = pairing.shortcuts
+        remoteInput = pairing.remoteInput
+        remoteAudit = pairing.remoteInput.audit
     }
 
     var body: some View {
@@ -1121,6 +1146,11 @@ private struct LiveSettingsView: View {
         .onAppear {
             pairing.refreshNotificationAuthorization()
             settings.refreshLoginItemStatus()
+            remoteInput.refreshAccessibility()
+            remoteAudit.prune()
+        }
+        .onReceive(accessibilityTicker) { _ in
+            if pane == .remoteControl { remoteInput.refreshAccessibility() }
         }
     }
 
@@ -1168,6 +1198,9 @@ private struct LiveSettingsView: View {
         model.versionDescription = updater.versionDescription
         model.phoneLinkStatus = phoneLinkStatus
         model.now = Date()
+        model.remoteSession = remoteInput.active
+        model.accessibilityTrusted = remoteInput.accessibilityTrusted
+        model.remoteAudit = remoteAudit.entries
         return model
     }
 
@@ -1184,12 +1217,17 @@ private struct LiveSettingsView: View {
         actions.setGlobal = { feature, enabled in
             settings.setGlobal(feature, enabled: enabled)
             if feature == .findDevice && !enabled { pairing.stopFinding() }
+            if feature == .remoteInput { remoteControlChanged(enabled: enabled) }
         }
         actions.setForDevice = { deviceID, feature, enabled in
             settings.setForDevice(deviceID, feature: feature, enabled: enabled)
             if feature == .findDevice && !enabled,
                pairing.connectedPhones.contains(where: { $0.id == deviceID }) { pairing.stopFinding() }
+            if feature == .remoteInput { remoteControlChanged(enabled: enabled) }
         }
+        actions.stopRemoteControl = { remoteInput.stopLocally() }
+        actions.openAccessibilitySettings = { NSWorkspace.shared.open(AccessibilityAccess.settingsURL) }
+        actions.clearRemoteAudit = { remoteAudit.clear() }
         actions.setAutoClipboard = { settings.setAutoClipboard($0) }
         actions.setAutoClipboardForDevice = { deviceID, enabled in settings.setAutoClipboard(enabled, for: deviceID) }
         actions.setClipboardFiles = { settings.setClipboardFilesEnabled($0) }
@@ -1220,6 +1258,16 @@ private struct LiveSettingsView: View {
         actions.update = updater.flowActions
         actions.openURL = { NSWorkspace.shared.open($0) }
         return actions
+    }
+
+    /// A session whose grant went away ends now. Turning remote control on asks macOS for
+    /// Accessibility, once it is usable (on for this Mac and allowed for a phone).
+    private func remoteControlChanged(enabled: Bool) {
+        remoteInput.policyChanged()
+        let grants = settings.deviceFeatures.mapValues { $0[.remoteInput] == true }
+        if enabled, remoteControlEffectivelyEnabled(globalEnabled: settings.globalFeatures[.remoteInput] == true, deviceGrants: grants) {
+            remoteInput.remoteControlEnabled()
+        }
     }
 
     private func makeDefaultPhoneLinkHandler() {

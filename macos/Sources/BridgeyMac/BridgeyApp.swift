@@ -6,6 +6,8 @@ struct BridgeyApp: App {
     @StateObject private var discovery: BonjourDiscovery
     @StateObject private var pairing: PairingCoordinator
     @StateObject private var settings: BridgeySettings
+    /// Observed so the menu-bar icon changes while a phone controls this Mac.
+    @StateObject private var remoteInput: RemoteInputHost
     private let settingsWindow: SettingsWindowController
     private let callServiceProvider: CallServiceProvider
     private let updater: AppUpdater
@@ -19,6 +21,7 @@ struct BridgeyApp: App {
         let pairing = PairingCoordinator(deviceID: discovery.localDeviceID, deviceName: discovery.localDeviceName, settings: settings)
         pairing.observe(discovery)
         _pairing = StateObject(wrappedValue: pairing)
+        _remoteInput = StateObject(wrappedValue: pairing.remoteInput)
         let callServiceProvider = CallServiceProvider { [weak pairing] number in pairing?.sendCallWhenConnected(number) }
         self.callServiceProvider = callServiceProvider
         NSApplication.shared.servicesProvider = callServiceProvider
@@ -42,6 +45,7 @@ struct BridgeyApp: App {
     }
 
     private var menuBarSymbol: String {
+        if remoteInput.active != nil { return "cursorarrow.rays" }
         if case .connected = pairing.state { return "link.circle.fill" }
         return "link.circle"
     }

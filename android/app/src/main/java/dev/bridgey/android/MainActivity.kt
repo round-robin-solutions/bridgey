@@ -77,6 +77,11 @@ import dev.bridgey.android.ui.MotionNavHost
 import dev.bridgey.android.ui.NotificationAppsScreen
 import dev.bridgey.android.ui.NotificationAppsState
 import dev.bridgey.android.ui.PermissionRow
+import dev.bridgey.android.ui.RemoteRoute
+import dev.bridgey.android.remote.RemoteInputController
+import dev.bridgey.android.remote.RemoteInputPreferences
+import dev.bridgey.android.remote.RemoteShortcuts
+import dev.bridgey.android.remote.VolumeKeyRouter
 import dev.bridgey.android.ui.RingState
 import dev.bridgey.android.ui.Route
 import dev.bridgey.android.ui.SettingsActions
@@ -129,6 +134,8 @@ class MainActivity : ComponentActivity() {
     private var readLogsGranted by mutableStateOf(false)
     private var batteryExempt by mutableStateOf(true)
     private var sharedContent by mutableStateOf<SharedContent?>(null)
+    /** The launcher's Remote control quick action asked for this Mac. */
+    private var remoteTarget by mutableStateOf<String?>(null)
     private var showOnboarding by mutableStateOf(false)
     private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         refreshPermissionState()
@@ -154,6 +161,7 @@ class MainActivity : ComponentActivity() {
         discovery = bridgey.discovery
         bridgeySettings = bridgey.settings
         sharedContent = intent.toSharedContent()
+        remoteTarget = intent.toRemoteTarget()
         startForegroundService(Intent(this, BridgeyConnectionService::class.java))
         if (savedInstanceState == null) bridgey.updater.checkOnAppOpen()
         setContent {
@@ -165,6 +173,10 @@ class MainActivity : ComponentActivity() {
                     updater = bridgey.updater,
                     activityLog = bridgey.activityLog,
                     uiPreferences = bridgey.uiPreferences,
+                    remoteInput = bridgey.remoteInput,
+                    remotePreferences = bridgey.remotePreferences,
+                    remoteTarget = remoteTarget,
+                    onRemoteTargetHandled = ::clearRemoteTarget,
                     onDeviceNameChanged = bridgey::updateDeviceName,
                     appNotificationsEnabled = appNotificationsEnabled,
                     notificationAccessEnabled = notificationAccessEnabled,
@@ -222,6 +234,29 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         sharedContent = intent.toSharedContent()
+        remoteTarget = intent.toRemoteTarget()
+    }
+
+    /** While the presentation remote shows (and Settings allows it), the volume keys change slides. */
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        val handler = VolumeKeyRouter.handler
+        if (handler == null || !isVolumeKey(keyCode)) return super.onKeyDown(keyCode, event)
+        if (event.repeatCount == 0) handler(keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP)
+        return true
+    }
+
+    override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean =
+        if (VolumeKeyRouter.handler != null && isVolumeKey(keyCode)) true else super.onKeyUp(keyCode, event)
+
+    private fun isVolumeKey(keyCode: Int) =
+        keyCode == android.view.KeyEvent.KEYCODE_VOLUME_UP || keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN
+
+    private fun Intent.toRemoteTarget(): String? =
+        if (action == RemoteShortcuts.ACTION_REMOTE_CONTROL) getStringExtra(RemoteShortcuts.EXTRA_DEVICE_ID)?.takeIf { it.isNotBlank() } else null
+
+    private fun clearRemoteTarget() {
+        remoteTarget = null
+        setIntent(Intent(this, MainActivity::class.java))
     }
 
     private fun Intent.toSharedContent(): SharedContent? {
@@ -378,6 +413,7 @@ private val PermissionOrder = listOf(
     listOf(BridgeyFeature.NOTIFICATIONS),
     listOf(BridgeyFeature.CALLS),
     listOf(BridgeyFeature.MEDIA),
+    listOf(BridgeyFeature.REMOTE_INPUT),
     listOf(BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING),
     listOf(BridgeyFeature.LINKS),
     listOf(BridgeyFeature.BATTERY),
@@ -391,6 +427,10 @@ private fun BridgeyApp(
     updater: AppUpdater,
     activityLog: ActivityLog,
     uiPreferences: UiPreferences,
+    remoteInput: RemoteInputController,
+    remotePreferences: RemoteInputPreferences,
+    remoteTarget: String?,
+    onRemoteTargetHandled: () -> Unit,
     onDeviceNameChanged: (String) -> Unit,
     appNotificationsEnabled: Boolean,
     notificationAccessEnabled: Boolean,
@@ -425,6 +465,7 @@ private fun BridgeyApp(
     val reduceMotion by uiPreferences.reduceMotion.collectAsStateWithLifecycle()
     val showPreviews by uiPreferences.showPreviews.collectAsStateWithLifecycle()
     val tileAdded by uiPreferences.tileAdded.collectAsStateWithLifecycle()
+    val remotePrefs by remotePreferences.state.collectAsStateWithLifecycle()
     val reconnectStates by pairing.reconnectStates.collectAsStateWithLifecycle()
     val rediscover by pairing.rediscover.collectAsStateWithLifecycle()
     val batteryPromptShown by uiPreferences.batteryPromptShown.collectAsStateWithLifecycle()
@@ -526,7 +567,17 @@ private fun BridgeyApp(
 
     // A device page whose device was forgotten closes.
     LaunchedEffect(rings) {
-        stack.removeWhere { route -> route is Route.Device && rings.none { it.deviceId == route.deviceId } }
+        stack.removeWhere { route ->
+            (route is Route.Device && rings.none { it.deviceId == route.deviceId }) ||
+                (route is Route.Remote && rings.none { it.deviceId == route.deviceId })
+        }
+    }
+
+    // The launcher's Remote control quick action opens that Mac's remote.
+    LaunchedEffect(remoteTarget) {
+        val deviceId = remoteTarget ?: return@LaunchedEffect
+        if (rings.any { it.deviceId == deviceId }) stack.push(Route.Remote(deviceId))
+        onRemoteTargetHandled()
     }
 
     val onSetGlobalFeature: (BridgeyFeature, Boolean) -> Unit = { feature, enabled ->
@@ -642,6 +693,7 @@ private fun BridgeyApp(
                                 },
                                 sendClipboard = { pairing.sendClipboard(ring.deviceId) },
                                 sendText = { pairing.sendText(it, deviceId = ring.deviceId) },
+                                remoteControl = { ring.deviceId?.let { stack.push(Route.Remote(it)) } },
                                 live = liveActions,
                             ),
                             snackbar = snackbar,
@@ -649,6 +701,13 @@ private fun BridgeyApp(
                         )
                     }
                 }
+                is Route.Remote -> RemoteRoute(
+                    deviceId = route.deviceId,
+                    deviceName = rings.firstOrNull { it.deviceId == route.deviceId }?.name ?: stringResource(R.string.remote_default_name),
+                    controller = remoteInput,
+                    preferences = remotePrefs,
+                    onBack = { stack.pop() },
+                )
                 Route.Settings -> {
                     val (enabledApps, totalApps) = notificationAppCounts(settingsState.notificationApplications, settingsState.disabledNotificationPackages)
                     val bridgeyApp = context.applicationContext as BridgeyApplication
@@ -698,6 +757,8 @@ private fun BridgeyApp(
                             update = updateState,
                             installedVersion = updater.installedVersionName,
                             now = now,
+                            remotePointerSpeed = remotePrefs.pointerSpeed,
+                            remoteVolumeKeys = remotePrefs.volumeKeysChangeSlides,
                             batteryExempt = batteryExempt,
                             keepWifiAwakeSupported = WifiKeeper.SUPPORTED,
                             keepWifiAwake = settingsState.keepWifiAwake,
@@ -740,6 +801,8 @@ private fun BridgeyApp(
                             setChannel = updater::setChannel,
                             install = updater::install,
                             openUrl = { runCatching { uriHandler.openUri(it) } },
+                            setRemotePointerSpeed = remotePreferences::setPointerSpeed,
+                            setRemoteVolumeKeys = remotePreferences::setVolumeKeysChangeSlides,
                             requestBatteryExemption = onRequestBatteryExemption,
                             openBatterySettings = onOpenBatterySettings,
                             setKeepWifiAwake = settings::setKeepWifiAwake,

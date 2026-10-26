@@ -41,6 +41,11 @@ sealed interface Route {
         override val key get() = "device:$deviceId"
     }
 
+    /** Remote control of a Mac: touchpad, keyboard and slides. */
+    data class Remote(val deviceId: String) : Route {
+        override val key get() = "remote:$deviceId"
+    }
+
     data object Settings : Route {
         override val key = "settings"
     }
@@ -65,6 +70,7 @@ sealed interface Route {
             key == NotificationApps.key -> NotificationApps
             key == PerfTest.key -> PerfTest
             key.startsWith("device:") -> Device(key.removePrefix("device:"))
+            key.startsWith("remote:") -> Remote(key.removePrefix("remote:"))
             else -> null
         }
     }

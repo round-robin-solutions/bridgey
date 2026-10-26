@@ -109,6 +109,8 @@ class DeviceActions(
     val notificationAccess: () -> Unit = {},
     val sendClipboard: () -> Unit = {},
     val sendText: (String) -> Unit = {},
+    /** Opens the touchpad and presentation remote for this Mac. */
+    val remoteControl: () -> Unit = {},
     val live: LiveActions = LiveActions(),
 )
 
@@ -142,6 +144,10 @@ fun DeviceScreen(
                 }
             }
             QuickActionGroup(state, actions, Modifier.padding(top = 24.dp))
+            // Only while both devices allow it: this Mac granted this phone, and it is on here.
+            if (BridgeyFeature.REMOTE_INPUT in state.available) {
+                RemoteControlEntry(actions.remoteControl, Modifier.padding(top = 8.dp))
+            }
             DeviceTabs(tab, onTab = { tab = it }, modifier = Modifier.padding(top = 16.dp))
             AnimatedContent(
                 targetState = tab,
@@ -293,6 +299,22 @@ private fun QuickActionGroup(state: DeviceState, actions: DeviceActions, modifie
 }
 
 @Composable
+private fun RemoteControlEntry(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier.padding(horizontal = 16.dp)) {
+        ListRow(
+            shape = RoundedCornerShape(24.dp),
+            title = stringResource(R.string.remote_entry_title),
+            detail = stringResource(R.string.remote_entry_detail),
+            icon = BridgeyIcons.Mouse,
+            tint = Tint.BLUE,
+            compact = true,
+            onClick = onClick,
+            role = Role.Button,
+        ) { Icon(BridgeyIcons.ChevronRight, null, tint = BridgeyTheme.colors.onSurfaceVariant) }
+    }
+}
+
+@Composable
 private fun DeviceTabs(tab: DeviceTab, onTab: (DeviceTab) -> Unit, modifier: Modifier = Modifier) {
     val colors = BridgeyTheme.colors
     Box(modifier.fillMaxWidth().height(48.dp)) {
@@ -403,6 +425,7 @@ fun permissionVisual(feature: BridgeyFeature): Pair<ImageVector, Tint> = when (f
     BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING -> BridgeyIcons.Sensors to Tint.BLUE
     BridgeyFeature.LINKS -> BridgeyIcons.Link to Tint.BLUE
     BridgeyFeature.BATTERY -> BridgeyIcons.Battery5Bar to Tint.GREEN
+    BridgeyFeature.REMOTE_INPUT -> BridgeyIcons.Mouse to Tint.PURPLE
 }
 
 @Composable
@@ -416,6 +439,7 @@ fun permissionTitle(feature: BridgeyFeature): String = stringResource(
         BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING -> R.string.feature_find_ping
         BridgeyFeature.LINKS -> R.string.feature_links
         BridgeyFeature.BATTERY -> R.string.feature_battery
+        BridgeyFeature.REMOTE_INPUT -> R.string.feature_remote_input
     },
 )
 
@@ -433,6 +457,7 @@ private fun permissionDetail(feature: BridgeyFeature, state: DeviceState): Strin
     BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING -> stringResource(R.string.feature_find_ping_detail, state.ring.name)
     BridgeyFeature.LINKS -> stringResource(R.string.feature_links_detail)
     BridgeyFeature.BATTERY -> stringResource(R.string.feature_battery_detail, state.ring.name)
+    BridgeyFeature.REMOTE_INPUT -> stringResource(R.string.feature_remote_input_detail, state.ring.name)
 }
 
 /** The device page's send bar: attach a file, type a message or leave it empty to send the clipboard. */

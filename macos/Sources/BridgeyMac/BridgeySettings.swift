@@ -12,6 +12,8 @@ enum BridgeyFeature: String, CaseIterable, Identifiable {
     case links
     case media
     case calls
+    /// Draft, edition only until accepted upstream: this Mac accepts remote input from the phone.
+    case remoteInput = "remote_input_draft1"
 
     var id: String { rawValue }
     var title: String {
@@ -25,12 +27,21 @@ enum BridgeyFeature: String, CaseIterable, Identifiable {
         case .links: "Web links"
         case .media: "Media controls"
         case .calls: "Calls from Mac"
+        case .remoteInput: L10n.text("settings.remoteControl", fallback: "Remote control")
         }
     }
+
+    /// Off by default and granted per device: the global switch alone allows nothing.
+    var needsDeviceGrant: Bool { self == .remoteInput }
 }
 
 func featureEnabledByLegacyPeer(_ feature: BridgeyFeature) -> Bool {
-    ![.calls, .ping, .links, .media].contains(feature)
+    ![.calls, .ping, .links, .media, .remoteInput].contains(feature)
+}
+
+/// Remote control: on for this Mac and explicitly granted to the device; a missing grant is off.
+func effectiveGrantEnabled(globalEnabled: Bool, deviceGranted: Bool?) -> Bool {
+    globalEnabled && deviceGranted == true
 }
 
 func effectiveFeatureEnabled(globalEnabled: Bool, deviceEnabled: Bool?) -> Bool {
@@ -100,7 +111,7 @@ final class BridgeySettings: ObservableObject {
             bytes: (storedDefaults.object(forKey: "settings.clipboardFiles.eagerLimit") as? NSNumber)?.int64Value ?? ClipboardEagerLimit.default.bytes
         ).bytes
         globalFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
-            ($0, storedDefaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media))
+            ($0, storedDefaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media && $0 != .remoteInput))
         })
         var perDevice: [String: [BridgeyFeature: Bool]] = [:]
         for (key, value) in storedDefaults.dictionaryRepresentation() where key.hasPrefix("settings.device.") {
@@ -187,7 +198,13 @@ final class BridgeySettings: ObservableObject {
     }
 
     func isEnabled(_ feature: BridgeyFeature, for deviceID: String?) -> Bool {
-        effectiveFeatureEnabled(
+        if feature.needsDeviceGrant {
+            return effectiveGrantEnabled(
+                globalEnabled: globalFeatures[feature] == true,
+                deviceGranted: deviceID.flatMap { deviceFeatures[$0]?[feature] }
+            )
+        }
+        return effectiveFeatureEnabled(
             globalEnabled: globalFeatures[feature] != false,
             deviceEnabled: deviceID.flatMap { deviceFeatures[$0]?[feature] }
         )
