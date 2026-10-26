@@ -31,10 +31,17 @@ APK="$RR_ROOT/android/app/build/outputs/apk/release/app-release.apk"
 [ -f "$APK" ] || die "release APK was not produced"
 
 SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}
-BUILD_TOOLS=$(ls -d "$SDK"/build-tools/* | sort -V | tail -n 1)
+# The newest build-tools that has both tools (CI images carry several versions, some partial).
+BUILD_TOOLS=""
+for dir in $(ls -d "$SDK"/build-tools/* | sort -V -r); do
+  [ -x "$dir/apksigner" ] && [ -x "$dir/aapt2" ] && { BUILD_TOOLS=$dir; break; }
+done
+[ -n "$BUILD_TOOLS" ] || die "no build-tools with apksigner and aapt2 under $SDK"
 EXPECTED_CERT=$(edition_value ANDROID_CERT_SHA256 | tr -d ':' | tr 'A-F' 'a-f')
-ACTUAL_CERT=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr -d ':' | tr 'A-F' 'a-f')
-[ "$ACTUAL_CERT" = "$EXPECTED_CERT" ] || die "APK is not signed with the Round Robin release key"
+CERTS=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK") || die "apksigner could not verify the APK"
+ACTUAL_CERT=$(printf '%s\n' "$CERTS" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr -d ':' | tr 'A-F' 'a-f')
+# Certificate fingerprints are public, so a mismatch names both.
+[ "$ACTUAL_CERT" = "$EXPECTED_CERT" ] || die "APK is not signed with the Round Robin release key (signed with ${ACTUAL_CERT:-nothing}, expected $EXPECTED_CERT; $(basename "$BUILD_TOOLS") apksigner)"
 BADGING=$("$BUILD_TOOLS/aapt2" dump badging "$APK" | head -n 1)
 echo "$BADGING" | grep -q "name='$(edition_value EDITION_APP_ID)'" || die "unexpected package: $BADGING"
 echo "$BADGING" | grep -q "versionCode='$BRIDGEY_BUILD_NUMBER'" || die "unexpected versionCode: $BADGING"
