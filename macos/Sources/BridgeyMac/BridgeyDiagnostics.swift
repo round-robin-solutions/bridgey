@@ -23,9 +23,17 @@ final class BridgeyDiagnostics {
     private var saveWorkItem: DispatchWorkItem?
     private let saveQueue = DispatchQueue(label: "in.roundrobin.bridgey.diagnostics")
 
-    init(limit: Int = 200, fileURL: URL? = nil) {
+    /// Settings > Privacy > Logging: a category that is off never reaches the report.
+    private let allows: (String) -> Bool
+
+    init(
+        limit: Int = 200,
+        fileURL: URL? = nil,
+        allows: @escaping (String) -> Bool = { BridgeyLog.policy.allows(diagnosticLogCategory($0)) }
+    ) {
         self.limit = limit
         self.fileURL = fileURL
+        self.allows = allows
         if let fileURL, let data = try? Data(contentsOf: fileURL),
            let stored = try? JSONDecoder().decode([BridgeyDiagnosticEvent].self, from: data) {
             events = Array(stored.suffix(limit))
@@ -33,6 +41,7 @@ final class BridgeyDiagnostics {
     }
 
     func record(category: String, event: String, outcome: String = "ok", device: String? = nil, detail: String? = nil) {
+        guard allows(category) else { return }
         events.append(BridgeyDiagnosticEvent(
             timestamp: formatter.string(from: Date()),
             category: token(category),
@@ -46,6 +55,12 @@ final class BridgeyDiagnostics {
     }
 
     func snapshot() -> [BridgeyDiagnosticEvent] { events }
+
+    /// Settings > Privacy > Logging > Clear logs: drops every recorded event, on disk too.
+    func clear() {
+        events.removeAll()
+        scheduleSave()
+    }
 
     func report(
         connectionState: String,

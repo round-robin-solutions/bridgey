@@ -776,6 +776,7 @@ private fun BridgeyApp(
                             keepWifiAwakeSupported = WifiKeeper.SUPPORTED,
                             keepWifiAwake = settingsState.keepWifiAwake,
                             folders = folderUi.settingsState,
+                            logging = settingsState.logging,
                         ),
                         actions = SettingsActions(
                             back = { stack.pop() },
@@ -810,6 +811,8 @@ private fun BridgeyApp(
                                 pairing.clearClipboardCache()
                             },
                             exportDiagnostics = onExportDiagnostics,
+                            setLogging = settings::setLogging,
+                            clearLogs = pairing::clearDiagnostics,
                             turnOff = onTurnOff,
                             checkNow = updater::checkNow,
                             setChannel = updater::setChannel,

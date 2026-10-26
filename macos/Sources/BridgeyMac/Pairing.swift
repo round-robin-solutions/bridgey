@@ -471,9 +471,9 @@ final class PairingCoordinator: ObservableObject {
                 self?.notificationPermissionDetermined = true
             }
             if let error {
-                BridgeyLog.plugin.error("notifications authorization failed error=\(String(describing: error), privacy: .public)")
+                BridgeyLog.notifications.error("notifications authorization failed error=\(String(describing: error), privacy: .public)")
             } else {
-                BridgeyLog.plugin.notice("notifications authorization granted=\(granted, privacy: .public)")
+                BridgeyLog.notifications.notice("notifications authorization granted=\(granted, privacy: .public)")
             }
         }
     }
@@ -1041,7 +1041,7 @@ final class PairingCoordinator: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: timeout)
         clipboardStatus = automatic ? nil : "Sending\u{2026}"
         diagnostics.record(category: "clipboard", event: "offer_sent")
-        BridgeyLog.plugin.info("clipboard offer sent automatic=\(automatic, privacy: .public)")
+        BridgeyLog.line(BridgeyLog.clipboard, LogLines.clipboard(BridgeyLog.policy, event: "offer sent automatic=\(automatic)"))
     }
 
     private func receiveClipboardOffer(_ message: PairingMessage, in current: Session) {
@@ -1062,7 +1062,7 @@ final class PairingCoordinator: ObservableObject {
         recordClipActivity(.clipOfferReceived, summary: ClipboardOfferSummary(offer), deviceID: current.remoteDeviceID, deviceName: current.peerName)
         diagnostics.record(category: "clipboard", event: "offer_received")
         current.send(PairingMessage(kind: "clipboard.ack", sessionId: current.id, messageId: messageID))
-        BridgeyLog.plugin.info("clipboard offer received")
+        BridgeyLog.line(BridgeyLog.clipboard, LogLines.clipboard(BridgeyLog.policy, event: "offer received"))
     }
 
     private func receiveClipboardFetch(_ message: PairingMessage, in current: Session) {
@@ -1179,7 +1179,7 @@ final class PairingCoordinator: ObservableObject {
         }
         clipboardTimeoutWorkItem = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: timeout)
-        BridgeyLog.plugin.info("clipboard sent automatic=\(automatic, privacy: .public)")
+        BridgeyLog.line(BridgeyLog.clipboard, LogLines.clipboard(BridgeyLog.policy, event: "sent automatic=\(automatic)"))
     }
 
     /// Runs the pasteboard watcher only while connected, with Clipboard available on both sides
@@ -1502,6 +1502,12 @@ final class PairingCoordinator: ObservableObject {
             return false
         }
         return sendItems(urls)
+    }
+
+    /// Settings > Privacy > Logging > Clear logs: the diagnostics log on this Mac. The unified log
+    /// is the system's and ages out on its own.
+    func clearDiagnostics() {
+        diagnostics.clear()
     }
 
     func exportDiagnostics() {
@@ -2051,7 +2057,7 @@ final class PairingCoordinator: ObservableObject {
                 }
                 diagnostics.record(category: "clipboard", event: html == nil ? "text_received" : "rich_received")
                 recordActivity(.clipboardReceived, in: current, preview: text)
-                BridgeyLog.plugin.info("clipboard received")
+                BridgeyLog.line(BridgeyLog.clipboard, LogLines.clipboard(BridgeyLog.policy, event: "received", preview: text))
                 current.send(PairingMessage(kind: "clipboard.ack", sessionId: current.id, messageId: messageID))
             case "clipboard.ack":
                 if let pending = pendingOfferAck, message.messageId == pending.messageID {
@@ -2074,7 +2080,7 @@ final class PairingCoordinator: ObservableObject {
                     clipboardStatus = "Delivered"
                 }
                 pendingClipboardActivity = nil
-                BridgeyLog.plugin.info("clipboard acknowledged")
+                BridgeyLog.line(BridgeyLog.clipboard, LogLines.clipboard(BridgeyLog.policy, event: "acknowledged"))
             case "clipboard.rejected":
                 if let pending = pendingOfferAck, message.messageId == pending.messageID {
                     pending.timeout.cancel()
@@ -2196,7 +2202,7 @@ final class PairingCoordinator: ObservableObject {
                     sessionId: current.id,
                     transferId: offer.transferId
                 ))
-                BridgeyLog.plugin.notice("file accepted name=\(transfer.displayName, privacy: .private) size=\(offer.size, privacy: .public)")
+                BridgeyLog.line(BridgeyLog.files, LogLines.file(BridgeyLog.policy, event: "accepted", transfer: offer.transferId, name: transfer.displayName, extra: "size=\(offer.size)"))
             case "files.chunk":
                 if clipboardInbox.owns(message.transferId) {
                     guard registry.isActive(current), message.sessionId == current.id,
@@ -2265,7 +2271,7 @@ final class PairingCoordinator: ObservableObject {
                     ))
                     recordActivity(.fileReceived, in: current, fileName: transfer.displayName)
                     NSWorkspace.shared.activateFileViewerSelecting([destination])
-                    BridgeyLog.plugin.notice("file received name=\(transfer.displayName, privacy: .private)")
+                    BridgeyLog.line(BridgeyLog.files, LogLines.file(BridgeyLog.policy, event: "received", transfer: completion.transferId, name: transfer.displayName))
                 } catch {
                     transfer.cancel()
                     fileTransferStatus = "File verification failed"
@@ -2347,7 +2353,7 @@ final class PairingCoordinator: ObservableObject {
                 recordActivity(.fileSent, in: current, fileName: transfer.displayName)
                 updateFileTransfer(id: transferID, name: transfer.displayName, status: fileTransferStatus!, active: false)
                 fileTransferActive = fileTransfers.values.contains(where: { $0.active })
-                BridgeyLog.plugin.notice("file sent transfer=\(String(transferID.prefix(8)), privacy: .public)")
+                BridgeyLog.files.notice("file sent transfer=\(String(transferID.prefix(8)), privacy: .public)")
                 finishQueuedFile(transferID)
             case "files.cancel":
                 guard let transferID = message.transferId else { return }
@@ -2364,7 +2370,7 @@ final class PairingCoordinator: ObservableObject {
                 markFileTransferFinished(id: transferID, status: "Transfer cancelled by Android")
                 fileTransferStatus = "Transfer cancelled by Android"
                 current.send(PairingMessage(kind: "files.cancel.ack", sessionId: current.id, transferId: transferID))
-                BridgeyLog.plugin.notice("file cancellation received transfer=\(String(transferID.prefix(8)), privacy: .public)")
+                BridgeyLog.files.notice("file cancellation received transfer=\(String(transferID.prefix(8)), privacy: .public)")
                 finishQueuedFile(transferID)
             case "files.cancel.ack":
                 if clipboardInbox.owns(message.transferId) || clipboardOutbox.owns(message.transferId) { return }
@@ -2832,9 +2838,9 @@ final class PairingCoordinator: ObservableObject {
         )
         UNUserNotificationCenter.current().add(request) { error in
             if let error {
-                BridgeyLog.plugin.error("notification delivery failed package=\(payload.packageName, privacy: .private) error=\(String(describing: error), privacy: .private)")
+                BridgeyLog.notifications.error("notification delivery failed error=\(String(describing: error), privacy: .private)")
             } else {
-                BridgeyLog.plugin.info("notification received package=\(payload.packageName, privacy: .private)")
+                BridgeyLog.line(BridgeyLog.notifications, LogLines.notification(BridgeyLog.policy, event: "shown", appName: payload.applicationName, title: payload.title, text: payload.text))
             }
         }
     }
@@ -2899,7 +2905,10 @@ final class PairingCoordinator: ObservableObject {
             logCall("removal_cancelled", notificationID: payload.notificationId, deviceID: deviceID, reason: "reposted")
         }
         if previousType != callType {
-            logCall(previousType == nil ? "shown" : "state", notificationID: payload.notificationId, deviceID: deviceID, reason: callType)
+            logCall(
+                previousType == nil ? "shown" : "state",
+                notificationID: payload.notificationId, deviceID: deviceID, reason: callType, caller: payload.title
+            )
         }
         publishRemoteCall()
         if !recordedCallIdentities.contains(identity) {
@@ -2928,12 +2937,13 @@ final class PairingCoordinator: ObservableObject {
         refreshCallRinging()
     }
 
-    /// Call lifecycle for the unified log and the exported diagnostics: event, reason and 8-character
-    /// ids only, never the caller, number or app.
-    private func logCall(_ event: String, notificationID: String, deviceID: String, reason: String) {
-        BridgeyLog.calls.notice(
-            "call \(event, privacy: .public) id=\(shortCallID(notificationID), privacy: .public) peer=\(shortDeviceID(deviceID), privacy: .public) reason=\(reason, privacy: .public)"
-        )
+    /// Call lifecycle for the unified log and the exported diagnostics. Diagnostics get the event,
+    /// reason and 8-character ids only; the local log adds the caller when Logging allows it
+    /// (numbers masked unless "Include phone numbers" is on).
+    private func logCall(_ event: String, notificationID: String, deviceID: String, reason: String, caller: String? = nil) {
+        BridgeyLog.line(BridgeyLog.calls, LogLines.call(
+            BridgeyLog.policy, event: event, id: notificationID, peer: deviceID, reason: reason, caller: caller
+        ))
         diagnostics.record(category: "call", event: event, device: deviceID, detail: reason)
     }
 
@@ -3036,7 +3046,7 @@ final class PairingCoordinator: ObservableObject {
                 options: [UNNotificationAttachmentOptionsTypeHintKey: UTType.png.identifier]
             )
         } catch {
-            BridgeyLog.plugin.error("notification icon attachment failed package=\(payload.packageName, privacy: .private) error=\(String(describing: error), privacy: .private)")
+            BridgeyLog.notifications.error("notification icon attachment failed error=\(String(describing: error), privacy: .private)")
             return nil
         }
     }

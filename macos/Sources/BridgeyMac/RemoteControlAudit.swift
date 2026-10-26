@@ -104,6 +104,9 @@ final class RemoteControlAuditLog: ObservableObject {
     }
 
     func record(_ entry: RemoteControlAuditEntry) {
+        BridgeyLog.remote.notice(
+            "remote session ended peer=\(shortDeviceID(entry.deviceID), privacy: .public) accepted=\(entry.accepted, privacy: .public) mode=\(entry.mode ?? "none", privacy: .public) reason=\(entry.endReason, privacy: .public)"
+        )
         entries = RemoteControlAuditStore.pruned([entry] + entries.filter { $0.id != entry.id }, now: clock())
         store?.save(entries)
     }

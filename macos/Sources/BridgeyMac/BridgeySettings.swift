@@ -78,6 +78,8 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var notificationHistoryEnabled: Bool
     /// Settings > Privacy > Show previews in activity. On by default.
     @Published private(set) var showActivityPreviews: Bool
+    /// Settings > Privacy > Logging: what reaches the unified log and exported diagnostics. Per Mac.
+    @Published private(set) var logging: LoggingPolicy
     /// Settings > Calls > Ring for incoming calls: a soft ring repeats until the call is answered,
     /// declined, hidden or ends. On by default.
     @Published private(set) var ringForIncomingCalls: Bool
@@ -107,6 +109,9 @@ final class BridgeySettings: ObservableObject {
         showActivityPreviews = storedDefaults.object(forKey: "settings.activity.previews") as? Bool ?? true
         reduceMotion = storedDefaults.bool(forKey: "settings.reduceMotion")
         ringForIncomingCalls = storedDefaults.object(forKey: "settings.calls.ring") as? Bool ?? true
+        let logging = loggingPolicy { key, fallback in storedDefaults.object(forKey: key) as? Bool ?? fallback }
+        self.logging = logging
+        BridgeyLog.policy = logging
         autoClipboardEnabled = storedDefaults.object(forKey: "settings.autoClipboard.enabled") as? Bool ?? true
         var autoDevices: [String: Bool] = [:]
         for (key, value) in storedDefaults.dictionaryRepresentation() where key.hasPrefix(Self.autoClipboardDevicePrefix) {
@@ -165,6 +170,12 @@ final class BridgeySettings: ObservableObject {
     func setShowActivityPreviews(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.activity.previews")
         showActivityPreviews = enabled
+    }
+
+    func setLogging(_ policy: LoggingPolicy) {
+        for (key, value) in loggingPreferenceValues(policy) { defaults.set(value, forKey: key) }
+        BridgeyLog.policy = policy
+        logging = policy
     }
 
     func setRingForIncomingCalls(_ enabled: Bool) {
@@ -298,4 +309,35 @@ final class BridgeySettings: ObservableObject {
     func refreshLoginItemStatus() {
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
+}
+
+/// UserDefaults keys of `LoggingPolicy`, with their values.
+func loggingPreferenceValues(_ policy: LoggingPolicy) -> [String: Bool] {
+    [
+        "settings.logging.connection": policy.connection,
+        "settings.logging.calls": policy.calls,
+        "settings.logging.calls.numbers": policy.callNumbers,
+        "settings.logging.notifications": policy.notifications,
+        "settings.logging.notifications.content": policy.notificationContent,
+        "settings.logging.clipboard": policy.clipboard,
+        "settings.logging.clipboard.previews": policy.clipboardPreviews,
+        "settings.logging.files.names": policy.fileNames,
+        "settings.logging.remoteControl": policy.remoteControl,
+    ]
+}
+
+func loggingPolicy(read: (String, Bool) -> Bool) -> LoggingPolicy {
+    let defaults = loggingPreferenceValues(LoggingPolicy())
+    func value(_ key: String) -> Bool { read(key, defaults[key]!) }
+    return LoggingPolicy(
+        connection: value("settings.logging.connection"),
+        calls: value("settings.logging.calls"),
+        callNumbers: value("settings.logging.calls.numbers"),
+        notifications: value("settings.logging.notifications"),
+        notificationContent: value("settings.logging.notifications.content"),
+        clipboard: value("settings.logging.clipboard"),
+        clipboardPreviews: value("settings.logging.clipboard.previews"),
+        fileNames: value("settings.logging.files.names"),
+        remoteControl: value("settings.logging.remoteControl")
+    )
 }

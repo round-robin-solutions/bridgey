@@ -51,7 +51,7 @@ final class NotificationHistoryStore {
             try data.write(to: fileURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
-            BridgeyLog.plugin.error("notification history persistence failed error=\(String(describing: error), privacy: .private)")
+            BridgeyLog.notifications.error("notification history persistence failed error=\(String(describing: error), privacy: .private)")
         }
     }
 

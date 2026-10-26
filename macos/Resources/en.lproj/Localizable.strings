@@ -536,3 +536,28 @@
 /* Pairing file (replaces the Keychain) */
 "pairingStore.file" = "Bridgey can't open its pairing file, so phones stay disconnected.";
 "pairingStore.keychain" = "Bridgey needs Keychain access one last time to move your pairing keys into a private file. After that, updates never ask. Phones stay disconnected until then.";
+
+"settings.logging" = "Logging";
+"settings.logging.note" = "Logs stay on this device; you choose what goes into exported diagnostics. Names and text only reach the local log.";
+"settings.logging.connection" = "Connection events";
+"settings.logging.connection.detail" = "Discovery, pairing, connects and reconnects";
+"settings.logging.calls" = "Call events";
+"settings.logging.calls.detail" = "Call states and the caller’s name, so call problems can be traced";
+"settings.logging.callNumbers" = "Include phone numbers";
+"settings.logging.callNumbers.detail" = "Off masks numbers in call events";
+"settings.logging.notifications" = "Notification events";
+"settings.logging.notifications.detail" = "Which app posted and what happened to it";
+"settings.logging.notificationContent" = "Notification titles and text";
+"settings.logging.notificationContent.detail" = "Adds what the notification says";
+"settings.logging.clipboard" = "Clipboard events";
+"settings.logging.clipboard.detail" = "Sends and receipts, without the content";
+"settings.logging.clipboardPreviews" = "Clipboard previews";
+"settings.logging.clipboardPreviews.detail" = "Adds the first 40 characters";
+"settings.logging.fileNames" = "File names";
+"settings.logging.fileNames.detail" = "Adds file and folder names to transfer events";
+"settings.logging.remote" = "Remote control sessions";
+"settings.logging.remote.detail" = "When a session ends and why; the remote control audit keeps its own record";
+"settings.logging.clear" = "Clear logs";
+"settings.logging.clear.detail" = "Deletes the diagnostics log on this Mac";
+"settings.logging.clear.title" = "Clear logs?";
+"settings.logging.clear.body" = "This deletes the diagnostics log on this Mac. Your other devices keep their own.";

@@ -536,3 +536,28 @@
 /* Pairing file (replaces the Keychain) */
 "pairingStore.file" = "Bridgey не может открыть файл сопряжения, поэтому телефоны не подключены.";
 "pairingStore.keychain" = "Bridgey в последний раз нужен доступ к Связке ключей, чтобы перенести ключи сопряжения в отдельный защищённый файл. После этого обновления больше не спрашивают пароль. До тех пор телефоны не подключатся.";
+
+"settings.logging" = "Журналы";
+"settings.logging.note" = "Журналы остаются на этом устройстве; вы выбираете, что попадёт в экспорт диагностики. Имена и текст пишутся только в локальный журнал.";
+"settings.logging.connection" = "События подключения";
+"settings.logging.connection.detail" = "Поиск, сопряжение, подключения и переподключения";
+"settings.logging.calls" = "События звонков";
+"settings.logging.calls.detail" = "Состояния звонка и имя звонящего, чтобы разбирать проблемы со звонками";
+"settings.logging.callNumbers" = "Номера телефонов";
+"settings.logging.callNumbers.detail" = "Если выключено, номера в событиях звонков скрыты";
+"settings.logging.notifications" = "События уведомлений";
+"settings.logging.notifications.detail" = "Какое приложение прислало уведомление и что с ним стало";
+"settings.logging.notificationContent" = "Заголовки и текст уведомлений";
+"settings.logging.notificationContent.detail" = "Добавляет содержимое уведомления";
+"settings.logging.clipboard" = "События буфера обмена";
+"settings.logging.clipboard.detail" = "Отправка и получение, без содержимого";
+"settings.logging.clipboardPreviews" = "Превью буфера обмена";
+"settings.logging.clipboardPreviews.detail" = "Добавляет первые 40 символов";
+"settings.logging.fileNames" = "Имена файлов";
+"settings.logging.fileNames.detail" = "Добавляет имена файлов и папок в события передачи";
+"settings.logging.remote" = "Сеансы удалённого управления";
+"settings.logging.remote.detail" = "Когда и почему сеанс завершился; журнал удалённого управления ведётся отдельно";
+"settings.logging.clear" = "Очистить журналы";
+"settings.logging.clear.detail" = "Удаляет журнал диагностики на этом Mac";
+"settings.logging.clear.title" = "Очистить журналы?";
+"settings.logging.clear.body" = "Журнал диагностики на этом Mac будет удалён. Другие устройства хранят свои журналы.";

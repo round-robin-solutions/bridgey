@@ -94,6 +94,7 @@ struct SettingsModel {
     var mediaPlayer: MediaPlayer = .off
     var pauseForCalls = false
     var ringForCalls = true
+    var logging = LoggingPolicy()
     var mediaDetail = ""
     var showPreviews = true
     var reduceMotion = false
@@ -161,6 +162,8 @@ struct SettingsActions {
     var setPlayer: (MediaPlayer) -> Void = { _ in }
     var setPauseForCalls: (Bool) -> Void = { _ in }
     var setRingForCalls: (Bool) -> Void = { _ in }
+    var setLogging: (LoggingPolicy) -> Void = { _ in }
+    var clearLogs: () -> Void = {}
     var refreshPlayer: () -> Void = {}
     var setShowPreviews: (Bool) -> Void = { _ in }
     var clearActivity: () -> Void = {}
@@ -1062,13 +1065,82 @@ struct PrivacyPane: View {
         } message: {
             Text(L10n.text("settings.activity.clear.body", fallback: "This removes the stream from this Mac. Your other devices keep their own history."))
         }
-        SettingsCard(title: L10n.text("settings.diagnostics", fallback: "Diagnostics")) {
+        LoggingCard(model: model, actions: actions)
+    }
+}
+
+/// Settings > Privacy > Logging: a switch per category, content switches under their category,
+/// then Export diagnostics and Clear logs. Per Mac.
+struct LoggingCard: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+    @State private var confirmClear = false
+
+    private var policy: LoggingPolicy { model.logging }
+
+    private func set(_ change: (inout LoggingPolicy) -> Void) {
+        var next = policy
+        change(&next)
+        actions.setLogging(next)
+    }
+
+    var body: some View {
+        SettingsCard(
+            title: L10n.text("settings.logging", fallback: "Logging"),
+            footnote: L10n.text("settings.logging.note", fallback: "Logs stay on this device; you choose what goes into exported diagnostics. Names and text only reach the local log.")
+        ) {
+            Group {
+            SettingsToggle(title: L10n.text("settings.logging.connection", fallback: "Connection events"),
+                           subtitle: L10n.text("settings.logging.connection.detail", fallback: "Discovery, pairing, connects and reconnects"),
+                           divider: false, isOn: policy.connection) { on in set { $0.connection = on } }
+            SettingsToggle(title: L10n.text("settings.logging.calls", fallback: "Call events"),
+                           subtitle: L10n.text("settings.logging.calls.detail", fallback: "Call states and the caller\u{2019}s name, so call problems can be traced"),
+                           isOn: policy.calls) { on in set { $0.calls = on } }
+            SettingsToggle(title: L10n.text("settings.logging.callNumbers", fallback: "Include phone numbers"),
+                           subtitle: L10n.text("settings.logging.callNumbers.detail", fallback: "Off masks numbers in call events"),
+                           isOn: policy.callNumbers) { on in set { $0.callNumbers = on } }
+                .disabled(!policy.calls)
+                .padding(.leading, 16)
+            SettingsToggle(title: L10n.text("settings.logging.notifications", fallback: "Notification events"),
+                           subtitle: L10n.text("settings.logging.notifications.detail", fallback: "Which app posted and what happened to it"),
+                           isOn: policy.notifications) { on in set { $0.notifications = on } }
+            SettingsToggle(title: L10n.text("settings.logging.notificationContent", fallback: "Notification titles and text"),
+                           subtitle: L10n.text("settings.logging.notificationContent.detail", fallback: "Adds what the notification says"),
+                           isOn: policy.notificationContent) { on in set { $0.notificationContent = on } }
+                .disabled(!policy.notifications)
+                .padding(.leading, 16)
+            }
+            Group {
+            SettingsToggle(title: L10n.text("settings.logging.clipboard", fallback: "Clipboard events"),
+                           subtitle: L10n.text("settings.logging.clipboard.detail", fallback: "Sends and receipts, without the content"),
+                           isOn: policy.clipboard) { on in set { $0.clipboard = on } }
+            SettingsToggle(title: L10n.text("settings.logging.clipboardPreviews", fallback: "Clipboard previews"),
+                           subtitle: L10n.text("settings.logging.clipboardPreviews.detail", fallback: "Adds the first 40 characters"),
+                           isOn: policy.clipboardPreviews) { on in set { $0.clipboardPreviews = on } }
+                .disabled(!policy.clipboard)
+                .padding(.leading, 16)
+            SettingsToggle(title: L10n.text("settings.logging.fileNames", fallback: "File names"),
+                           subtitle: L10n.text("settings.logging.fileNames.detail", fallback: "Adds file and folder names to transfer events"),
+                           isOn: policy.fileNames) { on in set { $0.fileNames = on } }
+            SettingsToggle(title: L10n.text("settings.logging.remote", fallback: "Remote control sessions"),
+                           subtitle: L10n.text("settings.logging.remote.detail", fallback: "When a session ends and why; the remote control audit keeps its own record"),
+                           isOn: policy.remoteControl) { on in set { $0.remoteControl = on } }
+            }
             SettingsRow(title: L10n.text("settings.diagnostics.export", fallback: "Export diagnostics"),
-                        subtitle: L10n.text("settings.diagnostics.detail", fallback: "A bounded event log without clipboard text, notification content, file names, addresses or device identifiers."),
-                        divider: false) {
+                        subtitle: L10n.text("settings.diagnostics.detail", fallback: "A bounded event log without clipboard text, notification content, file names, addresses or device identifiers.")) {
                 Button(L10n.text("action.export", fallback: "Export\u{2026}"), action: actions.exportDiagnostics)
                     .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
             }
+            SettingsRow(title: L10n.text("settings.logging.clear", fallback: "Clear logs"),
+                        subtitle: L10n.text("settings.logging.clear.detail", fallback: "Deletes the diagnostics log on this Mac")) {
+                Button(L10n.text("action.clear", fallback: "Clear")) { confirmClear = true }
+                    .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
+            }
+        }
+        .confirmationDialog(L10n.text("settings.logging.clear.title", fallback: "Clear logs?"), isPresented: $confirmClear) {
+            Button(L10n.text("action.clear", fallback: "Clear"), role: .destructive, action: actions.clearLogs)
+        } message: {
+            Text(L10n.text("settings.logging.clear.body", fallback: "This deletes the diagnostics log on this Mac. Your other devices keep their own."))
         }
     }
 }
@@ -1214,6 +1286,7 @@ private struct LiveSettingsView: View {
         model.mediaPlayer = media.player
         model.pauseForCalls = media.pauseForCalls
         model.ringForCalls = settings.ringForIncomingCalls
+        model.logging = settings.logging
         model.mediaDetail = media.snapshot.detail
         model.showPreviews = settings.showActivityPreviews
         model.reduceMotion = settings.reduceMotion
@@ -1284,6 +1357,8 @@ private struct LiveSettingsView: View {
         }
         actions.refreshPlayer = { media.refresh() }
         actions.setShowPreviews = { settings.setShowActivityPreviews($0) }
+        actions.setLogging = { settings.setLogging($0) }
+        actions.clearLogs = { pairing.clearDiagnostics() }
         actions.clearActivity = { pairing.clearActivity() }
         actions.exportDiagnostics = { pairing.exportDiagnostics() }
         actions.setReduceMotion = { settings.setReduceMotion($0) }

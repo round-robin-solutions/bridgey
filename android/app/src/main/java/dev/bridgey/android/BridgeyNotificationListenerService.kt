@@ -71,7 +71,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         retractStaleForwardedNotifications(active.mapTo(mutableSetOf()) { notificationToken(it.key) })
         updateTelephonyCallback()
         refreshActiveCallNotifications()
-        android.util.Log.i("Bridgey", "PLUGIN notification listener connected")
+        BridgeyLogging.i(LogCategory.NOTIFICATIONS, "PLUGIN notification listener connected")
     }
 
     override fun onListenerDisconnected() {
@@ -81,11 +81,11 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         // The system can unbind a listener (process trim, OEM battery policy) without rebinding it.
         // A revoked listener stays unbound: the platform only rebinds approved components.
         runCatching { requestRebind(ComponentName(this, javaClass)) }
-            .onFailure { android.util.Log.w("Bridgey", "PLUGIN notification listener rebind request failed", it) }
+            .onFailure { BridgeyLogging.w(LogCategory.NOTIFICATIONS, "PLUGIN notification listener rebind request failed", it) }
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification, rankingMap: RankingMap) {
-        android.util.Log.d("Bridgey", "PLUGIN notification observed package=${sbn.packageName}")
+        BridgeyLogging.d(LogCategory.NOTIFICATIONS, "PLUGIN notification observed package=${sbn.packageName}")
         val bridgey = application as BridgeyApplication
         if (!bridgey.isPrimaryUser || !bridgey.isBridgeyEnabled || sbn.packageName == packageName) return
 
@@ -158,7 +158,10 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
                 applicationIcon = applicationIcon,
                 callType = callType,
             )
-            if (callType != null) callLifecycle.forwarded(notificationId, sbn.key, sbn.packageName, isTelephonyCall)
+            if (callType != null) {
+                callLifecycle.forwarded(notificationId, sbn.key, sbn.packageName, isTelephonyCall)
+                BridgeyLogging.line(LogLines.call(BridgeyLogging.policy, "forwarded", notificationId, callType, caller = title))
+            }
             val firstForward = notificationId !in forwardedNotificationIds
             if (firstForward && (callType == null || callType == "incoming") && forwardedTo.isNotEmpty()) {
                 bridgey.activity.notificationForwarded(
@@ -291,13 +294,13 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
                 true
             }
             if (succeeded) storedActions.remove(actionToken)
-            android.util.Log.i(
-                "Bridgey",
+            BridgeyLogging.i(
+                LogCategory.NOTIFICATIONS,
                 "PLUGIN notification action performed system=${action.systemCallAction != null} success=$succeeded",
             )
             succeeded
         }.getOrElse {
-            android.util.Log.w("Bridgey", "PLUGIN notification action failed", it)
+            BridgeyLogging.w(LogCategory.NOTIFICATIONS, "PLUGIN notification action failed", it)
             false
         }
     }
@@ -367,7 +370,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         runCatching {
             getSystemService(TelephonyManager::class.java).registerTelephonyCallback(mainExecutor, callback)
             telephonyCallback = callback
-        }.onFailure { android.util.Log.w("Bridgey", "PLUGIN call-state listener registration failed", it) }
+        }.onFailure { BridgeyLogging.w(LogCategory.CALLS, "CALL phone-state listener registration failed", it) }
     }
 
     private fun unregisterTelephonyCallback() {
@@ -427,8 +430,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     }
 
     private fun logCallEvent(event: String, notificationId: String?, reason: String) {
-        val id = notificationId?.take(8) ?: "-"
-        android.util.Log.i("Bridgey", "CALL $event id=$id reason=$reason")
+        BridgeyLogging.line(LogLines.call(BridgeyLogging.policy, event, notificationId, reason))
         (application as? BridgeyApplication)?.pairing?.recordCallDiagnostic(event, reason)
     }
 
@@ -449,7 +451,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     @RequiresApi(Build.VERSION_CODES.S)
     private inner class BridgeyCallStateCallback : TelephonyCallback(), TelephonyCallback.CallStateListener {
         override fun onCallStateChanged(state: Int) {
-            android.util.Log.d("Bridgey", "PLUGIN telephony state=${telephonyCallType(state) ?: "idle"}")
+            BridgeyLogging.d(LogCategory.CALLS, "CALL phone state=${telephonyCallType(state) ?: "idle"}")
             callLifecycle.telephonyChanged(telephonyCallType(state))
             when (state) {
                 TelephonyManager.CALL_STATE_RINGING,
@@ -572,9 +574,9 @@ private fun resolvedNotificationCallType(
         telephonyCallType = telephonyCallType,
         isTelephonyCall = isTelephonyCall,
     )
-    android.util.Log.d(
-        "Bridgey",
-        "PLUGIN call state reported=$reportedType resolved=$resolvedType " +
+    BridgeyLogging.d(
+        LogCategory.CALLS,
+        "CALL state reported=$reportedType resolved=$resolvedType " +
             "phoneState=${telephonyCallType ?: "unavailable"} fullScreen=$hasFullScreenIntent " +
             "answer=$hasAnswer decline=$hasDecline hangUp=$hasHangUp",
     )

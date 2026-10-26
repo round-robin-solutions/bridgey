@@ -141,6 +141,18 @@ class BridgeyApplication : Application() {
             clock = android.os.SystemClock::elapsedRealtime,
         )
         pairing.remoteInputListener = remoteInput::onHostMessage
+        applicationScope.launch {
+            // Settings > Privacy > Logging > Remote control sessions: start and end only, never input.
+            remoteInput.state.collect { state ->
+                when (state) {
+                    is dev.bridgey.android.remote.RemoteSessionState.Active ->
+                        pairing.recordRemoteControlEvent("session_active", state.deviceId, state.mode.wire)
+                    is dev.bridgey.android.remote.RemoteSessionState.Ended ->
+                        pairing.recordRemoteControlEvent("session_ended", state.deviceId, state.reason.wire)
+                    else -> Unit
+                }
+            }
+        }
         val shortcuts = RemoteShortcuts(this)
         applicationScope.launch {
             // A session ends when its Mac disconnects or stops allowing it; the launcher's

@@ -26,7 +26,12 @@ internal data class DiagnosticEvent(
  * the events survive the app being killed overnight, so the next morning's report still shows
  * the drops and retries.
  */
-internal class BridgeyDiagnostics(private val limit: Int = 200, private val file: File? = null) {
+internal class BridgeyDiagnostics(
+    private val limit: Int = 200,
+    private val file: File? = null,
+    /** Settings > Privacy > Logging: a category that is off never reaches the report. */
+    private val allows: (category: String) -> Boolean = BridgeyLogging::allowsDiagnostic,
+) {
     private val events = ArrayDeque<DiagnosticEvent>()
     private val writer = file?.let { Executors.newSingleThreadScheduledExecutor { Thread(it, "bridgey-diagnostics").apply { isDaemon = true } } }
     private var saveScheduled = false
@@ -36,6 +41,7 @@ internal class BridgeyDiagnostics(private val limit: Int = 200, private val file
     }
 
     @Synchronized fun record(category: String, event: String, outcome: String = "ok", device: String? = null, detail: String? = null) {
+        if (!allows(category)) return
         events.addLast(
             DiagnosticEvent(
                 Instant.now().toString(),
@@ -51,6 +57,12 @@ internal class BridgeyDiagnostics(private val limit: Int = 200, private val file
     }
 
     @Synchronized fun snapshot(): List<DiagnosticEvent> = events.toList()
+
+    /** Clear logs: drops every recorded event, on disk too. */
+    @Synchronized fun clear() {
+        events.clear()
+        scheduleSave()
+    }
 
     fun report(
         context: Context,
