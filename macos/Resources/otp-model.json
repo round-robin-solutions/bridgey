@@ -3,8 +3,8 @@
   "version": 1,
   "name": "Gemma 3 270M, fine-tuned for codes (Q4_K_M)",
   "url": "https://github.com/round-robin-solutions/bridgey/releases/download/models/bridgey-otp-v1.gguf",
-  "size": 253115200,
-  "sha256": "ea94a39243102218c07858f2c496e82699c4905d6417448b62cb590a354b083d",
+  "size": 253115744,
+  "sha256": "69fe14b205ecaebbd1fa5d167f48a25c687b493341ff92476ca163a2ea12390f",
   "termsVersion": "gemma-2026-04-01+pup-2024-02-21+bridgey-1",
   "licenceURL": "https://ai.google.dev/gemma/terms",
   "prohibitedUseURL": "https://ai.google.dev/gemma/prohibited_use_policy"

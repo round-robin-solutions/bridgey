@@ -276,7 +276,12 @@ When a one-time code arrives by SMS, the Mac can show it as "Code 482913 from HD
   llama.cpp (b11899, MIT) is a SwiftPM binary target; `build-app.sh` embeds it, thins it to the
   app's architectures and signs it. It is built for macOS 13.3 and later; on older systems On this
   Mac shows as not available.
-- **Publishing a new model:** upload `bridgey-otp-v<N>.gguf` to the `models` release, then replace
+- **Published:** model version 1 is `bridgey-otp-v1.gguf` (253,115,744 bytes, SHA-256
+  `69fe14b205ecaebbd1fa5d167f48a25c687b493341ff92476ca163a2ea12390f`) at
+  https://github.com/round-robin-solutions/bridgey/releases/tag/models. Its GGUF metadata
+  (`general.name`, `general.description`) states that Round Robin modified it; the weights are the
+  research model v3 unchanged.
+- **Publishing a new model:** stamp the modification notice into the GGUF metadata, upload `bridgey-otp-v<N>.gguf` to the `models` release, then replace
   `otp-model.json` with the new version, size and SHA-256, and update `macos/Resources/otp-model.json`
   for the next app build. Training data, evals and the decision rule are in Round Robin's research
   notes (`outputs/bridgey/research/otp-tiny-model/`).
