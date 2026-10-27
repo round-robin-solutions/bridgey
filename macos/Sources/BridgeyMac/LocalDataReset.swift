@@ -207,6 +207,8 @@ struct LocalDataReset {
     /// send and menu-bar drop options and what the Phone files window remembers. The v0.9 automation
     /// settings are all `settings.` keys: `macActions.config`, `links.openRightAway`, `batteryAlerts.<id>.*`,
     /// `focusSync` and `camera.copyToClipboard`. Battery alert state is in memory and goes with the restart.
+    /// Settings sync (v0.10) keeps its records and switches under `settings.sync.`, so a reset device takes the
+    /// other devices' values the next time it connects.
     static let settingsPrefixes = ["settings.", "media.", "shortcuts.", "folders.lastDestination.", "setup.", "send.", "phoneFiles."]
     static let settingsKeys = [UpdateChannel.defaultsKey, "SUEnableAutomaticChecks", "SUAutomaticallyUpdate",
                                "SUScheduledCheckInterval", "SUSkippedVersion", "SUSkippedMajorVersion"]

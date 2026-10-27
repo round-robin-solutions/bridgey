@@ -253,6 +253,16 @@ final class PairingCoordinator: ObservableObject {
     let batteryAlerts = BatteryAlerts()
     /// Focus and Do Not Disturb sync with phones (draft focus_sync_draft1), off by default.
     let focusSync = FocusSync()
+    /// Settings sync with phones (draft settings_sync_draft1): folder, preview and motion preferences.
+    private(set) lazy var settingsSync = SettingsSyncController.live(localDeviceID: deviceID, settings: settings, focus: focusSync, codes: codesSyncGate)
+    /// Codes from messages turned on from another device waits here until this Mac gives its own consent.
+    private(set) lazy var codesSyncGate = CodesSyncGate(
+        isOn: { [unowned self] in self.settings.codesEnabled },
+        setOn: { [unowned self] in self.settings.setCodesEnabled($0) },
+        // The cloud relay asks every time it is turned on; the local engine needs its model (terms accepted on download).
+        canEnable: { [unowned self] in self.settings.codesEngine == .local && self.codeModel.installed != nil }
+    )
+    private var settingsSyncCancellables: Set<AnyCancellable> = []
     /// "Take Photo with OnePlus 11" (draft camera_draft1).
     let camera = PhoneCamera()
     /// Incoming transfers that are camera photos, by transfer ID, with their request ID.
@@ -452,6 +462,7 @@ final class PairingCoordinator: ObservableObject {
             }
         }
         focusSync.onSettingsChange = { [weak self] in self?.sendFeatureState() }
+        wireSettingsSync()
         camera.send = { [weak self] id, payload in
             guard let self, let current = self.registry.session(for: id) else { return false }
             return self.sendQuickPayload(kind: "camera.request", payload: payload, to: current)
@@ -741,6 +752,7 @@ final class PairingCoordinator: ObservableObject {
         settings.removeDevice(deviceID)
         batteryAlerts.forget(deviceID)
         focusSync.forget(deviceID)
+        settingsSync.forget(deviceID)
         reconnect.forget(deviceID)
         disconnect(deviceID: deviceID)
         BridgeyLog.pairing.notice("pairing revoked peer=\(shortDeviceID(deviceID), privacy: .public)")
@@ -776,6 +788,7 @@ final class PairingCoordinator: ObservableObject {
         remoteInput.disconnected(deviceID: id)
         macActions.disconnected(deviceID: id)
         camera.disconnected(id)
+        settingsSync.sessionEnded(id)
         var record = healthRecords[id] ?? DeviceHealthRecord()
         record.connectedSince = nil
         record.lastDropReason = healthToken(reason)
@@ -2186,6 +2199,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteSmsCodes = draftKeys[smsCodesFeatureKey] == true
                     link.remoteFocusSync = draftKeys[focusSyncFeatureKey] == true
                     link.remoteCamera = draftKeys[cameraFeatureKey] == true
+                    link.remoteSettingsSync = draftKeys[settingsSyncFeatureKey] == true
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
                 }
@@ -2217,6 +2231,8 @@ final class PairingCoordinator: ObservableObject {
                 if draftKeys[focusSyncFeatureKey] == true, let active = focusSync.stateForNewPhone {
                     _ = sendQuickPayload(kind: "focus.state", payload: focusStatePayload(active), to: current)
                 }
+                // Settings sync: a snapshot once both sides show the key, or the end of syncing when one stops.
+                settingsSync.refresh(phoneID)
             case "ping.request":
                 try receivePing(message, in: current)
             case "ping.ack":
@@ -2655,6 +2671,8 @@ final class PairingCoordinator: ObservableObject {
                 receiveFocusState(message, in: current)
             case "camera.status":
                 receiveCameraStatus(message, in: current)
+            case "settings.snapshot", "settings.update", "settings.ack", "settings.error":
+                try receiveSettingsMessage(message, in: current)
             default:
                 break
             }
@@ -2760,6 +2778,8 @@ final class PairingCoordinator: ObservableObject {
         features[focusSyncFeatureKey] = focusSync.advertised
         // Draft, edition only: this Mac can ask for photos; they arrive as files.
         features[cameraFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
+        // Draft, edition only: settings sync, while the global and this phone's switches are on.
+        features[settingsSyncFeatureKey] = settingsSync.advertised(for: current.remoteDeviceID)
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
               let encrypted = try? encrypt(payload, key: key) else { return }
         current.send(PairingMessage(
@@ -3339,6 +3359,84 @@ final class PairingCoordinator: ObservableObject {
               let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
               let active = decodeFocusState(data) else { return }
         focusSync.received(active: active, from: current.remoteDeviceID)
+    }
+
+    /// Settings sync's transport, names, permission checks, activity item and banner.
+    private func wireSettingsSync() {
+        settingsSync.send = { [weak self] id, kind, payload, messageID in
+            guard let self, let current = self.registry.session(for: id), self.registry.isActive(current), let key = current.pairingKey,
+                  let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= SettingsSyncLimits.payloadBytes,
+                  let encrypted = try? encrypt(data, key: key) else { return false }
+            current.send(PairingMessage(kind: kind, sessionId: current.id, messageId: messageID, nonce: encrypted.nonce, ciphertext: encrypted.ciphertext))
+            return true
+        }
+        settingsSync.remoteEnabled = { [weak self] id in self?.registry.state(for: id)?.remoteSettingsSync == true }
+        settingsSync.connectedPhones = { [weak self] in self?.registry.connectedIDs ?? [] }
+        settingsSync.peerName = { [weak self] id in self?.settingsSyncPeerName(id) ?? "" }
+        // Permissions are never granted remotely: a synced feature that is on here but lacks one waits.
+        // Focus sharing needs no permission on the Mac (the Focus filter and the Shortcuts action report it).
+        settingsSync.lacksPermission = { [weak self] key in
+            guard let self else { return false }
+            switch key {
+            case .featureNotifications: return !self.notificationsAuthorized
+            case .featureRemoteInput: return !self.remoteInput.accessibilityTrusted
+            case .codesEnabled: return self.codesSyncGate.pending
+            default: return false
+            }
+        }
+        settingsSync.onSwitchChange = { [weak self] in self?.sendFeatureState() }
+        codesSyncGate.onChange = { [weak self] in self?.settingsSync.permissionsChanged() }
+        settings.$codesEnabled
+            .sink { [weak self] on in self?.codesSyncGate.codesChanged(on: on) }
+            .store(in: &settingsSyncCancellables)
+        settingsSync.onApplied = { [weak self] id, content in
+            guard let self else { return }
+            self.recordActivity(.settingsSynced, deviceID: id, deviceName: self.settingsSyncPeerName(id), content: content)
+        }
+        settingsSync.onTurnedOn = { [weak self] id, key, waiting in
+            guard let self else { return }
+            let content = UNMutableNotificationContent()
+            content.title = String(format: L10n.text("sync.banner.title", fallback: "%1$@ turned on from %2$@"), key.name, self.settingsSyncPeerName(id))
+            content.body = waiting
+                ? L10n.text("sync.banner.waiting", fallback: "Needs permission on this Mac: open Settings to allow it.")
+                : L10n.text("sync.banner.body", fallback: "Turn it off in Settings if you did not expect it.")
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "bridgey.settings-sync.\(key.rawValue)", content: content, trigger: nil))
+        }
+        settingsSync.onEvent = { [weak self] event, outcome, id in
+            self?.diagnostics.record(category: "settings_sync", event: event, outcome: outcome ?? "ok", device: id)
+        }
+        Publishers.Merge($notificationsAuthorized.map { _ in () }, remoteInput.$accessibilityTrusted.map { _ in () })
+            .dropFirst(2)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.settingsSync.permissionsChanged() }
+            .store(in: &settingsSyncCancellables)
+        // Permissions change in System Settings: check again whenever Bridgey comes to the front.
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.refreshNotificationAuthorization()
+                self.remoteInput.refreshAccessibility()
+                self.settingsSync.permissionsChanged()
+            }
+            .store(in: &settingsSyncCancellables)
+    }
+
+    private func settingsSyncPeerName(_ id: String) -> String {
+        registry.connections.first { $0.id == id }?.name ?? trustedDevices.first { $0.id == id }?.name ?? ""
+    }
+
+    /// settings.* from a phone: replay-checked and decrypted here (a payload that does not decrypt closes
+    /// the session, docs/protocol-contract.md rule 8); the controller checks limits and the rules.
+    private func receiveSettingsMessage(_ message: PairingMessage, in current: Session) throws {
+        guard registry.isActive(current), message.sessionId == current.id, let key = current.pairingKey,
+              let id = message.messageId, current.acceptMessageID(id) else { return }
+        guard let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { throw PairingError.invalidMessage }
+        let limit = message.kind == SettingsSyncKinds.snapshot || message.kind == SettingsSyncKinds.update
+            ? SettingsSyncLimits.payloadBytes : SettingsSyncLimits.replyBytes
+        // An oversized snapshot or update is answered invalid_message by the decoder; an oversized reply is dropped.
+        guard data.count <= limit || limit == SettingsSyncLimits.payloadBytes else { return }
+        settingsSync.receive(kind: message.kind, messageID: id, plaintext: data, from: current.remoteDeviceID)
     }
 
     /// camera.status from a phone, for this Mac's open request.

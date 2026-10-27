@@ -27,7 +27,8 @@ struct RemoteControlPane: View {
         }
         SettingsCard(footnote: L10n.text("remote.footnote", fallback: "Each phone needs its own permission, below, and Remote control turned on in Bridgey on the phone. Typing, keys and slides use a short list of keys; shortcuts such as Quit or Lock are never sent.")) {
             SettingsToggle(title: BridgeyFeature.remoteInput.title, subtitle: BridgeyFeature.remoteInput.subtitle, divider: false,
-                           isOn: on, set: { actions.setGlobal(.remoteInput, $0) })
+                           synced: model.syncs(.featureRemoteInput), isOn: on, set: { actions.setGlobal(.remoteInput, $0) })
+            SyncStatusLine(key: .featureRemoteInput, model: model, actions: actions)
             AccessibilityRow(trusted: model.accessibilityTrusted, open: actions.openAccessibilitySettings)
             SettingsRow(title: L10n.text("remote.stop.title", fallback: "Stop at any time"),
                         subtitle: L10n.text("remote.stop.detail", fallback: "Press Control-Option-Escape, or Stop in the pill at the top of the screen. The pill shows for the whole session.")) {
