@@ -102,6 +102,7 @@ final class PhoneThumbnailScheduler {
 
     func disappeared(_ entry: PhoneFileEntry) {
         guard visible.removeValue(forKey: entry.id) != nil else { return }
+        if boxes.count > 800 { trim() }
         scheduleFlush()
     }
 
