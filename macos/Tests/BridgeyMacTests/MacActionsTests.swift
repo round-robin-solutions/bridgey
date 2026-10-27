@@ -337,6 +337,7 @@ final class OpenLinksRightAwayTests: XCTestCase {
         let actions = QuickActions()
         var sent: [[String: Any]] = []
         actions.available = { $0 == .links }
+        actions.availableFor = { feature, _ in feature == .links }
         actions.send = { _, payload in sent.append(payload); return true }
         actions.openRightAway = { openRightAway }
         actions.openURL = { opened($0); return true }

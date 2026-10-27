@@ -436,6 +436,7 @@ final class PairingCoordinator: ObservableObject {
         folders.loadJournals()
         folderReceiver.loadJournals()
         quickActions.available = { [weak self] in self?.isFeatureAvailable($0) == true }
+        quickActions.availableFor = { [weak self] feature, id in self?.isFeatureAvailable(feature, for: id) == true }
         quickActions.send = { [weak self] in self?.sendQuickPayload(kind: $0, payload: $1) == true }
         quickActions.onActivity = { [weak self] kind in self?.recordConnectedActivity(kind) }
         quickActions.openRightAway = { [weak self] in self?.settings.openLinksRightAway == true }
