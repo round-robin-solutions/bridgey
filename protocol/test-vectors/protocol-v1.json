@@ -1,5 +1,5 @@
 {
- "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer.",
+ "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page) and smsSendStatus by the Mac; requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units.",
  "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
  "frames": [
   {
@@ -404,7 +404,8 @@
      "mac_actions_draft1": false,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": false
+     "camera_draft1": false,
+     "sms_draft1": false
     }
    }
   },
@@ -454,7 +455,8 @@
      "mac_actions_draft1": false,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": false
+     "camera_draft1": false,
+     "sms_draft1": false
     }
    }
   },
@@ -506,7 +508,8 @@
      "mac_actions_draft1": true,
      "links_open_draft1": true,
      "focus_sync_draft1": true,
-     "camera_draft1": true
+     "camera_draft1": true,
+     "sms_draft1": false
     }
    }
   },
@@ -554,7 +557,8 @@
      "mac_actions_draft1": true,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": true
+     "camera_draft1": true,
+     "sms_draft1": false
     }
    }
   },
@@ -604,7 +608,101 @@
      "mac_actions_draft1": false,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": false
+     "camera_draft1": false,
+     "sms_draft1": false
+    }
+   }
+  },
+  {
+   "name": "Mac and phone with Text messages on",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "sms_codes_draft1": true,
+     "sms_draft1": true
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": true,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "sms_draft1": true
+    }
+   }
+  },
+  {
+   "name": "sms_draft1 that is not a boolean counts as false",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "sms_draft1": "true"
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "sms_draft1": false
     }
    }
   },
@@ -650,7 +748,8 @@
      "mac_actions_draft1": false,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": false
+     "camera_draft1": false,
+     "sms_draft1": false
     }
    }
   },
@@ -689,7 +788,8 @@
      "mac_actions_draft1": false,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": false
+     "camera_draft1": false,
+     "sms_draft1": false
     }
    }
   },
@@ -732,7 +832,8 @@
      "mac_actions_draft1": false,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": false
+     "camera_draft1": false,
+     "sms_draft1": false
     }
    }
   },
@@ -772,7 +873,8 @@
      "mac_actions_draft1": false,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": false
+     "camera_draft1": false,
+     "sms_draft1": false
     }
    }
   },
@@ -6851,6 +6953,2118 @@
   {
    "name": "lenient JSON",
    "plaintextString": "{version:1,requestId:'8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e',status:'opened'}",
+   "expect": "reject"
+  }
+ ],
+ "smsRequest": [
+  {
+   "name": "threads, newest",
+   "kind": "sms.threads",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 30
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 30,
+    "before": null
+   }
+  },
+  {
+   "name": "threads, older page",
+   "kind": "sms.threads",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5B6C7D8E-9F01-4A2B-8C3D-4E5F60718293",
+    "limit": 50,
+    "before": 1761500000000
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 50,
+    "before": 1761500000000
+   }
+  },
+  {
+   "name": "threads, null before is absent",
+   "kind": "sms.threads",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 1,
+    "before": null
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 1,
+    "before": null
+   }
+  },
+  {
+   "name": "threads, limit 0",
+   "kind": "sms.threads",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 0
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "threads, limit 51",
+   "kind": "sms.threads",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 51
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "threads, negative before",
+   "kind": "sms.threads",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 5,
+    "before": -1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "threads, limit written as 30.0",
+   "kind": "sms.threads",
+   "plaintextString": "{\"version\":1,\"requestId\":\"5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293\",\"limit\":30.0}",
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 30,
+    "before": null
+   }
+  },
+  {
+   "name": "messages, newest",
+   "kind": "sms.messages",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadId": 12,
+    "limit": 50
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadId": 12,
+    "limit": 50,
+    "before": null
+   }
+  },
+  {
+   "name": "messages, older page",
+   "kind": "sms.messages",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadId": 12,
+    "limit": 100,
+    "before": {
+     "date": 1761500000000,
+     "id": "m45"
+    }
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadId": 12,
+    "limit": 100,
+    "before": {
+     "date": 1761500000000,
+     "id": "m45"
+    }
+   }
+  },
+  {
+   "name": "messages, before id not a message id",
+   "kind": "sms.messages",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadId": 12,
+    "limit": 5,
+    "before": {
+     "date": 1,
+     "id": "x45"
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "messages, before without date",
+   "kind": "sms.messages",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadId": 12,
+    "limit": 5,
+    "before": {
+     "id": "s1"
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "messages, threadId 0",
+   "kind": "sms.messages",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadId": 0,
+    "limit": 5
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "messages, threadId missing",
+   "kind": "sms.messages",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 5
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "messages, limit 101",
+   "kind": "sms.messages",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadId": 3,
+    "limit": 101
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "sync",
+   "kind": "sms.sync",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "since": {
+     "sms": 1200,
+     "mms": 45
+    },
+    "limit": 100
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "since": {
+     "sms": 1200,
+     "mms": 45
+    },
+    "limit": 100
+   }
+  },
+  {
+   "name": "sync from zero",
+   "kind": "sms.sync",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "since": {
+     "sms": 0,
+     "mms": 0
+    },
+    "limit": 200
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "since": {
+     "sms": 0,
+     "mms": 0
+    },
+    "limit": 200
+   }
+  },
+  {
+   "name": "sync, since missing",
+   "kind": "sms.sync",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 100
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "sync, mms missing",
+   "kind": "sms.sync",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "since": {
+     "sms": 1
+    },
+    "limit": 100
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "sync, negative cursor",
+   "kind": "sms.sync",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "since": {
+     "sms": -1,
+     "mms": 0
+    },
+    "limit": 100
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "sync, limit 201",
+   "kind": "sms.sync",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "since": {
+     "sms": 1,
+     "mms": 0
+    },
+    "limit": 201
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "attachment",
+   "kind": "sms.attachment",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "partId": "p77"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "partId": "p77"
+   }
+  },
+  {
+   "name": "attachment, not a part id",
+   "kind": "sms.attachment",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "partId": "../77"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "attachment, part id of 21 characters",
+   "kind": "sms.attachment",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "partId": "p11111111111111111111"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "contacts",
+   "kind": "sms.contacts",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "query": "  Anna "
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "query": "Anna"
+   }
+  },
+  {
+   "name": "contacts, unicode",
+   "kind": "sms.contacts",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "query": "Аня"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "query": "Аня"
+   }
+  },
+  {
+   "name": "contacts, only spaces",
+   "kind": "sms.contacts",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "query": "   "
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "contacts, 65 characters",
+   "kind": "sms.contacts",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "query": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId not a UUID",
+   "kind": "sms.threads",
+   "plaintext": {
+    "version": 1,
+    "requestId": "page-1",
+    "limit": 5
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "kind": "sms.threads",
+   "plaintext": {
+    "version": 2,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 5
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version missing",
+   "kind": "sms.sync",
+   "plaintext": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "since": {
+     "sms": 1,
+     "mms": 0
+    },
+    "limit": 100
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "unknown fields are ignored",
+   "kind": "sms.threads",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 5,
+    "filter": "unread"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 5,
+    "before": null
+   }
+  },
+  {
+   "name": "over 1 KiB",
+   "kind": "sms.threads",
+   "plaintextString": "{\"version\":1,\"requestId\":\"5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293\",\"limit\":5,\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "exactly 1 KiB",
+   "kind": "sms.threads",
+   "plaintextString": "{\"version\":1,\"requestId\":\"5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293\",\"limit\":5,\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "limit": 5,
+    "before": null
+   }
+  },
+  {
+   "name": "lenient JSON",
+   "kind": "sms.threads",
+   "plaintextString": "{version:1,requestId:'5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293',limit:5}",
+   "expect": "reject"
+  }
+ ],
+ "smsSend": [
+  {
+   "name": "to a conversation",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "On my way",
+    "threadId": 12
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "On my way",
+    "threadId": 12,
+    "address": null,
+    "notificationId": null,
+    "subId": null
+   }
+  },
+  {
+   "name": "to a conversation from a chosen SIM",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Ok",
+    "threadId": 12,
+    "subId": 2
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Ok",
+    "threadId": 12,
+    "address": null,
+    "notificationId": null,
+    "subId": 2
+   }
+  },
+  {
+   "name": "to a new number",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hello",
+    "address": "+91 98765-43210"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hello",
+    "threadId": null,
+    "address": "+919876543210",
+    "notificationId": null,
+    "subId": null
+   }
+  },
+  {
+   "name": "number with brackets and dots",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "address": "(022) 555.0101"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "threadId": null,
+    "address": "0225550101",
+    "notificationId": null,
+    "subId": null
+   }
+  },
+  {
+   "name": "a reply to a notification",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Thanks!",
+    "notificationId": "a1b2"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Thanks!",
+    "threadId": null,
+    "address": null,
+    "notificationId": "a1b2",
+    "subId": null
+   }
+  },
+  {
+   "name": "body keeps its spaces and lines",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "  two\nlines ",
+    "threadId": 1
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "  two\nlines ",
+    "threadId": 1,
+    "address": null,
+    "notificationId": null,
+    "subId": null
+   }
+  },
+  {
+   "name": "body of 2,000 units",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "threadId": 1
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "threadId": 1,
+    "address": null,
+    "notificationId": null,
+    "subId": null
+   }
+  },
+  {
+   "name": "body of 2,001 units",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "threadId": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "emoji count as two units",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "threadId": 1
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "threadId": 1,
+    "address": null,
+    "notificationId": null,
+    "subId": null
+   }
+  },
+  {
+   "name": "1,001 emoji",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+    "threadId": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "empty body",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "",
+    "threadId": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "body of spaces",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": " \n ",
+    "threadId": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "no target",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "two targets",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "threadId": 1,
+    "address": "+15550100"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "null targets count as absent",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "threadId": null,
+    "address": "5550100",
+    "notificationId": null
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "threadId": null,
+    "address": "5550100",
+    "notificationId": null,
+    "subId": null
+   }
+  },
+  {
+   "name": "letters in the number",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "address": "HDFCBK"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "plus in the middle",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "address": "55+50100"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "one digit",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "address": "5"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "21 digits",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "address": "111111111111111111111"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "threadId 0",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "threadId": 0
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "empty notificationId",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "notificationId": ""
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "notificationId of 513",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "notificationId": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "subId as a string",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "threadId": 1,
+    "subId": "2"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "negative subId",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "threadId": 1,
+    "subId": -1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "null subId is absent",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "threadId": 1,
+    "subId": null
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "threadId": 1,
+    "address": null,
+    "notificationId": null,
+    "subId": null
+   }
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "send-1",
+    "body": "Hi",
+    "threadId": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "body": "Hi",
+    "threadId": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 8 KiB",
+   "plaintextString": "{\"version\":1,\"requestId\":\"5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293\",\"body\":\"Hi\",\"threadId\":1,\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,requestId:'5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293',body:'Hi',threadId:1}",
+   "expect": "reject"
+  }
+ ],
+ "smsStatus": [
+  {
+   "name": "dual SIM, everything allowed",
+   "plaintext": {
+    "version": 1,
+    "read": true,
+    "send": true,
+    "contacts": true,
+    "sims": [
+     {
+      "subId": 1,
+      "slot": 0,
+      "label": "Jio"
+     },
+     {
+      "subId": 2,
+      "slot": 1,
+      "label": "Airtel"
+     }
+    ],
+    "cursor": {
+     "sms": 1200,
+     "mms": 45
+    }
+   },
+   "expect": {
+    "read": true,
+    "send": true,
+    "contacts": true,
+    "sims": [
+     {
+      "subId": 1,
+      "slot": 0,
+      "label": "Jio"
+     },
+     {
+      "subId": 2,
+      "slot": 1,
+      "label": "Airtel"
+     }
+    ],
+    "cursor": {
+     "sms": 1200,
+     "mms": 45
+    }
+   }
+  },
+  {
+   "name": "nothing allowed yet, no SIM list",
+   "plaintext": {
+    "version": 1,
+    "read": false,
+    "send": false,
+    "contacts": false,
+    "sims": [],
+    "cursor": {
+     "sms": 0,
+     "mms": 0
+    }
+   },
+   "expect": {
+    "read": false,
+    "send": false,
+    "contacts": false,
+    "sims": [],
+    "cursor": {
+     "sms": 0,
+     "mms": 0
+    }
+   }
+  },
+  {
+   "name": "sims missing reads as none",
+   "plaintext": {
+    "version": 1,
+    "read": true,
+    "send": false,
+    "contacts": false,
+    "cursor": {
+     "sms": 3,
+     "mms": 0
+    }
+   },
+   "expect": {
+    "read": true,
+    "send": false,
+    "contacts": false,
+    "sims": [],
+    "cursor": {
+     "sms": 3,
+     "mms": 0
+    }
+   }
+  },
+  {
+   "name": "more than 4 SIM entries",
+   "plaintext": {
+    "version": 1,
+    "read": true,
+    "send": true,
+    "contacts": true,
+    "sims": [
+     {
+      "subId": "1",
+      "slot": 0,
+      "label": "x"
+     },
+     {
+      "subId": 3,
+      "slot": 4,
+      "label": "x"
+     },
+     {
+      "subId": 4,
+      "slot": 0,
+      "label": "lllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll"
+     },
+     {
+      "subId": 5,
+      "slot": 1
+     },
+     {
+      "subId": 2,
+      "slot": 1,
+      "label": "Airtel"
+     }
+    ],
+    "cursor": {
+     "sms": 1,
+     "mms": 1
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "invalid SIM entries are dropped",
+   "plaintext": {
+    "version": 1,
+    "read": true,
+    "send": true,
+    "contacts": true,
+    "sims": [
+     {
+      "subId": "1",
+      "slot": 0,
+      "label": "x"
+     },
+     {
+      "subId": 3,
+      "slot": 4,
+      "label": "x"
+     },
+     {
+      "subId": 5,
+      "slot": 1
+     },
+     {
+      "subId": 2,
+      "slot": 1,
+      "label": "Airtel"
+     }
+    ],
+    "cursor": {
+     "sms": 1,
+     "mms": 1
+    }
+   },
+   "expect": {
+    "read": true,
+    "send": true,
+    "contacts": true,
+    "sims": [
+     {
+      "subId": 2,
+      "slot": 1,
+      "label": "Airtel"
+     }
+    ],
+    "cursor": {
+     "sms": 1,
+     "mms": 1
+    }
+   }
+  },
+  {
+   "name": "unicode SIM label",
+   "plaintext": {
+    "version": 1,
+    "read": true,
+    "send": true,
+    "contacts": true,
+    "sims": [
+     {
+      "subId": 7,
+      "slot": 0,
+      "label": "МТС"
+     }
+    ],
+    "cursor": {
+     "sms": 1,
+     "mms": 0
+    }
+   },
+   "expect": {
+    "read": true,
+    "send": true,
+    "contacts": true,
+    "sims": [
+     {
+      "subId": 7,
+      "slot": 0,
+      "label": "МТС"
+     }
+    ],
+    "cursor": {
+     "sms": 1,
+     "mms": 0
+    }
+   }
+  },
+  {
+   "name": "read as a number",
+   "plaintext": {
+    "version": 1,
+    "read": 1,
+    "send": true,
+    "contacts": true,
+    "sims": [],
+    "cursor": {
+     "sms": 1,
+     "mms": 0
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "cursor missing",
+   "plaintext": {
+    "version": 1,
+    "read": true,
+    "send": true,
+    "contacts": true,
+    "sims": []
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "negative cursor",
+   "plaintext": {
+    "version": 1,
+    "read": true,
+    "send": true,
+    "contacts": true,
+    "sims": [],
+    "cursor": {
+     "sms": -5,
+     "mms": 0
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "read": true,
+    "send": true,
+    "contacts": true,
+    "sims": [],
+    "cursor": {
+     "sms": 1,
+     "mms": 0
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 2 KiB",
+   "plaintextString": "{\"version\":1,\"read\":true,\"send\":true,\"contacts\":true,\"sims\":[],\"cursor\":{\"sms\":1,\"mms\":0},\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,read:true,send:true,contacts:true,sims:[],cursor:{sms:1,mms:0}}",
+   "expect": "reject"
+  }
+ ],
+ "smsMessage": [
+  {
+   "name": "received SMS",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6"
+   },
+   "expect": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": []
+   }
+  },
+  {
+   "name": "unread, on SIM 2",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "read": false,
+    "subId": 2
+   },
+   "expect": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": 2,
+    "read": false,
+    "parts": []
+   }
+  },
+  {
+   "name": "sent and delivered",
+   "plaintext": {
+    "id": "s102",
+    "threadId": 12,
+    "direction": "out",
+    "status": "delivered",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6"
+   },
+   "expect": {
+    "id": "s102",
+    "threadId": 12,
+    "direction": "out",
+    "status": "delivered",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": []
+   }
+  },
+  {
+   "name": "outgoing pending",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "out",
+    "status": "pending",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6"
+   },
+   "expect": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "out",
+    "status": "pending",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": []
+   }
+  },
+  {
+   "name": "outgoing sent",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "out",
+    "status": "sent",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6"
+   },
+   "expect": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "out",
+    "status": "sent",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": []
+   }
+  },
+  {
+   "name": "outgoing failed",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "out",
+    "status": "failed",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6"
+   },
+   "expect": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "out",
+    "status": "failed",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": []
+   }
+  },
+  {
+   "name": "unknown status, incoming, reads as received",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "seen",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6"
+   },
+   "expect": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": []
+   }
+  },
+  {
+   "name": "unknown status, outgoing, reads as sent",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "out",
+    "status": "seen",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6"
+   },
+   "expect": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "out",
+    "status": "sent",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": []
+   }
+  },
+  {
+   "name": "status missing reads as the direction's default",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6"
+   },
+   "expect": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": []
+   }
+  },
+  {
+   "name": "MMS with an image",
+   "plaintext": {
+    "id": "m45",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "",
+    "parts": [
+     {
+      "partId": "p77",
+      "mimeType": "image/jpeg",
+      "size": 120034
+     }
+    ]
+   },
+   "expect": {
+    "id": "m45",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": [
+     {
+      "partId": "p77",
+      "mimeType": "image/jpeg",
+      "size": 120034
+     }
+    ]
+   }
+  },
+  {
+   "name": "outgoing MMS has no address",
+   "plaintext": {
+    "id": "m46",
+    "threadId": 12,
+    "direction": "out",
+    "status": "sent",
+    "date": 1761500000000,
+    "address": "",
+    "body": "See you at 6",
+    "parts": [
+     {
+      "partId": "p78",
+      "mimeType": "image/png"
+     }
+    ]
+   },
+   "expect": {
+    "id": "m46",
+    "threadId": 12,
+    "direction": "out",
+    "status": "sent",
+    "date": 1761500000000,
+    "address": "",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": [
+     {
+      "partId": "p78",
+      "mimeType": "image/png",
+      "size": null
+     }
+    ]
+   }
+  },
+  {
+   "name": "parts that are not images or not valid are dropped",
+   "plaintext": {
+    "id": "m47",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "parts": [
+     {
+      "partId": "p1",
+      "mimeType": "text/plain"
+     },
+     {
+      "partId": "q2",
+      "mimeType": "image/gif"
+     },
+     {
+      "partId": "p3",
+      "mimeType": "image/gif",
+      "size": -4
+     },
+     "p4",
+     {
+      "partId": "p5",
+      "mimeType": "image/jpeg"
+     }
+    ]
+   },
+   "expect": {
+    "id": "m47",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": [
+     {
+      "partId": "p3",
+      "mimeType": "image/gif",
+      "size": null
+     },
+     {
+      "partId": "p5",
+      "mimeType": "image/jpeg",
+      "size": null
+     }
+    ]
+   }
+  },
+  {
+   "name": "only the first 8 images",
+   "plaintext": {
+    "id": "m48",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "parts": [
+     {
+      "partId": "p0",
+      "mimeType": "image/jpeg"
+     },
+     {
+      "partId": "p1",
+      "mimeType": "image/jpeg"
+     },
+     {
+      "partId": "p2",
+      "mimeType": "image/jpeg"
+     },
+     {
+      "partId": "p3",
+      "mimeType": "image/jpeg"
+     },
+     {
+      "partId": "p4",
+      "mimeType": "image/jpeg"
+     },
+     {
+      "partId": "p5",
+      "mimeType": "image/jpeg"
+     },
+     {
+      "partId": "p6",
+      "mimeType": "image/jpeg"
+     },
+     {
+      "partId": "p7",
+      "mimeType": "image/jpeg"
+     },
+     {
+      "partId": "p8",
+      "mimeType": "image/jpeg"
+     },
+     {
+      "partId": "p9",
+      "mimeType": "image/jpeg"
+     }
+    ]
+   },
+   "expect": {
+    "id": "m48",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": [
+     {
+      "partId": "p0",
+      "mimeType": "image/jpeg",
+      "size": null
+     },
+     {
+      "partId": "p1",
+      "mimeType": "image/jpeg",
+      "size": null
+     },
+     {
+      "partId": "p2",
+      "mimeType": "image/jpeg",
+      "size": null
+     },
+     {
+      "partId": "p3",
+      "mimeType": "image/jpeg",
+      "size": null
+     },
+     {
+      "partId": "p4",
+      "mimeType": "image/jpeg",
+      "size": null
+     },
+     {
+      "partId": "p5",
+      "mimeType": "image/jpeg",
+      "size": null
+     },
+     {
+      "partId": "p6",
+      "mimeType": "image/jpeg",
+      "size": null
+     },
+     {
+      "partId": "p7",
+      "mimeType": "image/jpeg",
+      "size": null
+     }
+    ]
+   }
+  },
+  {
+   "name": "cut body",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "truncated": true
+   },
+   "expect": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "truncated": true,
+    "subId": null,
+    "read": true,
+    "parts": []
+   }
+  },
+  {
+   "name": "body of 4,001 units",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "negative subId reads as none",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "subId": -1
+   },
+   "expect": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": []
+   }
+  },
+  {
+   "name": "read not a boolean reads as read",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "read": 0
+   },
+   "expect": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": []
+   }
+  },
+  {
+   "name": "truncated not a boolean reads as false",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": "yes"
+   },
+   "expect": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": []
+   }
+  },
+  {
+   "name": "unknown fields are ignored",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "reactions": [
+     "+1"
+    ]
+   },
+   "expect": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6",
+    "truncated": false,
+    "subId": null,
+    "read": true,
+    "parts": []
+   }
+  },
+  {
+   "name": "id of another kind",
+   "plaintext": {
+    "id": "x101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "id of 21 characters",
+   "plaintext": {
+    "id": "s11111111111111111111",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "threadId 0",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 0,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "direction both",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "both",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": "See you at 6"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "date missing",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "address": "+919876543210",
+    "body": "See you at 6"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "date as a string",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": "1761500000000",
+    "address": "+919876543210",
+    "body": "See you at 6"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "address missing",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "body": "See you at 6"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "address of 65",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "11111111111111111111111111111111111111111111111111111111111111111",
+    "body": "See you at 6"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "body as a number",
+   "plaintext": {
+    "id": "s101",
+    "threadId": 12,
+    "direction": "in",
+    "status": "received",
+    "date": 1761500000000,
+    "address": "+919876543210",
+    "body": 5
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "not an object",
+   "plaintext": [
+    "s101"
+   ],
+   "expect": "reject"
+  }
+ ],
+ "smsSendStatus": [
+  {
+   "name": "sending",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "sending",
+    "via": "sms"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "sending",
+    "reason": null,
+    "via": "sms"
+   }
+  },
+  {
+   "name": "sent through the messaging app",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5B6C7D8E-9F01-4A2B-8C3D-4E5F60718293",
+    "status": "sent",
+    "via": "app"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "sent",
+    "reason": null,
+    "via": "app"
+   }
+  },
+  {
+   "name": "delivered",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "delivered",
+    "via": "sms"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "delivered",
+    "reason": null,
+    "via": "sms"
+   }
+  },
+  {
+   "name": "refused disabled",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "disabled"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "disabled",
+    "via": null
+   }
+  },
+  {
+   "name": "refused permission",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "permission"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "permission",
+    "via": null
+   }
+  },
+  {
+   "name": "refused invalid",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "invalid"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "invalid",
+    "via": null
+   }
+  },
+  {
+   "name": "refused group",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "group"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "group",
+    "via": null
+   }
+  },
+  {
+   "name": "refused no_sim",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "no_sim"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "no_sim",
+    "via": null
+   }
+  },
+  {
+   "name": "refused rate_limited",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "rate_limited"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "rate_limited",
+    "via": null
+   }
+  },
+  {
+   "name": "refused not_found",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "not_found"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "not_found",
+    "via": null
+   }
+  },
+  {
+   "name": "failed radio_off",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "failed",
+    "reason": "radio_off",
+    "via": "sms"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "failed",
+    "reason": "radio_off",
+    "via": "sms"
+   }
+  },
+  {
+   "name": "failed no_service",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "failed",
+    "reason": "no_service",
+    "via": "sms"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "failed",
+    "reason": "no_service",
+    "via": "sms"
+   }
+  },
+  {
+   "name": "failed failed",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "failed",
+    "reason": "failed",
+    "via": "sms"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "failed",
+    "reason": "failed",
+    "via": "sms"
+   }
+  },
+  {
+   "name": "an unknown reason reads as failed",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "failed",
+    "reason": "cosmic_rays"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "failed",
+    "reason": "failed",
+    "via": null
+   }
+  },
+  {
+   "name": "a missing reason reads as failed",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "refused",
+    "reason": "failed",
+    "via": null
+   }
+  },
+  {
+   "name": "a reason on sent is ignored",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "sent",
+    "reason": "group"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "sent",
+    "reason": null,
+    "via": null
+   }
+  },
+  {
+   "name": "an unknown via is ignored",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "sent",
+    "via": "pigeon"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "sent",
+    "reason": null,
+    "via": null
+   }
+  },
+  {
+   "name": "unknown status",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "read"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "status missing",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "send-1",
+    "status": "sent"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "status": "sent"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 1 KiB",
+   "plaintextString": "{\"version\":1,\"requestId\":\"5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293\",\"status\":\"sent\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,requestId:'5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293',status:'sent'}",
    "expect": "reject"
   }
  ]
