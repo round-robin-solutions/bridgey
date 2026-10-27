@@ -27,6 +27,7 @@ class ManifestPermissionsTest {
                 "android.permission.READ_PHONE_STATE",
                 "android.permission.ANSWER_PHONE_CALLS",
                 "android.permission.REQUEST_INSTALL_PACKAGES",
+                "android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION",
                 "android.permission.READ_LOGS",
                 "android.permission.SYSTEM_ALERT_WINDOW",
                 "android.permission.READ_MEDIA_IMAGES",
