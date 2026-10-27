@@ -69,7 +69,19 @@ final class AutomationScreenshots: XCTestCase {
             phoneID: ConnectionHealthSnapshot(deviceID: phoneID, record: record, connected: true, discoveryVisible: true, discovery: .browsing, now: model.now),
             tabletID: ConnectionHealthSnapshot(deviceID: tabletID, record: offline, connected: false, discoveryVisible: false, discovery: .browsing, now: model.now),
         ]
+        model.batteryAlerts = [phoneID: .default, tabletID: BatteryAlertThresholds(low: 15, full: 80)]
+        model.focusSync = FocusSyncSettings(share: true, follow: true, onShortcut: "Focus on", offShortcut: nil)
+        model.cameraCopyToClipboard = true
+        model.notificationsAuthorized = true
         return model
+    }
+
+    @MainActor func testQuickWinPanes() throws {
+        for scheme in [ColorScheme.light, .dark] {
+            let suffix = scheme == .dark ? "dark" : "light"
+            try renderPane(.notifications, model: model, scheme: scheme, name: "mac-focus-notifications-\(suffix)")
+            try renderPane(.files, model: model, scheme: scheme, name: "mac-camera-files-\(suffix)")
+        }
     }
 
     @MainActor func testMediaAndActionsPane() throws {
