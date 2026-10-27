@@ -33,6 +33,8 @@ struct BridgeyApp: App {
         QuickSendController.shared.attach(pairing: pairing)
         let updater = AppUpdater()
         self.updater = updater
+        // Update all: this Mac's version and update state for phones, their requests, and runs from here.
+        UpdateAllCoordinator.shared.configure(pairing: pairing, updater: updater)
         let settingsWindow = SettingsWindowController(discovery: discovery, pairing: pairing, settings: settings, updater: updater)
         self.settingsWindow = settingsWindow
         appDelegate.configure { [weak pairing] number in pairing?.sendCallWhenConnected(number) }
