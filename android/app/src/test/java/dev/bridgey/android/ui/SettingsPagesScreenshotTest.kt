@@ -141,6 +141,32 @@ class SettingsPagesScreenshotTest {
         DevicesSettingsScreen(DevicesSettingsState(deviceRings(trusted, emptyList(), PairingState.Connected("work", "Work MacBook"))), DevicesSettingsActions())
     }
 
+    /** Connect away from home: on and reachable; the Devices page with one Mac reached through a relay. */
+    private fun connectAway() = page(
+        SettingsSection.AWAY, "connect-away",
+        state.copy(connect = ConnectSettingsState(on = true, state = ConnectState.ONLINE, reachable = 1)),
+    )
+
+    @Test fun connectAwayLight() = connectAway()
+
+    @Test @Config(qualifiers = "+night") fun connectAwayDark() = connectAway()
+
+    private fun connectDevices() = capture("connect-devices") {
+        val trusted = listOf(TrustedDevice("work", "Work MacBook"), TrustedDevice("personal", "Personal Mac"), TrustedDevice("mini", "Mac mini"))
+        val connections = listOf(
+            dev.bridgey.android.DeviceConnection("work", "Work MacBook", dev.bridgey.android.DeviceLinkState(connectRoute = dev.bridgey.android.connect.ConnectRoute("relay", "sxb"))),
+            dev.bridgey.android.DeviceConnection("personal", "Personal Mac", dev.bridgey.android.DeviceLinkState(connectRoute = dev.bridgey.android.connect.ConnectRoute("vpn"))),
+        )
+        DevicesSettingsScreen(
+            DevicesSettingsState(deviceRings(trusted, emptyList(), connections, PairingState.Idle), connect = ConnectSettingsState(on = true, state = ConnectState.ONLINE, reachable = 2)),
+            DevicesSettingsActions(),
+        )
+    }
+
+    @Test fun connectDevicesLight() = connectDevices()
+
+    @Test @Config(qualifiers = "+night") fun connectDevicesDark() = connectDevices()
+
     @Test fun devicesLight() = devices()
 
     @Test @Config(qualifiers = "+night") fun devicesDark() = devices()

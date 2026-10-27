@@ -153,7 +153,8 @@ class SetupFlowTest {
             assertTrue("${bundle.id}: ${walk.steps}", walk.steps.size in 4..8)
         }
         val everything = start(fresh(paired = false, codes = true, apps = true), SetupBundles.answers(SetupBundles.all.map { it.id }.toSet(), emptyMap())).toTheEnd()
-        assertTrue(everything.steps.toString(), everything.steps.size <= 10)
+        // Every bundle at once: one follow-up each, plus Connect away from home's (2026-10-27).
+        assertTrue(everything.steps.toString(), everything.steps.size <= 11)
     }
 
     @Test

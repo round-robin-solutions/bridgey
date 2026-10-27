@@ -135,4 +135,10 @@
     <string name="setup_intro_off">Off</string>
     <string name="setup_done_essentials">On now: pairing, the clipboard when you tap Send, and your phone\'s notifications on your Mac. Turn on more in Settings.</string>
     <string name="setup_summary_turned_off">Not allowed, so this stays off: %1$s.</string>
+    <string name="setup_q_away_title">Reach your devices away from home?</string>
+    <string name="setup_q_away_context">Devices connect directly when they can, or through a Round Robin relay that only sees encrypted data. No account, and you can turn it off at any time.</string>
+    <string name="setup_q_away_summary">Connect away from home</string>
+    <string name="setup_a_not_now">Not now</string>
+    <string name="setup_bundle_away">Your devices stay connected when you leave home.</string>
+    <string name="setup_feature_away_detail">Reach your devices from any network, with no VPN on the phone</string>
 </resources>

@@ -223,6 +223,8 @@ fun routeText(route: RouteClass): String = stringResource(
     when (route) {
         RouteClass.SAME_NETWORK -> R.string.health_route_same
         RouteClass.PRIVATE_NETWORK -> R.string.health_route_private
+        RouteClass.DIRECT -> R.string.health_route_direct
+        RouteClass.RELAY -> R.string.health_route_relay
         RouteClass.OTHER -> R.string.health_route_other
         RouteClass.UNKNOWN -> R.string.health_route_unknown
     },

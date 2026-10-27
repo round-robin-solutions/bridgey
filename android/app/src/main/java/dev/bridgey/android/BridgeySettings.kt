@@ -94,6 +94,11 @@ data class BridgeySettingsState(
     val focusShare: Boolean = false,
     /** Notifications > Follow the Mac's Focus: Do Not Disturb follows the Macs. Off by default. */
     val focusFollow: Boolean = false,
+    /**
+     * Connect away from home (draft connect_draft1): reach paired devices off the local network
+     * through the QUIC tunnel, directly or through a Round Robin relay. Off until chosen.
+     */
+    val connectAway: Boolean = false,
 ) {
     /** What a folder transfer to this phone reads when it decides. */
     val folderReceiveSettings: FolderReceiveSettings
@@ -244,6 +249,22 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(focusFollow = enabled)
     }
 
+    fun setConnectAway(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_CONNECT_AWAY, enabled).apply()
+        mutableState.value = mutableState.value.copy(connectAway = enabled)
+    }
+
+    /**
+     * Test builds only (debuggable): a control service URL and relay-only mode, set with
+     * `adb shell run-as <app> ...` or the debug intent; release builds ignore both.
+     */
+    val connectDebugControlUrl: String? get() = preferences.getString(KEY_CONNECT_DEBUG_URL, null)?.takeIf { it.isNotBlank() }
+    val connectDebugRelayOnly: Boolean get() = preferences.getBoolean(KEY_CONNECT_DEBUG_RELAY_ONLY, false)
+
+    fun setConnectDebug(controlUrl: String?, relayOnly: Boolean) {
+        preferences.edit().putString(KEY_CONNECT_DEBUG_URL, controlUrl).putBoolean(KEY_CONNECT_DEBUG_RELAY_ONLY, relayOnly).apply()
+    }
+
     fun setFolderMode(mode: DestinationMode) {
         preferences.edit().putString(KEY_FOLDER_MODE, mode.wire).apply()
         mutableState.value = mutableState.value.copy(folderMode = mode)
@@ -351,6 +372,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             logging = loggingPolicyFrom { key, default -> preferences.getBoolean(key, default) },
             focusShare = preferences.getBoolean(KEY_FOCUS_SHARE, false),
             focusFollow = preferences.getBoolean(KEY_FOCUS_FOLLOW, false),
+            connectAway = preferences.getBoolean(KEY_CONNECT_AWAY, false),
         )
     }
 
@@ -374,6 +396,9 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         private const val KEY_FOLDER_RECENT = "files.folder_recent"
         private const val KEY_FOCUS_SHARE = "focus.share"
         private const val KEY_FOCUS_FOLLOW = "focus.follow"
+        private const val KEY_CONNECT_AWAY = "connect.away"
+        private const val KEY_CONNECT_DEBUG_URL = "connect.debug.controlUrl"
+        private const val KEY_CONNECT_DEBUG_RELAY_ONLY = "connect.debug.relayOnly"
     }
 }
 

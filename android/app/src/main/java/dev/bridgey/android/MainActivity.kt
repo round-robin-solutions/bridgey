@@ -302,6 +302,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         refreshPermissionState()
         if (::pairing.isInitialized) (application as BridgeyApplication).codeAccess.refresh()
+        // Connect anywhere: the foreground is a moment to try a better route (spec 4.6).
+        if (::pairing.isInitialized) (application as BridgeyApplication).connect.takeIf { it.running }?.foreground()
         screenshotAccess.onResume()
         autoSendClipboardOnResume()
     }
@@ -668,6 +670,7 @@ private fun BridgeyApp(
     val remotePrefs by remotePreferences.state.collectAsStateWithLifecycle()
     val reconnectStates by pairing.reconnectStates.collectAsStateWithLifecycle()
     val rediscover by pairing.rediscover.collectAsStateWithLifecycle()
+    val connectDevicesStatus by (androidx.compose.ui.platform.LocalContext.current.applicationContext as BridgeyApplication).connect.status.collectAsStateWithLifecycle()
     val batteryPromptShown by uiPreferences.batteryPromptShown.collectAsStateWithLifecycle()
     val codeAccessStatus by codes.access.status.collectAsStateWithLifecycle()
     val companionLink by codes.linker.state.collectAsStateWithLifecycle()
@@ -964,6 +967,7 @@ private fun BridgeyApp(
                     val (enabledApps, totalApps) = notificationAppCounts(settingsState.notificationApplications, settingsState.disabledNotificationPackages)
                     val bridgeyApp = context.applicationContext as BridgeyApplication
                     val bgSourceStatus by bridgeyApp.backgroundClipboardSource.status.collectAsStateWithLifecycle()
+                    val connectStatus by bridgeyApp.connect.status.collectAsStateWithLifecycle()
                     val backgroundStatus = when {
                         !settingsState.backgroundClipboardEnabled -> BackgroundClipboardStatus.OFF
                         !readLogsGranted -> BackgroundClipboardStatus.WAITING_FOR_SETUP
@@ -1030,6 +1034,7 @@ private fun BridgeyApp(
                             ),
                             setup = dev.bridgey.android.ui.SetupSettingsState(oem = setup.oem),
                             focus = FocusSettingsState(settingsState.focusShare, settingsState.focusFollow, dndAccess),
+                            connect = connectSettingsState(settingsState.connectAway, connectStatus),
                         )
                     val settingsUiActions =
                         SettingsActions(
@@ -1093,6 +1098,10 @@ private fun BridgeyApp(
                                 },
                                 openOemStep = { dev.bridgey.android.setup.OemBattery.open(context, it) },
                                 addToObtainium = { dev.bridgey.android.setup.Obtainium.open(context, updateState.channel) },
+                            ),
+                            connect = dev.bridgey.android.ui.ConnectSettingsActions(
+                                setOn = settings::setConnectAway,
+                                resetIdentity = bridgeyApp::resetConnectIdentity,
                             ),
                             focus = FocusSettingsActions(
                                 setShare = settings::setFocusShare,
@@ -1216,8 +1225,13 @@ private fun BridgeyApp(
                     ),
                 )
                 Route.Devices -> DevicesSettingsScreen(
-                    state = DevicesSettingsState(rings = rings, rediscovering = rediscover == RediscoverState.Running),
+                    state = DevicesSettingsState(
+                        rings = rings,
+                        rediscovering = rediscover == RediscoverState.Running,
+                        connect = connectSettingsState(settingsState.connectAway, connectDevicesStatus),
+                    ),
                     actions = DevicesSettingsActions(
+                        openConnectAway = { stack.push(settingsRoute(SettingsSection.AWAY)) },
                         back = { stack.pop() },
                         openDevice = { ring -> ring.deviceId?.let { stack.push(Route.Device(it)) } },
                         addDevice = { pairDialog = true },
@@ -1505,4 +1519,17 @@ internal fun macActionMessage(
             else -> context.getString(R.string.mac_action_refused_failed, macName)
         }
     }
+}
+
+/** Settings > Connect away from home, from the setting and what the core reports. */
+internal fun connectSettingsState(on: Boolean, status: dev.bridgey.android.connect.ConnectStatus): dev.bridgey.android.ui.ConnectSettingsState {
+    val state = when {
+        !dev.bridgey.android.connect.ConnectCore.loaded || status is dev.bridgey.android.connect.ConnectStatus.Unavailable -> dev.bridgey.android.ui.ConnectState.UNAVAILABLE
+        !on -> dev.bridgey.android.ui.ConnectState.OFF
+        status is dev.bridgey.android.connect.ConnectStatus.Online -> dev.bridgey.android.ui.ConnectState.ONLINE
+        status is dev.bridgey.android.connect.ConnectStatus.LocalOnly -> dev.bridgey.android.ui.ConnectState.LOCAL_ONLY
+        else -> dev.bridgey.android.ui.ConnectState.CONNECTING
+    }
+    val reachable = (status as? dev.bridgey.android.connect.ConnectStatus.Online)?.peersOnline?.size ?: 0
+    return dev.bridgey.android.ui.ConnectSettingsState(on, state, reachable)
 }

@@ -911,4 +911,34 @@
     <string name="camera_unlock_text">%1$s asked for a photo</string>
     <string name="camera_ask_title">%1$s wants a photo</string>
     <string name="camera_ask_text">Tap to open the camera</string>
+    <!-- Connect anywhere (Connect away from home) -->
+    <string name="settings_connect_away">Connect away from home</string>
+    <string name="connect_away_detail">Reach your devices from any network, with no VPN on the phone</string>
+    <string name="connect_how">Devices connect directly when they can, or through a Round Robin relay that only sees encrypted data. Relays and the Round Robin service never see names, files or messages. No account is needed. Turning this off stops every route away from home; the same Wi-Fi keeps working.</string>
+    <string name="connect_status">Status</string>
+    <string name="connect_status_online">On. Your devices can reach this phone from other networks.</string>
+    <plurals name="connect_status_online_devices">
+        <item quantity="one">On. %d of your devices can be reached right now.</item>
+        <item quantity="other">On. %d of your devices can be reached right now.</item>
+    </plurals>
+    <string name="connect_status_connecting">On. Reaching the Round Robin service…</string>
+    <string name="connect_status_local">On, for the same Wi-Fi and private networks only. This build has no Round Robin service.</string>
+    <string name="connect_status_unavailable">Not available in this build</string>
+    <string name="connect_status_off">Off</string>
+    <string name="connect_summary_off">Off</string>
+    <string name="connect_summary_on">On, reachable from any network</string>
+    <string name="connect_reset">Reset away-from-home identity</string>
+    <string name="connect_reset_detail">A new key for the Round Robin service, and new secrets with your devices. Pairings stay.</string>
+    <string name="connect_reset_confirm_title">Reset away-from-home identity?</string>
+    <string name="connect_reset_confirm_body">Your devices agree on new secrets the next time they connect. Pairings and settings stay.</string>
+    <string name="connect_reset_confirm">Reset</string>
+    <string name="route_private_network">Private network</string>
+    <string name="route_direct">Direct</string>
+    <string name="route_relay">Relay</string>
+    <string name="route_relay_named">Relay (%1$s)</string>
+    <string name="relay_city_bom">Mumbai</string>
+    <string name="relay_city_sin">Singapore</string>
+    <string name="relay_city_sxb">France</string>
+    <string name="health_route_direct">Direct over the internet</string>
+    <string name="health_route_relay">Through a relay, encrypted end to end</string>
 </resources>

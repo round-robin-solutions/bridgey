@@ -120,6 +120,8 @@ data class SettingsState(
     val setup: SetupSettingsState = SetupSettingsState(),
     /** Notifications > Focus sync with the Macs. */
     val focus: FocusSettingsState = FocusSettingsState(),
+    /** Connect away from home (Connect anywhere). */
+    val connect: ConnectSettingsState = ConnectSettingsState(),
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean = globalFeatures[feature] != false
 }
@@ -168,6 +170,7 @@ class SettingsActions(
     /** v0.10: Permissions, Reset, Run setup again, OEM steps, Obtainium. */
     val setup: SetupSettingsActions = SetupSettingsActions(),
     val focus: FocusSettingsActions = FocusSettingsActions(),
+    val connect: ConnectSettingsActions = ConnectSettingsActions(),
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
@@ -184,6 +187,8 @@ enum class SettingsGroup { DEVICES, FEATURES, APP }
 enum class SettingsSection(val titleRes: Int, val group: SettingsGroup?) {
     THIS_PHONE(R.string.settings_this_phone, null),
     DEVICES(R.string.settings_devices, SettingsGroup.DEVICES),
+    /** Connect away from home: a page under Devices (its row is on the Devices page, as on the Mac). */
+    AWAY(R.string.settings_connect_away, null),
     CLIPBOARD(R.string.feature_clipboard, SettingsGroup.FEATURES),
     NOTIFICATIONS(R.string.settings_notifications, SettingsGroup.FEATURES),
     CALLS(R.string.feature_calls, SettingsGroup.FEATURES),
@@ -234,6 +239,7 @@ fun SettingsScreen(
     when (section) {
         null, SettingsSection.THIS_PHONE -> SettingsHome(state, actions, listState)
         SettingsSection.DEVICES -> DevicesPage(state, actions, listState)
+        SettingsSection.AWAY -> ConnectAwayPage(state, actions, listState)
         SettingsSection.CLIPBOARD -> ClipboardPage(state, actions, listState)
         SettingsSection.NOTIFICATIONS -> NotificationsPage(state, actions, listState)
         SettingsSection.CALLS -> CallsPage(state, actions, listState)
@@ -700,6 +706,7 @@ private fun sectionVisual(section: SettingsSection, state: SettingsState): Pair<
     return when (section) {
         SettingsSection.THIS_PHONE -> BridgeyIcons.Smartphone to Tint.BLUE
         SettingsSection.DEVICES -> BridgeyIcons.Devices to Tint.BLUE
+        SettingsSection.AWAY -> BridgeyIcons.Public to if (state.connect.on) Tint.BLUE else Tint.NEUTRAL
         SettingsSection.CLIPBOARD -> feature(BridgeyFeature.CLIPBOARD)
         SettingsSection.NOTIFICATIONS -> feature(BridgeyFeature.NOTIFICATIONS)
         SettingsSection.CALLS -> feature(BridgeyFeature.CALLS)
@@ -729,6 +736,7 @@ private fun sectionSummary(section: SettingsSection, state: SettingsState): Sect
         SettingsSection.DEVICES -> SectionSummary(
             androidx.compose.ui.res.pluralStringResource(R.plurals.settings_devices_count, state.pairedCount, state.pairedCount),
         )
+        SettingsSection.AWAY -> SectionSummary(connectSummary(state.connect))
         SettingsSection.CLIPBOARD -> if (featureOff(BridgeyFeature.CLIPBOARD)) {
             SectionSummary(off)
         } else {
@@ -1265,6 +1273,8 @@ private fun Credit(actions: SettingsActions) {
 data class DevicesSettingsState(
     val rings: List<DeviceRing>,
     val rediscovering: Boolean = false,
+    /** Connect away from home, for its row (null hides it). */
+    val connect: ConnectSettingsState? = null,
 )
 
 class DevicesSettingsActions(
@@ -1272,6 +1282,7 @@ class DevicesSettingsActions(
     val openDevice: (DeviceRing) -> Unit = {},
     val addDevice: () -> Unit = {},
     val lookForDevices: () -> Unit = {},
+    val openConnectAway: () -> Unit = {},
 )
 
 /**
@@ -1297,6 +1308,18 @@ fun DevicesSettingsScreen(state: DevicesSettingsState, actions: DevicesSettingsA
                                 leading = { DeviceGlyph(ring.state.style(), deviceIcon(ring.platform), 40.dp, iconSize = 18.dp) },
                             ) { Chevron() }
                         }
+                    }
+                }
+            }
+        }
+        state.connect?.let { connect ->
+            item(key = "away") {
+                RowGroup(Modifier.padding(top = 24.dp)) {
+                    row { shape ->
+                        ListRow(
+                            shape, stringResource(R.string.settings_connect_away), connectSummary(connect),
+                            BridgeyIcons.Public, if (connect.on) Tint.BLUE else Tint.NEUTRAL, onClick = actions.openConnectAway,
+                        ) { Chevron() }
                     }
                 }
             }

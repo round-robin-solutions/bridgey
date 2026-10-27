@@ -19,6 +19,10 @@ data class DeviceLinkState(
     val remoteLinksOpen: Boolean = false,
     /** The device advertised focus_sync_draft1: it understands focus.state. */
     val remoteFocusSync: Boolean = false,
+    /** The device advertised connect_draft1: it runs Connect anywhere and understands connect.*. */
+    val remoteConnect: Boolean = false,
+    /** The session's tunnel route (Connect anywhere); null for a plain LAN session. */
+    val connectRoute: dev.bridgey.android.connect.ConnectRoute? = null,
     val battery: RemoteBatteryStatus? = null,
     /** The device reported that it is ringing (Find device). */
     val ringing: Boolean = false,
