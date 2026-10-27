@@ -14,62 +14,6 @@ extension L10n {
     }
 }
 
-/// The advanced path: one page per settings group, in the Settings order.
-enum SetupGroup: String, CaseIterable, Identifiable, Codable {
-    case devices, clipboard, notifications, calls, files, media, remoteControl, privacy, updates, general
-
-    var id: String { rawValue }
-
-    /// The Settings page the group shows (the real one, so changes apply at once).
-    var pane: SettingsPane {
-        switch self {
-        case .devices: .devices
-        case .clipboard: .clipboard
-        case .notifications: .notifications
-        case .calls: .calls
-        case .files: .files
-        case .media: .media
-        case .remoteControl: .remoteControl
-        case .privacy: .privacy
-        case .updates: .updates
-        case .general: .general
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .devices: L10n.setup("setup.group.devices", fallback: "Devices")
-        case .clipboard: L10n.setup("setup.group.clipboard", fallback: "Clipboard")
-        case .notifications: L10n.setup("setup.group.notifications", fallback: "Notifications")
-        case .calls: L10n.setup("setup.group.calls", fallback: "Calls")
-        case .files: L10n.setup("setup.group.files", fallback: "Files")
-        case .media: L10n.setup("setup.group.media", fallback: "Media and actions")
-        case .remoteControl: L10n.setup("setup.group.remoteControl", fallback: "Remote control")
-        case .privacy: L10n.setup("setup.group.privacy", fallback: "Privacy and Logging")
-        case .updates: L10n.setup("setup.group.updates", fallback: "Updates")
-        case .general: L10n.setup("setup.group.general", fallback: "General")
-        }
-    }
-
-    /// One line above the group's settings.
-    var intro: String {
-        switch self {
-        case .devices: L10n.setup("setup.group.devices.intro", fallback: "Pair a phone, choose what this Mac shares with each one, and its battery alerts.")
-        case .clipboard: L10n.setup("setup.group.clipboard.intro", fallback: "Copy on one device and paste on the other.")
-        case .notifications: L10n.setup("setup.group.notifications.intro", fallback: "Your phone\u{2019}s notifications on this Mac, including codes from messages and duplicates, and Focus with your phones.")
-        case .calls: L10n.setup("setup.group.calls.intro", fallback: "See, answer and start phone calls from this Mac.")
-        case .files: L10n.setup("setup.group.files.intro", fallback: "Where received files go, what folders include when you send them, and photos from the phone camera.")
-        case .media: L10n.setup("setup.group.media.intro", fallback: "Control this Mac\u{2019}s music from the phone, the quick actions, and what a phone you allow may do on this Mac.")
-        case .remoteControl: L10n.setup("setup.group.remoteControl.intro", fallback: "Let a phone you allow move the pointer and type. Off until you turn it on.")
-        case .privacy: L10n.setup("setup.group.privacy.intro", fallback: "What Bridgey keeps on this Mac, and what goes into its logs.")
-        case .updates: L10n.setup("setup.group.updates.intro", fallback: "Which releases this Mac gets, and when it checks.")
-        case .general: L10n.setup("setup.group.general.intro", fallback: "Launch at login, motion and keyboard shortcuts.")
-        }
-    }
-
-    var symbol: String { pane.symbol }
-}
-
 /// The quick path on the Mac: Local Network, Notifications, Pair a phone, then Done.
 enum SetupQuickStep: String, CaseIterable, Codable {
     case localNetwork, notifications, pairPhone
@@ -91,13 +35,32 @@ enum SetupPath: String, Codable {
 enum SetupScreen: Equatable {
     case welcome
     case quick(SetupQuickStep)
-    case advanced(SetupGroup)
+    /// The question path's start: type what you want, or go straight to the questions.
+    case intro
+    case question(String)
+    /// The permission an answer needs, asked right after it.
+    case permission(String, SetupPermission)
+    /// What was turned on, each with a switch and Change in Settings.
+    case summary
+    /// The end of the quick path.
     case done
 }
 
 enum SetupEvent: Equatable {
-    case chooseQuick, chooseAdvanced, next, back, skip, finish
-    case jump(SetupGroup)
+    case chooseQuick, chooseAdvanced
+    /// Quick path: next, skip, finish now.
+    case next, skip, finish
+    case back
+    /// Intro: start the questions, with the answers confirmed from typed text.
+    case startQuestions([String: String])
+    case answer(String, String)
+    /// "Not now" on a card: keep what is set and move on. On a permission: not allowed.
+    case notNow
+    /// The permission asked for came back: allowed or not.
+    case permissionResult(Bool)
+    case summarySwitch(String, Bool)
+    /// "Leave setup?": shown, or answered Keep going.
+    case askLeave, keepGoing
 }
 
 /// What the user chose during setup. Settings sync (settings_sync_draft1, not built yet) is meant
@@ -105,10 +68,11 @@ enum SetupEvent: Equatable {
 /// on this Mac (`setup.choices`) and handed to `SetupChoicesSink`, which nothing implements yet.
 struct SetupChoices: Codable, Equatable {
     var path: SetupPath?
-    var visitedGroups: [SetupGroup] = []
     var skippedPermissions: [SetupPermission] = []
-    /// Feature switches changed on setup pages, by `BridgeyFeature` raw value.
-    var changedFeatures: [String: Bool] = [:]
+    /// Question id to answer key.
+    var answers: [String: String] = [:]
+    /// The settings the answers set, by `SetupSetting` raw value.
+    var settings: [String: String] = [:]
 }
 
 /// The hook for settings sync: called once when setup finishes. Deferred, so nothing sets it.
@@ -117,73 +81,100 @@ protocol SetupChoicesSink: AnyObject {
     func setupFinished(with choices: SetupChoices)
 }
 
-/// The setup state machine. Pure: it moves between screens and records what was visited and
-/// skipped. Settings changed on a page are applied by the page itself, so finishing early leaves
-/// every group that was not visited exactly as it was (on first run, the defaults).
+/// The setup state machine. Pure: it moves between screens and records answers; SetupCenter
+/// applies an answer's settings as it is given (`changes(for:)`), so leaving early keeps them and
+/// leaves every question not reached as it was (on first run, the defaults).
 struct SetupFlow: Equatable {
-    private(set) var screen: SetupScreen
+    private(set) var screen: SetupScreen = .welcome
     private(set) var path: SetupPath?
-    /// Advanced groups opened, in the order first opened.
-    private(set) var visited: [SetupGroup] = []
-    /// Permission steps skipped (not granted). The Permissions page still offers them.
+    /// Where this run started (Welcome, or the Intro for Review setup). Back there leaves.
+    private(set) var entry: SetupScreen = .welcome
+    /// Permission steps skipped on the quick path (not granted). The Permissions page still offers them.
     private(set) var skipped: Set<SetupPermission> = []
     /// "Pair later" on the quick path.
     private(set) var pairingSkipped = false
-    private(set) var changedFeatures: [String: Bool] = [:]
-    /// The screen Back from Done returns to.
-    private var beforeDone: SetupScreen?
+    /// Question id to answer key.
+    private(set) var answers: [String: String] = [:]
+    /// The questions shown so far, in order; Back walks it backwards.
+    private(set) var trail: [String] = []
+    /// Answers taken from typed text (confirmed); those already applied skip their question.
+    private(set) var typed: [String: String] = [:]
+    /// Questions whose permission was not allowed: their feature stayed off.
+    private(set) var denied: [String: SetupPermission] = [:]
+    /// The question whose permission was just refused; the next card says so in one line.
+    private(set) var notice: String?
+    /// Summary switches turned off.
+    private(set) var summaryOff: Set<String> = []
+    private(set) var confirmLeave = false
 
-    init(start: SetupScreen = .welcome) {
-        screen = .welcome
-        switch start {
-        case .welcome: break
-        case let .quick(step):
-            path = .quick
-            screen = .quick(step)
-        case let .advanced(group):
-            path = .advanced
-            open(group)
-        case .done:
-            screen = .done
-        }
+    init() {}
+
+    /// Settings > What's new > Review setup: straight to the questions.
+    static func review() -> SetupFlow {
+        var flow = SetupFlow()
+        flow.screen = .intro
+        flow.path = .advanced
+        flow.entry = .intro
+        return flow
     }
 
     static let quickSteps = SetupQuickStep.allCases
-    static let groups = SetupGroup.allCases
 
-    var unvisitedGroups: [SetupGroup] { Self.groups.filter { !visited.contains($0) } }
-
-    /// "3 of 10" on the advanced path, "1 of 3" on the quick path; nil on Welcome and Done.
+    /// "1 of 3" on the quick path; nil elsewhere (questions count the steps left instead).
     var position: (index: Int, count: Int)? {
-        switch screen {
-        case let .quick(step): (Self.quickSteps.firstIndex(of: step)! + 1, Self.quickSteps.count)
-        case let .advanced(group): (Self.groups.firstIndex(of: group)! + 1, Self.groups.count)
-        case .welcome, .done: nil
-        }
+        if case let .quick(step) = screen { return (Self.quickSteps.firstIndex(of: step)! + 1, Self.quickSteps.count) }
+        return nil
     }
 
     var isLastPage: Bool {
-        switch screen {
-        case let .quick(step): step == Self.quickSteps.last
-        case let .advanced(group): group == Self.groups.last
-        default: false
+        if case let .quick(step) = screen { return step == Self.quickSteps.last }
+        return false
+    }
+
+    /// Something was chosen, so leaving asks first ("Your choices so far are kept").
+    var hasProgress: Bool { !answers.isEmpty }
+
+    var choices: SetupChoices {
+        var settings: [String: String] = [:]
+        for question in SetupQuestions.all {
+            for change in applied(question) { settings[change.setting.rawValue] = change.value }
+        }
+        return SetupChoices(path: path, skippedPermissions: SetupPermission.allCases.filter { skipped.contains($0) },
+                            answers: answers, settings: settings)
+    }
+
+    // MARK: Events
+
+    /// The settings an event sets, before `send` moves on (SetupCenter applies them).
+    func changes(for event: SetupEvent, facts: SetupFacts) -> [SettingChange] {
+        switch (screen, event) {
+        case let (.question(current), .answer(id, key)) where current == id:
+            return SetupQuestions.question(id).map { SetupQuestions.changes($0, key) } ?? []
+        case let (.permission(id, _), .permissionResult(false)), let (.permission(id, _), .notNow):
+            guard let question = SetupQuestions.question(id), let key = answers[id] else { return [] }
+            return question.answer(key)?.onDenied ?? []
+        case let (.intro, .startQuestions(typed)):
+            return SetupQuestions.all.flatMap { question -> [SettingChange] in
+                guard let key = typed[question.id], !needsPermission(question.id, key, facts) else { return [] }
+                return SetupQuestions.changes(question, key)
+            }
+        case let (_, .summarySwitch(id, on)):
+            guard let question = SetupQuestions.question(id), let key = answers[id] else { return [] }
+            if on { return SetupQuestions.changes(question, key) }
+            return question.offKey.map { SetupQuestions.changes(question, $0) } ?? []
+        default:
+            return []
         }
     }
 
-    var choices: SetupChoices {
-        SetupChoices(path: path, visitedGroups: visited,
-                     skippedPermissions: SetupPermission.allCases.filter { skipped.contains($0) },
-                     changedFeatures: changedFeatures)
-    }
-
-    mutating func send(_ event: SetupEvent) {
+    mutating func send(_ event: SetupEvent, facts: SetupFacts = SetupFacts()) {
         switch (screen, event) {
         case (.welcome, .chooseQuick):
             path = .quick
             screen = .quick(Self.quickSteps[0])
         case (.welcome, .chooseAdvanced):
             path = .advanced
-            open(Self.groups[0])
+            screen = .intro
 
         case let (.quick(step), .next):
             if let permission = step.permission { skipped.remove(permission) }
@@ -193,54 +184,193 @@ struct SetupFlow: Equatable {
             if let permission = step.permission { skipped.insert(permission) }
             if step == .pairPhone { pairingSkipped = true }
             advance(from: step)
-        case let (.quick(step), .back):
-            let index = Self.quickSteps.firstIndex(of: step)!
-            if index == 0 { goToWelcome() } else { screen = .quick(Self.quickSteps[index - 1]) }
         case (.quick, .finish):
-            finish()
+            screen = .done
 
-        case let (.advanced(group), .next), let (.advanced(group), .skip):
-            let index = Self.groups.firstIndex(of: group)!
-            if index + 1 < Self.groups.count { open(Self.groups[index + 1]) } else { finish() }
-        case let (.advanced(group), .back):
-            let index = Self.groups.firstIndex(of: group)!
-            if index == 0 { goToWelcome() } else { open(Self.groups[index - 1]) }
-        case let (.advanced, .jump(group)):
-            open(group)
-        case (.advanced, .finish):
-            finish()
+        case let (.intro, .startQuestions(confirmed)):
+            typed = confirmed
+            for (id, key) in confirmed where !needsPermission(id, key, facts) { answers[id] = key }
+            trail = []
+            notice = nil
+            advance(after: nil, facts: facts)
 
-        case (.done, .back):
-            screen = beforeDone ?? .welcome
+        case let (.question(current), .answer(id, key)) where current == id:
+            guard let question = SetupQuestions.question(id), let answer = question.answer(key) else { return }
+            answers[id] = key
+            denied[id] = nil
+            summaryOff.remove(id)
+            notice = nil
+            if let permission = answer.permission, !facts.granted.contains(permission) {
+                screen = .permission(id, permission)
+            } else {
+                advance(after: id, facts: facts)
+            }
+        case let (.question(id), .notNow):
+            notice = nil
+            advance(after: id, facts: facts)
+        case let (.permission(id, kind), .notNow), let (.permission(id, kind), .permissionResult(false)):
+            denied[id] = kind
+            notice = id
+            advance(after: id, facts: facts)
+        case let (.permission(id, _), .permissionResult(true)):
+            denied[id] = nil
+            notice = nil
+            advance(after: id, facts: facts)
+
+        case let (_, .summarySwitch(id, on)):
+            if on { summaryOff.remove(id) } else { summaryOff.insert(id) }
+        case (_, .askLeave):
+            confirmLeave = true
+        case (_, .keepGoing):
+            confirmLeave = false
+        case (_, .back):
+            back()
         default:
             break
         }
     }
 
-    /// A feature switch changed on a setup page (for `SetupChoices`).
-    mutating func recordFeature(_ feature: String, enabled: Bool) {
-        changedFeatures[feature] = enabled
+    /// One step back. Leaving setup from its first screen is `SetupBack`'s decision, not a step.
+    private mutating func back() {
+        notice = nil
+        switch screen {
+        case .welcome:
+            break
+        case let .quick(step):
+            let index = Self.quickSteps.firstIndex(of: step)!
+            if index == 0 { goToWelcome() } else { screen = .quick(Self.quickSteps[index - 1]) }
+        case .intro:
+            if entry != .intro { goToWelcome() }
+        case .question:
+            trail.removeLast()
+            if let previous = trail.last { screen = .question(previous) } else { screen = .intro }
+        case let .permission(id, _):
+            screen = .question(id)
+        case .summary:
+            screen = trail.last.map(SetupScreen.question) ?? .intro
+        case .done:
+            screen = .quick(Self.quickSteps.last!)
+        }
     }
 
     private mutating func advance(from step: SetupQuickStep) {
         let index = Self.quickSteps.firstIndex(of: step)!
-        if index + 1 < Self.quickSteps.count { screen = .quick(Self.quickSteps[index + 1]) } else { finish() }
+        screen = index + 1 < Self.quickSteps.count ? .quick(Self.quickSteps[index + 1]) : .done
     }
 
-    private mutating func open(_ group: SetupGroup) {
-        if !visited.contains(group) { visited.append(group) }
-        screen = .advanced(group)
+    private mutating func advance(after id: String?, facts: SetupFacts) {
+        if let next = upcoming(after: id, facts: facts).first {
+            screen = .question(next)
+            trail.append(next)
+        } else {
+            screen = .summary
+        }
     }
 
-    private mutating func finish() {
-        beforeDone = screen
-        screen = .done
-    }
-
-    /// Back to the two choices; what was visited and skipped so far is kept.
+    /// Back to the two choices; what was answered so far is kept.
     private mutating func goToWelcome() {
         screen = .welcome
         path = nil
+    }
+
+    // MARK: Reading the answers
+
+    private func needsPermission(_ id: String, _ key: String, _ facts: SetupFacts) -> Bool {
+        guard let permission = SetupQuestions.question(id)?.answer(key)?.permission else { return false }
+        return !facts.granted.contains(permission)
+    }
+
+    /// What a question's answer set, after the summary switch and a refused permission.
+    private func applied(_ question: SetupQuestion) -> [SettingChange] {
+        guard let key = answers[question.id] else { return [] }
+        if summaryOff.contains(question.id) { return question.offKey.map { SetupQuestions.changes(question, $0) } ?? [] }
+        let base = SetupQuestions.changes(question, key)
+        return denied[question.id] == nil ? base : base + (question.answer(key)?.onDenied ?? [])
+    }
+
+    /// The settings after the answers so far, over `facts`.
+    func effective(_ facts: SetupFacts) -> SetupEffective {
+        var effective = SetupEffective(facts: facts)
+        for question in SetupQuestions.all {
+            for change in applied(question) { effective.overlay[change.setting] = change.value }
+        }
+        return effective
+    }
+
+    /// Every question still to come after `id` (from the start when nil); the progress line counts these.
+    func upcoming(after id: String?, facts: SetupFacts) -> [String] {
+        let effective = effective(facts)
+        let start = id.flatMap(SetupQuestions.index).map { $0 + 1 } ?? 0
+        return SetupQuestions.all.dropFirst(start)
+            .filter { $0.asks(effective) && !answeredByTyping($0.id) }
+            .map(\.id)
+    }
+
+    /// Steps left after the current card (0 on the last one).
+    func stepsLeft(_ facts: SetupFacts) -> Int {
+        switch screen {
+        case let .question(id), let .permission(id, _): upcoming(after: id, facts: facts).count
+        case .intro: upcoming(after: nil, facts: facts).count
+        default: 0
+        }
+    }
+
+    private func answeredByTyping(_ id: String) -> Bool {
+        typed[id] != nil && answers[id] == typed[id] && !trail.contains(id)
+    }
+}
+
+/// What Escape (and the window's close button) does in setup, the same as Android's system back.
+enum SetupBackAction: Equatable {
+    /// Go to the previous step.
+    case step
+    /// Leaving mid-way: ask "Leave setup? Your choices so far are kept." once.
+    case askLeave
+    /// On the first screen with nothing chosen: leave setup.
+    case leave
+}
+
+enum SetupBack {
+    /// Escape.
+    static func decide(_ flow: SetupFlow) -> SetupBackAction {
+        if flow.screen != flow.entry { return .step }
+        return flow.hasProgress ? .askLeave : .leave
+    }
+
+    /// The window's close button: closes at once on the first screen with nothing chosen, and at the end.
+    static func closeAsks(_ flow: SetupFlow) -> Bool {
+        if flow.screen == .done { return false }
+        return flow.screen != flow.entry || flow.hasProgress
+    }
+}
+
+/// One line of the summary.
+enum SetupSummaryItem {
+    /// A feature an answer turned on; `on`: its switch now.
+    case turnedOn(SetupQuestion, SetupAnswer, on: Bool)
+    /// A choice without an off (updates, where folders go, phone photos).
+    case chosen(SetupQuestion, SetupAnswer)
+    /// Its permission was not allowed, so it stayed off.
+    case notAllowed(SetupQuestion, SetupPermission, note: String)
+
+    var question: SetupQuestion {
+        switch self {
+        case let .turnedOn(question, _, _), let .chosen(question, _), let .notAllowed(question, _, _): question
+        }
+    }
+}
+
+enum SetupSummary {
+    static func items(_ flow: SetupFlow) -> [SetupSummaryItem] {
+        SetupQuestions.all.compactMap { question in
+            guard let key = flow.answers[question.id], let answer = question.answer(key) else { return nil }
+            if let permission = flow.denied[question.id], !answer.onDenied.isEmpty {
+                return .notAllowed(question, permission, note: SetupQuestions.deniedShort(question, answer: key, permission))
+            }
+            if answer.turnsOn && question.offKey != nil { return .turnedOn(question, answer, on: !flow.summaryOff.contains(question.id)) }
+            if answer.turnsOn || (question.offKey == nil && !answer.changes.isEmpty && key != SetupAnswerKey.no) { return .chosen(question, answer) }
+            return nil
+        }
     }
 }
 

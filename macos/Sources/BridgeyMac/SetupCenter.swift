@@ -35,6 +35,9 @@ final class SetupCenter: ObservableObject {
     private weak var updater: AppUpdater?
     private var openSettingsWindow: () -> Void = {}
     private var setupWindow: NSWindow?
+    private lazy var windowDelegate = SetupWindowDelegate(center: self)
+    /// The window is closing because setup finished or was left on purpose.
+    private var closingSetup = false
     private var whatsNewWindow: NSWindow?
     private let localNetwork = LocalNetworkProbe()
     private var bluetoothRequest: BluetoothPermissionRequest?
@@ -111,19 +114,19 @@ final class SetupCenter: ObservableObject {
 
     // MARK: Setup
 
-    func startSetup(at screen: SetupScreen = .welcome) {
-        flow = SetupFlow(start: screen)
+    /// `review`: Settings > What's new > Review setup, which starts at the questions.
+    func startSetup(review: Bool = false) {
+        flow = review ? .review() : SetupFlow()
         requested = []
         refreshPermissions()
         showSetupWindow()
     }
 
-    func send(_ event: SetupEvent) {
-        flow.send(event)
-    }
-
-    func recordFeature(_ feature: BridgeyFeature, enabled: Bool) {
-        if setupWindow?.isVisible == true { flow.recordFeature(feature.rawValue, enabled: enabled) }
+    /// Applies what the event sets (an answer's settings, a refused permission's undo, a summary
+    /// switch), then moves the flow on.
+    func send(_ event: SetupEvent, facts: SetupFacts) {
+        for change in flow.changes(for: event, facts: facts) { apply(change) }
+        flow.send(event, facts: facts)
     }
 
     func finishSetup(openSettings: Bool) {
@@ -132,19 +135,114 @@ final class SetupCenter: ObservableObject {
         recordWhatsNewSeen()
         showsReviewBanner = false
         choicesSink?.setupFinished(with: flow.choices)
-        setupWindow?.close()
+        closeSetupWindow()
         if openSettings { openSettingsWindow() }
+    }
+
+    /// Leaves setup without finishing: what was answered stays, and a fresh setup runs again next launch.
+    func leaveSetup() {
+        if flow.confirmLeave { flow.send(.keepGoing) }
+        closeSetupWindow()
+    }
+
+    private func closeSetupWindow() {
+        closingSetup = true
+        setupWindow?.close()
+        closingSetup = false
     }
 
     var setupActions: SetupActions {
         var actions = SetupActions()
-        actions.send = { [weak self] in self?.send($0) }
+        actions.dispatch = { [weak self] event, facts in self?.send(event, facts: facts) }
         actions.allow = { [weak self] in self?.manage($0) }
+        actions.requestForQuestion = { [weak self] in self?.requestForQuestion($0) }
         actions.confirmPairing = { [weak self] in self?.pairing?.confirm() }
         actions.cancelPairing = { [weak self] in self?.pairing?.cancel() }
         actions.openSettings = { [weak self] in self?.finishSetup(openSettings: true) }
         actions.start = { [weak self] in self?.finishSetup(openSettings: false) }
+        actions.leave = { [weak self] in self?.leaveSetup() }
         return actions
+    }
+
+    /// A question's permission step: its card already explained why, so macOS asks now (or the
+    /// exact System Settings page opens). The card offers Continue once asked.
+    private func requestForQuestion(_ permission: SetupPermission) {
+        store.markExplained(permission)
+        request(permission)
+    }
+
+    /// Sets one setting an answer chose. Permissions (`macNotifications`, `accessibility`) are asked
+    /// by the question's permission step; More options settings are never set here.
+    func apply(_ change: SettingChange) {
+        guard let settings, let pairing else { return }
+        let on = change.value == "true"
+        switch change.setting {
+        case .featureClipboard: settings.setGlobal(.clipboard, enabled: on)
+        case .autoClipboard: settings.setAutoClipboard(on)
+        case .clipboardFiles: settings.setClipboardFilesEnabled(on)
+        case .featureNotifications: settings.setGlobal(.notifications, enabled: on)
+        case .codesEnabled: settings.setCodesEnabled(on)
+        case .codesEngine: CodeEngine(rawValue: change.value).map(settings.setCodesEngine)
+        case .notificationHistory: settings.setNotificationHistoryEnabled(on)
+        case .focusShare: pairing.focusSync.update { $0.share = on }
+        case .focusFollow: pairing.focusSync.update { $0.follow = on }
+        case .featureCalls: settings.setGlobal(.calls, enabled: on)
+        case .ringForCalls:
+            settings.setRingForIncomingCalls(on)
+            pairing.refreshCallRinging()
+        case .pauseForCalls: pairing.mediaController.pauseForCalls = on
+        case .phoneLinks: if on { Self.usePhoneLinks() }
+        case .featureFiles: settings.setGlobal(.files, enabled: on)
+        case .folderReceiveMode: MacFolderReceiveMode(rawValue: change.value).map(settings.setFolderReceiveMode)
+        case .sendImageMode:
+            var optimization = SendPreferences.shared.optimization
+            optimization.imageMode = SendOptimization.ImageMode(rawValue: change.value) ?? .original
+            SendPreferences.shared.setOptimization(optimization)
+        case .cameraCopyToClipboard: pairing.camera.setCopyToClipboard(on)
+        case .featureRemoteInput:
+            settings.setGlobal(.remoteInput, enabled: on)
+            pairing.remoteInput.policyChanged()
+        case .remoteGrant:
+            for device in pairing.trustedDevices { settings.setForDevice(device.id, feature: .remoteInput, enabled: on) }
+            pairing.remoteInput.policyChanged()
+        case .featureMacActions: settings.setGlobal(.macActions, enabled: on)
+        case .macActionsGrant:
+            for device in pairing.trustedDevices { settings.setForDevice(device.id, feature: .macActions, enabled: on) }
+        case .macActionSwitches:
+            let listed = Set(change.value.split(separator: ",").map(String.init))
+            for item in [MacActionSwitch.lock, .sleep, .volume] { pairing.macActions.setSwitch(item, enabled: listed.contains(item.rawValue)) }
+        case .featureMedia: settings.setGlobal(.media, enabled: on)
+        case .mediaPlayer: MediaPlayer(rawValue: change.value).map { pairing.mediaController.player = $0 }
+        case .featureLinks: settings.setGlobal(.links, enabled: on)
+        case .openLinksRightAway: settings.setOpenLinksRightAway(on)
+        case .featureFindDevice:
+            settings.setGlobal(.findDevice, enabled: on)
+            if !on { pairing.stopFinding() }
+        case .featurePing: settings.setGlobal(.ping, enabled: on)
+        case .featureBattery: settings.setGlobal(.battery, enabled: on)
+        case .showPreviews: settings.setShowActivityPreviews(on)
+        case .loggingConnection:
+            var logging = settings.logging
+            logging.connection = on
+            settings.setLogging(logging)
+        case .updateChannel: UpdateChannel(rawValue: change.value).map { updater?.setChannel($0) }
+        case .updatesAutomatic: updater?.setAutomaticallyChecks(on)
+        case .launchAtLogin: settings.setLaunchAtLogin(on)
+        case .reduceMotion: settings.setReduceMotion(on)
+        case .pairing, .macNotifications, .accessibility, .deviceFeatures, .deviceAutoClipboard, .batteryAlerts,
+             .clipboardEagerLimit, .shortcutClipboard, .codesAutoCopy, .codesModel, .codesPhoneLink, .focusShortcuts,
+             .shortcutCall, .receiveFolder, .folderIncludeHidden, .folderIncludeSystem, .folderConflict, .tagReceivedFiles,
+             .sendOptionsDetail, .menuBarDropMode, .macActionApps, .macActionShortcuts, .macActionsLog, .shortcutLink,
+             .shortcutPing, .remoteLog, .loggingDetail, .shortcutShift:
+            break
+        }
+    }
+
+    /// Calls numbers you click: Bridgey becomes the app for tel: links (the browser still asks first).
+    private static func usePhoneLinks() {
+        let application = Bundle.main.bundleURL
+        guard application.pathExtension == "app" else { return }
+        NSWorkspace.shared.setDefaultApplication(at: application, toOpenURLsWithScheme: "tel") { _ in }
     }
 
     private func showSetupWindow() {
@@ -159,10 +257,23 @@ final class SetupCenter: ObservableObject {
             created.setContentSize(NSSize(width: SetupWindowView.size.width, height: SetupWindowView.size.height))
             created.isReleasedWhenClosed = false
             created.center()
+            created.delegate = windowDelegate
             setupWindow = created
         }
         NSApp.activate(ignoringOtherApps: true)
         setupWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// The close button mid-way asks "Leave setup?" first; on the first screen with nothing chosen it closes.
+    fileprivate func setupWindowShouldClose() -> Bool {
+        if closingSetup || !SetupBack.closeAsks(flow) { return true }
+        flow.send(.askLeave)
+        return false
+    }
+
+    /// Back in the app after System Settings: read the permissions again.
+    fileprivate func setupWindowBecameKey() {
+        refreshPermissions()
     }
 
     // MARK: Review banner and What's new
@@ -187,7 +298,7 @@ final class SetupCenter: ObservableObject {
                 content: content,
                 onReviewSetup: { [weak self] in
                     self?.closeWhatsNew()
-                    self?.startSetup(at: .advanced(.devices))
+                    self?.startSetup(review: true)
                 },
                 onOpenNotes: { NSWorkspace.shared.open(content.notesURL) },
                 onDone: { [weak self] in self?.closeWhatsNew() }
@@ -306,7 +417,7 @@ final class SetupCenter: ObservableObject {
         }
     }
 
-    private func request(_ permission: SetupPermission) {
+    func request(_ permission: SetupPermission) {
         requested.insert(permission)
         let current = status(permission)
         if current.manage == .openSettings && permission != .localNetwork {
@@ -417,7 +528,7 @@ final class SetupCenter: ObservableObject {
     // MARK: Settings window hooks
 
     /// The Settings actions with setup's hooks: the explainer before in-context requests, the
-    /// Privacy sub-pages, Run setup again, and (inside setup) the record of changed switches.
+    /// Privacy sub-pages and Run setup again. `inSetup`: drawn inside the setup window.
     func hooked(_ base: SettingsActions, showPane: @escaping (SettingsPane) -> Void, inSetup: Bool) -> SettingsActions {
         var actions = base
         let enableNotifications = base.enableNotifications
@@ -435,11 +546,6 @@ final class SetupCenter: ObservableObject {
         actions.setPlayer = { [weak self] player in
             guard let self, player != .off else { return setPlayer(player) }
             self.explainThen(.automation) { setPlayer(player) }
-        }
-        let setGlobal = base.setGlobal
-        actions.setGlobal = { [weak self] feature, enabled in
-            setGlobal(feature, enabled)
-            if inSetup { self?.recordFeature(feature, enabled: enabled) }
         }
         actions.setup.showPane = showPane
         actions.setup.managePermission = { [weak self] in self?.manage($0) }
@@ -461,8 +567,22 @@ final class SetupCenter: ObservableObject {
 extension SetupWindowView {
     /// What LiveSettingsView shows in the setup window.
     @MainActor static func live(model: SettingsModel, actions: SettingsActions, center: SetupCenter) -> SetupWindowView {
-        SetupWindowView(flow: center.flow, model: model, actions: actions, setup: center.setupActions, requested: center.requested)
+        SetupWindowView(flow: center.flow, model: model, actions: actions, setup: center.setupActions, requested: center.requested,
+                        sendImageMode: SendPreferences.shared.optimization.imageMode.rawValue)
     }
+}
+
+/// The setup window's delegate: the close button asks first mid-way, and coming back from System
+/// Settings refreshes the permissions a question is waiting for.
+@MainActor
+final class SetupWindowDelegate: NSObject, NSWindowDelegate {
+    private weak var center: SetupCenter?
+
+    init(center: SetupCenter) { self.center = center }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool { center?.setupWindowShouldClose() ?? true }
+
+    func windowDidBecomeKey(_ notification: Notification) { center?.setupWindowBecameKey() }
 }
 
 // MARK: - Sheets
