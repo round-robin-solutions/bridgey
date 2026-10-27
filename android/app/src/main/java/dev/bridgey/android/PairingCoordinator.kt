@@ -312,6 +312,10 @@ class PairingCoordinator(
     private var findRingtone: Ringtone? = null
     /** Kept on disk, so the night's drops and retries are still in a report exported next morning. */
     private val diagnostics = BridgeyDiagnostics(limit = 1_000, file = java.io.File(appContext.noBackupFilesDir, "diagnostics.json"))
+
+    /** A ping plays a sound and a link request posts a notification: one per Mac every 2 s, extras dropped. */
+    private val pingAlerts = DeviceRateLimit(ALERT_INTERVAL_MILLIS)
+    private val codeLinkRequests = DeviceRateLimit(ALERT_INTERVAL_MILLIS)
     private val remoteCallRequest = RemoteCallRequest(appContext)
     private var lastRemoteCallRequestAt = 0L
     private val clipboardCache = ClipboardCache(java.io.File(appContext.noBackupFilesDir, CLIPBOARD_CACHE_DIRECTORY))
@@ -1494,6 +1498,11 @@ class PairingCoordinator(
         ) ?: return fail(current, "Invalid encrypted ping")
         if (runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)).getInt("version") }.getOrNull() != 1) {
             return fail(current, "Invalid ping")
+        }
+        if (!pingAlerts.allow(current.remoteDeviceId)) {
+            // Acknowledged, so the Mac does not report a lost ping, but no second sound within 2 s.
+            current.send(Message(kind = "ping.ack", sessionId = current.id, messageId = messageId))
+            return
         }
         Handler(Looper.getMainLooper()).post {
             android.widget.Toast.makeText(appContext, "Ping from ${current.peerName}", android.widget.Toast.LENGTH_SHORT).show()
@@ -3444,6 +3453,7 @@ class PairingCoordinator(
             }
             "codes.link_request" -> {
                 if (!settings.isEnabled(BridgeyFeature.NOTIFICATIONS, current.remoteDeviceId)) return
+                if (!codeLinkRequests.allow(current.remoteDeviceId)) return
                 val deviceId = current.remoteDeviceId
                 val name = current.peerName
                 mainHandler.post { codeLinkRequested(deviceId, name) }
