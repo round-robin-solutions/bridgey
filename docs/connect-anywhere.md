@@ -48,7 +48,8 @@ Calls made while building (for review):
   connection without QUIC migration. A move between a learned-address tunnel and an ICE tunnel is a
   new tunnel that replaces the old session under the existing duplicate rule.
 - **LAN sessions stay on today's TCP** when Bonjour finds the device; QUIC on the LAN is used for
-  learned addresses only. Moving LAN TCP sessions to QUIC (section 4.4) is not done.
+  learned addresses only. **Decided by Rahul (2026-10-27): keep TCP on the LAN for now**, so moving
+  LAN TCP sessions to QUIC (section 4.4) waits.
 - **Tunnels carry paired devices only.** A device that is not already paired gets no prompt over a
   tunnel; remote pairing by invite (section 6.6) is a later phase.
 - **The control service keeps no database in phase 1** (presence and limits in memory; SQLite comes

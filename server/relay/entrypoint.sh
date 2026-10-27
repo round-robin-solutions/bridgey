@@ -10,8 +10,8 @@ sed \
   -e "s|@TURN_SECRET@|$TURN_SECRET|" \
   -e "s|@EXTERNAL_IP@|$EXTERNAL_IP|" \
   -e "s|@LISTEN_PORT@|${LISTEN_PORT:-3478}|" \
-  -e "s|@MIN_PORT@|${MIN_PORT:-60000}|" \
-  -e "s|@MAX_PORT@|${MAX_PORT:-61999}|" \
+  -e "s|@MIN_PORT@|${MIN_PORT:-61000}|" \
+  -e "s|@MAX_PORT@|${MAX_PORT:-62999}|" \
   -e "s|@TOTAL_QUOTA@|${TOTAL_QUOTA:-300}|" \
   -e "s|@BPS_CAPACITY@|${BPS_CAPACITY:-25000000}|" \
   /etc/bridgey-relay/turnserver.conf.template > /run/coturn/turnserver.conf
