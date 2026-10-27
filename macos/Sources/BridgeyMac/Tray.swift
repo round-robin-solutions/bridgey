@@ -259,11 +259,13 @@ final class TrayStore: ObservableObject {
         return formatter.string(from: date)
     }
 
+    /// An item that does not decode (a kind a newer build added, a damaged field) is dropped on its own, so one
+    /// bad entry never empties the Tray and takes the dropped images with it (docs/upgrade-policy.md).
     private func load() -> [TrayItem] {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .millisecondsSince1970
-        return (try? decoder.decode([TrayItem].self, from: data)) ?? []
+        return Array(((try? decoder.decode([LenientElement<TrayItem>].self, from: data)) ?? []).compactMap(\.value).suffix(Self.maximumItems))
     }
 
     private func save() {

@@ -57,6 +57,13 @@ struct TransferHistoryEntry: Codable, Equatable, Identifiable {
     var localURL: URL? { localPath.map { URL(fileURLWithPath: $0) } }
 }
 
+/// One element of a stored JSON array. An element that does not decode is dropped on its own instead of
+/// failing the whole file (docs/upgrade-policy.md); the Tray and the transfer history read their files this way.
+struct LenientElement<Value: Decodable>: Decodable {
+    let value: Value?
+    init(from decoder: Decoder) throws { value = try? Value(from: decoder) }
+}
+
 /// What the History window filters on.
 struct TransferHistoryFilter: Equatable {
     var query = ""
@@ -80,6 +87,7 @@ struct TransferHistoryFilter: Equatable {
 
 @MainActor
 final class TransferHistoryStore: ObservableObject {
+    nonisolated static let fileName = "transfer-history.json"
     nonisolated static let maximumEntries = 2_000
     nonisolated static let retention: TimeInterval = 30 * 24 * 60 * 60
 
@@ -143,11 +151,13 @@ final class TransferHistoryStore: ObservableObject {
         Self.write(data, to: fileURL)
     }
 
+    /// An entry that does not decode (a direction or outcome a newer build wrote, a damaged field) is dropped on
+    /// its own; the rest of the history stays (docs/upgrade-policy.md).
     private static func load(_ fileURL: URL?) -> [TransferHistoryEntry] {
         guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .millisecondsSince1970
-        return (try? decoder.decode([TransferHistoryEntry].self, from: data)) ?? []
+        return ((try? decoder.decode([LenientElement<TransferHistoryEntry>].self, from: data)) ?? []).compactMap(\.value)
     }
 
     /// Owner-only, atomic: a 0700 folder, a 0600 temporary file renamed over the old one.
@@ -167,6 +177,6 @@ final class TransferHistoryStore: ObservableObject {
     nonisolated static func defaultFileURL() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
-        return base.appendingPathComponent("\(Edition.supportFolderName)/transfer-history.json")
+        return base.appendingPathComponent("\(Edition.supportFolderName)/\(fileName)")
     }
 }

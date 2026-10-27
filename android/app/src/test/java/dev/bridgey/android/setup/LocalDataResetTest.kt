@@ -33,6 +33,7 @@ class LocalDataResetTest {
     private val preferences = listOf(
         "bridgey", "bridgey.settings", "bridgey.ui", "bridgey.remote", "bridgey.screenshot", "bridgey.updates", "bridgey.places",
         "bridgey.setup", "bridgey_onboarding", "bridgey.trust", "bridgey.reconnect", "bridgey_codes", "bridgey.whats_new",
+        "bridgey.attach",
     )
 
     /** Every file and directory, relative to its root. */
@@ -41,6 +42,8 @@ class LocalDataResetTest {
         ResetRoot.NO_BACKUP to "diagnostics.json",
         ResetRoot.NO_BACKUP to "clipboard-cache/offer-1/0/data",
         ResetRoot.NO_BACKUP to "folder-transfers/abc.journal",
+        ResetRoot.NO_BACKUP to "folder-sends/def.plan",
+        ResetRoot.NO_BACKUP to "document-index.json",
         ResetRoot.CACHE to "diagnostics/Bridgey-Diagnostics.json",
         ResetRoot.CACHE to "updates/bridgey-610.apk",
         ResetRoot.CACHE to "perf-test/bench.bin",
@@ -82,7 +85,10 @@ class LocalDataResetTest {
         reset(ResetChoice.MODELS_AND_CACHES)
         assertState(
             emptySet(),
-            setOf("clipboard-cache/offer-1/0/data", "folder-transfers/abc.journal", "updates/bridgey-610.apk", "perf-test/bench.bin"),
+            setOf(
+                "clipboard-cache/offer-1/0/data", "folder-transfers/abc.journal", "folder-sends/def.plan", "document-index.json",
+                "updates/bridgey-610.apk", "perf-test/bench.bin",
+            ),
         )
         // The cache directory itself stays, as do exported diagnostics (Activity and logs owns them).
         assertTrue(roots.getValue(ResetRoot.CACHE).isDirectory)
@@ -93,7 +99,10 @@ class LocalDataResetTest {
     fun settings() {
         reset(ResetChoice.SETTINGS)
         assertState(
-            setOf("bridgey.settings", "bridgey.ui", "bridgey.remote", "bridgey.screenshot", "bridgey.updates", "bridgey.places", "bridgey.setup", "bridgey_onboarding"),
+            setOf(
+                "bridgey.settings", "bridgey.ui", "bridgey.remote", "bridgey.screenshot", "bridgey.attach", "bridgey.updates", "bridgey.places",
+                "bridgey.setup", "bridgey_onboarding",
+            ),
             emptySet(),
         )
         assertEquals(listOf(ResetHook.RELEASE_FOLDER_GRANTS), hooks)

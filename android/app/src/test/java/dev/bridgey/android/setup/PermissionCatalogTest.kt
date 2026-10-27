@@ -14,7 +14,8 @@ class PermissionCatalogTest {
         calls: Boolean = true,
         screenshot: Boolean = true,
         background: Boolean = false,
-    ) = PermissionFacts(sdk, lab, granted, notifications, calls, screenshot, background)
+        media: Boolean = false,
+    ) = PermissionFacts(sdk, lab, granted, notifications, calls, screenshot, background, media)
 
     private fun states(facts: PermissionFacts) = PermissionCatalog.entries(facts).associate { it.kind to it.state }
 
@@ -48,6 +49,13 @@ class PermissionCatalogTest {
         assertEquals(PermissionState.NOT_NEEDED_YET, off[PermissionKind.LOGS])
         // Granted still reads Allowed when the feature is off.
         assertEquals(PermissionState.ALLOWED, states(facts(calls = false, granted = setOf(PermissionKind.PHONE_CALLS)))[PermissionKind.PHONE_CALLS])
+    }
+
+    @Test
+    fun photosAreNeededForFiles2EvenWithFreshScreenshotsOff() {
+        assertEquals(PermissionState.NOT_ALLOWED, states(facts(screenshot = false, media = true))[PermissionKind.PHOTOS])
+        assertEquals(PermissionState.NOT_NEEDED_YET, states(facts(screenshot = false, media = false))[PermissionKind.PHOTOS])
+        assertEquals(PermissionState.ALLOWED, states(facts(screenshot = false, media = true, granted = setOf(PermissionKind.PHOTOS)))[PermissionKind.PHOTOS])
     }
 
     @Test

@@ -70,9 +70,9 @@
     <string name="perm_phone_calls_name">Телефон и звонки</string>
     <string name="perm_phone_calls_why">Mac может отвечать, отклонять и совершать звонки через этот телефон.</string>
     <string name="perm_phone_calls_without">Звонок с Mac открывает номеронабиратель для подтверждения; «Ответить» и «Отклонить» не работают.</string>
-    <string name="perm_photos_name">Фото</string>
-    <string name="perm_photos_why">Отправляет только что сделанный скриншот через «Отправить скопированное».</string>
-    <string name="perm_photos_without">«Отправлять свежий скриншот» остаётся выключенным.</string>
+    <string name="perm_photos_name">Фото и видео</string>
+    <string name="perm_photos_why">Показывает недавние фото и видео при отправке файлов, позволяет вашим Mac просматривать их и отправляет только что сделанный скриншот через «Отправить скопированное».</string>
+    <string name="perm_photos_without">Вкладка «Фото и видео» и ваши Mac не видят фото, а «Отправлять свежий скриншот» остаётся выключенным.</string>
     <string name="perm_companion_link_name">Связь по Bluetooth</string>
     <string name="perm_companion_link_why">Android 15 и новее скрывает одноразовые коды от приложений, не связанных с устройством поблизости.</string>
     <string name="perm_companion_link_without">Коды из сообщений на Mac показываются как «скрыто».</string>
@@ -131,9 +131,9 @@
     <string name="reset_item_updates">Загруженные APK обновлений</string>
     <string name="reset_item_clipboard">Кэш буфера обмена</string>
     <string name="reset_item_folders">Журналы передачи папок (прерванные папки не продолжатся)</string>
-    <string name="reset_item_caches">Прочий кэш</string>
+    <string name="reset_item_caches">Прочий кэш, включая указатель недавних документов</string>
     <string name="reset_item_features">Переключатели функций, настройки устройств, журналов и имя этого телефона</string>
-    <string name="reset_item_app">Предпросмотр, уменьшение движения, выбор для удалённого управления и скриншотов</string>
+    <string name="reset_item_app">Предпросмотр, уменьшение движения, выбор для удалённого управления, скриншотов и панели отправки</string>
     <string name="reset_item_channel">Канал обновлений</string>
     <string name="reset_item_places">Папки назначения и места</string>
     <string name="reset_item_setup">Выбор в настройке (она запустится заново)</string>

@@ -29,6 +29,8 @@ data class PermissionFacts(
     val callsOn: Boolean = true,
     val screenshotOn: Boolean = true,
     val backgroundClipboardOn: Boolean = false,
+    /** Files 2.0: the attach sheet's Photos and videos tab and Macs browsing this phone's media (Files on). */
+    val mediaOn: Boolean = false,
 )
 
 data class PermissionEntry(val kind: PermissionKind, val state: PermissionState) {
@@ -51,7 +53,7 @@ object PermissionCatalog {
         val needed = when (kind) {
             PermissionKind.NOTIFICATION_ACCESS, PermissionKind.COMPANION_LINK -> facts.notificationsOn
             PermissionKind.PHONE_CALLS -> facts.callsOn
-            PermissionKind.PHOTOS -> facts.screenshotOn
+            PermissionKind.PHOTOS -> facts.screenshotOn || facts.mediaOn
             PermissionKind.LOGS -> facts.backgroundClipboardOn
             // Only the Code reader test asks, when it starts.
             PermissionKind.SMS -> false

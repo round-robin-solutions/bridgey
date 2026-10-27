@@ -366,6 +366,8 @@ final class SetupCenter: ObservableObject {
             pairing?.clearDiagnostics()
             pairing?.remoteInput.audit.clear()
             pairing?.clearTransferHistory()
+            // Files 2.0: the History window's entries, before the file goes.
+            pairing?.transferHistory.clear()
             reset.perform(.activity)
         case .caches:
             pairing?.codeModel.remove()

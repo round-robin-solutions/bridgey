@@ -87,8 +87,8 @@ enum ResetItem: String, CaseIterable {
         case .codeModel: L10n.setup("reset.item.codeModel", fallback: "Code model (Codes from messages, On this Mac)")
         case .clipboardCache: L10n.setup("reset.item.clipboardCache", fallback: "Clipboard cache")
         case .folderJournals: L10n.setup("reset.item.folderJournals", fallback: "Folder transfer journals (interrupted folders will not resume)")
-        case .otherCaches: L10n.setup("reset.item.otherCaches", fallback: "Other caches (notification icons, downloaded updates)")
-        case .settings: L10n.setup("reset.item.settings", fallback: "Every setting: feature switches, per-device settings, update channel, logging switches, folder destinations. Setup runs again.")
+        case .otherCaches: L10n.setup("reset.item.otherCaches", fallback: "Other caches (notification icons, phone thumbnails, optimised copies, downloaded updates)")
+        case .settings: L10n.setup("reset.item.settings", fallback: "Every setting: feature switches, per-device settings, update channel, logging switches, folder destinations, send and drop options. Setup runs again.")
         case .trustedDevices: L10n.setup("reset.item.trusted", fallback: "Trusted devices")
         case .identityKeys: L10n.setup("reset.item.identity", fallback: "This Mac\u{2019}s identity keys")
         case .reconnectAddresses: L10n.setup("reset.item.addresses", fallback: "Reconnect addresses")
@@ -115,7 +115,8 @@ enum ResetKept: String, CaseIterable {
 struct LocalDataLocations {
     /// `~/Library/Application Support/in.roundrobin.bridgey/`
     let support: URL
-    /// `~/Library/Caches/in.roundrobin.bridgey/` (notification icons, Sparkle downloads, URL cache)
+    /// `~/Library/Caches/in.roundrobin.bridgey/` (notification icons, Sparkle downloads, URL cache, phone
+    /// thumbnails and listings in `PhoneFiles`, optimised send copies in `SendOptimized`)
     let caches: URL
 
     static var standard: LocalDataLocations {
@@ -137,11 +138,13 @@ struct LocalDataLocations {
         case .notificationHistory: [support.appendingPathComponent("notification-history.json")]
         case .diagnostics: [support.appendingPathComponent("diagnostics.json")]
         case .remoteAudit: [support.appendingPathComponent(RemoteControlAuditStore.fileName)]
-        // Kept in memory only; the live reset clears it.
-        case .transferHistory: []
+        // The History window's file (Files 2.0); the live reset also clears the rows in memory.
+        case .transferHistory: [support.appendingPathComponent(TransferHistoryStore.fileName)]
         case .codeModel: [support.appendingPathComponent("Models", isDirectory: true)]
         case .clipboardCache: [support.appendingPathComponent("ClipboardCache", isDirectory: true)]
-        case .folderJournals: [support.appendingPathComponent("FolderTransfers", isDirectory: true)]
+        // Folders this Mac sends (FolderTransfers) and receives from phones (FolderReceives, Files 2.0).
+        case .folderJournals: [support.appendingPathComponent("FolderTransfers", isDirectory: true),
+                               support.appendingPathComponent("FolderReceives", isDirectory: true)]
         case .otherCaches: [caches]
         case .settings: []
         // The identity key and the trusted phones share trust-v3.json.
@@ -196,8 +199,9 @@ struct LocalDataReset {
     // MARK: UserDefaults
 
     /// Settings: every `settings.` key but the two records below, the update channel and
-    /// Sparkle's own choices, Media, shortcuts, folder destinations and setup progress.
-    static let settingsPrefixes = ["settings.", "media.", "shortcuts.", "folders.lastDestination.", "setup."]
+    /// Sparkle's own choices, Media, shortcuts, folder destinations, setup progress, and (Files 2.0) the
+    /// send and menu-bar drop options and what the Phone files window remembers.
+    static let settingsPrefixes = ["settings.", "media.", "shortcuts.", "folders.lastDestination.", "setup.", "send.", "phoneFiles."]
     static let settingsKeys = [UpdateChannel.defaultsKey, "SUEnableAutomaticChecks", "SUAutomaticallyUpdate",
                                "SUScheduledCheckInterval", "SUSkippedVersion", "SUSkippedMajorVersion"]
     /// Not settings: the relay's random install ID (identity) and the record of accepted model terms.

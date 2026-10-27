@@ -33,8 +33,16 @@ internal object MigrationFixtures {
      * Copies the `shared_prefs` snapshot of edition beta [release] into the app's data folder, the way
      * Android keeps them (`<dataDir>/shared_prefs/<name>.xml`). Call before anything opens the preferences.
      */
-    fun installSharedPrefs(context: Context, release: Int) {
-        val source = file("shared_prefs/beta.$release")
+    fun installSharedPrefs(context: Context, release: Int) = installSharedPrefs(context, "beta.$release")
+
+    /**
+     * Files 2.0 (0.8.0-rr.1, not yet released as a tag): only the preferences files it added or changed, in
+     * `shared_prefs/0.8.0-rr.1`. Install it on top of the newest beta snapshot.
+     */
+    const val FILES_2_SNAPSHOT = "0.8.0-rr.1"
+
+    fun installSharedPrefs(context: Context, snapshot: String) {
+        val source = file("shared_prefs/$snapshot")
         val target = File(context.dataDir, "shared_prefs").apply { mkdirs() }
         source.listFiles().orEmpty().filter { it.name.endsWith(".xml") }.forEach { it.copyTo(File(target, it.name), overwrite = true) }
     }

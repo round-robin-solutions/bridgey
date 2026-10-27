@@ -89,8 +89,12 @@ class FolderSendJournals(private val directory: File, private val clock: () -> L
         Record(header, entries, sources, done, last)
     }.getOrNull()
 
+    /**
+     * Every journal this build can read. One it cannot (another version, damaged) only holds work in progress, so
+     * it is removed with its `.done` file, as the receiver's journals are (docs/upgrade-policy.md).
+     */
     fun all(): List<Record> = directory.listFiles { file -> file.name.endsWith(".plan") }.orEmpty()
-        .mapNotNull { read(it.name.removeSuffix(".plan")) }
+        .mapNotNull { file -> read(file.name.removeSuffix(".plan")) ?: run { delete(file.name.removeSuffix(".plan")); null } }
 
     fun delete(id: String) {
         plan(id).delete()

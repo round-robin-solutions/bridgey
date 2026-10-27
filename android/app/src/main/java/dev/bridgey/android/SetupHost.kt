@@ -208,7 +208,13 @@ internal fun permissionFacts(context: Context, settings: SettingsState): Permiss
         if (listOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE, Manifest.permission.ANSWER_PHONE_CALLS).all(::granted)) {
             add(PermissionKind.PHONE_CALLS)
         }
-        if (PhotoPermissions.access(context) == PhotoAccess.FULL) add(PermissionKind.PHOTOS)
+        // Files 2.0 needs photos and videos (attach sheet, Mac browsing); a fresh screenshot needs photos only.
+        val photosGranted = if (settings.featureOn(BridgeyFeature.FILES)) {
+            dev.bridgey.android.browse.MediaAccessRules.access(Build.VERSION.SDK_INT, ::granted) == dev.bridgey.android.browse.MediaAccess.FULL
+        } else {
+            PhotoPermissions.access(context) == PhotoAccess.FULL
+        }
+        if (photosGranted) add(PermissionKind.PHOTOS)
         if (settings.codes.linked) add(PermissionKind.COMPANION_LINK)
         if (settings.batteryExempt) add(PermissionKind.BATTERY)
         if (context.packageManager.canRequestPackageInstalls()) add(PermissionKind.INSTALL_PACKAGES)
@@ -223,6 +229,7 @@ internal fun permissionFacts(context: Context, settings: SettingsState): Permiss
         callsOn = settings.featureOn(BridgeyFeature.CALLS),
         screenshotOn = settings.featureOn(BridgeyFeature.CLIPBOARD) && settings.clipboardFilesEnabled && settings.screenshotSendEnabled,
         backgroundClipboardOn = settings.backgroundClipboardEnabled,
+        mediaOn = settings.featureOn(BridgeyFeature.FILES),
     )
 }
 
@@ -246,7 +253,8 @@ internal fun PermissionsRoute(
             PermissionKind.NOTIFICATION_ACCESS -> start(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             PermissionKind.POST_NOTIFICATIONS -> onRequestAppNotifications()
             PermissionKind.PHONE_CALLS -> if (allowed) start(appDetails) else onRequestDirectCalls()
-            PermissionKind.PHOTOS -> if (allowed) start(appDetails) else actions.setScreenshotSend(true)
+            // Files 2.0 also needs videos, which the screenshot request does not ask for: App info allows both.
+            PermissionKind.PHOTOS -> if (allowed || settings.featureOn(BridgeyFeature.FILES)) start(appDetails) else actions.setScreenshotSend(true)
             PermissionKind.COMPANION_LINK -> onOpenSection(SettingsSection.NOTIFICATIONS)
             PermissionKind.BATTERY -> if (allowed) start(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) else actions.requestBatteryExemption()
             PermissionKind.INSTALL_PACKAGES -> start(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")))

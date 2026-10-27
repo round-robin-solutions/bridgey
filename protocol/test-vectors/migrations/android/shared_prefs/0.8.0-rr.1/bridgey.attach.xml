@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="tab">FILES</string>
+    <string name="target">e2acaa6d-7980-4e5c-b5cb-9c8742216271</string>
+    <boolean name="documents_card_dismissed" value="true" />
+    <boolean name="media_asked" value="true" />
+</map>

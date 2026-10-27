@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import dev.bridgey.android.AppUpdater
+import dev.bridgey.android.AttachPreferences
 import dev.bridgey.android.BridgeyFeature
 import dev.bridgey.android.BridgeyLogging
 import dev.bridgey.android.BridgeySettings
@@ -24,6 +25,7 @@ import dev.bridgey.android.migrations.MigrationFixtures.MAC_B
 import dev.bridgey.android.migrations.MigrationFixtures.MAC_C
 import dev.bridgey.android.migrations.MigrationFixtures.ORPHAN_NAME_ID
 import dev.bridgey.android.ui.UiPreferences
+import dev.bridgey.android.ui.attach.AttachTab
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -164,6 +166,21 @@ class SharedPrefsMigrationTest(private val release: Int) {
         val logging = if (release >= 11) LoggingPolicy(connection = false, callNumbers = true, remoteControl = false) else LoggingPolicy()
         assertEquals(logging, state.logging)
         assertEquals(logging, BridgeyLogging.policy)
+    }
+
+    // MARK: Files 2.0 (0.8.0-rr.1): a phone upgrading from any beta gets the defaults
+
+    @Test
+    fun files2DefaultsApplyToEveryOlderRelease() {
+        val state = BridgeySettings(context, "Default name").state.value
+        // B1: browsing and downloading on by default; writing stays behind the replace switch's old key.
+        assertTrue(state.allowBrowseFromOtherDevices)
+        assertEquals(release >= 10, state.allowReplaceFromOtherDevices)
+        val attach = AttachPreferences(context)
+        assertEquals(AttachTab.MEDIA, attach.tab)
+        assertNull(attach.lastTarget)
+        assertFalse(attach.documentsCardDismissed)
+        assertFalse(attach.mediaAsked)
     }
 
     // MARK: Other preferences

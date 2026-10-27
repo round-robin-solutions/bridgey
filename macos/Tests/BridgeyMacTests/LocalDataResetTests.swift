@@ -11,8 +11,11 @@ final class LocalDataResetTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!
 
-    private let activityFiles = ["activity-stream.json", "notification-history.json", "diagnostics.json", "remote-control-audit.json"]
-    private let cacheFolders = ["Models", "ClipboardCache", "FolderTransfers"]
+    private let activityFiles = ["activity-stream.json", "notification-history.json", "diagnostics.json", "remote-control-audit.json",
+                                 "transfer-history.json"]
+    private let cacheFolders = ["Models", "ClipboardCache", "FolderTransfers", "FolderReceives"]
+    /// Files 2.0 user content: only Everything removes the Tray (bookmarks and dropped images).
+    private let trayFolder = "Tray"
 
     private let settingsKeys = [
         "settings.global.clipboard", "settings.device.11111111-1111-1111-1111-111111111111.files",
@@ -20,6 +23,10 @@ final class LocalDataResetTests: XCTestCase {
         "settings.receiveFolderPath", "settings.receiveFolderBookmark", "settings.onboarding.completed", "settings.codes.enabled",
         "updates.channel", "SUEnableAutomaticChecks", "media.player", "media.pauseForCalls", "shortcuts.shift", "shortcuts.clipboard",
         "folders.lastDestination.11111111-1111-1111-1111-111111111111", "setup.completedVersion", "setup.permissions.explained",
+        // Files 2.0
+        "settings.folders.receiveMode", "settings.folders.conflict", "settings.files.tagReceived",
+        "send.menuBarDrop", "send.optimization.v1", "send.lastDevice",
+        "phoneFiles.last.phone", "phoneFiles.sort", "phoneFiles.last.path.11111111-1111-1111-1111-111111111111",
     ]
     private let identityKeys = ["deviceID", "settings.codes.installId"]
     private let trustKeys = ["trustedDeviceIDs", "trusted.11111111-1111-1111-1111-111111111111.name"]
@@ -41,12 +48,12 @@ final class LocalDataResetTests: XCTestCase {
         for name in activityFiles + [MacPairingStore.fileName, "unknown-future-store.json"] {
             try Data("{}".utf8).write(to: locations.support.appendingPathComponent(name))
         }
-        for folder in cacheFolders {
+        for folder in cacheFolders + [trayFolder] {
             let url = locations.support.appendingPathComponent(folder, isDirectory: true)
             try manager.createDirectory(at: url, withIntermediateDirectories: true)
             try Data("x".utf8).write(to: url.appendingPathComponent("item"))
         }
-        for folder in ["NotificationIcons", "org.sparkle-project.Sparkle", "perf-test"] {
+        for folder in ["NotificationIcons", "org.sparkle-project.Sparkle", "perf-test", "PhoneFiles", "SendOptimized"] {
             let url = locations.caches.appendingPathComponent(folder, isDirectory: true)
             try manager.createDirectory(at: url, withIntermediateDirectories: true)
             try Data("x".utf8).write(to: url.appendingPathComponent("item"))
@@ -82,7 +89,8 @@ final class LocalDataResetTests: XCTestCase {
     func testActivityAndLogsDeletesOnlyItsFiles() {
         let report = reset.perform(.activity)
         assertFiles(gone: activityFiles.map(support),
-                    kept: cacheFolders.map(support) + [support(MacPairingStore.fileName), support("unknown-future-store.json"), locations.caches, outside])
+                    kept: cacheFolders.map(support) + [support(MacPairingStore.fileName), support("unknown-future-store.json"), support(trayFolder),
+                           locations.caches, outside])
         assertKeys(gone: [], kept: allKeys)
         XCTAssertEqual(Set(report.removedFiles.map(\.lastPathComponent)), Set(activityFiles))
         XCTAssertTrue(report.removedKeys.isEmpty)
@@ -91,13 +99,14 @@ final class LocalDataResetTests: XCTestCase {
     func testModelsAndCachesDeletesOnlyCaches() {
         reset.perform(.caches)
         assertFiles(gone: cacheFolders.map(support) + [locations.caches],
-                    kept: activityFiles.map(support) + [support(MacPairingStore.fileName), support("unknown-future-store.json"), outside])
+                    kept: activityFiles.map(support) + [support(MacPairingStore.fileName), support("unknown-future-store.json"), support(trayFolder), outside])
         assertKeys(gone: [], kept: allKeys)
     }
 
     func testSettingsResetsEverySettingAndKeepsPairingsHistoryAndCaches() {
         reset.perform(.settings)
-        assertFiles(gone: [], kept: activityFiles.map(support) + cacheFolders.map(support) + [support(MacPairingStore.fileName), locations.caches, outside])
+        assertFiles(gone: [], kept: activityFiles.map(support) + cacheFolders.map(support) + [support(MacPairingStore.fileName), support(trayFolder),
+                                    locations.caches, outside])
         assertKeys(gone: settingsKeys, kept: identityKeys + trustKeys + addressKeys + recordKeys + foreignKeys)
         XCTAssertTrue(SetupStore(defaults: defaults).pending, "setup runs again next launch")
         XCTAssertEqual(SetupLaunch.evaluate(SetupStore(defaults: defaults), trustFileExists: true), .runSetup)

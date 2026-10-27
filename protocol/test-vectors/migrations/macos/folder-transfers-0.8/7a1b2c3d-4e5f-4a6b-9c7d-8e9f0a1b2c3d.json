@@ -1,0 +1,31 @@
+{
+  "completed": [
+    0
+  ],
+  "createdAt": 1793005200000,
+  "destination": {
+    "path": "Documents",
+    "placeId": "q3Jx0bVv1eG7tq8Wm2l5wA"
+  },
+  "destinationLabel": "Documents",
+  "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+  "deviceName": "Test Phone A",
+  "displayName": "Invoice 2026-10.pdf and 1 more",
+  "fileCount": 2,
+  "folderTransferId": "7a1b2c3d-4e5f-4a6b-9c7d-8e9f0a1b2c3d",
+  "into": true,
+  "lastProgressAt": 1793005500000,
+  "manifestSha256": "7d2f8b4e2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7",
+  "options": {
+    "includeHidden": false,
+    "includeSystem": false
+  },
+  "rootName": "Invoice 2026-10.pdf",
+  "rootPath": "/Users/test/Documents",
+  "roots": [
+    "/Users/test/Documents/Invoice 2026-10.pdf",
+    "/Users/test/Documents/Receipts"
+  ],
+  "totalSize": 2097152,
+  "version": 1
+}

@@ -1,0 +1,49 @@
+[
+  {
+    "id": "0a8c2f3e-1d4b-4c6e-9f70-5a1b2c3d4e01",
+    "kind": "file",
+    "name": "Invoice 2026-10.pdf",
+    "size": 184320,
+    "addedAt": 1793005200000,
+    "path": "/Users/test/Documents/Invoice 2026-10.pdf"
+  },
+  {
+    "id": "0a8c2f3e-1d4b-4c6e-9f70-5a1b2c3d4e02",
+    "kind": "folder",
+    "name": "Trip 2026",
+    "size": 52428800,
+    "addedAt": 1793005201000,
+    "path": "/Users/test/Pictures/Trip 2026"
+  },
+  {
+    "id": "0a8c2f3e-1d4b-4c6e-9f70-5a1b2c3d4e06",
+    "kind": "sticker",
+    "name": "A kind this build does not know",
+    "size": 1,
+    "addedAt": 1793005205000
+  },
+  {
+    "kind": "text",
+    "name": "no id",
+    "size": 1,
+    "addedAt": 1793005206000,
+    "text": "x"
+  },
+  "not an object",
+  {
+    "id": "0a8c2f3e-1d4b-4c6e-9f70-5a1b2c3d4e07",
+    "kind": "text",
+    "name": "Still here",
+    "size": 10,
+    "addedAt": "yesterday",
+    "text": "Still here"
+  },
+  {
+    "id": "0a8c2f3e-1d4b-4c6e-9f70-5a1b2c3d4e04",
+    "kind": "text",
+    "name": "Meet at the north gate",
+    "size": 22,
+    "addedAt": 1793005203000,
+    "text": "Meet at the north gate"
+  }
+]

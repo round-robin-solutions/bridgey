@@ -66,10 +66,10 @@
 "reset.item.folderJournals" = "Folder transfer journals (interrupted folders will not resume)";
 "reset.item.history" = "Notification history";
 "reset.item.identity" = "This Mac’s identity keys";
-"reset.item.otherCaches" = "Other caches (notification icons, downloaded updates)";
+"reset.item.otherCaches" = "Other caches (notification icons, phone thumbnails, optimised copies, downloaded updates)";
 "reset.item.records" = "Setup, What’s new and update records, and the code model terms you accepted";
 "reset.item.remoteAudit" = "Remote control audit log";
-"reset.item.settings" = "Every setting: feature switches, per-device settings, update channel, logging switches, folder destinations. Setup runs again.";
+"reset.item.settings" = "Every setting: feature switches, per-device settings, update channel, logging switches, folder destinations, send and drop options. Setup runs again.";
 "reset.item.transfers" = "Transfer history";
 "reset.item.trusted" = "Trusted devices";
 "reset.keeps" = "Keeps";

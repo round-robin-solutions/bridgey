@@ -1,0 +1,57 @@
+[
+  {
+    "id": "h-0001",
+    "date": 1793005200000,
+    "direction": "sent",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "name": "Trip 2026",
+    "isFolder": true,
+    "fileCount": 12,
+    "bytes": 52428800,
+    "outcome": "completed",
+    "localPath": "/Users/test/Pictures/Trip 2026",
+    "destination": "Download/Bridgey/Trip 2026",
+    "download": false
+  },
+  {
+    "id": "h-0002",
+    "date": 1793005260000,
+    "direction": "received",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "name": "IMG_0001.jpg",
+    "isFolder": false,
+    "fileCount": 1,
+    "bytes": 3145728,
+    "outcome": "completed",
+    "localPath": "/Users/test/Downloads/Bridgey/IMG_0001.jpg",
+    "download": true
+  },
+  {
+    "id": "h-0003",
+    "date": 1793005320000,
+    "direction": "received",
+    "deviceID": "662af8a6-40db-4ee9-8fa4-7a8d96bc57aa",
+    "deviceName": "Test Phone B",
+    "name": "Scans",
+    "isFolder": true,
+    "fileCount": 40,
+    "bytes": 104857600,
+    "outcome": "incomplete",
+    "download": false
+  },
+  {
+    "id": "h-0004",
+    "date": 1793005380000,
+    "direction": "sent",
+    "deviceID": "662af8a6-40db-4ee9-8fa4-7a8d96bc57aa",
+    "deviceName": "Test Phone B",
+    "name": "notes.txt",
+    "isFolder": false,
+    "fileCount": 1,
+    "bytes": 120,
+    "outcome": "cancelled",
+    "download": false
+  }
+]

@@ -62,14 +62,32 @@ enum class ResetItem(val key: String, val targets: List<ResetTarget>) {
         "clipboard",
         listOf(ResetTarget.Live(ResetHook.CLEAR_CLIPBOARD_CACHE), ResetTarget.Path(ResetRoot.NO_BACKUP, "clipboard-cache")),
     ),
-    FOLDER_JOURNALS("folders", listOf(ResetTarget.Path(ResetRoot.NO_BACKUP, "folder-transfers"))),
-    /** Everything else in the cache directory (the performance test's files, for example). */
-    OTHER_CACHES("caches", listOf(ResetTarget.Path(ResetRoot.CACHE, "", except = setOf("diagnostics", "updates")))),
+    /** Folders this phone receives (folder-transfers) and, since Files 2.0, sends (folder-sends). */
+    FOLDER_JOURNALS(
+        "folders",
+        listOf(ResetTarget.Path(ResetRoot.NO_BACKUP, "folder-transfers"), ResetTarget.Path(ResetRoot.NO_BACKUP, "folder-sends")),
+    ),
+    /**
+     * Everything else in the cache directory (the performance test's files, for example), and the Files 2.0
+     * recent-documents index (rebuilt from the granted places).
+     */
+    OTHER_CACHES(
+        "caches",
+        listOf(
+            ResetTarget.Path(ResetRoot.CACHE, "", except = setOf("diagnostics", "updates")),
+            ResetTarget.Path(ResetRoot.NO_BACKUP, "document-index.json"),
+            ResetTarget.Path(ResetRoot.NO_BACKUP, ".document-index.json.tmp"),
+        ),
+    ),
     /** Feature switches, per-device settings, logging switches, folder choices, this phone's name. */
     FEATURE_SETTINGS("features", listOf(ResetTarget.Preferences("bridgey.settings"))),
     APP_PREFERENCES(
         "app",
-        listOf(ResetTarget.Preferences("bridgey.ui"), ResetTarget.Preferences("bridgey.remote"), ResetTarget.Preferences("bridgey.screenshot")),
+        listOf(
+            ResetTarget.Preferences("bridgey.ui"), ResetTarget.Preferences("bridgey.remote"), ResetTarget.Preferences("bridgey.screenshot"),
+            // Files 2.0: the attach sheet's last tab and target, and its one-time cards.
+            ResetTarget.Preferences("bridgey.attach"),
+        ),
     ),
     UPDATE_CHANNEL("channel", listOf(ResetTarget.Preferences("bridgey.updates"))),
     FOLDER_PLACES("places", listOf(ResetTarget.Live(ResetHook.RELEASE_FOLDER_GRANTS), ResetTarget.Preferences("bridgey.places"))),

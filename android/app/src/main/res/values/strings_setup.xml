@@ -71,9 +71,9 @@
     <string name="perm_phone_calls_name">Phone and calls</string>
     <string name="perm_phone_calls_why">Lets the Mac answer, decline and place calls through this phone.</string>
     <string name="perm_phone_calls_without">Calls from the Mac open the dialer for you to confirm; Answer and Decline do not work.</string>
-    <string name="perm_photos_name">Photos</string>
-    <string name="perm_photos_why">Sends a screenshot you just took with \"Send copied item\".</string>
-    <string name="perm_photos_without">\"Send a fresh screenshot\" stays off.</string>
+    <string name="perm_photos_name">Photos and videos</string>
+    <string name="perm_photos_why">Shows your recent photos and videos when you send files, lets your Macs browse them, and sends a screenshot you just took with \"Send copied item\".</string>
+    <string name="perm_photos_without">The Photos and videos tab and your Macs see no photos, and \"Send a fresh screenshot\" stays off.</string>
     <string name="perm_companion_link_name">Bluetooth companion link</string>
     <string name="perm_companion_link_why">Android 15 and later hide one-time codes from apps that are not linked to a nearby device.</string>
     <string name="perm_companion_link_without">Codes from messages show \"hidden\" on the Mac.</string>
@@ -132,9 +132,9 @@
     <string name="reset_item_updates">Downloaded update APKs</string>
     <string name="reset_item_clipboard">Clipboard cache</string>
     <string name="reset_item_folders">Folder transfer journals (interrupted folders will not resume)</string>
-    <string name="reset_item_caches">Other caches</string>
+    <string name="reset_item_caches">Other caches, including the recent documents index</string>
     <string name="reset_item_features">Feature switches, per-device settings, logging switches and this phone\'s name</string>
-    <string name="reset_item_app">Previews, reduced motion, remote control and screenshot choices</string>
+    <string name="reset_item_app">Previews, reduced motion, remote control, screenshot and attach sheet choices</string>
     <string name="reset_item_channel">Update channel</string>
     <string name="reset_item_places">Folder destinations and places</string>
     <string name="reset_item_setup">Setup choices (setup runs again)</string>

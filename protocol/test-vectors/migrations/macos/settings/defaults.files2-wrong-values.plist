@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>phoneFiles.last.section</key>
+	<string>music</string>
+	<key>phoneFiles.sort</key>
+	<string>colour</string>
+	<key>send.menuBarDrop</key>
+	<string>teleport</string>
+	<key>send.optimization.v1</key>
+	<data>
+	bm90IGpzb24=
+	</data>
+	<key>settings.files.tagReceived</key>
+	<dict>
+		<key>a</key>
+		<integer>1</integer>
+	</dict>
+	<key>settings.folders.conflict</key>
+	<integer>5</integer>
+	<key>settings.folders.receiveMode</key>
+	<string>elsewhere</string>
+</dict>
+</plist>

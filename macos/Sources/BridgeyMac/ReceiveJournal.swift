@@ -113,8 +113,13 @@ final class ReceiveJournalStore: @unchecked Sendable {
         }
     }
 
-    /// On start: journals older than 24 hours go; part files without a finished line are deleted.
+    /// On start: journals older than 24 hours go; part files without a finished line are deleted. A journal this
+    /// build cannot read (another version, damaged) goes too: it only held work in progress (docs/upgrade-policy.md).
     func recover(now: Date = Date()) -> [ReceiveJournalRecord] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        for name in names where name.hasSuffix(".journal") && read(String(name.dropLast(8))) == nil {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        }
         var kept: [ReceiveJournalRecord] = []
         for record in all() {
             cleanParts(record)
