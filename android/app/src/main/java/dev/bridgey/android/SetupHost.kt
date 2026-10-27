@@ -9,13 +9,16 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -37,11 +40,18 @@ import dev.bridgey.android.setup.PermissionKind
 import dev.bridgey.android.setup.PermissionState
 import dev.bridgey.android.setup.ResetChoice
 import dev.bridgey.android.setup.ResetHook
+import dev.bridgey.android.setup.BackAction
+import dev.bridgey.android.setup.MacTwinApps
+import dev.bridgey.android.setup.SettingChange
+import dev.bridgey.android.setup.SetupBack
 import dev.bridgey.android.setup.SetupChoicesSync
 import dev.bridgey.android.setup.SetupEvent
+import dev.bridgey.android.setup.SetupFacts
 import dev.bridgey.android.setup.SetupFlow
 import dev.bridgey.android.setup.SetupLaunch
+import dev.bridgey.android.setup.SetupQuestions
 import dev.bridgey.android.setup.SetupScreen
+import dev.bridgey.android.setup.SetupSetting
 import dev.bridgey.android.setup.SetupState
 import dev.bridgey.android.setup.SetupStore
 import dev.bridgey.android.setup.WhatsNewDecision
@@ -58,6 +68,8 @@ import dev.bridgey.android.ui.SetupScreen
 import dev.bridgey.android.ui.SetupUiState
 import dev.bridgey.android.ui.WhatsNewBanner
 import dev.bridgey.android.ui.WhatsNewDialog
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * What the activity hands the v0.10 setup, Permissions, Reset and What's new screens. Created in
@@ -71,7 +83,7 @@ internal class SetupHooks(
     val restart: () -> Unit,
     val resetHook: (ResetHook) -> Unit,
 ) {
-    /** Where the next Route.Setup starts: Welcome, or the advanced path at Devices (Review setup). */
+    /** Where the next Route.Setup starts: Welcome, or the questions (Review setup). */
     private var nextStart: SetupState = SetupState()
 
     /** Setup was opened from Settings or What's new, not as first-run setup. */
@@ -137,11 +149,144 @@ internal fun BridgeyApplication.runResetHook(hook: ResetHook) {
     }
 }
 
-private val SetupStateSaver = Saver<SetupState, String>(save = { it.encode() }, restore = { SetupState.decode(it) })
+internal val SetupStateSaver = Saver<SetupState, String>(save = { it.encode() }, restore = { SetupState.decode(it) })
+
+/** What the questions read from Settings now (the answers are applied as they are given). */
+internal fun setupFacts(context: Context, settings: SettingsState, paired: Boolean, duplicateApps: List<Pair<String, String>>): SetupFacts {
+    val current = buildMap {
+        mapOf(
+            SetupSetting.FEATURE_CLIPBOARD to BridgeyFeature.CLIPBOARD, SetupSetting.FEATURE_NOTIFICATIONS to BridgeyFeature.NOTIFICATIONS,
+            SetupSetting.FEATURE_CALLS to BridgeyFeature.CALLS, SetupSetting.FEATURE_FILES to BridgeyFeature.FILES,
+            SetupSetting.FEATURE_REMOTE_INPUT to BridgeyFeature.REMOTE_INPUT, SetupSetting.FEATURE_MAC_ACTIONS to BridgeyFeature.MAC_ACTIONS,
+            SetupSetting.FEATURE_MEDIA to BridgeyFeature.MEDIA, SetupSetting.FEATURE_CAMERA to BridgeyFeature.CAMERA,
+            SetupSetting.FEATURE_LINKS to BridgeyFeature.LINKS, SetupSetting.FEATURE_FIND_DEVICE to BridgeyFeature.FIND_DEVICE,
+            SetupSetting.FEATURE_PING to BridgeyFeature.PING, SetupSetting.FEATURE_BATTERY to BridgeyFeature.BATTERY,
+        ).forEach { (setting, feature) -> put(setting, settings.featureOn(feature).toString()) }
+        put(SetupSetting.PAIRING, paired.toString())
+        put(SetupSetting.AUTO_CLIPBOARD, settings.autoClipboardEnabled.toString())
+        put(SetupSetting.CLIPBOARD_FILES, settings.clipboardFilesEnabled.toString())
+        put(SetupSetting.SCREENSHOT_SEND, settings.screenshotSendEnabled.toString())
+        put(SetupSetting.BACKGROUND_CLIPBOARD, settings.backgroundClipboardEnabled.toString())
+        put(SetupSetting.NOTIFICATION_ACCESS, settings.notificationAccessEnabled.toString())
+        put(SetupSetting.APP_NOTIFICATIONS, settings.appNotificationsEnabled.toString())
+        put(SetupSetting.CODES_LINK, settings.codes.linked.toString())
+        put(SetupSetting.FOCUS_SHARE, settings.focus.share.toString())
+        put(SetupSetting.FOCUS_FOLLOW, settings.focus.follow.toString())
+        put(SetupSetting.DIRECT_CALLS, settings.directCallsEnabled.toString())
+        put(SetupSetting.FOLDER_MODE, settings.folders.mode.name)
+        put(SetupSetting.ALLOW_BROWSE, settings.folders.allowBrowse.toString())
+        put(SetupSetting.ALLOW_REPLACE, settings.folders.allowReplace.toString())
+        put(SetupSetting.REMOTE_VOLUME_KEYS, settings.remoteVolumeKeys.toString())
+        put(SetupSetting.SHOW_PREVIEWS, settings.showPreviews.toString())
+        put(SetupSetting.LOGGING_CONNECTION, settings.logging.connection.toString())
+        put(SetupSetting.UPDATE_CHANNEL, settings.update.channel.name)
+        put(SetupSetting.BATTERY_EXEMPTION, settings.batteryExempt.toString())
+        put(SetupSetting.KEEP_WIFI_AWAKE, settings.keepWifiAwake.toString())
+        put(SetupSetting.REDUCE_MOTION, settings.reduceMotion.toString())
+    }
+    return SetupFacts(
+        paired = paired,
+        current = current,
+        granted = permissionFacts(context, settings).granted,
+        sdkInt = Build.VERSION.SDK_INT,
+        foldersSupported = settings.folders.supported,
+        wifiAwakeSupported = settings.keepWifiAwakeSupported,
+        codesLinkApplies = settings.codes.linkApplies,
+        duplicateApps = duplicateApps,
+    )
+}
+
+/** The apps in [MacTwinApps] installed on this phone (declared in the manifest's queries). */
+internal fun installedMacTwinApps(context: Context): List<Pair<String, String>> =
+    MacTwinApps.known.filter { (packageName, _) ->
+        runCatching { context.packageManager.getApplicationInfo(packageName, 0) }.isSuccess
+    }
 
 /**
- * Route.Setup: first-run setup, or Run setup again. Settings changed here are the real settings.
- * [onFinish] marks setup done; `true` opens Settings instead of Home.
+ * Applies one answer's setting the way its Settings page does, without the page's own permission
+ * prompts: setup asks for the permission itself, right after the answer.
+ */
+internal fun applySetupChange(
+    change: SettingChange,
+    settings: BridgeySettings,
+    setGlobal: (BridgeyFeature, Boolean) -> Unit,
+    uiPreferences: dev.bridgey.android.ui.UiPreferences,
+    remotePreferences: dev.bridgey.android.remote.RemoteInputPreferences,
+    updater: AppUpdater,
+) {
+    val on = change.value == "true"
+    when (change.setting) {
+        SetupSetting.FEATURE_CLIPBOARD -> setGlobal(BridgeyFeature.CLIPBOARD, on)
+        SetupSetting.FEATURE_NOTIFICATIONS -> setGlobal(BridgeyFeature.NOTIFICATIONS, on)
+        SetupSetting.FEATURE_CALLS -> setGlobal(BridgeyFeature.CALLS, on)
+        SetupSetting.FEATURE_FILES -> setGlobal(BridgeyFeature.FILES, on)
+        SetupSetting.FEATURE_REMOTE_INPUT -> setGlobal(BridgeyFeature.REMOTE_INPUT, on)
+        SetupSetting.FEATURE_MAC_ACTIONS -> setGlobal(BridgeyFeature.MAC_ACTIONS, on)
+        SetupSetting.FEATURE_MEDIA -> setGlobal(BridgeyFeature.MEDIA, on)
+        SetupSetting.FEATURE_CAMERA -> setGlobal(BridgeyFeature.CAMERA, on)
+        SetupSetting.FEATURE_LINKS -> setGlobal(BridgeyFeature.LINKS, on)
+        SetupSetting.FEATURE_FIND_DEVICE -> setGlobal(BridgeyFeature.FIND_DEVICE, on)
+        SetupSetting.FEATURE_PING -> setGlobal(BridgeyFeature.PING, on)
+        SetupSetting.FEATURE_BATTERY -> setGlobal(BridgeyFeature.BATTERY, on)
+        SetupSetting.AUTO_CLIPBOARD -> settings.setAutoClipboardGlobal(on)
+        SetupSetting.CLIPBOARD_FILES -> settings.setClipboardFilesEnabled(on)
+        SetupSetting.SCREENSHOT_SEND -> settings.setScreenshotSendEnabled(on)
+        SetupSetting.DIRECT_CALLS -> settings.setDirectCallsEnabled(on)
+        SetupSetting.FOCUS_SHARE -> settings.setFocusShare(on)
+        SetupSetting.FOCUS_FOLLOW -> settings.setFocusFollow(on)
+        SetupSetting.FOLDER_MODE -> runCatching { dev.bridgey.android.folders.DestinationMode.valueOf(change.value) }.getOrNull()?.let(settings::setFolderMode)
+        SetupSetting.ALLOW_BROWSE -> settings.setAllowBrowseFromOtherDevices(on)
+        SetupSetting.ALLOW_REPLACE -> settings.setAllowReplaceFromOtherDevices(on)
+        SetupSetting.REMOTE_VOLUME_KEYS -> remotePreferences.setVolumeKeysChangeSlides(on)
+        SetupSetting.SHOW_PREVIEWS -> uiPreferences.setShowPreviews(on)
+        SetupSetting.REDUCE_MOTION -> uiPreferences.setReduceMotion(on)
+        SetupSetting.LOGGING_CONNECTION -> settings.setLogging(settings.state.value.logging.copy(connection = on))
+        SetupSetting.UPDATE_CHANNEL -> UpdateChannel.entries.firstOrNull { it.name == change.value }?.let(updater::setChannel)
+        SetupSetting.KEEP_WIFI_AWAKE -> settings.setKeepWifiAwake(on)
+        SetupSetting.HIDDEN_NOTIFICATION_APPS -> {
+            // Only the apps the question listed: picked ones stay on the phone, the others are sent again.
+            val hidden = change.value.split(',').filter { it.isNotEmpty() }.toSet()
+            MacTwinApps.known.forEach { (packageName, name) ->
+                val wasKnown = settings.state.value.notificationApplications.containsKey(packageName)
+                if (!wasKnown && packageName !in hidden) return@forEach
+                settings.observeNotificationApplication(packageName, name)
+                settings.setNotificationApplicationEnabled(packageName, packageName !in hidden)
+                BridgeyNotificationListenerService.filterChanged(packageName, packageName !in hidden)
+            }
+        }
+        // Set by their permission (asked right after the answer), by pairing, or on a Settings page.
+        SetupSetting.PAIRING, SetupSetting.NOTIFICATION_ACCESS, SetupSetting.APP_NOTIFICATIONS, SetupSetting.CODES_LINK,
+        SetupSetting.BATTERY_EXEMPTION, SetupSetting.OEM_CHECKLIST, SetupSetting.CLIPBOARD_EAGER_LIMIT,
+        SetupSetting.BACKGROUND_CLIPBOARD, SetupSetting.FOLDER_DEFAULT_PLACE, SetupSetting.FOLDER_CONFLICT, SetupSetting.PLACES,
+        SetupSetting.REMOTE_POINTER_SPEED, SetupSetting.LOGGING_DETAIL -> Unit
+    }
+}
+
+/**
+ * System back and the predictive gesture in setup: the previous step; on the first screen, leave,
+ * asking once ("Leave setup?") when something was chosen. It goes through the nav host's page
+ * back ([dev.bridgey.android.ui.PageBackHandler]), the only back handler, so the order handlers
+ * registered in cannot send back past setup.
+ */
+@Composable
+internal fun SetupBackHandler(flow: SetupState, send: (SetupEvent) -> Unit, onExit: () -> Unit) {
+    dev.bridgey.android.ui.PageBackHandler(enabled = SetupBack.intercepts(flow) || flow.confirmLeave) {
+        when {
+            flow.confirmLeave -> send(SetupEvent.KeepGoing)
+            else -> when (SetupBack.decide(flow)) {
+                BackAction.STEP -> send(SetupEvent.Back)
+                BackAction.ASK_LEAVE -> send(SetupEvent.AskLeave)
+                BackAction.LEAVE -> onExit()
+            }
+        }
+    }
+}
+
+/**
+ * Route.Setup: first-run setup, or Run setup again. Answers change the real settings as they are
+ * given ([apply]). [onFinish] marks setup done; `true` opens Settings instead of Home. Back (and
+ * the predictive gesture) goes to the previous step through the nav host's page back; on the first
+ * screen it leaves, asking first when something was chosen.
  */
 @Composable
 internal fun SetupRoute(
@@ -157,11 +302,99 @@ internal fun SetupRoute(
     onOpenSection: (SettingsSection) -> Unit,
     onFinish: (openSettings: Boolean) -> Unit,
     onExit: () -> Unit,
+    apply: (SettingChange) -> Unit,
 ) {
     val context = LocalContext.current
     var flow by rememberSaveable(stateSaver = SetupStateSaver) { mutableStateOf(hooks.takeStart()) }
     val rerun = remember { hooks.rerun }
-    BackHandler(enabled = flow.screen != SetupScreen.Welcome) { flow = SetupFlow.reduce(flow, SetupEvent.Back) }
+    val duplicateApps = remember { installedMacTwinApps(context) }
+    val facts = setupFacts(context, settings, pairedNames.isNotEmpty(), duplicateApps)
+    val latestSettings by rememberUpdatedState(settings)
+    val scope = rememberCoroutineScope()
+    /** An intent-based permission request is out (system settings, battery dialog, companion link). */
+    var waiting by rememberSaveable { mutableStateOf(false) }
+
+    fun granted(kind: PermissionKind): Boolean = kind in permissionFacts(context, latestSettings).granted
+
+    fun send(event: SetupEvent) {
+        val current = flow
+        val currentFacts = setupFacts(context, latestSettings, pairedNames.isNotEmpty(), duplicateApps)
+        when (event) {
+            is SetupEvent.Answer -> SetupQuestions.question(event.id)?.let { question -> SetupQuestions.changes(question, event.key).forEach(apply) }
+            is SetupEvent.StartQuestions -> SetupFlow.readyTyped(event.typed, currentFacts).forEach { (id, key) ->
+                SetupQuestions.question(id)?.let { question -> SetupQuestions.changes(question, key).forEach(apply) }
+            }
+            is SetupEvent.PermissionResult, SetupEvent.NotNow -> (current.screen as? SetupScreen.Permission)?.let { screen ->
+                val allowed = (event as? SetupEvent.PermissionResult)?.granted == true
+                val question = SetupQuestions.question(screen.id)
+                val answer = question?.let { q -> current.answers[q.id]?.let { SetupQuestions.answer(q, it) } }
+                if (!allowed) answer?.onDenied?.forEach(apply)
+                if (allowed && screen.kind == PermissionKind.PHONE_CALLS) BridgeyNotificationListenerService.callPermissionsChanged()
+            }
+            is SetupEvent.SummarySwitch -> SetupQuestions.question(event.id)?.let { question ->
+                val key = if (event.on) current.answers[question.id] else question.offKey
+                key?.let { SetupQuestions.changes(question, it).forEach(apply) }
+            }
+            else -> Unit
+        }
+        flow = SetupFlow.reduce(current, event, currentFacts)
+    }
+
+    fun leave() {
+        if (flow.hasProgress) send(SetupEvent.AskLeave) else onExit()
+    }
+
+    SetupBackHandler(flow, ::send, onExit)
+
+    val runtimeRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        val screen = flow.screen as? SetupScreen.Permission ?: return@rememberLauncherForActivityResult
+        val allowed = when (screen.kind) {
+            // Photos needs full access to images (videos too while Files is on); a partial pick leaves it off.
+            PermissionKind.PHOTOS -> granted(PermissionKind.PHOTOS) ||
+                (result.isNotEmpty() && dev.bridgey.android.browse.MediaAccessRules.access(Build.VERSION.SDK_INT) { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED } == dev.bridgey.android.browse.MediaAccess.FULL)
+            else -> result.isNotEmpty() && result.values.all { it }
+        }
+        send(SetupEvent.PermissionResult(allowed))
+    }
+
+    // Back from a system screen: allowed, or not (some answers arrive a moment after the app resumes).
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (!waiting) return@LifecycleEventEffect
+        scope.launch {
+            val screen = flow.screen as? SetupScreen.Permission
+            if (screen == null) {
+                waiting = false
+                return@launch
+            }
+            repeat(8) {
+                if (granted(screen.kind)) {
+                    waiting = false
+                    send(SetupEvent.PermissionResult(true))
+                    return@launch
+                }
+                delay(250)
+            }
+            waiting = false
+            if (flow.screen == screen) send(SetupEvent.PermissionResult(false))
+        }
+    }
+
+    fun allow(kind: PermissionKind) {
+        hooks.store.markExplained(kind)
+        if (granted(kind)) return send(SetupEvent.PermissionResult(true))
+        when (kind) {
+            PermissionKind.PHONE_CALLS -> runtimeRequest.launch(arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE, Manifest.permission.ANSWER_PHONE_CALLS))
+            PermissionKind.POST_NOTIFICATIONS -> if (Build.VERSION.SDK_INT >= 33) runtimeRequest.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS)) else send(SetupEvent.PermissionResult(false))
+            PermissionKind.PHOTOS -> runtimeRequest.launch(dev.bridgey.android.browse.MediaAccessRules.request(Build.VERSION.SDK_INT))
+            PermissionKind.CAMERA -> runtimeRequest.launch(arrayOf(Manifest.permission.CAMERA))
+            PermissionKind.NOTIFICATION_ACCESS -> { waiting = true; onOpenNotificationAccess() }
+            PermissionKind.BATTERY -> { waiting = true; actions.requestBatteryExemption() }
+            PermissionKind.DO_NOT_DISTURB -> { waiting = true; actions.focus.openAccess() }
+            PermissionKind.COMPANION_LINK -> { waiting = true; actions.codes.link() }
+            else -> send(SetupEvent.PermissionResult(false))
+        }
+    }
+
     fun finish(openSettings: Boolean) {
         hooks.store.recordSkipped(flow.skipped)
         // Settings sync hook (deferred): a later sync can offer these choices to the other device.
@@ -169,9 +402,9 @@ internal fun SetupRoute(
         onFinish(openSettings)
     }
     SetupScreen(
-        SetupUiState(flow, settings.copy(setup = settings.setup.copy(oem = hooks.oem)), pairedNames, nearby, hooks.oem, rerun),
+        SetupUiState(flow, settings.copy(setup = settings.setup.copy(oem = hooks.oem)), pairedNames, nearby, hooks.oem, rerun, facts),
         SetupActions(
-            event = { flow = SetupFlow.reduce(flow, it) },
+            event = ::send,
             settings = actions,
             pair = onPair,
             addDevice = onAddDevice,
@@ -186,10 +419,12 @@ internal fun SetupRoute(
                 actions.requestBatteryExemption()
             },
             openOemStep = { OemBattery.open(context, it) },
-            openSection = onOpenSection,
+            openPage = { page -> SettingsSection.entries.firstOrNull { it.name == page }?.let(onOpenSection) },
+            allowPermission = ::allow,
             openSettings = { finish(openSettings = true) },
             start = { finish(openSettings = false) },
             exit = onExit,
+            leave = ::leave,
         ),
     )
 }

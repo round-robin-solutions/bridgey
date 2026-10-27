@@ -13,7 +13,6 @@
     <string name="setup_step_of">%1$d из %2$d</string>
     <string name="setup_skip">Пропустить</string>
     <string name="setup_next">Далее</string>
-    <string name="setup_finish_now">Завершить</string>
     <string name="setup_done_check">Готово</string>
     <string name="setup_why">Зачем: %1$s</string>
     <string name="setup_without">Без этого: %1$s</string>
@@ -30,11 +29,8 @@
     <string name="setup_done_skipped">Пока пропущено: %1$s. Их можно разрешить в разделе Настройки, Конфиденциальность, Разрешения.</string>
     <string name="setup_open_settings">Открыть настройки</string>
     <string name="setup_start">Начать</string>
-    <string name="setup_open_section">Открыть настройки: %1$s</string>
     <string name="setup_run_again">Пройти настройку заново</string>
     <string name="setup_run_again_detail">Настройка с самого начала. Связи с устройствами и настройки сохраняются.</string>
-    <string name="setup_paired_none">Mac пока не связан</string>
-    <string name="setup_paired">Связан</string>
 
     <!-- Группы подробной настройки, в порядке настроек -->
     <string name="setup_group_devices">Устройства</string>
@@ -42,21 +38,9 @@
     <string name="setup_group_notifications">Уведомления</string>
     <string name="setup_group_calls">Звонки</string>
     <string name="setup_group_files">Файлы</string>
-    <string name="setup_group_media">Медиа и действия</string>
-    <string name="setup_group_remote">Удалённое управление</string>
     <string name="setup_group_privacy">Конфиденциальность и журналы</string>
     <string name="setup_group_updates">Обновления</string>
     <string name="setup_group_general">Основные</string>
-    <string name="setup_group_devices_intro">Mac, связанные с этим телефоном. Свяжите один сейчас или позже.</string>
-    <string name="setup_group_clipboard_intro">Копируйте на одном устройстве, вставляйте на другом.</string>
-    <string name="setup_group_notifications_intro">Уведомления телефона, звонки и коды из сообщений на вашем Mac, и фокусирование вместе с Mac.</string>
-    <string name="setup_group_calls_intro">Звонки видны на Mac, и с него можно отвечать и звонить.</string>
-    <string name="setup_group_files_intro">Отправляйте файлы и папки и выберите, куда попадают папки, присланные на этот телефон.</string>
-    <string name="setup_group_media_intro">Музыка на Mac, разрешённые им действия, фото для Mac, ссылки, пинг и поиск устройств, уровень заряда.</string>
-    <string name="setup_group_remote_intro">Телефон как тачпад, клавиатура и пульт для презентаций на Mac. По умолчанию выключено.</string>
-    <string name="setup_group_privacy_intro">Что показывает лента событий и что Bridgey записывает в журналы на этом телефоне.</string>
-    <string name="setup_group_updates_intro">Какие сборки получает этот телефон; проверка раз в день.</string>
-    <string name="setup_group_general_intro">Оставаться на связи, пока телефон спит, и как двигается интерфейс.</string>
 
     <!-- Объяснение разрешения -->
     <string name="perm_explainer_title">Разрешить: %1$s?</string>

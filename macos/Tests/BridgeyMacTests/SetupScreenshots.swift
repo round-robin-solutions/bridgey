@@ -107,17 +107,55 @@ final class SetupScreenshots: XCTestCase {
         flow.send(.skip)
         try setup("setup-done", flow: flow, model: firstRunModel)
 
-        var advanced = SetupFlow()
-        advanced.send(.chooseAdvanced)
-        try setup("setup-advanced-devices", flow: advanced, model: pairedModel)
-        advanced.send(.next)
-        try setup("setup-advanced-clipboard", flow: advanced, model: pairedModel)
-        advanced.send(.jump(.notifications))
-        try setup("setup-advanced-notifications", flow: advanced, model: pairedModel)
-        advanced.send(.jump(.privacy))
-        try setup("setup-advanced-privacy", flow: advanced, model: pairedModel)
-        advanced.send(.jump(.general))
-        try setup("setup-advanced-general", flow: advanced, model: pairedModel)
+        try questionPath()
+    }
+
+    /// The question path: Intro (with picks and typing), cards, a permission, the line after a
+    /// refusal, Mac control, the summary, Leave setup? and More options.
+    @MainActor private func questionPath() throws {
+        let facts = SetupFacts.make(model: pairedModel)
+        var flow = SetupFlow()
+        flow.send(.chooseAdvanced)
+        try setup("setup-intro", flow: flow, model: pairedModel)
+        try setup("setup-intro-typed", flow: flow, model: pairedModel,
+                  typed: "I mainly want my WhatsApp notifications and to send photos to my Mac", picked: ["clipboard"])
+        flow.send(.startQuestions([:]), facts: facts)
+        try setup("setup-question-clipboard", flow: flow, model: pairedModel)
+        try setup("setup-more-options", flow: flow, model: pairedModel, openPane: .clipboard)
+        flow.send(.answer("clipboard", SetupAnswerKey.auto), facts: facts)
+
+        var ask = pairedModel
+        ask.notificationsAuthorized = false
+        ask.setup.permissions = statuses([.localNetwork: .allowed], needs: PermissionNeeds())
+        let askFacts = SetupFacts.make(model: ask)
+        flow.send(.answer("clipboard_files", SetupAnswerKey.yes), facts: askFacts)
+        try setup("setup-question-notifications", flow: flow, model: ask)
+        flow.send(.answer("notifications", SetupAnswerKey.yes), facts: askFacts)
+        try setup("setup-question-permission", flow: flow, model: ask)
+        try setup("setup-question-permission-asked", flow: flow, model: ask, requested: [.notifications])
+        flow.send(.permissionResult(false), facts: askFacts)
+        try setup("setup-question-denied-note", flow: flow, model: ask)
+
+        while flow.screen != .question("remote") { flow.send(.notNow, facts: askFacts) }
+        try setup("setup-question-remote", flow: flow, model: ask)
+        flow.send(.answer("remote", SetupAnswerKey.yes), facts: facts)
+        while flow.screen != .question("updates") { flow.send(.notNow, facts: facts) }
+        try setup("setup-question-updates", flow: flow, model: pairedModel)
+        flow.send(.answer("updates", SetupAnswerKey.early), facts: facts)
+        while case .question = flow.screen { flow.send(.notNow, facts: facts) }
+        try setup("setup-summary", flow: flow, model: ask)
+
+        var leaving = SetupFlow()
+        leaving.send(.chooseAdvanced)
+        leaving.send(.startQuestions([:]), facts: facts)
+        leaving.send(.answer("clipboard", SetupAnswerKey.auto), facts: facts)
+        leaving.send(.askLeave)
+        try setup("setup-leave", flow: leaving, model: pairedModel)
+
+        var pair = SetupFlow()
+        pair.send(.chooseAdvanced)
+        pair.send(.startQuestions([:]), facts: SetupFacts.make(model: firstRunModel))
+        try setup("setup-question-pair", flow: pair, model: firstRunModel)
     }
 
     // MARK: Explainer, Permissions, Reset
@@ -189,15 +227,19 @@ final class SetupScreenshots: XCTestCase {
 
     private func backdrop(_ scheme: ColorScheme) -> Color { scheme == .dark ? Color(hex: 0x0A1428) : Color(hex: 0xDFE7F0) }
 
-    @MainActor private func setup(_ name: String, flow: SetupFlow, model: SettingsModel) throws {
+    @MainActor private func setup(_ name: String, flow: SetupFlow, model: SettingsModel, requested: Set<SetupPermission> = [],
+                                  typed: String = "", picked: Set<String> = [], openPane: SettingsPane? = nil) throws {
         for scheme in [ColorScheme.light, .dark] {
-            try write(framed(setupWindow(flow: flow, model: model), scheme: scheme), scheme: scheme, name: "mac-\(name)-\(suffix(scheme))")
+            let window = setupWindow(flow: flow, model: model, requested: requested, typed: typed, picked: picked, openPane: openPane)
+            try write(framed(window, scheme: scheme), scheme: scheme, name: "mac-\(name)-\(suffix(scheme))")
         }
     }
 
-    @MainActor private func setupWindow(flow: SetupFlow, model: SettingsModel) -> some View {
+    @MainActor private func setupWindow(flow: SetupFlow, model: SettingsModel, requested: Set<SetupPermission> = [],
+                                        typed: String = "", picked: Set<String> = [], openPane: SettingsPane? = nil) -> some View {
         BrandRoot(reduceMotion: true) {
-            SetupWindowView(flow: flow, model: model, actions: SettingsActions(), setup: SetupActions())
+            SetupWindowView(flow: flow, model: model, actions: SettingsActions(), setup: SetupActions(), requested: requested,
+                            typedText: typed, pickedBundles: picked, openPane: openPane)
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }

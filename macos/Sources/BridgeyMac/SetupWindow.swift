@@ -3,18 +3,27 @@ import SwiftUI
 
 /*
  * The setup window: Welcome, the quick path (Local Network, Notifications, Pair a phone, Done)
- * and the advanced path (the real Settings pages, one group at a time). The view draws from a
- * `SetupFlow`, a `SettingsModel` and plain closures, so screenshots render it from sample state.
+ * and the question path (Intro with Type what you want, one question per card, the permission an
+ * answer needs, the summary). The view draws from a `SetupFlow`, a `SettingsModel` and plain
+ * closures, so screenshots render it from sample state. Escape does what Android's back does.
  */
 
 struct SetupActions {
-    var send: (SetupEvent) -> Void = { _ in }
-    /// The explainer (first time), then the macOS prompt or the System Settings page.
+    /// An event, with the facts the questions read now (SetupCenter applies the answer, then moves on).
+    var dispatch: (SetupEvent, SetupFacts) -> Void = { _, _ in }
+    /// Quick path: the explainer (first time), then the macOS prompt or the System Settings page.
     var allow: (SetupPermission) -> Void = { _ in }
+    /// A question's permission step: the macOS prompt or the System Settings page (the card explained it).
+    var requestForQuestion: (SetupPermission) -> Void = { _ in }
     var confirmPairing: () -> Void = {}
     var cancelPairing: () -> Void = {}
     var openSettings: () -> Void = {}
     var start: () -> Void = {}
+    /// Leave setup without finishing (Leave in "Leave setup?", or Escape on the first screen).
+    var leave: () -> Void = {}
+
+    /// Quick path and Welcome events, which read no facts.
+    func send(_ event: SetupEvent) { dispatch(event, SetupFacts()) }
 }
 
 struct SetupWindowView: View {
@@ -22,25 +31,58 @@ struct SetupWindowView: View {
     let model: SettingsModel
     let actions: SettingsActions
     let setup: SetupActions
-    /// Permissions asked for during this setup (their step then offers Next).
+    /// Permissions asked for during this setup (their step then offers Next or Continue).
     var requested: Set<SetupPermission> = []
+    /// SendPreferences' image mode (Should photos be made smaller?).
+    var sendImageMode = "original"
+    /// Screenshots: text already typed on the Intro, bundles already picked, a More options page open.
+    var typedText = ""
+    var pickedBundles: Set<String> = []
+    /// More options (or Change in Settings): the live Settings page, over the setup.
+    @State private var morePane: SettingsPane?
     @Environment(\.brand) private var c
     @Environment(\.brandReduceMotion) private var reduce
     @Environment(\.snapshotRendering) private var snapshot
 
     static let size = CGSize(width: 760, height: 640)
 
+    private var facts: SetupFacts { SetupFacts.make(model: model, sendImageMode: sendImageMode) }
+
+    init(flow: SetupFlow, model: SettingsModel, actions: SettingsActions, setup: SetupActions, requested: Set<SetupPermission> = [],
+         sendImageMode: String = "original", typedText: String = "", pickedBundles: Set<String> = [], openPane: SettingsPane? = nil) {
+        self.flow = flow
+        self.model = model
+        self.actions = actions
+        self.setup = setup
+        self.requested = requested
+        self.sendImageMode = sendImageMode
+        self.typedText = typedText
+        self.pickedBundles = pickedBundles
+        _morePane = State(initialValue: openPane)
+    }
+
     var body: some View {
         ZStack {
             SetupBackdrop()
-            switch flow.screen {
-            case .welcome: SetupWelcomeView(send: setup.send)
-            case let .quick(step):
-                SetupQuickStepView(step: step, flow: flow, model: model, actions: actions, setup: setup, requested: requested)
-            case let .advanced(group):
-                SetupAdvancedView(group: group, flow: flow, model: model, actions: actions, send: setup.send)
-            case .done: SetupDoneView(flow: flow, setup: setup)
+            screen
+                .id(screenKey)
+                .transition(reduce ? .opacity : .asymmetric(insertion: .offset(x: 24).combined(with: .opacity), removal: .opacity))
+            if let pane = morePane {
+                SetupMorePanel(pane: pane, model: model, actions: actions) { close() }
+                    .transition(reduce ? .opacity : .offset(y: 16).combined(with: .opacity))
+                    .zIndex(1)
             }
+            if flow.confirmLeave {
+                SetupLeaveDialog(keepGoing: { send(.keepGoing) }, leave: setup.leave)
+                    .transition(.opacity)
+                    .zIndex(2)
+            }
+            // Escape: the same as Android's system back.
+            Button("", action: escape)
+                .keyboardShortcut(.cancelAction)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
         }
         .frame(width: Self.size.width, height: Self.size.height)
         .overlay(alignment: .topLeading) {
@@ -54,6 +96,57 @@ struct SetupWindowView: View {
             }
         }
         .animation(BrandMotion.animation(BrandMotion.page, reduce: reduce), value: flow.screen)
+        .animation(BrandMotion.animation(BrandMotion.effects, reduce: reduce), value: flow.confirmLeave)
+        .animation(BrandMotion.animation(BrandMotion.page, reduce: reduce), value: morePane)
+    }
+
+    @ViewBuilder private var screen: some View {
+        switch flow.screen {
+        case .welcome: SetupWelcomeView(send: setup.send)
+        case let .quick(step):
+            SetupQuickStepView(step: step, flow: flow, model: model, actions: actions, setup: setup, requested: requested)
+        case .intro:
+            SetupIntroView(flow: flow, facts: facts, typedText: typedText, picked: pickedBundles, send: send)
+        case let .question(id):
+            if let question = SetupQuestions.question(id) {
+                SetupQuestionView(question: question, flow: flow, facts: facts, model: model, actions: actions, setup: setup,
+                                  send: send, more: { morePane = $0 })
+            }
+        case let .permission(id, permission):
+            if let question = SetupQuestions.question(id) {
+                SetupPermissionView(question: question, permission: permission, flow: flow, facts: facts, model: model,
+                                    asked: requested.contains(permission), setup: setup, send: send)
+            }
+        case .summary:
+            SetupSummaryView(flow: flow, facts: facts, model: model, setup: setup, send: send, change: { morePane = $0 })
+        case .done: SetupDoneView(flow: flow, setup: setup)
+        }
+    }
+
+    private var screenKey: String {
+        switch flow.screen {
+        case .welcome: "welcome"
+        case let .quick(step): "quick.\(step.rawValue)"
+        case .intro: "intro"
+        case let .question(id): "question.\(id)"
+        case let .permission(id, permission): "permission.\(id).\(permission.rawValue)"
+        case .summary: "summary"
+        case .done: "done"
+        }
+    }
+
+    private func send(_ event: SetupEvent) { setup.dispatch(event, facts) }
+
+    private func close() { morePane = nil }
+
+    private func escape() {
+        if morePane != nil { return close() }
+        if flow.confirmLeave { return send(.keepGoing) }
+        switch SetupBack.decide(flow) {
+        case .step: send(.back)
+        case .askLeave: send(.askLeave)
+        case .leave: setup.leave()
+        }
     }
 }
 
@@ -201,21 +294,24 @@ private struct SetupTopBar: View {
 
 /// Bottom line: Back on the left, the page's buttons on the right.
 private struct SetupBottomBar<Trailing: View>: View {
-    let back: () -> Void
+    /// nil on the first screen of a run (Escape there leaves setup).
+    let back: (() -> Void)?
     @ViewBuilder let trailing: Trailing
     @Environment(\.brand) private var c
 
     var body: some View {
         HStack(spacing: 10) {
-            Button {
-                back()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left").font(.system(size: 11, weight: .bold))
-                    Text(L10n.setup("action.back", fallback: "Back"))
+            if let back {
+                Button {
+                    back()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left").font(.system(size: 11, weight: .bold))
+                        Text(L10n.setup("action.back", fallback: "Back"))
+                    }
                 }
+                .buttonStyle(PillButtonStyle(kind: .outline, height: 34))
             }
-            .buttonStyle(PillButtonStyle(kind: .outline, height: 34))
             Spacer()
             trailing
         }
@@ -419,145 +515,6 @@ private struct SetupPairing: View {
     }
 }
 
-// MARK: - Advanced path
-
-private struct SetupAdvancedView: View {
-    let group: SetupGroup
-    let flow: SetupFlow
-    let model: SettingsModel
-    let actions: SettingsActions
-    let send: (SetupEvent) -> Void
-    @Environment(\.brand) private var c
-
-    var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                SetupTopBar(title: L10n.setup("setup.advanced.title", fallback: "Advanced setup"), position: flow.position)
-                SetupGroupChips(current: group, visited: flow.visited, send: send)
-            }
-            .padding(.horizontal, 32)
-            .padding(.top, 36)
-            .padding(.bottom, 14)
-            .overlay(alignment: .bottom) { Rectangle().fill(c.olv).frame(height: 1) }
-            BoundedScroll {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(group.title)
-                            .font(BrandFont.heading(22))
-                            .foregroundStyle(c.on)
-                            .accessibilityAddTraits(.isHeader)
-                        Text(group.intro)
-                            .font(BrandFont.body(13))
-                            .foregroundStyle(c.on2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    SettingsPaneView(pane: group.pane, model: model, actions: actions)
-                        .environment(\.setupMode, true)
-                }
-                .padding(.horizontal, 32)
-                .padding(.top, 20)
-                .padding(.bottom, 20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            SetupBottomBar(back: { send(.back) }) {
-                if !flow.isLastPage {
-                    Button(L10n.setup("setup.finishNow", fallback: "Finish now")) { send(.finish) }
-                        .buttonStyle(PillButtonStyle(kind: .neutral, height: 34))
-                }
-                Button(flow.isLastPage ? L10n.setup("action.finish", fallback: "Finish") : L10n.setup("action.next", fallback: "Next")) { send(.next) }
-                    .buttonStyle(PillButtonStyle(kind: .gradient, height: 34))
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
-    }
-}
-
-/// Every group as a chip; tap one to jump there.
-private struct SetupGroupChips: View {
-    let current: SetupGroup
-    let visited: [SetupGroup]
-    let send: (SetupEvent) -> Void
-    @Environment(\.brand) private var c
-
-    var body: some View {
-        SetupFlowLayout(spacing: 6, lineSpacing: 6) {
-            ForEach(SetupGroup.allCases) { group in
-                let isCurrent = group == current
-                let seen = visited.contains(group)
-                Button {
-                    send(.jump(group))
-                } label: {
-                    HStack(spacing: 5) {
-                        if seen && !isCurrent {
-                            Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
-                        }
-                        Text(group.title).lineLimit(1)
-                    }
-                    .font(BrandFont.body(12, .semibold))
-                    .foregroundStyle(isCurrent ? c.tbi : (seen ? c.on : c.on2))
-                    .padding(.horizontal, 11)
-                    .frame(height: 26)
-                    .background(Capsule().fill(isCurrent ? c.tb : (seen ? c.s3 : Color.clear)))
-                    .overlay(Capsule().strokeBorder(isCurrent || seen ? Color.clear : c.ol, lineWidth: 1))
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(isCurrent ? .isSelected : [])
-            }
-        }
-    }
-}
-
-/// Lays chips out left to right, wrapping to new lines.
-struct SetupFlowLayout: Layout {
-    var spacing: CGFloat = 6
-    var lineSpacing: CGFloat = 6
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? .infinity
-        let rows = arrange(subviews, width: width)
-        let height = rows.last.map { $0.y + $0.height } ?? 0
-        let used = rows.map(\.width).max() ?? 0
-        return CGSize(width: proposal.width ?? used, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        for row in arrange(subviews, width: bounds.width) {
-            var x = bounds.minX
-            for index in row.items {
-                let size = subviews[index].sizeThatFits(.unspecified)
-                subviews[index].place(at: CGPoint(x: x, y: bounds.minY + row.y), proposal: ProposedViewSize(size))
-                x += size.width + spacing
-            }
-        }
-    }
-
-    private struct Row {
-        var items: [Int] = []
-        var y: CGFloat = 0
-        var width: CGFloat = 0
-        var height: CGFloat = 0
-    }
-
-    private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
-        var rows: [Row] = []
-        var row = Row()
-        for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
-            let needed = row.items.isEmpty ? size.width : row.width + spacing + size.width
-            if !row.items.isEmpty, needed > width {
-                rows.append(row)
-                row = Row(y: row.y + row.height + lineSpacing)
-            }
-            row.width = row.items.isEmpty ? size.width : row.width + spacing + size.width
-            row.height = max(row.height, size.height)
-            row.items.append(index)
-        }
-        if !row.items.isEmpty { rows.append(row) }
-        return rows
-    }
-}
-
 // MARK: - Done
 
 private struct SetupDoneView: View {
@@ -617,5 +574,726 @@ private struct SetupDoneView: View {
             .padding(.bottom, 28)
         }
         .padding(.horizontal, 48)
+    }
+}
+
+// MARK: - Question path chrome
+
+/// The top of a question card: its section, the steps left (from the adaptive count) and a bar.
+private struct SetupQuestionHeader: View {
+    let eyebrow: String
+    let flow: SetupFlow
+    let facts: SetupFacts
+    @Environment(\.brand) private var c
+    @Environment(\.brandReduceMotion) private var reduce
+
+    var body: some View {
+        let left = flow.stepsLeft(facts)
+        let done = max(flow.trail.count - 1, 0) + (flow.screen == .intro ? 0 : 1)
+        let fraction = CGFloat(done) / CGFloat(max(done + left, 1))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text(eyebrow)
+                    .font(BrandFont.body(12, .semibold))
+                    .foregroundStyle(c.tbi)
+                Spacer()
+                Text(Self.stepsLeft(left))
+                    .font(BrandFont.body(12, .semibold))
+                    .foregroundStyle(c.on2)
+                    .monospacedDigit()
+            }
+            Capsule()
+                .fill(c.s4)
+                .frame(height: 4)
+                .overlay(alignment: .leading) {
+                    GeometryReader { proxy in
+                        Capsule()
+                            .fill(c.pri)
+                            .frame(width: proxy.size.width)
+                            .scaleEffect(x: max(fraction, 0.02), y: 1, anchor: .leading)
+                            .animation(BrandMotion.animation(BrandMotion.small, reduce: reduce), value: fraction)
+                    }
+                }
+                .clipShape(Capsule())
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 32)
+        .padding(.top, 38)
+        .accessibilityElement(children: .combine)
+    }
+
+    static func stepsLeft(_ count: Int) -> String {
+        switch count {
+        case 0: L10n.setup("setup.left.last", fallback: "Last question")
+        case 1: L10n.setup("setup.left.one", fallback: "1 step left")
+        default: String(format: L10n.setup("setup.left.other", fallback: "%d steps left"), count)
+        }
+    }
+}
+
+/// The page body under the header: one column, centred, at most 540 wide.
+private struct SetupColumn<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        BoundedScroll {
+            VStack(alignment: .leading, spacing: 0) { content }
+                .frame(maxWidth: 540, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 32)
+                .padding(.top, 26)
+                .padding(.bottom, 20)
+        }
+    }
+}
+
+/// The title and its one line of context.
+private struct SetupHeading: View {
+    let title: String
+    let context: String
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(BrandFont.heading(26))
+                .foregroundStyle(c.on)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+            Text(context)
+                .font(BrandFont.body(14))
+                .foregroundStyle(c.on2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// One line on a card: a permission was not allowed, or answers came from typing.
+private struct SetupNotice: View {
+    let text: String
+    var warning = true
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: warning ? "exclamationmark.circle.fill" : "text.cursor")
+                .font(.system(size: 12, weight: .semibold))
+            Text(text)
+                .font(BrandFont.body(13, .medium))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(warning ? c.warn : c.tbi)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(warning ? c.warn.opacity(c.isDark ? 0.14 : 0.08) : c.tb))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A big answer button: its label, an optional line, the chosen check, or "Current".
+private struct SetupAnswerButton: View {
+    let answer: SetupAnswer
+    let selected: Bool
+    let current: Bool
+    let action: () -> Void
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(answer.label)
+                        .font(BrandFont.body(15, .semibold))
+                        .foregroundStyle(c.on)
+                    if let detail = answer.detail {
+                        Text(detail)
+                            .font(BrandFont.body(12.5))
+                            .foregroundStyle(c.on2)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 8)
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(c.pri)
+                } else if current {
+                    Text(L10n.setup("setup.answer.current", fallback: "Current"))
+                        .font(BrandFont.body(11, .semibold))
+                        .foregroundStyle(c.on2)
+                        .padding(.horizontal, 9)
+                        .frame(height: 22)
+                        .background(Capsule().fill(c.s3))
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(c.s1))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(selected ? c.pri : c.ol, lineWidth: selected ? 1.5 : 1))
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(PressScaleStyle())
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// A plain link under the answers: More options, Change in Settings.
+private struct SetupLink: View {
+    let title: String
+    let action: () -> Void
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Text(title)
+                Image(systemName: "arrow.right").font(.system(size: 10, weight: .bold))
+            }
+            .font(BrandFont.body(13, .semibold))
+            .foregroundStyle(c.pri)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Intro
+
+/// The question path's start: one-click bundles, Type what you want (keyword rules, shown for
+/// confirmation before anything changes), or straight to the questions.
+private struct SetupIntroView: View {
+    let flow: SetupFlow
+    let facts: SetupFacts
+    let send: (SetupEvent) -> Void
+    @State private var text: String
+    @State private var picked: Set<String>
+    @Environment(\.brand) private var c
+    @Environment(\.snapshotRendering) private var snapshot
+
+    init(flow: SetupFlow, facts: SetupFacts, typedText: String, picked: Set<String>, send: @escaping (SetupEvent) -> Void) {
+        self.flow = flow
+        self.facts = facts
+        self.send = send
+        _text = State(initialValue: typedText)
+        _picked = State(initialValue: picked)
+    }
+
+    private var typed: [String: String] { SetupTyped.match(text) }
+    private var chosen: [String: String] { SetupBundles.answers(picked: picked, typed: typed) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SetupQuestionHeader(eyebrow: L10n.setup("setup.advanced.title", fallback: "Advanced setup"), flow: flow, facts: facts)
+            SetupColumn {
+                SetupHeading(title: L10n.setup("setup.intro.title", fallback: "What do you want Bridgey for?"),
+                             context: L10n.setup("setup.intro.body", fallback: "Pick what brought you here, type it in your own words, or just answer a few short questions."))
+                bundles.padding(.top, 22)
+                input.padding(.top, 18)
+                preview.padding(.top, 14)
+            }
+            SetupBottomBar(back: flow.entry == .intro ? nil : { send(.back) }) {
+                Button(chosen.isEmpty
+                       ? L10n.setup("setup.intro.start", fallback: "Start the questions")
+                       : L10n.setup("setup.intro.apply", fallback: "Turn these on and continue")) {
+                    send(.startQuestions(chosen))
+                }
+                .buttonStyle(PillButtonStyle(kind: .gradient, height: 34))
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+    }
+
+    private var bundles: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L10n.setup("setup.intro.bundles", fallback: "What brought you here?"))
+                .font(BrandFont.body(13, .semibold))
+                .foregroundStyle(c.on2)
+            SetupWrap(spacing: 8, lineSpacing: 8) {
+                ForEach(SetupBundles.all) { bundle in
+                    let on = picked.contains(bundle.id)
+                    Button {
+                        if on { picked.remove(bundle.id) } else { picked.insert(bundle.id) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: on ? "checkmark" : "plus").font(.system(size: 10, weight: .bold))
+                            Text(bundle.title)
+                        }
+                        .font(BrandFont.body(13, .semibold))
+                        .foregroundStyle(on ? c.tbi : c.on)
+                        .padding(.horizontal, 12)
+                        .frame(height: 30)
+                        .background(Capsule().fill(on ? c.tb : c.s1))
+                        .overlay(Capsule().strokeBorder(on ? Color.clear : c.ol, lineWidth: 1))
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(PressScaleStyle())
+                    .help(bundle.detail)
+                    .accessibilityHint(bundle.detail)
+                    .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+                }
+            }
+        }
+    }
+
+    private var input: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L10n.setup("setup.intro.type", fallback: "Or type what you want"))
+                .font(BrandFont.body(13, .semibold))
+                .foregroundStyle(c.on2)
+            ZStack(alignment: .topLeading) {
+                if snapshot {
+                    Text(text.isEmpty ? placeholder : text)
+                        .foregroundStyle(text.isEmpty ? c.on2 : c.on)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    TextField(placeholder, text: $text, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .lineLimit(2...3)
+                        .foregroundStyle(c.on)
+                }
+            }
+            .font(BrandFont.body(14))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(c.s1))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(c.ol, lineWidth: 1))
+        }
+    }
+
+    private var placeholder: String {
+        L10n.setup("setup.intro.placeholder", fallback: "For example: my WhatsApp notifications, and sending photos to my Mac")
+    }
+
+    @ViewBuilder private var preview: some View {
+        let items = SetupQuestions.all.compactMap { question -> (String, String)? in
+            guard let key = chosen[question.id], let answer = question.answer(key) else { return nil }
+            return (question.summary, answer.label)
+        }
+        if !items.isEmpty {
+            SettingsCard(title: L10n.setup("setup.intro.matched", fallback: "Bridgey will set these. Nothing changes until you continue.")) {
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(c.tgi)
+                            (Text(item.0).foregroundColor(c.on) + Text("  " + item.1).foregroundColor(c.on2))
+                                .font(BrandFont.body(13))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+        } else if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Text(L10n.setup("setup.intro.nothing", fallback: "Nothing matched. Try words like notifications, photos, calls or clipboard."))
+                .font(BrandFont.body(13))
+                .foregroundStyle(c.on2)
+        }
+    }
+}
+
+/// Lays chips out left to right, wrapping to new lines.
+struct SetupWrap: Layout {
+    var spacing: CGFloat = 6
+    var lineSpacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        let rows = arrange(subviews, width: width)
+        let height = rows.last.map { $0.y + $0.height } ?? 0
+        let used = rows.map(\.width).max() ?? 0
+        return CGSize(width: proposal.width ?? used, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for row in arrange(subviews, width: bounds.width) {
+            var x = bounds.minX
+            for index in row.items {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: bounds.minY + row.y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+        }
+    }
+
+    private struct Row {
+        var items: [Int] = []
+        var y: CGFloat = 0
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
+        var rows: [Row] = []
+        var row = Row()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            if !row.items.isEmpty, row.width + spacing + size.width > width {
+                rows.append(row)
+                row = Row(y: row.y + row.height + lineSpacing)
+            }
+            row.width = row.items.isEmpty ? size.width : row.width + spacing + size.width
+            row.height = max(row.height, size.height)
+            row.items.append(index)
+        }
+        if !row.items.isEmpty { rows.append(row) }
+        return rows
+    }
+}
+
+// MARK: - Question
+
+private struct SetupQuestionView: View {
+    let question: SetupQuestion
+    let flow: SetupFlow
+    let facts: SetupFacts
+    let model: SettingsModel
+    let actions: SettingsActions
+    let setup: SetupActions
+    let send: (SetupEvent) -> Void
+    let more: (SettingsPane) -> Void
+    @Environment(\.brand) private var c
+
+    private var paired: Bool { !model.trustedDevices.isEmpty }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SetupQuestionHeader(eyebrow: question.section.title, flow: flow, facts: facts)
+            SetupColumn {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let note = notice {
+                        SetupNotice(text: note).padding(.bottom, 18)
+                    } else if flow.typed[question.id] != nil {
+                        SetupNotice(text: L10n.setup("setup.typed.note", fallback: "Chosen from what you picked or typed. It needs one permission."),
+                                    warning: false)
+                            .padding(.bottom, 18)
+                    }
+                    SetupHeading(title: question.title, context: question.context)
+                    if question.id == "pair" {
+                        pairing.padding(.top, 22)
+                    } else {
+                        VStack(spacing: 10) {
+                            ForEach(question.visibleAnswers(facts), id: \.key) { answer in
+                                SetupAnswerButton(answer: answer, selected: selected == answer.key, current: isCurrent(answer)) {
+                                    send(.answer(question.id, answer.key))
+                                }
+                            }
+                        }
+                        .padding(.top, 22)
+                    }
+                    if let pane = question.pane, question.id != "pair" {
+                        SetupLink(title: L10n.setup("setup.more", fallback: "More options")) { more(pane) }
+                            .padding(.top, 16)
+                    }
+                }
+            }
+            SetupBottomBar(back: { send(.back) }) {
+                if question.id == "pair" && paired {
+                    Button(L10n.setup("action.next", fallback: "Next")) { send(.notNow) }
+                        .buttonStyle(PillButtonStyle(kind: .gradient, height: 34))
+                        .keyboardShortcut(.defaultAction)
+                } else {
+                    Button(L10n.setup("action.notNow", fallback: "Not now")) { send(.notNow) }
+                        .buttonStyle(PillButtonStyle(kind: .neutral, height: 34))
+                }
+            }
+        }
+    }
+
+    /// The answer given before (going back), or the one typed.
+    private var selected: String? { flow.answers[question.id] ?? flow.typed[question.id] }
+
+    /// The settings already match this answer (before anything is chosen).
+    private func isCurrent(_ answer: SetupAnswer) -> Bool {
+        !answer.changes.isEmpty && answer.changes.allSatisfy { facts.value($0.setting) == $0.value }
+    }
+
+    private var notice: String? {
+        guard let id = flow.notice, let denied = SetupQuestions.question(id), let permission = flow.denied[id] else { return nil }
+        return SetupQuestions.deniedLine(denied, answer: flow.answers[id], permission)
+    }
+
+    @ViewBuilder private var pairing: some View {
+        if let device = model.trustedDevices.first {
+            SetupDoneBadge(text: String(format: L10n.setup("setup.pair.done", fallback: "Paired with %@"), device.name))
+        } else {
+            SetupPairing(model: model, actions: actions, setup: setup)
+        }
+    }
+}
+
+// MARK: - Permission
+
+/// The permission an answer needs, right after it: the permission's own why and without-it,
+/// Allow, then Continue once macOS has asked.
+private struct SetupPermissionView: View {
+    let question: SetupQuestion
+    let permission: SetupPermission
+    let flow: SetupFlow
+    let facts: SetupFacts
+    let model: SettingsModel
+    let asked: Bool
+    let setup: SetupActions
+    let send: (SetupEvent) -> Void
+    @Environment(\.brand) private var c
+
+    private var system: PermissionSystemState {
+        model.setup.permissions.first { $0.permission == permission }?.system ?? .notDetermined
+    }
+
+    private var allowed: Bool { facts.granted.contains(permission) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SetupQuestionHeader(eyebrow: question.section.title, flow: flow, facts: facts)
+            SetupColumn {
+                VStack(alignment: .leading, spacing: 18) {
+                    IconTile(symbol: permission.symbol, tint: permission.tint, size: 56, corner: 16)
+                    Text(permission.explainerTitle)
+                        .font(BrandFont.heading(26))
+                        .foregroundStyle(c.on)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                    VStack(alignment: .leading, spacing: 8) {
+                        SetupWhyLine(label: L10n.setup("permission.why", fallback: "Why:"), text: permission.why)
+                        SetupWhyLine(label: L10n.setup("permission.without", fallback: "Without it:"), text: permission.without)
+                    }
+                    if allowed {
+                        SetupDoneBadge(text: L10n.setup("setup.step.done", fallback: "Done"))
+                    } else if system == .denied {
+                        Text(L10n.setup("setup.step.denied", fallback: "Not allowed. Open System Settings to allow it."))
+                            .font(BrandFont.body(13, .medium))
+                            .foregroundStyle(c.warn)
+                    } else if asked {
+                        Text(L10n.setup("setup.step.asked", fallback: "If macOS asked, choose Allow. Then continue."))
+                            .font(BrandFont.body(13))
+                            .foregroundStyle(c.on2)
+                    }
+                }
+            }
+            SetupBottomBar(back: { send(.back) }) {
+                if !allowed {
+                    Button(L10n.setup("action.notNow", fallback: "Not now")) { send(.notNow) }
+                        .buttonStyle(PillButtonStyle(kind: .neutral, height: 34))
+                }
+                if allowed || asked {
+                    Button(L10n.setup("action.continue", fallback: "Continue")) { send(.permissionResult(granted)) }
+                        .buttonStyle(PillButtonStyle(kind: .gradient, height: 34))
+                        .keyboardShortcut(.defaultAction)
+                } else {
+                    Button(system == .denied
+                           ? L10n.setup("setup.step.openSettings", fallback: "Open System Settings")
+                           : L10n.setup("setup.step.allow", fallback: "Allow")) { setup.requestForQuestion(permission) }
+                        .buttonStyle(PillButtonStyle(kind: .gradient, height: 34))
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .onChange(of: allowed) { now in
+            if now { send(.permissionResult(true)) }
+        }
+    }
+
+    /// Allowed; for Music and Spotify, also not decided yet (macOS asks the first time the phone uses it).
+    private var granted: Bool { allowed || (permission == .automation && system != .denied) }
+}
+
+// MARK: - Summary
+
+/// What was turned on, in plain words, each with a switch and Change in Settings; the choices;
+/// and what is off because a permission was not allowed, or still waits for one.
+private struct SetupSummaryView: View {
+    let flow: SetupFlow
+    let facts: SetupFacts
+    let model: SettingsModel
+    let setup: SetupActions
+    let send: (SetupEvent) -> Void
+    let change: (SettingsPane) -> Void
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        let items = SetupSummary.items(flow)
+        VStack(spacing: 0) {
+            SetupColumn {
+                VStack(alignment: .leading, spacing: 20) {
+                    HStack(spacing: 14) {
+                        ZStack {
+                            Circle().fill(c.tg).frame(width: 48, height: 48)
+                            Image(systemName: "checkmark").font(.system(size: 20, weight: .bold)).foregroundStyle(c.tgi)
+                        }
+                        SetupHeading(title: L10n.setup("setup.summary.title", fallback: "Here\u{2019}s what\u{2019}s on"),
+                                     context: L10n.setup("setup.summary.body", fallback: "Turn anything off here, or change it later in Settings."))
+                    }
+                    .padding(.top, 12)
+                    if items.isEmpty {
+                        Text(L10n.setup("setup.summary.empty", fallback: "You kept the defaults. Everything can be changed in Settings."))
+                            .font(BrandFont.body(14))
+                            .foregroundStyle(c.on2)
+                    }
+                    section(L10n.setup("setup.summary.on", fallback: "Turned on"), items.filter { if case .turnedOn = $0 { true } else { false } })
+                    section(L10n.setup("setup.summary.choices", fallback: "Your choices"), items.filter { if case .chosen = $0 { true } else { false } })
+                    section(L10n.setup("setup.summary.notAllowed", fallback: "Not allowed"), items.filter { if case .notAllowed = $0 { true } else { false } })
+                }
+            }
+            SetupBottomBar(back: { send(.back) }) {
+                Button(L10n.setup("setup.done.openSettings", fallback: "Open Settings"), action: setup.openSettings)
+                    .buttonStyle(PillButtonStyle(kind: .outline, height: 34))
+                Button(L10n.setup("setup.done.start", fallback: "Start"), action: setup.start)
+                    .buttonStyle(PillButtonStyle(kind: .gradient, height: 34))
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+    }
+
+    @ViewBuilder private func section(_ title: String, _ items: [SetupSummaryItem]) -> some View {
+        if !items.isEmpty {
+            SettingsCard(title: title) {
+                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                    row(item, divider: index > 0)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func row(_ item: SetupSummaryItem, divider: Bool) -> some View {
+        let question = item.question
+        HStack(spacing: 12) {
+            switch item {
+            case let .turnedOn(_, answer, on):
+                RowText(title: question.summary, subtitle: waiting(answer) ?? hint(question, answer) ?? answerLine(question, answer),
+                        warning: waiting(answer) != nil)
+                changeLink(question)
+                Toggle(isOn: Binding(get: { on }, set: { send(.summarySwitch(question.id, $0)) })) { EmptyView() }
+                    .toggleStyle(BrandSwitchStyle())
+                    .fixedSize()
+                    .accessibilityLabel(question.summary)
+            case let .chosen(_, answer):
+                RowText(title: question.summary, subtitle: answer.label)
+                changeLink(question)
+            case let .notAllowed(_, _, note):
+                RowText(title: question.summary, subtitle: note, warning: true)
+                changeLink(question)
+            }
+        }
+        .padding(.vertical, 8)
+        .frame(minHeight: 44)
+        .overlay(alignment: .top) { if divider { Rectangle().fill(c.olv).frame(height: 1) } }
+    }
+
+    /// The answer, unless it is a plain Yes.
+    private func answerLine(_ question: SetupQuestion, _ answer: SetupAnswer) -> String? {
+        answer.key == SetupAnswerKey.yes && question.answers.count <= 2 ? nil : answer.label
+    }
+
+    /// Still waiting on a permission (asked, not answered yet in System Settings).
+    private func waiting(_ answer: SetupAnswer) -> String? {
+        guard let permission = answer.permission, permission != .automation, !facts.granted.contains(permission) else { return nil }
+        return String(format: L10n.setup("setup.summary.waiting", fallback: "Waiting for %@ in System Settings"), permission.name)
+    }
+
+    /// Codes read on this Mac need the model: offered here, downloaded from Settings.
+    private func hint(_ question: SetupQuestion, _ answer: SetupAnswer) -> String? {
+        guard question.id == "codes", answer.key == SetupAnswerKey.onMac, model.codeModel.installed == nil else { return nil }
+        return L10n.setup("setup.summary.codesModel", fallback: "Download the code model in Settings to start reading codes.")
+    }
+
+    @ViewBuilder private func changeLink(_ question: SetupQuestion) -> some View {
+        if let pane = question.pane {
+            Button(L10n.setup("setup.summary.change", fallback: "Change in Settings")) { change(pane) }
+                .buttonStyle(.plain)
+                .font(BrandFont.body(12, .semibold))
+                .foregroundStyle(c.pri)
+                .fixedSize()
+        }
+    }
+}
+
+// MARK: - Leave setup? and More options
+
+/// "Leave setup?" over the window: the close button or Escape mid-way.
+private struct SetupLeaveDialog: View {
+    let keepGoing: () -> Void
+    let leave: () -> Void
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(c.isDark ? 0.45 : 0.25)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: keepGoing)
+            VStack(alignment: .leading, spacing: 10) {
+                Text(L10n.setup("setup.leave.title", fallback: "Leave setup?"))
+                    .font(BrandFont.heading(20))
+                    .foregroundStyle(c.on)
+                    .accessibilityAddTraits(.isHeader)
+                Text(L10n.setup("setup.leave.body", fallback: "Your choices so far are kept."))
+                    .font(BrandFont.body(14))
+                    .foregroundStyle(c.on2)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    Spacer()
+                    Button(L10n.setup("setup.leave.leave", fallback: "Leave"), action: leave)
+                        .buttonStyle(PillButtonStyle(kind: .outline, height: 34))
+                    Button(L10n.setup("setup.leave.stay", fallback: "Keep going"), action: keepGoing)
+                        .buttonStyle(PillButtonStyle(kind: .gradient, height: 34))
+                        .keyboardShortcut(.defaultAction)
+                }
+                .padding(.top, 10)
+            }
+            .padding(24)
+            .frame(width: 380)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(c.s1))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(c.ol, lineWidth: 1))
+            .compositingGroup()
+            .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
+        }
+    }
+}
+
+/// More options and Change in Settings: the live Settings page, over setup. Done (or Escape) returns.
+private struct SetupMorePanel: View {
+    let pane: SettingsPane
+    let model: SettingsModel
+    let actions: SettingsActions
+    let done: () -> Void
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n.setup("setup.more.eyebrow", fallback: "Settings"))
+                        .font(BrandFont.body(12, .semibold))
+                        .foregroundStyle(c.tbi)
+                    Text(pane.title)
+                        .font(BrandFont.heading(22))
+                        .foregroundStyle(c.on)
+                        .accessibilityAddTraits(.isHeader)
+                }
+                Spacer()
+                Button(L10n.setup("setup.more.done", fallback: "Done"), action: done)
+                    .buttonStyle(PillButtonStyle(kind: .gradient, height: 34))
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 40)
+            .padding(.bottom, 14)
+            .overlay(alignment: .bottom) { Rectangle().fill(c.olv).frame(height: 1) }
+            BoundedScroll {
+                VStack(alignment: .leading, spacing: 16) {
+                    SettingsPaneView(pane: pane, model: model, actions: actions)
+                        .environment(\.setupMode, true)
+                }
+                .padding(.horizontal, 32)
+                .padding(.vertical, 20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(c.isDark ? Color(hex: 0x0A101D) : c.bg)
     }
 }

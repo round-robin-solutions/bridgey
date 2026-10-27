@@ -1139,6 +1139,7 @@ private fun BridgeyApp(
                                 if (openSettings) stack.openSettings(Route.Settings)
                             },
                             onExit = { stack.pop() },
+                            apply = { change -> applySetupChange(change, settings, onSetGlobalFeature, uiPreferences, remotePreferences, updater) },
                         )
                         Route.Permissions -> PermissionsRoute(
                             hooks = setup,

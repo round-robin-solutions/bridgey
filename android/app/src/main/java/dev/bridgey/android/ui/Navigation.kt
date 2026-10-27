@@ -10,8 +10,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -171,6 +176,33 @@ class BackStack(initial: List<Route>) {
     }
 }
 
+/**
+ * A page's own back step, for pages with steps inside them (setup). The host has the only back
+ * handler: while [enabled], system back and the predictive gesture go to [onBack] instead of
+ * closing the page, and [progress] follows the gesture so the page can show where back leads.
+ * One handler means the order in which handlers registered can never decide what back does.
+ */
+class PageBack {
+    var enabled by mutableStateOf(false)
+    var onBack: () -> Unit = {}
+    /** The predictive back gesture, 0 to 1; 0 when no gesture is in progress. */
+    var progress by mutableFloatStateOf(0f)
+}
+
+/** The current page's [PageBack]; null outside [MotionNavHost]. */
+val LocalPageBack = staticCompositionLocalOf<PageBack?> { null }
+
+/** Takes back for this page while [enabled] (see [PageBack]). */
+@Composable
+fun PageBackHandler(enabled: Boolean, onBack: () -> Unit) {
+    val page = LocalPageBack.current ?: return
+    SideEffect {
+        page.enabled = enabled
+        page.onBack = onBack
+    }
+    DisposableEffect(page) { onDispose { page.enabled = false; page.progress = 0f } }
+}
+
 /** [initial]: the first launch's pages, for example Home with first-run setup above it. */
 @Composable
 fun rememberBackStack(initial: List<Route> = listOf(Route.Home)): BackStack = rememberSaveable(
@@ -198,6 +230,11 @@ fun MotionNavHost(stack: BackStack, content: @Composable (Route) -> Unit) {
     var popping by remember { mutableStateOf<Route?>(null) }
 
     val current = stack.entries.toList()
+    val pageBacks = remember { HashMap<String, PageBack>() }
+    fun pageBack(key: String): PageBack = pageBacks.getOrPut(key) { PageBack() }
+    LaunchedEffect(current) {
+        pageBacks.keys.retainAll(current.map { it.key }.toSet())
+    }
     LaunchedEffect(current) {
         val before = shown
         when {
@@ -229,7 +266,22 @@ fun MotionNavHost(stack: BackStack, content: @Composable (Route) -> Unit) {
         }
     }
 
-    PredictiveBackHandler(enabled = current.size > 1) { events ->
+    val topBack = pageBack(current.last().key)
+    PredictiveBackHandler(enabled = current.size > 1 || topBack.enabled) { events ->
+        // The page's own step first (setup's previous question); the page itself stays.
+        val page = pageBacks[stack.top.key]?.takeIf { it.enabled }
+        if (page != null) {
+            try {
+                events.collect { event: BackEventCompat -> page.progress = event.progress }
+                page.progress = 0f
+                page.onBack()
+            } catch (cancelled: CancellationException) {
+                page.progress = 0f
+                throw cancelled
+            }
+            return@PredictiveBackHandler
+        }
+        if (stack.entries.size <= 1) return@PredictiveBackHandler
         try {
             events.collect { event: BackEventCompat -> progress.snapTo(1f - event.progress) }
             stack.pop()
@@ -255,7 +307,9 @@ fun MotionNavHost(stack: BackStack, content: @Composable (Route) -> Unit) {
                         }
                     },
                 ) {
-                    holder.SaveableStateProvider(below.key) { content(below) }
+                    holder.SaveableStateProvider(below.key) {
+                        CompositionLocalProvider(LocalPageBack provides pageBack(below.key)) { content(below) }
+                    }
                     if (motion.moves) {
                         Box(Modifier.fillMaxSize().graphicsLayer { alpha = motion.recedeDim * p.coerceIn(0f, 1f) }.background(Color.Black))
                     }
@@ -270,7 +324,9 @@ fun MotionNavHost(stack: BackStack, content: @Composable (Route) -> Unit) {
                     if (motion.moves) translationX = (1f - v) * size.width * motion.pageSlideFraction * (if (rtl) -1f else 1f)
                 },
             ) {
-                holder.SaveableStateProvider(top.key) { content(top) }
+                holder.SaveableStateProvider(top.key) {
+                    CompositionLocalProvider(LocalPageBack provides pageBack(top.key)) { content(top) }
+                }
             }
         }
     }

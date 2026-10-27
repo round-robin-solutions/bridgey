@@ -171,10 +171,17 @@ Google Play services, which this edition does not depend on.
 
 ## Setup, Permissions and Reset (v0.10)
 
-- **Advanced setup** shows the same settings as Settings. On the phone, Media and quick actions has
-  Mac actions and Take photos for the Mac after media controls, and Notifications ends with Focus
-  (share and follow). On the Mac, Devices has the battery alerts, Notifications the Focus card,
-  Files the camera clipboard option, and Media and actions Open links right away and Mac actions.
+- **Advanced setup** asks plain questions, one per card, in the Settings order. Each
+  answer turns on or configures the settings behind it; later questions adapt (no Mac control
+  questions without a paired device, no codes question when notifications were declined). An
+  answer that needs a permission asks for it right after, with the usual explanation; refused, the
+  feature stays off and the next card says so in one line. Every card has Not now (keeps what is
+  set) and More options (the Settings page). The start offers one-tap bundles named like their
+  Settings pages and an optional "Type what you want" box (keyword rules on the device, shown for
+  confirmation first). The summary lists what was turned on, each with a switch and Change in
+  Settings. Back goes to the previous step; leaving part way asks once. Questions, coverage table
+  and keywords: `android/.../setup/SetupQuestions.kt`, `SetupTyped.kt` and
+  `macos/Sources/BridgeyMac/SetupQuestions.swift`.
 - **Permissions.** Phone: Camera (needed while Take photos for the Mac is on) and Do Not Disturb
   access (needed while Follow the Mac's Focus is on). Mac: Accessibility is needed for remote
   control and for Lock; Automation (Safari, Chrome) for Send the Current Browser Tab, a separate
