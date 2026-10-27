@@ -152,6 +152,8 @@ struct SettingsModel {
     var focusSync = FocusSyncSettings()
     /// Files > Copy photos from the phone camera to the clipboard.
     var cameraCopyToClipboard = false
+    /// Remote control > Show phone screens (screen_draft1). Off by default.
+    var phoneScreenEnabled = false
 
     var connectedDeviceID: String? {
         if case let .connected(id, _) = state { return id }
@@ -247,6 +249,7 @@ struct SettingsActions {
     var setBatteryAlerts: (String, BatteryAlertThresholds) -> Void = { _, _ in }
     var setFocusSync: ((inout FocusSyncSettings) -> Void) -> Void = { _ in }
     var setCameraCopyToClipboard: (Bool) -> Void = { _ in }
+    var setPhoneScreen: (Bool) -> Void = { _ in }
 }
 
 enum SettingsLinks {
@@ -1368,6 +1371,7 @@ struct LiveSettingsView: View {
     @ObservedObject var batteryAlerts: BatteryAlerts
     @ObservedObject var focusSync: FocusSync
     @ObservedObject var camera: PhoneCamera
+    @ObservedObject var phoneScreen: PhoneScreen
     @State private var pane: SettingsPane = .devices
     @State private var availableShortcuts: [String]?
     @State private var phoneLinkStatus: String?
@@ -1391,6 +1395,7 @@ struct LiveSettingsView: View {
         batteryAlerts = pairing.batteryAlerts
         focusSync = pairing.focusSync
         camera = pairing.camera
+        phoneScreen = pairing.phoneScreen
     }
 
     private var codeModelDisplay: CodeModelDisplay {
@@ -1501,6 +1506,7 @@ struct LiveSettingsView: View {
         model.health = pairing.connectionHealth
         model.focusSync = focusSync.settings
         model.cameraCopyToClipboard = camera.copyToClipboard
+        model.phoneScreenEnabled = phoneScreen.enabled
         model.batteryAlerts = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, batteryAlerts.thresholds(for: $0.id)) })
         return model
     }
@@ -1546,6 +1552,7 @@ struct LiveSettingsView: View {
         actions.setOpenLinksRightAway = { settings.setOpenLinksRightAway($0) }
         actions.setBatteryAlerts = { id, thresholds in batteryAlerts.setThresholds(thresholds, for: id) }
         actions.setCameraCopyToClipboard = { camera.setCopyToClipboard($0) }
+        actions.setPhoneScreen = { phoneScreen.setEnabled($0) }
         actions.setFocusSync = { change in
             focusSync.update(change)
             if focusSync.settings.follow { loadShortcuts() }
