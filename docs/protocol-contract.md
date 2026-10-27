@@ -1105,6 +1105,8 @@ Answered by `folders.cancel.ack`.
 - `maxSchema`: integer
 - `records`: object of key to {value, changedAt, version, changedBy}, at most 32; every schema 1 key the sender syncs
 - `waiting`: optional array of at most 32 keys that are on but wait for a permission on the sender
+- `first`: optional bool: the sender has no first-connect answer for the receiver
+- `new`: optional bool: the sender has no answer for any device
 
 Answered by `settings.ack`.
 
@@ -1115,6 +1117,7 @@ Sent by each side when settings_sync_draft1 becomes true on both for the session
 - `schema`: integer, 1
 - `records`: object of key to record, at most 32
 - `waiting`: optional array of at most 32 keys
+- `answered`: optional bool: the asker's person answered the first-connect question
 
 Answered by `settings.ack`.
 

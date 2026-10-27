@@ -434,7 +434,8 @@ SYNC_BOOL_KEYS = ["activity.previews","display.reduce_motion",
 assert len(SYNC_STRING_KEYS) + len(SYNC_BOOL_KEYS) == 21
 spay = []
 def sp(name, kind, p, expect, raw=False): spay.append({"name":name, "kind":kind, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
-def ok(records, skipped=0, waiting=None): return {"records":records, "waiting":waiting or [], "skipped":skipped}
+def ok(records, skipped=0, waiting=None, first=False, new=False, answered=False):
+    return {"records":records, "waiting":waiting or [], "skipped":skipped, "first":first, "new":new, "answered":answered}
 four = {"files.folder_destination":rec("fixed",1792900000000,2,DA),"files.folder_conflict":rec("ask",0,0,""),
         "activity.previews":rec(False,1792900000500,4,DB),"display.reduce_motion":rec(True,1,1,DA)}
 every = {**four, **{k: rec(True, 1792900000000 + n, 1, DA) for n, k in enumerate(SYNC_BOOL_KEYS[2:])}}
@@ -485,6 +486,10 @@ sp("waiting: unknown keys and non-strings are dropped, repeats once, schema orde
    {"schema":1,"records":{},"waiting":["feature.notifications","x.y",5,"feature.calls","feature.calls",None,"focus.follow"]},
    ok({}, waiting=["feature.notifications","feature.calls","focus.follow"]))
 sp("waiting that is not an array counts as empty", "update", {"schema":1,"records":{},"waiting":"feature.calls"}, ok({}))
+sp("first connect of a new device", "snapshot", {"schema":1,"maxSchema":1,"records":{},"first":True,"new":True}, ok({}, first=True, new=True))
+sp("first connect of a device that synced before", "snapshot", {"schema":1,"maxSchema":1,"records":{},"first":True,"new":False}, ok({}, first=True))
+sp("the person answered", "update", {"schema":1,"records":{},"answered":True}, ok({}, answered=True))
+sp("first, new and answered that are not booleans count as false", "snapshot", {"schema":1,"records":{},"first":1,"new":"true","answered":None}, ok({}))
 filler = {"x.k%02d" % n: rec(True,1,1,DA) for n in range(11)}
 assert len(every) + len(filler) == 32
 sp("32 records (11 unknown)", "snapshot", {"schema":1,"maxSchema":1,"records":{**every,**filler}}, ok(every, 11))
@@ -532,6 +537,22 @@ sn("never chosen there: same (the peer adopts ours)", rec(True,1000,2,DA), rec(F
 sn("never chosen on either side: same", rec(False,0,0,""), rec(True,0,0,""), "same")
 sn("the same record: same", rec(True,1000,2,DA), rec(True,1000,2,DA), "same")
 
+# settingsAsker: who asks "Use the same settings as <device>?" on a first connect (8.4), from this device's side. Each
+# side has first (no answer for the other yet) and new (no answer for any device); phone says whether this side is the
+# phone. "local": this device asks; "remote": the other one asks (this side waits for its answer); "none": nobody asks.
+sasker = []
+def sa(name, lf, ln, phone, rf, rn, expect):
+    sasker.append({"name":name, "local":{"first":lf,"new":ln,"phone":phone}, "remote":{"first":rf,"new":rn}, "expect":expect})
+sa("new phone meets a Mac that synced before", True, True, True, True, False, "local")
+sa("the Mac's side of the same", True, False, False, True, True, "remote")
+sa("new Mac meets a phone that synced before", True, True, False, True, False, "local")
+sa("the phone's side of the same", True, False, True, True, True, "remote")
+sa("both new: the phone asks", True, True, True, True, True, "local")
+sa("both new: the Mac waits", True, True, False, True, True, "remote")
+sa("neither new: nobody asks", True, False, True, True, False, "none")
+sa("this side already answered", False, False, True, True, True, "none")
+sa("the other side already answered", True, True, False, False, False, "none")
+
 # settingsStamp: a local edit or Apply to all (section 8.2). changedAt = max(now, current.changedAt + 1), at most 2^53-1;
 # version + 1; changedBy this device.
 sstamp = []
@@ -544,7 +565,7 @@ ss("same changedAt as now still moves forward", rec(True,5000,1,DB), 5000, rec(N
 ss("Apply to all from a chosen value", rec(True,1792900000000,7,DA), 1792900005000, rec(None,1792900005000,8,DA))
 
 out = {
-  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, waiting, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins when an update arrives (local, remote or equal); settingsSnapshot says what a snapshot record does (adopt, different or same); settingsStamp is the record a local edit or Apply to all makes from current at now by device (value null: the new value is the edit's own).",
+  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, waiting, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins when an update arrives (local, remote or equal); settingsSnapshot says what a snapshot record does (adopt, different or same); settingsAsker says which side asks on a first connect (local, remote or none); settingsStamp is the record a local edit or Apply to all makes from current at now by device (value null: the new value is the edit's own).",
   "sessionId": S,
   "frames": frames,
   "featuresUpdate": feat,
@@ -562,7 +583,8 @@ out = {
   "settingsPayload": spay,
   "settingsMerge": smerge,
   "settingsSnapshot": ssnap,
+  "settingsAsker": sasker,
   "settingsStamp": sstamp,
 }
 open(OUT,'w').write(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
-print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat), len(spay), len(smerge), len(ssnap), len(sstamp))
+print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat), len(spay), len(smerge), len(ssnap), len(sasker), len(sstamp))
