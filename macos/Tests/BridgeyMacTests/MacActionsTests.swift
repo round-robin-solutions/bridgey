@@ -375,3 +375,56 @@ final class IntentFileStagingTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: old.path))
     }
 }
+
+@MainActor
+final class BatteryAlertTests: XCTestCase {
+    func testLowAlertsOncePerChargeCycle() {
+        var tracker = BatteryAlertTracker()
+        let t = BatteryAlertThresholds.default
+        XCTAssertNil(tracker.update(level: 40, charging: false, thresholds: t))
+        XCTAssertEqual(tracker.update(level: 20, charging: false, thresholds: t), .low)
+        XCTAssertNil(tracker.update(level: 15, charging: false, thresholds: t), "no repeat while it keeps draining")
+        XCTAssertNil(tracker.update(level: 21, charging: false, thresholds: t), "a small bounce does not count")
+        XCTAssertNil(tracker.update(level: 19, charging: false, thresholds: t))
+        XCTAssertNil(tracker.update(level: 19, charging: true, thresholds: t), "plugged in: a new cycle")
+        XCTAssertEqual(tracker.update(level: 18, charging: false, thresholds: t), .low)
+    }
+
+    func testFullAlertsOnceUntilItDrainsBelowTheThreshold() {
+        var tracker = BatteryAlertTracker()
+        let t = BatteryAlertThresholds.default
+        XCTAssertNil(tracker.update(level: 99, charging: true, thresholds: t))
+        XCTAssertEqual(tracker.update(level: 100, charging: true, thresholds: t), .full)
+        XCTAssertNil(tracker.update(level: 100, charging: false, thresholds: t), "unplugging at 100% is not a second alert")
+        XCTAssertNil(tracker.update(level: 100, charging: true, thresholds: t))
+        XCTAssertNil(tracker.update(level: 96, charging: false, thresholds: t))
+        XCTAssertNil(tracker.update(level: 94, charging: false, thresholds: t))
+        XCTAssertEqual(tracker.update(level: 100, charging: true, thresholds: t), .full)
+    }
+
+    func testCustomAndOffThresholds() {
+        var tracker = BatteryAlertTracker()
+        let limit = BatteryAlertThresholds(low: 0, full: 80)
+        XCTAssertNil(tracker.update(level: 5, charging: false, thresholds: limit), "low is off")
+        XCTAssertNil(tracker.update(level: 80, charging: false, thresholds: limit), "a charge limit alert needs charging")
+        XCTAssertEqual(tracker.update(level: 80, charging: true, thresholds: limit), .full)
+        XCTAssertEqual(batteryAlertText(.full, phone: "OnePlus 11", level: 80).title, "OnePlus 11 at 80%")
+        XCTAssertEqual(batteryAlertText(.full, phone: "OnePlus 11", level: 100).title, "OnePlus 11 fully charged")
+        XCTAssertEqual(batteryAlertText(.low, phone: "OnePlus 11", level: 15).title, "OnePlus 11 at 15%")
+    }
+
+    func testAlertsArePerPhoneAndUseTheirOwnThresholds() {
+        let defaults = UserDefaults(suiteName: "bridgey.tests.battery.\(UUID().uuidString)")!
+        let alerts = BatteryAlerts(settings: BatteryAlertSettings(defaults: defaults))
+        var posted: [String] = []
+        alerts.post = { _, title, _ in posted.append(title) }
+        alerts.setThresholds(BatteryAlertThresholds(low: 30, full: 100), for: "b")
+        alerts.received(level: 25, charging: false, deviceID: "a", phone: "OnePlus 11")
+        alerts.received(level: 25, charging: false, deviceID: "b", phone: "Pixel")
+        alerts.received(level: 24, charging: false, deviceID: "b", phone: "Pixel")
+        XCTAssertEqual(posted, ["Pixel at 25%"])
+        XCTAssertEqual(alerts.thresholds(for: "a"), .default)
+        alerts.forget("b")
+        XCTAssertEqual(alerts.thresholds(for: "b"), .default)
+    }
+}

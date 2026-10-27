@@ -231,6 +231,8 @@ final class PairingCoordinator: ObservableObject {
     let macActions: MacActionsHost
     /// Send the current Safari or Chrome tab to the phone.
     let browserTab = BrowserTabReader()
+    /// "OnePlus 11 at 15%" and "OnePlus 11 fully charged", per phone thresholds.
+    let batteryAlerts = BatteryAlerts()
     /// Connection health per paired phone (no addresses, names or content).
     @Published private(set) var connectionHealth: [String: ConnectionHealthSnapshot] = [:]
     private var healthRecords: [String: DeviceHealthRecord] = [:]
@@ -693,6 +695,7 @@ final class PairingCoordinator: ObservableObject {
         trustRegistry.remove(deviceID: deviceID)
         trustedDeviceIDs.remove(deviceID)
         settings.removeDevice(deviceID)
+        batteryAlerts.forget(deviceID)
         reconnect.forget(deviceID)
         disconnect(deviceID: deviceID)
         BridgeyLog.pairing.notice("pairing revoked peer=\(shortDeviceID(deviceID), privacy: .public)")
@@ -2184,6 +2187,7 @@ final class PairingCoordinator: ObservableObject {
                     $0.battery = RemoteBatteryStatus(level: payload.level, isCharging: payload.isCharging)
                 }
                 publish()
+                batteryAlerts.received(level: payload.level, charging: payload.isCharging, deviceID: current.remoteDeviceID, phone: current.peerName)
                 BridgeyLog.plugin.debug("battery received level=\(payload.level, privacy: .public) charging=\(payload.isCharging, privacy: .public)")
             case "notifications.post":
                 guard featureEnabled(.notifications, current: current) else { return }

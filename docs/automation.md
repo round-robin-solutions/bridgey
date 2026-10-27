@@ -129,3 +129,13 @@ the compiler's `.swiftconstvalues` files, so `build-app.sh` runs the processor i
 flags Xcode uses, before signing. It is best effort: if a toolchain lacks the files or the tool,
 the build prints a warning and the app works without Shortcuts actions. macOS indexes the actions
 only for an app in a normal location such as /Applications, not under /tmp.
+
+## Phone battery alerts on the Mac
+
+"OnePlus 11 at 15%" when the phone runs low and "OnePlus 11 fully charged" when it is full (or
+"OnePlus 11 at 80%" for a lower charge limit). Thresholds are per phone in Settings > Devices,
+under Battery status: Low (default 20%, or 10, 15, 30, Off) and Charged (default 100%, or 80, 90,
+Off). Each alert shows once per charge cycle: the low alert again only after the phone was plugged
+in or climbed 5 points above the threshold, the charged alert again only after it drained 5 points
+below. Nothing new goes on the wire; the alerts come from `battery.update`. The memory is in
+memory only, so restarting Bridgey may show a current alert once more.

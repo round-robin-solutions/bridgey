@@ -136,6 +136,8 @@ struct SettingsModel {
     var openLinksRightAway = false
     /// Devices > [phone] > Connection health.
     var health: [String: ConnectionHealthSnapshot] = [:]
+    /// Devices > [phone] > Battery alerts; a missing phone uses the defaults.
+    var batteryAlerts: [String: BatteryAlertThresholds] = [:]
 
     var connectedDeviceID: String? {
         if case let .connected(id, _) = state { return id }
@@ -221,6 +223,7 @@ struct SettingsActions {
     var removeMacActionShortcut: (String) -> Void = { _ in }
     var clearMacActionsAudit: () -> Void = {}
     var setOpenLinksRightAway: (Bool) -> Void = { _ in }
+    var setBatteryAlerts: (String, BatteryAlertThresholds) -> Void = { _, _ in }
 }
 
 enum SettingsLinks {
@@ -936,6 +939,10 @@ struct DeviceCard: View {
                     set: { actions.setForDevice(device.id, feature, $0) }
                 )
                 .disabled(model.globalFeatures[feature] == false)
+                if feature == .battery {
+                    BatteryAlertsRow(thresholds: model.batteryAlerts[device.id] ?? .default,
+                                     enabled: model.isEnabled(.battery, for: device.id)) { actions.setBatteryAlerts(device.id, $0) }
+                }
                 if feature == .clipboard {
                     AutoClipboardToggle(
                         isOn: model.isAutoClipboardEnabled(for: device.id),
@@ -1280,6 +1287,7 @@ private struct LiveSettingsView: View {
     @ObservedObject var codeModel: CodeModelStore
     @ObservedObject var macActions: MacActionsHost
     @ObservedObject var macActionsAudit: MacActionsAuditLog
+    @ObservedObject var batteryAlerts: BatteryAlerts
     @State private var pane: SettingsPane = .devices
     @State private var availableShortcuts: [String]?
     @State private var phoneLinkStatus: String?
@@ -1299,6 +1307,7 @@ private struct LiveSettingsView: View {
         codeModel = pairing.codeModel
         macActions = pairing.macActions
         macActionsAudit = pairing.macActions.audit
+        batteryAlerts = pairing.batteryAlerts
     }
 
     private var codeModelDisplay: CodeModelDisplay {
@@ -1399,6 +1408,7 @@ private struct LiveSettingsView: View {
         model.macActionsAudit = macActionsAudit.entries
         model.openLinksRightAway = settings.openLinksRightAway
         model.health = pairing.connectionHealth
+        model.batteryAlerts = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, batteryAlerts.thresholds(for: $0.id)) })
         return model
     }
 
@@ -1440,6 +1450,7 @@ private struct LiveSettingsView: View {
         actions.removeMacActionShortcut = { macActions.removeShortcut(id: $0) }
         actions.clearMacActionsAudit = { macActionsAudit.clear() }
         actions.setOpenLinksRightAway = { settings.setOpenLinksRightAway($0) }
+        actions.setBatteryAlerts = { id, thresholds in batteryAlerts.setThresholds(thresholds, for: id) }
         actions.setAutoClipboard = { settings.setAutoClipboard($0) }
         actions.setAutoClipboardForDevice = { deviceID, enabled in settings.setAutoClipboard(enabled, for: deviceID) }
         actions.setClipboardFiles = { settings.setClipboardFilesEnabled($0) }

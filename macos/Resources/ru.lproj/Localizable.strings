@@ -807,3 +807,16 @@
 "intent.text" = "Текст";
 "intent.text.description" = "Помещает текст в буфер обмена сопряжённого телефона.";
 "intent.text.title" = "Отправить текст на телефон";
+
+/* Phone battery alerts */
+"battery.alert.full" = "%@ полностью заряжен";
+"battery.alert.full.body" = "Можно отключить зарядку.";
+"battery.alert.limit" = "%@: %d%%";
+"battery.alert.limit.body" = "Заряжен до выбранного уровня.";
+"battery.alert.low" = "%@: %d%%";
+"battery.alert.low.body" = "Батарея телефона разряжается.";
+"battery.alerts" = "Уведомления о заряде";
+"battery.alerts.detail" = "Уведомление, когда телефон разряжается и когда он зарядился. Один раз за зарядку.";
+"battery.alerts.full" = "Заряжен";
+"battery.alerts.low" = "Мало";
+"battery.alerts.off" = "Выкл.";

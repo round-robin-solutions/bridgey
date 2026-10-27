@@ -807,3 +807,16 @@
 "intent.text" = "Text";
 "intent.text.description" = "Puts text on a paired phone’s clipboard.";
 "intent.text.title" = "Send Text to Phone";
+
+/* Phone battery alerts */
+"battery.alert.full" = "%@ fully charged";
+"battery.alert.full.body" = "You can unplug it.";
+"battery.alert.limit" = "%@ at %d%%";
+"battery.alert.limit.body" = "Charged to the level you chose.";
+"battery.alert.low" = "%@ at %d%%";
+"battery.alert.low.body" = "The phone’s battery is low.";
+"battery.alerts" = "Battery alerts";
+"battery.alerts.detail" = "A notification when the phone runs low, and when it has charged. Once per charge.";
+"battery.alerts.full" = "Charged";
+"battery.alerts.low" = "Low";
+"battery.alerts.off" = "Off";

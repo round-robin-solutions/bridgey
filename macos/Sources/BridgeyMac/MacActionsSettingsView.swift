@@ -298,3 +298,37 @@ func chooseAllowedApps() -> [AllowedApp] {
         return AllowedApp(bundleID: id, name: name)
     }
 }
+
+/// Settings > Devices > [phone]: when to say the phone's battery is low or charged.
+struct BatteryAlertsRow: View {
+    let thresholds: BatteryAlertThresholds
+    let enabled: Bool
+    let set: (BatteryAlertThresholds) -> Void
+
+    var body: some View {
+        SettingsRow(title: L10n.text("battery.alerts", fallback: "Battery alerts"),
+                    subtitle: L10n.text("battery.alerts.detail", fallback: "A notification when the phone runs low, and when it has charged. Once per charge.")) {
+            ChoiceButton(value: label(L10n.text("battery.alerts.low", fallback: "Low"), thresholds.low)) {
+                BatteryAlertThresholds.lowChoices.map { value in
+                    PopUpMenuItem(title: choiceTitle(value), checked: value == thresholds.low) {
+                        set(BatteryAlertThresholds(low: value, full: thresholds.full))
+                    }
+                }
+            }
+            ChoiceButton(value: label(L10n.text("battery.alerts.full", fallback: "Charged"), thresholds.full)) {
+                BatteryAlertThresholds.fullChoices.map { value in
+                    PopUpMenuItem(title: choiceTitle(value), checked: value == thresholds.full) {
+                        set(BatteryAlertThresholds(low: thresholds.low, full: value))
+                    }
+                }
+            }
+        }
+        .disabled(!enabled)
+    }
+
+    private func label(_ name: String, _ value: Int) -> String { "\(name): \(choiceTitle(value))" }
+
+    private func choiceTitle(_ value: Int) -> String {
+        value == 0 ? L10n.text("battery.alerts.off", fallback: "Off") : "\(value)%"
+    }
+}
