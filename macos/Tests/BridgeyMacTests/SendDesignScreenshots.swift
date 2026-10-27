@@ -98,6 +98,39 @@ final class SendDesignScreenshots: XCTestCase {
         try write(SendSheetView(state: empty, actions: SendSheetActions()).frame(height: 440), scheme: .light, name: "mac-send-to-phone-empty-light")
     }
 
+    private var panelModel: PanelModel {
+        var model = PanelModel()
+        model.state = .connected(deviceID: phoneID, peerName: "OnePlus 11")
+        model.rings = deviceRings(trusted: [TrustedDeviceInfo(id: phoneID, name: "OnePlus 11")],
+                                  peers: [DiscoveredPeer(serviceName: "OnePlus 11", deviceIDHint: phoneID, deviceNameHint: "OnePlus 11",
+                                                         platformHint: "android", protocolVersionHint: 1, host: "10.0.0.2", port: 4000)],
+                                  state: model.state)
+        model.battery = RemoteBatteryStatus(level: 76, isCharging: true)
+        model.now = now
+        model.available = Set(BridgeyFeature.allCases)
+        model.clipboardLine = "Room 2 at 4, bring the deck"
+        return model
+    }
+
+    private var tileDevices: [DropTileDevice] {
+        [DropTileDevice(id: phoneID, name: "OnePlus 11", battery: RemoteBatteryStatus(level: 76, isCharging: true)),
+         DropTileDevice(id: tabletID, name: "Galaxy Tab S9", battery: RemoteBatteryStatus(level: 41, isCharging: false))]
+    }
+
+    @MainActor func testDropTilesAndToast() throws {
+        for scheme in [ColorScheme.light, .dark] {
+            let suffix = scheme == .dark ? "dark" : "light"
+            let panel = StreamPanelView(model: panelModel, actions: PanelActions())
+                .fixedSize(horizontal: false, vertical: true)
+                .overlay { DropTilesView(devices: tileDevices, trayCount: 2, highlighted: .device(phoneID)) }
+            try write(panel, scheme: scheme, name: "mac-drop-tiles-\(suffix)")
+            let toast = DropToastModel(text: "Sending 3 items to OnePlus 11", actions: [
+                DropToastAction(title: "Undo") {}, DropToastAction(title: "Send to\u{2026}") {},
+            ])
+            try write(DropToastView(model: toast), scheme: scheme, name: "mac-drop-toast-\(suffix)")
+        }
+    }
+
     @MainActor func write<V: View>(_ content: V, scheme: ColorScheme, name: String, padding: CGFloat = 24) throws {
         let view = BrandRoot(reduceMotion: false) { content }
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))

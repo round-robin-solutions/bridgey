@@ -609,7 +609,7 @@ final class SendSheetModel: ObservableObject {
         guard let target = state.targetID else { return }
         let urls = state.selection
         guard !urls.isEmpty else { return }
-        if SendDispatcher.send(urls, to: target, pairing: pairing) {
+        if SendDispatcher.send(urls: urls, to: target, pairing: pairing) != nil {
             preferences.rememberDevice(target)
             state.selection = []
             state.added = []
@@ -617,15 +617,6 @@ final class SendSheetModel: ObservableObject {
         } else {
             state.status = pairing.fileTransferStatus ?? L10n.text("sendsheet.failed", fallback: "Could not send. Check the connection.")
         }
-    }
-}
-
-/// Every send from the sheet, the Tray and the drop tiles goes through here, so optimisation applies in one place.
-@MainActor
-enum SendDispatcher {
-    @discardableResult
-    static func send(_ urls: [URL], to deviceID: String, pairing: PairingCoordinator) -> Bool {
-        pairing.sendDroppedFiles(urls, to: deviceID)
     }
 }
 
@@ -708,27 +699,4 @@ func loadFileURLs(_ providers: [NSItemProvider], completion: @escaping @MainActo
         let found = urls.compactMap { $0 }
         Task { @MainActor in completion(found) }
     }
-}
-
-// MARK: - Placeholders filled by the Tray and menu-bar drop commits
-
-@MainActor
-enum TrayController {
-    static func show(pairing: PairingCoordinator) {}
-}
-
-/// The panel's entry to the send sheet and the Tray, above the send bar.
-struct SendPanelEntry: View {
-    let model: PanelModel
-    let actions: PanelActions
-
-    var body: some View { EmptyView() }
-}
-
-/// Drop tiles over the panel while a drag hovers the menu-bar icon: one per connected device, plus Tray.
-struct DropTilesOverlay: View {
-    let model: PanelModel
-    let actions: PanelActions
-
-    var body: some View { EmptyView() }
 }
