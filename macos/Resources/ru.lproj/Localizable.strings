@@ -923,3 +923,4 @@
 "received.reveal" = "Показать в Finder";
 
 /* Files 2.0 quick wins: Share and Services (M-SEND adds below) */
+"drop.toast.keepInTray" = "Оставить в лотке";

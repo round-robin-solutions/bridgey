@@ -180,6 +180,22 @@ final class SendDesignScreenshots: XCTestCase {
         }
     }
 
+    @MainActor func testFreeSpace() throws {
+        var blocked = sheetState
+        blocked.freeSpace = .refuse("Needs 2.3 GB, OnePlus 11 has 1.1 GB free")
+        var warned = tileDevices
+        warned[0].freeSpace = .sendWithWarning("Needs 2.3 GB, OnePlus 11 has 2.9 GB free")
+        for scheme in [ColorScheme.light, .dark] {
+            let suffix = scheme == .dark ? "dark" : "light"
+            try write(SendSheetView(state: blocked, actions: SendSheetActions(), thumbnail: thumbnail).frame(height: 600),
+                      scheme: scheme, name: "mac-send-to-phone-no-space-\(suffix)")
+            let panel = StreamPanelView(model: panelModel, actions: PanelActions())
+                .fixedSize(horizontal: false, vertical: true)
+                .overlay { DropTilesView(devices: warned, trayCount: 2, chip: "Original, no location") }
+            try write(panel, scheme: scheme, name: "mac-drop-tiles-low-space-\(suffix)")
+        }
+    }
+
     @MainActor func write<V: View>(_ content: V, scheme: ColorScheme, name: String, padding: CGFloat = 24) throws {
         let view = BrandRoot(reduceMotion: false) { content }
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))

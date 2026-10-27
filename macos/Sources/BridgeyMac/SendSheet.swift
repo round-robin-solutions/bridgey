@@ -270,6 +270,8 @@ struct SendSheetState {
     var selection: [URL] = []
     var gathered = true
     var accessDenied = false
+    /// The target phone's free space against this send (FreeSpace.swift); `.send` when unknown.
+    var freeSpace: FreeSpaceGate = .send
     var dropTargeted = false
     var status: String?
     /// This send's optimisation (the Settings default until the chip changes it) and its measured saving.
@@ -286,7 +288,10 @@ struct SendSheetState {
 
     func position(of url: URL) -> Int? { selection.firstIndex(of: url).map { $0 + 1 } }
 
-    var canSend: Bool { targetID != nil && !selection.isEmpty }
+    var canSend: Bool { targetID != nil && !selection.isEmpty && !freeSpace.refuses }
+
+    /// Bytes the phone receives: the measured optimised size when known, else the originals.
+    var neededBytes: Int64 { SendSizing.needed(original: selectedBytes, saving: optimization?.isOriginal == true ? nil : saving) }
 }
 
 struct SendSheetActions {
@@ -332,6 +337,20 @@ struct SendSheetView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
+            }
+            if let line = state.freeSpace.message, !state.selection.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: state.freeSpace.refuses ? "externaldrive.badge.xmark" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(line)
+                        .font(BrandFont.body(12, .medium))
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(c.warn)
+                .padding(.horizontal, 20)
+                .frame(height: 36)
+                .background(c.warn.opacity(c.isDark ? 0.12 : 0.08))
             }
             footer
         }
@@ -612,7 +631,10 @@ final class SendSheetModel: ObservableObject {
         observations.append(pairing.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.refreshTargets() }
         })
-        observations.append(estimator.$saving.sink { [weak self] value in self?.state.saving = value })
+        observations.append(estimator.$saving.sink { [weak self] value in
+            self?.state.saving = value
+            DispatchQueue.main.async { self?.refreshFreeSpace() }
+        })
         observations.append(self.preferences.$optimization.sink { [weak self] _ in
             DispatchQueue.main.async { self?.refreshOptimization() }
         })
@@ -624,10 +646,21 @@ final class SendSheetModel: ObservableObject {
         state.defaults = preferences.optimization
         state.optimization = override ?? preferences.optimization
         estimator.update(urls: state.selection, options: state.optimization ?? preferences.optimization)
+        refreshFreeSpace()
+    }
+
+    private func refreshFreeSpace() {
+        guard let target = state.targetID else {
+            state.freeSpace = .send
+            return
+        }
+        let gate = pairing.freeSpaceGate(needed: state.neededBytes, deviceID: target)
+        if gate != state.freeSpace { state.freeSpace = gate }
     }
 
     func open() {
         state.status = nil
+        if let target = state.targetID { pairing.refreshPhoneFreeSpace(target) }
         query.start()
         refresh()
     }
@@ -651,12 +684,19 @@ final class SendSheetModel: ObservableObject {
         state.targets = targets
         if state.targetID == nil || !targets.contains(where: { $0.id == state.targetID }) {
             state.targetID = preferences.defaultDevice(connected: targets.map(\.id), selected: pairing.selectedDeviceID)
+            if let target = state.targetID { pairing.refreshPhoneFreeSpace(target) }
         }
+        refreshFreeSpace()
     }
 
     var actions: SendSheetActions {
         var actions = SendSheetActions()
-        actions.selectTarget = { [weak self] id in self?.state.targetID = id }
+        actions.selectTarget = { [weak self] id in
+            guard let self else { return }
+            state.targetID = id
+            pairing.refreshPhoneFreeSpace(id)
+            refreshFreeSpace()
+        }
         actions.toggle = { [weak self] item in
             guard let self else { return }
             if let index = state.selection.firstIndex(of: item.url) {
@@ -700,7 +740,8 @@ final class SendSheetModel: ObservableObject {
         let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .nameKey])
         guard let values else { return nil }
         let directory = values.isDirectory ?? false
-        return SendCandidate(url: url, name: values.name ?? url.lastPathComponent, size: Int64(values.fileSize ?? 0),
+        return SendCandidate(url: url, name: values.name ?? url.lastPathComponent,
+                             size: directory ? TrayStore.folderSize(url) : Int64(values.fileSize ?? 0),
                              date: values.contentModificationDate ?? Date(), isDirectory: directory)
     }
 

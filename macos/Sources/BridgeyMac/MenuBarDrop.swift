@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -47,6 +48,8 @@ struct DropTileDevice: Identifiable, Equatable {
     let id: String
     let name: String
     let battery: RemoteBatteryStatus?
+    /// The free-space line for what is being dragged.
+    var freeSpace: FreeSpaceGate = .send
 }
 
 @MainActor
@@ -54,6 +57,8 @@ final class MenuBarDropController: NSObject, ObservableObject, StatusItemDropHan
     static let shared = MenuBarDropController()
 
     @Published private(set) var tilesVisible = false
+    /// Bytes of what is being dragged (files and folders), for the free-space line on each tile.
+    @Published private(set) var dragBytes: Int64 = 0
 
     private weak var pairing: PairingCoordinator?
     private weak var status: MenuBarStatusController?
@@ -62,16 +67,21 @@ final class MenuBarDropController: NSObject, ObservableObject, StatusItemDropHan
     private let preferences = SendPreferences.shared
     private lazy var toast = DropToastController()
 
+    private var freeSpaceSubscription: AnyCancellable?
+
     func attach(pairing: PairingCoordinator, status: MenuBarStatusController) {
         self.pairing = pairing
         self.status = status
         status.dropHandler = self
+        // Tiles redraw when a phone reports its free space.
+        freeSpaceSubscription = pairing.$phoneFreeSpace.dropFirst().sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     // MARK: Icon
 
     func statusDragEntered(_ info: NSDraggingInfo) -> NSDragOperation {
         status?.highlightIcon(true)
+        measureDrag(info.draggingPasteboard)
         if DropRouter.springOpens(preferences.menuBarDropMode), status?.isOpen != true {
             springTimer?.invalidate()
             springTimer = Timer.scheduledTimer(withTimeInterval: DropRouter.springDelay, repeats: false) { [weak self] _ in
@@ -109,8 +119,30 @@ final class MenuBarDropController: NSObject, ObservableObject, StatusItemDropHan
 
     // MARK: Tiles
 
+    private var measuredChangeCount = -1
+
+    /// Sizes the dragged items once per drag, off the main thread (folders can be large).
+    private func measureDrag(_ pasteboard: NSPasteboard) {
+        guard pasteboard.changeCount != measuredChangeCount else { return }
+        measuredChangeCount = pasteboard.changeCount
+        dragBytes = 0
+        let urls = (pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+        guard !urls.isEmpty else { return }
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let bytes = SendSizing.bytes(urls)
+            await MainActor.run { [weak self] in self?.dragBytes = bytes }
+        }
+    }
+
+    /// The free-space line for one tile while dragging.
+    func tileGate(_ deviceID: String) -> FreeSpaceGate {
+        guard let pairing, dragBytes > 0 else { return .send }
+        return pairing.freeSpaceGate(needed: dragBytes, deviceID: deviceID)
+    }
+
     func showTiles() {
         tilesVisible = true
+        if let pairing { sendTargets(pairing).forEach { pairing.refreshPhoneFreeSpace($0.id) } }
         dragEndTimer?.invalidate()
         // A drag ends when the button comes up; nothing reliable tells this app otherwise.
         dragEndTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
@@ -154,12 +186,17 @@ final class MenuBarDropController: NSObject, ObservableObject, StatusItemDropHan
                                          defaultDevice: preferences.defaultDevice(connected: connected, selected: pairing.selectedDeviceID))
         switch decision {
         case let .send(deviceID, undoToast):
+            let gate = pairing.freeSpaceGate(needed: SendSizing.bytes(payloads), deviceID: deviceID)
+            if case let .refuse(line) = gate {
+                showRefusedToast(line, payloads: payloads)
+                return
+            }
             guard let handle = SendDispatcher.send(payloads, to: deviceID, pairing: pairing) else {
                 collect(payloads, notConnected: true)
                 return
             }
             preferences.rememberDevice(deviceID)
-            if undoToast { showSentToast(handle) }
+            if undoToast || gate.message != nil { showSentToast(handle, warning: gate.message) }
         case let .collect(notConnected):
             collect(payloads, notConnected: notConnected)
         }
@@ -179,12 +216,21 @@ final class MenuBarDropController: NSObject, ObservableObject, StatusItemDropHan
         ]), near: status?.iconFrame)
     }
 
-    private func showSentToast(_ handle: SendHandle) {
+    /// A send that would not fit: nothing is sent; the toast says why and offers the Tray.
+    private func showRefusedToast(_ line: String, payloads: [DropPayload]) {
+        toast.show(DropToastModel(text: line, actions: [
+            DropToastAction(title: L10n.text("drop.toast.keepInTray", fallback: "Keep in Tray")) { [weak self] in
+                self?.collect(payloads, notConnected: false)
+            },
+        ], warning: true), near: status?.iconFrame)
+    }
+
+    func showSentToast(_ handle: SendHandle, warning: String? = nil) {
         guard let pairing else { return }
         let name = sendTargets(pairing).first { $0.id == handle.deviceID }?.name ?? handle.deviceID
-        let text = handle.itemCount == 1
+        let text = warning ?? (handle.itemCount == 1
             ? String(format: L10n.text("drop.toast.sentOne", fallback: "Sending 1 item to %@"), name)
-            : String(format: L10n.text("drop.toast.sent", fallback: "Sending %d items to %@"), handle.itemCount, name)
+            : String(format: L10n.text("drop.toast.sent", fallback: "Sending %d items to %@"), handle.itemCount, name))
         var actions = [DropToastAction(title: L10n.text("drop.toast.undo", fallback: "Undo")) { [weak self] in
             guard let self, let pairing = self.pairing else { return }
             let stopped = handle.cancel(in: pairing)
@@ -198,7 +244,7 @@ final class MenuBarDropController: NSObject, ObservableObject, StatusItemDropHan
                 self?.retarget(handle, to: others)
             })
         }
-        toast.show(DropToastModel(text: text, actions: actions), near: status?.iconFrame, seconds: DropRouter.undoSeconds)
+        toast.show(DropToastModel(text: text, actions: actions, warning: warning != nil), near: status?.iconFrame, seconds: DropRouter.undoSeconds)
     }
 
     private func retarget(_ handle: SendHandle, to devices: [SendTarget]) {
@@ -208,7 +254,7 @@ final class MenuBarDropController: NSObject, ObservableObject, StatusItemDropHan
                 handle.cancel(in: pairing)
                 if let next = SendDispatcher.send(handle.payloads, to: device.id, pairing: pairing) {
                     self.preferences.rememberDevice(device.id)
-                    self.showSentToast(next)
+                    self.showSentToast(next, warning: pairing.freeSpaceGate(needed: SendSizing.bytes(handle.payloads), deviceID: device.id).message)
                 }
             }
         }
@@ -227,6 +273,8 @@ struct DropToastAction: Identifiable {
 struct DropToastModel {
     let text: String
     let actions: [DropToastAction]
+    /// Shown in the warning colour (free space).
+    var warning = false
 }
 
 struct DropToastView: View {
@@ -236,10 +284,16 @@ struct DropToastView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            AuroraMark(size: 18)
+            if model.warning {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(c.warn)
+            } else {
+                AuroraMark(size: 18)
+            }
             Text(model.text)
                 .font(BrandFont.body(13, .medium))
-                .foregroundStyle(c.on)
+                .foregroundStyle(model.warning ? c.warn : c.on)
                 .lineLimit(1)
             Spacer(minLength: 4)
             ForEach(model.actions) { action in
@@ -327,19 +381,29 @@ struct DropTilesView: View {
                 .foregroundStyle(c.on)
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                 ForEach(devices) { device in
-                    DropTile(target: .device(device.id), highlighted: highlighted == .device(device.id), onDrop: onDrop) {
+                    DropTile(target: .device(device.id), highlighted: highlighted == .device(device.id), warning: device.freeSpace.message != nil,
+                             onDrop: onDrop) {
                         DeviceRingView(state: .connected, platform: "android", size: 44)
                         Text(device.name)
                             .font(BrandFont.body(13, .semibold))
                             .foregroundStyle(c.on)
                             .lineLimit(1)
-                        Text(device.battery.map { String(format: L10n.text("panel.battery", fallback: "Battery %d%%"), $0.level) }
-                             ?? L10n.text("drop.tiles.connected", fallback: "Connected"))
-                            .font(BrandFont.body(11))
-                            .foregroundStyle(c.on2)
+                        if let line = device.freeSpace.message {
+                            Text(line)
+                                .font(BrandFont.body(11, .medium))
+                                .foregroundStyle(c.warn)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                                .padding(.horizontal, 6)
+                        } else {
+                            Text(device.battery.map { String(format: L10n.text("panel.battery", fallback: "Battery %d%%"), $0.level) }
+                                 ?? L10n.text("drop.tiles.connected", fallback: "Connected"))
+                                .font(BrandFont.body(11))
+                                .foregroundStyle(c.on2)
+                        }
                     }
                 }
-                DropTile(target: .tray, highlighted: highlighted == .tray, onDrop: onDrop) {
+                DropTile(target: .tray, highlighted: highlighted == .tray, warning: false, onDrop: onDrop) {
                     IconTile(symbol: "tray.full", tint: .purple, size: 44, corner: 22)
                     Text(L10n.text("tray.title", fallback: "Tray"))
                         .font(BrandFont.body(13, .semibold))
@@ -372,6 +436,7 @@ struct DropTilesView: View {
 private struct DropTile<Content: View>: View {
     let target: DropTarget
     let highlighted: Bool
+    let warning: Bool
     let onDrop: ((DropTarget, [NSItemProvider]) -> Bool)?
     @ViewBuilder let content: Content
     @State private var targeted = false
@@ -386,7 +451,8 @@ private struct DropTile<Content: View>: View {
             .frame(maxWidth: .infinity)
             .frame(height: 118)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(lit ? c.tb : c.s2))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(lit ? c.pri : c.olv, lineWidth: lit ? 2 : 1))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(warning ? c.warn : (lit ? c.pri : c.olv), lineWidth: lit || warning ? 2 : 1))
             .scaleEffect(lit && !reduce ? 1.04 : 1)
             .animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce), value: lit)
         if snapshot || onDrop == nil {
@@ -408,7 +474,11 @@ struct DropTilesOverlay: View {
 
     var body: some View {
         if controller.tilesVisible {
-            DropTilesView(devices: controller.tileDevices, trayCount: tray.items.count,
+            DropTilesView(devices: controller.tileDevices.map { device in
+                var tile = device
+                tile.freeSpace = controller.tileGate(device.id)
+                return tile
+            }, trayCount: tray.items.count,
                           chip: OptimizationLabel.chip(SendPreferences.shared.optimization, saving: nil)) { target, providers in
                 DropPayload.load(providers) { payloads in controller.tileDrop(payloads, target: target) }
                 return true

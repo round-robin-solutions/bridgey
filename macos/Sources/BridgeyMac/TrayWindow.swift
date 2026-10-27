@@ -17,9 +17,15 @@ struct TrayViewState {
     var banner: String?
     var dropTargeted = false
     var status: String?
+    var freeSpace: FreeSpaceGate = .send
 
     var totalBytes: Int64 { items.reduce(0) { $0 + $1.size } }
-    var canSend: Bool { targetID != nil && !items.isEmpty }
+    var canSend: Bool { targetID != nil && !items.isEmpty && !freeSpace.refuses }
+    /// Bytes that land as files on the phone (text and links go to the clipboard), optimised when known.
+    var neededBytes: Int64 {
+        SendSizing.needed(original: items.filter { $0.kind != .text && $0.kind != .link }.reduce(0) { $0 + $1.size },
+                          saving: optimization?.isOriginal == true ? nil : saving)
+    }
 }
 
 struct TrayActions {
@@ -142,8 +148,9 @@ struct TrayView: View {
                     OptimizationChipButton(options: options, defaults: state.defaults, saving: state.saving, change: actions.changeOptimization)
                 }
                 Spacer(minLength: 0)
-                if let status = state.status {
-                    Text(status).font(BrandFont.body(11)).foregroundStyle(c.warn).lineLimit(1)
+                if let status = state.status ?? state.freeSpace.message {
+                    Text(status).font(BrandFont.body(11, .medium)).foregroundStyle(c.warn).lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Button(L10n.text("sendsheet.send", fallback: "Send"), action: actions.send)
                     .buttonStyle(PillButtonStyle(kind: .gradient, height: 30))
@@ -250,7 +257,10 @@ final class TrayModel: ObservableObject {
             self?.state.items = items
             DispatchQueue.main.async { self?.refreshOptimization() }
         }.store(in: &subscriptions)
-        estimator.$saving.sink { [weak self] value in self?.state.saving = value }.store(in: &subscriptions)
+        estimator.$saving.sink { [weak self] value in
+            self?.state.saving = value
+            DispatchQueue.main.async { self?.refreshFreeSpace() }
+        }.store(in: &subscriptions)
         preferences.$optimization.sink { [weak self] _ in DispatchQueue.main.async { self?.refreshOptimization() } }.store(in: &subscriptions)
         pairing.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.refreshTargets() }
@@ -263,6 +273,22 @@ final class TrayModel: ObservableObject {
         let options = override ?? preferences.optimization
         state.optimization = options
         estimator.update(urls: store.items.filter { $0.kind != .text && $0.kind != .link }.compactMap { store.url(for: $0) }, options: options)
+        refreshFreeSpace()
+    }
+
+    private func refreshFreeSpace() {
+        guard let target = state.targetID else {
+            state.freeSpace = .send
+            return
+        }
+        let gate = pairing.freeSpaceGate(needed: state.neededBytes, deviceID: target)
+        if gate != state.freeSpace { state.freeSpace = gate }
+    }
+
+    /// The window opened: ask the phone for fresh numbers.
+    func opened() {
+        if let target = state.targetID { pairing.refreshPhoneFreeSpace(target) }
+        refreshFreeSpace()
     }
 
     private func refreshTargets() {
@@ -270,13 +296,20 @@ final class TrayModel: ObservableObject {
         state.targets = targets
         if state.targetID == nil || !targets.contains(where: { $0.id == state.targetID }) {
             state.targetID = preferences.defaultDevice(connected: targets.map(\.id), selected: pairing.selectedDeviceID)
+            if let target = state.targetID { pairing.refreshPhoneFreeSpace(target) }
         }
+        refreshFreeSpace()
     }
 
     var actions: TrayActions {
         var actions = TrayActions()
         actions.remove = { [weak self] id in self?.store.remove(id) }
-        actions.selectTarget = { [weak self] id in self?.state.targetID = id }
+        actions.selectTarget = { [weak self] id in
+            guard let self else { return }
+            state.targetID = id
+            pairing.refreshPhoneFreeSpace(id)
+            refreshFreeSpace()
+        }
         actions.send = { [weak self] in self?.send() }
         actions.undo = { [weak self] in self?.undo() }
         actions.changeOptimization = { [weak self] options in
@@ -296,7 +329,7 @@ final class TrayModel: ObservableObject {
     }
 
     private func send() {
-        guard let target = state.targetID, !store.isEmpty else { return }
+        guard let target = state.targetID, !store.isEmpty, !state.freeSpace.refuses else { return }
         let (urls, texts) = store.sendables(forSending: true)
         let payloads: [DropPayload] = (urls.isEmpty ? [] : [.files(urls)]) + texts.map { DropPayload.text($0) }
         guard let handle = SendDispatcher.send(payloads, to: target, pairing: pairing, optimization: state.optimization) else {
@@ -377,6 +410,7 @@ final class TrayWindowController: NSWindowController {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func show() {
+        model.opened()
         showWindow(nil)
         window?.orderFrontRegardless()
         window?.makeKey()
