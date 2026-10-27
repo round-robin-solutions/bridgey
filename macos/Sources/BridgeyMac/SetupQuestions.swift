@@ -39,7 +39,7 @@ enum SetupSetting: String, CaseIterable {
     // Notifications
     case featureNotifications, macNotifications, codesEnabled, codesEngine, codesAutoCopy, codesModel, codesPhoneLink
     case notificationHistory, focusShare, focusFollow, focusShortcuts
-    // Notifications > Text messages (sms_draft1)
+    // Settings > Text messages (sms_draft1)
     case featureMessages, smsKeepOnMac
     // Calls
     case featureCalls, phoneLinks, ringForCalls, pauseForCalls, shortcutCall
@@ -151,7 +151,7 @@ enum SetupFeatures {
                      on: [.on(.featureNotifications)], off: [.off(.featureNotifications)], main: .featureNotifications, pane: .notifications),
         SetupFeature(id: "messages", title: textMessagesTitle,
                      detail: L10n.setup("setup.feature.messages.detail", fallback: "Your phone\u{2019}s texts in a Messages window, and Reply on text notifications"),
-                     on: [.on(.featureMessages)], off: [.off(.featureMessages)], main: .featureMessages, pane: .notifications),
+                     on: [.on(.featureMessages)], off: [.off(.featureMessages)], main: .featureMessages, pane: .messages),
         SetupFeature(id: "calls", title: SettingsPane.calls.title, detail: BridgeyFeature.calls.subtitle,
                      on: [.on(.featureCalls)], off: [.off(.featureCalls)], main: .featureCalls, pane: .calls),
         SetupFeature(id: "files", title: SettingsPane.files.title, detail: BridgeyFeature.files.subtitle,
@@ -176,7 +176,7 @@ enum SetupFeatures {
 
     static func feature(_ id: String) -> SetupFeature? { all.first { $0.id == id } }
 
-    /// Text messages is a card on the Notifications page; its switch, bundle and Settings card share this name.
+    /// Text messages has its own Settings page; its switch, bundle and page share this name.
     static var textMessagesTitle: String { L10n.text("sms.title", fallback: "Text messages") }
 
     static func isOn(_ feature: SetupFeature, _ effective: SetupEffective) -> Bool { effective.on(feature.main) }
@@ -289,7 +289,7 @@ enum SetupQuestions {
                 SetupAnswer(key: SetupAnswerKey.no, label: L10n.setup("setup.a.messages.no", fallback: "No, load them from the phone each time"),
                             changes: [.on(.featureMessages), .off(.smsKeepOnMac)]),
             ],
-            pane: .notifications, covers: [.featureMessages, .smsKeepOnMac]
+            pane: .messages, covers: [.featureMessages, .smsKeepOnMac]
         ),
         SetupQuestion(
             id: "calls_ring", section: .calls, feature: "calls",
@@ -379,8 +379,9 @@ enum SetupQuestions {
         SetupPermissionNeed(permission: .automation, features: ["media"],
                             needed: { $0.on(.featureMedia) },
                             offWhenRefused: [.off(.featureMedia)]),
-        SetupPermissionNeed(permission: .bluetooth, features: ["notifications"],
-                            needed: { $0.on(.featureNotifications) && $0.on(.codesEnabled) }),
+        // The phone-to-Mac link (Android 15+) serves codes and Text messages: the Mac advertises over Bluetooth once.
+        SetupPermissionNeed(permission: .bluetooth, features: ["notifications", "messages"],
+                            needed: { $0.on(.featureNotifications) && ($0.on(.codesEnabled) || $0.on(.featureMessages)) }),
     ]
 
     static func need(_ permission: SetupPermission) -> SetupPermissionNeed? { permissions.first { $0.permission == permission } }
@@ -524,10 +525,8 @@ struct SetupBundle: Identifiable {
     let pane: SettingsPane
     let detail: String
     let answers: [(id: String, key: String)]
-    /// A bundle for a card on a page (Text messages) carries the card's name.
-    var named: String? = nil
 
-    var title: String { named ?? pane.title }
+    var title: String { pane.title }
 }
 
 enum SetupBundles {
@@ -538,9 +537,9 @@ enum SetupBundles {
         SetupBundle(id: "notifications", pane: .notifications,
                     detail: L10n.setup("setup.bundle.notifications", fallback: "Your phone\u{2019}s notifications on this Mac."),
                     answers: [("notifications", SetupAnswerKey.pick)]),
-        SetupBundle(id: "messages", pane: .notifications,
+        SetupBundle(id: "messages", pane: .messages,
                     detail: L10n.setup("setup.bundle.messages", fallback: "Read and answer your phone\u{2019}s texts here."),
-                    answers: [("messages", SetupAnswerKey.pick)], named: SetupFeatures.textMessagesTitle),
+                    answers: [("messages", SetupAnswerKey.pick)]),
         SetupBundle(id: "calls", pane: .calls,
                     detail: L10n.setup("setup.bundle.calls", fallback: "See who\u{2019}s calling, and answer here."),
                     answers: [("calls", SetupAnswerKey.pick)]),

@@ -841,7 +841,9 @@ private struct ComposerBar: View {
     var body: some View {
         Group {
             if group {
-                note(L10n.text("sms.group", fallback: "Reply to group messages on your phone."))
+                // Group conversations are read only on the Mac in this release (one recipient per SMS; group MMS
+                // needs the default SMS app). Said plainly instead of a compose box that cannot send.
+                note(L10n.text("sms.group", fallback: "Group conversations are read only on this Mac. Reply from your phone."), symbol: "lock")
             } else if !model.canSend {
                 note(L10n.text("sms.cannotSend", fallback: "Allow SMS for Bridgey on your phone to send from here."))
             } else {
@@ -874,10 +876,16 @@ private struct ComposerBar: View {
         }
     }
 
-    private func note(_ line: String) -> some View {
-        Text(line).font(BrandFont.body(12)).foregroundStyle(c.on2)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
+    private func note(_ line: String, symbol: String? = nil) -> some View {
+        HStack(spacing: 6) {
+            if let symbol { Image(systemName: symbol).font(.system(size: 11, weight: .semibold)) }
+            Text(line).font(BrandFont.body(12))
+        }
+        .foregroundStyle(c.on2)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+        .background(c.s1)
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder private var field: some View {

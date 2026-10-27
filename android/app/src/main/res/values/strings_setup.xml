@@ -63,6 +63,7 @@
     <string name="perm_camera_without">Take Photo on the Mac shows that the camera is not allowed.</string>
     <string name="perm_companion_link_name">Bluetooth companion link</string>
     <string name="perm_companion_link_why">Android 15 and later hide one-time codes from apps that are not linked to a nearby device.</string>
+    <string name="perm_companion_link_why_sms">Lets Bridgey see who sent a text, so replies go to the right conversation.</string>
     <string name="perm_companion_link_without">Codes from messages show \"hidden\" on the Mac.</string>
     <string name="perm_do_not_disturb_name">Do Not Disturb access</string>
     <string name="perm_do_not_disturb_why">Turns on Do Not Disturb here while a Mac is in Focus, when Follow the Mac\'s Focus is on.</string>

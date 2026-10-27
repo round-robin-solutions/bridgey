@@ -11,7 +11,7 @@ import SwiftUI
 /// Grouped by what people come to change, most used first. Each feature pane starts with that
 /// feature's switch, followed by its options. Android uses the same order.
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case thisMac, devices, clipboard, notifications, calls, files, media, remoteControl, privacy, updates, general, about
+    case thisMac, devices, clipboard, notifications, messages, calls, files, media, remoteControl, privacy, updates, general, about
     /// Privacy sub-pages (PermissionsView.swift, ResetView.swift); not in the sidebar.
     case permissions, reset
 
@@ -24,6 +24,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .devices: L10n.text("settings.devicesPermissions", fallback: "Devices and permissions")
         case .clipboard: L10n.text("settings.clipboard", fallback: "Clipboard")
         case .notifications: L10n.text("settings.notifications", fallback: "Notifications")
+        case .messages: L10n.text("sms.title", fallback: "Text messages")
         case .calls: L10n.text("settings.calls", fallback: "Calls")
         case .files: L10n.text("settings.files", fallback: "Files")
         case .media: L10n.text("settings.mediaActions", fallback: "Media and quick actions")
@@ -51,6 +52,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .devices: "laptopcomputer.and.iphone"
         case .clipboard: "doc.on.clipboard"
         case .notifications: "bell"
+        case .messages: "message"
         case .calls: "phone"
         case .files: "folder"
         case .media: "music.note"
@@ -152,7 +154,7 @@ struct SettingsModel {
     var focusSync = FocusSyncSettings()
     /// Files > Copy photos from the phone camera to the clipboard.
     var cameraCopyToClipboard = false
-    /// Notifications > Text messages (draft sms_draft1).
+    /// Settings > Text messages (draft sms_draft1).
     var smsEnabled = false
     var smsKeepOnMac = true
     var smsPhone: SmsPhoneDisplay = .noPhone
@@ -251,7 +253,7 @@ struct SettingsActions {
     var setBatteryAlerts: (String, BatteryAlertThresholds) -> Void = { _, _ in }
     var setFocusSync: ((inout FocusSyncSettings) -> Void) -> Void = { _ in }
     var setCameraCopyToClipboard: (Bool) -> Void = { _ in }
-    /// Notifications > Text messages.
+    /// Settings > Text messages.
     var setSmsEnabled: (Bool) -> Void = { _ in }
     var setSmsKeepOnMac: (Bool) -> Void = { _ in }
     var deleteMessages: () -> Void = {}
@@ -591,6 +593,7 @@ struct SettingsPaneView: View {
         case .devices: DevicesPane(model: model, actions: actions)
         case .clipboard: ClipboardPane(model: model, actions: actions)
         case .notifications: NotificationsPane(model: model, actions: actions)
+        case .messages: TextMessagesPane(model: model, actions: actions)
         case .calls: CallsPane(model: model, actions: actions)
         case .files: FilesPane(model: model, actions: actions)
         case .media: MediaActionsPane(model: model, actions: actions)
@@ -700,7 +703,6 @@ private struct NotificationsPane: View {
             NotificationPermissionRow(model: model, actions: actions)
         }
         CodesCard(model: model, actions: actions)
-        TextMessagesCard(model: model, actions: actions)
         FocusSyncCard(model: model, actions: actions)
         NotificationHistoryCard(model: model, actions: actions)
     }
@@ -1195,14 +1197,26 @@ struct NotificationHistoryCard: View {
     }
 }
 
-/// Notifications > Text messages: the switch, the phone's state, the cache and the Messages window.
+/// Settings > Text messages, its own page as on the phone (Rahul, 2026-10-27). One card per topic, so
+/// later phone features that belong with texts (call settings, for example) join as cards of their own
+/// without reshaping the page.
+struct TextMessagesPane: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+
+    var body: some View {
+        TextMessagesCard(model: model, actions: actions)
+        if model.smsEnabled { TextMessagesStorageCard(model: model, actions: actions) }
+    }
+}
+
+/// Text messages: the switch, the phone's state and the Messages window.
 struct TextMessagesCard: View {
     let model: SettingsModel
     let actions: SettingsActions
-    @State private var confirmDelete = false
 
     var body: some View {
-        SettingsCard(title: L10n.text("sms.title", fallback: "Text messages")) {
+        SettingsCard {
             SettingsToggle(title: L10n.text("sms.toggle", fallback: "Your phone\u{2019}s texts on this Mac"),
                            subtitle: L10n.text("sms.toggle.detail", fallback: "Read and answer conversations in the Messages window, and reply from text notifications. Off by default. Messages travel only between your phone and this Mac, encrypted; Bridgey never becomes the phone\u{2019}s default SMS app."),
                            divider: false, isOn: model.smsEnabled, set: actions.setSmsEnabled)
@@ -1211,20 +1225,9 @@ struct TextMessagesCard: View {
                     Button(L10n.text("sms.open", fallback: "Open Messages")) { actions.openMessages(nil, nil) }
                         .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
                 }
-                SettingsToggle(title: L10n.text("sms.keep", fallback: "Keep conversations on this Mac"),
-                               subtitle: L10n.text("sms.keep.detail", fallback: "Up to 200 conversations, readable only by your account, so they open instantly. Off: they load from the phone each time. Images are never kept."),
-                               isOn: model.smsKeepOnMac, set: actions.setSmsKeepOnMac)
-                SettingsRow(title: L10n.text("sms.delete", fallback: "Delete messages on this Mac"),
-                            subtitle: L10n.text("sms.delete.detail", fallback: "Your phone keeps every message."), divider: true) {
-                    Button(L10n.text("sms.delete.button", fallback: "Delete")) { confirmDelete = true }
-                        .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
-                }
+                SettingsRow(title: L10n.text("sms.limits", fallback: "Group conversations and pictures"),
+                            subtitle: L10n.text("sms.limits.detail", fallback: "You can read them here. Reply to groups and send pictures from your phone."), divider: true) { EmptyView() }
             }
-        }
-        .confirmationDialog(L10n.text("sms.delete.confirm", fallback: "Delete messages on this Mac?"), isPresented: $confirmDelete) {
-            Button(L10n.text("sms.delete.button", fallback: "Delete"), role: .destructive, action: actions.deleteMessages)
-        } message: {
-            Text(L10n.text("sms.delete.detail", fallback: "Your phone keeps every message."))
         }
     }
 
@@ -1257,6 +1260,31 @@ struct TextMessagesCard: View {
                 lines.append(String(format: L10n.text("sms.state.sims", fallback: "SIMs: %@"), status.sims.map(simTitle).joined(separator: ", ")))
             }
             return lines.joined(separator: ". ")
+        }
+    }
+}
+
+/// Text messages > On this Mac: the cache and deleting it.
+struct TextMessagesStorageCard: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+    @State private var confirmDelete = false
+
+    var body: some View {
+        SettingsCard(title: L10n.text("sms.onThisMac", fallback: "On this Mac")) {
+            SettingsToggle(title: L10n.text("sms.keep", fallback: "Keep conversations on this Mac"),
+                           subtitle: L10n.text("sms.keep.detail", fallback: "Up to 200 conversations, readable only by your account, so they open instantly. Off: they load from the phone each time. Images are never kept."),
+                           divider: false, isOn: model.smsKeepOnMac, set: actions.setSmsKeepOnMac)
+            SettingsRow(title: L10n.text("sms.delete", fallback: "Delete messages on this Mac"),
+                        subtitle: L10n.text("sms.delete.detail", fallback: "Your phone keeps every message."), divider: true) {
+                Button(L10n.text("sms.delete.button", fallback: "Delete")) { confirmDelete = true }
+                    .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
+            }
+        }
+        .confirmationDialog(L10n.text("sms.delete.confirm", fallback: "Delete messages on this Mac?"), isPresented: $confirmDelete) {
+            Button(L10n.text("sms.delete.button", fallback: "Delete"), role: .destructive, action: actions.deleteMessages)
+        } message: {
+            Text(L10n.text("sms.delete.detail", fallback: "Your phone keeps every message."))
         }
     }
 }

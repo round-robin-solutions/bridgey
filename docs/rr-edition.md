@@ -250,9 +250,13 @@ the draft `sms_draft1` in `docs/protocol.md`; the permission and Play position i
 [sms-call-policy.md](sms-call-policy.md).
 
 - **Off until chosen, on both devices.** Phone: Settings > Text messages (or the Text messages
-  bundle and question in setup), per Mac like the other features. Mac: Settings > Notifications >
-  Text messages. The phone asks for SMS, contacts and, on dual-SIM phones, phone state on the
-  Permissions page only when the feature is turned on; refusing SMS leaves it off.
+  bundle and question in setup), per Mac like the other features. Mac: Settings > Text messages, a
+  page of its own like the phone's. The phone asks for SMS, contacts and, on dual-SIM phones, phone
+  state on the Permissions page only when the feature is turned on; refusing SMS leaves it off. On
+  Android 15 and later, with notifications on too, the same page asks for the phone-to-Mac link that
+  Codes from messages uses ("Lets Bridgey see who sent a text, so replies go to the right
+  conversation"); one link serves both, and a phone that already has it is not asked again.
+  "Send replies as SMS" is off for everyone (Rahul, 2026-10-27).
 - **Reply from the notification.** Every text message notification on the Mac gets one Reply field.
   The phone sends the reply through the messaging app's own reply when it has one (RCS and chat
   features keep working), otherwise as an SMS from the SIM the conversation last used. "Send replies

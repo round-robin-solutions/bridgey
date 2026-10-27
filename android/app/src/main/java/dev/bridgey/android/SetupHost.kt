@@ -537,7 +537,7 @@ internal fun PermissionsRoute(
             PermissionKind.LOGS -> onOpenSection(SettingsSection.CLIPBOARD)
         }
     }
-    PermissionsScreen(entries, onBack = actions.back) { entry ->
+    PermissionsScreen(entries, onBack = actions.back, textMessages = settings.featureOn(BridgeyFeature.SMS) && settings.featureOn(BridgeyFeature.NOTIFICATIONS)) { entry ->
         if (entry.state == PermissionState.ALLOWED) open(entry.kind, allowed = true) else explaining = entry.kind
     }
     explaining?.let { kind ->

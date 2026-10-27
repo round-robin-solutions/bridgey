@@ -4645,7 +4645,7 @@ extension PairingCoordinator {
         settings.smsEnabled && registry.session(for: id) != nil && registry.state(for: id)?.remoteSms == true
     }
 
-    /// Settings > Notifications > Text messages is on.
+    /// Settings > Text messages is on.
     var textMessagesSettingOn: Bool { settings.smsEnabled }
     /// The settings the Messages window observes (its switch and Codes from messages).
     var observedSettings: BridgeySettings { settings }
@@ -4655,7 +4655,7 @@ extension PairingCoordinator {
     /// Connected phones with Text messages on, in connection order.
     var textMessagePhones: [PhoneConnection] { connectedPhones.filter { $0.state.remoteSms } }
 
-    /// Settings > Notifications > Text messages. Off deletes every conversation this Mac kept.
+    /// Settings > Text messages. Off deletes every conversation this Mac kept.
     func setTextMessagesEnabled(_ enabled: Bool) {
         settings.setSmsEnabled(enabled)
         if !enabled { textMessages.deleteAll() }
@@ -4738,7 +4738,7 @@ extension PairingCoordinator {
     }
 }
 
-/// Settings > Notifications > Text messages: the selected phone.
+/// Settings > Text messages: the selected phone.
 enum SmsPhoneDisplay: Equatable {
     case noPhone
     case phoneOff(String)

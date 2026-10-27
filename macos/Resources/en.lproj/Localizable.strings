@@ -1118,7 +1118,10 @@
 "sms.delete.detail" = "Your phone keeps every message.";
 "sms.discard" = "Delete";
 "sms.entry.help" = "Read and answer your phone’s texts";
-"sms.group" = "Reply to group messages on your phone.";
+"sms.group" = "Group conversations are read only on this Mac. Reply from your phone.";
+"sms.limits" = "Group conversations and pictures";
+"sms.limits.detail" = "You can read them here. Reply to groups and send pictures from your phone.";
+"sms.onThisMac" = "On this Mac";
 "sms.image" = "Image";
 "sms.image.failed" = "Image not available";
 "sms.keep" = "Keep conversations on this Mac";

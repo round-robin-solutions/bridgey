@@ -153,9 +153,8 @@ final class MessagesScreenshots: XCTestCase {
         for scheme in [ColorScheme.light, .dark] {
             let view = BrandRoot(reduceMotion: false) {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text(SettingsPane.notifications.title).font(BrandFont.heading(24)).frame(height: 30)
-                    TextMessagesCard(model: settings, actions: SettingsActions())
-                    NotificationHistoryCard(model: settings, actions: SettingsActions())
+                    Text(SettingsPane.messages.title).font(BrandFont.heading(24)).frame(height: 30)
+                    TextMessagesPane(model: settings, actions: SettingsActions())
                 }
                 .padding(32)
                 .frame(width: 670, alignment: .leading)

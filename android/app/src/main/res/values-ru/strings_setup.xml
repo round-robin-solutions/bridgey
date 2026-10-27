@@ -62,6 +62,7 @@
     <string name="perm_camera_without">«Сделать фото» на Mac покажет, что камера не разрешена.</string>
     <string name="perm_companion_link_name">Связь по Bluetooth</string>
     <string name="perm_companion_link_why">Android 15 и новее скрывает одноразовые коды от приложений, не связанных с устройством поблизости.</string>
+    <string name="perm_companion_link_why_sms">Позволяет Bridgey видеть, кто прислал SMS, чтобы ответ ушёл в нужную переписку.</string>
     <string name="perm_companion_link_without">Коды из сообщений на Mac показываются как «скрыто».</string>
     <string name="perm_do_not_disturb_name">Доступ к режиму «Не беспокоить»</string>
     <string name="perm_do_not_disturb_why">Включает здесь «Не беспокоить», пока на Mac включено фокусирование, если включено «Следовать за фокусированием Mac».</string>

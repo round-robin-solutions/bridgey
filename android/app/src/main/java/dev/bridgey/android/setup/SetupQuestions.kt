@@ -328,7 +328,10 @@ object SetupQuestions {
             listOf(off(SetupSetting.DIRECT_CALLS)), runtime = true),
         SetupPermission(PermissionKind.PHOTOS, listOf("files"), { it.on(SetupSetting.FEATURE_FILES) && it.on(SetupSetting.ALLOW_BROWSE) }, runtime = true),
         SetupPermission(PermissionKind.CAMERA, listOf("camera"), { it.on(SetupSetting.FEATURE_CAMERA) }, listOf(off(SetupSetting.FEATURE_CAMERA)), runtime = true),
-        SetupPermission(PermissionKind.COMPANION_LINK, listOf("notifications"), { it.on(SetupSetting.FEATURE_NOTIFICATIONS) && it.on(SetupSetting.CODES_LINK) },
+        // The same link serves codes and Text messages: Android 15 shows a linked listener who sent an SMS,
+        // so a reply from a notification finds its conversation. One link for both; never a second.
+        SetupPermission(PermissionKind.COMPANION_LINK, listOf("notifications", "messages"),
+            { e -> e.on(SetupSetting.FEATURE_NOTIFICATIONS) && (e.on(SetupSetting.CODES_LINK) || (e.on(SetupSetting.FEATURE_SMS) && e.facts.codesLinkApplies)) },
             listOf(off(SetupSetting.CODES_LINK)), runtime = false),
         SetupPermission(PermissionKind.DO_NOT_DISTURB, listOf("notifications"), { it.on(SetupSetting.FOCUS_FOLLOW) }, listOf(off(SetupSetting.FOCUS_FOLLOW)), runtime = false),
         // Text messages stays off without SMS access; without contacts it shows numbers instead of names.

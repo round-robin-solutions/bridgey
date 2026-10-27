@@ -119,10 +119,10 @@ final class BridgeySettings: ObservableObject {
     /// Media and actions > Open links from phones right away (links_open_draft1). Off by default:
     /// a link waits for Open on this Mac.
     @Published private(set) var openLinksRightAway: Bool
-    /// Notifications > Text messages (draft sms_draft1): the phone's conversations in the Messages window,
+    /// Settings > Text messages (draft sms_draft1): the phone's conversations in the Messages window,
     /// and Reply on its text message notifications. Off by default.
     @Published private(set) var smsEnabled: Bool
-    /// Notifications > Text messages > Keep conversations on this Mac: the cache is written (0600) so
+    /// Settings > Text messages > Keep conversations on this Mac: the cache is written (0600) so
     /// conversations open instantly. On by default; off keeps them in memory only.
     @Published private(set) var smsKeepOnMac: Bool
 

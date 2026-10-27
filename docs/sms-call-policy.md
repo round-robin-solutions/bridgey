@@ -70,6 +70,40 @@ is unchanged; the upstream app declares none of these permissions.
   asks at Start, and when it ends it asks Android to drop the permission only if Text messages is
   off for every Mac.
 
+### Marking messages read from the Mac: feasibility (2026-10-27)
+
+Rahul, 2026-10-27: later, not in this release. What is possible on Android 14 to 16 for an app
+that is not the default SMS app:
+
+- **Through the SMS provider: no.** Android's reference says "Only the default SMS app (selected by
+  the user in system settings) is able to write to the SMS Provider" and other apps "can only read
+  the SMS Provider" ([Telephony](https://developer.android.com/reference/android/provider/Telephony)).
+  The KitKat change that introduced this lists marking messages read among the writes a
+  non-default app cannot make
+  ([Getting your SMS apps ready for KitKat](https://android-developers.googleblog.com/2013/10/getting-your-sms-apps-ready-for-kitkat.html)).
+  A write such as `read = 1` from another app has no effect, and `WRITE_SMS` does not change that.
+  Nothing in Android 14 to 16 relaxes it.
+- **Through the messaging app's own notification action: yes, while the notification is there.**
+  Messaging apps add a "Mark as read" action, tagged `SEMANTIC_ACTION_MARK_AS_READ` since API 28
+  ([Notification.Action](https://developer.android.com/reference/android/app/Notification.Action)).
+  Bridgey's notification listener already keeps each notification's actions and can fire one for
+  the Mac (that is how replies through the app work). On the API 35 emulator each Google Messages
+  message notification carried two actions, which should be its usual Reply and Mark as read (the
+  titles were not checked, an assumption). Limits: it only
+  covers messages that still have a notification, so not older unread conversations; and on
+  Android 15 and later an unlinked listener gets the notification with its text and actions removed
+  when Android detects a one-time code
+  ([Android 15 behavior changes, OTP redaction](https://developer.android.com/about/versions/15/behavior-changes-all)).
+  On the emulator, Google Messages' notifications reached the unlinked listener without any
+  actions. The phone-to-Mac companion link, which Text messages now asks for, exempts Bridgey.
+- **Anything else: no.** Becoming the default SMS app would allow it, which this edition rules
+  out. Accessibility automation of the messaging app would be fragile and is not something
+  Bridgey does.
+
+So a later "mark read" from the Mac can fire the messaging app's own Mark as read on the matching
+notification (which also clears it on the phone), with the companion link in place, and must say
+plainly that older conversations stay unread on the phone.
+
 ### Distribution and Google Play
 
 The edition is distributed through GitHub releases, not Google Play, so no Play declaration applies

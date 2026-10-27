@@ -269,6 +269,11 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(changes("messages", SetupAnswerKey.no), [.on(.featureMessages), .off(.smsKeepOnMac)])
         XCTAssertEqual(SetupBundles.all.first { $0.id == "messages" }?.answers.map(\.id), ["messages"])
         XCTAssertTrue(SetupQuestions.need(.notifications)?.features.contains("messages") == true)
+        // The phone-to-Mac link (Android 15+) is one link for codes and Text messages; the Mac advertises it over Bluetooth.
+        let bluetooth = SetupQuestions.need(.bluetooth)!
+        XCTAssertTrue(bluetooth.features.contains("messages"))
+        XCTAssertTrue(bluetooth.needed(SetupEffective(facts: SetupFacts(), overlay: [.featureNotifications: "true", .featureMessages: "true", .codesEnabled: "false"])))
+        XCTAssertFalse(bluetooth.needed(SetupEffective(facts: SetupFacts(), overlay: [.featureNotifications: "false", .featureMessages: "true"])))
         XCTAssertEqual(SetupFeatures.feature("mac_actions")?.on, [.on(.featureMacActions), .on(.macActionsGrant), .set(.macActionSwitches, "lock,sleep,volume")])
         XCTAssertEqual(SetupQuestions.typedOnly["updates"]?[SetupAnswerKey.newest], [.set(.updateChannel, "nightly")])
         XCTAssertEqual(SetupQuestions.need(.accessibility)?.offWhenRefused.first, .off(.featureRemoteInput))
@@ -281,10 +286,14 @@ final class SetupFlowTests: XCTestCase {
     }
 
     func testBundlesAndSwitchesUseTheSettingsNames() {
-        // Text messages is a card on the Notifications page: its bundle and switch carry the card's name.
-        let names = Set(SettingsPane.allCases.map(\.title) + BridgeyFeature.allCases.map(\.title) + [SetupFeatures.textMessagesTitle])
+        // Text messages has its own page, as on the phone: its bundle, switch and page share one name.
+        let names = Set(SettingsPane.allCases.map(\.title) + BridgeyFeature.allCases.map(\.title))
+        XCTAssertEqual(SetupFeatures.textMessagesTitle, SettingsPane.messages.title)
+        XCTAssertEqual(SetupFeatures.feature("messages")?.pane, .messages)
+        XCTAssertEqual(SetupQuestions.question("messages")?.pane, .messages)
+        XCTAssertTrue(SettingsPane.sidebarItems.contains(.messages))
         for bundle in SetupBundles.all {
-            XCTAssertEqual(bundle.title, bundle.named ?? bundle.pane.title)
+            XCTAssertEqual(bundle.title, bundle.pane.title)
             XCTAssertTrue(names.contains(bundle.title), bundle.title)
             for (id, key) in bundle.answers { XCTAssertNotNil(SetupFeatures.feature(id), "\(bundle.id): \(id)=\(key)") }
         }

@@ -63,7 +63,7 @@ final class TextMessages: ObservableObject {
     var send: (_ phoneID: String, _ kind: String, _ payload: [String: Any]) -> Bool = { _, _, _ in false }
     /// Text messages is on here and on the phone, and the phone is connected.
     var isAvailable: (_ phoneID: String) -> Bool = { _ in false }
-    /// Settings > Notifications > Text messages > Keep conversations on this Mac.
+    /// Settings > Text messages > Keep conversations on this Mac.
     var keepOnDisk: () -> Bool = { true }
     /// A reply from a notification did not go (the Mac says so in a notification).
     var onReplyFailed: (SmsOutgoing) -> Void = { _ in }

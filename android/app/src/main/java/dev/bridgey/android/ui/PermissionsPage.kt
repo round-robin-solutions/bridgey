@@ -47,9 +47,10 @@ fun permissionName(kind: PermissionKind): String = stringResource(
     },
 )
 
+/** [textMessages]: Text messages is on, so the companion link's reason is about replies. */
 @Composable
-fun permissionWhy(kind: PermissionKind): String = stringResource(
-    when (kind) {
+fun permissionWhy(kind: PermissionKind, textMessages: Boolean = false): String = stringResource(
+    if (kind == PermissionKind.COMPANION_LINK && textMessages) R.string.perm_companion_link_why_sms else when (kind) {
         PermissionKind.NOTIFICATION_ACCESS -> R.string.perm_notification_access_why
         PermissionKind.POST_NOTIFICATIONS -> R.string.perm_post_notifications_why
         PermissionKind.PHONE_CALLS -> R.string.perm_phone_calls_why
@@ -121,19 +122,19 @@ fun PermissionExplainerDialog(kind: PermissionKind, onContinue: () -> Unit, onDi
 
 /** Settings > Privacy > Permissions: every optional permission, its state and Manage. */
 @Composable
-fun PermissionsScreen(entries: List<PermissionEntry>, onBack: () -> Unit, onManage: (PermissionEntry) -> Unit) {
+fun PermissionsScreen(entries: List<PermissionEntry>, onBack: () -> Unit, textMessages: Boolean = false, onManage: (PermissionEntry) -> Unit) {
     SettingsPage(stringResource(R.string.perm_page_title), onBack) {
         item(key = "intro") { Note(stringResource(R.string.perm_page_intro), Modifier.padding(start = 32.dp, end = 32.dp, top = 20.dp, bottom = 12.dp)) }
         item(key = "permissions") {
             RowGroup {
-                entries.forEach { entry -> row { shape -> PermissionRowItem(shape, entry) { onManage(entry) } } }
+                entries.forEach { entry -> row { shape -> PermissionRowItem(shape, entry, textMessages) { onManage(entry) } } }
             }
         }
     }
 }
 
 @Composable
-private fun PermissionRowItem(shape: Shape, entry: PermissionEntry, onManage: () -> Unit) {
+private fun PermissionRowItem(shape: Shape, entry: PermissionEntry, textMessages: Boolean, onManage: () -> Unit) {
     val colors = BridgeyTheme.colors
     val (icon, tint) = permissionIcon(entry.kind)
     val available = entry.state != PermissionState.NOT_ON_THIS_DEVICE
@@ -144,7 +145,7 @@ private fun PermissionRowItem(shape: Shape, entry: PermissionEntry, onManage: ()
         IconTile(icon, if (entry.state == PermissionState.ALLOWED) tint else Tint.NEUTRAL)
         Column(Modifier.weight(1f)) {
             Text(permissionName(entry.kind), style = BridgeyType.rowTitle, color = colors.onSurface, modifier = Modifier.padding(end = 8.dp))
-            Text(permissionWhy(entry.kind), style = BridgeyType.itemBody, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 1.dp, end = 8.dp))
+            Text(permissionWhy(entry.kind, textMessages), style = BridgeyType.itemBody, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 1.dp, end = 8.dp))
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                 PermissionStateChip(entry.state)
                 Spacer(Modifier.weight(1f))

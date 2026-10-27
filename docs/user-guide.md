@@ -174,7 +174,7 @@ Read and answer your phone's text messages on the Mac. It is off until you turn 
 
 1. On the phone, open **Settings > Text messages** and turn it on for your Mac. Allow SMS access
    when asked; contacts access is optional (without it you see numbers instead of names).
-2. On the Mac, open **Settings > Notifications > Text messages** and turn it on.
+2. On the Mac, open **Settings > Text messages** and turn it on.
 
 Then:
 
