@@ -17,7 +17,9 @@ class PermissionCatalogTest {
         media: Boolean = false,
         camera: Boolean = true,
         focusFollow: Boolean = true,
-    ) = PermissionFacts(sdk, lab, granted, notifications, calls, screenshot, background, media, camera, focusFollow)
+        sms: Boolean = false,
+        dualSim: Boolean = false,
+    ) = PermissionFacts(sdk, lab, granted, notifications, calls, screenshot, background, media, camera, focusFollow, sms, dualSim)
 
     private fun states(facts: PermissionFacts) = PermissionCatalog.entries(facts).associate { it.kind to it.state }
 
@@ -85,11 +87,17 @@ class PermissionCatalogTest {
         assertEquals(PermissionState.NOT_ALLOWED, states(facts(sdk = 35))[PermissionKind.COMPANION_LINK])
     }
 
+    /** Text messages: SMS and Contacts are listed in every build and needed only while it is on. */
     @Test
-    fun smsIsListedOnlyInLabBuilds() {
-        assertFalse(PermissionKind.SMS in states(facts(lab = false)))
-        assertEquals(PermissionState.NOT_NEEDED_YET, states(facts(lab = true))[PermissionKind.SMS])
-        assertEquals(PermissionState.ALLOWED, states(facts(lab = true, granted = setOf(PermissionKind.SMS)))[PermissionKind.SMS])
+    fun smsAndContactsFollowTextMessages() {
+        assertEquals(PermissionState.NOT_NEEDED_YET, states(facts(lab = false))[PermissionKind.SMS])
+        assertEquals(PermissionState.NOT_NEEDED_YET, states(facts(lab = false))[PermissionKind.CONTACTS])
+        assertEquals(PermissionState.NOT_ALLOWED, states(facts(sms = true))[PermissionKind.SMS])
+        assertEquals(PermissionState.NOT_ALLOWED, states(facts(sms = true))[PermissionKind.CONTACTS])
+        assertEquals(PermissionState.ALLOWED, states(facts(sms = true, granted = setOf(PermissionKind.SMS)))[PermissionKind.SMS])
+        // Phone and calls lists the SIMs of a dual-SIM phone for Text messages.
+        assertEquals(PermissionState.NOT_NEEDED_YET, states(facts(calls = false, sms = true))[PermissionKind.PHONE_CALLS])
+        assertEquals(PermissionState.NOT_ALLOWED, states(facts(calls = false, sms = true, dualSim = true))[PermissionKind.PHONE_CALLS])
     }
 
     @Test

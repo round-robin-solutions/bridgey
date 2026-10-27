@@ -27,7 +27,7 @@
 "permission.localNetwork.why" = "Finds your phone and talks to it on this network.";
 "permission.localNetwork.without" = "The Mac cannot find or reach your phone.";
 "permission.notifications" = "Notifications";
-"permission.notifications.why" = "Shows your phone’s notifications, calls and codes on this Mac.";
+"permission.notifications.why" = "Shows your phone’s notifications, calls, codes and text replies on this Mac. Used by Notifications, Text messages and Calls.";
 "permission.notifications.without" = "Phone alerts, call cards and codes stay silent.";
 "permission.state.allowed" = "Allowed";
 "permission.state.notAllowed" = "Not allowed";
@@ -49,7 +49,7 @@
 "reset.activity" = "Activity and logs";
 "reset.activity.confirm" = "Delete activity and logs?";
 "reset.activity.done" = "Activity and logs deleted";
-"reset.activity.summary" = "Activity, notification history, diagnostics and the remote control and Mac actions logs. Keeps settings and pairings.";
+"reset.activity.summary" = "Activity, notification history, text messages kept here, diagnostics and the remote control and Mac actions logs. Keeps settings and pairings.";
 "reset.caches" = "Downloaded models and caches";
 "reset.caches.confirm" = "Delete downloaded models and caches?";
 "reset.caches.done" = "Models and caches deleted";
@@ -231,3 +231,11 @@
 "setup.q.screen.context" = "View only, in a window. Your phone asks you every time and shows a notification while it shares.";
 "setup.q.screen.summary" = "Phone screen on this Mac";
 "setup.a.screen.yes" = "Yes, when I ask for it";
+"setup.feature.messages.detail" = "Your phone’s texts in a Messages window, and Reply on text notifications";
+"setup.q.messages.title" = "Keep your conversations on this Mac?";
+"setup.q.messages.context" = "Your texts stay on the phone either way. Kept here, they open instantly and only your account can read them.";
+"setup.q.messages.summary" = "Text messages";
+"setup.a.messages.yes" = "Yes, so they open instantly";
+"setup.a.messages.no" = "No, load them from the phone each time";
+"setup.bundle.messages" = "Read and answer your phone’s texts here.";
+"reset.item.textMessages" = "Text messages kept on this Mac (your phone keeps them)";

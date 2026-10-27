@@ -985,6 +985,80 @@ its minimum (at most every 500 ms), and up by 15 percent after 2 seconds without
 | Another device on the network watches or injects frames | Frames are AES-GCM encrypted with the session key of the authenticated, pinned peer. The per-stream sequence and the stream ID in each header reject replays and splicing between streams; the session key rejects them across sessions |
 | A flood of frames or huge frames | Parts are at most 32 KiB, frames at most 64 parts, and the Mac keeps one unfinished frame. Frames go only to a Mac whose switch is on; the Mac stops a stream with no traffic for 6 seconds |
 | Sharing left running unnoticed | The notification stays until the stream ends; Stop on either side, a locked screen, a disconnect or switching the feature off ends it |
+### Text messages (`sms_draft1`)
+
+Status: **Draft, edition only.** Bridgey by Round Robin shows the phone's SMS conversations on the
+Mac, Pushbullet style: a Messages window with the conversation list, each conversation, new messages
+to a contact or number, MMS images (read only), delivery status and the SIM each conversation uses.
+A text message notification gets a Reply field on the Mac that works whichever messaging app the
+phone uses. Off by default on both sides; upstream peers never see any of it.
+
+**Negotiation.** `features.update` gains `sms_draft1`. The phone sets it while its Text messages
+switch is on for that Mac; the Mac sets it while its own Text messages setting is on. `sms.*`
+messages and the two `notifications.post` fields below go only to a peer whose latest map shows the
+key `true`. A phone that turns the feature off sends the key `false`, and the Mac then deletes what
+it kept for that phone.
+
+**Permissions and privacy.** The phone reads the SMS provider (`READ_SMS`), sends with `SmsManager`
+(`SEND_SMS`), looks up names (`READ_CONTACTS`) and, on dual-SIM phones, lists SIMs
+(`READ_PHONE_STATE`). It asks only when Text messages is turned on, and never becomes the default SMS
+app: Android writes messages Bridgey sends into the provider itself. Message bodies, numbers and
+names travel only inside the encrypted session and are never logged on either side. The phone keeps
+nothing; the Mac keeps a cache (below) and MMS images only in memory.
+
+**Fields on `notifications.post`** (phone to Mac, only to a Mac that shows the key, only for the
+default SMS app's notifications):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `smsReply` | boolean | the phone can answer this notification: the Mac shows one Reply field and sends `sms.send` with `notificationId` |
+| `smsThreadId` | integer, optional | the conversation the newest message belongs to, so a click opens it |
+
+The phone answers a notification reply through the messaging app's own reply (RemoteInput) when the
+app offers one, so chat features such as RCS keep working, and through `SmsManager` when it does not,
+or always when the phone's "Send replies as SMS" switch is on (for apps whose reply is unreliable).
+SmsManager replies go to the conversation's single participant from the SIM it last used.
+
+**Messages.** Encrypted like `codes.*` (`messageId` in the replay window), `version: 1`. Requests
+carry a `requestId` (UUID) that the answer echoes.
+
+| Message | Direction | Fields | Meaning |
+| --- | --- | --- | --- |
+| `sms.status` | phone to Mac | `read`, `send`, `contacts` (permissions), `sims` (`subId`, `slot`, `label`), `cursor` | sent after each `features.update` showing the key on both sides and whenever a permission or the SIM list changes |
+| `sms.changed` | phone to Mac | `cursor` | the provider changed; at most one every 2 seconds |
+| `sms.threads` / `sms.threads_page` | Mac asks, phone answers | `before` (date), `limit` up to 50 / `threads`, `more` | conversation list, newest first |
+| `sms.messages` / `sms.messages_page` | Mac asks, phone answers | `threadId`, `before` (`date`, `id`), `limit` up to 100 / `messages`, `more` | one conversation, newest first |
+| `sms.sync` / `sms.sync_page` | Mac asks, phone answers | `since` cursor, `limit` up to 200 / `messages`, `cursor`, `more`, `reset` | everything newer than the Mac's cursor |
+| `sms.send` / `sms.send_status` | Mac asks, phone answers | `body` and one of `threadId`, `address`, `notificationId`, optional `subId` / `status`, `reason`, `via` | send one SMS; statuses `sending`, `sent`, `delivered`, `failed`, `refused` |
+| `sms.attachment` / `sms.attachment_data` | Mac asks, phone answers | `partId` / `mimeType`, `width`, `height`, `data` | one MMS image as a JPEG of at most 28 KiB |
+| `sms.contacts` / `sms.contacts_result` | Mac asks, phone answers | `query` / up to 20 `contacts` | names and numbers for a new message |
+
+Pages stay under 40 KiB of plaintext (the frame limit is 64 KiB); the phone stops adding entries
+and sets `more`. A message is `{id, threadId, direction, status, date, address, body, truncated?,
+subId?, read, parts?}`; ids are `s<_id>` for SMS and `m<_id>` for MMS, so the two provider tables
+never collide. Bodies over 4,000 UTF-16 units are cut and marked `truncated`.
+
+**Incremental sync.** The cursor is the newest `_id` of the SMS and MMS tables. A Mac with no cache
+takes the cursor from `sms.status` as its starting point (it never copies the whole history) and
+loads the newest conversations; older conversations and older messages load only when scrolled to.
+After that it sends `sms.sync` on connect and after each `sms.changed`. The phone reads each table in
+`_id` order from the cursor, so a page never skips a message, and answers `reset: true` when the
+cursor is ahead of the phone (a restored phone) or more than 1,000 messages behind; the Mac then
+drops its cache and starts again. Opening a conversation refreshes its newest page, which picks up
+delivery reports and messages deleted on the phone.
+
+**The Mac's cache.** At most 200 conversations and the newest 200 messages of each, per phone, in one
+file under Application Support with permissions 0600. It is deleted when Text messages is turned off
+on the Mac, when the phone turns it off, when the phone is forgotten, and from Reset. No cloud.
+
+**Limits and safety.** `sms.send` goes to one recipient: a conversation with several people is
+refused (`group`) and the Mac says to answer it on the phone. Emergency numbers are refused. At most
+one send per second and 30 in 10 minutes per Mac (`rate_limited`); Android's own premium-number and
+volume prompts still apply on the phone. At most 4 open `sms.attachment` requests per Mac.
+
+**Codes from messages.** Unchanged: SMS notifications still carry `smsDefaultApp` and the Mac still
+reads codes from them. The conversation view offers Copy code on a message that looks like it holds
+one, using the same engine and guard as the notifications.
 
 ## Draft: folders, places and settings sync
 

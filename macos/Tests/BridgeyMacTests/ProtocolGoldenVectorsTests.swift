@@ -352,6 +352,99 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
     }
 
     private static func hexString(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
+    /// Text messages: the Mac reads the phone's sms.status.
+    func testSmsStatus() throws {
+        try each("smsStatus") { vector in
+            let result: Any = decodeSmsStatus(plaintext(vector)).map { status -> [String: Any] in
+                ["read": status.read, "send": status.send, "contacts": status.contacts,
+                 "sims": status.sims.map { ["subId": $0.subId, "slot": $0.slot, "label": $0.label] },
+                 "cursor": ["sms": status.cursor.sms, "mms": status.cursor.mms]]
+            } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// Text messages: one message object of a page, as the Mac reads it (an invalid one is dropped).
+    func testSmsMessage() throws {
+        try each("smsMessage") { vector in
+            let value = try? JSONSerialization.jsonObject(with: plaintext(vector), options: [.fragmentsAllowed])
+            let result: Any = decodeSmsMessage(value).map { message -> [String: Any] in
+                ["id": message.id, "threadId": message.threadId, "direction": message.direction.rawValue, "status": message.status.rawValue,
+                 "date": message.date, "address": message.address, "body": message.body, "truncated": message.truncated,
+                 "subId": message.subId ?? NSNull(), "read": message.read,
+                 "parts": message.parts.map { ["partId": $0.partId, "mimeType": $0.mimeType, "size": $0.size ?? NSNull()] as [String: Any] }]
+            } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// Text messages: the Mac reads the phone's sms.send_status.
+    func testSmsSendStatus() throws {
+        try each("smsSendStatus") { vector in
+            let result: Any = decodeSmsSendStatus(plaintext(vector)).map { status -> [String: Any] in
+                ["requestId": status.requestID, "status": status.status.rawValue,
+                 "reason": status.reason?.rawValue ?? NSNull(), "via": status.via ?? NSNull()]
+            } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// Text messages: every request the phone accepts, the Mac writes the same way from the decoded values.
+    func testSmsRequestsAsTheMacWritesThem() throws {
+        var checked = 0
+        try each("smsRequest") { vector in
+            guard let expect = vector["expect"] as? [String: Any] else { return true }
+            checked += 1
+            let id = expect["requestId"] as! String
+            let written: [String: Any]?
+            switch vector["kind"] as! String {
+            case SmsKinds.threads: written = SmsRequests.threads(id, before: expect["before"] as? Int, limit: expect["limit"] as! Int)
+            case SmsKinds.messages:
+                let before = (expect["before"] as? [String: Any]).map {
+                    SmsMessage(id: $0["id"] as! String, threadId: expect["threadId"] as! Int, direction: .incoming, status: .received,
+                               date: $0["date"] as! Int, address: "", body: "")
+                }
+                written = SmsRequests.messages(id, threadId: expect["threadId"] as! Int, before: before, limit: expect["limit"] as! Int)
+            case SmsKinds.sync:
+                let since = expect["since"] as! [String: Int]
+                written = SmsRequests.sync(id, since: SmsCursor(sms: since["sms"]!, mms: since["mms"]!), limit: expect["limit"] as! Int)
+            case SmsKinds.attachment: written = SmsRequests.attachment(id, partID: expect["partId"] as! String)
+            case SmsKinds.contacts: written = SmsRequests.contacts(id, query: expect["query"] as! String)
+            default: return false
+            }
+            guard var written else { return false }
+            if written["before"] == nil, expect.keys.contains("before") { written["before"] = NSNull() }
+            written.removeValue(forKey: "version")
+            return NSDictionary(dictionary: written).isEqual(to: expect)
+        }
+        XCTAssertGreaterThanOrEqual(checked, 12)
+    }
+
+    /// Text messages: sends the phone accepts are what the Mac writes; malformed bodies and numbers never leave the Mac.
+    func testSmsSendAsTheMacWritesIt() throws {
+        try each("smsSend") { vector in
+            guard let expect = vector["expect"] as? [String: Any] else {
+                // A rejected send: the Mac's own encoder refuses the same body or number when it can tell.
+                guard let plaintext = vector["plaintext"] as? [String: Any], let body = plaintext["body"] as? String else { return true }
+                if !SmsRequests.isSendableBody(body) { return SmsRequests.send(Self.requestID, body: body, to: .thread(1)) == nil }
+                if let address = plaintext["address"] as? String, plaintext["threadId"] == nil, plaintext["notificationId"] == nil {
+                    return SmsRequests.send(Self.requestID, body: body, to: .address(address)) == nil
+                }
+                return true
+            }
+            let target: SmsRequests.Target
+            if let thread = expect["threadId"] as? Int { target = .thread(thread) }
+            else if let address = expect["address"] as? String { target = .address(address) }
+            else { target = .notification(expect["notificationId"] as! String) }
+            guard var written = SmsRequests.send(expect["requestId"] as! String, body: expect["body"] as! String, to: target,
+                                                 subId: expect["subId"] as? Int) else { return false }
+            written.removeValue(forKey: "version")
+            for key in ["threadId", "address", "notificationId", "subId"] where written[key] == nil { written[key] = NSNull() }
+            return NSDictionary(dictionary: written).isEqual(to: expect)
+        }
+    }
+
+    private static let requestID = "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293"
 
     /// The Mac is the remote control host: it accepts exactly what the phone may send.
     func testRemoteInputAsTheHostReadsIt() throws {

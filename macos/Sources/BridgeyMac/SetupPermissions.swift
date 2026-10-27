@@ -50,7 +50,7 @@ enum SetupPermission: String, CaseIterable, Identifiable, Codable {
     var why: String {
         switch self {
         case .localNetwork: L10n.setup("permission.localNetwork.why", fallback: "Finds your phone and talks to it on this network.")
-        case .notifications: L10n.setup("permission.notifications.why", fallback: "Shows your phone\u{2019}s notifications, calls and codes on this Mac.")
+        case .notifications: L10n.setup("permission.notifications.why", fallback: "Shows your phone\u{2019}s notifications, calls, codes and text replies on this Mac. Used by Notifications, Text messages and Calls.")
         case .bluetooth: L10n.setup("permission.bluetooth.why", fallback: "Lets your phone link to this Mac so Android shows Bridgey your codes.")
         case .accessibility: L10n.setup("permission.accessibility.why", fallback: "Lets your phone move the pointer and type when you turn on remote control, and lock this Mac with Mac actions.")
         case .automation: L10n.setup("permission.automation.why", fallback: "Lets your phone play, pause and skip in Music or Spotify.")
@@ -152,6 +152,8 @@ struct PermissionNeeds: Equatable {
     var notifications = true
     var calls = true
     var codes = false
+    /// Text messages: Reply on text notifications and send failures appear as notifications.
+    var messages = false
     var remoteControl = false
     var media = false
     var mediaPlayer: MediaPlayer = .off
@@ -163,7 +165,7 @@ struct PermissionNeeds: Equatable {
     func needed(_ permission: SetupPermission) -> Bool {
         switch permission {
         case .localNetwork: true
-        case .notifications: notifications || calls || codes
+        case .notifications: notifications || calls || codes || messages
         case .bluetooth: codes
         case .accessibility: remoteControl || macActionsLock
         case .automation: media && mediaPlayer != .off

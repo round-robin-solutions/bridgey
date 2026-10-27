@@ -394,6 +394,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun releaseSmsAccess() {
+        // Text messages keeps SMS access while it is on.
+        if (::bridgeySettings.isInitialized && bridgeySettings.smsOn()) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
         ) {
@@ -477,6 +479,8 @@ class MainActivity : ComponentActivity() {
         readLogsGranted = checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
         batteryExempt = PowerFacts.ignoringBatteryOptimizations(this)
         dndAccess = getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted
+        // Text messages: a permission changed in App info reaches the Macs' status.
+        if (::pairing.isInitialized) pairing.smsPermissionsChanged()
         if (
             ::bridgeySettings.isInitialized && bridgeySettings.state.value.directCallsEnabled &&
             !hasCallIntegrationPermissions()
@@ -597,6 +601,7 @@ private val PermissionOrder = listOf(
     listOf(BridgeyFeature.CLIPBOARD),
     listOf(BridgeyFeature.FILES),
     listOf(BridgeyFeature.NOTIFICATIONS),
+    listOf(BridgeyFeature.SMS),
     listOf(BridgeyFeature.CALLS),
     listOf(BridgeyFeature.MEDIA),
     listOf(BridgeyFeature.REMOTE_INPUT),
@@ -831,8 +836,9 @@ private fun BridgeyApp(
 
     // The Code reader test reached its report: ask Android to drop SMS access at the next restart.
     LaunchedEffect(codeTestState is dev.bridgey.android.codes.CodeTestState.Report) {
+        // Text messages keeps SMS access while it is on.
         if (codeTestState is dev.bridgey.android.codes.CodeTestState.Report && android.os.Build.VERSION.SDK_INT >= 33 &&
-            context.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+            context.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED && !settings.smsOn()
         ) {
             context.revokeSelfPermissionOnKill(Manifest.permission.READ_SMS)
         }
@@ -1015,6 +1021,11 @@ private fun BridgeyApp(
                         }
                     }
                     val codeTargets = connections.filter { it.state.remoteSmsCodes }.map { dev.bridgey.android.codes.CodeLinkMac(it.deviceId, it.peerName) }
+                    val messagesPermissions = dev.bridgey.android.ui.rememberMessagesPermissions(
+                        replyAsSms = settingsState.smsReplyAsSms,
+                        dualSim = remember { dev.bridgey.android.sms.isDualSim(context) },
+                        onChanged = pairing::smsPermissionsChanged,
+                    )
                     val settingsUi =
                         SettingsState(
                             deviceName = settingsState.deviceName,
@@ -1062,6 +1073,7 @@ private fun BridgeyApp(
                             setup = dev.bridgey.android.ui.SetupSettingsState(oem = setup.oem),
                             focus = FocusSettingsState(settingsState.focusShare, settingsState.focusFollow, dndAccess),
                             updateAll = updateAllState,
+                            messages = messagesPermissions.state,
                         )
                     val settingsUiActions =
                         SettingsActions(
@@ -1079,7 +1091,11 @@ private fun BridgeyApp(
                                 else permissionPrompt = PermissionPrompt.NotificationForwarding
                             },
                             rename = onDeviceNameChanged,
-                            setGlobal = onSetGlobalFeature,
+                            setGlobal = { feature, on ->
+                                onSetGlobalFeature(feature, on)
+                                // Text messages asks for SMS and contacts only now, when it is turned on.
+                                if (feature == BridgeyFeature.SMS && on) messagesPermissions.askAll()
+                            },
                             setDirectCalls = onSetDirectCalls,
                             setAutoClipboard = settings::setAutoClipboardGlobal,
                             setBackgroundClipboard = settings::setBackgroundClipboardEnabled,
@@ -1135,6 +1151,12 @@ private fun BridgeyApp(
                                     if (on && !dndAccess) onOpenDndAccess()
                                 },
                                 openAccess = onOpenDndAccess,
+                            ),
+                            messages = dev.bridgey.android.ui.MessagesSettingsActions(
+                                setReplyAsSms = settings::setSmsReplyAsSms,
+                                allowSms = messagesPermissions.askSms,
+                                allowContacts = messagesPermissions.askContacts,
+                                allowSims = messagesPermissions.askSims,
                             ),
                             codes = CodesSettingsActions(
                                 link = codes.linker::start,

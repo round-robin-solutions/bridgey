@@ -151,6 +151,33 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
             notificationId,
             notificationActionCandidates(notification, callType, isTelephonyCall && canControlSystemCalls()),
         )
+        // Text messages (sms_draft1): a Mac may answer an SMS notification, through the app's own reply or
+        // by SMS to the conversation it belongs to. Found here once; the text is matched, never logged.
+        var smsReply = false
+        var smsThreadId: Long? = null
+        // A group summary ("2 new messages") stands for several conversations: no reply from the Mac.
+        val groupSummary = notification.flags and Notification.FLAG_GROUP_SUMMARY != 0
+        if (smsDefaultApp && !groupSummary && bridgey.settings.smsOn()) {
+            val provider = dev.bridgey.android.sms.SmsProvider(this)
+            val replyToken = actions.firstOrNull { it.allowsReply }?.token
+            smsThreadId = if (provider.canRead) {
+                runCatching {
+                    dev.bridgey.android.sms.matchNotificationThread(
+                        title, text, sbn.postTime, provider.recentInbox(sbn.postTime - dev.bridgey.android.sms.MATCH_WINDOW_BEFORE_MILLIS),
+                        messageTime = notification.`when`,
+                    )
+                }.getOrNull()
+            } else {
+                null
+            } ?: dev.bridgey.android.sms.SmsNotificationTargets.get(notificationId)?.threadId
+            dev.bridgey.android.sms.SmsNotificationTargets.record(
+                dev.bridgey.android.sms.SmsNotificationTarget(
+                    notificationId, title, text, sbn.postTime, smsThreadId, messageTime = notification.`when`, replyToken = replyToken,
+                ),
+            )
+            // With the sender hidden and no conversation found, a reply could only fail: no Reply on the Mac.
+            smsReply = replyToken != null || (provider.canSend && provider.canRead && (smsThreadId != null || title.isNotBlank()))
+        }
         val forward = Runnable {
             pendingCallPosts.remove(notificationId)
             if (forwardedNotifications.systemKey(notificationId) != sbn.key) return@Runnable
@@ -166,6 +193,8 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
                 callType = callType,
                 smsDefaultApp = smsDefaultApp,
                 redacted = redacted,
+                smsReply = smsReply,
+                smsThreadId = smsThreadId,
             )
             if (callType != null) {
                 callLifecycle.forwarded(notificationId, sbn.key, sbn.packageName, isTelephonyCall)
@@ -205,6 +234,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         val notificationId = forwardedNotifications.removeSystemKey(sbn.key) ?: return
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
         removeActions(notificationId)
+        dev.bridgey.android.sms.SmsNotificationTargets.remove(notificationId)
         if (!forwardedNotificationIds.remove(notificationId)) return
         val bridgey = application as BridgeyApplication
         if (!bridgey.isPrimaryUser || !bridgey.isBridgeyEnabled) return

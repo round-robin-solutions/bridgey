@@ -122,6 +122,8 @@ data class SettingsState(
     val focus: FocusSettingsState = FocusSettingsState(),
     /** Updates > Your devices and Update all. */
     val updateAll: UpdateAllUiState = UpdateAllUiState(),
+    /** Text messages: permissions and how replies are sent. */
+    val messages: MessagesSettingsState = MessagesSettingsState(),
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean = globalFeatures[feature] != false
 }
@@ -171,6 +173,7 @@ class SettingsActions(
     val setup: SetupSettingsActions = SetupSettingsActions(),
     val focus: FocusSettingsActions = FocusSettingsActions(),
     val updateAll: UpdateAllActions = UpdateAllActions(),
+    val messages: MessagesSettingsActions = MessagesSettingsActions(),
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
@@ -189,6 +192,7 @@ enum class SettingsSection(val titleRes: Int, val group: SettingsGroup?) {
     DEVICES(R.string.settings_devices, SettingsGroup.DEVICES),
     CLIPBOARD(R.string.feature_clipboard, SettingsGroup.FEATURES),
     NOTIFICATIONS(R.string.settings_notifications, SettingsGroup.FEATURES),
+    MESSAGES(R.string.feature_sms, SettingsGroup.FEATURES),
     CALLS(R.string.feature_calls, SettingsGroup.FEATURES),
     FILES(R.string.feature_files, SettingsGroup.FEATURES),
     MEDIA(R.string.settings_media, SettingsGroup.FEATURES),
@@ -239,6 +243,7 @@ fun SettingsScreen(
         SettingsSection.DEVICES -> DevicesPage(state, actions, listState)
         SettingsSection.CLIPBOARD -> ClipboardPage(state, actions, listState)
         SettingsSection.NOTIFICATIONS -> NotificationsPage(state, actions, listState)
+        SettingsSection.MESSAGES -> MessagesPage(state, actions, listState)
         SettingsSection.CALLS -> CallsPage(state, actions, listState)
         SettingsSection.FILES -> FilesPage(state, actions, listState)
         SettingsSection.MEDIA -> MediaPage(state, actions, listState)
@@ -417,6 +422,21 @@ private fun NotificationsPage(state: SettingsState, actions: SettingsActions, li
         item(key = "notifications.focus.note") {
             Note(stringResource(R.string.focus_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp))
         }
+    }
+}
+
+/** Text messages: the switch, then what Android allows and how replies from the Mac are sent. */
+@Composable
+private fun MessagesPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
+    SectionPage(SettingsSection.MESSAGES, actions, listState) {
+        val on = state.featureOn(BridgeyFeature.SMS)
+        item(key = "messages") {
+            RowGroup(Modifier.padding(top = 8.dp)) {
+                row { shape -> FeatureSwitch(shape, BridgeyFeature.SMS, state, actions) }
+                if (on) messagesRows(state.messages, actions.messages)
+            }
+        }
+        item(key = "messages.note") { Note(stringResource(R.string.messages_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) }
     }
 }
 
@@ -713,6 +733,7 @@ private fun sectionVisual(section: SettingsSection, state: SettingsState): Pair<
         SettingsSection.DEVICES -> BridgeyIcons.Devices to Tint.BLUE
         SettingsSection.CLIPBOARD -> feature(BridgeyFeature.CLIPBOARD)
         SettingsSection.NOTIFICATIONS -> feature(BridgeyFeature.NOTIFICATIONS)
+        SettingsSection.MESSAGES -> feature(BridgeyFeature.SMS)
         SettingsSection.CALLS -> feature(BridgeyFeature.CALLS)
         SettingsSection.FILES -> feature(BridgeyFeature.FILES)
         SettingsSection.MEDIA -> feature(BridgeyFeature.MEDIA, MediaSectionFeatures.any(state::featureOn))
@@ -755,6 +776,12 @@ private fun sectionSummary(section: SettingsSection, state: SettingsState): Sect
             featureOff(BridgeyFeature.NOTIFICATIONS) -> SectionSummary(off)
             !state.notificationAccessEnabled -> SectionSummary(stringResource(R.string.settings_summary_notifications_access), warning = true)
             else -> SectionSummary(stringResource(R.string.settings_notification_apps_count, state.notificationAppsEnabled, state.notificationAppsTotal))
+        }
+        SettingsSection.MESSAGES -> when {
+            featureOff(BridgeyFeature.SMS) -> SectionSummary(off)
+            !state.messages.smsAllowed -> SectionSummary(stringResource(R.string.settings_summary_messages_access), warning = true)
+            state.messages.replyAsSms -> SectionSummary(stringResource(R.string.settings_summary_messages_sms))
+            else -> SectionSummary(stringResource(R.string.settings_summary_messages_on))
         }
         SettingsSection.CALLS -> SectionSummary(
             when {
@@ -974,6 +1001,7 @@ private fun globalFeatureDetail(feature: BridgeyFeature): String = stringResourc
         BridgeyFeature.MAC_ACTIONS -> R.string.settings_mac_actions_detail
         BridgeyFeature.CAMERA -> R.string.settings_camera_detail
         BridgeyFeature.SCREEN -> R.string.settings_screen_detail
+        BridgeyFeature.SMS -> R.string.feature_sms_detail
     },
 )
 

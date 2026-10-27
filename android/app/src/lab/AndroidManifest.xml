@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Lab builds only (beta, nightly, local; never stable, see build.gradle.kts): the hidden Code
-     reader test reads recent SMS on the phone, asked for only when the test starts, and Bridgey
-     asks Android to remove it again when the test ends. The product feature does not need it. -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.READ_SMS" />
-    <uses-feature android:name="android.hardware.telephony" android:required="false" />
-</manifest>

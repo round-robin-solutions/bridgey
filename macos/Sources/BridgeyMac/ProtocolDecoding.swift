@@ -278,7 +278,9 @@ let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, places
                              macActionsFeatureKey, linksOpenFeatureKey, focusSyncFeatureKey, cameraFeatureKey,
                              updatesFeatureKey,
                              // Screen sharing (v0.9), view only.
-                             screenFeatureKey]
+                             screenFeatureKey,
+                             // Text messages (SmsProtocol.swift).
+                             smsFeatureKey]
 
 func decodeFeatureState(_ plaintext: Data) -> FeatureStateDecoding {
     guard isStrictJSONObject(plaintext),

@@ -153,8 +153,9 @@ class SetupFlowTest {
             assertTrue("${bundle.id}: ${walk.steps}", walk.steps.size in 4..8)
         }
         val everything = start(fresh(paired = false, codes = true, apps = true), SetupBundles.answers(SetupBundles.all.map { it.id }.toSet(), emptyMap())).toTheEnd()
-        // Every bundle at once: one card per follow-up (screen sharing added the eleventh step).
-        assertTrue(everything.steps.toString(), everything.steps.size <= 11)
+        // Every bundle at once: the start, pairing, one card per follow-up (clipboard, notification apps, text messages,
+        // calls, files, remote volume keys, screen), then switches, permissions and the summary: 12 since text messages.
+        assertTrue(everything.steps.toString(), everything.steps.size <= 12)
     }
 
     @Test

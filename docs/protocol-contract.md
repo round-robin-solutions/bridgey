@@ -70,7 +70,7 @@ the tables at the end of this page are generated from it with
    validation is dropped (or answered with that feature's error message). A payload that fails
    decryption closes the session for `upstream-v1` messages and for folders, places and browsing, as in
    upstream; clipboard offers, codes, remote input, the automation drafts (Mac actions, Focus sync,
-   phone camera), Update all and screen sharing drop it and keep the session.
+   phone camera), Update all, screen sharing and text messages drop it and keep the session.
 9. **Replay.** Encrypted messages with a `messageId` go through one per-session window of the last
    256 accepted IDs (oldest evicted first); a repeated ID is not executed again. Quick actions,
    remote input and screen sharing streams use a sequence high-water mark instead, so their volume cannot push other IDs out of
@@ -95,9 +95,11 @@ the tables at the end of this page are generated from it with
   `focus.state` on both, `actions.catalog`, `actions.result` and `camera.request` on the phone,
   `actions.run` and `camera.status` on the Mac, with each sending platform's own encoding checked
   against the same plaintext; Update all: `updates.status`, `updates.start` and `updates.result` on
-  both, which also write the same plaintext for the vectors marked `write`; and screen sharing:
+  both, which also write the same plaintext for the vectors marked `write`; screen sharing:
   `screen.request` and the Mac's stream messages on the phone, `screen.status`, the phone's stream
-  messages and the binary `screen.frame` header on the Mac). `mac_actions_draft1` and `camera_draft1` are switches in the apps but
+  messages and the binary `screen.frame` header on the Mac; and Text messages: the `sms.*` requests
+  and `sms.send` on the phone, `sms.status`, a page's message object and `sms.send_status` on the
+  Mac). `mac_actions_draft1` and `camera_draft1` are switches in the apps but
   draft keys on the wire: the vectors pin them once, under the draft keys, and like every draft key
   they read `true` only for JSON `true`. (`remote_input_draft1` predates the shared draft list: a
   non-boolean value still closes the session.)
@@ -145,6 +147,7 @@ the tables at the end of this page are generated from it with
 | `camera_draft1` | edition-draft | no | false |
 | `updates_draft1` | edition-draft | no | false |
 | `screen_draft1` | edition-draft | no | false |
+| `sms_draft1` | edition-draft | no | false |
 | `settings_sync_draft1` | designed | no | false |
 
 ### Envelope fields
@@ -168,7 +171,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-110 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+124 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -358,6 +361,8 @@ Idempotent.
 - `actions`: array of at most 4 {actionToken (at most 64), title (at most 64), allowsReply}
 - `smsDefaultApp`: boolean, edition extension (sms_codes_draft1)
 - `redacted`: boolean, edition extension, only with smsDefaultApp true
+- `smsReply`: boolean, edition extension (sms_draft1), only to a Mac that shows the key: the phone answers this notification by sms.send with notificationId
+- `smsThreadId`: integer, optional, edition extension (sms_draft1): the conversation the message belongs to, when the phone found it
 
 Content is sensitive and never logged.
 
@@ -374,7 +379,7 @@ Content is sensitive and never logged.
 
 - `notificationId`: string, at most 512
 - `actionToken`: string, at most 64
-- `reply`: string, optional, at most 4,096
+- `replyText`: string, optional, at most 4,096
 
 Android runs only tokens it retained for the still active notification.
 
@@ -969,6 +974,164 @@ Once a second while streaming; shown in the Mac window.
 - `reason`: user | closed | ended | screen_off | disabled | invalid | timeout | failed; an unknown reason reads as failed
 
 Either side ends the stream. A Mac refusing a start sends it with the start's streamId and its own sequence 1.
+
+#### `sms.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `sms.status` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.changed` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.threads` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.threads_page` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.messages` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.messages_page` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.sync` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.sync_page` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.send` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.send_status` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.attachment` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.attachment_data` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.contacts` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.contacts_result` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 16,384 B | sessionId, messageId, nonce, ciphertext | android, macos |
+
+`sms.status`
+
+- `version`: integer, 1
+- `read`: boolean, READ_SMS allowed
+- `send`: boolean, SEND_SMS allowed
+- `contacts`: boolean, READ_CONTACTS allowed
+- `sims`: array of at most 4 {subId (integer), slot (0 to 3), label (at most 64)}; empty when the phone cannot list them; an invalid entry is dropped
+- `cursor`: {sms, mms}: integers, the newest _id in each SMS provider table
+
+Sent after each features.update that shows the key on both sides, and when a permission or the SIM list changes.
+
+`sms.changed`
+
+- `version`: integer, 1
+- `cursor`: {sms, mms}: integers, the newest _id in each SMS provider table
+
+The SMS provider changed (a ContentObserver, only while a Mac shows the key), at most one every 2 seconds. The Mac asks sms.sync when the cursor is ahead of its own and refreshes an open conversation.
+
+`sms.threads`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `before`: integer, optional, Unix ms, exclusive (absent: the newest)
+- `limit`: integer, 1 to 50
+
+Answered by `sms.threads_page`.
+
+`sms.threads_page`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `threads`: array, newest first, of {threadId, participants (1 to 10 {address (at most 64), name (optional, at most 128)}), snippet (at most 160), date (Unix ms), unread (integer), subId (optional)}
+- `more`: boolean
+- `error`: optional: disabled | permission (threads is then empty)
+
+The phone stops adding entries before the plaintext limit and sets more.
+
+`sms.messages`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `threadId`: integer, at least 1
+- `before`: optional {date (Unix ms), id}, exclusive, ordered by date then id (absent: the newest)
+- `limit`: integer, 1 to 100
+
+Answered by `sms.messages_page`.
+
+`sms.messages_page`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `threadId`: integer
+- `messages`: array, newest first, of {id (s<n> or m<n>, at most 24), threadId, direction: in | out, status: received | pending | sent | delivered | failed (an unknown status reads as received or sent), date (Unix ms), address (at most 64; the other side, empty for an outgoing MMS), body (at most 4,000 UTF-16 units), truncated (optional boolean), subId (optional integer), read (optional boolean, default true), parts (optional, at most 8 images {partId (p<n>), mimeType image/*, size?})}; an invalid message is dropped
+- `more`: boolean
+- `error`: optional: disabled | permission | not_found
+
+`sms.sync`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `since`: {sms, mms}: integers, the newest _id in each SMS provider table, from the Mac's cache
+- `limit`: integer, 1 to 200
+
+Answered by `sms.sync_page`.
+
+`sms.sync_page`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `messages`: array of messages newer than since (any order; the Mac sorts), as in sms.messages_page
+- `cursor`: {sms, mms}: integers, the newest _id in each SMS provider table: where the next sms.sync starts
+- `more`: boolean
+- `reset`: boolean: since is ahead of the phone or over 1,000 messages behind; the Mac drops its cache and loads the threads again
+- `error`: optional: disabled | permission
+
+Each table is read in _id order, so the cursor never skips a message.
+
+`sms.send`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `body`: string, 1 to 2,000 UTF-16 units, not only spaces
+- `threadId`: integer, one of threadId, address and notificationId
+- `address`: string, a phone number: + and 2 to 20 digits once spaces, dashes, dots and brackets are removed
+- `notificationId`: string, at most 512: answers an SMS notification that carried smsReply
+- `subId`: integer, optional: the SIM to send from (default: the thread's last SIM, else the phone's default)
+
+Answered by `sms.send_status`.
+
+One recipient only: a conversation with several people is refused (group). Emergency numbers are refused (invalid). At most one per second and 30 in 10 minutes per Mac. Bridgey never becomes the default SMS app; Android writes the sent message to the SMS provider. A reply to a notification goes through the messaging app's own reply when it has one, unless the phone's Send replies as SMS is on.
+
+`sms.send_status`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `status`: sending | sent | delivered | failed | refused; the Mac drops an unknown status
+- `reason`: with failed or refused: disabled | permission | invalid | group | no_sim | rate_limited | not_found | radio_off | no_service | failed (an unknown or missing reason reads as failed)
+- `via`: optional: sms (SmsManager) | app (the messaging app's reply)
+
+Several per request: sending, then sent or failed, then delivered when the network reports it.
+
+`sms.attachment`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `partId`: string, p<n>
+
+Answered by `sms.attachment_data`.
+
+Read-only MMS images. At most 4 open requests per Mac.
+
+`sms.attachment_data`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `partId`: string
+- `mimeType`: image/jpeg
+- `width`: integer
+- `height`: integer
+- `data`: string, base64 JPEG of at most 28,672 bytes, scaled down on the phone
+- `error`: optional: not_found | unsupported | permission (no image fields)
+
+The Mac keeps images in memory only.
+
+`sms.contacts`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `query`: string, 1 to 64 UTF-16 units
+
+Answered by `sms.contacts_result`.
+
+`sms.contacts_result`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `contacts`: array of at most 20 {name (at most 128), address (at most 64), label (optional, at most 32)}
+- `error`: optional: permission (contacts is then empty)
 
 #### `places.*`
 

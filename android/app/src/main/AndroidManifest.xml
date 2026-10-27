@@ -43,6 +43,13 @@
     <!-- Share screen with Macs (off by default): the screen sharing service runs as a mediaProjection
          foreground service, after the person confirms in Android's own dialog, every time. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- Text messages (off by default, asked for only when it is turned on): reads conversations for the
+         Mac, sends the texts written there, and shows names. Bridgey never becomes the default SMS app:
+         it declares no SMS_DELIVER, WAP_PUSH_DELIVER or RESPOND_VIA_MESSAGE handler. The hidden Code
+         reader test (lab builds) also reads the inbox. -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <!-- The widget's Glance library brings WorkManager, which asks to start at boot. Bridgey's widget
          redraws when the app starts, so that permission is removed from the merged manifest. -->
@@ -154,6 +161,8 @@
         </service>
         <activity android:name=".ConfirmCallActivity" android:exported="false"
             android:excludeFromRecents="true" android:noHistory="true" android:taskAffinity="" />
+        <!-- Text messages: sent and delivered results of Bridgey's own SMS (its PendingIntents only). -->
+        <receiver android:name=".sms.SmsResultReceiver" android:exported="false" />
         <service
             android:name=".BridgeyConnectionService"
             android:exported="false"
