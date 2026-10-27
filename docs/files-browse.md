@@ -90,7 +90,7 @@ media and documents the way Telegram shows them, and media from the phone that f
 | B9 | The Mac serves no places: folders from the phone use the Mac's own setting (Received files, or ask) | Call |
 | B10 | Metadata stripping default: location only | Call (Rahul asked to choose) |
 | B11 | Quick drop Undo: the send starts at once and Undo cancels what it started | Call (more seamless than holding for 5 s) |
-| B12 | The menu bar moved from SwiftUI `MenuBarExtra` to an AppKit status item, so the panel can open from code without stealing a drag | Needed for menu-bar drops |
+| B12 | The menu bar moved from SwiftUI `MenuBarExtra` to an AppKit status item, so the panel can open from code without stealing a drag. The SwiftUI app's only scene is an uninserted `MenuBarExtra`: a lone `Settings` scene is opened by SwiftUI at launch as an empty window | Needed for menu-bar drops |
 | B13 | WebP encoding on the Mac uses a bundled libwebp 1.4.0 (BSD), since macOS cannot encode WebP | Call |
 | B14 | History keeps names whatever the Logging switch says (it is user-facing), but only in an owner-only file on the Mac; logs and diagnostics never carry names | Rahul |
 | B15 | An offer never accepted may be re-offered after a reconnect with the same ID | Call (nothing was written) |

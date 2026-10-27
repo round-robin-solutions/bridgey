@@ -44,7 +44,9 @@ struct BridgeyApp: App {
 
     var body: some Scene {
         // The menu-bar icon and panel are AppKit (MenuBarStatus.swift): they open from code and take drops.
-        Settings { EmptyView() }
+        // An App needs a scene; an uninserted MenuBarExtra shows nothing. A lone Settings scene is opened by
+        // SwiftUI at launch as an empty "Bridgey by Round Robin Settings" window (seen in the 0.8 launch smoke).
+        MenuBarExtra("Bridgey", systemImage: "link.circle", isInserted: .constant(false)) { EmptyView() }
     }
 }
 
