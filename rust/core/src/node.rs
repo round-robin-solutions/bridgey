@@ -99,6 +99,7 @@ struct IceSession {
     allocation: Mutex<Option<Arc<Allocation>>>,
     started: Instant,
     tunnel: Mutex<Option<String>>,
+    relay_retried: AtomicBool,
 }
 
 pub type EventSink = Arc<dyn Fn(String) + Send + Sync>;
@@ -122,6 +123,8 @@ pub struct Node {
     allocations: Mutex<HashMap<SocketAddr, Arc<Allocation>>>,
     /// One Allocate at a time: a second on the same 5-tuple is refused (437).
     allocating: tokio::sync::Mutex<()>,
+    /// Releases in flight per relay; a new Allocate there waits for them (else 437).
+    releasing: Mutex<HashMap<SocketAddr, tokio::task::JoinHandle<()>>>,
     next_id: AtomicU64,
     bridge_port: u16,
     stopped: AtomicBool,
@@ -182,6 +185,7 @@ impl Node {
             sign_waiters: Mutex::new(HashMap::new()),
             allocations: Mutex::new(HashMap::new()),
             allocating: tokio::sync::Mutex::new(()),
+            releasing: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             bridge_port,
             stopped: AtomicBool::new(false),
@@ -564,6 +568,7 @@ impl Node {
             allocation: Mutex::new(None),
             started: Instant::now(),
             tunnel: Mutex::new(None),
+            relay_retried: AtomicBool::new(false),
         });
         self.ice.lock().unwrap().insert(sid, session.clone());
         tokio::spawn(self.clone().ice_events(session.clone(), events));
@@ -702,6 +707,18 @@ impl Node {
                 Ok(a) => a,
                 Err(e) => {
                     node.log(&format!("relay {} allocation failed: {e}", grant.id));
+                    // Ask for another relay once; ICE pairs relay addresses on different servers too.
+                    if !session.relay_retried.swap(true, Ordering::Relaxed) {
+                        node.rdv_send(Msg::RelayRequest {
+                            rdv: session.rdv.clone(),
+                            sid: session.agent.sid.clone(),
+                            side: session.side,
+                            rtts: None,
+                            need: Some("udp".into()),
+                            est_bytes: None,
+                            exclude: Some(vec![grant.id.clone()]),
+                        });
+                    }
                     return;
                 }
             };
@@ -722,6 +739,10 @@ impl Node {
 
     async fn allocation(&self, server: SocketAddr, grant: &RelayGrant) -> Result<Arc<Allocation>, String> {
         let _one = self.allocating.lock().await;
+        let pending = self.releasing.lock().unwrap().remove(&server);
+        if let Some(release) = pending {
+            let _ = tokio::time::timeout(Duration::from_secs(3), release).await;
+        }
         if let Some(existing) = self.allocations.lock().unwrap().get(&server).cloned() {
             return Ok(existing);
         }
@@ -817,7 +838,9 @@ impl Node {
             let still_used = self.ice.lock().unwrap().values().any(|s| s.allocation.lock().unwrap().as_ref().map(|a| a.server) == Some(allocation.server));
             if !still_used {
                 self.allocations.lock().unwrap().remove(&allocation.server);
-                tokio::spawn(async move { allocation.release().await });
+                let server = allocation.server;
+                let release = tokio::spawn(async move { allocation.release().await });
+                self.releasing.lock().unwrap().insert(server, release);
             }
         }
     }
