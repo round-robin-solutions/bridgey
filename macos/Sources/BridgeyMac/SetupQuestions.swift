@@ -50,6 +50,8 @@ enum SetupSetting: String, CaseIterable {
     case shortcutLink, shortcutPing
     // Remote control
     case featureRemoteInput, remoteGrant, accessibility, remoteLog
+    // Phone screen (Remote control page)
+    case featureScreen
     // Privacy
     case showPreviews, loggingConnection, loggingDetail
     // Updates
@@ -154,6 +156,8 @@ enum SetupFeatures {
         SetupFeature(id: "remote", title: SettingsPane.remoteControl.title, detail: BridgeyFeature.remoteInput.subtitle,
                      on: [.on(.featureRemoteInput), .on(.remoteGrant)], off: [.off(.featureRemoteInput), .off(.remoteGrant)],
                      main: .featureRemoteInput, pane: .remoteControl),
+        SetupFeature(id: "screen", title: PhoneScreenSettings.switchTitle, detail: PhoneScreenSettings.switchDetail,
+                     on: [.on(.featureScreen)], off: [.off(.featureScreen)], main: .featureScreen, pane: .remoteControl),
         SetupFeature(id: "media", title: BridgeyFeature.media.title, detail: BridgeyFeature.media.subtitle,
                      on: [.on(.featureMedia)], off: [.off(.featureMedia)], main: .featureMedia, pane: .media),
         SetupFeature(id: "mac_actions", title: BridgeyFeature.macActions.title, detail: BridgeyFeature.macActions.subtitle,
@@ -305,6 +309,18 @@ enum SetupQuestions {
             pane: .media, covers: [.featureMedia, .mediaPlayer]
         ),
         SetupQuestion(
+            id: "screen", section: .macControl, feature: "screen",
+            title: L10n.setup("setup.q.screen.title", fallback: "See your phone\u{2019}s screen on this Mac?"),
+            context: L10n.setup("setup.q.screen.context", fallback: "View only, in a window. Your phone asks you every time and shows a notification while it shares."),
+            summary: L10n.setup("setup.q.screen.summary", fallback: "Phone screen on this Mac"),
+            answers: [
+                SetupAnswer(key: SetupAnswerKey.yes, label: L10n.setup("setup.a.screen.yes", fallback: "Yes, when I ask for it"),
+                            changes: [.on(.featureScreen)]),
+                SetupAnswer(key: SetupAnswerKey.no, label: L10n.setup("setup.a.no", fallback: "No"), changes: [.off(.featureScreen)]),
+            ],
+            pane: .remoteControl, covers: [.featureScreen]
+        ),
+        SetupQuestion(
             id: "links", section: .quickActions, feature: "links",
             title: L10n.setup("setup.q.links.title", fallback: "Open links from your phone right away?"),
             context: L10n.setup("setup.q.links.context", fallback: "Share a link from your phone and it opens in your browser here."),
@@ -429,6 +445,8 @@ enum SetupTyped {
         Rule(id: "mac_actions", answer: SetupAnswerKey.pick, stems: ["lock", "sleep", "volume", "блокир", "сон", "громк"]),
         Rule(id: "media", answer: SetupAnswerKey.pick, stems: ["music", "spotify", "song", "музык", "песн"]),
         Rule(id: "camera", answer: SetupAnswerKey.pick, stems: ["camera", "камер"]),
+        Rule(id: "screen", answer: SetupAnswerKey.pick, stems: ["screen shar", "share screen", "share my screen", "share the screen", "phone screen",
+                                                               "phone's screen", "mirror", "экран", "трансляц"]),
         Rule(id: "focus", answer: SetupAnswerKey.both, stems: ["dnd", "focus", "фокус"]),
         Rule(id: "links", answer: SetupAnswerKey.pick, stems: ["link", "url", "browser", "ссылк", "браузер"]),
         Rule(id: "find", answer: SetupAnswerKey.pick, stems: ["find my", "lost", "ring", "найти", "потерял"]),
@@ -521,8 +539,8 @@ enum SetupBundles {
                     detail: L10n.setup("setup.bundle.files", fallback: "Send files and photos both ways."),
                     answers: [("files", SetupAnswerKey.pick)]),
         SetupBundle(id: "remote", pane: .remoteControl,
-                    detail: L10n.setup("setup.bundle.remote", fallback: "Your phone as a touchpad and slide clicker."),
-                    answers: [("remote", SetupAnswerKey.pick), ("mac_actions", SetupAnswerKey.pick)]),
+                    detail: L10n.setup("setup.bundle.remote", fallback: "Your phone as a touchpad and slide clicker, and its screen on this Mac."),
+                    answers: [("remote", SetupAnswerKey.pick), ("mac_actions", SetupAnswerKey.pick), ("screen", SetupAnswerKey.pick)]),
     ]
 
     /// "Get started quickly": pair, then clipboard when you click Send, and your phone's
@@ -578,6 +596,7 @@ extension SetupFacts {
             .cameraCopyToClipboard: bool(model.cameraCopyToClipboard),
             .sendImageMode: sendImageMode,
             .featureRemoteInput: feature(.remoteInput),
+            .featureScreen: bool(model.phoneScreenEnabled),
             .remoteGrant: bool(model.trustedDevices.contains { model.remoteGrant(for: $0.id) }),
             .accessibility: bool(model.accessibilityTrusted),
             .featureMacActions: feature(.macActions),

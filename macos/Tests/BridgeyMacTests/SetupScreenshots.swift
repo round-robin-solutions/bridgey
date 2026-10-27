@@ -174,6 +174,20 @@ final class SetupScreenshots: XCTestCase {
         try setup("setup-question-pair", flow: pair, model: unpaired)
     }
 
+    /// Phone screen (v0.9): the Remote control bundle picked, then its follow-up.
+    @MainActor func testPhoneScreenQuestion() throws {
+        var fresh = pairedModel
+        for feature in BridgeyFeature.allCases { fresh.globalFeatures[feature] = false }
+        fresh.phoneScreenEnabled = false
+        var flow = SetupFlow()
+        flow.send(.chooseAdvanced)
+        try setup("setup-intro-remote-bundle", flow: flow, model: fresh, picked: ["remote"])
+        var picked = fresh
+        picked.phoneScreenEnabled = true
+        flow.send(.startQuestions(["screen": SetupAnswerKey.pick]), facts: SetupFacts.make(model: picked))
+        try setup("setup-question-screen", flow: flow, model: picked)
+    }
+
     // MARK: Explainer, Permissions, Reset
 
     @MainActor func testPermissionExplainer() throws {

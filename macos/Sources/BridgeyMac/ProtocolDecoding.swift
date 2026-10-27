@@ -273,7 +273,9 @@ enum FeatureStateDecoding: Equatable {
 let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, placesFeatureKey, smsCodesFeatureKey,
                              foldersReceiveFeatureKey, filesBrowseFeatureKey,
                              // Automation (v0.9). Connection health has no key (no wire change).
-                             macActionsFeatureKey, linksOpenFeatureKey, focusSyncFeatureKey, cameraFeatureKey]
+                             macActionsFeatureKey, linksOpenFeatureKey, focusSyncFeatureKey, cameraFeatureKey,
+                             // Screen sharing (v0.9), view only.
+                             screenFeatureKey]
 
 func decodeFeatureState(_ plaintext: Data) -> FeatureStateDecoding {
     guard isStrictJSONObject(plaintext),
