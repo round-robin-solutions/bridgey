@@ -52,7 +52,7 @@
     <string name="perm_post_notifications_why">Bridgey показывает передачи, поиск телефона и запросы на звонок.</string>
     <string name="perm_post_notifications_without">Вы не увидите ход передачи, запросы с Mac и кнопку «Стоп» для поиска устройства.</string>
     <string name="perm_phone_calls_name">Телефон и звонки</string>
-    <string name="perm_phone_calls_why">Mac может отвечать, отклонять и совершать звонки через этот телефон.</string>
+    <string name="perm_phone_calls_why">Mac может отвечать, отклонять и совершать звонки через этот телефон. Для SMS на телефоне с двумя SIM-картами показывает список SIM-карт.</string>
     <string name="perm_phone_calls_without">Звонок с Mac открывает номеронабиратель для подтверждения; «Ответить» и «Отклонить» не работают.</string>
     <string name="perm_photos_name">Фото и видео</string>
     <string name="perm_photos_why">Показывает недавние фото и видео при отправке файлов, позволяет вашим Mac просматривать их и отправляет только что сделанный скриншот через «Отправить скопированное».</string>
@@ -72,9 +72,9 @@
     <string name="perm_install_packages_name">Установка неизвестных приложений</string>
     <string name="perm_install_packages_why">Устанавливает обновления самого Bridgey.</string>
     <string name="perm_install_packages_without">Обновления скачиваются, но устанавливать их придётся вручную.</string>
-    <string name="perm_sms_name">SMS (только в тестовой сборке для проверки кодов)</string>
-    <string name="perm_sms_why">Читает тестовые сообщения для проверки распознавания кодов.</string>
-    <string name="perm_sms_without">Проверка распознавания кодов не запустится. Обычные сборки никогда не спрашивают.</string>
+    <string name="perm_sms_name">SMS</string>
+    <string name="perm_sms_why">SMS: показывает переписку на Mac и отправляет SMS, написанные там.</string>
+    <string name="perm_sms_without">SMS на Mac остаются выключенными. Коды из сообщений работают.</string>
     <string name="perm_logs_name">Журналы (один шаг через ADB)</string>
     <string name="perm_logs_why">Фоновый буфер обмена (для опытных) читает буфер, пока Bridgey в фоне.</string>
     <string name="perm_logs_without">Скопированное на телефоне отправляется, только пока Bridgey открыт, или одним касанием.</string>

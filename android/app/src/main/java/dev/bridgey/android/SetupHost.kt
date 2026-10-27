@@ -164,6 +164,7 @@ internal fun setupFacts(context: Context, settings: SettingsState, paired: Boole
             SetupSetting.FEATURE_MEDIA to BridgeyFeature.MEDIA, SetupSetting.FEATURE_CAMERA to BridgeyFeature.CAMERA,
             SetupSetting.FEATURE_LINKS to BridgeyFeature.LINKS, SetupSetting.FEATURE_FIND_DEVICE to BridgeyFeature.FIND_DEVICE,
             SetupSetting.FEATURE_PING to BridgeyFeature.PING, SetupSetting.FEATURE_BATTERY to BridgeyFeature.BATTERY,
+            SetupSetting.FEATURE_SMS to BridgeyFeature.SMS,
         ).forEach { (setting, feature) -> put(setting, settings.featureOn(feature).toString()) }
         put(SetupSetting.PAIRING, paired.toString())
         put(SetupSetting.AUTO_CLIPBOARD, settings.autoClipboardEnabled.toString())
@@ -175,6 +176,7 @@ internal fun setupFacts(context: Context, settings: SettingsState, paired: Boole
         put(SetupSetting.CODES_LINK, settings.codes.linked.toString())
         put(SetupSetting.FOCUS_SHARE, settings.focus.share.toString())
         put(SetupSetting.FOCUS_FOLLOW, settings.focus.follow.toString())
+        put(SetupSetting.SMS_REPLY_AS_SMS, settings.messages.replyAsSms.toString())
         put(SetupSetting.DIRECT_CALLS, settings.directCallsEnabled.toString())
         put(SetupSetting.FOLDER_MODE, settings.folders.mode.name)
         put(SetupSetting.ALLOW_BROWSE, settings.folders.allowBrowse.toString())
@@ -196,6 +198,7 @@ internal fun setupFacts(context: Context, settings: SettingsState, paired: Boole
         wifiAwakeSupported = settings.keepWifiAwakeSupported,
         codesLinkApplies = settings.codes.linkApplies,
         duplicateApps = duplicateApps,
+        dualSim = settings.messages.dualSim,
     )
 }
 
@@ -231,6 +234,8 @@ internal fun applySetupChange(
         SetupSetting.FEATURE_FIND_DEVICE -> setGlobal(BridgeyFeature.FIND_DEVICE, on)
         SetupSetting.FEATURE_PING -> setGlobal(BridgeyFeature.PING, on)
         SetupSetting.FEATURE_BATTERY -> setGlobal(BridgeyFeature.BATTERY, on)
+        SetupSetting.FEATURE_SMS -> setGlobal(BridgeyFeature.SMS, on)
+        SetupSetting.SMS_REPLY_AS_SMS -> settings.setSmsReplyAsSms(on)
         SetupSetting.AUTO_CLIPBOARD -> settings.setAutoClipboardGlobal(on)
         SetupSetting.CLIPBOARD_FILES -> settings.setClipboardFilesEnabled(on)
         SetupSetting.SCREENSHOT_SEND -> settings.setScreenshotSendEnabled(on)
@@ -371,6 +376,7 @@ internal fun SetupRoute(
         if (result.keys.any { it == Manifest.permission.CALL_PHONE } && granted(PermissionKind.PHONE_CALLS)) {
             BridgeyNotificationListenerService.callPermissionsChanged()
         }
+        if (result.keys.any { it in SmsPermissionNames }) (context.applicationContext as BridgeyApplication).pairing.smsPermissionsChanged()
         nextInQueue()
     }
 
@@ -390,6 +396,8 @@ internal fun SetupRoute(
             PermissionKind.POST_NOTIFICATIONS -> if (Build.VERSION.SDK_INT >= 33) listOf(Manifest.permission.POST_NOTIFICATIONS) else emptyList()
             PermissionKind.PHOTOS -> dev.bridgey.android.browse.MediaAccessRules.request(Build.VERSION.SDK_INT).toList()
             PermissionKind.CAMERA -> listOf(Manifest.permission.CAMERA)
+            PermissionKind.SMS -> listOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS)
+            PermissionKind.CONTACTS -> listOf(Manifest.permission.READ_CONTACTS)
             else -> emptyList()
         }
     }.distinct().toTypedArray()
@@ -473,7 +481,8 @@ internal fun permissionFacts(context: Context, settings: SettingsState): Permiss
         if (settings.codes.linked) add(PermissionKind.COMPANION_LINK)
         if (settings.batteryExempt) add(PermissionKind.BATTERY)
         if (context.packageManager.canRequestPackageInstalls()) add(PermissionKind.INSTALL_PACKAGES)
-        if (granted(Manifest.permission.READ_SMS)) add(PermissionKind.SMS)
+        if (granted(Manifest.permission.READ_SMS) && granted(Manifest.permission.SEND_SMS)) add(PermissionKind.SMS)
+        if (granted(Manifest.permission.READ_CONTACTS)) add(PermissionKind.CONTACTS)
         if (granted(Manifest.permission.READ_LOGS)) add(PermissionKind.LOGS)
     }
     return PermissionFacts(
@@ -487,8 +496,13 @@ internal fun permissionFacts(context: Context, settings: SettingsState): Permiss
         mediaOn = settings.featureOn(BridgeyFeature.FILES),
         cameraOn = settings.featureOn(BridgeyFeature.CAMERA),
         focusFollowOn = settings.focus.follow,
+        smsOn = settings.featureOn(BridgeyFeature.SMS),
+        dualSim = settings.messages.dualSim,
     )
 }
+
+/** The runtime permissions behind Text messages. */
+internal val SmsPermissionNames = setOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS, Manifest.permission.READ_CONTACTS)
 
 /** Route.Permissions: Manage opens the system screen, or the explainer then the request. */
 @Composable
@@ -518,7 +532,8 @@ internal fun PermissionsRoute(
             PermissionKind.DO_NOT_DISTURB -> actions.focus.openAccess()
             PermissionKind.BATTERY -> if (allowed) start(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) else actions.requestBatteryExemption()
             PermissionKind.INSTALL_PACKAGES -> start(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")))
-            PermissionKind.SMS -> start(appDetails)
+            // Text messages asks in its own page; once allowed, or refused for good, App info changes it.
+            PermissionKind.SMS, PermissionKind.CONTACTS -> if (allowed) start(appDetails) else onOpenSection(SettingsSection.MESSAGES)
             PermissionKind.LOGS -> onOpenSection(SettingsSection.CLIPBOARD)
         }
     }

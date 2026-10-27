@@ -23,6 +23,8 @@ class SetupTypedTest {
         )
         assertEquals(listOf("focus" to Answers.BOTH, "updates" to Answers.EARLY), match("Do not disturb in sync, and beta updates"))
         assertEquals(listOf("remote" to Answers.PICK), match("control my mac with a touchpad for slides"))
+        assertEquals(listOf("messages" to Answers.PICK), match("I want to answer SMS from my Mac"))
+        assertEquals(listOf("messages" to Answers.PICK), match("Хочу отвечать на СМС с Mac"))
         assertEquals(emptyList<Pair<String, String>>(), match(""))
     }
 

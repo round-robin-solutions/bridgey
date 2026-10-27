@@ -117,6 +117,8 @@ class SharedPrefsMigrationTest(private val release: Int) {
         val globals = BridgeyFeature.entries.associateWith { it != BridgeyFeature.CLIPBOARD && it != BridgeyFeature.MEDIA }
             .plus(BridgeyFeature.REMOTE_INPUT to (release >= 9))
             .plus(BridgeyFeature.PING to !pingOff)
+            // Text messages is off on every install until chosen, even with the old defaults.
+            .plus(BridgeyFeature.SMS to false)
         assertEquals(globals, state.globalFeatures)
 
         val macA = mutableMapOf(BridgeyFeature.NOTIFICATIONS to false, BridgeyFeature.CALLS to true)

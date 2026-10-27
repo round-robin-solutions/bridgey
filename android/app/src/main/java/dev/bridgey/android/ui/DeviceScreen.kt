@@ -448,6 +448,7 @@ fun permissionVisual(feature: BridgeyFeature): Pair<ImageVector, Tint> = when (f
     BridgeyFeature.REMOTE_INPUT -> BridgeyIcons.Mouse to Tint.PURPLE
     BridgeyFeature.MAC_ACTIONS -> BridgeyIcons.Lock to Tint.PURPLE
     BridgeyFeature.CAMERA -> BridgeyIcons.PhotoCamera to Tint.GREEN
+    BridgeyFeature.SMS -> BridgeyIcons.Sms to Tint.GREEN
 }
 
 @Composable
@@ -464,6 +465,7 @@ fun permissionTitle(feature: BridgeyFeature): String = stringResource(
         BridgeyFeature.REMOTE_INPUT -> R.string.feature_remote_input
         BridgeyFeature.MAC_ACTIONS -> R.string.feature_mac_actions
         BridgeyFeature.CAMERA -> R.string.feature_camera
+        BridgeyFeature.SMS -> R.string.feature_sms
     },
 )
 
@@ -484,6 +486,7 @@ private fun permissionDetail(feature: BridgeyFeature, state: DeviceState): Strin
     BridgeyFeature.REMOTE_INPUT -> stringResource(R.string.feature_remote_input_detail, state.ring.name)
     BridgeyFeature.MAC_ACTIONS -> stringResource(R.string.feature_mac_actions_detail, state.ring.name)
     BridgeyFeature.CAMERA -> stringResource(R.string.feature_camera_detail, state.ring.name)
+    BridgeyFeature.SMS -> stringResource(R.string.feature_sms_device_detail, state.ring.name)
 }
 
 /** The device page's send bar: attach a file, type a message or leave it empty to send the clipboard. */

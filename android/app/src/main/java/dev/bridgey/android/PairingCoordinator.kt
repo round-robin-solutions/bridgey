@@ -196,6 +196,21 @@ class PairingCoordinator(
     /** Phone camera to Mac (draft `camera_draft1`): each Mac's open photo request. */
     val camera = dev.bridgey.android.camera.CameraRequests(System::currentTimeMillis)
 
+    /** Text messages (draft `sms_draft1`): the Macs' conversation, sync and send requests. */
+    val sms = dev.bridgey.android.sms.SmsServer(
+        provider = dev.bridgey.android.sms.SmsProvider(appContext),
+        sender = dev.bridgey.android.sms.SmsSender(appContext),
+        scope = scope,
+        localEnabled = { id -> settings.isEnabled(BridgeyFeature.SMS, id) },
+        peers = { registry.connectedIds().filter { isFeatureAvailable(BridgeyFeature.SMS, it) } },
+        send = ::sendSmsPayload,
+        replyAsSms = { settings.state.value.smsReplyAsSms },
+        performAppReply = { notificationId, token, text -> BridgeyNotificationListenerService.perform(notificationId, token, text) },
+    )
+
+    /** Macs that last heard this phone's Text messages status (the feature on at both ends). */
+    private val smsPeers = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+
     /** Set by the application: a Mac's photo request was accepted; show the camera or its notification. */
     @Volatile var cameraRequested: (dev.bridgey.android.camera.CameraRequest) -> Unit = {}
 
@@ -417,6 +432,7 @@ class PairingCoordinator(
                 registry.connectedIds().forEach { id -> registry.session(id)?.let(::sendFeatureState) }
                 focusSettingsChanged(it.focusShare, it.focusFollow)
                 registry.connectedIds().filter { id -> !isFeatureAvailable(BridgeyFeature.CAMERA, id) }.forEach(::endCameraRequest)
+                smsAvailabilityChanged()
             }
         }
     }
@@ -1719,6 +1735,8 @@ class PairingCoordinator(
         callType: String? = null,
         smsDefaultApp: Boolean = false,
         redacted: Boolean? = null,
+        smsReply: Boolean = false,
+        smsThreadId: Long? = null,
     ): List<DeviceConnection> {
         val targets = broadcastTargets(BridgeyFeature.NOTIFICATIONS)
         if (targets.isEmpty()) return emptyList()
@@ -1748,11 +1766,18 @@ class PairingCoordinator(
                         .put("allowsReply", action.allowsReply))
                 }
             })
-            .toString()
-            .toByteArray()
+        val plain = payload.toString().toByteArray()
+        // Text messages (sms_draft1): only a Mac that shows the key hears that it can reply by SMS.
+        val withSms = if (smsDefaultApp && smsReply) {
+            JSONObject(payload.toString()).put("smsReply", true).apply { smsThreadId?.takeIf { it >= 1 }?.let { put("smsThreadId", it) } }
+                .toString().toByteArray()
+        } else {
+            plain
+        }
         scope.launch {
             targets.forEach { current ->
-                if (sendEncrypted(current, "notifications.post", payload)) {
+                val body = if (withSms !== plain && isFeatureAvailable(BridgeyFeature.SMS, current.remoteDeviceId)) withSms else plain
+                if (sendEncrypted(current, "notifications.post", body)) {
                     // Text messages can carry codes: their content never reaches the log, whatever Logging says.
                     BridgeyLogging.line(
                         LogLines.notification(
@@ -2360,6 +2385,7 @@ class PairingCoordinator(
         macActions.sessionEnded(deviceId)
         focusSync.sessionEnded(deviceId)
         endCameraRequest(deviceId)
+        if (smsPeers.remove(deviceId)) sms.peerGone(deviceId)
         health.disconnected(deviceId, reason, System.currentTimeMillis())
         // The power state at the moment of the drop: Doze, screen, saver, standby bucket, exemption.
         diagnostics.record("transport", "disconnected", reason, device = deviceId, detail = PowerFacts.summary(appContext))
@@ -2602,6 +2628,7 @@ class PairingCoordinator(
             "actions.catalog", "actions.result" -> receiveActionsMessage(current, message)
             "focus.state" -> receiveFocusMessage(current, message)
             "camera.request" -> receiveCameraMessage(current, message)
+            "sms.threads", "sms.messages", "sms.sync", "sms.send", "sms.attachment", "sms.contacts" -> receiveSmsMessage(current, message)
             "notifications.action" -> receiveNotificationAction(current, message)
             "calls.request" -> receiveCallRequest(current, message)
             "find.start" -> receiveFindCommand(current, message, start = true)
@@ -3327,6 +3354,53 @@ class PairingCoordinator(
         // Focus sync: a Mac that understands it hears this phone's Do Not Disturb once per map.
         if (drafts[dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY] == true && focusSync.advertised()) focusSync.peerReady(deviceId)
         if (!isFeatureAvailable(BridgeyFeature.CAMERA, deviceId)) endCameraRequest(deviceId)
+        // Text messages: each map that shows the key on both sides is answered with the status.
+        if (isFeatureAvailable(BridgeyFeature.SMS, deviceId)) {
+            smsPeers.add(deviceId)
+            sms.peerReady(deviceId)
+        } else if (smsPeers.remove(deviceId)) {
+            sms.peerGone(deviceId)
+        }
+    }
+
+    // MARK: Text messages (draft sms_draft1)
+
+    /** This phone's switch changed: Macs that now have the feature at both ends hear the status; the others stop. */
+    private fun smsAvailabilityChanged() {
+        val available = registry.connectedIds().filter { isFeatureAvailable(BridgeyFeature.SMS, it) }.toSet()
+        available.filter(smsPeers::add).forEach(sms::peerReady)
+        smsPeers.filter { it !in available }.forEach { id ->
+            smsPeers.remove(id)
+            sms.peerGone(id)
+        }
+        sms.refresh()
+    }
+
+    /** Permissions or SIMs may have changed (the app came to the front): the Macs hear a changed status. */
+    fun smsPermissionsChanged() = sms.refresh()
+
+    /** sms.* to one Mac, only while its latest map shows sms_draft1. Pages and images use the media lane. */
+    private fun sendSmsPayload(deviceId: String, kind: String, payload: JSONObject): Boolean {
+        val current = registry.session(deviceId) ?: return false
+        if (current.pairingKey == null || registry.state(deviceId)?.remoteFeatures?.get(BridgeyFeature.SMS) != true) return false
+        val data = payload.toString().toByteArray(Charsets.UTF_8)
+        return when (kind) {
+            dev.bridgey.android.sms.SmsKinds.THREADS_PAGE, dev.bridgey.android.sms.SmsKinds.MESSAGES_PAGE,
+            dev.bridgey.android.sms.SmsKinds.SYNC_PAGE, dev.bridgey.android.sms.SmsKinds.ATTACHMENT_DATA -> sendEncryptedLow(current, kind, data)
+            else -> sendEncrypted(current, kind, data)
+        }
+    }
+
+    /** sms.* requests from a Mac: decrypted and replay-checked here; malformed or undecryptable ones are dropped. */
+    private fun receiveSmsMessage(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        // A Mac that asks while the switch is off here hears the map again (and the request is refused).
+        if (!settings.isEnabled(BridgeyFeature.SMS, current.remoteDeviceId)) sendFeatureState(current)
+        sms.receive(current.remoteDeviceId, message.kind, data)
     }
 
     // MARK: Codes from messages (draft sms_codes_draft1)

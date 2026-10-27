@@ -15,6 +15,7 @@ object SetupTyped {
         Rule("clipboard", Answers.PICK, listOf("copy", "copi", "paste", "clipboard", "копир", "скопир", "встав", "буфер")),
         Rule("notifications", Answers.PICK, listOf("notif", "alert", "whatsapp", "telegram", "уведомл", "оповещ")),
         Rule("codes", Answers.YES, listOf("code", "otp", "код")),
+        Rule("messages", Answers.PICK, listOf("sms", "texts", "texting", "смс", "эсэмэс")),
         Rule("calls", Answers.PICK, listOf("call", "звон", "вызов")),
         Rule("files", Answers.PICK, listOf("file", "photo", "picture", "folder", "файл", "фото", "папк", "снимк")),
         Rule("remote", Answers.PICK, listOf("touchpad", "trackpad", "mouse", "slide", "presentation", "тачпад", "мыш", "слайд", "презентац", "пульт")),

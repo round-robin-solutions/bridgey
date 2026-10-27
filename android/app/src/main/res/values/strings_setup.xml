@@ -53,7 +53,7 @@
     <string name="perm_post_notifications_why">Lets Bridgey show transfers, find-my-phone and call prompts.</string>
     <string name="perm_post_notifications_without">You will not see progress, requests from the Mac or the Stop button for Find Device.</string>
     <string name="perm_phone_calls_name">Phone and calls</string>
-    <string name="perm_phone_calls_why">Lets the Mac answer, decline and place calls through this phone.</string>
+    <string name="perm_phone_calls_why">Lets the Mac answer, decline and place calls through this phone. With Text messages on a dual-SIM phone, lists the SIMs.</string>
     <string name="perm_phone_calls_without">Calls from the Mac open the dialer for you to confirm; Answer and Decline do not work.</string>
     <string name="perm_photos_name">Photos and videos</string>
     <string name="perm_photos_why">Shows your recent photos and videos when you send files, lets your Macs browse them, and sends a screenshot you just took with \"Send copied item\".</string>
@@ -73,9 +73,9 @@
     <string name="perm_install_packages_name">Install unknown apps</string>
     <string name="perm_install_packages_why">Installs Bridgey\'s own updates.</string>
     <string name="perm_install_packages_without">Updates download but you install them by hand.</string>
-    <string name="perm_sms_name">SMS (Code reader test build only)</string>
-    <string name="perm_sms_why">Reads test messages for the Code reader test.</string>
-    <string name="perm_sms_without">The Code reader test cannot run. Normal builds never ask.</string>
+    <string name="perm_sms_name">SMS</string>
+    <string name="perm_sms_why">Text messages: shows your conversations on your Mac and sends the texts you write there.</string>
+    <string name="perm_sms_without">Text messages stays off. Codes from messages still work.</string>
     <string name="perm_logs_name">Logs (one-time ADB step)</string>
     <string name="perm_logs_why">Background clipboard (advanced) reads the clipboard while Bridgey is in the background.</string>
     <string name="perm_logs_without">Copying on the phone sends only while Bridgey is open, or with one tap.</string>

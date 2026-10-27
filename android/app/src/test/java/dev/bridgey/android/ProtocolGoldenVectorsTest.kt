@@ -155,6 +155,94 @@ class ProtocolGoldenVectorsTest {
         assertEquals(dev.bridgey.android.camera.CameraStatus.entries.size, checked)
     }
 
+    /** Text messages: the Mac's page, sync, image and contact requests as the phone reads them. */
+    @Test fun smsRequest() = each("smsRequest") { vector ->
+        val result: Any = dev.bridgey.android.sms.decodeSmsRequest(vector.getString("kind"), plaintext(vector))?.let { request ->
+            when (request) {
+                is dev.bridgey.android.sms.SmsRequest.Threads -> mapOf("requestId" to request.requestId, "limit" to request.limit.toLong(), "before" to request.before)
+                is dev.bridgey.android.sms.SmsRequest.Messages -> mapOf(
+                    "requestId" to request.requestId, "threadId" to request.threadId, "limit" to request.limit.toLong(),
+                    "before" to request.before?.let { mapOf("date" to it.date, "id" to it.id) },
+                )
+                is dev.bridgey.android.sms.SmsRequest.Sync -> mapOf(
+                    "requestId" to request.requestId, "since" to mapOf("sms" to request.since.sms, "mms" to request.since.mms), "limit" to request.limit.toLong(),
+                )
+                is dev.bridgey.android.sms.SmsRequest.Attachment -> mapOf("requestId" to request.requestId, "partId" to request.partId)
+                is dev.bridgey.android.sms.SmsRequest.Contacts -> mapOf("requestId" to request.requestId, "query" to request.query)
+            }
+        } ?: "reject"
+        result == normalize(vector.get("expect"))
+    }
+
+    /** Text messages: sms.send as the phone reads it. */
+    @Test fun smsSend() = each("smsSend") { vector ->
+        val result: Any = dev.bridgey.android.sms.decodeSmsSend(plaintext(vector))?.let { request ->
+            val target = request.target
+            mapOf(
+                "requestId" to request.requestId, "body" to request.body,
+                "threadId" to (target as? dev.bridgey.android.sms.SendTarget.Thread)?.threadId,
+                "address" to (target as? dev.bridgey.android.sms.SendTarget.Address)?.address,
+                "notificationId" to (target as? dev.bridgey.android.sms.SendTarget.Notification)?.notificationId,
+                "subId" to request.subId?.toLong(),
+            )
+        } ?: "reject"
+        result == normalize(vector.get("expect"))
+    }
+
+    /** Text messages: what the phone writes for each status the Mac accepts reads back the same. */
+    @Test fun smsStatusAsThePhoneSendsIt() = each("smsStatus") { vector ->
+        val expect = vector.get("expect") as? JSONObject ?: return@each true
+        val sims = expect.getJSONArray("sims").let { array ->
+            (0 until array.length()).map(array::getJSONObject).map { dev.bridgey.android.sms.SimInfo(it.getInt("subId"), it.getInt("slot"), it.getString("label")) }
+        }
+        val cursor = expect.getJSONObject("cursor")
+        val encoded = dev.bridgey.android.sms.smsStatusPayload(
+            expect.getBoolean("read"), expect.getBoolean("send"), expect.getBoolean("contacts"), sims,
+            dev.bridgey.android.sms.SmsCursor(cursor.getLong("sms"), cursor.getLong("mms")),
+        )
+        normalize(encoded) == normalize(JSONObject(expect.toString()).put("version", 1))
+    }
+
+    /** Text messages: a message the phone writes carries exactly the fields the Mac reads (absent defaults left out). */
+    @Test fun smsMessageAsThePhoneSendsIt() = each("smsMessage") { vector ->
+        val expect = vector.get("expect") as? JSONObject ?: return@each true
+        // A cut body is cut on the phone from a longer one; its vector has no longer body to start from.
+        if (expect.getBoolean("truncated")) return@each true
+        val parts = expect.getJSONArray("parts").let { array ->
+            (0 until array.length()).map(array::getJSONObject).map {
+                dev.bridgey.android.sms.SmsPart(it.getString("partId"), it.getString("mimeType"), if (it.isNull("size")) null else it.getLong("size"))
+            }
+        }
+        val message = dev.bridgey.android.sms.SmsMessage(
+            id = expect.getString("id"), threadId = expect.getLong("threadId"),
+            direction = dev.bridgey.android.sms.SmsDirection.entries.first { it.wire == expect.getString("direction") },
+            status = dev.bridgey.android.sms.SmsStatus.entries.first { it.wire == expect.getString("status") },
+            date = expect.getLong("date"), address = expect.getString("address"), body = expect.getString("body"),
+            subId = if (expect.isNull("subId")) null else expect.getInt("subId"), read = expect.getBoolean("read"), parts = parts,
+        )
+        val wire = JSONObject(expect.toString()).apply {
+            remove("truncated")
+            if (isNull("subId")) remove("subId")
+            if (getJSONArray("parts").length() == 0) remove("parts") else getJSONArray("parts").let { array ->
+                (0 until array.length()).map(array::getJSONObject).forEach { if (it.isNull("size")) it.remove("size") }
+            }
+        }
+        normalize(message.toJson()) == normalize(wire)
+    }
+
+    /** Text messages: send statuses as the phone writes them. */
+    @Test fun smsSendStatusAsThePhoneSendsIt() = each("smsSendStatus") { vector ->
+        val expect = vector.get("expect") as? JSONObject ?: return@each true
+        val state = dev.bridgey.android.sms.SendState.entries.first { it.wire == expect.getString("status") }
+        val reason = if (expect.isNull("reason")) null else dev.bridgey.android.sms.SendReason.entries.first { it.wire == expect.getString("reason") }
+        val via = if (expect.isNull("via")) null else dev.bridgey.android.sms.SendVia.entries.first { it.wire == expect.getString("via") }
+        val wire = JSONObject().put("version", 1).put("requestId", expect.getString("requestId")).put("status", state.wire).apply {
+            if (reason != null) put("reason", reason.wire)
+            if (via != null) put("via", via.wire)
+        }
+        normalize(dev.bridgey.android.sms.smsSendStatusPayload(expect.getString("requestId"), state, reason, via)) == normalize(wire)
+    }
+
     /** The phone is the controller: what it would send must be exactly what the Mac host accepts. */
     @Test fun remoteInputAsTheControllerSendsIt() {
         var checked = 0

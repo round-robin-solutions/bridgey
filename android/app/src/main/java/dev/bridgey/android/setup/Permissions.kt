@@ -16,7 +16,10 @@ enum class PermissionKind(val key: String) {
     DO_NOT_DISTURB("do_not_disturb"),
     BATTERY("battery"),
     INSTALL_PACKAGES("install_packages"),
+    /** Text messages (READ_SMS and SEND_SMS); the lab Code reader test reads the inbox with it too. */
     SMS("sms"),
+    /** Text messages: names for numbers and contact search (READ_CONTACTS). Optional. */
+    CONTACTS("contacts"),
     LOGS("logs"),
 }
 
@@ -26,7 +29,7 @@ enum class PermissionState { ALLOWED, NOT_ALLOWED, NOT_NEEDED_YET, NOT_ON_THIS_D
 /** What the phone says right now, read when the app comes to the front. */
 data class PermissionFacts(
     val sdkInt: Int,
-    /** Betas, nightlies and local builds carry the Code reader test (and its SMS permission). */
+    /** Betas, nightlies and local builds carry the hidden Code reader test. */
     val labBuild: Boolean,
     val granted: Set<PermissionKind>,
     val notificationsOn: Boolean = true,
@@ -39,6 +42,10 @@ data class PermissionFacts(
     val cameraOn: Boolean = true,
     /** Notifications > Focus > Follow the Mac's Focus (off by default). */
     val focusFollowOn: Boolean = false,
+    /** Text messages (off by default). */
+    val smsOn: Boolean = false,
+    /** Two SIM slots: Text messages lists the SIMs (Phone and calls) so the Mac can pick one. */
+    val dualSim: Boolean = false,
 )
 
 data class PermissionEntry(val kind: PermissionKind, val state: PermissionState) {
@@ -51,22 +58,20 @@ object PermissionCatalog {
     const val COMPANION_LINK_SDK = 35
 
     fun entries(facts: PermissionFacts): List<PermissionEntry> =
-        PermissionKind.entries
-            .filter { it != PermissionKind.SMS || facts.labBuild }
-            .map { PermissionEntry(it, state(it, facts)) }
+        PermissionKind.entries.map { PermissionEntry(it, state(it, facts)) }
 
     fun state(kind: PermissionKind, facts: PermissionFacts): PermissionState {
         if (kind == PermissionKind.COMPANION_LINK && facts.sdkInt < COMPANION_LINK_SDK) return PermissionState.NOT_ON_THIS_DEVICE
         if (kind in facts.granted) return PermissionState.ALLOWED
         val needed = when (kind) {
             PermissionKind.NOTIFICATION_ACCESS, PermissionKind.COMPANION_LINK -> facts.notificationsOn
-            PermissionKind.PHONE_CALLS -> facts.callsOn
+            PermissionKind.PHONE_CALLS -> facts.callsOn || (facts.smsOn && facts.dualSim)
             PermissionKind.PHOTOS -> facts.screenshotOn || facts.mediaOn
             PermissionKind.CAMERA -> facts.cameraOn
             PermissionKind.DO_NOT_DISTURB -> facts.focusFollowOn
             PermissionKind.LOGS -> facts.backgroundClipboardOn
-            // Only the Code reader test asks, when it starts.
-            PermissionKind.SMS -> false
+            // Text messages; the lab Code reader test also asks, when it starts.
+            PermissionKind.SMS, PermissionKind.CONTACTS -> facts.smsOn
             PermissionKind.POST_NOTIFICATIONS, PermissionKind.BATTERY, PermissionKind.INSTALL_PACKAGES -> true
         }
         return if (needed) PermissionState.NOT_ALLOWED else PermissionState.NOT_NEEDED_YET

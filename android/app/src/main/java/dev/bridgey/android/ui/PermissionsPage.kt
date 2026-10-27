@@ -42,6 +42,7 @@ fun permissionName(kind: PermissionKind): String = stringResource(
         PermissionKind.BATTERY -> R.string.perm_battery_name
         PermissionKind.INSTALL_PACKAGES -> R.string.perm_install_packages_name
         PermissionKind.SMS -> R.string.perm_sms_name
+        PermissionKind.CONTACTS -> R.string.perm_contacts_name
         PermissionKind.LOGS -> R.string.perm_logs_name
     },
 )
@@ -59,6 +60,7 @@ fun permissionWhy(kind: PermissionKind): String = stringResource(
         PermissionKind.BATTERY -> R.string.perm_battery_why
         PermissionKind.INSTALL_PACKAGES -> R.string.perm_install_packages_why
         PermissionKind.SMS -> R.string.perm_sms_why
+        PermissionKind.CONTACTS -> R.string.perm_contacts_why
         PermissionKind.LOGS -> R.string.perm_logs_why
     },
 )
@@ -76,6 +78,7 @@ fun permissionWithout(kind: PermissionKind): String = stringResource(
         PermissionKind.BATTERY -> R.string.perm_battery_without
         PermissionKind.INSTALL_PACKAGES -> R.string.perm_install_packages_without
         PermissionKind.SMS -> R.string.perm_sms_without
+        PermissionKind.CONTACTS -> R.string.perm_contacts_without
         PermissionKind.LOGS -> R.string.perm_logs_without
     },
 )
@@ -90,7 +93,8 @@ fun permissionIcon(kind: PermissionKind): Pair<ImageVector, Tint> = when (kind) 
     PermissionKind.DO_NOT_DISTURB -> BridgeyIcons.Bedtime to Tint.PURPLE
     PermissionKind.BATTERY -> BridgeyIcons.Bolt to Tint.GREEN
     PermissionKind.INSTALL_PACKAGES -> BridgeyIcons.SystemUpdate to Tint.PURPLE
-    PermissionKind.SMS -> BridgeyIcons.Description to Tint.NEUTRAL
+    PermissionKind.SMS -> BridgeyIcons.Sms to Tint.GREEN
+    PermissionKind.CONTACTS -> BridgeyIcons.Contacts to Tint.BLUE
     PermissionKind.LOGS -> BridgeyIcons.DeveloperMode to Tint.NEUTRAL
 }
 
