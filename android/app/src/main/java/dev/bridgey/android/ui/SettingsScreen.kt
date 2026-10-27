@@ -116,6 +116,8 @@ data class SettingsState(
     val folders: FolderSettingsState = FolderSettingsState(),
     /** Notifications > Codes from messages: code access and the companion link. */
     val codes: CodesSettingsState = CodesSettingsState(),
+    /** Notifications > Focus sync with the Macs. */
+    val focus: FocusSettingsState = FocusSettingsState(),
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean = globalFeatures[feature] != false
 }
@@ -161,6 +163,7 @@ class SettingsActions(
     val setKeepWifiAwake: (Boolean) -> Unit = {},
     val folders: FolderSettingsActions = FolderSettingsActions(),
     val codes: CodesSettingsActions = CodesSettingsActions(),
+    val focus: FocusSettingsActions = FocusSettingsActions(),
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
@@ -399,6 +402,13 @@ private fun NotificationsPage(state: SettingsState, actions: SettingsActions, li
         }
         if (notificationsOn) {
             item(key = "notifications.codes") { CodesFootnote(state.codes, actions.codes) }
+        }
+        item(key = "notifications.focus.label") { SectionLabel(stringResource(R.string.focus_section), Modifier.padding(top = 20.dp)) }
+        item(key = "notifications.focus") {
+            RowGroup { focusRows(state.focus, actions.focus) }
+        }
+        item(key = "notifications.focus.note") {
+            Note(stringResource(R.string.focus_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp))
         }
     }
 }

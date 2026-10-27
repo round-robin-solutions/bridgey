@@ -28,6 +28,9 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- Focus sync > Follow the Mac's Focus (off by default): Do Not Disturb access, granted by the
+         person in Android's settings, lets Bridgey turn Do Not Disturb on and back off. -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <!-- The widget's Glance library brings WorkManager, which asks to start at boot. Bridgey's widget
          redraws when the app starts, so that permission is removed from the merged manifest. -->
     <uses-permission tools:node="remove" android:name="android.permission.RECEIVE_BOOT_COMPLETED" />

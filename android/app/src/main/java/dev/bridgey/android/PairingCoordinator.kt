@@ -181,6 +181,21 @@ class PairingCoordinator(
         send = ::sendActionsPayload,
     )
 
+    /**
+     * Focus and Do Not Disturb sync (draft `focus_sync_draft1`): this phone's Do Not Disturb to the
+     * Macs, and the Macs' Focus to Do Not Disturb, each direction its own opt-in.
+     */
+    val focusSync = dev.bridgey.android.focus.FocusSync(
+        quiet = dev.bridgey.android.focus.AndroidQuietMode(appContext),
+        clock = System::currentTimeMillis,
+        shareOn = { settings.state.value.focusShare },
+        followOn = { settings.state.value.focusFollow },
+        peers = { registry.connectedIds().filter { registry.state(it)?.remoteFocusSync == true } },
+        send = ::sendFocusState,
+    )
+    private var lastFocusShare = settings.state.value.focusShare
+    private var lastFocusFollow = settings.state.value.focusFollow
+
     /** Connection health per device: route class, round trip, drops, reconnects. Never addresses. */
     val health = dev.bridgey.android.health.ConnectionHealthBook()
 
@@ -358,6 +373,7 @@ class PairingCoordinator(
                 // Mac actions turned off here for a Mac: its list goes, so controls stop offering it.
                 trust.trustedDeviceIds.value.filter { !settings.isEnabled(BridgeyFeature.MAC_ACTIONS, it) }.forEach(macActions::revoked)
                 registry.connectedIds().forEach { id -> registry.session(id)?.let(::sendFeatureState) }
+                focusSettingsChanged(it.focusShare, it.focusFollow)
             }
         }
     }
@@ -666,6 +682,7 @@ class PairingCoordinator(
         settings.removeDevice(deviceId)
         macActions.forget(deviceId)
         health.forget(deviceId)
+        recordFocus(focusSync.forget(deviceId))
         autoClipboardTracker.clear(deviceId)
         clearClipboardCache()
         disconnect(deviceId)
@@ -1365,6 +1382,48 @@ class PairingCoordinator(
         return registry.state(current.remoteDeviceId)?.remoteLinksOpen == true
     }
 
+    /** Share or Follow changed: the Macs hear the state, or Bridgey hands back its Do Not Disturb. */
+    @Synchronized private fun focusSettingsChanged(share: Boolean, follow: Boolean) {
+        if (share != lastFocusShare) {
+            lastFocusShare = share
+            focusSync.shareChanged()
+        }
+        if (follow != lastFocusFollow) {
+            lastFocusFollow = follow
+            recordFocus(focusSync.followChanged())
+        }
+    }
+
+    /** Android changed Do Not Disturb (the application's receiver calls this). */
+    fun interruptionFilterChanged() = focusSync.localChanged()
+
+    /** focus.state to one Mac, only while its latest map shows focus_sync_draft1. */
+    private fun sendFocusState(deviceId: String, active: Boolean): Boolean {
+        val current = registry.session(deviceId) ?: return false
+        if (current.pairingKey == null || registry.state(deviceId)?.remoteFocusSync != true) return false
+        val data = dev.bridgey.android.focus.focusStatePayload(active).toString().toByteArray(Charsets.UTF_8)
+        scope.launch { sendEncrypted(current, "focus.state", data) }
+        return true
+    }
+
+    /** focus.state from a Mac: decrypted, replay-checked, bounded; applied only when Follow is on. */
+    private fun receiveFocusMessage(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        if (data.size > dev.bridgey.android.focus.FOCUS_STATE_MAX_BYTES) return
+        val payload = runCatching { JSONObject(data.toString(Charsets.UTF_8)) }.getOrNull() ?: return
+        val active = dev.bridgey.android.focus.parseFocusState(payload) ?: return
+        recordFocus(focusSync.remote(current.remoteDeviceId, active), current.remoteDeviceId)
+    }
+
+    private fun recordFocus(outcome: dev.bridgey.android.focus.FocusApply, deviceId: String? = null) {
+        if (outcome == dev.bridgey.android.focus.FocusApply.IGNORED || outcome == dev.bridgey.android.focus.FocusApply.NO_CHANGE) return
+        diagnostics.record("notifications", "focus_follow", outcome.name.lowercase(), device = deviceId)
+    }
+
     /** actions.run to one Mac, only while its latest map shows mac_actions_draft1. */
     private fun sendActionsPayload(deviceId: String, kind: String, payload: JSONObject): Boolean {
         val current = registry.session(deviceId) ?: return false
@@ -1997,6 +2056,7 @@ class PairingCoordinator(
         if (phoneRingingFrom == deviceId) stopPhoneRinging()
         if (pendingPing?.first == deviceId) clearPingStatus()
         macActions.sessionEnded(deviceId)
+        focusSync.sessionEnded(deviceId)
         health.disconnected(deviceId, reason, System.currentTimeMillis())
         // The power state at the moment of the drop: Doze, screen, saver, standby bucket, exemption.
         diagnostics.record("transport", "disconnected", reason, device = deviceId, detail = PowerFacts.summary(appContext))
@@ -2237,6 +2297,7 @@ class PairingCoordinator(
             "notifications.dismiss" -> receiveNotificationDismiss(current, message)
             "codes.advertise_result", "codes.link_request" -> receiveCodesMessage(current, message)
             "actions.catalog", "actions.result" -> receiveActionsMessage(current, message)
+            "focus.state" -> receiveFocusMessage(current, message)
             "notifications.action" -> receiveNotificationAction(current, message)
             "calls.request" -> receiveCallRequest(current, message)
             "find.start" -> receiveFindCommand(current, message, start = true)
@@ -2858,6 +2919,8 @@ class PairingCoordinator(
         // Draft, edition only: SMS notifications are marked for the Mac's code reader, and this phone
         // reports code access and makes the companion link.
         featureValues.put(dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY, settings.isEnabled(BridgeyFeature.NOTIFICATIONS, current.remoteDeviceId))
+        // Draft, edition only: Focus and Do Not Disturb sync, while either direction is on.
+        featureValues.put(dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY, focusSync.advertised())
         val payload = JSONObject()
             .put("version", 1)
             .put("features", featureValues)
@@ -2896,6 +2959,7 @@ class PairingCoordinator(
                 remotePlaces = values.opt(dev.bridgey.android.folders.PLACES_FEATURE_KEY) == true,
                 remoteSmsCodes = values.opt(dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY) == true,
                 remoteLinksOpen = values.opt(dev.bridgey.android.actions.LINKS_OPEN_FEATURE_KEY) == true,
+                remoteFocusSync = values.opt(dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY) == true,
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
                 ringing = state.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
             )
@@ -2911,6 +2975,8 @@ class PairingCoordinator(
         // The Mac (or this phone) no longer allows Mac actions: its list goes.
         if (!isFeatureAvailable(BridgeyFeature.MAC_ACTIONS, deviceId)) macActions.revoked(deviceId)
         if (values.opt(dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY) == true) sendCodeStatus(current)
+        // Focus sync: a Mac that understands it hears this phone's Do Not Disturb once per map.
+        if (values.opt(dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY) == true && focusSync.advertised()) focusSync.peerReady(deviceId)
     }
 
     // MARK: Codes from messages (draft sms_codes_draft1)

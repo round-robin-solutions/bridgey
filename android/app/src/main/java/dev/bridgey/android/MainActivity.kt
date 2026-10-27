@@ -89,6 +89,8 @@ import dev.bridgey.android.ui.CodeTestActions
 import dev.bridgey.android.ui.CodeTestScreen
 import dev.bridgey.android.ui.CodesSettingsActions
 import dev.bridgey.android.ui.CodesSettingsState
+import dev.bridgey.android.ui.FocusSettingsActions
+import dev.bridgey.android.ui.FocusSettingsState
 import dev.bridgey.android.ui.PerfTestActions
 import dev.bridgey.android.ui.PerfTestScreen
 import dev.bridgey.android.bench.AndroidBenchProbe
@@ -158,6 +160,8 @@ class MainActivity : ComponentActivity() {
     /** A folder question notification was tapped: show that question's sheet. */
     private var folderQuestion by mutableStateOf<String?>(null)
     private var batteryExempt by mutableStateOf(true)
+    /** Focus sync: Android lets Bridgey change Do Not Disturb. */
+    private var dndAccess by mutableStateOf(false)
     private var sharedContent by mutableStateOf<SharedContent?>(null)
     /** The launcher's Remote control quick action asked for this Mac. */
     private var remoteTarget by mutableStateOf<String?>(null)
@@ -238,6 +242,8 @@ class MainActivity : ComponentActivity() {
                     notificationAccessEnabled = notificationAccessEnabled,
                     readLogsGranted = readLogsGranted,
                     batteryExempt = batteryExempt,
+                    dndAccess = dndAccess,
+                    onOpenDndAccess = ::openDndAccessSettings,
                     onRequestBatteryExemption = ::requestBatteryExemption,
                     onOpenBatterySettings = ::openBatterySettings,
                     onTurnOff = {
@@ -384,6 +390,12 @@ class MainActivity : ComponentActivity() {
         Runtime.getRuntime().exit(0)
     }
 
+    /** Focus sync > Follow: Android's Do Not Disturb access page, where Bridgey RR is switched on. */
+    private fun openDndAccessSettings() {
+        runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)) }
+            .onFailure { openAppDetails() }
+    }
+
     private fun openAppDetails() {
         startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
     }
@@ -443,6 +455,7 @@ class MainActivity : ComponentActivity() {
         notificationAccessEnabled = NotificationAccess.isEnabled(this)
         readLogsGranted = checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
         batteryExempt = PowerFacts.ignoringBatteryOptimizations(this)
+        dndAccess = getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted
         if (
             ::bridgeySettings.isInitialized && bridgeySettings.state.value.directCallsEnabled &&
             !hasCallIntegrationPermissions()
@@ -593,6 +606,8 @@ private fun BridgeyApp(
     notificationAccessEnabled: Boolean,
     readLogsGranted: Boolean,
     batteryExempt: Boolean,
+    dndAccess: Boolean,
+    onOpenDndAccess: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     onOpenBatterySettings: () -> Unit,
     onTurnOff: () -> Unit,
@@ -989,6 +1004,7 @@ private fun BridgeyApp(
                                 linked = remember(codeAccessStatus, companionLink) { codes.access.isLinked() },
                                 adbCommand = dev.bridgey.android.codes.codeAccessAdbCommand(BuildConfig.APPLICATION_ID),
                             ),
+                            focus = FocusSettingsState(settingsState.focusShare, settingsState.focusFollow, dndAccess),
                         ),
                         actions = SettingsActions(
                             back = { stack.pop() },
@@ -1042,6 +1058,15 @@ private fun BridgeyApp(
                             openBatterySettings = onOpenBatterySettings,
                             setKeepWifiAwake = settings::setKeepWifiAwake,
                             folders = folderUi.settingsActions,
+                            focus = FocusSettingsActions(
+                                setShare = settings::setFocusShare,
+                                setFollow = { on ->
+                                    settings.setFocusFollow(on)
+                                    // Asked only now, when the person turns Follow on.
+                                    if (on && !dndAccess) onOpenDndAccess()
+                                },
+                                openAccess = onOpenDndAccess,
+                            ),
                             codes = CodesSettingsActions(
                                 link = codes.linker::start,
                                 copyCommand = {

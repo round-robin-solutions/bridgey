@@ -935,4 +935,14 @@
     <string name="widget_no_mac">Сначала подключите Mac в Bridgey</string>
     <string name="tile_lock_label">Заблокировать Mac</string>
     <string name="tile_lock_unavailable">Не разрешено</string>
+    <!-- Focus sync (focus_sync_draft1) -->
+    <string name="focus_section">Фокусирование</string>
+    <string name="focus_share_title">Передавать «Не беспокоить» на Mac</string>
+    <string name="focus_share_detail">Mac, которые следуют за телефоном, включают фокусирование, пока здесь включён режим «Не беспокоить»</string>
+    <string name="focus_follow_title">Следовать за фокусированием Mac</string>
+    <string name="focus_follow_detail">Режим «Не беспокоить» включается здесь, пока на Mac включено фокусирование</string>
+    <string name="focus_access_title">Доступ к режиму «Не беспокоить»</string>
+    <string name="focus_access_on">Разрешён. Bridgey выключает только тот режим «Не беспокоить», который включил сам.</string>
+    <string name="focus_access_off">Нужен, чтобы следовать за Mac. Включите Bridgey by Round Robin в доступе к режиму «Не беспокоить».</string>
+    <string name="focus_note">Каждое направление включается отдельно, а на Mac нужен такой же переключатель в настройках. Если вы включили «Не беспокоить» сами, окончание фокусирования на Mac его не выключит.</string>
 </resources>

@@ -85,6 +85,14 @@ class BridgeyApplication : Application() {
         }
     }
 
+    /** Focus sync: Android's Do Not Disturb changed. */
+    private val interruptionFilterReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == android.app.NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED) pairing.interruptionFilterChanged()
+        }
+    }
+    private var interruptionFilterReceiverRegistered = false
+
     override fun onCreate() {
         super.onCreate()
         isPrimaryUser = getSystemService(UserManager::class.java).isSystemUser
@@ -255,6 +263,12 @@ class BridgeyApplication : Application() {
             batteryReceiverRegistered = true
         }
         lastBatteryIntent?.let(::publishBattery)
+        if (!interruptionFilterReceiverRegistered) {
+            val filter = IntentFilter(android.app.NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED)
+            if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(interruptionFilterReceiver, filter, RECEIVER_NOT_EXPORTED)
+            else registerReceiver(interruptionFilterReceiver, filter)
+            interruptionFilterReceiverRegistered = true
+        }
     }
 
     fun disableBridgey() {
@@ -265,6 +279,10 @@ class BridgeyApplication : Application() {
         if (batteryReceiverRegistered) {
             runCatching { unregisterReceiver(batteryReceiver) }
             batteryReceiverRegistered = false
+        }
+        if (interruptionFilterReceiverRegistered) {
+            runCatching { unregisterReceiver(interruptionFilterReceiver) }
+            interruptionFilterReceiverRegistered = false
         }
         discovery.stop()
         remoteInput.stop()
