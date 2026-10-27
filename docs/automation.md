@@ -156,3 +156,15 @@ or an automation), and changing the Mac's Focus without a Shortcut. A device tha
 send the resulting change back for 10 seconds, so two devices following each other cannot loop.
 Turning Follow off hands the quiet mode back (runs the "off" Shortcut on the Mac; on the phone,
 removes the Do Not Disturb Bridgey set).
+
+## Phone camera to Mac
+
+"Take Photo with OnePlus 11" is in the menu bar panel's File menu and is a Shortcuts action (Take
+Photo with Phone, which waits up to two minutes and returns the photo). The phone shows a
+full-screen camera with one shutter button; it asks for the camera permission the first time. It
+opens only when the phone is unlocked and the person taps (Android does not let an app start an
+activity from the background): a locked phone shows "Unlock your phone to take the photo" and the
+Mac shows "Unlock OnePlus 11 to take the photo". The photo arrives as an ordinary file in Received
+files; Settings > Files > "Copy photos from the phone camera to the clipboard" (off by default)
+also puts it on the clipboard. The ML Kit document scanner is not included, because it needs
+Google Play services, which this edition does not depend on.

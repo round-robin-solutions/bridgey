@@ -120,6 +120,8 @@ private struct FileOfferPayload: Codable {
     let mimeType: String
     let size: Int64
     let sha256: String
+    /// Edition (camera_draft1): the photo answers this Mac's camera.request.
+    var cameraRequestId: String? = nil
 }
 
 private struct FileCompletePayload: Codable {
@@ -235,6 +237,10 @@ final class PairingCoordinator: ObservableObject {
     let batteryAlerts = BatteryAlerts()
     /// Focus and Do Not Disturb sync with phones (draft focus_sync_draft1), off by default.
     let focusSync = FocusSync()
+    /// "Take Photo with OnePlus 11" (draft camera_draft1).
+    let camera = PhoneCamera()
+    /// Incoming transfers that are camera photos, by transfer ID, with their request ID.
+    private var cameraTransfers: [String: String] = [:]
     /// Connection health per paired phone (no addresses, names or content).
     @Published private(set) var connectionHealth: [String: ConnectionHealthSnapshot] = [:]
     private var healthRecords: [String: DeviceHealthRecord] = [:]
@@ -423,6 +429,10 @@ final class PairingCoordinator: ObservableObject {
             }
         }
         focusSync.onSettingsChange = { [weak self] in self?.sendFeatureState() }
+        camera.send = { [weak self] id, payload in
+            guard let self, let current = self.registry.session(for: id) else { return false }
+            return self.sendQuickPayload(kind: "camera.request", payload: payload, to: current)
+        }
         remoteInput.isAllowed = { [weak self] id in self?.isFeatureAvailable(.remoteInput, for: id) == true }
         remoteInput.send = { [weak self] id, kind, payload in
             guard let self, let current = self.registry.session(for: id) else { return false }
@@ -739,6 +749,7 @@ final class PairingCoordinator: ObservableObject {
         cancelTransfers(for: id)
         remoteInput.disconnected(deviceID: id)
         macActions.disconnected(deviceID: id)
+        camera.disconnected(id)
         var record = healthRecords[id] ?? DeviceHealthRecord()
         record.connectedSince = nil
         record.lastDropReason = healthToken(reason)
@@ -2050,6 +2061,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remotePlaces = draftKeys[placesFeatureKey] == true
                     link.remoteSmsCodes = draftKeys[smsCodesFeatureKey] == true
                     link.remoteFocusSync = draftKeys[focusSyncFeatureKey] == true
+                    link.remoteCamera = draftKeys[cameraFeatureKey] == true
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
                 }
@@ -2275,6 +2287,9 @@ final class PairingCoordinator: ObservableObject {
                     throw PairingError.invalidMessage
                 }
                 guard incomingFiles[offer.transferId] == nil else { throw PairingError.invalidMessage }
+                if let requestID = offer.cameraRequestId, camera.matches(requestID, from: current.remoteDeviceID) {
+                    cameraTransfers[offer.transferId] = requestID
+                }
                 let transfer = try IncomingFileTransfer(offer: offer, directoryAccess: settings.receiveDirectoryAccess())
                 incomingFiles[offer.transferId] = transfer
                 transferDevices[offer.transferId] = current.remoteDeviceID
@@ -2354,6 +2369,9 @@ final class PairingCoordinator: ObservableObject {
                         transferId: completion.transferId
                     ))
                     recordActivity(.fileReceived, in: current, fileName: transfer.displayName)
+                    if let requestID = cameraTransfers.removeValue(forKey: completion.transferId) {
+                        camera.photoArrived(destination, requestID: requestID, from: current.remoteDeviceID, phoneName: current.peerName)
+                    }
                     NSWorkspace.shared.activateFileViewerSelecting([destination])
                     BridgeyLog.line(BridgeyLog.files, LogLines.file(BridgeyLog.policy, event: "received", transfer: completion.transferId, name: transfer.displayName))
                 } catch {
@@ -2477,6 +2495,8 @@ final class PairingCoordinator: ObservableObject {
                 receiveActionsMessage(message, in: current)
             case "focus.state":
                 receiveFocusState(message, in: current)
+            case "camera.status":
+                receiveCameraStatus(message, in: current)
             default:
                 break
             }
@@ -2577,6 +2597,8 @@ final class PairingCoordinator: ObservableObject {
         features[linksOpenFeatureKey] = settings.isEnabled(.links, for: current.remoteDeviceID)
         // Draft, edition only: focus.state, while either Focus direction is on.
         features[focusSyncFeatureKey] = focusSync.advertised
+        // Draft, edition only: this Mac can ask for photos; they arrive as files.
+        features[cameraFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
               let encrypted = try? encrypt(payload, key: key) else { return }
         current.send(PairingMessage(
@@ -3142,6 +3164,30 @@ final class PairingCoordinator: ObservableObject {
               payload["version"] as? Int == 1, let number = payload["active"] as? NSNumber,
               CFGetTypeID(number) == CFBooleanGetTypeID() else { return }
         focusSync.received(active: number.boolValue, from: current.remoteDeviceID)
+    }
+
+    /// camera.status from a phone, for this Mac's open request.
+    private func receiveCameraStatus(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key), data.count <= 512,
+              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              payload["version"] as? Int == 1, let requestID = payload["requestId"] as? String,
+              let status = payload["status"] as? String else { return }
+        camera.received(status: status, requestID: requestID, from: current.remoteDeviceID, phoneName: current.peerName)
+    }
+
+    /// The phone takes photos for this Mac and Files is on for it.
+    func cameraAvailable(for id: String) -> Bool {
+        registry.state(for: id)?.remoteCamera == true && isFeatureAvailable(.files, for: id)
+    }
+
+    /// Panel > File > Take Photo with [phone], or the Shortcuts action: the request ID, if sent.
+    @discardableResult
+    func takePhoto(with id: String? = nil) -> String? {
+        guard let target = id ?? registry.target(selected: selectedDeviceID), cameraAvailable(for: target) else { return nil }
+        return camera.request(from: target, phoneName: intentName(target))
     }
 
     // MARK: Shortcuts and Siri (App Intents)

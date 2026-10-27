@@ -841,3 +841,26 @@
 "focus.intent.description" = "Tells phones that follow this Mac’s Focus whether it is on.";
 "focus.intent.on" = "Focus is on";
 "focus.intent.title" = "Share Focus with Phones";
+
+/* Phone camera to Mac */
+"camera.feature" = "Take photos for the Mac";
+"camera.settings.clipboard" = "Copy photos from the phone camera to the clipboard";
+"camera.settings.clipboard.detail" = "Ready to paste as soon as the photo arrives";
+"camera.settings.note" = "In the menu bar panel, File > Take Photo with your phone. The phone opens its camera once it is unlocked; the photo lands in Received files.";
+"camera.status.asked" = "Take the photo on %@";
+"camera.status.busy" = "%@ is already taking a photo";
+"camera.status.cancelled" = "Photo cancelled";
+"camera.status.copied" = "Photo from %@ saved and copied";
+"camera.status.disabled" = "Take photos for the Mac is off on %@";
+"camera.status.failed" = "The photo could not be taken";
+"camera.status.locked" = "Unlock %@ to take the photo";
+"camera.status.notConnected" = "%@ is not connected";
+"camera.status.opened" = "The camera is open on %@";
+"camera.status.permission" = "Allow the camera in Bridgey on %@";
+"camera.status.saved" = "Photo from %@ saved";
+"camera.status.sending" = "Receiving the photo from %@";
+"camera.status.waiting" = "Waiting for the photo from %@";
+"quick.file.photo" = "Take Photo with %@";
+"quick.file.photo.none" = "Take Photo with Phone";
+"intent.camera.description" = "Opens the camera on a paired phone and returns the photo when you take it.";
+"intent.camera.title" = "Take Photo with Phone";

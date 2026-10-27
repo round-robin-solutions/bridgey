@@ -503,3 +503,66 @@ final class FocusSyncTests: XCTestCase {
         XCTAssertNil(sync.applied)
     }
 }
+
+@MainActor
+final class PhoneCameraTests: XCTestCase {
+    private var now = Date(timeIntervalSince1970: 5_000)
+    private var sent: [[String: Any]] = []
+    private var copied: [URL] = []
+
+    private func make() -> PhoneCamera {
+        let camera = PhoneCamera(defaults: nil, clock: { [unowned self] in self.now })
+        camera.send = { [unowned self] _, payload in self.sent.append(payload); return true }
+        camera.copyImage = { [unowned self] in self.copied.append($0) }
+        return camera
+    }
+
+    func testOneOpenRequestPerPhoneAndSpacing() throws {
+        let camera = make()
+        let id = try XCTUnwrap(camera.request(from: "a", phoneName: "OnePlus 11"))
+        XCTAssertEqual(sent.last?["mode"] as? String, "photo")
+        XCTAssertEqual(sent.last?["requestId"] as? String, id)
+        XCTAssertNil(camera.request(from: "a", phoneName: "OnePlus 11"), "one open request")
+        XCTAssertNotNil(camera.request(from: "b", phoneName: "Pixel"), "another phone has its own")
+        camera.received(status: "cancelled", requestID: id, from: "a", phoneName: "OnePlus 11")
+        XCTAssertNil(camera.request(from: "a", phoneName: "OnePlus 11"), "at most one every 3 seconds")
+        now = now.addingTimeInterval(3)
+        XCTAssertNotNil(camera.request(from: "a", phoneName: "OnePlus 11"))
+    }
+
+    func testRequestsExpireAfterTwoMinutes() throws {
+        let camera = make()
+        let id = try XCTUnwrap(camera.request(from: "a", phoneName: "P"))
+        now = now.addingTimeInterval(PhoneCamera.lifetime)
+        XCTAssertFalse(camera.matches(id, from: "a"))
+        XCTAssertEqual(camera.outcomes[id], .cancelled)
+    }
+
+    func testOnlyThePhoneThatWasAskedCanAnswer() throws {
+        let camera = make()
+        let id = try XCTUnwrap(camera.request(from: "a", phoneName: "P"))
+        XCTAssertFalse(camera.matches(id, from: "b"))
+        XCTAssertFalse(camera.matches(UUID().uuidString.lowercased(), from: "a"))
+        XCTAssertFalse(camera.matches(nil, from: "a"))
+        camera.received(status: "locked", requestID: id, from: "b", phoneName: "Q")
+        XCTAssertNil(camera.status.flatMap { $0.contains("Unlock") ? $0 : nil })
+        camera.received(status: "locked", requestID: id, from: "a", phoneName: "OnePlus 11")
+        XCTAssertEqual(camera.status, "Unlock OnePlus 11 to take the photo")
+        XCTAssertTrue(camera.matches(id, from: "a"), "locked keeps the request open")
+    }
+
+    func testPhotoIsCopiedOnlyWhenChosen() throws {
+        let camera = make()
+        let first = try XCTUnwrap(camera.request(from: "a", phoneName: "P"))
+        camera.photoArrived(URL(fileURLWithPath: "/tmp/one.jpg"), requestID: first, from: "a", phoneName: "P")
+        XCTAssertEqual(copied, [])
+        XCTAssertEqual(camera.photos[first]?.lastPathComponent, "one.jpg")
+        camera.setCopyToClipboard(true)
+        now = now.addingTimeInterval(5)
+        let second = try XCTUnwrap(camera.request(from: "a", phoneName: "P"))
+        camera.photoArrived(URL(fileURLWithPath: "/tmp/two.jpg"), requestID: second, from: "a", phoneName: "P")
+        XCTAssertEqual(copied.map(\.lastPathComponent), ["two.jpg"])
+        camera.photoArrived(URL(fileURLWithPath: "/tmp/three.jpg"), requestID: second, from: "a", phoneName: "P")
+        XCTAssertEqual(copied.count, 1, "a request takes one photo")
+    }
+}

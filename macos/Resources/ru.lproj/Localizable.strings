@@ -841,3 +841,26 @@
 "focus.intent.description" = "Сообщает телефонам, которые следуют за фокусом этого Mac, включён ли он.";
 "focus.intent.on" = "Фокус включён";
 "focus.intent.title" = "Поделиться фокусом с телефонами";
+
+/* Phone camera to Mac */
+"camera.feature" = "Фото для Mac";
+"camera.settings.clipboard" = "Копировать фото с камеры телефона в буфер обмена";
+"camera.settings.clipboard.detail" = "Можно вставить, как только фото придёт";
+"camera.settings.note" = "В панели в строке меню: «Файл» > «Сделать фото на телефоне». Телефон откроет камеру, когда будет разблокирован; фото попадёт в папку полученных файлов.";
+"camera.status.asked" = "Сделайте фото на %@";
+"camera.status.busy" = "%@ уже делает фото";
+"camera.status.cancelled" = "Фото отменено";
+"camera.status.copied" = "Фото с %@ сохранено и скопировано";
+"camera.status.disabled" = "«Фото для Mac» выключено на %@";
+"camera.status.failed" = "Не удалось сделать фото";
+"camera.status.locked" = "Разблокируйте %@, чтобы сделать фото";
+"camera.status.notConnected" = "%@ не подключён";
+"camera.status.opened" = "Камера открыта на %@";
+"camera.status.permission" = "Разрешите камеру в Bridgey на %@";
+"camera.status.saved" = "Фото с %@ сохранено";
+"camera.status.sending" = "Получаем фото с %@";
+"camera.status.waiting" = "Ждём фото с %@";
+"quick.file.photo" = "Сделать фото на %@";
+"quick.file.photo.none" = "Сделать фото на телефоне";
+"intent.camera.description" = "Открывает камеру на сопряжённом телефоне и возвращает фото, когда вы его сделаете.";
+"intent.camera.title" = "Сделать фото на телефоне";

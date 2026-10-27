@@ -53,6 +53,8 @@ struct PanelModel {
     var mediaDetail = ""
     /// The browser "Send the current tab" asks (Safari or Chrome), nil when none is running.
     var browserName: String?
+    /// The selected phone takes photos for this Mac (camera_draft1): its name, for File > Take Photo.
+    var cameraPhone: String?
     var fileTransferActive = false
     /// Automatic clipboard is running for the connected device.
     var autoClipboard = false
@@ -90,6 +92,7 @@ struct PanelActions {
     var showTransfers: () -> Void = {}
     var sendLink: () -> Void = {}
     var sendBrowserTab: () -> Void = {}
+    var takePhoto: () -> Void = {}
     var call: () -> Void = {}
     var ping: () -> Void = {}
     var find: () -> Void = {}
@@ -1137,6 +1140,9 @@ private struct QuickActionBar: View {
                 [
                     PopUpMenuItem(title: L10n.text("quick.file.choose", fallback: "Send Files or Folders\u{2026}"), action: actions.chooseFile),
                     PopUpMenuItem(title: L10n.text("drop.open", fallback: "Open file drop window"), action: actions.openDropWindow),
+                    PopUpMenuItem(title: model.cameraPhone.map { String(format: L10n.text("quick.file.photo", fallback: "Take Photo with %@"), $0) }
+                                    ?? L10n.text("quick.file.photo.none", fallback: "Take Photo with Phone"),
+                                  enabled: model.cameraPhone != nil, action: actions.takePhoto),
                     .separator,
                     PopUpMenuItem(title: L10n.text("quick.file.transfers", fallback: "Show File Transfers"), enabled: model.hasTransferHistory || !model.transfers.isEmpty, action: actions.showTransfers),
                 ]
@@ -1369,6 +1375,7 @@ struct BridgeyPanel: View {
     @ObservedObject var updater: AppUpdater
     @ObservedObject var codeModel: CodeModelStore
     @ObservedObject var browserTab: BrowserTabReader
+    @ObservedObject var camera: PhoneCamera
     let onOpenSettings: () -> Void
     @State private var clipboard = PasteboardPreview()
     @State private var now = Date()
@@ -1384,6 +1391,7 @@ struct BridgeyPanel: View {
         media = pairing.mediaController
         codeModel = pairing.codeModel
         browserTab = pairing.browserTab
+        camera = pairing.camera
         self.onOpenSettings = onOpenSettings
     }
 
@@ -1440,13 +1448,14 @@ struct BridgeyPanel: View {
         model.available = Set(BridgeyFeature.allCases.filter { pairing.isFeatureAvailable($0) })
         model.clipboardLine = clipboard.line
         model.clipboardHidden = clipboard.hidden
-        model.status = pairing.rediscoverStatus ?? pairing.clipboardStatus ?? pairing.callStatus ?? pairing.pingStatus ?? quickActions.status ?? pairing.fileTransferStatus.flatMap { pairing.fileTransferActive ? nil : $0 }
+        model.status = pairing.rediscoverStatus ?? pairing.clipboardStatus ?? pairing.callStatus ?? pairing.pingStatus ?? quickActions.status ?? camera.status ?? pairing.fileTransferStatus.flatMap { pairing.fileTransferActive ? nil : $0 }
         if pairing.isFeatureAvailable(.notifications) && !pairing.notificationsAuthorized {
             model.notificationPrompt = pairing.notificationPermissionDetermined ? .openSettings : .request
         }
         model.mediaPlayer = media.player
         model.mediaDetail = media.snapshot.detail
         model.browserName = browserTab.browser?.name
+        if case let .connected(deviceID, name) = pairing.state, pairing.cameraAvailable(for: deviceID) { model.cameraPhone = name }
         model.update = updater.flow
         model.appVersion = updater.shortVersion
         model.pairingStoreIssue = pairing.pairingStoreIssue
@@ -1479,6 +1488,7 @@ struct BridgeyPanel: View {
         actions.showTransfers = { pairing.showFileTransferWindow() }
         actions.sendLink = { quickActions.sendClipboardLink() }
         actions.sendBrowserTab = { pairing.sendBrowserTab() }
+        actions.takePhoto = { pairing.takePhoto() }
         actions.call = { pairing.sendCallFromClipboard() }
         actions.ping = { pairing.sendPing() }
         actions.find = { pairing.findAndroid() }
