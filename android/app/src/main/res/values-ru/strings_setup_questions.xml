@@ -25,14 +25,11 @@
         <item quantity="many">Осталось %d шагов</item>
         <item quantity="other">Осталось %d шага</item>
     </plurals>
-    <string name="setup_last_step">Последний вопрос</string>
+    <string name="setup_last_step">Последний шаг</string>
     <string name="setup_not_now">Не сейчас</string>
     <string name="setup_more_options">Другие параметры</string>
     <string name="setup_answer_current">Сейчас</string>
     <string name="setup_leave_action">Выйти из настройки</string>
-    <string name="setup_typed_note">Выбрано по вашему выбору или тексту. Нужно одно разрешение.</string>
-    <string name="setup_denied">Нет доступа «%1$s». Выключено: %2$s.</string>
-    <string name="setup_permission_title">Разрешить: %1$s</string>
 
     <string name="setup_leave_title">Выйти из настройки?</string>
     <string name="setup_leave_body">Выбранное до сих пор сохранится.</string>
@@ -47,7 +44,6 @@
     <string name="setup_summary_change">Изменить в настройках</string>
     <string name="setup_summary_empty">Вы оставили значения по умолчанию. Всё можно изменить в настройках.</string>
     <string name="setup_summary_start">Начать пользоваться Bridgey</string>
-    <string name="setup_summary_denied_line">Нет доступа «%1$s», поэтому выключено.</string>
 
     <string name="setup_a_yes">Да</string>
     <string name="setup_a_no">Нет</string>
@@ -65,18 +61,7 @@
     <string name="setup_a_clipboard_auto_detail">Копируете здесь, вставляете там. Ничего нажимать не нужно.</string>
     <string name="setup_a_clipboard_tap">Только когда я нажму «Отправить»</string>
     <string name="setup_a_clipboard_tap_detail">Отправляйте скопированное одним нажатием в приложении или плитке.</string>
-    <string name="setup_q_clipboard_files_title">Копировать также картинки и файлы?</string>
-    <string name="setup_q_clipboard_files_context">Большие объекты переходят только при вставке, поэтому копирование остаётся быстрым.</string>
-    <string name="setup_q_clipboard_files_summary">Картинки и файлы в буфере обмена</string>
-    <string name="setup_a_clipboard_files_yes">Да, и картинки, и файлы</string>
-    <string name="setup_a_clipboard_files_text">Только текст</string>
-    <string name="setup_q_clipboard_screenshot_title">Отправлять последний снимок экрана по кнопке «Отправить»?</string>
-    <string name="setup_q_clipboard_screenshot_context">Если вы сделали снимок экрана за последнюю минуту, «Отправить скопированное» отправит его на Mac.</string>
-    <string name="setup_q_clipboard_screenshot_summary">Отправка свежего снимка экрана</string>
 
-    <string name="setup_q_notifications_title">Хотите видеть уведомления телефона на Mac?</string>
-    <string name="setup_q_notifications_context">Сообщения и оповещения с телефона появятся и на Mac.</string>
-    <string name="setup_q_notifications_summary">Уведомления телефона на Mac</string>
     <string name="setup_q_notification_apps_title">Для каких приложений у вас уже есть приложение на Mac, например WhatsApp?</string>
     <string name="setup_q_notification_apps_context">Bridgey оставит их уведомления на телефоне, чтобы на Mac они не приходили дважды.</string>
     <string name="setup_q_notification_apps_summary">Остаются на телефоне</string>
@@ -85,9 +70,6 @@
     <string name="setup_q_codes_context">Android скрывает одноразовые коды от других приложений, пока телефон не связан с Mac. Mac читает их сам или через облако, как вы выберете там.</string>
     <string name="setup_q_codes_summary">Коды из сообщений на Mac</string>
     <string name="setup_a_codes_yes">Да, связать с Mac</string>
-    <string name="setup_q_app_notifications_title">Сообщать, когда что-то приходит с Mac?</string>
-    <string name="setup_q_app_notifications_context">Файлы, ссылки и звонки с Mac показываются уведомлениями на телефоне.</string>
-    <string name="setup_q_app_notifications_summary">Уведомления Bridgey</string>
 
     <string name="setup_q_calls_title">Вы принимаете звонки на Mac?</string>
     <string name="setup_q_calls_context">Видно, кто звонит, а отвечать и отклонять можно с Mac.</string>
@@ -97,9 +79,6 @@
     <string name="setup_a_calls_see">Только показывать, кто звонит</string>
     <string name="setup_a_calls_see_detail">Отвечаете на телефоне.</string>
 
-    <string name="setup_q_files_title">Хотите отправлять файлы и фото между телефоном и Mac?</string>
-    <string name="setup_q_files_context">Поделитесь или перетащите, и они окажутся на другом устройстве.</string>
-    <string name="setup_q_files_summary">Отправка файлов и фото</string>
     <string name="setup_q_files_browse_title">Может ли Mac просматривать файлы и фото на этом телефоне?</string>
     <string name="setup_q_files_browse_context">Mac сможет видеть и скачивать их. Можно ли что-то менять, решаете вы.</string>
     <string name="setup_q_files_browse_summary">Mac может просматривать телефон</string>
@@ -107,72 +86,36 @@
     <string name="setup_a_files_browse_look_detail">Mac видит и скачивает, но ничего не меняет.</string>
     <string name="setup_a_files_browse_change">Да, и менять файлы</string>
     <string name="setup_a_files_browse_change_detail">Mac также сможет загружать и заменять файлы здесь.</string>
-    <string name="setup_q_files_folder_title">Куда сохранять папку, которую вы отправляете на телефон?</string>
-    <string name="setup_q_files_folder_context">Структура папок сохраняется в любом случае.</string>
-    <string name="setup_q_files_folder_summary">Папки, присланные на телефон</string>
-    <string name="setup_a_files_folder_sender">Выбираю на Mac при отправке</string>
-    <string name="setup_a_files_folder_ask">Спрашивать на телефоне каждый раз</string>
-    <string name="setup_a_files_folder_fixed">Всегда в папку по умолчанию</string>
 
-    <string name="setup_q_remote_title">Хотите управлять Mac с телефона, как тачпадом или пультом для слайдов?</string>
-    <string name="setup_q_remote_context">Mac тоже должен разрешить этот телефон. Остановить можно в любой момент.</string>
-    <string name="setup_q_remote_summary">Управление Mac с телефона</string>
     <string name="setup_q_remote_volume_keys_title">Листать слайды кнопками громкости?</string>
     <string name="setup_q_remote_volume_keys_context">Пока открыт пульт для слайдов, громкость вниз листает вперёд, а вверх назад.</string>
     <string name="setup_q_remote_volume_keys_summary">Кнопки громкости листают слайды</string>
-    <string name="setup_q_mac_actions_title">Блокировка, сон и громкость с телефона?</string>
-    <string name="setup_q_mac_actions_context">Быстрые кнопки для Mac. Что можно этому телефону, решает Mac.</string>
-    <string name="setup_q_mac_actions_summary">Блокировка, сон и громкость Mac</string>
-    <string name="setup_q_media_title">Управлять музыкой на Mac с телефона?</string>
-    <string name="setup_q_media_context">Пуск, пауза и переключение того, что играет на Mac.</string>
-    <string name="setup_q_media_summary">Управление музыкой на Mac</string>
 
-    <string name="setup_q_camera_title">Снимать фото для Mac на телефон?</string>
-    <string name="setup_q_camera_context">Mac просит, вы снимаете здесь, и фото оказывается на Mac.</string>
-    <string name="setup_q_camera_summary">Фото для Mac</string>
-    <string name="setup_q_focus_title">Включать «Не беспокоить» на обоих устройствах вместе?</string>
-    <string name="setup_q_focus_context">Когда одно устройство затихает, другое следует за ним. Ответьте так же на Mac.</string>
     <string name="setup_q_focus_summary">«Не беспокоить» вместе</string>
     <string name="setup_a_focus_both">Да, в обе стороны</string>
-    <string name="setup_a_focus_follow">Только телефон следует за Mac</string>
-    <string name="setup_a_focus_share">Только Mac следует за телефоном</string>
 
-    <string name="setup_q_links_title">Открывать ссылки с одного устройства на другом?</string>
-    <string name="setup_q_links_context">Поделитесь ссылкой с Mac, и она откроется там в браузере.</string>
-    <string name="setup_q_links_summary">Ссылки открываются на другом устройстве</string>
-    <string name="setup_q_find_title">Звонить на устройство, когда не можете его найти?</string>
-    <string name="setup_q_find_context">Позвоните на телефон с Mac или на Mac отсюда. Короткий сигнал тоже работает.</string>
-    <string name="setup_q_find_summary">Поиск и сигнал устройствам</string>
-    <string name="setup_q_battery_title">Показывать заряд телефона на Mac?</string>
-    <string name="setup_q_battery_context">Оба устройства показывают заряд друг друга.</string>
-    <string name="setup_q_battery_summary">Заряд на обоих устройствах</string>
 
-    <string name="setup_q_stats_title">Можно Bridgey вести статистику подключения, чтобы исправлять проблемы?</string>
-    <string name="setup_q_stats_context">Она хранится на телефоне, без содержимого сообщений и файлов, и уходит только если вы её экспортируете.</string>
-    <string name="setup_q_stats_summary">Статистика подключения на телефоне</string>
-    <string name="setup_q_previews_title">Показывать скопированное в списке активности?</string>
-    <string name="setup_q_previews_context">Если выключить, видно только что произошло, например «Скопирован текст».</string>
-    <string name="setup_q_previews_summary">Предпросмотр в активности</string>
 
-    <string name="setup_q_updates_title">Насколько свежие обновления вам нужны?</string>
-    <string name="setup_q_updates_context">Новые сборки получают функции раньше, но в них больше шероховатостей.</string>
     <string name="setup_q_updates_summary">Обновления</string>
     <string name="setup_a_updates_steady">Надёжные</string>
-    <string name="setup_a_updates_steady_detail">Стабильные: проверенные выпуски. Лучше для большинства.</string>
     <string name="setup_a_updates_early">Пораньше</string>
-    <string name="setup_a_updates_early_detail">Бета: новые функции до того, как они попадут в стабильную версию.</string>
     <string name="setup_a_updates_newest">Самые новые, каждый день</string>
-    <string name="setup_a_updates_newest_detail">Ночные сборки из каждого изменения. Возможны шероховатости.</string>
 
-    <string name="setup_q_background_title">Работать, когда телефон заблокирован?</string>
-    <string name="setup_q_background_context">Телефоны останавливают фоновые приложения ради заряда. Если разрешить, Mac останется на связи.</string>
-    <string name="setup_q_background_summary">Работает в фоне</string>
-    <string name="setup_q_wifi_awake_title">Не давать Wi-Fi засыпать, пока Mac подключён?</string>
-    <string name="setup_q_wifi_awake_context">Меньше обрывов на телефонах, которые замедляют Wi-Fi при выключенном экране, ценой заряда.</string>
-    <string name="setup_q_wifi_awake_summary">Wi-Fi не засыпает при подключении</string>
-    <string name="setup_q_motion_title">Хотите меньше движения на экране?</string>
-    <string name="setup_q_motion_context">Экраны плавно сменяются вместо сдвига, ничего не прыгает.</string>
-    <string name="setup_q_motion_summary">Меньше анимации</string>
-    <string name="setup_a_motion_yes">Да, меньше анимации</string>
-    <string name="setup_a_motion_no">Нет, оставить как есть</string>
+
+    <string name="setup_switches_title">Что-нибудь ещё?</string>
+    <string name="setup_switches_context">Всё здесь выключено, пока вы не включите.</string>
+    <string name="setup_switches_details">Подробности в настройках</string>
+    <string name="setup_continue">Продолжить</string>
+    <string name="setup_permissions_title">Разрешите то, что нужно</string>
+    <string name="setup_permissions_context">Разрешите здесь или позже в настройках. Без разрешения функция останется выключенной, а настройка продолжится.</string>
+    <string name="setup_permissions_needed_for">Нужно для: %1$s</string>
+    <string name="setup_permissions_needed_connection">Нужно, чтобы оставаться на связи, пока телефон спит</string>
+    <string name="setup_status_allowed">Разрешено</string>
+    <string name="setup_status_not_yet">Ещё нет</string>
+    <string name="setup_status_refused">Отклонено</string>
+    <string name="setup_allow_all">Разрешить всё</string>
+    <string name="setup_intro_on">Вкл.</string>
+    <string name="setup_intro_off">Выкл.</string>
+    <string name="setup_done_essentials">Сейчас включено: связь с Mac, буфер обмена по кнопке «Отправить» и уведомления телефона на Mac. Остальное можно включить в настройках.</string>
+    <string name="setup_summary_turned_off">Нет доступа, поэтому выключено: %1$s.</string>
 </resources>

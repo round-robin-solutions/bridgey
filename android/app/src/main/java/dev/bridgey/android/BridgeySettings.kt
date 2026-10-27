@@ -114,7 +114,11 @@ internal fun effectiveFeatureEnabled(
 internal fun effectiveFeatureAvailable(localEnabled: Boolean, remoteEnabled: Boolean): Boolean =
     localEnabled && remoteEnabled
 
-class BridgeySettings(context: Context, defaultDeviceName: String) {
+/**
+ * [defaultsGeneration]: which defaults a feature without a stored value takes
+ * ([dev.bridgey.android.setup.DefaultsGeneration]); stored values always win.
+ */
+class BridgeySettings(context: Context, defaultDeviceName: String, private val defaultsGeneration: Int = dev.bridgey.android.setup.DefaultsGeneration.FEATURES_ON) {
     private val preferences = context.getSharedPreferences("bridgey.settings", Context.MODE_PRIVATE)
     private val mutableState = MutableStateFlow(load(defaultDeviceName))
     val state: StateFlow<BridgeySettingsState> = mutableState.asStateFlow()
@@ -303,7 +307,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
 
     private fun load(defaultDeviceName: String): BridgeySettingsState {
         val globals = BridgeyFeature.entries.associateWith {
-            preferences.getBoolean("global.${it.key}", featureOnByDefault(it))
+            preferences.getBoolean("global.${it.key}", dev.bridgey.android.setup.DefaultsGeneration.featureDefault(it, defaultsGeneration))
         }
         val perDevice = mutableMapOf<String, MutableMap<BridgeyFeature, Boolean>>()
         preferences.all.forEach { (key, value) ->

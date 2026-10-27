@@ -12,23 +12,27 @@ object SetupTyped {
     data class Rule(val question: String, val answer: String, val stems: List<String>, val negatable: Boolean = true)
 
     val rules: List<Rule> = listOf(
-        Rule("clipboard", Answers.AUTO, listOf("copy", "copi", "paste", "clipboard", "копир", "скопир", "встав", "буфер")),
-        Rule("notifications", Answers.YES, listOf("notif", "alert", "whatsapp", "telegram", "уведомл", "оповещ")),
+        Rule("clipboard", Answers.PICK, listOf("copy", "copi", "paste", "clipboard", "копир", "скопир", "встав", "буфер")),
+        Rule("notifications", Answers.PICK, listOf("notif", "alert", "whatsapp", "telegram", "уведомл", "оповещ")),
         Rule("codes", Answers.YES, listOf("code", "otp", "код")),
-        Rule("calls", Answers.YES, listOf("call", "звон", "вызов")),
-        Rule("files", Answers.YES, listOf("file", "photo", "picture", "folder", "файл", "фото", "папк", "снимк")),
-        Rule("remote", Answers.YES, listOf("touchpad", "trackpad", "mouse", "slide", "presentation", "тачпад", "мыш", "слайд", "презентац", "пульт")),
-        Rule("mac_actions", Answers.YES, listOf("lock", "sleep", "volume", "блокир", "сон", "громк")),
-        Rule("media", Answers.YES, listOf("music", "spotify", "song", "музык", "песн")),
-        Rule("camera", Answers.YES, listOf("camera", "камер")),
+        Rule("calls", Answers.PICK, listOf("call", "звон", "вызов")),
+        Rule("files", Answers.PICK, listOf("file", "photo", "picture", "folder", "файл", "фото", "папк", "снимк")),
+        Rule("remote", Answers.PICK, listOf("touchpad", "trackpad", "mouse", "slide", "presentation", "тачпад", "мыш", "слайд", "презентац", "пульт")),
+        Rule("mac_actions", Answers.PICK, listOf("lock", "sleep", "volume", "блокир", "сон", "громк")),
+        Rule("media", Answers.PICK, listOf("music", "spotify", "song", "музык", "песн")),
+        Rule("camera", Answers.PICK, listOf("camera", "камер")),
         Rule("focus", Answers.BOTH, listOf("dnd", "focus", "фокус")),
-        Rule("links", Answers.YES, listOf("link", "url", "browser", "ссылк", "браузер")),
-        Rule("find", Answers.YES, listOf("find my", "lost", "ring", "найти", "потерял")),
-        Rule("battery", Answers.YES, listOf("battery", "батаре", "заряд")),
+        Rule("links", Answers.PICK, listOf("link", "url", "browser", "ссылк", "браузер")),
+        Rule("find", Answers.PICK, listOf("find my", "lost", "ring", "найти", "потерял")),
+        Rule("battery", Answers.PICK, listOf("battery", "батаре", "заряд")),
         Rule("updates", Answers.NEWEST, listOf("nightly", "newest", "every day", "ночн", "каждый день"), negatable = false),
         Rule("updates", Answers.EARLY, listOf("beta", "early", "бета", "раньше"), negatable = false),
         Rule("updates", Answers.STEADY, listOf("stable", "steady", "стабил"), negatable = false),
     )
+
+    /** Every id typing can answer on this phone: the features, their follow-ups, Focus and updates. */
+    val targets: List<String>
+        get() = (SetupFeatures.all.map { it.id } + SetupQuestions.all.map { it.id } + SetupQuestions.typedOnly.keys).distinct()
 
     private val negations = setOf("no", "not", "don't", "dont", "without", "never", "нет", "не", "без", "никаких")
 
@@ -42,10 +46,10 @@ object SetupTyped {
     }
 
     /**
-     * The answers [text] asks for, by question id, in question order, for the questions this
-     * device has ([available]). The first matching rule per question wins.
+     * The answers [text] asks for, by feature or question id, in rule order, for the ids this device
+     * has ([available]). The first matching rule per id wins.
      */
-    fun match(text: String, available: Collection<String>): Map<String, String> {
+    fun match(text: String, available: Collection<String> = targets): Map<String, String> {
         val tokens = words(text)
         if (tokens.isEmpty()) return emptyMap()
         val found = LinkedHashMap<String, String>()
@@ -55,7 +59,7 @@ object SetupTyped {
             val negated = rule.negatable && tokens.subList((hit - 3).coerceAtLeast(0), hit).any { it in negations }
             found[rule.question] = if (negated) Answers.NO else rule.answer
         }
-        return available.filter { it in found }.associateWith { found.getValue(it) }
+        return found.filterKeys { it in available }
     }
 
     /** Where [stem] starts in [tokens]: each of its words must match, the last one as a prefix. */

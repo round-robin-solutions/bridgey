@@ -8,9 +8,9 @@
     <string name="setup_welcome_body">Your phone and your Mac, working together on your own network: clipboard, files, notifications, calls and more.</string>
     <string name="setup_quick_title">Get started quickly</string>
     <string name="setup_quick_badge">Recommended</string>
-    <string name="setup_quick_body">Sensible defaults and only the permissions you need now. Change anything later in Settings.</string>
+    <string name="setup_quick_body">Turns on the essentials: pairing with your Mac, the clipboard when you tap Send, and your phone\'s notifications on your Mac. Turn on more any time in Settings.</string>
     <string name="setup_advanced_title">Advanced setup</string>
-    <string name="setup_advanced_body">Go through every feature and choose how it works. Defaults are already selected.</string>
+    <string name="setup_advanced_body">Pick what you want, answer a few short questions, and turn on anything else from one list.</string>
     <string name="setup_step_of">%1$d of %2$d</string>
     <string name="setup_skip">Skip</string>
     <string name="setup_next">Next</string>

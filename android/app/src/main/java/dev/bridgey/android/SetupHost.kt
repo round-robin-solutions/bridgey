@@ -47,6 +47,9 @@ import dev.bridgey.android.setup.SetupBack
 import dev.bridgey.android.setup.SetupChoicesSync
 import dev.bridgey.android.setup.SetupEvent
 import dev.bridgey.android.setup.SetupFacts
+import dev.bridgey.android.setup.SetupBundles
+import dev.bridgey.android.setup.SetupFeatures
+import dev.bridgey.android.setup.SetupPermission
 import dev.bridgey.android.setup.SetupFlow
 import dev.bridgey.android.setup.SetupLaunch
 import dev.bridgey.android.setup.SetupQuestions
@@ -311,33 +314,28 @@ internal fun SetupRoute(
     val facts = setupFacts(context, settings, pairedNames.isNotEmpty(), duplicateApps)
     val latestSettings by rememberUpdatedState(settings)
     val scope = rememberCoroutineScope()
-    /** An intent-based permission request is out (system settings, battery dialog, companion link). */
-    var waiting by rememberSaveable { mutableStateOf(false) }
+    /** Allow all: the special access screens still to open, in order (saved, as the app leaves for each). */
+    var queue by rememberSaveable { mutableStateOf("") }
 
-    fun granted(kind: PermissionKind): Boolean = kind in permissionFacts(context, latestSettings).granted
+    fun currentFacts() = setupFacts(context, latestSettings, pairedNames.isNotEmpty(), duplicateApps)
 
     fun send(event: SetupEvent) {
         val current = flow
-        val currentFacts = setupFacts(context, latestSettings, pairedNames.isNotEmpty(), duplicateApps)
+        val now = currentFacts()
         when (event) {
+            // Get started quickly: the Essentials, for the features that are off.
+            SetupEvent.ChooseQuick -> SetupBundles.essentialChanges(SetupFlow.effective(current, now)).forEach(apply)
+            is SetupEvent.StartQuestions -> SetupFlow.startChanges(event.chosen).forEach(apply)
             is SetupEvent.Answer -> SetupQuestions.question(event.id)?.let { question -> SetupQuestions.changes(question, event.key).forEach(apply) }
-            is SetupEvent.StartQuestions -> SetupFlow.readyTyped(event.typed, currentFacts).forEach { (id, key) ->
-                SetupQuestions.question(id)?.let { question -> SetupQuestions.changes(question, key).forEach(apply) }
+            is SetupEvent.Switch -> SetupFeatures.feature(event.feature)?.let { feature -> (if (event.on) feature.on else feature.off).forEach(apply) }
+            // Leaving the permissions page: whatever is still not allowed turns its features off.
+            SetupEvent.Continue -> if (current.screen == SetupScreen.Permissions) {
+                SetupFlow.neededPermissions(current, now).filter { it.kind !in now.granted }.forEach { it.offWhenRefused.forEach(apply) }
             }
-            is SetupEvent.PermissionResult, SetupEvent.NotNow -> (current.screen as? SetupScreen.Permission)?.let { screen ->
-                val allowed = (event as? SetupEvent.PermissionResult)?.granted == true
-                val question = SetupQuestions.question(screen.id)
-                val answer = question?.let { q -> current.answers[q.id]?.let { SetupQuestions.answer(q, it) } }
-                if (!allowed) answer?.onDenied?.forEach(apply)
-                if (allowed && screen.kind == PermissionKind.PHONE_CALLS) BridgeyNotificationListenerService.callPermissionsChanged()
-            }
-            is SetupEvent.SummarySwitch -> SetupQuestions.question(event.id)?.let { question ->
-                val key = if (event.on) current.answers[question.id] else question.offKey
-                key?.let { SetupQuestions.changes(question, it).forEach(apply) }
-            }
+            is SetupEvent.SummarySwitch -> SetupFeatures.feature(event.feature)?.let { feature -> (if (event.on) feature.on else feature.off).forEach(apply) }
             else -> Unit
         }
-        flow = SetupFlow.reduce(current, event, currentFacts)
+        flow = SetupFlow.reduce(current, event, now)
     }
 
     fun leave() {
@@ -346,52 +344,68 @@ internal fun SetupRoute(
 
     SetupBackHandler(flow, ::send, onExit)
 
-    val runtimeRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-        val screen = flow.screen as? SetupScreen.Permission ?: return@rememberLauncherForActivityResult
-        val allowed = when (screen.kind) {
-            // Photos needs full access to images (videos too while Files is on); a partial pick leaves it off.
-            PermissionKind.PHOTOS -> granted(PermissionKind.PHOTOS) ||
-                (result.isNotEmpty() && dev.bridgey.android.browse.MediaAccessRules.access(Build.VERSION.SDK_INT) { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED } == dev.bridgey.android.browse.MediaAccess.FULL)
-            else -> result.isNotEmpty() && result.values.all { it }
-        }
-        send(SetupEvent.PermissionResult(allowed))
-    }
+    fun granted(kind: PermissionKind): Boolean = kind in permissionFacts(context, latestSettings).granted
 
-    // Back from a system screen: allowed, or not (some answers arrive a moment after the app resumes).
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        if (!waiting) return@LifecycleEventEffect
-        scope.launch {
-            val screen = flow.screen as? SetupScreen.Permission
-            if (screen == null) {
-                waiting = false
-                return@launch
-            }
-            repeat(8) {
-                if (granted(screen.kind)) {
-                    waiting = false
-                    send(SetupEvent.PermissionResult(true))
-                    return@launch
-                }
-                delay(250)
-            }
-            waiting = false
-            if (flow.screen == screen) send(SetupEvent.PermissionResult(false))
-        }
-    }
-
-    fun allow(kind: PermissionKind) {
-        hooks.store.markExplained(kind)
-        if (granted(kind)) return send(SetupEvent.PermissionResult(true))
+    fun openSpecial(kind: PermissionKind) {
         when (kind) {
-            PermissionKind.PHONE_CALLS -> runtimeRequest.launch(arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE, Manifest.permission.ANSWER_PHONE_CALLS))
-            PermissionKind.POST_NOTIFICATIONS -> if (Build.VERSION.SDK_INT >= 33) runtimeRequest.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS)) else send(SetupEvent.PermissionResult(false))
-            PermissionKind.PHOTOS -> runtimeRequest.launch(dev.bridgey.android.browse.MediaAccessRules.request(Build.VERSION.SDK_INT))
-            PermissionKind.CAMERA -> runtimeRequest.launch(arrayOf(Manifest.permission.CAMERA))
-            PermissionKind.NOTIFICATION_ACCESS -> { waiting = true; onOpenNotificationAccess() }
-            PermissionKind.BATTERY -> { waiting = true; actions.requestBatteryExemption() }
-            PermissionKind.DO_NOT_DISTURB -> { waiting = true; actions.focus.openAccess() }
-            PermissionKind.COMPANION_LINK -> { waiting = true; actions.codes.link() }
-            else -> send(SetupEvent.PermissionResult(false))
+            PermissionKind.NOTIFICATION_ACCESS -> onOpenNotificationAccess()
+            PermissionKind.BATTERY -> actions.requestBatteryExemption()
+            PermissionKind.DO_NOT_DISTURB -> actions.focus.openAccess()
+            PermissionKind.COMPANION_LINK -> actions.codes.link()
+            else -> Unit
+        }
+    }
+
+    /** The next special access screen Allow all opens; the rest wait for Bridgey to come back. */
+    fun nextInQueue() {
+        val kinds = queue.split(',').filter { it.isNotEmpty() }.map(PermissionKind::valueOf).filterNot(::granted)
+        val next = kinds.firstOrNull()
+        queue = kinds.drop(1).joinToString(",") { it.name }
+        if (next != null) {
+            send(SetupEvent.Asked(setOf(next)))
+            openSpecial(next)
+        }
+    }
+
+    val runtimeRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        if (result.keys.any { it == Manifest.permission.CALL_PHONE } && granted(PermissionKind.PHONE_CALLS)) {
+            BridgeyNotificationListenerService.callPermissionsChanged()
+        }
+        nextInQueue()
+    }
+
+    // Back from a system screen: the page shows the new status; Allow all goes on to the next screen.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (queue.isEmpty()) return@LifecycleEventEffect
+        // Some answers (the companion link) arrive a moment after the app resumes.
+        scope.launch {
+            delay(400)
+            nextInQueue()
+        }
+    }
+
+    fun runtimeNames(kinds: List<PermissionKind>): Array<String> = kinds.flatMap { kind ->
+        when (kind) {
+            PermissionKind.PHONE_CALLS -> listOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE, Manifest.permission.ANSWER_PHONE_CALLS)
+            PermissionKind.POST_NOTIFICATIONS -> if (Build.VERSION.SDK_INT >= 33) listOf(Manifest.permission.POST_NOTIFICATIONS) else emptyList()
+            PermissionKind.PHOTOS -> dev.bridgey.android.browse.MediaAccessRules.request(Build.VERSION.SDK_INT).toList()
+            PermissionKind.CAMERA -> listOf(Manifest.permission.CAMERA)
+            else -> emptyList()
+        }
+    }.distinct().toTypedArray()
+
+    fun allow(kinds: List<SetupPermission>) {
+        val open = kinds.filterNot { granted(it.kind) }
+        if (open.isEmpty()) return
+        open.forEach { hooks.store.markExplained(it.kind) }
+        val runtime = open.filter { it.runtime }.map { it.kind }
+        queue = open.filterNot { it.runtime }.joinToString(",") { it.kind.name }
+        val names = runtimeNames(runtime)
+        if (names.isNotEmpty()) {
+            send(SetupEvent.Asked(runtime.toSet()))
+            runtimeRequest.launch(names)
+        } else {
+            nextInQueue()
         }
     }
 
@@ -420,7 +434,8 @@ internal fun SetupRoute(
             },
             openOemStep = { OemBattery.open(context, it) },
             openPage = { page -> SettingsSection.entries.firstOrNull { it.name == page }?.let(onOpenSection) },
-            allowPermission = ::allow,
+            allowPermission = { kind -> SetupQuestions.permission(kind)?.let { allow(listOf(it)) } },
+            allowAll = { allow(SetupFlow.neededPermissions(flow, currentFacts())) },
             openSettings = { finish(openSettings = true) },
             start = { finish(openSettings = false) },
             exit = onExit,

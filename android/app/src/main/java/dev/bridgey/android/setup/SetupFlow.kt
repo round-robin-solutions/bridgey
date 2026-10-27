@@ -1,13 +1,19 @@
 package dev.bridgey.android.setup
 
+import androidx.annotation.StringRes
+import dev.bridgey.android.R
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * First-run setup: the pure state machine behind Welcome, the quick path and the question path.
- * No Android types, so it runs in plain JUnit. The screens read [SetupState] and send
- * [SetupEvent]s; an answer's settings are applied by the screen as it is given (the real
- * settings), and the machine decides what comes next from the answers and [SetupFacts].
+ * First-run setup: the pure state machine behind Welcome, the quick path and the short question
+ * path. No Android types, so it runs in plain JUnit. The screens read [SetupState] and send
+ * [SetupEvent]s; answers and switches are applied to the real settings by the screen as they are
+ * given, and the machine decides what comes next from them and [SetupFacts].
+ *
+ * The question path: Intro (what brought you here, or type it), Pair (when no Mac is paired), a
+ * follow-up only for the features picked or typed, Switches (one line per other feature),
+ * Permissions (one page for everything the chosen features need), Summary.
  */
 enum class SetupPath { QUICK, ADVANCED }
 
@@ -20,12 +26,13 @@ enum class StepOutcome { DONE, SKIPPED }
 sealed interface SetupScreen {
     data object Welcome : SetupScreen
     data class Quick(val step: QuickStep) : SetupScreen
-    /** The question path's start: type what you want, or go straight to the questions. */
+    /** The question path's start: bundles, type what you want, or straight on. */
     data object Intro : SetupScreen
     data class Question(val id: String) : SetupScreen
-    /** The permission an answer needs, asked right after it. */
-    data class Permission(val id: String, val kind: PermissionKind) : SetupScreen
-    /** What was turned on, each with a switch and Change in Settings. */
+    /** One line per feature that was not picked: plain switches. */
+    data object Switches : SetupScreen
+    /** Every permission the chosen features need, on one page. */
+    data object Permissions : SetupScreen
     data object Summary : SetupScreen
     data class Done(val path: SetupPath) : SetupScreen
 }
@@ -53,18 +60,25 @@ sealed interface SetupEvent {
     data object Back : SetupEvent
     /** Quick path: skip a step. */
     data object Skip : SetupEvent
-    /** Quick path: finish now. */
+    /** Quick path: finish now. The summary: done. */
     data object Finish : SetupEvent
     /** A quick step's permission was granted, or a Mac was paired. */
     data class StepDone(val step: QuickStep) : SetupEvent
-    /** Intro: start the questions; [typed] holds the answers confirmed from typed text. */
-    data class StartQuestions(val typed: Map<String, String> = emptyMap()) : SetupEvent
+    /**
+     * Intro: start, with what was picked and typed (confirmed), keyed by feature or follow-up id:
+     * [Answers.PICK] picks a feature, [Answers.NO] leaves it off, other keys answer a follow-up.
+     */
+    data class StartQuestions(val chosen: Map<String, String> = emptyMap()) : SetupEvent
     data class Answer(val id: String, val key: String) : SetupEvent
-    /** "Not now" on a card: keep what is set and move on. On a permission: not allowed. */
+    /** "Not now" on a follow-up: keep what is set and move on. */
     data object NotNow : SetupEvent
-    /** The permission asked for came back: allowed or not. */
-    data class PermissionResult(val granted: Boolean) : SetupEvent
-    data class SummarySwitch(val id: String, val on: Boolean) : SetupEvent
+    /** The switches page: one feature on or off. */
+    data class Switch(val feature: String, val on: Boolean) : SetupEvent
+    /** The permissions page asked the system for these. */
+    data class Asked(val kinds: Set<PermissionKind>) : SetupEvent
+    /** Continue on the switches or permissions page (it works whatever the permissions say). */
+    data object Continue : SetupEvent
+    data class SummarySwitch(val feature: String, val on: Boolean) : SetupEvent
     /** "Leave setup?": shown, or answered Keep going. */
     data object AskLeave : SetupEvent
     data object KeepGoing : SetupEvent
@@ -73,20 +87,24 @@ sealed interface SetupEvent {
 data class SetupState(
     val screen: SetupScreen = SetupScreen.Welcome,
     val path: SetupPath? = null,
-    /** Where this run started (Welcome, or the questions for Review setup). Back there leaves. */
+    /** Where this run started (Welcome, or the start of the questions for Review setup). Back there leaves. */
     val entry: SetupScreen = SetupScreen.Welcome,
     val outcomes: Map<QuickStep, StepOutcome> = emptyMap(),
-    /** Question id to answer key, in the order given. */
+    /** Features picked at the start (bundles or typed), in the order picked. */
+    val picked: Set<String> = emptySet(),
+    /** Follow-up and typed answers: id to answer key. */
     val answers: Map<String, String> = emptyMap(),
-    /** The questions shown so far, in order; Back walks it backwards. */
-    val trail: List<String> = emptyList(),
-    /** Answers taken from typed text (confirmed); those already applied skip their question. */
-    val typed: Map<String, String> = emptyMap(),
-    /** Questions whose permission was not allowed: their feature stayed off. */
-    val denied: Map<String, PermissionKind> = emptyMap(),
-    /** The question whose permission was just refused; the next card says so in one line. */
-    val notice: String? = null,
-    /** Summary switches turned off. */
+    /** Answers given at the start: their follow-ups are not asked. */
+    val typed: Set<String> = emptySet(),
+    /** The switches page, and features typed with a no. */
+    val switches: Map<String, Boolean> = emptyMap(),
+    /** The screens shown after the start, in order; Back walks it backwards. */
+    val trail: List<SetupScreen> = emptyList(),
+    /** Permissions asked for on the permissions page during this run. */
+    val asked: Set<PermissionKind> = emptySet(),
+    /** Permissions still not allowed when the permissions page was left: their features stay off. */
+    val refused: Set<PermissionKind> = emptySet(),
+    /** Features switched off on the summary. */
     val summaryOff: Set<String> = emptySet(),
     val confirmLeave: Boolean = false,
 ) {
@@ -99,15 +117,13 @@ data class SetupState(
     val skipped: Set<QuickStep> get() = outcomes.filterValues { it == StepOutcome.SKIPPED }.keys
 
     /** Something was chosen, so leaving asks first ("Your choices so far are kept"). */
-    val hasProgress: Boolean get() = answers.isNotEmpty() || outcomes.values.any { it == StepOutcome.DONE }
+    val hasProgress: Boolean
+        get() = picked.isNotEmpty() || answers.isNotEmpty() || switches.isNotEmpty() || outcomes.values.any { it == StepOutcome.DONE }
 
     /** The settings chosen, for the settings sync hook. */
     val choices: SetupChoices
-        get() = SetupQuestions.all.fold(SetupChoices()) { acc, question ->
-            val key = answers[question.id] ?: return@fold acc
-            val applied = if (question.id in summaryOff) question.offKey?.let { SetupQuestions.changes(question, it) }.orEmpty()
-            else SetupQuestions.changes(question, key) + (if (question.id in denied) SetupQuestions.answer(question, key)?.onDenied.orEmpty() else emptyList())
-            applied.fold(acc) { inner, change -> inner.with(SetupChoice(question.section, change.setting.name, change.value)) }
+        get() = SetupFlow.overlay(this).entries.fold(SetupChoices()) { acc, (setting, value) ->
+            acc.with(SetupChoice(SetupFlow.sectionOf(setting), setting.name, value))
         }
 
     fun encode(): String = JSONObject().apply {
@@ -115,17 +131,19 @@ data class SetupState(
         put("entry", entry.encode())
         path?.let { put("path", it.name) }
         put("outcomes", JSONObject().apply { outcomes.forEach { (step, outcome) -> put(step.name, outcome.name) } })
+        put("picked", JSONArray(picked.toList()))
         put("answers", JSONArray(answers.map { JSONArray(listOf(it.key, it.value)) }))
-        put("trail", JSONArray(trail))
-        put("typed", JSONArray(typed.map { JSONArray(listOf(it.key, it.value)) }))
-        put("denied", JSONArray(denied.map { JSONArray(listOf(it.key, it.value.name)) }))
-        notice?.let { put("notice", it) }
+        put("typed", JSONArray(typed.toList()))
+        put("switches", JSONArray(switches.map { JSONArray(listOf(it.key, it.value.toString())) }))
+        put("trail", JSONArray(trail.map { it.encode() }))
+        put("asked", JSONArray(asked.map { it.name }))
+        put("refused", JSONArray(refused.map { it.name }))
         put("summaryOff", JSONArray(summaryOff.toList()))
         put("confirmLeave", confirmLeave)
     }.toString()
 
     companion object {
-        /** Settings > What's new > Review setup: straight to the questions. */
+        /** Settings > What's new > Review setup: straight to the start of the questions. */
         fun review(): SetupState = SetupState(screen = SetupScreen.Intro, path = SetupPath.ADVANCED, entry = SetupScreen.Intro)
 
         private fun SetupScreen.encode(): String = when (this) {
@@ -133,7 +151,8 @@ data class SetupState(
             is SetupScreen.Quick -> "quick:${step.name}"
             SetupScreen.Intro -> "intro"
             is SetupScreen.Question -> "question:$id"
-            is SetupScreen.Permission -> "permission:$id:${kind.name}"
+            SetupScreen.Switches -> "switches"
+            SetupScreen.Permissions -> "permissions"
             SetupScreen.Summary -> "summary"
             is SetupScreen.Done -> "done:${path.name}"
         }
@@ -145,12 +164,15 @@ data class SetupState(
                 "quick" -> SetupScreen.Quick(QuickStep.valueOf(parts[1]))
                 "intro" -> SetupScreen.Intro
                 "question" -> SetupScreen.Question(parts[1]).takeIf { SetupQuestions.question(parts[1]) != null }
-                "permission" -> SetupScreen.Permission(parts[1], PermissionKind.valueOf(parts[2]))
+                "switches" -> SetupScreen.Switches
+                "permissions" -> SetupScreen.Permissions
                 "summary" -> SetupScreen.Summary
                 "done" -> SetupScreen.Done(SetupPath.valueOf(parts[1]))
                 else -> null
             }
         }
+
+        private fun strings(array: JSONArray?): List<String> = (0 until (array?.length() ?: 0)).map { array!!.getString(it) }
 
         private fun pairs(array: JSONArray?): List<Pair<String, String>> =
             (0 until (array?.length() ?: 0)).map { array!!.getJSONArray(it).let { entry -> entry.getString(0) to entry.getString(1) } }
@@ -159,19 +181,19 @@ data class SetupState(
         fun decode(text: String?): SetupState? = runCatching {
             val json = JSONObject(text ?: return null)
             val outcomesJson = json.getJSONObject("outcomes")
-            val trailJson = json.getJSONArray("trail")
-            val offJson = json.getJSONArray("summaryOff")
             SetupState(
                 screen = screen(json.getString("screen")) ?: return null,
                 path = json.optString("path").takeIf { it.isNotEmpty() }?.let(SetupPath::valueOf),
                 entry = screen(json.getString("entry")) ?: SetupScreen.Welcome,
                 outcomes = outcomesJson.keys().asSequence().associate { QuickStep.valueOf(it) to StepOutcome.valueOf(outcomesJson.getString(it)) },
-                answers = LinkedHashMap(pairs(json.getJSONArray("answers")).toMap()),
-                trail = (0 until trailJson.length()).map(trailJson::getString),
-                typed = pairs(json.optJSONArray("typed")).toMap(),
-                denied = pairs(json.optJSONArray("denied")).associate { it.first to PermissionKind.valueOf(it.second) },
-                notice = json.optString("notice").takeIf { it.isNotEmpty() },
-                summaryOff = (0 until offJson.length()).mapTo(LinkedHashSet(), offJson::getString),
+                picked = LinkedHashSet(strings(json.optJSONArray("picked"))),
+                answers = LinkedHashMap(pairs(json.optJSONArray("answers")).toMap()),
+                typed = strings(json.optJSONArray("typed")).toSet(),
+                switches = pairs(json.optJSONArray("switches")).associate { it.first to it.second.toBoolean() },
+                trail = strings(json.optJSONArray("trail")).map { screen(it) ?: return null },
+                asked = strings(json.optJSONArray("asked")).mapTo(LinkedHashSet(), PermissionKind::valueOf),
+                refused = strings(json.optJSONArray("refused")).mapTo(LinkedHashSet(), PermissionKind::valueOf),
+                summaryOff = strings(json.optJSONArray("summaryOff")).toSet(),
                 confirmLeave = json.optBoolean("confirmLeave"),
             )
         }.getOrNull()
@@ -206,50 +228,58 @@ object SetupFlow {
                 else -> state
             }
             is SetupEvent.StepDone -> state.copy(outcomes = state.outcomes + (event.step to StepOutcome.DONE))
-            SetupEvent.Back -> back(state).copy(notice = null)
-            is SetupEvent.StartQuestions -> if (screen == SetupScreen.Intro) {
-                // Typed answers that need no permission are applied by the screen and skip their question;
-                // the others wait on their card, chosen already, so the permission is asked there.
-                val ready = readyTyped(event.typed, facts)
-                val started = state.copy(typed = event.typed, answers = state.answers + ready, trail = emptyList(), notice = null)
-                advance(started, after = null, facts)
+            SetupEvent.Back -> back(state)
+            is SetupEvent.StartQuestions -> if (screen == SetupScreen.Intro) advance(started(state, event.chosen), facts) else state
+            is SetupEvent.Answer -> {
+                val question = SetupQuestions.question(event.id)
+                if (screen != SetupScreen.Question(event.id) || question == null || SetupQuestions.answer(question, event.key) == null) return state
+                advance(state.copy(answers = (state.answers - event.id) + (event.id to event.key)), facts)
+            }
+            SetupEvent.NotNow -> if (screen is SetupScreen.Question) advance(state, facts) else state
+            is SetupEvent.Switch -> if (screen == SetupScreen.Switches && SetupFeatures.feature(event.feature) != null) {
+                state.copy(switches = state.switches + (event.feature to event.on))
             } else {
                 state
             }
-            is SetupEvent.Answer -> {
-                val question = SetupQuestions.question(event.id)
-                if (screen != SetupScreen.Question(event.id) || question == null) return state
-                val answer = SetupQuestions.answer(question, event.key) ?: return state
-                val answered = state.copy(
-                    answers = (state.answers - event.id) + (event.id to event.key),
-                    denied = state.denied - event.id,
-                    summaryOff = state.summaryOff - event.id,
-                    notice = null,
-                )
-                val permission = answer.permission
-                if (permission != null && permission !in facts.granted) {
-                    answered.copy(screen = SetupScreen.Permission(event.id, permission))
-                } else {
-                    advance(answered, after = event.id, facts)
-                }
-            }
-            SetupEvent.NotNow -> when (screen) {
-                is SetupScreen.Question -> advance(state.copy(notice = null), after = screen.id, facts)
-                is SetupScreen.Permission -> reduce(state, SetupEvent.PermissionResult(granted = false), facts)
+            is SetupEvent.Asked -> state.copy(asked = state.asked + event.kinds)
+            SetupEvent.Continue -> when (screen) {
+                SetupScreen.Switches -> advance(state, facts)
+                // Refused or skipped: those features stay off, and setup goes on.
+                SetupScreen.Permissions -> advance(state.copy(refused = neededPermissions(state, facts).map { it.kind }.filterTo(LinkedHashSet()) { it !in facts.granted }), facts)
                 else -> state
             }
-            is SetupEvent.PermissionResult -> when (screen) {
-                is SetupScreen.Permission -> if (event.granted) {
-                    advance(state.copy(denied = state.denied - screen.id, notice = null), after = screen.id, facts)
-                } else {
-                    advance(state.copy(denied = state.denied + (screen.id to screen.kind), notice = screen.id), after = screen.id, facts)
-                }
-                else -> state
-            }
-            is SetupEvent.SummarySwitch -> state.copy(summaryOff = if (event.on) state.summaryOff - event.id else state.summaryOff + event.id)
+            is SetupEvent.SummarySwitch -> state.copy(summaryOff = if (event.on) state.summaryOff - event.feature else state.summaryOff + event.feature)
             SetupEvent.AskLeave -> state.copy(confirmLeave = true)
             SetupEvent.KeepGoing -> state.copy(confirmLeave = false)
         }
+    }
+
+    /** The start's picks and typed answers, as state. */
+    private fun started(state: SetupState, chosen: Map<String, String>): SetupState {
+        val picked = LinkedHashSet<String>()
+        val switches = LinkedHashMap<String, Boolean>()
+        val answers = LinkedHashMap<String, String>()
+        chosen.forEach { (id, key) ->
+            val feature = SetupFeatures.feature(id)
+            val question = SetupQuestions.question(id)
+            when {
+                key == Answers.NO && feature != null -> switches[id] = false
+                key == Answers.PICK && feature != null -> picked += id
+                question != null && SetupQuestions.answer(question, key) != null -> {
+                    answers[id] = key
+                    question.feature?.let { if (key != Answers.NO) picked += it }
+                }
+                SetupQuestions.typedOnly[id]?.containsKey(key) == true -> answers[id] = key
+                feature != null -> picked += id
+            }
+        }
+        return state.copy(picked = picked, switches = switches, answers = answers, typed = answers.keys.toSet(), trail = emptyList(), refused = emptySet(), asked = emptySet())
+    }
+
+    /** Typed answers the start applies at once: everything chosen, as setting changes (the screen applies them). */
+    fun startChanges(chosen: Map<String, String>): List<SettingChange> {
+        val state = started(SetupState(), chosen)
+        return overlay(state).map { (setting, value) -> SettingChange(setting, value) }
     }
 
     /** One step back. Leaving setup from its first screen is [SetupBack]'s decision, not a step. */
@@ -260,73 +290,80 @@ object SetupFlow {
             state.copy(screen = previous?.let(SetupScreen::Quick) ?: SetupScreen.Welcome)
         }
         SetupScreen.Intro -> if (state.entry == SetupScreen.Intro) state else state.copy(screen = SetupScreen.Welcome)
-        is SetupScreen.Question -> {
+        is SetupScreen.Question, SetupScreen.Switches, SetupScreen.Permissions, SetupScreen.Summary -> {
             val trail = state.trail.dropLast(1)
-            if (trail.isEmpty()) state.copy(screen = SetupScreen.Intro, trail = emptyList())
-            else state.copy(screen = SetupScreen.Question(trail.last()), trail = trail)
+            state.copy(screen = trail.lastOrNull() ?: SetupScreen.Intro, trail = trail)
         }
-        is SetupScreen.Permission -> state.copy(screen = SetupScreen.Question(screen.id))
-        SetupScreen.Summary -> state.trail.lastOrNull()?.let { state.copy(screen = SetupScreen.Question(it)) } ?: state.copy(screen = SetupScreen.Intro)
         is SetupScreen.Done -> when (screen.path) {
             SetupPath.QUICK -> state.copy(screen = SetupScreen.Quick(QuickStep.entries.last()))
             SetupPath.ADVANCED -> state.copy(screen = SetupScreen.Summary)
         }
     }
 
-    /** Typed (or bundle) answers that need no permission now: applied at once, their questions skipped. */
-    fun readyTyped(typed: Map<String, String>, facts: SetupFacts): Map<String, String> =
-        typed.filter { (id, key) -> SetupQuestions.question(id) != null && !needsPermission(id, key, facts) }
-
-    private fun needsPermission(id: String, key: String, facts: SetupFacts): Boolean {
-        val question = SetupQuestions.question(id) ?: return false
-        val permission = SetupQuestions.answer(question, key)?.permission ?: return false
-        return permission !in facts.granted
+    private fun advance(state: SetupState, facts: SetupFacts): SetupState {
+        val next = nextScreen(state, facts, state.screen)
+        return state.copy(screen = next, trail = state.trail + next)
     }
 
-    private fun advance(state: SetupState, after: String?, facts: SetupFacts): SetupState {
-        val next = nextQuestion(state, facts, after)
-        return if (next == null) state.copy(screen = SetupScreen.Summary)
-        else state.copy(screen = SetupScreen.Question(next), trail = state.trail + next)
+    /** What comes after [after] on the question path. */
+    fun nextScreen(state: SetupState, facts: SetupFacts, after: SetupScreen): SetupScreen = when (after) {
+        SetupScreen.Intro, is SetupScreen.Question -> followUps(state, facts, (after as? SetupScreen.Question)?.id).firstOrNull()?.let(SetupScreen::Question)
+            ?: SetupScreen.Switches
+        SetupScreen.Switches -> if (permissionsPage(state, facts)) SetupScreen.Permissions else SetupScreen.Summary
+        else -> SetupScreen.Summary
     }
 
-    /** The settings after the answers so far, over [facts]. */
-    fun effective(state: SetupState, facts: SetupFacts): Effective {
-        val overlay = LinkedHashMap<SetupSetting, String>()
-        SetupQuestions.all.forEach { question ->
-            val key = state.answers[question.id] ?: return@forEach
-            val changes = when {
-                question.id in state.summaryOff -> question.offKey?.let { SetupQuestions.changes(question, it) }.orEmpty()
-                question.id in state.denied -> SetupQuestions.changes(question, key) + SetupQuestions.answer(question, key)?.onDenied.orEmpty()
-                else -> SetupQuestions.changes(question, key)
-            }
-            changes.forEach { overlay[it.setting] = it.value }
-        }
-        return Effective(facts, overlay)
-    }
-
-    /** The question shown after [after] (from the start when null), skipping implied ones. */
-    fun nextQuestion(state: SetupState, facts: SetupFacts, after: String?): String? =
-        upcoming(state, facts, after).firstOrNull()
-
-    /** Every question still to come after [after]; the progress line counts these. */
-    fun upcoming(state: SetupState, facts: SetupFacts, after: String?): List<String> {
+    /** The follow-ups still to come after [after] (from the start when null). */
+    fun followUps(state: SetupState, facts: SetupFacts, after: String?): List<String> {
         val effective = effective(state, facts)
         val start = after?.let { id -> SetupQuestions.all.indexOfFirst { it.id == id } + 1 } ?: 0
         return SetupQuestions.all.drop(start)
-            .filter { question -> question.asks(effective) && !answeredByTyping(state, question.id) }
+            .filter { question -> (question.feature == null || question.feature in state.picked) && question.id !in state.typed && question.asks(effective) }
             .map { it.id }
     }
 
-    /** Steps left after the current card (0 on the last one). */
-    fun stepsLeft(state: SetupState, facts: SetupFacts): Int = when (val screen = state.screen) {
-        is SetupScreen.Question -> upcoming(state, facts, screen.id).size
-        is SetupScreen.Permission -> upcoming(state, facts, screen.id).size
-        SetupScreen.Intro -> upcoming(state, facts, null).size
-        else -> 0
+    /** The permissions the features now on need. */
+    fun neededPermissions(state: SetupState, facts: SetupFacts): List<SetupPermission> {
+        val effective = effective(state.copy(refused = emptySet()), facts)
+        return SetupQuestions.permissions.filter { it.needed(effective) }
     }
 
-    private fun answeredByTyping(state: SetupState, id: String): Boolean =
-        id in state.typed && state.answers[id] == state.typed[id] && id !in state.trail
+    /** The permissions page shows when something needed is not allowed yet. */
+    fun permissionsPage(state: SetupState, facts: SetupFacts): Boolean =
+        neededPermissions(state, facts).any { it.kind !in facts.granted }
+
+    /** Steps left after the current card, the summary not counted; from the path as it is now. */
+    fun stepsLeft(state: SetupState, facts: SetupFacts): Int {
+        val permissions = if (permissionsPage(state, facts)) 1 else 0
+        return when (val screen = state.screen) {
+            SetupScreen.Intro -> followUps(state, facts, null).size + 1 + permissions
+            is SetupScreen.Question -> followUps(state, facts, screen.id).size + 1 + permissions
+            SetupScreen.Switches -> permissions
+            else -> 0
+        }
+    }
+
+    /** Steps on the whole path from the start, the start and the summary counted (for the report and tests). */
+    fun pathLength(state: SetupState, facts: SetupFacts): Int = 1 + followUps(state, facts, null).size + 1 + (if (permissionsPage(state, facts)) 1 else 0) + 1
+
+    /** The settings this run changes: picks, answers, switches, refusals and summary switches, in that order. */
+    fun overlay(state: SetupState): Map<SetupSetting, String> {
+        val overlay = LinkedHashMap<SetupSetting, String>()
+        fun put(changes: List<SettingChange>) = changes.forEach { overlay[it.setting] = it.value }
+        state.picked.forEach { id -> SetupFeatures.feature(id)?.let { put(it.on) } }
+        SetupQuestions.all.forEach { question -> state.answers[question.id]?.let { put(SetupQuestions.changes(question, it)) } }
+        SetupQuestions.typedOnly.forEach { (id, answers) -> state.answers[id]?.let { key -> answers[key]?.let(::put) } }
+        state.switches.forEach { (id, on) -> SetupFeatures.feature(id)?.let { put(if (on) it.on else it.off) } }
+        state.refused.forEach { kind -> SetupQuestions.permission(kind)?.let { put(it.offWhenRefused) } }
+        state.summaryOff.forEach { id -> SetupFeatures.feature(id)?.let { put(it.off) } }
+        return overlay
+    }
+
+    /** The settings after this run's changes, over [facts]. */
+    fun effective(state: SetupState, facts: SetupFacts): Effective = Effective(facts, overlay(state))
+
+    fun sectionOf(setting: SetupSetting): SetupSection =
+        SetupQuestions.all.firstOrNull { setting in it.covers }?.section ?: SetupSection.GENERAL
 
     /** Leaves a step that is already done as done. */
     private fun SetupState.markIfOpen(step: QuickStep, outcome: StepOutcome): SetupState =
@@ -356,27 +393,40 @@ object SetupBack {
 
 /** One line of the summary. */
 sealed interface SummaryItem {
-    val question: SetupQuestion
-
-    /** A feature an answer turned on; [on]: its switch now. */
-    data class TurnedOn(override val question: SetupQuestion, val answer: SetupAnswer, val on: Boolean) : SummaryItem
-    /** A choice without an off (updates, where folders go, apps kept on the phone). */
-    data class Chosen(override val question: SetupQuestion, val answer: SetupAnswer) : SummaryItem
-    /** Its permission was not allowed, so it stayed off. */
-    data class NotAllowed(override val question: SetupQuestion, val kind: PermissionKind) : SummaryItem
+    /** A feature that is on; [on]: its switch now; [detail]: the follow-up answer, if any. */
+    data class FeatureOn(val feature: SetupFeature, val on: Boolean, @StringRes val detail: Int?) : SummaryItem
+    /** A choice without an off: apps kept on the phone, Focus, the update channel. */
+    data class Chosen(@StringRes val title: Int, @StringRes val value: Int?, val packages: List<String>, val page: String) : SummaryItem
+    /** Not allowed when the permissions page was left: its features stayed off. */
+    data class NotAllowed(val permission: SetupPermission) : SummaryItem
 }
 
 object SetupSummary {
-    fun items(state: SetupState): List<SummaryItem> = SetupQuestions.all.mapNotNull { question ->
-        val key = state.answers[question.id] ?: return@mapNotNull null
-        val answer = SetupQuestions.answer(question, key) ?: return@mapNotNull null
-        val denied = state.denied[question.id]
-        when {
-            denied != null && answer.onDenied.isNotEmpty() -> SummaryItem.NotAllowed(question, denied)
-            answer.turnsOn && question.offKey != null -> SummaryItem.TurnedOn(question, answer, question.id !in state.summaryOff)
-            answer.turnsOn || question.offKey == null && answer.changes.isNotEmpty() && key != Answers.NO && key != Answers.NONE -> SummaryItem.Chosen(question, answer)
-            else -> null
+    private val typedOnlyLabels: Map<String, Pair<Int, Map<String, Int>>> = mapOf(
+        "focus" to (R.string.setup_q_focus_summary to mapOf(Answers.BOTH to R.string.setup_a_focus_both, Answers.NO to R.string.setup_a_no)),
+        "updates" to (R.string.setup_q_updates_summary to mapOf(
+            Answers.STEADY to R.string.setup_a_updates_steady, Answers.EARLY to R.string.setup_a_updates_early, Answers.NEWEST to R.string.setup_a_updates_newest,
+        )),
+    )
+
+    fun items(state: SetupState, facts: SetupFacts = SetupFacts()): List<SummaryItem> {
+        val effective = SetupFlow.effective(state.copy(summaryOff = emptySet()), facts)
+        val on = SetupFeatures.all.filter { SetupFeatures.isOn(it, effective) }.map { feature ->
+            val detail = SetupQuestions.all.firstOrNull { it.feature == feature.id && !it.multiPick && it.id in state.answers }
+                ?.let { question -> SetupQuestions.answer(question, state.answers.getValue(question.id))?.label }
+            SummaryItem.FeatureOn(feature, feature.id !in state.summaryOff, detail)
         }
+        val chosen = buildList {
+            state.answers["notification_apps"]?.takeIf { it.startsWith(Answers.PICKED) && it.length > Answers.PICKED.length }?.let {
+                add(SummaryItem.Chosen(R.string.setup_q_notification_apps_summary, null, it.removePrefix(Answers.PICKED).split(','), "NOTIFICATIONS"))
+            }
+            typedOnlyLabels.forEach { (id, labels) ->
+                val key = state.answers[id] ?: return@forEach
+                add(SummaryItem.Chosen(labels.first, labels.second[key], emptyList(), if (id == "focus") "NOTIFICATIONS" else "UPDATES"))
+            }
+        }
+        val refused = state.refused.mapNotNull { SetupQuestions.permission(it) }.map(SummaryItem::NotAllowed)
+        return on + chosen + refused
     }
 }
 

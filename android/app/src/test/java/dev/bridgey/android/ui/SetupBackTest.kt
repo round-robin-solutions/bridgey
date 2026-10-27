@@ -71,10 +71,11 @@ class SetupBackTest {
 
     private val midway: SetupState
         get() = SetupState(
-            screen = SetupScreen.Question("calls"),
+            screen = SetupScreen.Permissions,
             path = dev.bridgey.android.setup.SetupPath.ADVANCED,
-            answers = mapOf("clipboard" to Answers.NO),
-            trail = listOf("clipboard", "notifications", "calls"),
+            picked = setOf("clipboard", "calls"),
+            answers = mapOf("clipboard" to Answers.TAP),
+            trail = listOf(SetupScreen.Question("clipboard"), SetupScreen.Question("calls"), SetupScreen.Switches, SetupScreen.Permissions),
         )
 
     @Before
@@ -102,7 +103,9 @@ class SetupBackTest {
         ActivityScenario.launch(Host::class.java).use { scenario ->
             idle()
             scenario.back()
-            assertEquals(SetupScreen.Question("notifications"), screen)
+            assertEquals(SetupScreen.Switches, screen)
+            scenario.back()
+            assertEquals(SetupScreen.Question("calls"), screen)
             scenario.back()
             assertEquals(SetupScreen.Question("clipboard"), screen)
             scenario.back()
@@ -141,7 +144,7 @@ class SetupBackTest {
             scenario.moveToState(Lifecycle.State.RESUMED)
             idle()
             scenario.back()
-            assertEquals(SetupScreen.Question("notifications"), screen)
+            assertEquals(SetupScreen.Switches, screen)
             assertEquals(listOf("home", "setup"), routeKeys)
         }
     }
@@ -151,24 +154,23 @@ class SetupBackTest {
         initial = SetupState()
         ActivityScenario.launch(Host::class.java).use { scenario ->
             idle()
-            initial = midway.copy(screen = SetupScreen.Question("clipboard"), trail = listOf("clipboard"))
+            initial = midway.copy(screen = SetupScreen.Question("clipboard"), trail = listOf(SetupScreen.Question("clipboard")))
             // Saved state wins over the new start: rotate with the setup at "calls".
             scenario.recreate()
             idle()
             assertEquals(SetupScreen.Welcome, screen)
         }
+        // On the permissions page: rotate, and it comes back there; Back still goes to the switches.
         initial = midway
         ActivityScenario.launch(Host::class.java).use { scenario ->
             idle()
-            scenario.back()
-            assertEquals(SetupScreen.Question("notifications"), screen)
             initial = SetupState()
             scenario.recreate()
             idle()
-            assertEquals(SetupScreen.Question("notifications"), screen)
+            assertEquals(SetupScreen.Permissions, screen)
             assertEquals(listOf("home", "setup"), routeKeys)
             scenario.back()
-            assertEquals(SetupScreen.Question("clipboard"), screen)
+            assertEquals(SetupScreen.Switches, screen)
         }
     }
 }

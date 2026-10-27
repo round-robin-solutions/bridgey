@@ -159,9 +159,8 @@ final class BridgeySettings: ObservableObject {
         storedDefaults.set(engine.rawValue, forKey: "settings.codes.engine")
         codesEngine = engine
         codeModelAcceptances = CodeModelAcceptance.decode(storedDefaults.data(forKey: "settings.codes.model.acceptance"))
-        globalFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
-            ($0, storedDefaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media && $0 != .remoteInput && $0 != .macActions))
-        })
+        // A switch never set takes this install's defaults (off until chosen on fresh installs).
+        globalFeatures = DefaultsGeneration.globalFeatures(storedDefaults)
         var perDevice: [String: [BridgeyFeature: Bool]] = [:]
         for (key, value) in storedDefaults.dictionaryRepresentation() where key.hasPrefix("settings.device.") {
             guard let enabled = value as? Bool else { continue }

@@ -99,8 +99,10 @@ class SetupActions(
     val openOemStep: (OemStep) -> Unit = {},
     /** More options and Change in Settings: a Settings page (a [SettingsSection] name), above setup; Back returns here. */
     val openPage: (String) -> Unit = {},
-    /** Allow on a permission card: the explainer was the card itself, so this asks the system. */
+    /** Allow on a permissions row: its system dialog or screen; the page refreshes when Bridgey is back. */
     val allowPermission: (PermissionKind) -> Unit = {},
+    /** Allow all: the runtime permissions in one dialog, then each special access screen in order. */
+    val allowAll: () -> Unit = {},
     val openSettings: () -> Unit = {},
     val start: () -> Unit = {},
     /** Back on Welcome: leave setup (it is offered again next launch until it is finished). */
@@ -120,7 +122,7 @@ fun SetupScreen(state: SetupUiState, actions: SetupActions) {
     when (val screen = state.flow.screen) {
         SetupScreen.Welcome -> WelcomePage(state, actions)
         is SetupScreen.Quick -> QuickStepPage(screen.step, state, actions)
-        SetupScreen.Intro, is SetupScreen.Question, is SetupScreen.Permission, SetupScreen.Summary -> QuestionPath(state, actions)
+        SetupScreen.Intro, is SetupScreen.Question, SetupScreen.Switches, SetupScreen.Permissions, SetupScreen.Summary -> QuestionPath(state, actions)
         is SetupScreen.Done -> DonePage(screen.path, state, actions)
     }
     if (state.flow.confirmLeave) {
@@ -422,6 +424,11 @@ private fun DonePage(path: SetupPath, state: SetupUiState, actions: SetupActions
                     modifier = Modifier.semantics { heading() },
                 )
                 Text(stringResource(R.string.setup_done_body), style = BridgeyType.bodyText, color = colors.onSurfaceVariant, textAlign = TextAlign.Center)
+            }
+        }
+        if (path == SetupPath.QUICK) {
+            item(key = "essentials") {
+                Note(stringResource(R.string.setup_done_essentials), Modifier.padding(start = 32.dp, end = 32.dp, top = 20.dp), center = true)
             }
         }
         if (path == SetupPath.QUICK && skipped.isNotEmpty()) {
