@@ -913,5 +913,13 @@
 "freeSpace.needs" = "Нужно %@, на %@ свободно %@";
 
 /* Files 2.0 quick wins: received-file notifications (M-ENG adds below) */
+"received.file.title" = "Файл с %@";
+"received.folder.title" = "Папка с %@";
+"received.files.title" = "Файлов с %2$@: %1$@";
+"received.folders.title" = "Папок с %2$@: %1$@";
+"received.items.title" = "Объектов с %2$@: %1$@";
+"received.items.more" = "%1$@ и ещё %2$@";
+"received.open" = "Открыть";
+"received.reveal" = "Показать в Finder";
 
 /* Files 2.0 quick wins: Share and Services (M-SEND adds below) */

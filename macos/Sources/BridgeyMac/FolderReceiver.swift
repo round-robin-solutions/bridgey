@@ -20,6 +20,8 @@ protocol FolderReceiverHost: AnyObject {
     func folderStatus(_ text: String)
     func recordFolderActivity(_ kind: ActivityKind, phoneID: String, name: String, fileCount: Int, bytes: Int64, destination: String?, detail: FolderActivityDetail)
     func recordHistory(_ entry: TransferHistoryEntry)
+    /// Files and folders that arrived complete (the received-file notification decides what to show).
+    func receivedItems(_ urls: [URL], phoneID: String, purpose: PhoneDownloadPurpose?)
     var folderReduceMotion: Bool { get }
 }
 
@@ -453,6 +455,7 @@ final class FolderReceiver {
                 host.folderStatus(text)
                 record(item, .folderReceived, outcome: .completed)
             }
+            host.receivedItems(progress.savedURLs, phoneID: item.phoneID, purpose: item.purpose)
             finishDownload(item, .success(progress.savedURLs))
         case let .incomplete(code):
             item.access = nil

@@ -67,6 +67,10 @@ final class PhoneSim: PhoneFilesHost, FolderReceiverHost, FolderSenderHost {
         activities.append(kind)
     }
     func recordHistory(_ entry: TransferHistoryEntry) { history.record(entry) }
+    var receivedCalls: [(urls: [URL], purpose: PhoneDownloadPurpose?)] = []
+    func receivedItems(_ urls: [URL], phoneID: String, purpose: PhoneDownloadPurpose?) { receivedCalls.append((urls, purpose)) }
+    var freeSpace: [Int64] = []
+    func phoneReportedFreeSpace(_ phoneID: String, bytes: Int64) { freeSpace.append(bytes) }
     var folderReduceMotion: Bool { true }
     var folderScanDefaults: FolderScanOptions { FolderScanOptions() }
     func enqueueFolder(_ id: String, phoneID: String) { DispatchQueue.main.async { self.sender.start(id) } }
@@ -275,6 +279,9 @@ final class PhoneTransferRoundTripTests: XCTestCase {
         XCTAssertEqual(entry.fileCount, 3)
         XCTAssertNotNil(sim.rows.values.first?.localURL)
         XCTAssertEqual(sim.activities, [.folderReceived])
+        // The coordinator decides what to announce; the receiver reports every completed arrival with its purpose.
+        XCTAssertEqual(sim.receivedCalls.first?.purpose, .dragOut)
+        XCTAssertEqual(sim.receivedCalls.first?.urls, urls)
     }
 
     func testASingleFileDownloadIsAFileInHistory() throws {

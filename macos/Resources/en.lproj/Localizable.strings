@@ -913,5 +913,13 @@
 "freeSpace.needs" = "Needs %@, %@ has %@ free";
 
 /* Files 2.0 quick wins: received-file notifications (M-ENG adds below) */
+"received.file.title" = "File from %@";
+"received.folder.title" = "Folder from %@";
+"received.files.title" = "%1$@ files from %2$@";
+"received.folders.title" = "%1$@ folders from %2$@";
+"received.items.title" = "%1$@ items from %2$@";
+"received.items.more" = "%1$@ and %2$@ more";
+"received.open" = "Open";
+"received.reveal" = "Show in Finder";
 
 /* Files 2.0 quick wins: Share and Services (M-SEND adds below) */

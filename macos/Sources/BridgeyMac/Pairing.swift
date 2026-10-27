@@ -162,6 +162,8 @@ private final class NotificationPresenter: NSObject, UNUserNotificationCenterDel
     var onAction: ((String, String, String, String?) -> Void)?
     /// Copy code, or a click on a code banner: the in-memory reference of the code to copy.
     var onCopyCode: ((String) -> Void)?
+    /// Open or Show in Finder on a received-file notification (Files 2.0).
+    var onReceived: ((ReceivedNotificationAction) -> Void)?
 
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
@@ -178,6 +180,10 @@ private final class NotificationPresenter: NSObject, UNUserNotificationCenterDel
     ) {
         defer { completionHandler() }
         let userInfo = response.notification.request.content.userInfo
+        if response.notification.request.content.categoryIdentifier == receivedNotificationCategory {
+            onReceived?(ReceivedNotificationAction.route(actionIdentifier: response.actionIdentifier, userInfo: userInfo))
+            return
+        }
         if let codeReference = userInfo[codeReferenceUserInfoKey] as? String,
            response.actionIdentifier == codeCopyActionIdentifier || response.actionIdentifier == UNNotificationDefaultActionIdentifier {
             onCopyCode?(codeReference)
@@ -233,6 +239,8 @@ final class PairingCoordinator: ObservableObject {
     let remoteInput: RemoteInputHost
     /// Files 2.0: every finished transfer, for the History window and Show in Finder (owner-only, 30 days).
     let transferHistory = TransferHistoryStore()
+    /// Notifications for files and folders that arrive from a phone (Files 2.0 quick win).
+    private let receivedNotifier = ReceivedNotifier()
     /// Free space each connected phone reported for its default destination (FreeSpace.swift).
     @Published private(set) var phoneFreeSpace: [String: PhoneFreeSpace] = [:]
     /// Files 2.0: browsing, thumbnails, downloads and uploads for the Phone files window.
@@ -398,6 +406,10 @@ final class PairingCoordinator: ObservableObject {
             options: [.customDismissAction]
         )
         remoteNotificationCategories[remoteNotificationCategory.identifier] = remoteNotificationCategory
+        remoteNotificationCategories[receivedNotificationCategory] = ReceivedNotifier.category
+        notificationPresenter.onReceived = { action in
+            Task { @MainActor in action.perform() }
+        }
         UNUserNotificationCenter.current().setNotificationCategories(Set(remoteNotificationCategories.values))
         UNUserNotificationCenter.current().delegate = notificationPresenter
         refreshNotificationAuthorization()
@@ -2396,7 +2408,7 @@ final class PairingCoordinator: ObservableObject {
                         transferId: completion.transferId
                     ))
                     recordActivity(.fileReceived, in: current, fileName: transfer.displayName)
-                    NSWorkspace.shared.activateFileViewerSelecting([destination])
+                    announceReceived([ReceivedItem(url: destination, isFolder: false)], phoneID: current.remoteDeviceID, revealIfSilent: true)
                     BridgeyLog.line(BridgeyLog.files, LogLines.file(BridgeyLog.policy, event: "received", transfer: completion.transferId, name: transfer.displayName))
                 } catch {
                     transfer.cancel()
@@ -2678,6 +2690,7 @@ final class PairingCoordinator: ObservableObject {
             active: active,
             startedAt: previous?.startedAt ?? Date(),
             retryable: !active && outgoingFileSources[id] != nil,
+        receivedNotifier.forget(id)
             localURL: localURL ?? previous?.localURL ?? outgoingFileSources[id]
         )
         pruneTransferHistory()
@@ -3755,6 +3768,23 @@ extension PairingCoordinator: PhoneFilesHost {
 /// Folder messages to one phone over the session they started on. Safe from any queue: it only encrypts
 /// and hands the frame to the connection.
 private final class SessionFolderTransport: SequencedFolderTransport {
+
+    func receivedItems(_ urls: [URL], phoneID: String, purpose: PhoneDownloadPurpose?) {
+        // Previews are private; a Finder drop is already where the user put it.
+        guard purpose != .preview, purpose != .dragOut, !urls.isEmpty else { return }
+        // Pushed folders fall back to revealing in Finder; downloads from the Phone files window keep their row.
+        announceReceived(urls.map { ReceivedItem(url: $0, isFolder: $0.hasDirectoryPath) }, phoneID: phoneID, revealIfSilent: purpose == nil)
+    }
+
+    /// A notification with Open and Show in Finder while macOS allows Bridgey's notifications; otherwise the
+    /// old behaviour, revealing the item in Finder.
+    func announceReceived(_ items: [ReceivedItem], phoneID: String, revealIfSilent: Bool) {
+        if notificationsAuthorized {
+            receivedNotifier.post(items, phoneID: phoneID, phoneName: phoneName(phoneID))
+        } else if revealIfSilent {
+            NSWorkspace.shared.activateFileViewerSelecting(items.map(\.url))
+        }
+    }
     private let session: Session
     private let key: Data
 
