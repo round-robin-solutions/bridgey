@@ -1329,9 +1329,11 @@ modified) or `recent` (both, newest first). `limit` 1 to 200, default 100.
 
 Answer `media.page` `{version, requestId, kind, items[], nextCursor, access,
 indexing}`. An item is `{ref, name, size, modified, mimeType, width, height,
-durationMs, thumb, location}`; `width`, `height` and `durationMs` are null when
+durationMs, thumb, location, taken}`; `width`, `height` and `durationMs` are null when
 unknown; `location` is a display path such as "Camera" or "Documents/Invoices" (at
-most 128 characters). `access` is the photo access (`full`, `partial`, `none`;
+most 128 characters); `taken` (optional, media items only) is the Unix ms the list is
+sorted by (date taken, else date added), so the asker's day headers follow the same
+order as the items. Older phones leave it out; askers then use `modified`. `access` is the photo access (`full`, `partial`, `none`;
 with `none`, `kind: media` returns no items). `indexing` is true while the phone
 refreshes its document index; the asker may list again later. The document index
 covers granted places only (Android shared storage has no other way to see
@@ -1344,8 +1346,10 @@ mean the same bytes.
 
 `media.thumbnails` `{version, requestId, items[], size, replaces}`: 1 to 64 items
 `{key, ref}`, `key` 1 to 64 characters of `[A-Za-z0-9_-]` chosen by the asker;
-`size` is the longest edge in pixels, 64 to 512 (default 256). The phone answers
-in the order asked (the asker puts visible items first) with one or more
+`size` is the longest edge in pixels, 64 to 512 (default 256). The phone makes
+them in the order asked (the asker puts visible items first) and sends each as soon
+as it is ready, so one slow item does not hold back the rest; askers match thumbnails
+by `key`. The answer is one or more
 `media.thumbnails_batch` `{version, requestId, thumbs[], missing[], done}`. A thumb is
 `{key, mimeType, width, height, tint, data}`: `data` is base64 image bytes, at most
 24 KiB per thumbnail (WebP from Android 11, JPEG before; quality drops until it

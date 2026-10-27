@@ -495,7 +495,7 @@ Browse lane.
 - `version`: integer, 1
 - `requestId`: string, echoes the request
 - `kind`: string, echoes the request
-- `items`: array of {ref, name, size, modified (Unix ms), mimeType, width, height, durationMs (null when unknown), thumb (boolean), location (display path, at most 128 characters)}
+- `items`: array of {ref, name, size, modified (Unix ms), mimeType, width, height, durationMs (null when unknown), thumb (boolean), location (display path, at most 128 characters), taken (Unix ms the gallery sorts by: date taken, else added; optional, for day headers)}
 - `nextCursor`: string or null
 - `access`: full | partial | none (photo and video access; none returns no media items)
 - `indexing`: boolean, the document index is refreshing
@@ -522,7 +522,7 @@ Media lane: 4 active and 60 per 10 s, else busy. Answers are low priority: sent 
 - `missing`: array of keys without a thumbnail
 - `done`: boolean, true on the last batch
 
-In the order asked; as many thumbnails as fit in each batch. 45,056 bytes of plaintext keep the frame under the 65,536-byte limit after AES-GCM and base64.
+In the order they are ready (made in the order asked, visible items first); askers match thumbnails by key. As many as fit in each batch. 45,056 bytes of plaintext keep the frame under the 65,536-byte limit after AES-GCM and base64.
 
 `media.preview`
 

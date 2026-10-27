@@ -59,9 +59,12 @@ class FakeThumbs(var bytes: Int = 9_000) : ThumbnailMaker {
     val made = java.util.Collections.synchronizedList(ArrayList<String>())
     @Volatile var gate: CountDownLatch? = null
     @Volatile var fail: Set<String> = emptySet()
+    /** Per URI: held back until the latch opens (a slow item). */
+    @Volatile var slow: Map<String, CountDownLatch> = emptyMap()
 
     override fun make(source: ThumbSource, size: Int, maxBytes: Int, preview: Boolean, cancel: CancelFlag): EncodedImage? {
         gate?.await(5, TimeUnit.SECONDS)
+        slow[source.uri]?.await(5, TimeUnit.SECONDS)
         if (cancel.cancelled || source.uri in fail || !(source.isImage || source.isVideo)) return null
         made += source.uri
         val count = minOf(bytes, maxBytes)
