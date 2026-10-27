@@ -908,3 +908,10 @@
 "drop.tiles.chip" = "Отправится: %@";
 "sendsheet.access" = "Bridgey пока не видит «Загрузки», «Рабочий стол» и «Документы». Разрешите доступ в разделе «Конфиденциальность и безопасность», «Файлы и папки» или перетащите файлы сюда.";
 "sendsheet.access.open" = "Открыть настройки конфиденциальности";
+
+/* Files 2.0 quick wins: free space (contract) */
+"freeSpace.needs" = "Нужно %@, на %@ свободно %@";
+
+/* Files 2.0 quick wins: received-file notifications (M-ENG adds below) */
+
+/* Files 2.0 quick wins: Share and Services (M-SEND adds below) */

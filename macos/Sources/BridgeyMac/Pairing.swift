@@ -233,6 +233,8 @@ final class PairingCoordinator: ObservableObject {
     let remoteInput: RemoteInputHost
     /// Files 2.0: every finished transfer, for the History window and Show in Finder (owner-only, 30 days).
     let transferHistory = TransferHistoryStore()
+    /// Free space each connected phone reported for its default destination (FreeSpace.swift).
+    @Published private(set) var phoneFreeSpace: [String: PhoneFreeSpace] = [:]
     /// Files 2.0: browsing, thumbnails, downloads and uploads for the Phone files window.
     var phoneFiles: PhoneFilesService { phoneFilesController }
     private(set) lazy var phoneFilesController = PhoneFilesController(host: self)
@@ -1584,6 +1586,10 @@ final class PairingCoordinator: ObservableObject {
         sendClipboardContent(text: text, html: nil, concealed: false, automatic: false, in: current)
         return true
     }
+
+    /// Asks the phone for its free space (places.list), at most once per 20 s per phone. Send surfaces call it
+    /// when they open; the answer lands in `phoneFreeSpace`.
+    func refreshPhoneFreeSpace(_ phoneID: String) {}
 
     /// A row in the transfer list for work before a send (Tray and send-sheet optimisation: "Optimising 3 of 12").
     func showPreparationRow(id: String, name: String, status: String, active: Bool) {
