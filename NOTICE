@@ -24,3 +24,16 @@ llama.cpp
 
 Bridgey runs the model with llama.cpp and ggml (release b11899), MIT License, Copyright (c)
 2023-2026 The ggml authors. See licences/LLAMA-CPP-LICENSE.txt.
+
+libwebp
+
+Bridgey encodes WebP copies for "Before sending" and phone thumbnails on the Mac with libwebp
+1.4.0, unmodified, BSD-3-Clause License, Copyright (c) 2010 Google Inc. See
+licences/LIBWEBP-LICENSE.txt.
+
+Send preview sample photo
+
+The sample photo in Settings > Files > Before sending is "Mahabalipuram Landscape, India" by
+Vyacheslav Argenberg (https://commons.wikimedia.org/wiki/File:Mahabalipuram_Landscape,_India.jpg),
+CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), scaled to 2400 px. See
+licences/SEND-PREVIEW-SAMPLE.txt.

@@ -26,6 +26,7 @@ upstream clients.
 | macOS design | SwiftUI defaults | Direction B "Stream": 360 pt menu-bar panel with device chips, live cards, activity stream, quick actions and send bar; Settings window with a sidebar (Round Robin theme, bundled Space Grotesk and Inter) |
 | macOS activity stream | none | The same private, local history on the Mac (see below) |
 | Remote control | planned for 0.7 | Phone as touchpad, keyboard and presentation remote for the Mac, through the draft `remote_input_draft1` (see below) |
+| Files 2.0 | planned for 0.8 | Folders both ways; Mac "Phone files" window (photos and videos, recent documents, granted folders) with instant thumbnails, Quick Look, drag out and in; Android attach sheet; Mac send sheet, Tray, menu-bar drops and send optimisation; Finder metadata and transfer history (drafts `folders_draft1`, `places_draft1`, `files_browse_draft1`, `folders_receive_draft1`; see [files-browse.md](files-browse.md)) |
 | Codes from text messages | none | Opt-in: the Mac shows "Code 482913 from HDFC Bank" with Copy code, read on the Mac by a small downloaded model (default) or, if chosen, through Round Robin's relay to Cloudflare Workers AI; a companion link lets Android 15+ show Bridgey the codes (draft `sms_codes_draft1`, see below) |
 
 Unchanged on purpose: the wire protocol, the Bonjour service type `_bridgey._tcp`, the default

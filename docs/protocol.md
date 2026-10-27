@@ -1015,8 +1015,23 @@ serves no places). The Mac's own setting decides: "Always save to Received files
 panel). "When a folder already exists" works as on the phone; the Mac asks its own
 user and answers `folders.waiting` meanwhile. Same timeouts, journal and resume.
 
+An offer the receiver never accepted (the connection dropped before
+`folders.accept`) may be offered again after the reconnect with the same
+`folderTransferId` and `resume: false`; the receiver treats it as new, since
+nothing was written. Accepted offers resume as in the folders draft.
+
 New error code: `read_only` (writing into the phone's places needs its "Allow
 other devices to change files here" switch).
+
+### Free space
+
+Every `places.listed` reply, with or without `purpose` and in every destination
+mode, carries `defaultFreeBytes` (integer or null): free bytes where a file or
+folder sent now would land by default. `folders.accept` carries `freeBytes`
+(integer or null) for the chosen destination. Senders compare these with what a
+send writes and block it when it would not fit with the receiver's 64 MiB margin,
+or warn when less than 1 GiB would remain. Values are best effort; the receiver
+still checks and answers `insufficient_space`.
 
 ## Compatibility
 

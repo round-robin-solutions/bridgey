@@ -162,8 +162,8 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
     }
     val browseFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        // Persisted, so a folder that resumes after a restart can still be read; the sender releases it after.
-        pairing.placesStore.takeOneOff(uri)
+        // sendFolder takes a persisted read grant (so a resume after a restart can still read it) and releases it
+        // when the folder ends; taking another grant here would leave a write grant behind.
         pairing.sendFolder(FolderSource.Tree(uri.toString()), targetId)
         visible = false
     }
