@@ -136,6 +136,25 @@ final class RemoteInputHostTests: XCTestCase {
         XCTAssertEqual(refused.sorted(), ["busy", "disabled", "permission_required"])
     }
 
+    @MainActor func testLockingTheScreenEndsTheSessionUntilItIsUnlocked() {
+        makeHost()
+        start()
+        XCTAssertNotNil(host.active)
+        host.screenLockChanged(true)
+        XCTAssertNil(host.active)
+        XCTAssertNil(indicator.shown)
+        XCTAssertEqual(sent.last?.kind, "input.session.stop")
+        XCTAssertEqual(sent.last?.payload["reason"] as? String, "screen_off")
+        now += 2
+        start(session: UUID().uuidString)
+        XCTAssertNil(host.active, "no new session while locked")
+        XCTAssertEqual(sent.last?.payload["reason"] as? String, "screen_off")
+        host.screenLockChanged(false)
+        now += 2
+        start(session: UUID().uuidString)
+        XCTAssertNotNil(host.active)
+    }
+
     @MainActor func testInvalidModeIsRefusedAndStartsAreLimitedToOneASecond() {
         makeHost()
         start(mode: "screen_share")
