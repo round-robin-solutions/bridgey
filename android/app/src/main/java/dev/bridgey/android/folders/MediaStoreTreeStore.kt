@@ -10,6 +10,7 @@ import android.os.StatFs
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
 
 /**
@@ -49,6 +50,50 @@ class MediaStoreTreeStore(private val resolver: ContentResolver) : TreeStore {
         } ?: throw IOException("query failed")
         return folders.values.toList() + files
     }
+
+    /** Like [children], with sizes, dates and types (DATE_MODIFIED is in seconds). Only Bridgey's own files show. */
+    override fun entries(dirId: String): List<TreeEntry> {
+        require(dirId.endsWith("/"))
+        val projection = arrayOf(
+            MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME, MediaStore.Downloads.RELATIVE_PATH, MediaStore.Downloads.SIZE,
+            MediaStore.Downloads.DATE_MODIFIED, MediaStore.Downloads.MIME_TYPE, MediaStore.Downloads.IS_PENDING,
+        )
+        val selection = "${MediaStore.Downloads.RELATIVE_PATH} LIKE ? ESCAPE '\\'"
+        val files = ArrayList<TreeEntry>()
+        val folders = LinkedHashMap<String, TreeEntry>()
+        resolver.query(collection, projection, selection, arrayOf(escapeLike(dirId) + "%"), null)?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(0)
+                val name = cursor.getString(1) ?: continue
+                val relative = cursor.getString(2)?.let { if (it.endsWith("/")) it else "$it/" } ?: continue
+                if (!relative.startsWith(dirId)) continue
+                if (relative == dirId) {
+                    if (!cursor.isNull(6) && cursor.getInt(6) != 0) continue
+                    val uri = Uri.withAppendedPath(collection, id.toString()).toString()
+                    val mime = cursor.getString(5)
+                    files += TreeEntry(
+                        id = uri, name = name, isDirectory = false,
+                        size = if (cursor.isNull(3)) null else cursor.getLong(3),
+                        modifiedMillis = if (cursor.isNull(4)) null else cursor.getLong(4) * 1000,
+                        mimeType = mime,
+                        providerThumbnail = mime?.startsWith("image/") == true || mime?.startsWith("video/") == true,
+                        uri = uri,
+                    )
+                } else {
+                    val child = relative.removePrefix(dirId).substringBefore('/')
+                    if (child.isNotEmpty()) folders.getOrPut(child) { TreeEntry("$dirId$child/", child, true) }
+                }
+            }
+        } ?: throw IOException("query failed")
+        return folders.values.toList() + files
+    }
+
+    override fun openInput(fileId: String): InputStream {
+        if (!fileId.startsWith("content://")) throw IOException("not a file")
+        return resolver.openInputStream(Uri.parse(fileId)) ?: throw IOException("open failed")
+    }
+
+    override val thumbnailKind: ThumbnailKind get() = ThumbnailKind.MEDIA_STORE
 
     override fun createDirectory(parentId: String, name: String): String = "$parentId$name/"
 

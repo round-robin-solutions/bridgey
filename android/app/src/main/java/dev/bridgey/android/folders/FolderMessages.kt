@@ -250,11 +250,19 @@ data class FolderOfferPayload(
     val destination: FolderDestination?,
     val resume: Boolean,
     val skipped: SkippedCounts,
+    /** Files 2.0: the entries land directly in the destination folder; no root folder (uploads, downloads). */
+    val into: Boolean = false,
+    /** Files 2.0: this offer answers the receiver's places.download. */
+    val downloadRequestId: String? = null,
 ) {
     fun toJson(): JSONObject = JSONObject().put("version", 1).put("folderTransferId", folderTransferId).put("rootName", rootName)
         .put("fileCount", fileCount).put("folderCount", folderCount).put("totalSize", totalSize).put("pageCount", pageCount)
         .put("manifestSha256", manifestSha256).apply { destination?.let { put("destination", it.toJson()) } }
         .put("resume", resume).put("skipped", skipped.toJson())
+        .apply {
+            if (into) put("into", true)
+            downloadRequestId?.let { put("downloadRequestId", it) }
+        }
 
     companion object {
         sealed interface Result {
@@ -285,8 +293,10 @@ data class FolderOfferPayload(
                 return Result.Invalid(FolderCodes.INVALID_MANIFEST)
             }
             val destination = json.optJSONObject("destination")?.let { FolderDestination.parse(it) ?: return invalid }
+            val downloadRequestId = json.stringOrNull("downloadRequestId")
+            if (downloadRequestId != null && !isWireId(downloadRequestId)) return invalid
             return Result.Valid(FolderOfferPayload(id, rootName, fileCount, folderCount, totalSize, pageCount, digest, destination,
-                json.opt("resume") == true, SkippedCounts.parse(json.optJSONObject("skipped"))))
+                json.opt("resume") == true, SkippedCounts.parse(json.optJSONObject("skipped")), json.opt("into") == true, downloadRequestId))
         }
     }
 }
@@ -463,4 +473,80 @@ data class FolderFileFields(val folderTransferId: String, val entry: Int, val pa
             return FolderFileFields(id, json.intOrNull("entry") ?: -1, json.stringOrNull("path").orEmpty())
         }
     }
+}
+
+/** folders.waiting from the receiver: `destination` or `conflict`, with its countdown. */
+data class FolderWaitingPayload(val folderTransferId: String, val reason: String, val timeoutSeconds: Int) {
+    companion object {
+        fun parse(json: JSONObject): FolderWaitingPayload? {
+            if (!json.versionOk()) return null
+            return FolderWaitingPayload(
+                json.stringOrNull("folderTransferId")?.takeIf(::isWireId) ?: return null,
+                json.stringOrNull("reason") ?: return null,
+                (json.intOrNull("timeoutSeconds") ?: FolderTimeouts.QUESTION_SECONDS).coerceIn(1, FolderTimeouts.QUESTION_SECONDS),
+            )
+        }
+    }
+}
+
+/** folders.accept as the sender reads it. */
+fun parseFolderAccept(json: JSONObject): FolderAcceptPayload? {
+    if (!json.versionOk()) return null
+    return FolderAcceptPayload(
+        json.stringOrNull("folderTransferId")?.takeIf(::isWireId) ?: return null,
+        json.stringOrNull("rootName") ?: return null,
+        json.stringOrNull("destinationLabel").orEmpty().take(FolderLimits.MAX_DESTINATION_LABEL_CHARS),
+        ConflictChoice.fromWire(json.stringOrNull("choice")) ?: ConflictChoice.NONE,
+        json.stringOrNull("completedBitmap"),
+    )
+}
+
+/** folders.rejected as the sender reads it. */
+data class FolderRejectedPayload(val folderTransferId: String, val code: String, val neededBytes: Long?, val freeBytes: Long?) {
+    companion object {
+        fun parse(json: JSONObject): FolderRejectedPayload? {
+            if (!json.versionOk()) return null
+            return FolderRejectedPayload(
+                json.stringOrNull("folderTransferId")?.takeIf(::isWireId) ?: return null,
+                json.stringOrNull("code") ?: FolderCodes.INVALID_MESSAGE,
+                json.longOrNull("neededBytes"),
+                json.longOrNull("freeBytes"),
+            )
+        }
+    }
+}
+
+/** folders.entry_failed as the sender reads it. */
+data class FolderEntryFailedPayload(val folderTransferId: String, val entry: Int, val transferId: String?, val code: String) {
+    companion object {
+        fun parse(json: JSONObject): FolderEntryFailedPayload? {
+            if (!json.versionOk()) return null
+            return FolderEntryFailedPayload(
+                json.stringOrNull("folderTransferId")?.takeIf(::isWireId) ?: return null,
+                json.intOrNull("entry") ?: return null,
+                json.stringOrNull("transferId"),
+                json.stringOrNull("code") ?: FolderCodes.IO_ERROR,
+            )
+        }
+    }
+}
+
+/** folders.result as the sender reads it. */
+fun parseFolderResult(json: JSONObject): FolderResultPayload? {
+    if (!json.versionOk()) return null
+    val array = json.optJSONArray("failed") ?: JSONArray()
+    return FolderResultPayload(
+        json.stringOrNull("folderTransferId")?.takeIf(::isWireId) ?: return null,
+        json.stringOrNull("status") == "complete",
+        json.intOrNull("savedFiles") ?: 0,
+        json.longOrNull("savedBytes") ?: 0,
+        json.intOrNull("createdFolders") ?: 0,
+        json.intOrNull("renamedFiles") ?: 0,
+        json.intOrNull("replacedFiles") ?: 0,
+        json.intOrNull("failedCount") ?: 0,
+        (0 until minOf(array.length(), FolderLimits.MAX_REPORTED_FAILURES)).mapNotNull { index ->
+            val item = array.optJSONObject(index) ?: return@mapNotNull null
+            FailedEntry(item.intOrNull("entry") ?: return@mapNotNull null, item.stringOrNull("code") ?: FolderCodes.IO_ERROR)
+        },
+    )
 }

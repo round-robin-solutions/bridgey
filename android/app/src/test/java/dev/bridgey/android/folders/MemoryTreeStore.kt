@@ -1,7 +1,9 @@
 package dev.bridgey.android.folders
 
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
 
 /** A [TreeStore] in memory, for the folder session tests. Names keep their case; lookups are the session's. */
@@ -41,6 +43,37 @@ class MemoryTreeStore(override val supportsCreateFolder: Boolean = true) : TreeS
         val dir = nodes[dirId] ?: throw IOException("missing")
         require(dir.isDirectory)
         return nodes.values.filter { it.parent == dirId }.map { TreeNode(it.id, it.name, it.isDirectory) }
+    }
+
+    /** Modified times by node ID (tests set them); unset ones are 0. */
+    val modified = HashMap<String, Long>()
+    var openInputCalls = 0
+
+    override fun entries(dirId: String): List<TreeEntry> = children(dirId).map { node ->
+        val stored = nodes.getValue(node.id)
+        TreeEntry(
+            id = node.id, name = node.name, isDirectory = node.isDirectory,
+            size = if (node.isDirectory) null else stored.content.size.toLong(),
+            modifiedMillis = modified[node.id],
+            mimeType = if (node.isDirectory) null else mimeOf(node.name),
+            providerThumbnail = !node.isDirectory && mimeOf(node.name)?.startsWith("image/") == true,
+        )
+    }
+
+    override fun openInput(fileId: String): InputStream {
+        check()
+        openInputCalls++
+        val node = nodes[fileId]?.takeIf { !it.isDirectory } ?: throw IOException("missing")
+        return ByteArrayInputStream(node.content)
+    }
+
+    private fun mimeOf(name: String): String? = when (name.substringAfterLast('.', "").lowercase()) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "mp4" -> "video/mp4"
+        "pdf" -> "application/pdf"
+        "txt" -> "text/plain"
+        else -> null
     }
 
     private fun add(parentId: String, name: String, isDirectory: Boolean): String {

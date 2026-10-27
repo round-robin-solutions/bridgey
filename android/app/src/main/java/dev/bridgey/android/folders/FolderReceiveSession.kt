@@ -177,7 +177,16 @@ class FolderReceiveSession(
     // Manifest.
 
     private fun onStart() {
-        log("offer resume=${offer.resume} files=${offer.fileCount} folders=${offer.folderCount} pages=${offer.pageCount}")
+        log("offer resume=${offer.resume} into=${offer.into} files=${offer.fileCount} folders=${offer.folderCount} pages=${offer.pageCount}")
+        // Files 2.0: a phone never asks a Mac for downloads, so an offer answering one is not for it. Uploads
+        // (`into`) need browsing on, "Allow other devices to change files here" on, and a destination.
+        if (offer.downloadRequestId != null) return reject(FolderCodes.POLICY)
+        if (offer.into) {
+            val current = env.settings()
+            if (!current.allowBrowse) return reject(FolderCodes.POLICY)
+            if (!current.allowReplaceFromOtherDevices) return reject(FolderCodes.READ_ONLY)
+            if (offer.destination == null) return reject(FolderCodes.INVALID_MESSAGE)
+        }
         emit(force = true)
         val immediate = assembler.completeWithoutPages()
         if (immediate != null) return manifestResult(immediate)
@@ -205,6 +214,7 @@ class FolderReceiveSession(
     // Destination (3.2).
 
     private fun chooseDestination() {
+        if (offer.into) return chooseUploadDestination(offer.destination!!)
         val settings = env.settings()
         val defaultPlace = env.places.place(settings.defaultPlaceId)
         when (val decision = FolderPolicy.destination(settings.mode, offer.destination, defaultPlace?.available == true)) {
@@ -226,6 +236,31 @@ class FolderReceiveSession(
             }
             is FolderPolicy.Destination.AskHere -> askDestination(decision.reason)
         }
+    }
+
+    /** An upload into a browsed folder: the destination is the sender's, whatever this phone's folder mode. */
+    private fun chooseUploadDestination(offered: FolderDestination) {
+        val chosen = env.places.place(offered.placeId)?.takeIf { it.available } ?: return reject(FolderCodes.PLACE_UNAVAILABLE)
+        val opened = openStore(chosen) ?: return reject(FolderCodes.PLACE_UNAVAILABLE)
+        val dirId = try {
+            resolveExistingPath(opened, offered.path)
+        } catch (error: IOException) {
+            return reject(storageErrorCode(error).let { if (it == FolderCodes.IO_ERROR) FolderCodes.PLACE_UNAVAILABLE else it })
+        } ?: return reject(FolderCodes.NOT_FOUND)
+        place = chosen
+        store = opened
+        targetDirId = dirId
+        targetDestination = offered
+        targetLabel = destinationLabel(chosen.label, offered.path)
+        val free = runCatching { opened.freeBytes() }.getOrNull()
+        val needed = offer.totalSize + FolderLimits.SPACE_MARGIN
+        if (free != null && free < needed) return reject(FolderCodes.INSUFFICIENT_SPACE, neededBytes = needed, freeBytes = free)
+        try {
+            listing(dirId)
+        } catch (error: IOException) {
+            return reject(storageErrorCode(error).let { if (it == FolderCodes.IO_ERROR) FolderCodes.PLACE_UNAVAILABLE else it })
+        }
+        accept(ConflictChoice.NONE)
     }
 
     private fun askDestination(reason: FolderPolicy.AskReason) {
@@ -379,6 +414,13 @@ class FolderReceiveSession(
         val opened = store ?: return reject(FolderCodes.PLACE_UNAVAILABLE)
         val parentId = targetDirId ?: return reject(FolderCodes.PLACE_UNAVAILABLE)
         val existingDir = existingNode?.takeIf { it.isDirectory }
+        if (offer.into) {
+            // No root folder: entries land in the destination itself; top-level clashes become copies.
+            choice = ConflictChoice.NONE
+            rootName = offer.rootName
+            rootId = parentId
+            return acceptPrepared(opened)
+        }
         // An existing file allows only a new folder; Merge or Replace into a file never happens.
         choice = if ((requested == ConflictChoice.MERGE || requested == ConflictChoice.REPLACE) && existingDir == null) {
             if (existingNode != null) ConflictChoice.NEW_FOLDER else ConflictChoice.NONE
@@ -405,6 +447,10 @@ class FolderReceiveSession(
         } catch (error: SecurityException) {
             return reject(FolderCodes.PLACE_UNAVAILABLE)
         }
+        acceptPrepared(opened)
+    }
+
+    private fun acceptPrepared(opened: TreeStore) {
         dirIds[""] = rootId!!
         journal = runCatching {
             env.journals?.create(
@@ -414,7 +460,7 @@ class FolderReceiveSession(
                 ),
             )
         }.getOrNull()
-        targetDestination?.let(listener::usedDestination)
+        if (!offer.into) targetDestination?.let(listener::usedDestination)
         beginReceiving(bitmap = null)
     }
 
@@ -629,10 +675,12 @@ class FolderReceiveSession(
                 val siblings = listing(parentId)
                 val leaf = FolderPaths.leaf(entry.path)
                 val clash = siblings[caseKey(leaf)]
-                val dirId = if (clash != null && clash.isDirectory) {
-                    clash.id
+                // An upload never merges into an existing top-level folder: it lands as "Name (1)".
+                val mergeInto = clash != null && clash.isDirectory && !(offer.into && parentPath.isEmpty())
+                val dirId = if (mergeInto) {
+                    clash!!.id
                 } else {
-                    // A file of that name: keep both, renaming the incoming folder.
+                    // A file of that name (or an upload's top-level folder): keep both, renaming the incoming folder.
                     val name = if (clash == null) leaf else ConflictNames.firstFree(leaf, isDirectory = true) { it in siblings }
                     opened.createDirectory(parentId, name).also { created ->
                         siblings[caseKey(name)] = TreeNode(created, name, true)

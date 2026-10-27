@@ -9,6 +9,7 @@ import java.io.BufferedOutputStream
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
 
 /**
@@ -58,6 +59,41 @@ class SafTreeStore(private val resolver: ContentResolver, val treeUri: Uri) : Tr
             result
         }
     }
+
+    override fun entries(dirId: String): List<TreeEntry> = guarded {
+        val uri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, dirId)
+        val projection = arrayOf(
+            Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_MIME_TYPE, Document.COLUMN_SIZE,
+            Document.COLUMN_LAST_MODIFIED, Document.COLUMN_FLAGS,
+        )
+        val cursor = resolver.query(uri, projection, null as android.os.Bundle?, null) ?: throw PlaceUnavailableException()
+        cursor.use {
+            val result = ArrayList<TreeEntry>(it.count.coerceAtLeast(0))
+            while (it.moveToNext()) {
+                val id = it.getString(0) ?: continue
+                val name = it.getString(1) ?: continue
+                val mime = it.getString(2)
+                val isDirectory = mime == Document.MIME_TYPE_DIR
+                result += TreeEntry(
+                    id = id,
+                    name = name,
+                    isDirectory = isDirectory,
+                    size = if (isDirectory || it.isNull(3)) null else it.getLong(3),
+                    modifiedMillis = if (it.isNull(4)) null else it.getLong(4).takeIf { value -> value > 0 },
+                    mimeType = mime.takeUnless { isDirectory },
+                    providerThumbnail = !it.isNull(5) && (it.getInt(5) and Document.FLAG_SUPPORTS_THUMBNAIL) != 0,
+                    uri = documentUri(id).toString(),
+                )
+            }
+            result
+        }
+    }
+
+    override fun openInput(fileId: String): InputStream = guarded {
+        resolver.openInputStream(documentUri(fileId)) ?: throw IOException("open failed")
+    }
+
+    override val thumbnailKind: ThumbnailKind get() = ThumbnailKind.DOCUMENT
 
     override fun createDirectory(parentId: String, name: String): String = create(parentId, Document.MIME_TYPE_DIR, name)
 

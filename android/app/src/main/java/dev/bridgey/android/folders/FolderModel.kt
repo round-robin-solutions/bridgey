@@ -34,8 +34,10 @@ data class FolderReceiveSettings(
     val mode: DestinationMode = DestinationMode.SENDER_PICKS,
     val policy: ConflictPolicy = ConflictPolicy.ASK,
     val defaultPlaceId: String = DEFAULT_PLACE_ID,
-    /** "Allow other devices to replace files here": off by default. */
+    /** "Allow other devices to change files here" (was "replace"): off by default. Uploads need it too. */
     val allowReplaceFromOtherDevices: Boolean = false,
+    /** "Let other devices browse this phone" and Files 2.0 browsing served (files_browse_draft1). Uploads need it. */
+    val allowBrowse: Boolean = false,
 )
 
 /** Display path: the place's label, then the path inside it ("Pictures/Trip"), at most 128 characters. */
