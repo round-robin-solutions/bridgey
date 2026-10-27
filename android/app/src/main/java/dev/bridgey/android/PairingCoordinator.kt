@@ -2988,29 +2988,50 @@ class PairingCoordinator(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             return fail(current, "Receiving files requires Android 10 or newer")
         }
-        // Single files land in Download/Bridgey through MediaStore: refuse up front when the file plus 64 MiB does
-        // not fit, instead of failing when the disk fills mid-way. The answer is the existing outer files.cancel
+        // Single files land in Download/Bridgey through MediaStore: refuse up front when the file, what the files
+        // already arriving still need, plus 64 MiB do not fit, instead of failing when the disk fills mid-way; and
+        // refuse with busy past 4 files from one Mac or 8 in all. The answer is the existing outer files.cancel
         // (the Mac ends the file and moves on), with an encrypted {transferId, code, neededBytes, freeBytes} a newer
         // Mac can read; older Macs ignore it.
         val free = runCatching { dev.bridgey.android.folders.MediaStoreTreeStore(appContext.contentResolver).freeBytes() }.getOrNull()
-        val needed = size + dev.bridgey.android.folders.FolderLimits.SPACE_MARGIN
-        if (free != null && free < needed) {
-            val detail = JSONObject().put("version", 1).put("transferId", transferId)
-                .put("code", dev.bridgey.android.folders.FolderCodes.INSUFFICIENT_SPACE).put("neededBytes", needed).put("freeBytes", free)
+        val deviceId = current.remoteDeviceId
+        val (admission, transfer) = synchronized(incomingFiles) {
+            val inFlight = incomingFiles.entries.toList()
+            val admission = incomingFileAdmission(
+                size = size,
+                deviceInFlight = inFlight.count { transferDevices[it.key] == deviceId },
+                totalInFlight = inFlight.size,
+                reservedBytes = inFlight.sumOf { it.value.expectedSize - it.value.receivedSize },
+                freeBytes = free,
+            )
+            val created = if (admission == IncomingFileAdmission.Accept) {
+                runCatching { IncomingFileTransfer(appContext, transferId, name, mimeType, size, hash) }.getOrNull()?.also {
+                    incomingFiles[transferId] = it
+                    transferDevices[transferId] = deviceId
+                }
+            } else {
+                null
+            }
+            admission to created
+        }
+        if (admission != IncomingFileAdmission.Accept) {
+            val code = if (admission is IncomingFileAdmission.NoSpace) {
+                dev.bridgey.android.folders.FolderCodes.INSUFFICIENT_SPACE
+            } else {
+                dev.bridgey.android.folders.FolderCodes.BUSY
+            }
+            val detail = JSONObject().put("version", 1).put("transferId", transferId).put("code", code)
+            if (admission is IncomingFileAdmission.NoSpace) detail.put("neededBytes", admission.neededBytes).put("freeBytes", admission.freeBytes)
             val encrypted = Crypto.encrypt(current.pairingKey!!, detail.toString().toByteArray(Charsets.UTF_8))
             current.send(Message(kind = "files.cancel", sessionId = current.id, messageId = UUID.randomUUID().toString(), transferId = transferId,
                 nonce = encrypted.nonce, ciphertext = encrypted.ciphertext))
             markTransferCancelled(transferId)
-            mutableFileTransferStatus.value = appContext.getString(R.string.file_receive_no_space)
-            diagnostics.record("transfer", "receive_refused", "insufficient_space")
-            BridgeyLogging.i(LogCategory.FILES, "FILE refused code=insufficient_space transfer=${transferId.take(8)}")
+            if (admission is IncomingFileAdmission.NoSpace) mutableFileTransferStatus.value = appContext.getString(R.string.file_receive_no_space)
+            diagnostics.record("transfer", "receive_refused", code)
+            BridgeyLogging.i(LogCategory.FILES, "FILE refused code=$code transfer=${transferId.take(8)}")
             return
         }
-        val transfer = runCatching {
-            IncomingFileTransfer(appContext, transferId, name, mimeType, size, hash)
-        }.getOrElse { return fail(current, "Could not create file in Downloads") }
-        incomingFiles[transferId] = transfer
-        transferDevices[transferId] = current.remoteDeviceId
+        if (transfer == null) return fail(current, "Could not create file in Downloads")
         updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: ${transfer.progress.status(0, force = true)}", true)
         current.send(Message(kind = "files.accept", sessionId = current.id, transferId = transferId))
         BridgeyLogging.i(LogCategory.FILES, LogLines.file(BridgeyLogging.policy, "accepted", transferId, transfer.displayName, "size=$size"))
