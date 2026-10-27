@@ -87,13 +87,13 @@ enum DroppedData {
         TrayStore.defaultDirectory().deletingLastPathComponent().appendingPathComponent("Dropped", isDirectory: true)
     }
 
-    static func write(_ data: Data, ext: String, now: Date = Date()) -> URL? {
+    static func write(_ data: Data, ext: String, name: String? = nil, now: Date = Date()) -> URL? {
         prune(now: now)
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
         let folder = directory().appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
-        let url = folder.appendingPathComponent("Image \(formatter.string(from: now)).\(ext)")
+        let url = folder.appendingPathComponent(name ?? "Image \(formatter.string(from: now)).\(ext)")
         return TrayStore.writeOwnerOnly(data, to: url) ? url : nil
     }
 

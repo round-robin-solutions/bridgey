@@ -120,6 +120,8 @@ final class TrayStore: ObservableObject {
     /// Adds what a drop carried; returns the new items.
     @discardableResult
     func add(_ payloads: [DropPayload], now: Date = Date()) -> [TrayItem] {
+        // Whole milliseconds, as stored, so an item reads back equal.
+        let now = Date(timeIntervalSince1970: (now.timeIntervalSince1970 * 1000).rounded() / 1000)
         var added: [TrayItem] = []
         for payload in payloads {
             switch payload {
@@ -196,13 +198,22 @@ final class TrayStore: ObservableObject {
         }
     }
 
-    /// What a send of `selection` (nil: everything) carries: files and folders, and texts and links.
-    func sendables(_ selection: [TrayItem]? = nil) -> (urls: [URL], texts: [String]) {
+    /// What a send of `selection` (nil: everything) carries: files and folders, and texts and links. For a
+    /// send, image copies move to the dropped-data folder first, so clearing the Tray never pulls a file
+    /// out from under a queued transfer.
+    func sendables(_ selection: [TrayItem]? = nil, forSending: Bool = false) -> (urls: [URL], texts: [String]) {
         var urls: [URL] = []
         var texts: [String] = []
         for item in selection ?? items {
             switch item.kind {
-            case .file, .folder, .data: if let url = url(for: item) { urls.append(url) }
+            case .data:
+                guard let url = url(for: item) else { continue }
+                if forSending, let data = try? Data(contentsOf: url), let copy = DroppedData.write(data, ext: url.pathExtension, name: item.name) {
+                    urls.append(copy)
+                } else {
+                    urls.append(url)
+                }
+            case .file, .folder: if let url = url(for: item) { urls.append(url) }
             case .text, .link: if let text = item.text { texts.append(text) }
             }
         }

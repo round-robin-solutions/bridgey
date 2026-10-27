@@ -131,6 +131,34 @@ final class SendDesignScreenshots: XCTestCase {
         }
     }
 
+    @MainActor func testTray() throws {
+        var state = TrayViewState()
+        let at = now
+        state.items = [
+            TrayItem(id: "1", kind: .file, name: "IMG_4127.HEIC", size: 3_412_000, addedAt: at),
+            TrayItem(id: "2", kind: .folder, name: "Receipts 2026", size: 48_200_000, addedAt: at),
+            TrayItem(id: "3", kind: .data, name: "Image 2026-10-27 at 09.31.12.png", size: 412_000, addedAt: at),
+            TrayItem(id: "4", kind: .link, name: "maps.google.com", size: 0, addedAt: at, text: "https://maps.google.com/?q=Gate+14"),
+            TrayItem(id: "5", kind: .text, name: "Gate 14, boarding 18:40", size: 23, addedAt: at, text: "Gate 14, boarding 18:40"),
+        ]
+        state.targets = [SendTarget(id: phoneID, name: "OnePlus 11", battery: RemoteBatteryStatus(level: 76, isCharging: true)),
+                         SendTarget(id: tabletID, name: "Galaxy Tab S9", battery: nil)]
+        state.targetID = phoneID
+        state.chip = "Optimised \u{00B7} \u{2212}41%"
+        let pictures: (TrayItem) -> NSImage? = { item in
+            item.kind == .file || item.kind == .data ? Self.picture(Int(item.id) ?? 0) : nil
+        }
+        for scheme in [ColorScheme.light, .dark] {
+            let suffix = scheme == .dark ? "dark" : "light"
+            try write(TrayView(state: state, actions: TrayActions(), thumbnail: pictures).frame(height: 470), scheme: scheme, name: "mac-tray-\(suffix)")
+        }
+        var sent = TrayViewState()
+        sent.targets = state.targets
+        sent.targetID = phoneID
+        sent.banner = "Sent 5 items to OnePlus 11"
+        try write(TrayView(state: sent, actions: TrayActions()).frame(height: 360), scheme: .light, name: "mac-tray-sent-light")
+    }
+
     @MainActor func write<V: View>(_ content: V, scheme: ColorScheme, name: String, padding: CGFloat = 24) throws {
         let view = BrandRoot(reduceMotion: false) { content }
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))

@@ -846,3 +846,15 @@
 "settings.drop.spring" = "Show devices and Tray";
 "settings.drop.tray" = "Always collect in the Tray";
 "settings.drop.instant" = "Send right away";
+"tray.subtitle.empty" = "Collect now, send together";
+"tray.subtitle" = "%d items, %@";
+"tray.clear" = "Clear";
+"tray.empty" = "Drop files, folders, images, text or links here. They wait until you send them.";
+"tray.remove" = "Remove from the Tray";
+"tray.folder" = "Folder, %@";
+"tray.text" = "Text, sent to the clipboard";
+"tray.cleared" = "Tray cleared";
+"tray.sentOne" = "Sent 1 item to %@";
+"tray.sent" = "Sent %d items to %@";
+"panel.sendFiles" = "Send files";
+"panel.trayCount" = "Tray · %d";
