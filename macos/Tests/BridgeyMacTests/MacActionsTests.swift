@@ -178,6 +178,20 @@ final class MacActionsTests: XCTestCase {
         XCTAssertEqual(run("volume_down")?["status"] as? String, "done")
     }
 
+    func testRefusalsAreAlwaysAnsweredButLoggedAtARateLimit() {
+        let logged = { self.host.audit.entries.reduce(0) { $0 + $1.times } }
+        allowed = false
+        for _ in 0..<25 { XCTAssertEqual(reason(run("screensaver")), "not_allowed") }
+        XCTAssertEqual(replies.count, 25)
+        XCTAssertEqual(logged(), 10, "a flood of refusals does not rewrite the log each time")
+        now = now.addingTimeInterval(2)
+        _ = run("screensaver")
+        XCTAssertEqual(logged(), 11)
+        allowed = true
+        XCTAssertEqual(run("screensaver")?["status"] as? String, "done")
+        XCTAssertEqual(logged(), 12, "what ran is always logged")
+    }
+
     func testLockNeedsAccessibility() {
         system.accessibilityTrusted = false
         XCTAssertEqual(reason(run("lock")), "permission_required")

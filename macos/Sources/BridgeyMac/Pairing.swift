@@ -342,6 +342,7 @@ final class PairingCoordinator: ObservableObject {
     private let liveCodeLifetime: TimeInterval = 10 * 60
     private let codeClipboard = CodeClipboard()
     private let companionAdvertiser = CompanionLinkAdvertiser()
+    private var lastCodesAdvertiseAt = Date.distantPast
     private var remoteNotificationCategories: [String: UNNotificationCategory] = [:]
     private var incomingFiles: [String: IncomingFileTransfer] = [:]
     private var outgoingFiles: [String: OutgoingFileTransfer] = [:]
@@ -3510,8 +3511,11 @@ final class PairingCoordinator: ObservableObject {
             if status == .allowed { codeLinkStatus = nil }
             publish()
         case "codes.advertise":
-            guard settings.isEnabled(.notifications, for: phoneID),
+            // Codes from messages must be on here, and the Bluetooth advertisement starts at most every 10 seconds.
+            guard settings.isEnabled(.notifications, for: phoneID), settings.codesEnabled,
+                  Date().timeIntervalSince(lastCodesAdvertiseAt) >= 10,
                   let raw = payload["serviceUuid"] as? String, let uuid = UUID(uuidString: raw) else { return }
+            lastCodesAdvertiseAt = Date()
             let waiting = L10n.text("codes.link.advertising", fallback: "Waiting for the phone. Tap Allow there.")
             codeLinkStatus = waiting
             DispatchQueue.main.asyncAfter(deadline: .now() + CompanionLinkAdvertiser.duration + 30) { [weak self] in

@@ -352,6 +352,9 @@ final class MacActionsHost: ObservableObject {
     private let sleepDelay: TimeInterval
     private var sequences: [String: Int] = [:]
     private var limiters: [String: MacActionRateLimiter] = [:]
+    /// Refusals are answered every time but written to the action log at most 10 at once, then one
+    /// every 2 seconds per phone, so a flood never rewrites the log file on each request.
+    private var refusalAudits: [String: TokenBucket] = [:]
     private var shortcutRunning = false
 
     init(system: MacSystemActing, store: MacActionsConfigStore? = MacActionsConfigStore(),
@@ -495,6 +498,12 @@ final class MacActionsHost: ObservableObject {
         let reason: MacActionRefusal?
         if case let .refused(refusal) = outcome { reason = refusal } else { reason = nil }
         _ = send(deviceID, "actions.result", macActionResultPayload(outcome, requestID: requestID, wire: wire))
+        if reason != nil {
+            var bucket = refusalAudits[deviceID] ?? TokenBucket(ratePerSecond: 0.5, capacity: 10)
+            let allowed = bucket.allow(at: clock().timeIntervalSince1970)
+            refusalAudits[deviceID] = bucket
+            guard allowed else { return }
+        }
         audit.record(MacActionAuditEntry(
             id: requestID, deviceID: deviceID, deviceName: deviceName,
             action: id?.wire ?? "unknown", title: id.map(auditTitle) ?? "",
