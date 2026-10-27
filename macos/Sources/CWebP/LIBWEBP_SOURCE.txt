@@ -1,0 +1,6 @@
+libwebp 1.4.0 (BSD-3-Clause, see COPYING and PATENTS), from
+https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.4.0.tar.gz
+sha256 61f873ec69e3be1b99535634340d5bde750b2e4447caa1db9f61be3fd49ab1e5
+Kept unmodified: src/{dec,dsp,enc,utils,webp} and sharpyuv, without the x86, MIPS and MSA files
+(the Mac builds arm64 with NEON) and without the build files. include/webp holds copies of
+encode.h and types.h as the public headers for SwiftPM. Used only to encode WebP before sending.

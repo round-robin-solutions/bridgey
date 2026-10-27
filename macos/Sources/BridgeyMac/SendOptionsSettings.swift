@@ -5,8 +5,12 @@ import SwiftUI
 
 struct SendOptionsSettingsSection: View {
     @ObservedObject private var preferences = SendPreferences.shared
+    @StateObject private var preview = SendPreviewModel()
 
     var body: some View {
+        SendOptimizationSettings(options: preferences.optimization, change: preferences.setOptimization, preview: preview.state)
+            .onAppear { preview.update(preferences.optimization) }
+            .onChange(of: preferences.optimization) { preview.update($0) }
         SettingsCard(footnote: L10n.text("settings.drop.note", fallback: "Hovering over the icon while dragging opens the panel with a tile for each device and the Tray.")) {
             SettingsRow(title: L10n.text("settings.drop", fallback: "When I drop on the menu-bar icon"), subtitle: nil, divider: false) {
                 ChoiceButton(value: menuBarDropModeTitle(preferences.menuBarDropMode)) {

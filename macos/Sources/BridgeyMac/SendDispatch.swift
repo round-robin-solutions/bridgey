@@ -48,14 +48,16 @@ final class SendHandle {
 enum SendDispatcher {
     /// Files and folders to one phone. Nil when nothing could be queued.
     @discardableResult
-    static func send(urls: [URL], to deviceID: String, pairing: PairingCoordinator) -> SendHandle? {
-        send([.files(urls)], to: deviceID, pairing: pairing)
+    static func send(urls: [URL], to deviceID: String, pairing: PairingCoordinator, optimization: SendOptimization? = nil) -> SendHandle? {
+        send([.files(urls)], to: deviceID, pairing: pairing, optimization: optimization)
     }
 
-    /// Whatever a drop carried: files and folders queue as transfers; images without a file are written to
-    /// an owner-only folder first; text and links go as clipboard text.
+    /// Whatever a drop carried: files and folders queue as transfers (after optimisation when the settings
+    /// change any of them); images without a file are written to an owner-only folder first; text and links
+    /// go as clipboard text. `optimization` nil uses Settings > Files > Before sending.
     @discardableResult
-    static func send(_ payloads: [DropPayload], to deviceID: String, pairing: PairingCoordinator) -> SendHandle? {
+    static func send(_ payloads: [DropPayload], to deviceID: String, pairing: PairingCoordinator,
+                     optimization: SendOptimization? = nil) -> SendHandle? {
         let handle = SendHandle(deviceID: deviceID, payloads: payloads)
         handle.bind(pairing)
         var urls: [URL] = []
@@ -70,14 +72,82 @@ enum SendDispatcher {
         }
         var sent = false
         if !urls.isEmpty {
-            let before = Set(pairing.fileTransfers.keys)
-            if pairing.sendDroppedFiles(urls, to: deviceID) {
+            let options = optimization ?? SendPreferences.shared.optimization
+            if urls.contains(where: { SendOptimizer.mightChange($0, with: options) }) {
+                guard pairing.connectedPhones.contains(where: { $0.id == deviceID }), pairing.isFeatureAvailable(.files, for: deviceID) else {
+                    return texts.isEmpty ? nil : sendTexts(texts, handle: handle, pairing: pairing)
+                }
+                SendPreparation.start(urls, options: options, handle: handle, pairing: pairing)
                 sent = true
-                handle.started(Set(pairing.fileTransfers.keys).subtracting(before))
+            } else {
+                let before = Set(pairing.fileTransfers.keys)
+                if pairing.sendDroppedFiles(urls, to: deviceID) {
+                    sent = true
+                    handle.started(Set(pairing.fileTransfers.keys).subtracting(before))
+                }
             }
         }
         for text in texts where pairing.sendText(text, to: deviceID) { sent = true }
         return sent ? handle : nil
+    }
+
+    private static func sendTexts(_ texts: [String], handle: SendHandle, pairing: PairingCoordinator) -> SendHandle? {
+        var sent = false
+        for text in texts where pairing.sendText(text, to: handle.deviceID) { sent = true }
+        return sent ? handle : nil
+    }
+}
+
+/// The optimisation step before a send: one Stream row ("Optimising 3 of 12"), work off the main thread,
+/// then the copies go to the transfer queue. Cancelling the row, or Undo, stops it.
+@MainActor
+enum SendPreparation {
+    static func start(_ urls: [URL], options: SendOptimization, handle: SendHandle, pairing: PairingCoordinator) {
+        let rowID = "prepare-\(UUID().uuidString.lowercased())"
+        let work = urls.filter { SendOptimizer.mightChange($0, with: options) }
+        let name = urls.count == 1 ? urls[0].lastPathComponent
+            : String(format: L10n.text("optimize.row.items", fallback: "%d items"), urls.count)
+        let cancel = OptimizerCancel()
+        handle.cancelPreparation = { [weak pairing] in
+            cancel.cancel()
+            pairing?.removePreparationRow(id: rowID)
+        }
+        func status(_ done: Int) -> String {
+            String(format: L10n.text("optimize.row.progress", fallback: "Optimising %d of %d"), min(done + 1, work.count), work.count)
+        }
+        pairing.showPreparationRow(id: rowID, name: name, status: status(0), active: true)
+        let cache = SendOptimizer.cacheDirectory()
+        Task.detached(priority: .userInitiated) {
+            var outputs: [URL] = []
+            var done = 0
+            for url in urls {
+                if cancel.isCancelled { break }
+                guard SendOptimizer.mightChange(url, with: options) else {
+                    outputs.append(url)
+                    continue
+                }
+                let item = try? await SendOptimizer.optimize(url, with: options, cache: cache, cancel: cancel)
+                outputs.append(item?.output ?? url)
+                done += 1
+                let step = done
+                await MainActor.run {
+                    // The row's Cancel in the Stream ends it; stop with it.
+                    if pairing.fileTransfers[rowID]?.active == false { cancel.cancel() }
+                    if !cancel.isCancelled, step < work.count { pairing.showPreparationRow(id: rowID, name: name, status: status(step), active: true) }
+                }
+            }
+            SendOptimizer.trimCache(cache)
+            let finished = outputs
+            await MainActor.run {
+                if pairing.fileTransfers[rowID]?.active == false { cancel.cancel() }
+                pairing.removePreparationRow(id: rowID)
+                guard !cancel.isCancelled, !handle.cancelled else { return }
+                let before = Set(pairing.fileTransfers.keys)
+                if pairing.sendDroppedFiles(finished, to: handle.deviceID) {
+                    handle.started(Set(pairing.fileTransfers.keys).subtracting(before))
+                }
+            }
+        }
     }
 }
 

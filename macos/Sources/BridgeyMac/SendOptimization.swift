@@ -38,6 +38,10 @@ struct SendOptimization: Codable, Equatable {
     static let original = SendOptimization(imageMode: .original, stripLocation: false, stripCamera: false, stripDates: false,
                                            videoMode: .original, folderMode: .asIs)
 
+    /// What the chip's "Optimised" means when Settings leave everything original.
+    static let recommended = SendOptimization(imageMode: .optimize, maxEdge: 2048, format: .jpeg, quality: 80, stripLocation: true,
+                                              videoMode: .hd1080Balanced, folderMode: .asIs)
+
     var stripsMetadata: Bool { stripLocation || stripCamera || stripDates }
 
     /// True when nothing would change any item.

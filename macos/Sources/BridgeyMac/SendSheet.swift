@@ -202,8 +202,10 @@ struct SendSheetState {
     var gathered = true
     var dropTargeted = false
     var status: String?
-    /// The optimisation chip ("Original", "Optimised · −68%").
-    var chip: String?
+    /// This send's optimisation (the Settings default until the chip changes it) and its measured saving.
+    var optimization: SendOptimization?
+    var defaults = SendOptimization.default
+    var saving: Double?
 
     var selectedItems: [SendCandidate] {
         let all = added + recent + screenshots
@@ -225,7 +227,7 @@ struct SendSheetActions {
     var close: () -> Void = {}
     var drop: ([URL]) -> Bool = { _ in false }
     var targeted: (Bool) -> Void = { _ in }
-    var openChip: () -> Void = {}
+    var changeOptimization: (SendOptimization) -> Void = { _ in }
 }
 
 // MARK: - View
@@ -331,8 +333,8 @@ struct SendSheetView: View {
         HStack(spacing: 10) {
             Button(L10n.text("sendsheet.browse", fallback: "Browse\u{2026}"), action: actions.browse)
                 .buttonStyle(PillButtonStyle(kind: .outline, height: 32))
-            if let chip = state.chip {
-                OptimizationChip(label: chip, action: actions.openChip)
+            if let options = state.optimization {
+                OptimizationChipButton(options: options, defaults: state.defaults, saving: state.saving, change: actions.changeOptimization)
             }
             Spacer(minLength: 8)
             Text(summary)
@@ -509,7 +511,10 @@ struct OptimizationChip: View {
 final class SendSheetModel: ObservableObject {
     @Published var state = SendSheetState()
     let query = RecentFilesQuery()
+    let estimator = SendEstimator()
     private let pairing: PairingCoordinator
+    /// Set by the chip for this send only; nil follows Settings.
+    private var override: SendOptimization?
     private let preferences: SendPreferences
     private var observations: [AnyCancellable] = []
     var onClose: () -> Void = {}
@@ -523,7 +528,18 @@ final class SendSheetModel: ObservableObject {
         observations.append(pairing.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.refreshTargets() }
         })
+        observations.append(estimator.$saving.sink { [weak self] value in self?.state.saving = value })
+        observations.append(self.preferences.$optimization.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.refreshOptimization() }
+        })
         refreshTargets()
+        refreshOptimization()
+    }
+
+    private func refreshOptimization() {
+        state.defaults = preferences.optimization
+        state.optimization = override ?? preferences.optimization
+        estimator.update(urls: state.selection, options: state.optimization ?? preferences.optimization)
     }
 
     func open() {
@@ -542,6 +558,7 @@ final class SendSheetModel: ObservableObject {
         state.gathered = query.gathered
         let known = Set((state.added + state.recent + state.screenshots).map(\.url))
         state.selection.removeAll { !known.contains($0) }
+        refreshOptimization()
     }
 
     private func refreshTargets() {
@@ -563,12 +580,17 @@ final class SendSheetModel: ObservableObject {
                 state.selection.append(item.url)
             }
             state.status = nil
+            refreshOptimization()
         }
         actions.browse = { [weak self] in self?.browse() }
         actions.send = { [weak self] in self?.send() }
         actions.close = { [weak self] in self?.onClose() }
         actions.drop = { [weak self] urls in self?.add(urls) ?? false }
         actions.targeted = { [weak self] value in self?.state.dropTargeted = value }
+        actions.changeOptimization = { [weak self] options in
+            self?.override = options
+            self?.refreshOptimization()
+        }
         return actions
     }
 
@@ -582,6 +604,7 @@ final class SendSheetModel: ObservableObject {
         }
         for candidate in candidates where !state.selection.contains(candidate.url) { state.selection.append(candidate.url) }
         state.status = nil
+        refreshOptimization()
         return true
     }
 
@@ -609,10 +632,12 @@ final class SendSheetModel: ObservableObject {
         guard let target = state.targetID else { return }
         let urls = state.selection
         guard !urls.isEmpty else { return }
-        if SendDispatcher.send(urls: urls, to: target, pairing: pairing) != nil {
+        if SendDispatcher.send(urls: urls, to: target, pairing: pairing, optimization: state.optimization) != nil {
             preferences.rememberDevice(target)
             state.selection = []
             state.added = []
+            override = nil
+            refreshOptimization()
             onClose()
         } else {
             state.status = pairing.fileTransferStatus ?? L10n.text("sendsheet.failed", fallback: "Could not send. Check the connection.")

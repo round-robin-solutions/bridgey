@@ -1,0 +1,9 @@
+Sample photo in Settings > Files > Before sending (Bridgey for Mac)
+
+"Mahabalipuram Landscape, India" by Vyacheslav Argenberg
+https://commons.wikimedia.org/wiki/File:Mahabalipuram_Landscape,_India.jpg
+Licence: Creative Commons Attribution 4.0 International (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/
+
+Changes: scaled from 4032 x 2688 to 2400 x 1600 and saved as JPEG at a lower quality, so the app
+stays small (macOS/Resources/send-preview-sample.jpg, 1.4 MB). Embedded EXIF kept as published.

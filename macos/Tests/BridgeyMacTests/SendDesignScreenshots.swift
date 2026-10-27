@@ -72,7 +72,8 @@ final class SendDesignScreenshots: XCTestCase {
             candidate("Screenshot 2026-10-26 at 11.02.png", 498_000, minutes: 1_360, screenshot: true),
         ]
         state.selection = [state.recent[0].url, state.recent[2].url, state.screenshots[0].url]
-        state.chip = "Optimised \u{00B7} \u{2212}68%"
+        state.optimization = .recommended
+        state.saving = 0.68
         return state
     }
 
@@ -122,7 +123,7 @@ final class SendDesignScreenshots: XCTestCase {
             let suffix = scheme == .dark ? "dark" : "light"
             let panel = StreamPanelView(model: panelModel, actions: PanelActions())
                 .fixedSize(horizontal: false, vertical: true)
-                .overlay { DropTilesView(devices: tileDevices, trayCount: 2, highlighted: .device(phoneID)) }
+                .overlay { DropTilesView(devices: tileDevices, trayCount: 2, chip: "Optimised", highlighted: .device(phoneID)) }
             try write(panel, scheme: scheme, name: "mac-drop-tiles-\(suffix)")
             let toast = DropToastModel(text: "Sending 3 items to OnePlus 11", actions: [
                 DropToastAction(title: "Undo") {}, DropToastAction(title: "Send to\u{2026}") {},
@@ -144,7 +145,8 @@ final class SendDesignScreenshots: XCTestCase {
         state.targets = [SendTarget(id: phoneID, name: "OnePlus 11", battery: RemoteBatteryStatus(level: 76, isCharging: true)),
                          SendTarget(id: tabletID, name: "Galaxy Tab S9", battery: nil)]
         state.targetID = phoneID
-        state.chip = "Optimised \u{00B7} \u{2212}41%"
+        state.optimization = .recommended
+        state.saving = 0.41
         let pictures: (TrayItem) -> NSImage? = { item in
             item.kind == .file || item.kind == .data ? Self.picture(Int(item.id) ?? 0) : nil
         }
@@ -157,6 +159,23 @@ final class SendDesignScreenshots: XCTestCase {
         sent.targetID = phoneID
         sent.banner = "Sent 5 items to OnePlus 11"
         try write(TrayView(state: sent, actions: TrayActions()).frame(height: 360), scheme: .light, name: "mac-tray-sent-light")
+    }
+
+    @MainActor func testOptimizationSettingsAndPopover() throws {
+        let model = SendPreviewModel()
+        var options = SendOptimization.recommended
+        options.format = .webp
+        options.quality = 70
+        model.update(options)
+        let deadline = Date().addingTimeInterval(10)
+        while model.state.optimizedBytes == nil && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        XCTAssertNotNil(model.state.optimizedBytes)
+        for scheme in [ColorScheme.light, .dark] {
+            let suffix = scheme == .dark ? "dark" : "light"
+            try write(SendOptimizationSettings(options: options, change: { _ in }, preview: model.state).frame(width: 560).padding(20),
+                      scheme: scheme, name: "mac-settings-before-sending-\(suffix)")
+            try write(SendOptimizationPopover(options: options, defaults: .default, change: { _ in }), scheme: scheme, name: "mac-chip-popover-\(suffix)")
+        }
     }
 
     @MainActor func write<V: View>(_ content: V, scheme: ColorScheme, name: String, padding: CGFloat = 24) throws {

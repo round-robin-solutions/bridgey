@@ -313,6 +313,8 @@ final class DropToastController {
 struct DropTilesView: View {
     let devices: [DropTileDevice]
     let trayCount: Int
+    /// What drops are sent as (Settings > Files > Before sending), shown under the tiles.
+    var chip: String?
     /// Screenshots: which tile looks hovered.
     var highlighted: DropTarget?
     var onDrop: ((DropTarget, [NSItemProvider]) -> Bool)?
@@ -348,6 +350,17 @@ struct DropTilesView: View {
                         .font(BrandFont.body(11))
                         .foregroundStyle(c.on2)
                 }
+            }
+            if let chip {
+                HStack(spacing: 5) {
+                    Image(systemName: "wand.and.stars").font(.system(size: 11, weight: .semibold))
+                    Text(String(format: L10n.text("drop.tiles.chip", fallback: "Sent as: %@"), chip))
+                        .font(BrandFont.body(12, .semibold))
+                }
+                .foregroundStyle(c.tpi)
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(Capsule().fill(c.tp))
             }
         }
         .padding(16)
@@ -395,7 +408,8 @@ struct DropTilesOverlay: View {
 
     var body: some View {
         if controller.tilesVisible {
-            DropTilesView(devices: controller.tileDevices, trayCount: tray.items.count) { target, providers in
+            DropTilesView(devices: controller.tileDevices, trayCount: tray.items.count,
+                          chip: OptimizationLabel.chip(SendPreferences.shared.optimization, saving: nil)) { target, providers in
                 DropPayload.load(providers) { payloads in controller.tileDrop(payloads, target: target) }
                 return true
             }

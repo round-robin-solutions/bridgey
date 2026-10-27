@@ -10,7 +10,9 @@ struct TrayViewState {
     var items: [TrayItem] = []
     var targets: [SendTarget] = []
     var targetID: String?
-    var chip: String?
+    var optimization: SendOptimization?
+    var defaults = SendOptimization.default
+    var saving: Double?
     /// "Sent 4 items to OnePlus 11", with Undo, for a few seconds after a send.
     var banner: String?
     var dropTargeted = false
@@ -26,7 +28,7 @@ struct TrayActions {
     var send: () -> Void = {}
     var undo: () -> Void = {}
     var clear: () -> Void = {}
-    var openChip: () -> Void = {}
+    var changeOptimization: (SendOptimization) -> Void = { _ in }
 }
 
 struct TrayView: View {
@@ -136,7 +138,9 @@ struct TrayView: View {
                 }
             }
             HStack(spacing: 8) {
-                if let chip = state.chip { OptimizationChip(label: chip, action: actions.openChip) }
+                if let options = state.optimization {
+                    OptimizationChipButton(options: options, defaults: state.defaults, saving: state.saving, change: actions.changeOptimization)
+                }
                 Spacer(minLength: 0)
                 if let status = state.status {
                     Text(status).font(BrandFont.body(11)).foregroundStyle(c.warn).lineLimit(1)
@@ -234,17 +238,31 @@ final class TrayModel: ObservableObject {
     private let preferences = SendPreferences.shared
     private var subscriptions: [AnyCancellable] = []
     private var undoItems: [TrayItem] = []
+    private let estimator = SendEstimator()
+    private var override: SendOptimization?
     private var bannerWork: DispatchWorkItem?
 
     init(pairing: PairingCoordinator, store: TrayStore? = nil) {
         self.pairing = pairing
         let store = store ?? .shared
         self.store = store
-        store.$items.sink { [weak self] items in self?.state.items = items }.store(in: &subscriptions)
+        store.$items.sink { [weak self] items in
+            self?.state.items = items
+            DispatchQueue.main.async { self?.refreshOptimization() }
+        }.store(in: &subscriptions)
+        estimator.$saving.sink { [weak self] value in self?.state.saving = value }.store(in: &subscriptions)
+        preferences.$optimization.sink { [weak self] _ in DispatchQueue.main.async { self?.refreshOptimization() } }.store(in: &subscriptions)
         pairing.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.refreshTargets() }
         }.store(in: &subscriptions)
         refreshTargets()
+    }
+
+    private func refreshOptimization() {
+        state.defaults = preferences.optimization
+        let options = override ?? preferences.optimization
+        state.optimization = options
+        estimator.update(urls: store.items.filter { $0.kind != .text && $0.kind != .link }.compactMap { store.url(for: $0) }, options: options)
     }
 
     private func refreshTargets() {
@@ -261,6 +279,10 @@ final class TrayModel: ObservableObject {
         actions.selectTarget = { [weak self] id in self?.state.targetID = id }
         actions.send = { [weak self] in self?.send() }
         actions.undo = { [weak self] in self?.undo() }
+        actions.changeOptimization = { [weak self] options in
+            self?.override = options
+            self?.refreshOptimization()
+        }
         actions.clear = { [weak self] in
             guard let self else { return }
             self.showBanner(L10n.text("tray.cleared", fallback: "Tray cleared"), removed: self.store.clear())
@@ -277,7 +299,7 @@ final class TrayModel: ObservableObject {
         guard let target = state.targetID, !store.isEmpty else { return }
         let (urls, texts) = store.sendables(forSending: true)
         let payloads: [DropPayload] = (urls.isEmpty ? [] : [.files(urls)]) + texts.map { DropPayload.text($0) }
-        guard let handle = SendDispatcher.send(payloads, to: target, pairing: pairing) else {
+        guard let handle = SendDispatcher.send(payloads, to: target, pairing: pairing, optimization: state.optimization) else {
             state.status = pairing.fileTransferStatus ?? L10n.text("sendsheet.failed", fallback: "Could not send. Check the connection.")
             return
         }
@@ -285,6 +307,7 @@ final class TrayModel: ObservableObject {
         let name = state.targets.first { $0.id == target }?.name ?? ""
         let count = store.items.count
         let removed = store.clear()
+        override = nil
         showBanner(count == 1
                    ? String(format: L10n.text("tray.sentOne", fallback: "Sent 1 item to %@"), name)
                    : String(format: L10n.text("tray.sent", fallback: "Sent %d items to %@"), count, name), removed: removed)

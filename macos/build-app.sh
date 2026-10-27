@@ -79,6 +79,8 @@ if [ "$(lipo -archs "$LLAMA_BINARY")" != "$APP_ARCHS" ]; then
 fi
 # The bundled model manifest, the licences (About > Licences) and the Gemma notice.
 cp Resources/otp-model.json "$APP_PATH/Contents/Resources/otp-model.json"
+# Settings > Files > Before sending: the live preview's sample photo (CC BY 4.0, see docs).
+cp Resources/send-preview-sample.jpg "$APP_PATH/Contents/Resources/send-preview-sample.jpg"
 mkdir -p "$APP_PATH/Contents/Resources/Licences"
 cp ../NOTICE "$APP_PATH/Contents/Resources/Licences/NOTICE.txt"
 cp ../LICENSE "$APP_PATH/Contents/Resources/Licences/LICENSE.txt"
