@@ -23,9 +23,15 @@ media and documents the way Telegram shows them, and media from the phone that f
   - **Folders**: the granted places and `Download/Bridgey`, with a breadcrumb, sorting by name,
     date, size or kind, and paged loading.
   - **Recent from phone**: both, mixed.
-  - Download (to Received files), Quick Look (space bar), drag out to Finder (file promises;
-    each item downloads into the folder Finder names), drag in from Finder (upload into the open
-    folder), Show in Finder. Remembers the last phone, section, place, path and sort.
+  - Space (or the eye button, or a double click) shows the item in the window's viewer at once: the
+    thumbnail, then a 1600 px preview; arrows step, Space or Escape go back; videos play after their
+    original downloads. Quick Look of the original: Command-Y, the viewer's button or the menu.
+  - Download (to Received files), drag out to Finder (file promises; each item downloads into the
+    folder Finder names), drag in from Finder (upload into the open folder), Show in Finder.
+    Remembers the last phone, section, place, path and sort.
+  - The grid is an AppKit collection view and the thumbnails a small pipeline (parallel requests that
+    follow the screen, retries, a "No preview" or "Couldn't load" mark instead of a blank cell, bounded
+    memory). Why and how: [files-browse-performance.md](files-browse-performance.md).
   - Read-only banner while the phone does not allow changes; an explanation for a phone that
     does not allow browsing or runs an older Bridgey.
 - **Send to phone** sheet (replaces the system panel for Send Files or Folders): recent files
@@ -85,7 +91,7 @@ media and documents the way Telegram shows them, and media from the phone that f
 | B4 | Downloads, single files included, are `into` folder transfers answering `places.download`: verified, journaled and resumable like folders | Call |
 | B5 | Uploads never merge or replace: a clashing top-level item becomes "Name (1)" or "name (1).ext" | Call; deleting and renaming are out of scope |
 | B6 | Recent documents come only from granted places (Android has no other way without broad permission); media from MediaStore with `READ_MEDIA_IMAGES` and `READ_MEDIA_VIDEO` (new), partial access handled. Access is `partial` only for the photos the person chose (Android 14+: `READ_MEDIA_VISUAL_USER_SELECTED` without `READ_MEDIA_IMAGES`); all photos without videos (what Send a fresh screenshot asks for) is `full`, and setup keeps asking for videos. It is read on every `media.list`, so Refresh or a reconnect clears the banner once all photos are allowed | Rahul |
-| B7 | Thumbnails: batched `media.thumbnails`, WebP (Android 11+) or JPEG, at most 24 KiB each, visible first, sized per item so the short edge covers a square grid cell on Retina (288, 384 or 512 px longest edge by aspect; tall screenshots are capped by the protocol's 512 px at about 229 px across), `replaces` on scroll, a low-priority lane that yields to file chunks and control messages | Rahul's spec; sizes a call |
+| B7 | Thumbnails: batched `media.thumbnails`, WebP (Android 11+) or JPEG, at most 24 KiB each, visible first, sized per item so the short edge covers a square grid cell on Retina (384 or 512 px longest edge by aspect; tall screenshots are capped by the protocol's 512 px at about 229 px across), up to three requests at once that are cancelled only when nothing in them is wanted, sent by the phone as each is ready, a low-priority lane that yields to file chunks and control messages. Design and numbers: [files-browse-performance.md](files-browse-performance.md) | Rahul's spec; sizes and pipeline a call |
 | B8 | Hover prefetch after 150 ms, at most 3 in flight, kept when more than half arrived, LAN routes only (Tailscale counts as relay) | Rahul |
 | B9 | The Mac serves no places: folders from the phone use the Mac's own setting (Received files, or ask) | Call |
 | B10 | Metadata stripping default: location only | Call (Rahul asked to choose) |
@@ -161,7 +167,7 @@ names). On the phone, Perfetto or `adb logcat` around opening the attach sheet.
 | --- | --- | --- |
 | 1 | Open Phone files cold, then again | Tinted placeholders, thumbnails within half a second; second open instant from cache |
 | 2 | Scroll the gallery fast while a 2 GB file sends | Smooth scrolling; the file's speed does not drop noticeably |
-| 3 | Rest on a photo, double click; press Space on a PDF | Preview appears at once; Quick Look opens after the download |
+| 3 | Rest on a photo, press Space, step with the arrows, play a video; Command-Y on a PDF | The viewer appears at once and sharpens within a second; videos play; Quick Look opens after the download |
 | 4 | Drag a photo and a folder to the Desktop; cut Wi-Fi mid-way | Finder progress; items land; resumes; copies on name clashes |
 | 5 | Drop files on an open phone folder with "Allow other devices to change files here" off, then on | Refused with the banner; then uploaded, clashes as copies |
 | 6 | Turn "Let other devices browse this phone" off | The Mac explains browsing is off; requests answer `policy` |

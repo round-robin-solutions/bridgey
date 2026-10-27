@@ -28,6 +28,11 @@ object ThumbnailFit {
  * and later) or JPEG, quality and then size lowered until it fits the byte budget.
  */
 class AndroidThumbnails(private val resolver: ContentResolver, private val context: android.content.Context) : ThumbnailMaker {
+    private companion object {
+        /** Formats that can be transparent; anything else never pays for the header read. */
+        val ALPHA_TYPES = setOf("image/png", "image/webp", "image/gif")
+    }
+
     override fun make(source: ThumbSource, size: Int, maxBytes: Int, preview: Boolean, cancel: CancelFlag): EncodedImage? {
         if (cancel.cancelled) return null
         val signal = CancellationSignal()
@@ -44,6 +49,11 @@ class AndroidThumbnails(private val resolver: ContentResolver, private val conte
         val uri = Uri.parse(source.uri)
         // Previews of images decode the original (a provider thumbnail is often small); thumbnails use the caches.
         if (preview && source.isImage) decodeImage(uri, size)?.let { return it }
+        // A picture that may be transparent (a sticker, a logo): MediaStore's thumbnail is a JPEG and would make the
+        // transparent parts black, so decode it here and send WebP, which keeps them (JPEG before Android 11 cannot).
+        if (source.isImage && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && mayHaveAlpha(uri, source.mimeType)) {
+            decodeImage(uri, size)?.let { return it }
+        }
         if (source.kind == ThumbSource.Kind.MEDIA_STORE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && source.providerThumbnail) {
             val cached = runCatching { resolver.loadThumbnail(uri, Size(size, size), signal) }.getOrNull()
             // MediaStore hands back a photo's embedded EXIF thumbnail as it is (160 x 120 from many cameras)
@@ -85,6 +95,23 @@ class AndroidThumbnails(private val resolver: ContentResolver, private val conte
         var sample = 1
         while (longest / (sample * 2) >= size) sample *= 2
         return resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }
+    }
+
+    private fun mayHaveAlpha(uri: Uri, mimeType: String?): Boolean {
+        if (mimeType != null && mimeType !in ALPHA_TYPES) return false
+        val header = runCatching {
+            resolver.openInputStream(uri)?.use { input ->
+                val buffer = ByteArray(ImageAlpha.HEADER_BYTES)
+                var count = 0
+                while (count < buffer.size) {
+                    val read = input.read(buffer, count, buffer.size - count)
+                    if (read < 0) break
+                    count += read
+                }
+                buffer.copyOf(count)
+            }
+        }.getOrNull() ?: return false
+        return ImageAlpha.mayHaveAlpha(header, mimeType)
     }
 
     private fun videoFrame(uri: Uri, size: Int): Bitmap? {

@@ -73,7 +73,13 @@ final class PhoneFilesModel: ObservableObject {
     }
     @Published private(set) var info: PhoneBrowseInfo?
     @Published private(set) var infoError: PhoneFilesError?
-    @Published private(set) var listings: [PhoneFilesSection: PhoneListing] = [:]
+    @Published private(set) var listings: [PhoneFilesSection: PhoneListing] = [:] {
+        didSet {
+            if oldValue[.media]?.entries != listings[.media]?.entries { mediaRevision &+= 1 }
+        }
+    }
+    /// Bumps whenever the Photos and Videos entries change: the grid rebuilds its day sections only then.
+    private(set) var mediaRevision = 0
     @Published private(set) var placeID: String?
     @Published private(set) var path: [String] = []
     @Published private(set) var sort: PhoneFileSort = .name
@@ -99,6 +105,12 @@ final class PhoneFilesModel: ObservableObject {
     private var generation = 0
     private var noticeClear: DispatchWorkItem?
     private var lastAnchor: String?
+    /// The viewer's preview on the wire: replaced when the viewer moves on, so arrows never queue work.
+    private var previewRequest: PhoneFilesCancellable?
+    private var previewDelay: DispatchWorkItem?
+    private var lastPreviewOpen: Date?
+    /// Callers waiting for an original that is already downloading (a second Space or Play joins it).
+    private var originalWaiters: [String: [(Result<URL, PhoneFilesError>) -> Void]] = [:]
 
     init(service: PhoneFilesService, cache: PhoneThumbnailCache = .shared, defaults: UserDefaults = .standard,
          listingCache: PhoneListingCache = .shared, receivedFolder: @escaping () -> URL = PhoneFilesPaths.receivedFolder,
@@ -121,7 +133,9 @@ final class PhoneFilesModel: ObservableObject {
     // MARK: Phones
 
     var phone: BrowsablePhone? { phones.first { $0.id == phoneID } }
-    var phoneName: String { phone?.name ?? L10n.text("phonefiles.phone", fallback: "Phone") }
+    /// The phone's name, also for a moment after it disconnected ("OnePlus 11 is not connected").
+    var phoneName: String { phone?.name ?? lastPhoneName ?? L10n.text("phonefiles.phone", fallback: "Phone") }
+    private var lastPhoneName: String?
 
     /// Opens on `preferred`, else the last phone, else the first browsable one.
     func start(preferred: String?) {
@@ -134,6 +148,7 @@ final class PhoneFilesModel: ObservableObject {
 
     func select(phone id: String?, force: Bool = false) {
         guard force || id != phoneID else { return }
+        if id != phoneID { lastPhoneName = nil }
         generation += 1
         phoneID = id
         defaults.set(id, forKey: Keys.phone)
@@ -156,6 +171,7 @@ final class PhoneFilesModel: ObservableObject {
 
     private func phonesChanged() {
         let previous = phone
+        if let name = previous?.name { lastPhoneName = name }
         phones = service.phones
         let now = phone
         if now == nil, let first = phones.first(where: \.browsable) ?? phones.first {
@@ -165,6 +181,8 @@ final class PhoneFilesModel: ObservableObject {
         } else {
             prefetch.route = now?.route ?? .unknown
         }
+        // Back after a drop: thumbnails that were on the wire are asked again.
+        if phone?.browsable == true { thumbnails.resume() }
     }
 
     // MARK: Loading
@@ -210,6 +228,7 @@ final class PhoneFilesModel: ObservableObject {
     func refresh() {
         loadInfo()
         loadSection(section, reset: true)
+        thumbnails.retryFailed()
     }
 
     func loadMore() {
@@ -359,9 +378,42 @@ final class PhoneFilesModel: ObservableObject {
 
     // MARK: Preview
 
+    /// Space and the eye button: the selected item in the viewer, or back to the grid.
+    func togglePreview() {
+        if preview != nil {
+            closePreview()
+            return
+        }
+        guard let entry = selectedEntries.first(where: { !$0.isDirectory }) else { return }
+        openPreview(entry)
+    }
+
+    /// Left and right arrows in the viewer: the item before or after, as in the grid.
+    func showAdjacent(_ step: Int) {
+        let entries = currentEntries
+        guard step != 0, let current = preview?.entry, let index = entries.firstIndex(where: { $0.id == current.id }) else { return }
+        var next = index + step
+        while entries.indices.contains(next), entries[next].isDirectory { next += step }
+        guard entries.indices.contains(next) else { return }
+        let entry = entries[next]
+        selection = [entry.id]
+        lastAnchor = entry.id
+        openPreview(entry)
+        if next >= entries.count - 10 { loadMore() }
+    }
+
     func openPreview(_ entry: PhoneFileEntry) {
         guard let phoneID else { return }
-        let key = entry.cacheKey(phoneID: phoneID)
+        previewRequest?.cancel()
+        previewRequest = nil
+        previewDelay?.cancel()
+        previewDelay = nil
+        // Stepping fast (arrows held down): show thumbnails while moving and ask the phone only for the item
+        // the viewer stops on, so a held key does not spend the phone's 60 requests in 10 seconds.
+        let now = Date()
+        let stepping = lastPreviewOpen.map { now.timeIntervalSince($0) < Self.previewSettle } ?? false
+        lastPreviewOpen = now
+        let key = thumbnails.cacheKey(entry)
         var state = PhonePreviewState(entry: entry, openedAt: Date())
         previewImage = nil
         if let large = cache.memoryImage(key, kind: .preview) {
@@ -373,9 +425,33 @@ final class PhoneFilesModel: ObservableObject {
             state.quality = .thumbnail
         }
         preview = state
-        if state.quality != .preview, entry.hasThumbnail { loadPreviewImage(entry, key: key, phoneID: phoneID) }
+        if state.quality != .preview, entry.hasThumbnail {
+            if stepping {
+                if previewImage == nil, cache.contains(key, kind: .thumbnail) {
+                    cache.load(key, maxPixel: PhoneThumbnailScheduler.maxSize) { [weak self] decoded in
+                        guard let self, let decoded, self.preview?.entry.id == entry.id, self.previewImage == nil else { return }
+                        self.previewImage = decoded
+                        self.preview?.quality = .thumbnail
+                    }
+                }
+                let work = DispatchWorkItem { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self, self.preview?.entry.id == entry.id else { return }
+                        self.previewDelay = nil
+                        self.loadPreviewImage(entry, key: key, phoneID: phoneID)
+                    }
+                }
+                previewDelay = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.previewSettle, execute: work)
+            } else {
+                loadPreviewImage(entry, key: key, phoneID: phoneID)
+            }
+        }
         if let url = savedOriginal(entry) { preview?.originalURL = url }
     }
+
+    /// Two viewer steps closer than this count as moving through, not stopping.
+    static let previewSettle: TimeInterval = 0.15
 
     private func loadPreviewImage(_ entry: PhoneFileEntry, key: String, phoneID: String) {
         let show: (PhoneDecodedImage?) -> Void = { [weak self] decoded in
@@ -406,61 +482,112 @@ final class PhoneFilesModel: ObservableObject {
 
     private func requestPreview(_ entry: PhoneFileEntry, key: String, phoneID: String, show: @escaping (PhoneDecodedImage?) -> Void) {
         guard preview?.entry.id == entry.id else { return }
-        service.preview(phoneID: phoneID, entry: entry, size: PhoneHoverPrefetcher.previewSize) { [weak self] result in
+        previewRequest?.cancel()
+        previewRequest = service.preview(phoneID: phoneID, entry: entry, size: PhoneHoverPrefetcher.previewSize, urgent: true) { [weak self] result in
             guard let self else { return }
             switch result {
             case let .success(image):
                 self.cache.store(key, kind: .preview, image: image, maxPixel: PhoneHoverPrefetcher.previewSize) { decoded in show(decoded) }
+            case .failure(.cancelled):
+                break
             case let .failure(error):
                 if self.preview?.entry.id == entry.id, self.previewImage == nil { self.preview?.error = error }
+                if error == .code(FolderCode.notFound) { self.forget(entry) }
             }
         }
     }
 
+    /// The viewer's Try again after an error.
+    func retryPreview() {
+        guard let entry = preview?.entry else { return }
+        openPreview(entry)
+    }
+
     func closePreview() {
+        previewRequest?.cancel()
+        previewRequest = nil
+        previewDelay?.cancel()
+        previewDelay = nil
         preview = nil
         previewImage = nil
     }
 
+    /// An item the phone no longer has leaves the listing (a refresh would drop it too).
+    private func forget(_ entry: PhoneFileEntry) {
+        for (section, listing) in listings where listing.entries.contains(where: { $0.id == entry.id }) {
+            var next = listing
+            next.entries.removeAll { $0.id == entry.id }
+            listings[section] = next
+            if section == self.section { thumbnails.setOrder(next.entries) }
+        }
+        selection.remove(entry.id)
+    }
+
     /// The original in the private preview folder (Quick Look, video playback), downloaded once per cache key.
     func fetchOriginal(_ entry: PhoneFileEntry, then: @escaping (URL) -> Void) {
+        loadOriginal(entry) { (result: Result<URL, PhoneFilesError>) in
+            if case let .success(url) = result { then(url) }
+        }
+    }
+
+    /// The same, with failures: a second caller while it downloads joins the running download (it used to be
+    /// dropped silently, so a second Space did nothing), and a failed or cut-off download leaves nothing behind.
+    func loadOriginal(_ entry: PhoneFileEntry, completion: @escaping (Result<URL, PhoneFilesError>) -> Void) {
         if let url = savedOriginal(entry) {
-            then(url)
+            completion(.success(url))
             return
         }
-        guard let phoneID else { return }
-        let folder = previewFolder.appendingPathComponent(entry.cacheKey(phoneID: phoneID), isDirectory: true)
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        guard let phoneID else {
+            completion(.failure(.notConnected))
+            return
+        }
         let id = "ql-" + entry.id
-        guard !activities.contains(where: { $0.id == id }) else { return }
+        if originalWaiters[id] != nil {
+            originalWaiters[id]?.append(completion)
+            return
+        }
+        originalWaiters[id] = [completion]
+        let folder = previewFolder.appendingPathComponent(thumbnails.cacheKey(entry), isDirectory: true)
+        // Part files of an attempt that was cut off: start clean.
+        try? FileManager.default.removeItem(at: folder)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let handle = service.download(phoneID: phoneID, refs: [entry.ref], into: folder, purpose: .preview, progress: { [weak self] progress in
             self?.updateActivity(id, progress)
             if self?.preview?.entry.id == entry.id { self?.preview?.originalProgress = progress }
         }, completion: { [weak self] result in
             guard let self else { return }
             self.finishActivity(id)
+            let waiters = self.originalWaiters.removeValue(forKey: id) ?? []
+            if self.preview?.entry.id == entry.id { self.preview?.originalProgress = nil }
             switch result {
             case let .success(urls):
-                guard let url = urls.first else { return }
-                if self.preview?.entry.id == entry.id {
-                    self.preview?.originalURL = url
-                    self.preview?.originalProgress = nil
+                guard let url = urls.first else {
+                    waiters.forEach { $0(.failure(.code(FolderCode.notFound))) }
+                    return
                 }
-                then(url)
+                if self.preview?.entry.id == entry.id { self.preview?.originalURL = url }
+                waiters.forEach { $0(.success(url)) }
             case let .failure(error):
-                if self.preview?.entry.id == entry.id { self.preview?.originalProgress = nil }
-                self.show(error)
+                try? FileManager.default.removeItem(at: folder)
+                if error != .cancelled { self.show(error) }
+                if error == .code(FolderCode.notFound) { self.forget(entry) }
+                waiters.forEach { $0(.failure(error)) }
             }
         })
+        // A download that could not start has already finished.
+        guard originalWaiters[id] != nil else { return }
         activities.append(PhoneFilesActivity(id: id, kind: .quickLook, title: entry.name, progress: PhoneTransferProgress(), cancellable: handle))
     }
 
-    private func savedOriginal(_ entry: PhoneFileEntry) -> URL? {
+    /// Downloads in progress for the viewer or Quick Look, by entry.
+    func isFetchingOriginal(_ entry: PhoneFileEntry) -> Bool { originalWaiters["ql-" + entry.id] != nil }
+
+    func savedOriginal(_ entry: PhoneFileEntry) -> URL? {
         if let url = saved[entry.id], FileManager.default.fileExists(atPath: url.path) { return url }
-        guard let phoneID else { return nil }
-        let folder = previewFolder.appendingPathComponent(entry.cacheKey(phoneID: phoneID), isDirectory: true)
+        guard phoneID != nil, !isFetchingOriginal(entry) else { return nil }
+        let folder = previewFolder.appendingPathComponent(thumbnails.cacheKey(entry), isDirectory: true)
         let items = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-        return items.first { !$0.lastPathComponent.hasPrefix(".") }
+        return items.first { !$0.lastPathComponent.hasPrefix(".") && !$0.lastPathComponent.hasSuffix(".bridgey-part") }
     }
 
     // MARK: Downloads and uploads
@@ -633,6 +760,7 @@ final class PhoneListingCache {
             let height: Int?
             let durationMs: Int64?
             let location: String?
+            var taken: Date? = nil
         }
 
         let entries: [Entry]
@@ -655,7 +783,8 @@ final class PhoneListingCache {
               let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return nil }
         let entries = stored.entries.map {
             PhoneFileEntry(ref: $0.ref, name: $0.name, isDirectory: $0.isDirectory, size: $0.size, modified: $0.modified, mimeType: $0.mimeType,
-                           hasThumbnail: $0.hasThumbnail, width: $0.width, height: $0.height, durationMs: $0.durationMs, location: $0.location)
+                           hasThumbnail: $0.hasThumbnail, width: $0.width, height: $0.height, durationMs: $0.durationMs, location: $0.location,
+                           taken: $0.taken)
         }
         memory[key] = (entries, stored.writable)
         return (entries, stored.writable)
@@ -666,7 +795,8 @@ final class PhoneListingCache {
         guard let directory else { return }
         let stored = Stored(entries: entries.map {
             Stored.Entry(ref: $0.ref, name: $0.name, isDirectory: $0.isDirectory, size: $0.size, modified: $0.modified, mimeType: $0.mimeType,
-                         hasThumbnail: $0.hasThumbnail, width: $0.width, height: $0.height, durationMs: $0.durationMs, location: $0.location)
+                         hasThumbnail: $0.hasThumbnail, width: $0.width, height: $0.height, durationMs: $0.durationMs, location: $0.location,
+                         taken: $0.taken)
         }, writable: writable)
         guard let data = try? JSONEncoder().encode(stored) else { return }
         let target = directory.appendingPathComponent(key)

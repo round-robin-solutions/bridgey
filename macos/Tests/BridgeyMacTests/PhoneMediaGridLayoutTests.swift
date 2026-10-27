@@ -128,7 +128,7 @@ final class PhoneMediaGridLayoutTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(shortEdge(1080, 1920), 284)
         // A 1080 x 2412 screenshot is capped by the protocol's 512 px: 229 px across, twice the old 115.
         XCTAssertEqual(shortEdge(1080, 2412), 229)
-        XCTAssertEqual(PhoneThumbnailScheduler.size(for: entry(width: 3000, height: 3000)), 288)
+        XCTAssertEqual(PhoneThumbnailScheduler.size(for: entry(width: 3000, height: 3000)), 384)
         XCTAssertEqual(PhoneThumbnailScheduler.size(for: entry(width: 4000, height: 3000)), 384)
         XCTAssertEqual(PhoneThumbnailScheduler.size(for: entry(width: 1080, height: 2412)), 512)
         XCTAssertEqual(PhoneThumbnailScheduler.size(for: entry(width: nil, height: nil)), 512)

@@ -772,6 +772,7 @@
 "phonefiles.error.other" = "На %@ что-то пошло не так.";
 "phonefiles.error.place" = "Bridgey на %@ потерял доступ к этой папке. Выдайте его снова на телефоне.";
 "phonefiles.error.space" = "Недостаточно свободного места.";
+"phonefiles.error.unsupported" = "Для этого файла нет предпросмотра. Возможно, он повреждён; «Загрузить» всё равно получит оригинал.";
 "phonefiles.error.timeout" = "%@ не ответил. Повторите попытку.";
 "phonefiles.error.title" = "Не удалось загрузить";
 "phonefiles.files.empty" = "Нет недавних документов";
@@ -798,6 +799,12 @@
 "phonefiles.play" = "Воспроизвести";
 "phonefiles.preview" = "Просмотр";
 "phonefiles.preview.none" = "Нет предпросмотра";
+"phonefiles.preview.help" = "Просмотр (пробел)";
+"phonefiles.previous" = "Предыдущее";
+"phonefiles.next" = "Следующее";
+"phonefiles.retry" = "Повторить";
+"phonefiles.thumb.none" = "Нет предпросмотра";
+"phonefiles.thumb.failed" = "Не загрузилось";
 "phonefiles.progress.bytes" = "%1$@ из %2$@";
 "phonefiles.progress.files" = "%1$d из %2$d файлов, %3$@ из %4$@";
 "phonefiles.progress.finishing" = "Завершение";
@@ -805,6 +812,7 @@
 "phonefiles.progress.waiting" = "Ожидание телефона";
 "phonefiles.quickLook" = "Быстрый просмотр (пробел)";
 "phonefiles.quickLook.short" = "Быстрый просмотр";
+"phonefiles.quickLook.help" = "Открыть оригинал в быстром просмотре (Command Y)";
 "phonefiles.readOnly" = "Включите «Разрешить другим устройствам изменять файлы здесь» на %@, чтобы добавлять файлы.";
 "phonefiles.recent.empty" = "Ничего недавнего";
 "phonefiles.refresh" = "Обновить";

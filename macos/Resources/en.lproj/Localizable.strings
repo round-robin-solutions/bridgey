@@ -772,6 +772,7 @@
 "phonefiles.error.other" = "Something went wrong on %@.";
 "phonefiles.error.place" = "Bridgey on %@ lost access to this folder. Grant it again on the phone.";
 "phonefiles.error.space" = "There is not enough free space.";
+"phonefiles.error.unsupported" = "This file can't be previewed. It may be damaged; Download still gets the original.";
 "phonefiles.error.timeout" = "%@ did not answer. Try again.";
 "phonefiles.error.title" = "Couldn't load this";
 "phonefiles.files.empty" = "No recent documents";
@@ -798,6 +799,12 @@
 "phonefiles.play" = "Play";
 "phonefiles.preview" = "Preview";
 "phonefiles.preview.none" = "No preview";
+"phonefiles.preview.help" = "Preview (Space)";
+"phonefiles.previous" = "Previous";
+"phonefiles.next" = "Next";
+"phonefiles.retry" = "Try again";
+"phonefiles.thumb.none" = "No preview";
+"phonefiles.thumb.failed" = "Couldn't load";
 "phonefiles.progress.bytes" = "%1$@ of %2$@";
 "phonefiles.progress.files" = "%1$d of %2$d files, %3$@ of %4$@";
 "phonefiles.progress.finishing" = "Finishing";
@@ -805,6 +812,7 @@
 "phonefiles.progress.waiting" = "Waiting for the phone";
 "phonefiles.quickLook" = "Quick Look (Space)";
 "phonefiles.quickLook.short" = "Quick Look";
+"phonefiles.quickLook.help" = "Open the original in Quick Look (Command Y)";
 "phonefiles.readOnly" = "Turn on Allow other devices to change files here on %@ to add files.";
 "phonefiles.recent.empty" = "Nothing recent";
 "phonefiles.refresh" = "Refresh";

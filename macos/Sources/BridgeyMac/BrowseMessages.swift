@@ -207,6 +207,8 @@ struct MediaItemPayload: Codable, Equatable {
     let durationMs: Int64?
     let thumb: Bool?
     let location: String?
+    /// Unix ms the phone sorts by (date taken, else added); optional, older phones leave it out.
+    var taken: Int64? = nil
 }
 
 struct MediaPagePayload: Codable, Equatable {
@@ -230,6 +232,7 @@ struct MediaPagePayload: Codable, Equatable {
             entry.height = item.height
             entry.durationMs = item.durationMs
             entry.location = item.location.map { String($0.prefix(128)) }
+            entry.taken = item.taken.flatMap { $0 > 0 ? BrowseTime.date($0) : nil }
             return entry
         }
         return PhoneMediaPage(items: entries, nextCursor: nextCursor, access: access.flatMap(PhoneMediaAccess.init(rawValue:)) ?? .none,
