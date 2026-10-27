@@ -774,6 +774,7 @@ final class PairingCoordinator: ObservableObject {
     /// reconnect starts.
     private func deviceDisconnected(_ id: String, reason: String) {
         cancelTransfers(for: id)
+        focusSync.forget(id)
         remoteInput.disconnected(deviceID: id)
         macActions.disconnected(deviceID: id)
         camera.disconnected(id)
@@ -3373,7 +3374,9 @@ final class PairingCoordinator: ObservableObject {
               let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
               let nonce = message.nonce, let ciphertext = message.ciphertext,
               let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
-              let active = decodeFocusState(data) else { return }
+              let active = decodeFocusState(data),
+              // Only a phone that advertised focus_sync_draft1 in its features.update is followed.
+              registry.state(for: current.remoteDeviceID)?.remoteFocusSync == true else { return }
         focusSync.received(active: active, from: current.remoteDeviceID)
     }
 
