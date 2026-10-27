@@ -59,13 +59,14 @@ class DefaultsGenerationTest {
         // 0.10 beta 1: a device ID, Files switched off by hand, everything else never touched (on by default).
         context.getSharedPreferences("bridgey", Context.MODE_PRIVATE).edit().putString("device_id", "old-device").commit()
         context.getSharedPreferences("bridgey.settings", Context.MODE_PRIVATE).edit().putBoolean("global.files", false).putBoolean("global.remote_input_draft1", true).commit()
-        val before = BridgeyFeature.entries.associateWith { it != BridgeyFeature.FILES }
+        // Share screen with Macs is new and off by default on every install.
+        val before = BridgeyFeature.entries.associateWith { it != BridgeyFeature.FILES && it != BridgeyFeature.SCREEN }
         val settings = launch()
         assertEquals(before, settings.state.value.globalFeatures)
         assertEquals(DefaultsGeneration.FEATURES_ON, context.getSharedPreferences(DefaultsGeneration.PREFERENCES, Context.MODE_PRIVATE).getInt(DefaultsGeneration.KEY, 0))
         // Reset > Settings clears the switches, not the generation: back to this install's own defaults.
         context.getSharedPreferences("bridgey.settings", Context.MODE_PRIVATE).edit().clear().commit()
         val reset = launch()
-        assertTrue(BridgeyFeature.entries.filter { it != BridgeyFeature.REMOTE_INPUT }.all { reset.state.value.globalFeatures.getValue(it) })
+        assertTrue(BridgeyFeature.entries.filter { it != BridgeyFeature.REMOTE_INPUT && it != BridgeyFeature.SCREEN }.all { reset.state.value.globalFeatures.getValue(it) })
     }
 }

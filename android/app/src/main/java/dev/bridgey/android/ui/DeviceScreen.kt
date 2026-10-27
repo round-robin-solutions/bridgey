@@ -100,6 +100,8 @@ data class DeviceState(
     val runningActions: Set<String> = emptySet(),
     /** The Connection tab. */
     val health: dev.bridgey.android.health.DeviceHealth? = null,
+    /** Screen sharing with this Mac, while it is asked for, starting or running; null otherwise. */
+    val screen: dev.bridgey.android.screen.ScreenShareState? = null,
 )
 
 class DeviceActions(
@@ -117,6 +119,9 @@ class DeviceActions(
     val sendText: (String) -> Unit = {},
     /** Opens the touchpad and presentation remote for this Mac. */
     val remoteControl: () -> Unit = {},
+    /** Opens Android's consent dialog to share this phone's screen with this Mac. */
+    val shareScreen: () -> Unit = {},
+    val stopScreen: () -> Unit = {},
     /** Runs one Mac action; the value only for volume_set. */
     val runMacAction: (String, Int?) -> Unit = { _, _ -> },
     val live: LiveActions = LiveActions(),
@@ -156,6 +161,10 @@ fun DeviceScreen(
             // Only while both devices allow it: this Mac granted this phone, and it is on here.
             if (BridgeyFeature.REMOTE_INPUT in state.available) {
                 RemoteControlEntry(actions.remoteControl, Modifier.padding(top = 8.dp))
+            }
+            // Only while both devices allow it: Share screen with Macs here, Show phone screens on the Mac.
+            if (BridgeyFeature.SCREEN in state.available || state.screen?.active == true) {
+                ScreenShareEntry(state, actions, Modifier.padding(top = 8.dp))
             }
             // Only while this Mac allows the phone and sent its list in this session.
             state.macActions?.takeIf { BridgeyFeature.MAC_ACTIONS in state.available }?.let { catalog ->
@@ -328,6 +337,50 @@ private fun RemoteControlEntry(onClick: () -> Unit, modifier: Modifier = Modifie
     }
 }
 
+/** Share screen, or the running share with its Stop: Android asks for consent each time. */
+@Composable
+private fun ScreenShareEntry(state: DeviceState, actions: DeviceActions, modifier: Modifier = Modifier) {
+    val screen = state.screen?.takeIf { it.active }
+    val colors = BridgeyTheme.colors
+    Box(modifier.padding(horizontal = 16.dp)) {
+        if (screen == null) {
+            ListRow(
+                shape = RoundedCornerShape(24.dp),
+                title = stringResource(R.string.screen_entry_title),
+                detail = stringResource(R.string.screen_entry_detail, state.ring.name),
+                icon = BridgeyIcons.ScreenShare,
+                tint = Tint.PURPLE,
+                compact = true,
+                onClick = actions.shareScreen,
+                role = Role.Button,
+            ) { Icon(BridgeyIcons.ChevronRight, null, tint = colors.onSurfaceVariant) }
+        } else {
+            val stats = screen.stats
+            val detail = when {
+                screen.phase != dev.bridgey.android.screen.ScreenShareState.Phase.SHARING -> stringResource(R.string.screen_entry_starting, state.ring.name)
+                stats != null -> stringResource(R.string.screen_entry_sharing, state.ring.name) + "\n" +
+                    stringResource(R.string.screen_entry_stats, stats.latencyMs.toInt(), screenBitrateText(stats.sentBitrate), stats.fps)
+                else -> stringResource(R.string.screen_entry_sharing, state.ring.name)
+            }
+            ListRow(
+                shape = RoundedCornerShape(24.dp),
+                title = stringResource(R.string.screen_entry_stop),
+                detail = detail,
+                icon = BridgeyIcons.StopCircle,
+                tint = Tint.PURPLE,
+                compact = true,
+                onClick = actions.stopScreen,
+                role = Role.Button,
+            ) { Icon(BridgeyIcons.Close, null, tint = colors.onSurfaceVariant) }
+        }
+    }
+}
+
+/** 2.1 Mb/s, 850 kb/s. */
+internal fun screenBitrateText(bitsPerSecond: Long): String =
+    if (bitsPerSecond >= 1_000_000) String.format(java.util.Locale.US, "%.1f Mb/s", bitsPerSecond / 1_000_000.0)
+    else "${bitsPerSecond / 1000} kb/s"
+
 @Composable
 private fun DeviceTabs(tab: DeviceTab, onTab: (DeviceTab) -> Unit, modifier: Modifier = Modifier) {
     val colors = BridgeyTheme.colors
@@ -448,6 +501,7 @@ fun permissionVisual(feature: BridgeyFeature): Pair<ImageVector, Tint> = when (f
     BridgeyFeature.REMOTE_INPUT -> BridgeyIcons.Mouse to Tint.PURPLE
     BridgeyFeature.MAC_ACTIONS -> BridgeyIcons.Lock to Tint.PURPLE
     BridgeyFeature.CAMERA -> BridgeyIcons.PhotoCamera to Tint.GREEN
+    BridgeyFeature.SCREEN -> BridgeyIcons.ScreenShare to Tint.PURPLE
 }
 
 @Composable
@@ -464,6 +518,7 @@ fun permissionTitle(feature: BridgeyFeature): String = stringResource(
         BridgeyFeature.REMOTE_INPUT -> R.string.feature_remote_input
         BridgeyFeature.MAC_ACTIONS -> R.string.feature_mac_actions
         BridgeyFeature.CAMERA -> R.string.feature_camera
+        BridgeyFeature.SCREEN -> R.string.feature_screen
     },
 )
 
@@ -484,6 +539,7 @@ private fun permissionDetail(feature: BridgeyFeature, state: DeviceState): Strin
     BridgeyFeature.REMOTE_INPUT -> stringResource(R.string.feature_remote_input_detail, state.ring.name)
     BridgeyFeature.MAC_ACTIONS -> stringResource(R.string.feature_mac_actions_detail, state.ring.name)
     BridgeyFeature.CAMERA -> stringResource(R.string.feature_camera_detail, state.ring.name)
+    BridgeyFeature.SCREEN -> stringResource(R.string.feature_screen_detail, state.ring.name)
 }
 
 /** The device page's send bar: attach a file, type a message or leave it empty to send the clipboard. */

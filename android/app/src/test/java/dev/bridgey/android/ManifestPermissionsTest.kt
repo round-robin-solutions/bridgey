@@ -22,6 +22,7 @@ class ManifestPermissionsTest {
                 "android.permission.POST_NOTIFICATIONS",
                 "android.permission.FOREGROUND_SERVICE",
                 "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",
+                "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION",
                 "android.permission.WAKE_LOCK",
                 "android.permission.CALL_PHONE",
                 "android.permission.READ_PHONE_STATE",

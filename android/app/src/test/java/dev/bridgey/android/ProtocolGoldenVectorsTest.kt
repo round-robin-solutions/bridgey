@@ -155,6 +155,109 @@ class ProtocolGoldenVectorsTest {
         assertEquals(dev.bridgey.android.camera.CameraStatus.entries.size, checked)
     }
 
+    /** Screen sharing: the phone reads the Mac's request. */
+    @Test fun screenRequest() = each("screenRequest") { vector ->
+        val result: Any = dev.bridgey.android.screen.decodeScreenRequest(plaintext(vector))?.let { mapOf("requestId" to it) } ?: "reject"
+        result == normalize(vector.get("expect"))
+    }
+
+    /** Screen sharing: what the phone sends for each status is exactly what the Mac reads. */
+    @Test fun screenStatusAsThePhoneSendsIt() {
+        var checked = 0
+        each("screenStatus") { vector ->
+            val wire = vector.optString("android").takeIf { it.isNotEmpty() } ?: return@each true
+            checked++
+            val plaintext = vector.getJSONObject("plaintext")
+            val status = dev.bridgey.android.screen.ScreenStatus.entries.first { it.wire == wire }
+            vector.get("expect") != "reject" &&
+                normalize(dev.bridgey.android.screen.screenStatusPayload(plaintext.getString("requestId"), status)) == normalize(plaintext)
+        }
+        assertEquals(dev.bridgey.android.screen.ScreenStatus.entries.size, checked)
+    }
+
+    /** Screen sharing: the Mac's stream messages as the phone reads them (decoder android or both). */
+    @Test fun screenStreamAsThePhoneReadsIt() {
+        var checked = 0
+        each("screenStream") { vector ->
+            if (vector.getString("decoder") == "mac") return@each true
+            checked++
+            val result: Any = when (val message = dev.bridgey.android.screen.decodeScreenMacMessage(vector.getString("kind"), plaintext(vector))) {
+                null -> "reject"
+                is dev.bridgey.android.screen.ScreenMacMessage.Started -> mapOf("streamId" to message.streamId, "sequence" to message.sequence)
+                is dev.bridgey.android.screen.ScreenMacMessage.Ack -> mapOf(
+                    "streamId" to message.streamId, "sequence" to message.sequence, "frame" to message.frame,
+                    "decodeMs" to message.decodeMs, "keyframe" to message.keyframe,
+                )
+                is dev.bridgey.android.screen.ScreenMacMessage.Stop -> mapOf("streamId" to message.streamId, "sequence" to message.sequence, "reason" to message.reason.wire)
+            }
+            result == normalize(vector.get("expect"))
+        }
+        assertTrue(checked >= 20)
+    }
+
+    /** Screen sharing: screen.start, screen.stats and the phone's screen.stop exactly as the Mac reads them. */
+    @Test fun screenStreamAsThePhoneSendsIt() {
+        var checked = 0
+        each("screenStream") { vector ->
+            if (!vector.optBoolean("android")) return@each true
+            checked++
+            val plaintext = vector.getJSONObject("plaintext")
+            val streamId = plaintext.getString("streamId")
+            val sequence = plaintext.getLong("sequence")
+            val encoded = when (vector.getString("kind")) {
+                "screen.start" -> dev.bridgey.android.screen.screenStartPayload(
+                    streamId, sequence,
+                    dev.bridgey.android.screen.ScreenStartInfo(
+                        plaintext.getInt("width"), plaintext.getInt("height"), plaintext.getInt("fps"), plaintext.getLong("bitrate"),
+                        plaintext.optString("requestId").takeIf { it.isNotEmpty() },
+                    ),
+                )
+                "screen.stats" -> dev.bridgey.android.screen.screenStatsPayload(
+                    streamId, sequence,
+                    dev.bridgey.android.screen.ScreenStats(
+                        plaintext.getLong("latencyMs"), plaintext.getLong("rttMs"), plaintext.getLong("bitrate"),
+                        plaintext.getLong("sentBitrate"), plaintext.getInt("fps"), plaintext.getInt("dropped"),
+                    ),
+                )
+                "screen.stop" -> dev.bridgey.android.screen.screenStopPayload(
+                    streamId, sequence, dev.bridgey.android.screen.ScreenStopReason.entries.first { it.wire == plaintext.getString("reason") },
+                )
+                else -> return@each false
+            }
+            vector.get("expect") != "reject" && normalize(encoded) == normalize(plaintext)
+        }
+        assertTrue(checked >= 9)
+    }
+
+    /** Screen sharing: the frame header rules (the Mac's reader), and the phone's writer byte for byte. */
+    @Test fun screenFrame() {
+        var written = 0
+        each("screenFrame") { vector ->
+            var bytes = hex(vector.getString("plaintextHex"))
+            if (vector.has("padTo")) bytes = bytes.copyOf(vector.getInt("padTo"))
+            val decoded = dev.bridgey.android.screen.ScreenFrameCodec.decode(bytes)
+            val expect = vector.get("expect")
+            if (expect == "reject") return@each decoded == null
+            val (header, payload) = decoded ?: return@each false
+            // captureMicros may exceed 2^53 (up to 2^63-1): read it as a Long, not through normalize.
+            val expected = (normalize(expect) as Map<*, *>) + ("captureMicros" to (expect as JSONObject).getLong("captureMicros"))
+            val actual = mutableMapOf<String, Any>(
+                "streamId" to header.streamId, "sequence" to header.sequence, "frame" to header.frame, "part" to header.part.toLong(),
+                "key" to header.key, "parameterSets" to header.parameterSets, "last" to header.last, "captureMicros" to header.captureMicros,
+            )
+            if (expected.containsKey("payloadLength")) actual["payloadLength"] = payload.size.toLong() else actual["payloadHex"] = payload.toHex()
+            if (actual != expected) return@each false
+            if (!vector.optBoolean("android")) return@each true
+            written++
+            dev.bridgey.android.screen.ScreenFrameCodec.encode(header, payload).contentEquals(bytes)
+        }
+        assertTrue(written >= 4)
+    }
+
+    private fun hex(text: String): ByteArray = ByteArray(text.length / 2) { text.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+
+    private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+
     /** The phone is the controller: what it would send must be exactly what the Mac host accepts. */
     @Test fun remoteInputAsTheControllerSendsIt() {
         var checked = 0

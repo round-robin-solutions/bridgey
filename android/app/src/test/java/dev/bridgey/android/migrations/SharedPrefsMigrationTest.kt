@@ -114,7 +114,8 @@ class SharedPrefsMigrationTest(private val release: Int) {
         val state = settings.state.value
         assertEquals("Test Phone", state.deviceName)
 
-        val globals = BridgeyFeature.entries.associateWith { it != BridgeyFeature.CLIPBOARD && it != BridgeyFeature.MEDIA }
+        // Share screen with Macs is off by default even on installs from before off-until-chosen.
+        val globals = BridgeyFeature.entries.associateWith { it != BridgeyFeature.CLIPBOARD && it != BridgeyFeature.MEDIA && it != BridgeyFeature.SCREEN }
             .plus(BridgeyFeature.REMOTE_INPUT to (release >= 9))
             .plus(BridgeyFeature.PING to !pingOff)
         assertEquals(globals, state.globalFeatures)

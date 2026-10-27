@@ -62,6 +62,10 @@ class BridgeyApplication : Application() {
     lateinit var remotePreferences: RemoteInputPreferences
         private set
 
+    /** Share screen with Macs (draft screen_draft1): consent, the stream and its state. */
+    lateinit var screenShare: dev.bridgey.android.screen.ScreenShareHub
+        private set
+
     /** Codes from messages: whether Android shows Bridgey the text of code SMS (companion link). */
     lateinit var codeAccess: dev.bridgey.android.codes.CodeAccessMonitor
         private set
@@ -164,6 +168,8 @@ class BridgeyApplication : Application() {
         startRemoteInput()
         startCodeAccess()
         startCamera()
+        screenShare = dev.bridgey.android.screen.ScreenShareHub(this, pairing) { startedActivityCount > 0 }
+        pairing.screenListener = screenShare
         registerForegroundClipboardWatcher()
         if (preferences.getBoolean(PREFERENCE_ENABLED, true)) enableBridgey()
     }

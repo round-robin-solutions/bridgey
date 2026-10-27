@@ -64,6 +64,8 @@ enum class SetupSetting(val default: String) {
     FEATURE_MAC_ACTIONS("true"),
     FEATURE_MEDIA("true"),
     FEATURE_CAMERA("true"),
+    /** Share screen with Macs: off by default on every install, even those from before 0.10. */
+    FEATURE_SCREEN("false"),
     FEATURE_LINKS("true"),
     FEATURE_FIND_DEVICE("true"),
     FEATURE_PING("true"),
@@ -153,6 +155,7 @@ object SetupFeatures {
         SetupFeature("media", R.string.feature_media, R.string.settings_media_detail, listOf(SetupSetting.FEATURE_MEDIA), "MEDIA"),
         SetupFeature("mac_actions", R.string.feature_mac_actions, R.string.settings_mac_actions_detail, listOf(SetupSetting.FEATURE_MAC_ACTIONS), "MEDIA"),
         SetupFeature("camera", R.string.feature_camera, R.string.settings_camera_detail, listOf(SetupSetting.FEATURE_CAMERA), "MEDIA"),
+        SetupFeature("screen", R.string.feature_screen, R.string.settings_screen_detail, listOf(SetupSetting.FEATURE_SCREEN), "MEDIA"),
         SetupFeature("links", R.string.feature_links, R.string.feature_links_detail, listOf(SetupSetting.FEATURE_LINKS), "MEDIA"),
         SetupFeature("find", R.string.feature_find, R.string.settings_find_detail, listOf(SetupSetting.FEATURE_FIND_DEVICE), "MEDIA"),
         SetupFeature("ping", R.string.feature_ping, R.string.settings_ping_detail, listOf(SetupSetting.FEATURE_PING), "MEDIA"),
@@ -283,6 +286,15 @@ object SetupQuestions {
             ),
             settingsPage = "REMOTE_CONTROL", covers = setOf(SetupSetting.REMOTE_VOLUME_KEYS),
         ),
+        SetupQuestion(
+            id = "screen", section = SetupSection.CAMERA_FOCUS, feature = "screen",
+            title = R.string.setup_q_screen_title, context = R.string.setup_q_screen_context, summary = R.string.setup_q_screen_summary,
+            answers = listOf(
+                SetupAnswer(Answers.YES, R.string.setup_a_screen_yes, R.string.setup_a_screen_yes_detail, listOf(on(SetupSetting.FEATURE_SCREEN))),
+                SetupAnswer(Answers.NO, R.string.setup_a_no, changes = listOf(off(SetupSetting.FEATURE_SCREEN))),
+            ),
+            settingsPage = "MEDIA", covers = setOf(SetupSetting.FEATURE_SCREEN),
+        ),
     )
 
     /**
@@ -302,8 +314,11 @@ object SetupQuestions {
     val permissions: List<SetupPermission> = listOf(
         SetupPermission(PermissionKind.NOTIFICATION_ACCESS, listOf("notifications"), { it.on(SetupSetting.FEATURE_NOTIFICATIONS) },
             listOf(off(SetupSetting.FEATURE_NOTIFICATIONS)), runtime = false),
-        SetupPermission(PermissionKind.POST_NOTIFICATIONS, listOf("files", "calls", "find"),
-            { e -> e.facts.sdkInt >= 33 && listOf(SetupSetting.FEATURE_FILES, SetupSetting.FEATURE_CALLS, SetupSetting.FEATURE_FIND_DEVICE).any(e::on) }, runtime = true),
+        // Screen sharing needs it for the ongoing "being shared" notification with Stop; Android shows its own
+        // consent dialog for every share, which is not a permission and is never asked here.
+        SetupPermission(PermissionKind.POST_NOTIFICATIONS, listOf("files", "calls", "find", "screen"),
+            { e -> e.facts.sdkInt >= 33 && listOf(SetupSetting.FEATURE_FILES, SetupSetting.FEATURE_CALLS, SetupSetting.FEATURE_FIND_DEVICE, SetupSetting.FEATURE_SCREEN).any(e::on) },
+            listOf(off(SetupSetting.FEATURE_SCREEN)), runtime = true),
         SetupPermission(PermissionKind.PHONE_CALLS, listOf("calls"), { it.on(SetupSetting.FEATURE_CALLS) && it.on(SetupSetting.DIRECT_CALLS) },
             listOf(off(SetupSetting.DIRECT_CALLS)), runtime = true),
         SetupPermission(PermissionKind.PHOTOS, listOf("files"), { it.on(SetupSetting.FEATURE_FILES) && it.on(SetupSetting.ALLOW_BROWSE) }, runtime = true),
@@ -385,7 +400,7 @@ object SetupBundles {
         SetupBundle("notifications", R.string.settings_notifications, R.string.setup_bundle_notifications, mapOf("notifications" to Answers.PICK)),
         SetupBundle("calls", R.string.feature_calls, R.string.setup_bundle_calls, mapOf("calls" to Answers.PICK)),
         SetupBundle("files", R.string.feature_files, R.string.setup_bundle_files, mapOf("files" to Answers.PICK)),
-        SetupBundle("remote", R.string.settings_remote_control, R.string.setup_bundle_remote, mapOf("remote" to Answers.PICK, "mac_actions" to Answers.PICK)),
+        SetupBundle("remote", R.string.settings_remote_control, R.string.setup_bundle_remote_screen, mapOf("remote" to Answers.PICK, "mac_actions" to Answers.PICK, "screen" to Answers.PICK)),
     )
 
     /**

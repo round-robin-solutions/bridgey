@@ -50,8 +50,8 @@
     <string name="perm_notification_access_why">Shows your phone\'s notifications and calls on your Mac.</string>
     <string name="perm_notification_access_without">No phone notifications, call alerts or codes on the Mac.</string>
     <string name="perm_post_notifications_name">Notifications</string>
-    <string name="perm_post_notifications_why">Lets Bridgey show transfers, find-my-phone and call prompts.</string>
-    <string name="perm_post_notifications_without">You will not see progress, requests from the Mac or the Stop button for Find Device.</string>
+    <string name="perm_post_notifications_why">Lets Bridgey show transfers, find-my-phone, call prompts and screen sharing.</string>
+    <string name="perm_post_notifications_without">You will not see progress, requests from the Mac, or the Stop button for Find Device and screen sharing.</string>
     <string name="perm_phone_calls_name">Phone and calls</string>
     <string name="perm_phone_calls_why">Lets the Mac answer, decline and place calls through this phone.</string>
     <string name="perm_phone_calls_without">Calls from the Mac open the dialer for you to confirm; Answer and Decline do not work.</string>

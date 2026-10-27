@@ -715,7 +715,7 @@ private fun sectionVisual(section: SettingsSection, state: SettingsState): Pair<
 
 /** The features on the Media and quick actions page, in its order. */
 private val MediaSectionFeatures = listOf(
-    BridgeyFeature.MEDIA, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA, BridgeyFeature.LINKS, BridgeyFeature.PING,
+    BridgeyFeature.MEDIA, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA, BridgeyFeature.SCREEN, BridgeyFeature.LINKS, BridgeyFeature.PING,
     BridgeyFeature.FIND_DEVICE, BridgeyFeature.BATTERY,
 )
 
@@ -958,6 +958,7 @@ private fun globalFeatureDetail(feature: BridgeyFeature): String = stringResourc
         BridgeyFeature.REMOTE_INPUT -> R.string.settings_remote_detail
         BridgeyFeature.MAC_ACTIONS -> R.string.settings_mac_actions_detail
         BridgeyFeature.CAMERA -> R.string.settings_camera_detail
+        BridgeyFeature.SCREEN -> R.string.settings_screen_detail
     },
 )
 
