@@ -255,6 +255,9 @@ final class PairingCoordinator: ObservableObject {
     let focusSync = FocusSync()
     /// "Take Photo with OnePlus 11" (draft camera_draft1).
     let camera = PhoneCamera()
+    /// Connect anywhere (draft connect_draft1): phones away from home, through the core's QUIC tunnels.
+    let connect = ConnectAnywhere()
+    private var connectCancellable: AnyCancellable?
     /// Incoming transfers that are camera photos, by transfer ID, with their request ID.
     private var cameraTransfers: [String: String] = [:]
     /// Connection health per paired phone (no addresses, names or content).
@@ -532,6 +535,7 @@ final class PairingCoordinator: ObservableObject {
                     self.refreshAutoClipboard()
                 }
             }
+        configureConnect()
         startReconnecting()
     }
 
@@ -742,7 +746,9 @@ final class PairingCoordinator: ObservableObject {
         batteryAlerts.forget(deviceID)
         focusSync.forget(deviceID)
         reconnect.forget(deviceID)
+        connect.store.forget(deviceID)
         disconnect(deviceID: deviceID)
+        connectSync()
         BridgeyLog.pairing.notice("pairing revoked peer=\(shortDeviceID(deviceID), privacy: .public)")
     }
 
@@ -795,6 +801,7 @@ final class PairingCoordinator: ObservableObject {
             lastSentBattery = nil
         }
         publish()
+        connectSync()
         BridgeyLog.transport.notice("disconnected peer=\(shortDeviceID(id), privacy: .public) reason=\(reason, privacy: .public)")
         diagnostics.record(category: "transport", event: "disconnected", outcome: reason, device: id)
         guard trustedDeviceIDs.contains(id) else { return }
@@ -2089,6 +2096,12 @@ final class PairingCoordinator: ObservableObject {
                 current.id = message.sessionId
                 current.peerName = message.deviceName ?? "Android device"
                 guard let remoteDeviceID = message.deviceId else { throw PairingError.invalidMessage }
+                // Tunnels carry paired phones only: pairing stays on the local network, with no prompt here.
+                if current.tunnel != nil, trustedIdentityKey(remoteDeviceID) == nil {
+                    current.dropReason = "untrusted_tunnel"
+                    current.close()
+                    return
+                }
                 current.remoteDeviceID = remoteDeviceID
                 current.remoteEphemeralKey = publicKey
                 let key = P256.KeyAgreement.PrivateKey()
@@ -2108,8 +2121,13 @@ final class PairingCoordinator: ObservableObject {
             case "pairing.answer":
                 guard current.pairingKey == nil else { return }
                 // A reconnect reached some other device at the old address: never prompt to pair it.
-                if let expected = current.dialDeviceID, expected.lowercased() != message.deviceId?.lowercased() {
+                if let expected = current.dialDeviceID ?? current.tunnel?.peer, expected.lowercased() != message.deviceId?.lowercased() {
                     current.dropReason = "wrong_device"
+                    current.close()
+                    return
+                }
+                if current.tunnel != nil, trustedIdentityKey(message.deviceId ?? "") == nil {
+                    current.dropReason = "untrusted_tunnel"
                     current.close()
                     return
                 }
@@ -2186,6 +2204,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteSmsCodes = draftKeys[smsCodesFeatureKey] == true
                     link.remoteFocusSync = draftKeys[focusSyncFeatureKey] == true
                     link.remoteCamera = draftKeys[cameraFeatureKey] == true
+                    link.remoteConnect = draftKeys[connectFeatureKey] == true
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
                 }
@@ -2217,6 +2236,7 @@ final class PairingCoordinator: ObservableObject {
                 if draftKeys[focusSyncFeatureKey] == true, let active = focusSync.stateForNewPhone {
                     _ = sendQuickPayload(kind: "focus.state", payload: focusStatePayload(active), to: current)
                 }
+                if draftKeys[connectFeatureKey] == true { sendConnectAddresses(to: current) }
             case "ping.request":
                 try receivePing(message, in: current)
             case "ping.ack":
@@ -2655,6 +2675,8 @@ final class PairingCoordinator: ObservableObject {
                 receiveFocusState(message, in: current)
             case "camera.status":
                 receiveCameraStatus(message, in: current)
+            case "connect.setup", "connect.setup.ack", "connect.addresses":
+                receiveConnectMessage(message, in: current)
             default:
                 break
             }
@@ -2707,7 +2729,9 @@ final class PairingCoordinator: ObservableObject {
         diagnostics.record(category: "transport", event: "connected", outcome: source.rawValue, device: id, detail: "after_\(attempts)_attempts")
         var record = healthRecords[id] ?? DeviceHealthRecord()
         record.connectedSince = Date()
-        record.route = connectionRoute(forHost: current.remoteHost)
+        record.route = current.tunnel.map { connectionRoute(forTunnel: $0.route) } ?? connectionRoute(forHost: current.remoteHost)
+        record.tunnelRoute = current.tunnel?.route
+        record.tunnelRelay = current.tunnel?.relay
         record.outbound = current.initiatedLocally
         record.roundTrips = HeartbeatRoundTrips()
         healthRecords[id] = record
@@ -2724,6 +2748,7 @@ final class PairingCoordinator: ObservableObject {
         refreshAutoClipboard()
         BridgeyLog.pairing.notice("verified peer=\(shortDeviceID(id), privacy: .public) name=\(current.peerName, privacy: .private)")
         finishRediscoverIfEveryoneAnswered()
+        connectSync()
     }
 
     /// A dial is over (it connected, lost the duplicate rule or failed): it no longer blocks the
@@ -2760,6 +2785,8 @@ final class PairingCoordinator: ObservableObject {
         features[focusSyncFeatureKey] = focusSync.advertised
         // Draft, edition only: this Mac can ask for photos; they arrive as files.
         features[cameraFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
+        // Draft, edition only: Connect anywhere, while its switch is on and the core runs.
+        features[connectFeatureKey] = connectAdvertised
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
               let encrypted = try? encrypt(payload, key: key) else { return }
         current.send(PairingMessage(
@@ -2876,6 +2903,11 @@ final class PairingCoordinator: ObservableObject {
         let fields = current.initiatedLocally
             ? [deviceID, current.remoteDeviceID, current.localEphemeralKey, current.remoteEphemeralKey]
             : [current.remoteDeviceID, deviceID, current.remoteEphemeralKey, current.localEphemeralKey]
+        // A tunnel binds the signatures to its QUIC connection (bridgey-auth-v2, docs/protocol.md).
+        if let exporter = current.tunnel?.exporter {
+            return ConnectCrypto.transcriptV2(sessionID: current.id, initiator: fields[0], responder: fields[1],
+                                              initiatorKey: fields[2], responderKey: fields[3], exporter: exporter)
+        }
         return Data((["bridgey-auth-v1", current.id] + fields).joined(separator: "\0").utf8)
     }
 
@@ -2975,6 +3007,7 @@ final class PairingCoordinator: ObservableObject {
     private func linkEvent(_ reason: String) {
         BridgeyLog.reconnect.notice("link event \(reason, privacy: .public)")
         diagnostics.record(category: "link", event: reason)
+        if ["network_change", "network_lost", "wake"].contains(reason) { probeAfterNetworkChange(reason) }
         linkDebouncer.note(reason)
     }
 
@@ -3094,6 +3127,172 @@ final class PairingCoordinator: ObservableObject {
         }
         current.connectionTimeout = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: timeout)
+    }
+
+    // MARK: - Connect anywhere
+
+    /// Advertised to phones (connect_draft1) while the switch is on and the core runs.
+    private var connectAdvertised: Bool { settings.connectAway && connect.running }
+
+    private func configureConnect() {
+        connect.onTunnel = { [weak self] tunnel in self?.acceptTunnel(tunnel) }
+        connect.onRoute = { [weak self] id, route, relay in self?.tunnelRouteChanged(id, route: route, relay: relay) }
+        connectCancellable = settings.$connectAway.removeDuplicates().sink { [weak self] enabled in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.connect.apply(enabled: enabled && self.identity != nil)
+                self.connectSync()
+                self.sendFeatureState()
+            }
+        }
+    }
+
+    /// The core's list of paired phones: those with a pair secret, and whether a session is up.
+    private func connectSync() {
+        guard connect.available else { return }
+        let peers = trustRegistry.devices.compactMap { device -> ConnectPeer? in
+            guard let secret = connect.store.pairSecret(device.id) else { return nil }
+            return ConnectPeer(id: device.id, side: ConnectCrypto.side(local: deviceID, remote: device.id), pairSecret: secret,
+                               addresses: connect.store.addresses(device.id), connected: registry.session(for: device.id) != nil)
+        }
+        connect.setPeers(peers)
+    }
+
+    /// A tunnel is up: run a session on its loopback bridge, exactly as on a LAN socket. The QUIC
+    /// client sends pairing.offer; the signatures bind to the tunnel's exporter.
+    private func acceptTunnel(_ tunnel: ConnectTunnel) {
+        guard identity != nil, settings.connectAway, let port = NWEndpoint.Port(rawValue: tunnel.port) else {
+            connect.command(["c": "close", "tunnel": tunnel.id])
+            return
+        }
+        let connection = NWConnection(host: NWEndpoint.Host("127.0.0.1"), port: port, using: .tcp)
+        let current = Session(connection: connection, peerName: tunnel.peer.map { trustedName($0) } ?? "Android device")
+        current.tunnel = tunnel
+        current.initiatedLocally = tunnel.quicClient
+        if tunnel.quicClient {
+            current.id = UUID().uuidString.lowercased()
+            current.privateKey = P256.KeyAgreement.PrivateKey()
+            current.localEphemeralKey = current.privateKey!.publicKey.x963Representation.base64EncodedString()
+        }
+        registry.addPending(current, initiatedLocally: tunnel.quicClient)
+        scheduleConnectionTimeout(for: current)
+        configure(current) { [weak self, weak current] in
+            guard let self, let current else { return }
+            // The bridge's one-time token comes first; then the session is stream 0 of the tunnel.
+            current.connection.send(content: Data((tunnel.token + "\n").utf8), completion: .contentProcessed { _ in })
+            guard tunnel.quicClient else { return }
+            current.send(PairingMessage(
+                kind: "pairing.offer",
+                sessionId: current.id,
+                deviceId: self.deviceID,
+                deviceName: self.deviceName,
+                publicKey: current.localEphemeralKey,
+                targetDeviceId: tunnel.peer
+            ))
+        }
+    }
+
+    /// ICE moved a tunnel to another pair (a better route, or the relay after a failure).
+    private func tunnelRouteChanged(_ id: String, route: String, relay: String?) {
+        for (phoneID, current) in registry.broadcastTargets({ _, _ in true }) where current.tunnel?.id == id {
+            current.tunnel?.route = route
+            current.tunnel?.relay = relay
+            var record = healthRecords[phoneID] ?? DeviceHealthRecord()
+            record.route = connectionRoute(forTunnel: route)
+            record.tunnelRoute = route
+            record.tunnelRelay = relay
+            healthRecords[phoneID] = record
+            publishHealth()
+        }
+    }
+
+    /// After features.update shows connect_draft1 on both sides: where this Mac can be dialled, and its pair check.
+    private func sendConnectAddresses(to current: Session) {
+        guard connectAdvertised, let local = connect.localAddresses() else { return }
+        let check = connect.store.pairSecret(current.remoteDeviceID).map(ConnectCrypto.pairCheck)
+        _ = sendQuickPayload(kind: "connect.addresses", payload: ConnectAddresses(port: local.port, addrs: local.addrs, pairCheck: check).payload, to: current)
+    }
+
+    /// Opens a connect.setup exchange: this side's contribution to a new pair secret.
+    private func beginConnectSetup(with current: Session, rotate: Bool) {
+        let contribution = randomContribution()
+        current.connectContribution = contribution
+        _ = sendQuickPayload(kind: "connect.setup", payload: ConnectSetup(contribution: contribution, rotate: rotate).payload, to: current)
+    }
+
+    private func randomContribution() -> Data {
+        SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+    }
+
+    /// connect.* in a session (draft connect_draft1). A malformed payload is dropped; the session stays.
+    private func receiveConnectMessage(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return }
+        let phoneID = current.remoteDeviceID
+        guard connectAdvertised, registry.state(for: phoneID)?.remoteConnect == true else { return }
+        switch message.kind {
+        case "connect.addresses":
+            guard let addresses = ConnectAddresses.decode(data) else { return }
+            connect.store.learn(phoneID, port: addresses.port, addresses: addresses.addrs)
+            let mine = connect.store.pairSecret(phoneID).map(ConnectCrypto.pairCheck)
+            // Different pair checks (or none yet): the lower device ID starts a new exchange.
+            if (mine == nil || addresses.pairCheck == nil || mine != addresses.pairCheck) && deviceID < phoneID {
+                beginConnectSetup(with: current, rotate: mine != nil)
+            }
+            connectSync()
+        case "connect.setup":
+            guard let setup = ConnectSetup.decode(data) else { return }
+            let own: Data
+            if let pending = current.connectContribution {
+                own = pending
+            } else {
+                own = randomContribution()
+                _ = sendQuickPayload(kind: "connect.setup", payload: ConnectSetup(contribution: own, rotate: setup.rotate).payload, to: current)
+            }
+            current.connectContribution = nil
+            let secret = ConnectCrypto.pairSecret(local: own, remote: setup.contribution, localID: deviceID, remoteID: phoneID)
+            connect.store.setPairSecret(secret, for: phoneID)
+            _ = sendQuickPayload(kind: "connect.setup.ack", payload: ["version": 1], to: current)
+            BridgeyLog.transport.notice("connect pair secret set peer=\(shortDeviceID(phoneID), privacy: .public) rotate=\(setup.rotate, privacy: .public)")
+            connectSync()
+        default:
+            break
+        }
+    }
+
+    /// Settings: "Reset away-from-home identity": a new node key, then a new pair secret with every phone.
+    func resetConnectIdentity() {
+        connect.resetIdentity()
+        for (_, current) in registry.broadcastTargets({ _, link in link.remoteConnect }) {
+            beginConnectSetup(with: current, rotate: true)
+        }
+        connectSync()
+    }
+
+    /// The network changed while Connect anywhere runs: tell the core, and drop every session that
+    /// does not answer a ping within 3 s, so a phone that left this network reconnects at once.
+    private func probeAfterNetworkChange(_ reason: String) {
+        guard connect.running else { return }
+        connect.network(reason)
+        let sent = Date()
+        for (_, current) in registry.broadcastTargets({ _, _ in true }) {
+            current.send(PairingMessage(kind: "heartbeat.ping", sessionId: current.id, messageId: UUID().uuidString.lowercased()))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self, weak current] in
+                guard let self, let current, self.registry.isActive(current), current.lastReceivedAt < sent else { return }
+                BridgeyLog.transport.notice("no answer after \(reason, privacy: .public) peer=\(shortDeviceID(current.remoteDeviceID), privacy: .public)")
+                current.dropReason = "network_changed"
+                current.close()
+            }
+        }
+    }
+
+    /// Connect anywhere's state for Settings.
+    var connectDisplay: ConnectDisplay {
+        ConnectDisplay(available: connect.available, controlConfigured: ConnectAnywhere.controlURL != nil,
+                       running: connect.running, presence: connect.presence.rawValue, relayOnly: ConnectAnywhere.relayOnly,
+                       debug: ConnectAnywhere.debugEnabled, controlURL: ConnectAnywhere.controlURL ?? "")
     }
 
     private func scheduleHeartbeat(for current: Session) {
@@ -4047,7 +4246,8 @@ extension PairingCoordinator: PhoneFilesHost {
             let link = registry.state(for: phone.id)
             let browsable = link?.featureStateReceived == true && link?.remoteBrowse == true && isFeatureAvailable(.files, for: phone.id)
             return BrowsablePhone(id: phone.id, name: phone.name, browsable: browsable,
-                                  route: PhoneRouteClassifier.route(host: registry.session(for: phone.id)?.remoteHost))
+                                  route: registry.session(for: phone.id)?.tunnel.map { $0.route == ConnectRouteKind.lan.rawValue ? .lan : .relay }
+                                      ?? PhoneRouteClassifier.route(host: registry.session(for: phone.id)?.remoteHost))
         }
     }
 
@@ -4137,6 +4337,10 @@ private final class Session {
     var heartbeat: DispatchWorkItem?
     var lastReceivedAt = Date()
     var heartbeatSupported = false
+    /// Connect anywhere: the QUIC tunnel this session runs on (nil for today's TCP).
+    var tunnel: ConnectTunnel?
+    /// connect.setup: this side's contribution while an exchange is open.
+    var connectContribution: Data?
     var onMessage: ((PairingMessage) -> Void)?
     var onFailure: (() -> Void)?
     private var frames = ProtocolFrameReader()

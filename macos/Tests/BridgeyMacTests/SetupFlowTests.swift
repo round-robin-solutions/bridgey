@@ -285,6 +285,23 @@ final class SetupFlowTests: XCTestCase {
         for feature in SetupFeatures.all { XCTAssertTrue(names.contains(feature.title), feature.title) }
     }
 
+    /// Connect away from home: off until chosen, its own switch, follow-up and bundle (same ids as Android).
+    func testConnectAwayIsAFeatureAQuestionAndABundle() {
+        XCTAssertEqual(SetupSetting.connectAway.defaultValue, "false")
+        XCTAssertEqual(SetupFeatures.feature("away")?.on, [.on(.connectAway)])
+        let question = SetupQuestions.question("away")!
+        XCTAssertEqual(question.section, .devices)
+        XCTAssertEqual(question.feature, "away")
+        XCTAssertEqual(SetupQuestions.changes(question, SetupAnswerKey.yes), [.on(.connectAway)])
+        XCTAssertEqual(SetupQuestions.changes(question, SetupAnswerKey.no), [.off(.connectAway)])
+        XCTAssertEqual(SetupQuestions.coverage[.connectAway]?.place, "away")
+        let bundle = SetupBundles.all.first { $0.id == "away" }
+        XCTAssertEqual(bundle?.title, SettingsPane.away.title)
+        XCTAssertEqual(SetupBundles.answers(picked: ["away"], typed: []).map(\.id), ["away"])
+        XCTAssertEqual(SettingsPane.away.parentPane, .devices)
+        XCTAssertFalse(SettingsPane.sidebarItems.contains(.away))
+    }
+
     // MARK: Back, Escape and the close button
 
     func testEscapeStepsBackAndLeavesOnlyFromTheFirstScreen() {

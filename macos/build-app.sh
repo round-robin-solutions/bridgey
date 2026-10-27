@@ -37,6 +37,11 @@ if [ -n "$CODE_RELAY_URL" ]; then
 fi
 # Codes from messages > On this Mac: the model manifest (updates without an app update), and the
 # only place model files may come from.
+# Connect anywhere: the control service (docs/connect-anywhere.md). Empty means "no Round Robin service".
+CONNECT_CONTROL_URL=$(sed -n "s/^CONNECT_CONTROL_URL=//p" ../rr-edition.properties | tail -n 1)
+if [ -n "$CONNECT_CONTROL_URL" ]; then
+  "$PLIST_BUDDY" -c "Add :BridgeyConnectControlURL string $CONNECT_CONTROL_URL" "$APP_PATH/Contents/Info.plist"
+fi
 CODE_MODEL_MANIFEST_URL=$(edition_value OTP_MODEL_MANIFEST_URL)
 ASSET_URL_PREFIX=$(edition_value UPDATE_ASSET_URL_PREFIX)
 "$PLIST_BUDDY" -c "Add :BridgeyCodeModelManifestURL string $CODE_MODEL_MANIFEST_URL" "$APP_PATH/Contents/Info.plist"
@@ -76,6 +81,23 @@ if [ "$(lipo -archs "$LLAMA_BINARY")" != "$APP_ARCHS" ]; then
   for arch in $APP_ARCHS; do set -- "$@" -extract "$arch"; done
   lipo "$LLAMA_BINARY" "$@" -output "$LLAMA_BINARY.thin"
   mv "$LLAMA_BINARY.thin" "$LLAMA_BINARY"
+fi
+# Connect anywhere core (rust/core, MIT): libbridgey_connect.dylib, loaded with dlopen. Built for this
+# Mac's architecture with cargo; without cargo the app still builds and the setting says "not available".
+CARGO_BIN=${CARGO:-$(command -v cargo || echo "$HOME/.cargo/bin/cargo")}
+if [ -x "$CARGO_BIN" ]; then
+  CARGO_PROFILE=debug
+  set -- build -p bridgey-connect --manifest-path ../rust/Cargo.toml --locked
+  if [ "$CONFIGURATION" = release ]; then
+    CARGO_PROFILE=release
+    set -- "$@" --release
+  fi
+  "$CARGO_BIN" "$@"
+  CONNECT_DYLIB="$APP_PATH/Contents/Frameworks/libbridgey_connect.dylib"
+  cp "../rust/target/$CARGO_PROFILE/libbridgey_connect.dylib" "$CONNECT_DYLIB"
+  install_name_tool -id "@rpath/libbridgey_connect.dylib" "$CONNECT_DYLIB"
+else
+  echo "warning: cargo not found; building without the Connect anywhere core (it will show as not available)" >&2
 fi
 # The Share extension (Share > Bridgey in every app): a separate sandboxed executable built with swiftc for
 # the app's own architectures, signed before the app below. It only hands items to the app.
@@ -205,6 +227,9 @@ sign_code "$SPARKLE_VERSIONED/Autoupdate"
 sign_code "$SPARKLE_VERSIONED/Updater.app"
 sign_code "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 sign_code "$APP_PATH/Contents/Frameworks/llama.framework"
+if [ -f "$APP_PATH/Contents/Frameworks/libbridgey_connect.dylib" ]; then
+  sign_code "$APP_PATH/Contents/Frameworks/libbridgey_connect.dylib"
+fi
 sign_code --entitlements ShareExtension/Share.entitlements "$APPEX"
 if [ -n "$APP_REQUIREMENT" ]; then
   sign_code --entitlements Resources/Bridgey.entitlements --requirements "$APP_REQUIREMENT" "$APP_PATH"

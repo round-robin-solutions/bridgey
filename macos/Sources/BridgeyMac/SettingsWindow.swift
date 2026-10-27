@@ -14,6 +14,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case thisMac, devices, clipboard, notifications, calls, files, media, remoteControl, privacy, updates, general, about
     /// Privacy sub-pages (PermissionsView.swift, ResetView.swift); not in the sidebar.
     case permissions, reset
+    /// Devices sub-page: Connect away from home (ConnectSettingsView.swift).
+    case away
 
     var id: String { rawValue }
 
@@ -33,6 +35,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: L10n.text("settings.general", fallback: "General")
         case .about: L10n.text("settings.about", fallback: "About")
         case .permissions, .reset: subpageTitle
+        case .away: L10n.text("settings.away", fallback: "Connect away from home")
         }
     }
 
@@ -61,6 +64,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .about: "info.circle"
         case .permissions: "lock.shield"
         case .reset: "arrow.counterclockwise"
+        case .away: "globe"
         }
     }
 
@@ -152,6 +156,9 @@ struct SettingsModel {
     var focusSync = FocusSyncSettings()
     /// Files > Copy photos from the phone camera to the clipboard.
     var cameraCopyToClipboard = false
+    /// Devices > Connect away from home: the switch and the core's state.
+    var connectAway = false
+    var connect = ConnectDisplay()
 
     var connectedDeviceID: String? {
         if case let .connected(id, _) = state { return id }
@@ -247,6 +254,11 @@ struct SettingsActions {
     var setBatteryAlerts: (String, BatteryAlertThresholds) -> Void = { _, _ in }
     var setFocusSync: ((inout FocusSyncSettings) -> Void) -> Void = { _ in }
     var setCameraCopyToClipboard: (Bool) -> Void = { _ in }
+    var setConnectAway: (Bool) -> Void = { _ in }
+    var resetConnectIdentity: () -> Void = {}
+    /// Debug only (BridgeyConnectDebug): the control service URL and relay only.
+    var setConnectControlURL: (String) -> Void = { _ in }
+    var setConnectRelayOnly: (Bool) -> Void = { _ in }
 }
 
 enum SettingsLinks {
@@ -591,6 +603,7 @@ struct SettingsPaneView: View {
         case .about: AboutPane(model: model, actions: actions)
         case .permissions: PermissionsPane(model: model, actions: actions)
         case .reset: ResetPane(model: model, actions: actions)
+        case .away: ConnectAwayPane(model: model, actions: actions)
         }
     }
 }
@@ -967,6 +980,7 @@ private struct DevicesPane: View {
                     .disabled(model.rediscovering)
             }
         }
+        ConnectAwayCard(model: model, actions: actions)
         ForEach(model.trustedDevices) { device in
             DeviceCard(device: device, model: model, actions: actions)
         }
@@ -987,6 +1001,7 @@ struct DeviceCard: View {
             HStack(spacing: 12) {
                 DeviceRingView(state: ring?.state ?? .offline, platform: ring?.platform, size: 36)
                 RowText(title: device.name, subtitle: ring.map { ringStatusDetail($0, now: model.now) } ?? L10n.text("ring.offline", fallback: "Offline"))
+                if let chip = routeChipText(model.health[device.id]) { RouteChip(text: chip) }
                 if ring?.canRetry == true {
                     Button(L10n.text("panel.retryNow", fallback: "Retry now")) { actions.retryDevice(device.id) }
                         .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
@@ -1368,6 +1383,7 @@ struct LiveSettingsView: View {
     @ObservedObject var batteryAlerts: BatteryAlerts
     @ObservedObject var focusSync: FocusSync
     @ObservedObject var camera: PhoneCamera
+    @ObservedObject var connect: ConnectAnywhere
     @State private var pane: SettingsPane = .devices
     @State private var availableShortcuts: [String]?
     @State private var phoneLinkStatus: String?
@@ -1391,6 +1407,7 @@ struct LiveSettingsView: View {
         batteryAlerts = pairing.batteryAlerts
         focusSync = pairing.focusSync
         camera = pairing.camera
+        connect = pairing.connect
     }
 
     private var codeModelDisplay: CodeModelDisplay {
@@ -1501,6 +1518,8 @@ struct LiveSettingsView: View {
         model.health = pairing.connectionHealth
         model.focusSync = focusSync.settings
         model.cameraCopyToClipboard = camera.copyToClipboard
+        model.connectAway = settings.connectAway
+        model.connect = pairing.connectDisplay
         model.batteryAlerts = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, batteryAlerts.thresholds(for: $0.id)) })
         return model
     }
@@ -1546,6 +1565,14 @@ struct LiveSettingsView: View {
         actions.setOpenLinksRightAway = { settings.setOpenLinksRightAway($0) }
         actions.setBatteryAlerts = { id, thresholds in batteryAlerts.setThresholds(thresholds, for: id) }
         actions.setCameraCopyToClipboard = { camera.setCopyToClipboard($0) }
+        actions.setConnectAway = { settings.setConnectAway($0) }
+        actions.resetConnectIdentity = { pairing.resetConnectIdentity() }
+        actions.setConnectControlURL = { url in
+            let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { UserDefaults.standard.removeObject(forKey: "BridgeyConnectControlURL") } else { UserDefaults.standard.set(trimmed, forKey: "BridgeyConnectControlURL") }
+            if settings.connectAway { connect.stop(); connect.start() }
+        }
+        actions.setConnectRelayOnly = { connect.setRelayOnly($0) }
         actions.setFocusSync = { change in
             focusSync.update(change)
             if focusSync.settings.follow { loadShortcuts() }

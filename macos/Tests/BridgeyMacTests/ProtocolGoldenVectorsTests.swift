@@ -202,6 +202,30 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
         }
     }
 
+    /// Connect anywhere (connect_draft1): connect.setup, decoded by both platforms.
+    func testConnectSetup() throws {
+        try each("connectSetup") { vector in
+            let result: Any = ConnectSetup.decode(plaintext(vector)).map {
+                ["contribution": $0.contribution.base64EncodedString(), "rotate": $0.rotate] as [String: Any]
+            } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// connect.addresses: entries keep their order; vpn null means absent.
+    func testConnectAddresses() throws {
+        try each("connectAddresses") { vector in
+            let result: Any = ConnectAddresses.decode(plaintext(vector)).map { decoded -> [String: Any] in
+                [
+                    "port": decoded.port,
+                    "addrs": decoded.addrs.map { ["a": $0.a, "kind": $0.kind, "vpn": $0.vpn ?? NSNull()] as [String: Any] },
+                    "pairCheck": decoded.pairCheck ?? NSNull(),
+                ]
+            } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
     // MARK: helpers
 
     private func each(_ group: String, file: StaticString = #filePath, line: UInt = #line, _ check: ([String: Any]) throws -> Bool) throws {

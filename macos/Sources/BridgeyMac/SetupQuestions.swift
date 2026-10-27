@@ -34,6 +34,8 @@ enum SetupSection: String, CaseIterable {
 enum SetupSetting: String, CaseIterable {
     // Devices
     case pairing, deviceFeatures, deviceAutoClipboard, batteryAlerts
+    /// Devices > Connect away from home (connect_draft1), off until chosen.
+    case connectAway
     // Clipboard
     case featureClipboard, autoClipboard, clipboardFiles, clipboardEagerLimit, shortcutClipboard
     // Notifications
@@ -167,6 +169,9 @@ enum SetupFeatures {
                      on: [.on(.featurePing)], off: [.off(.featurePing)], main: .featurePing, pane: .media),
         SetupFeature(id: "battery", title: BridgeyFeature.battery.title, detail: BridgeyFeature.battery.subtitle,
                      on: [.on(.featureBattery)], off: [.off(.featureBattery)], main: .featureBattery, pane: .media),
+        SetupFeature(id: "away", title: SettingsPane.away.title,
+                     detail: L10n.setup("setup.feature.away.detail", fallback: "Reach your devices from any network, with no VPN on the phone."),
+                     on: [.on(.connectAway)], off: [.off(.connectAway)], main: .connectAway, pane: .away),
     ]
 
     static func feature(_ id: String) -> SetupFeature? { all.first { $0.id == id } }
@@ -237,6 +242,17 @@ enum SetupQuestions {
             summary: L10n.setup("setup.q.pair.summary", fallback: "Paired with your phone"),
             answers: [], pane: .devices, covers: [.pairing],
             asks: { !$0.paired }
+        ),
+        SetupQuestion(
+            id: "away", section: .devices, feature: "away",
+            title: L10n.setup("setup.q.away.title", fallback: "Reach your devices away from home?"),
+            context: L10n.setup("setup.q.away.context", fallback: "Devices connect directly when they can, or through a Round Robin relay that only sees encrypted data. No account, and you can turn it off at any time."),
+            summary: L10n.setup("setup.q.away.summary", fallback: "Connect away from home"),
+            answers: [
+                SetupAnswer(key: SetupAnswerKey.yes, label: L10n.setup("setup.a.yes", fallback: "Yes"), changes: [.on(.connectAway)]),
+                SetupAnswer(key: SetupAnswerKey.no, label: L10n.setup("setup.a.notNow", fallback: "Not now"), changes: [.off(.connectAway)]),
+            ],
+            pane: .away, covers: [.connectAway]
         ),
         SetupQuestion(
             id: "clipboard", section: .clipboard, feature: "clipboard",
@@ -523,6 +539,9 @@ enum SetupBundles {
         SetupBundle(id: "remote", pane: .remoteControl,
                     detail: L10n.setup("setup.bundle.remote", fallback: "Your phone as a touchpad and slide clicker."),
                     answers: [("remote", SetupAnswerKey.pick), ("mac_actions", SetupAnswerKey.pick)]),
+        SetupBundle(id: "away", pane: .away,
+                    detail: L10n.setup("setup.bundle.away", fallback: "Your devices stay connected when you leave home."),
+                    answers: [("away", SetupAnswerKey.pick)]),
     ]
 
     /// "Get started quickly": pair, then clipboard when you click Send, and your phone's
@@ -590,6 +609,7 @@ extension SetupFacts {
             .featureFindDevice: feature(.findDevice),
             .featurePing: feature(.ping),
             .featureBattery: feature(.battery),
+            .connectAway: bool(model.connectAway),
             .showPreviews: bool(model.showPreviews),
             .loggingConnection: bool(model.logging.connection),
             .updateChannel: model.channel.rawValue,

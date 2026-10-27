@@ -297,6 +297,28 @@ final class DesignScreenshots: XCTestCase {
         try render(settings: updateSettingsModel, pane: .updates, scheme: .light, name: "settings-light-updates-available")
     }
 
+    /// Connect anywhere: the Devices sub-page on and off, and a phone connected through the Mumbai relay.
+    @MainActor func testConnectAnywhere() throws {
+        var on = settingsModel
+        on.connectAway = true
+        on.connect = ConnectDisplay(available: true, controlConfigured: true, running: true, presence: "online")
+        var record = DeviceHealthRecord()
+        record.connectedSince = at(9, 30)
+        record.route = .otherNetwork
+        record.tunnelRoute = "relay"
+        record.tunnelRelay = "bom"
+        on.health[phoneID] = ConnectionHealthSnapshot(deviceID: phoneID, record: record, connected: true, discoveryVisible: false,
+                                                      discovery: .browsing, now: now)
+        var off = settingsModel
+        off.connect = ConnectDisplay(available: true, controlConfigured: true)
+        for scheme in [ColorScheme.light, .dark] {
+            let suffix = scheme == .dark ? "dark" : "light"
+            try render(settings: on, pane: .away, scheme: scheme, name: "mac-connect-away-on-\(suffix)")
+            try render(settings: off, pane: .away, scheme: scheme, name: "mac-connect-away-off-\(suffix)")
+            try render(settings: on, pane: .devices, scheme: scheme, name: "mac-connect-devices-route-\(suffix)")
+        }
+    }
+
     /// Remote control before it is set up: off, no Accessibility, nothing granted.
     @MainActor func testRemoteControlSettingsOff() throws {
         try render(settings: remoteOffModel, pane: .remoteControl, scheme: .light, name: "settings-light-remoteControl-off")

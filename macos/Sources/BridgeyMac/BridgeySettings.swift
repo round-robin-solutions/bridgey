@@ -119,6 +119,8 @@ final class BridgeySettings: ObservableObject {
     /// Media and actions > Open links from phones right away (links_open_draft1). Off by default:
     /// a link waits for Open on this Mac.
     @Published private(set) var openLinksRightAway: Bool
+    /// Devices > Connect away from home (draft connect_draft1). Off until chosen.
+    @Published private(set) var connectAway: Bool
 
     private let defaults = UserDefaults.standard
 
@@ -154,6 +156,7 @@ final class BridgeySettings: ObservableObject {
         codesEnabled = codesOn
         codesAutoCopy = storedDefaults.bool(forKey: "settings.codes.autoCopy")
         openLinksRightAway = storedDefaults.bool(forKey: "settings.links.openRightAway")
+        connectAway = storedDefaults.bool(forKey: "settings.connect.away")
         let engine = CodeEngine.stored(storedDefaults.string(forKey: "settings.codes.engine"), codesWereEnabled: codesOn)
         // Settle the choice once, so turning codes on later never reads as an old cloud opt-in.
         storedDefaults.set(engine.rawValue, forKey: "settings.codes.engine")
@@ -213,6 +216,11 @@ final class BridgeySettings: ObservableObject {
     func setOpenLinksRightAway(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.links.openRightAway")
         openLinksRightAway = enabled
+    }
+
+    func setConnectAway(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.connect.away")
+        connectAway = enabled
     }
 
     func setCodesEngine(_ engine: CodeEngine) {
