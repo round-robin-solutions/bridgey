@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="device_name">Test Phone</string>
+    <boolean name="global.clipboard" value="false" />
+    <boolean name="device.e2acaa6d-7980-4e5c-b5cb-9c8742216271.notifications" value="false" />
+    <boolean name="clipboard.files.enabled" value="false" />
+    <boolean name="global.remote_input_draft1" value="true" />
+    <boolean name="device.e2acaa6d-7980-4e5c-b5cb-9c8742216271.remote_input_draft1" value="true" />
+    <boolean name="global.mac_actions_draft1" value="true" />
+    <boolean name="device.95b2dd40-4f91-44e7-9f28-d6655fcbd197.mac_actions_draft1" value="false" />
+    <boolean name="global.camera_draft1" value="true" />
+    <boolean name="device.e2acaa6d-7980-4e5c-b5cb-9c8742216271.camera_draft1" value="false" />
+    <boolean name="focus.share" value="true" />
+    <boolean name="focus.follow" value="true" />
+</map>

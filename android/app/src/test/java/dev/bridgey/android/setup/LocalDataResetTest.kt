@@ -34,6 +34,8 @@ class LocalDataResetTest {
         "bridgey", "bridgey.settings", "bridgey.ui", "bridgey.remote", "bridgey.screenshot", "bridgey.updates", "bridgey.places",
         "bridgey.setup", "bridgey_onboarding", "bridgey.trust", "bridgey.reconnect", "bridgey_codes", "bridgey.whats_new",
         "bridgey.attach",
+        // v0.9 automation: each Mac's saved list of Mac actions, and the widgets' Macs.
+        "bridgey.mac_actions", "bridgey.widgets",
     )
 
     /** Every file and directory, relative to its root. */
@@ -47,6 +49,8 @@ class LocalDataResetTest {
         ResetRoot.CACHE to "diagnostics/Bridgey-Diagnostics.json",
         ResetRoot.CACHE to "updates/bridgey-610.apk",
         ResetRoot.CACHE to "perf-test/bench.bin",
+        // v0.9: a camera photo waiting to be sent to a Mac.
+        ResetRoot.CACHE to "camera/photo-1.jpg",
         ResetRoot.FILES to "kept.txt",
     )
 
@@ -76,7 +80,10 @@ class LocalDataResetTest {
     fun activityAndLogs() {
         reset(ResetChoice.ACTIVITY_AND_LOGS)
         assertState(emptySet(), setOf("activity-stream.json", "diagnostics.json", "diagnostics/Bridgey-Diagnostics.json"))
-        assertEquals(listOf(ResetHook.CLEAR_ACTIVITY, ResetHook.CLEAR_DIAGNOSTICS, ResetHook.CLEAR_TRANSFER_HISTORY), hooks)
+        assertEquals(
+            listOf(ResetHook.CLEAR_ACTIVITY, ResetHook.CLEAR_DIAGNOSTICS, ResetHook.CLEAR_CONNECTION_HEALTH, ResetHook.CLEAR_TRANSFER_HISTORY),
+            hooks,
+        )
         assertTrue(LocalDataReset.IDENTITY_ALIAS in aliases)
     }
 
@@ -84,15 +91,15 @@ class LocalDataResetTest {
     fun modelsAndCaches() {
         reset(ResetChoice.MODELS_AND_CACHES)
         assertState(
-            emptySet(),
+            setOf("bridgey.mac_actions"),
             setOf(
                 "clipboard-cache/offer-1/0/data", "folder-transfers/abc.journal", "folder-sends/def.plan", "document-index.json",
-                "updates/bridgey-610.apk", "perf-test/bench.bin",
+                "updates/bridgey-610.apk", "perf-test/bench.bin", "camera/photo-1.jpg",
             ),
         )
         // The cache directory itself stays, as do exported diagnostics (Activity and logs owns them).
         assertTrue(roots.getValue(ResetRoot.CACHE).isDirectory)
-        assertEquals(listOf(ResetHook.CLEAR_CLIPBOARD_CACHE), hooks)
+        assertEquals(listOf(ResetHook.CLEAR_CLIPBOARD_CACHE, ResetHook.CLEAR_MAC_ACTION_CATALOGS), hooks)
     }
 
     @Test
@@ -100,12 +107,13 @@ class LocalDataResetTest {
         reset(ResetChoice.SETTINGS)
         assertState(
             setOf(
-                "bridgey.settings", "bridgey.ui", "bridgey.remote", "bridgey.screenshot", "bridgey.attach", "bridgey.updates", "bridgey.places",
-                "bridgey.setup", "bridgey_onboarding",
+                "bridgey.settings", "bridgey.ui", "bridgey.remote", "bridgey.screenshot", "bridgey.attach", "bridgey.widgets", "bridgey.updates",
+                "bridgey.places", "bridgey.setup", "bridgey_onboarding",
             ),
             emptySet(),
         )
-        assertEquals(listOf(ResetHook.RELEASE_FOLDER_GRANTS), hooks)
+        // The Do Not Disturb that Follow turned on is handed back before the Focus switches go.
+        assertEquals(listOf(ResetHook.RELEASE_FOCUS, ResetHook.RELEASE_FOLDER_GRANTS), hooks)
         assertTrue(LocalDataReset.needsRestart(ResetChoice.SETTINGS))
     }
 

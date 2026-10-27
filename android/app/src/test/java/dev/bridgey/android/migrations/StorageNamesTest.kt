@@ -67,4 +67,14 @@ class StorageNamesTest {
         assertSource("ui/UiPreferences.kt", "getSharedPreferences(\"bridgey.ui\", Context.MODE_PRIVATE)")
         assertSource("AppUpdater.kt", "getSharedPreferences(\"bridgey.updates\", Context.MODE_PRIVATE)", "KEY_CHANNEL = \"channel\"")
     }
+
+    @Test
+    fun automationPreferences() {
+        assertSource("actions/MacActions.kt", "getSharedPreferences(\"bridgey.mac_actions\", Context.MODE_PRIVATE)", "PREFIX = \"catalog.\"")
+        assertSource("widget/MacWidget.kt", "PREFERENCES = \"bridgey.widgets\"", "\"widget.\$appWidgetId\"")
+        assertSource("BridgeySettings.kt", "KEY_FOCUS_SHARE = \"focus.share\"", "KEY_FOCUS_FOLLOW = \"focus.follow\"")
+        assertSource("BridgeySettings.kt", "MAC_ACTIONS(\"mac_actions_draft1\"", "CAMERA(\"camera_draft1\"")
+        // Camera photos wait in the cache folder (Reset > Models and caches removes them with the other caches).
+        assertSource("camera/CameraActivity.kt", "CACHE_FOLDER = \"camera\"")
+    }
 }

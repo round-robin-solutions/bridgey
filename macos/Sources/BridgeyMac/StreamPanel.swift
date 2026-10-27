@@ -1523,7 +1523,8 @@ struct BridgeyPanel: View {
         actions.openDropWindow = { pairing.showFileDropWindow() }
         actions.showTransfers = { pairing.showFileTransferWindow() }
         actions.sendLink = { quickActions.sendClipboardLink() }
-        actions.sendBrowserTab = { pairing.sendBrowserTab() }
+        // macOS asks for Automation to the browser on first use; the Permissions explainer comes first.
+        actions.sendBrowserTab = { setupCenter.explainThen(.browserAutomation) { pairing.sendBrowserTab() } }
         actions.takePhoto = { pairing.takePhoto() }
         actions.call = { pairing.sendCallFromClipboard() }
         actions.ping = { pairing.sendPing() }

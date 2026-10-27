@@ -12,7 +12,7 @@ final class LocalDataResetTests: XCTestCase {
     private var defaults: UserDefaults!
 
     private let activityFiles = ["activity-stream.json", "notification-history.json", "diagnostics.json", "remote-control-audit.json",
-                                 "transfer-history.json"]
+                                 "transfer-history.json", "mac-actions-audit.json"]
     private let cacheFolders = ["Models", "ClipboardCache", "FolderTransfers", "FolderReceives"]
     /// Files 2.0 user content: only Everything removes the Tray (bookmarks and dropped images).
     private let trayFolder = "Tray"
@@ -27,6 +27,10 @@ final class LocalDataResetTests: XCTestCase {
         "settings.folders.receiveMode", "settings.folders.conflict", "settings.files.tagReceived",
         "send.menuBarDrop", "send.optimization.v1", "send.lastDevice",
         "phoneFiles.last.phone", "phoneFiles.sort", "phoneFiles.last.path.11111111-1111-1111-1111-111111111111",
+        // v0.9 automation
+        "settings.global.mac_actions_draft1", "settings.device.11111111-1111-1111-1111-111111111111.mac_actions_draft1",
+        "settings.macActions.config", "settings.links.openRightAway", "settings.batteryAlerts.11111111-1111-1111-1111-111111111111.low",
+        "settings.batteryAlerts.11111111-1111-1111-1111-111111111111.full", "settings.focusSync", "settings.camera.copyToClipboard",
     ]
     private let identityKeys = ["deviceID", "settings.codes.installId"]
     private let trustKeys = ["trustedDeviceIDs", "trusted.11111111-1111-1111-1111-111111111111.name"]
@@ -120,7 +124,7 @@ final class LocalDataResetTests: XCTestCase {
     }
 
     func testItemsAndKeptListsMatchTheChoices() {
-        XCTAssertEqual(LocalDataReset.items(.activity), [.activityStream, .notificationHistory, .diagnostics, .remoteAudit, .transferHistory])
+        XCTAssertEqual(LocalDataReset.items(.activity), [.activityStream, .notificationHistory, .diagnostics, .remoteAudit, .transferHistory, .macActionsAudit])
         XCTAssertEqual(LocalDataReset.items(.caches), [.codeModel, .clipboardCache, .folderJournals, .otherCaches])
         XCTAssertEqual(LocalDataReset.items(.settings), [.settings])
         let everything = Set(LocalDataReset.items(.everything))

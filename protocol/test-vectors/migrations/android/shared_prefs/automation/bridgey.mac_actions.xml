@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="catalog.e2acaa6d-7980-4e5c-b5cb-9c8742216271">{&quot;version&quot;:1,&quot;actions&quot;:[{&quot;id&quot;:&quot;lock&quot;,&quot;blocked&quot;:&quot;permission_required&quot;},{&quot;id&quot;:&quot;sleep&quot;},{&quot;id&quot;:&quot;volume_down&quot;},{&quot;id&quot;:&quot;volume_mute&quot;},{&quot;id&quot;:&quot;volume_up&quot;},{&quot;id&quot;:&quot;volume_set&quot;},{&quot;id&quot;:&quot;app:com.apple.Safari&quot;,&quot;title&quot;:&quot;Safari&quot;},{&quot;id&quot;:&quot;shortcut:3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b&quot;,&quot;title&quot;:&quot;Morning routine&quot;},{&quot;id&quot;:&quot;future_action&quot;,&quot;title&quot;:&quot;Later&quot;}],&quot;volume&quot;:{&quot;level&quot;:40,&quot;muted&quot;:false}}</string>
+    <string name="catalog.95b2dd40-4f91-44e7-9f28-d6655fcbd197">{&quot;version&quot;:1,&quot;actions&quot;:[{&quot;id&quot;:&quot;lock&quot;}</string>
+    <string name="catalog.6718981b-b9e7-4688-a8c9-9b5a5bb8e3ed">{&quot;version&quot;:2,&quot;actions&quot;:[{&quot;id&quot;:&quot;lock&quot;}]}</string>
+</map>

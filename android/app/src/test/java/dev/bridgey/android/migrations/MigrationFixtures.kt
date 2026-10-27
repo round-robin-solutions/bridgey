@@ -41,6 +41,12 @@ internal object MigrationFixtures {
      */
     const val FILES_2_SNAPSHOT = "0.8.0-rr.1"
 
+    /**
+     * v0.9 automation (merged after 0.8.0-rr.1-beta.1): the preferences files it added or changed, in
+     * `shared_prefs/automation`. Install it on top of the Files 2.0 snapshot.
+     */
+    const val AUTOMATION_SNAPSHOT = "automation"
+
     fun installSharedPrefs(context: Context, snapshot: String) {
         val source = file("shared_prefs/$snapshot")
         val target = File(context.dataDir, "shared_prefs").apply { mkdirs() }

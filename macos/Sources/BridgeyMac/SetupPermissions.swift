@@ -12,6 +12,8 @@ import UserNotifications
 
 enum SetupPermission: String, CaseIterable, Identifiable, Codable {
     case localNetwork, notifications, bluetooth, accessibility, automation
+    /// v0.9: Send current browser tab asks Safari or Chrome for the front tab's address.
+    case browserAutomation
 
     var id: String { rawValue }
 
@@ -22,12 +24,13 @@ enum SetupPermission: String, CaseIterable, Identifiable, Codable {
         case .bluetooth: "wave.3.right"
         case .accessibility: "accessibility"
         case .automation: "music.note"
+        case .browserAutomation: "safari"
         }
     }
 
     var tint: TileTint {
         switch self {
-        case .localNetwork, .notifications: .blue
+        case .localNetwork, .notifications, .browserAutomation: .blue
         case .bluetooth, .automation: .purple
         case .accessibility: .green
         }
@@ -40,6 +43,7 @@ enum SetupPermission: String, CaseIterable, Identifiable, Codable {
         case .bluetooth: L10n.setup("permission.bluetooth", fallback: "Bluetooth")
         case .accessibility: L10n.setup("permission.accessibility", fallback: "Accessibility")
         case .automation: L10n.setup("permission.automation", fallback: "Automation (Music, Spotify)")
+        case .browserAutomation: L10n.setup("permission.browserAutomation", fallback: "Automation (Safari, Chrome)")
         }
     }
 
@@ -48,8 +52,9 @@ enum SetupPermission: String, CaseIterable, Identifiable, Codable {
         case .localNetwork: L10n.setup("permission.localNetwork.why", fallback: "Finds your phone and talks to it on this network.")
         case .notifications: L10n.setup("permission.notifications.why", fallback: "Shows your phone\u{2019}s notifications, calls and codes on this Mac.")
         case .bluetooth: L10n.setup("permission.bluetooth.why", fallback: "Lets your phone link to this Mac so Android shows Bridgey your codes.")
-        case .accessibility: L10n.setup("permission.accessibility.why", fallback: "Lets your phone move the pointer and type when you turn on remote control.")
+        case .accessibility: L10n.setup("permission.accessibility.why", fallback: "Lets your phone move the pointer and type when you turn on remote control, and lock this Mac with Mac actions.")
         case .automation: L10n.setup("permission.automation.why", fallback: "Lets your phone play, pause and skip in Music or Spotify.")
+        case .browserAutomation: L10n.setup("permission.browserAutomation.why", fallback: "Lets you send the front Safari or Chrome tab to your phone.")
         }
     }
 
@@ -58,8 +63,9 @@ enum SetupPermission: String, CaseIterable, Identifiable, Codable {
         case .localNetwork: L10n.setup("permission.localNetwork.without", fallback: "The Mac cannot find or reach your phone.")
         case .notifications: L10n.setup("permission.notifications.without", fallback: "Phone alerts, call cards and codes stay silent.")
         case .bluetooth: L10n.setup("permission.bluetooth.without", fallback: "Codes from messages may show \u{201C}hidden\u{201D} on Android 15 and later.")
-        case .accessibility: L10n.setup("permission.accessibility.without", fallback: "Remote control cannot move the pointer or type.")
+        case .accessibility: L10n.setup("permission.accessibility.without", fallback: "Remote control cannot move the pointer or type, and Lock from the phone is refused.")
         case .automation: L10n.setup("permission.automation.without", fallback: "Media controls from the phone do nothing.")
+        case .browserAutomation: L10n.setup("permission.browserAutomation.without", fallback: "Send the Current Browser Tab cannot read the tab\u{2019}s address.")
         }
     }
 
@@ -77,7 +83,7 @@ enum SetupPermission: String, CaseIterable, Identifiable, Codable {
             return URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(Bundle.main.bundleIdentifier ?? Edition.identifier)")!
         case .bluetooth: anchor = "Privacy_Bluetooth"
         case .accessibility: return AccessibilityAccess.settingsURL
-        case .automation: anchor = "Privacy_Automation"
+        case .automation, .browserAutomation: anchor = "Privacy_Automation"
         }
         return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")!
     }
@@ -149,14 +155,19 @@ struct PermissionNeeds: Equatable {
     var remoteControl = false
     var media = false
     var mediaPlayer: MediaPlayer = .off
+    /// v0.9: Mac actions is on and its Lock switch is on (Lock presses the shortcut through Accessibility).
+    var macActionsLock = false
+    /// v0.9: Web links is on, so the panel offers Send current browser tab.
+    var browserTab = false
 
     func needed(_ permission: SetupPermission) -> Bool {
         switch permission {
         case .localNetwork: true
         case .notifications: notifications || calls || codes
         case .bluetooth: codes
-        case .accessibility: remoteControl
+        case .accessibility: remoteControl || macActionsLock
         case .automation: media && mediaPlayer != .off
+        case .browserAutomation: browserTab
         }
     }
 }

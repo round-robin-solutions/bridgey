@@ -617,39 +617,55 @@ private fun LazyListScope.groupContent(group: SetupGroup, state: SetupUiState, a
                 }
             }
         }
-        SetupGroup.NOTIFICATIONS -> item(key = "notifications") {
-            val on = settings.featureOn(BridgeyFeature.NOTIFICATIONS)
-            RowGroup {
-                row { shape ->
-                    SwitchRow(
-                        shape, stringResource(R.string.settings_forwarding_title), stringResource(R.string.settings_notifications_detail),
-                        BridgeyIcons.Notifications, if (on) Tint.PURPLE else Tint.NEUTRAL, on, { feature(BridgeyFeature.NOTIFICATIONS, it) },
-                    )
-                }
-                if (on) {
+        SetupGroup.NOTIFICATIONS -> {
+            item(key = "notifications") {
+                val on = settings.featureOn(BridgeyFeature.NOTIFICATIONS)
+                RowGroup {
                     row { shape ->
-                        ListRow(
-                            shape, stringResource(R.string.settings_forwarding),
-                            stringResource(if (settings.notificationAccessEnabled) R.string.settings_forwarding_on else R.string.settings_forwarding_off),
-                            BridgeyIcons.Notifications, if (settings.notificationAccessEnabled) Tint.GREEN else Tint.NEUTRAL,
-                            detailWarning = !settings.notificationAccessEnabled, onClick = actions.settings.notificationAccess,
-                        ) { ManageText(settings.notificationAccessEnabled) }
-                    }
-                    row { shape ->
-                        val ok = settings.codes.access == dev.bridgey.android.codes.CodeAccessStatus.ALLOWED
-                        ListRow(
-                            shape, stringResource(R.string.codes_title), codeAccessText(settings.codes.access),
-                            BridgeyIcons.Notifications, if (ok) Tint.GREEN else Tint.NEUTRAL, detailWarning = !ok,
+                        SwitchRow(
+                            shape, stringResource(R.string.settings_forwarding_title), stringResource(R.string.settings_notifications_detail),
+                            BridgeyIcons.Notifications, if (on) Tint.PURPLE else Tint.NEUTRAL, on, { feature(BridgeyFeature.NOTIFICATIONS, it) },
                         )
                     }
+                    if (on) {
+                        row { shape ->
+                            ListRow(
+                                shape, stringResource(R.string.settings_forwarding),
+                                stringResource(if (settings.notificationAccessEnabled) R.string.settings_forwarding_on else R.string.settings_forwarding_off),
+                                BridgeyIcons.Notifications, if (settings.notificationAccessEnabled) Tint.GREEN else Tint.NEUTRAL,
+                                detailWarning = !settings.notificationAccessEnabled, onClick = actions.settings.notificationAccess,
+                            ) { ManageText(settings.notificationAccessEnabled) }
+                        }
+                        row { shape ->
+                            val ok = settings.codes.access == dev.bridgey.android.codes.CodeAccessStatus.ALLOWED
+                            ListRow(
+                                shape, stringResource(R.string.codes_title), codeAccessText(settings.codes.access),
+                                BridgeyIcons.Notifications, if (ok) Tint.GREEN else Tint.NEUTRAL, detailWarning = !ok,
+                            )
+                        }
+                    }
+                    row { shape ->
+                        ListRow(
+                            shape, stringResource(R.string.settings_app_notifications),
+                            stringResource(if (settings.appNotificationsEnabled) R.string.settings_app_notifications_on else R.string.settings_app_notifications_off),
+                            BridgeyIcons.Notifications, if (settings.appNotificationsEnabled) Tint.GREEN else Tint.NEUTRAL,
+                            onClick = actions.settings.appNotifications,
+                        ) { ManageText(settings.appNotificationsEnabled) }
+                    }
                 }
-                row { shape ->
-                    ListRow(
-                        shape, stringResource(R.string.settings_app_notifications),
-                        stringResource(if (settings.appNotificationsEnabled) R.string.settings_app_notifications_on else R.string.settings_app_notifications_off),
-                        BridgeyIcons.Notifications, if (settings.appNotificationsEnabled) Tint.GREEN else Tint.NEUTRAL,
-                        onClick = actions.settings.appNotifications,
-                    ) { ManageText(settings.appNotificationsEnabled) }
+            }
+            // v0.9: Focus sync, as on the Settings page (Notifications > Focus), each direction its own switch.
+            item(key = "notifications.focus.label") { SectionLabel(stringResource(R.string.focus_section), Modifier.padding(top = 20.dp)) }
+            item(key = "notifications.focus") {
+                RowGroup {
+                    focusRows(
+                        settings.focus,
+                        FocusSettingsActions(
+                            setShare = { actions.settings.focus.setShare(it); choose("focus.share", it.toString()) },
+                            setFollow = { actions.settings.focus.setFollow(it); choose("focus.follow", it.toString()) },
+                            openAccess = actions.settings.focus.openAccess,
+                        ),
+                    )
                 }
             }
         }
@@ -677,8 +693,11 @@ private fun LazyListScope.groupContent(group: SetupGroup, state: SetupUiState, a
         }
         SetupGroup.MEDIA -> item(key = "media") {
             RowGroup {
+                // The Settings page's order (MediaSectionFeatures): Mac actions and the camera follow media controls.
                 listOf(
                     BridgeyFeature.MEDIA to R.string.settings_media_detail,
+                    BridgeyFeature.MAC_ACTIONS to R.string.settings_mac_actions_detail,
+                    BridgeyFeature.CAMERA to R.string.settings_camera_detail,
                     BridgeyFeature.LINKS to R.string.feature_links_detail,
                     BridgeyFeature.PING to R.string.settings_ping_detail,
                     BridgeyFeature.FIND_DEVICE to R.string.settings_find_detail,

@@ -168,3 +168,21 @@ Mac shows "Unlock OnePlus 11 to take the photo". The photo arrives as an ordinar
 files; Settings > Files > "Copy photos from the phone camera to the clipboard" (off by default)
 also puts it on the clipboard. The ML Kit document scanner is not included, because it needs
 Google Play services, which this edition does not depend on.
+
+## Setup, Permissions and Reset (v0.10)
+
+- **Advanced setup** shows the same settings as Settings. On the phone, Media and quick actions has
+  Mac actions and Take photos for the Mac after media controls, and Notifications ends with Focus
+  (share and follow). On the Mac, Devices has the battery alerts, Notifications the Focus card,
+  Files the camera clipboard option, and Media and actions Open links right away and Mac actions.
+- **Permissions.** Phone: Camera (needed while Take photos for the Mac is on) and Do Not Disturb
+  access (needed while Follow the Mac's Focus is on). Mac: Accessibility is needed for remote
+  control and for Lock; Automation (Safari, Chrome) for Send the Current Browser Tab, a separate
+  row from the music player's Automation. Turning Lock on and the first browser tab send show the
+  explainer before macOS asks.
+- **Reset.** Activity and logs deletes the Mac actions log and clears connection health on both.
+  Models and caches deletes the phone's saved lists of Mac actions and waiting camera photos.
+  Settings resets the Mac actions list and switches, Open links right away, battery alert
+  thresholds, Focus and the camera options (all `settings.*` on the Mac; `bridgey.settings` and
+  the widgets' Macs on the phone), and first hands back any Do Not Disturb or Focus that following
+  turned on.

@@ -164,6 +164,7 @@ private fun resetItemText(item: ResetItem): String = stringResource(
         ResetItem.UPDATE_APKS -> R.string.reset_item_updates
         ResetItem.CLIPBOARD_CACHE -> R.string.reset_item_clipboard
         ResetItem.FOLDER_JOURNALS -> R.string.reset_item_folders
+        ResetItem.MAC_ACTION_CATALOGS -> R.string.reset_item_mac_actions
         ResetItem.OTHER_CACHES -> R.string.reset_item_caches
         ResetItem.FEATURE_SETTINGS -> R.string.reset_item_features
         ResetItem.APP_PREFERENCES -> R.string.reset_item_app

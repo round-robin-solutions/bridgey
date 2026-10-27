@@ -15,7 +15,9 @@ class PermissionCatalogTest {
         screenshot: Boolean = true,
         background: Boolean = false,
         media: Boolean = false,
-    ) = PermissionFacts(sdk, lab, granted, notifications, calls, screenshot, background, media)
+        camera: Boolean = true,
+        focusFollow: Boolean = true,
+    ) = PermissionFacts(sdk, lab, granted, notifications, calls, screenshot, background, media, camera, focusFollow)
 
     private fun states(facts: PermissionFacts) = PermissionCatalog.entries(facts).associate { it.kind to it.state }
 
@@ -37,6 +39,8 @@ class PermissionCatalogTest {
         assertEquals(PermissionState.NOT_ALLOWED, none[PermissionKind.BATTERY])
         assertEquals(PermissionState.NOT_ALLOWED, none[PermissionKind.INSTALL_PACKAGES])
         assertEquals(PermissionState.NOT_ALLOWED, none[PermissionKind.LOGS])
+        assertEquals(PermissionState.NOT_ALLOWED, none[PermissionKind.CAMERA])
+        assertEquals(PermissionState.NOT_ALLOWED, none[PermissionKind.DO_NOT_DISTURB])
     }
 
     @Test
@@ -56,6 +60,22 @@ class PermissionCatalogTest {
         assertEquals(PermissionState.NOT_ALLOWED, states(facts(screenshot = false, media = true))[PermissionKind.PHOTOS])
         assertEquals(PermissionState.NOT_NEEDED_YET, states(facts(screenshot = false, media = false))[PermissionKind.PHOTOS])
         assertEquals(PermissionState.ALLOWED, states(facts(screenshot = false, media = true, granted = setOf(PermissionKind.PHOTOS)))[PermissionKind.PHOTOS])
+    }
+
+    @Test
+    fun cameraFollowsTakePhotosForTheMacAndDoNotDisturbFollowsTheMacsFocus() {
+        val off = states(facts(camera = false, focusFollow = false))
+        assertEquals(PermissionState.NOT_NEEDED_YET, off[PermissionKind.CAMERA])
+        assertEquals(PermissionState.NOT_NEEDED_YET, off[PermissionKind.DO_NOT_DISTURB])
+        assertEquals(PermissionState.NOT_ALLOWED, states(facts(camera = true))[PermissionKind.CAMERA])
+        assertEquals(PermissionState.NOT_ALLOWED, states(facts(focusFollow = true))[PermissionKind.DO_NOT_DISTURB])
+        val granted = states(facts(camera = false, focusFollow = false, granted = setOf(PermissionKind.CAMERA, PermissionKind.DO_NOT_DISTURB)))
+        assertEquals(PermissionState.ALLOWED, granted[PermissionKind.CAMERA])
+        assertEquals(PermissionState.ALLOWED, granted[PermissionKind.DO_NOT_DISTURB])
+        // The camera sits after Photos and videos, Do Not Disturb after the companion link.
+        val order = PermissionKind.entries
+        assertEquals(order.indexOf(PermissionKind.PHOTOS) + 1, order.indexOf(PermissionKind.CAMERA))
+        assertEquals(order.indexOf(PermissionKind.COMPANION_LINK) + 1, order.indexOf(PermissionKind.DO_NOT_DISTURB))
     }
 
     @Test

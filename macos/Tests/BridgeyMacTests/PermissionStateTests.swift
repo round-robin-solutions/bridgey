@@ -68,8 +68,22 @@ final class PermissionStateTests: XCTestCase {
         XCTAssertTrue(needs.needed(.automation))
     }
 
+    /// v0.9: Lock (Mac actions) needs Accessibility too; Send the Current Browser Tab needs Automation for the browser.
+    func testAutomationFeaturesNeedTheirPermissions() {
+        var needs = PermissionNeeds(notifications: false, calls: false)
+        XCTAssertFalse(needs.needed(.accessibility))
+        XCTAssertFalse(needs.needed(.browserAutomation))
+        needs.macActionsLock = true
+        XCTAssertTrue(needs.needed(.accessibility), "Lock presses the Lock Screen shortcut")
+        XCTAssertFalse(needs.needed(.automation), "the player's Automation is separate from the browser's")
+        needs.browserTab = true
+        XCTAssertTrue(needs.needed(.browserAutomation))
+        XCTAssertEqual(PermissionStatus(permission: .browserAutomation, system: .notDetermined, needed: false).chip, .notNeededYet)
+        XCTAssertEqual(PermissionStatus(permission: .browserAutomation, system: .denied, needed: true).chip, .notAllowed)
+    }
+
     func testEveryPermissionHasItsCopyAndExactSettingsPage() {
-        XCTAssertEqual(SetupPermission.allCases, [.localNetwork, .notifications, .bluetooth, .accessibility, .automation])
+        XCTAssertEqual(SetupPermission.allCases, [.localNetwork, .notifications, .bluetooth, .accessibility, .automation, .browserAutomation])
         XCTAssertEqual(SetupPermission.localNetwork.why, "Finds your phone and talks to it on this network.")
         XCTAssertEqual(SetupPermission.automation.without, "Media controls from the phone do nothing.")
         XCTAssertEqual(SetupPermission.bluetooth.explainerTitle, "Allow Bluetooth?")
@@ -77,6 +91,8 @@ final class PermissionStateTests: XCTestCase {
         XCTAssertTrue(SetupPermission.bluetooth.settingsURL.absoluteString.hasSuffix("Privacy_Bluetooth"))
         XCTAssertTrue(SetupPermission.accessibility.settingsURL.absoluteString.hasSuffix("Privacy_Accessibility"))
         XCTAssertTrue(SetupPermission.automation.settingsURL.absoluteString.hasSuffix("Privacy_Automation"))
+        XCTAssertTrue(SetupPermission.browserAutomation.settingsURL.absoluteString.hasSuffix("Privacy_Automation"))
+        XCTAssertEqual(SetupPermission.browserAutomation.name, "Automation (Safari, Chrome)")
         XCTAssertTrue(SetupPermission.notifications.settingsURL.absoluteString.contains("Notifications-Settings"))
     }
 

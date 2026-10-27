@@ -54,12 +54,12 @@ enum SetupGroup: String, CaseIterable, Identifiable, Codable {
     /// One line above the group's settings.
     var intro: String {
         switch self {
-        case .devices: L10n.setup("setup.group.devices.intro", fallback: "Pair a phone and choose what this Mac shares with each one.")
+        case .devices: L10n.setup("setup.group.devices.intro", fallback: "Pair a phone, choose what this Mac shares with each one, and its battery alerts.")
         case .clipboard: L10n.setup("setup.group.clipboard.intro", fallback: "Copy on one device and paste on the other.")
-        case .notifications: L10n.setup("setup.group.notifications.intro", fallback: "Your phone\u{2019}s notifications on this Mac, including codes from messages and duplicates.")
+        case .notifications: L10n.setup("setup.group.notifications.intro", fallback: "Your phone\u{2019}s notifications on this Mac, including codes from messages and duplicates, and Focus with your phones.")
         case .calls: L10n.setup("setup.group.calls.intro", fallback: "See, answer and start phone calls from this Mac.")
-        case .files: L10n.setup("setup.group.files.intro", fallback: "Where received files go, and what folders include when you send them.")
-        case .media: L10n.setup("setup.group.media.intro", fallback: "Control this Mac\u{2019}s music from the phone, and the quick actions.")
+        case .files: L10n.setup("setup.group.files.intro", fallback: "Where received files go, what folders include when you send them, and photos from the phone camera.")
+        case .media: L10n.setup("setup.group.media.intro", fallback: "Control this Mac\u{2019}s music from the phone, the quick actions, and what a phone you allow may do on this Mac.")
         case .remoteControl: L10n.setup("setup.group.remoteControl.intro", fallback: "Let a phone you allow move the pointer and type. Off until you turn it on.")
         case .privacy: L10n.setup("setup.group.privacy.intro", fallback: "What Bridgey keeps on this Mac, and what goes into its logs.")
         case .updates: L10n.setup("setup.group.updates.intro", fallback: "Which releases this Mac gets, and when it checks.")

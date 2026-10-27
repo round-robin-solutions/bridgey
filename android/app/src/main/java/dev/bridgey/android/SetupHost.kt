@@ -117,6 +117,9 @@ internal fun BridgeyApplication.runResetHook(hook: ResetHook) {
         ResetHook.CLEAR_DIAGNOSTICS -> pairing.clearDiagnostics()
         ResetHook.CLEAR_TRANSFER_HISTORY -> pairing.clearTransferHistory()
         ResetHook.CLEAR_CLIPBOARD_CACHE -> pairing.clearClipboardCache()
+        ResetHook.CLEAR_CONNECTION_HEALTH -> pairing.clearConnectionHealth()
+        ResetHook.CLEAR_MAC_ACTION_CATALOGS -> pairing.macActions.clearCatalogs()
+        ResetHook.RELEASE_FOCUS -> pairing.releaseFocus()
         ResetHook.RELEASE_FOLDER_GRANTS -> contentResolver.persistedUriPermissions.forEach { permission ->
             val flags = (if (permission.isReadPermission) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or
                 (if (permission.isWritePermission) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
@@ -215,6 +218,8 @@ internal fun permissionFacts(context: Context, settings: SettingsState): Permiss
             PhotoPermissions.access(context) == PhotoAccess.FULL
         }
         if (photosGranted) add(PermissionKind.PHOTOS)
+        if (granted(Manifest.permission.CAMERA)) add(PermissionKind.CAMERA)
+        if (settings.focus.access) add(PermissionKind.DO_NOT_DISTURB)
         if (settings.codes.linked) add(PermissionKind.COMPANION_LINK)
         if (settings.batteryExempt) add(PermissionKind.BATTERY)
         if (context.packageManager.canRequestPackageInstalls()) add(PermissionKind.INSTALL_PACKAGES)
@@ -230,6 +235,8 @@ internal fun permissionFacts(context: Context, settings: SettingsState): Permiss
         screenshotOn = settings.featureOn(BridgeyFeature.CLIPBOARD) && settings.clipboardFilesEnabled && settings.screenshotSendEnabled,
         backgroundClipboardOn = settings.backgroundClipboardEnabled,
         mediaOn = settings.featureOn(BridgeyFeature.FILES),
+        cameraOn = settings.featureOn(BridgeyFeature.CAMERA),
+        focusFollowOn = settings.focus.follow,
     )
 }
 
@@ -255,7 +262,10 @@ internal fun PermissionsRoute(
             PermissionKind.PHONE_CALLS -> if (allowed) start(appDetails) else onRequestDirectCalls()
             // Files 2.0 also needs videos, which the screenshot request does not ask for: App info allows both.
             PermissionKind.PHOTOS -> if (allowed || settings.featureOn(BridgeyFeature.FILES)) start(appDetails) else actions.setScreenshotSend(true)
+            // Android asks for the camera the first time a Mac asks for a photo; App info allows or removes it.
+            PermissionKind.CAMERA -> start(appDetails)
             PermissionKind.COMPANION_LINK -> onOpenSection(SettingsSection.NOTIFICATIONS)
+            PermissionKind.DO_NOT_DISTURB -> actions.focus.openAccess()
             PermissionKind.BATTERY -> if (allowed) start(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) else actions.requestBatteryExemption()
             PermissionKind.INSTALL_PACKAGES -> start(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")))
             PermissionKind.SMS -> start(appDetails)

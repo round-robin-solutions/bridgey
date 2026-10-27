@@ -36,7 +36,9 @@ fun permissionName(kind: PermissionKind): String = stringResource(
         PermissionKind.POST_NOTIFICATIONS -> R.string.perm_post_notifications_name
         PermissionKind.PHONE_CALLS -> R.string.perm_phone_calls_name
         PermissionKind.PHOTOS -> R.string.perm_photos_name
+        PermissionKind.CAMERA -> R.string.perm_camera_name
         PermissionKind.COMPANION_LINK -> R.string.perm_companion_link_name
+        PermissionKind.DO_NOT_DISTURB -> R.string.perm_do_not_disturb_name
         PermissionKind.BATTERY -> R.string.perm_battery_name
         PermissionKind.INSTALL_PACKAGES -> R.string.perm_install_packages_name
         PermissionKind.SMS -> R.string.perm_sms_name
@@ -51,7 +53,9 @@ fun permissionWhy(kind: PermissionKind): String = stringResource(
         PermissionKind.POST_NOTIFICATIONS -> R.string.perm_post_notifications_why
         PermissionKind.PHONE_CALLS -> R.string.perm_phone_calls_why
         PermissionKind.PHOTOS -> R.string.perm_photos_why
+        PermissionKind.CAMERA -> R.string.perm_camera_why
         PermissionKind.COMPANION_LINK -> R.string.perm_companion_link_why
+        PermissionKind.DO_NOT_DISTURB -> R.string.perm_do_not_disturb_why
         PermissionKind.BATTERY -> R.string.perm_battery_why
         PermissionKind.INSTALL_PACKAGES -> R.string.perm_install_packages_why
         PermissionKind.SMS -> R.string.perm_sms_why
@@ -66,7 +70,9 @@ fun permissionWithout(kind: PermissionKind): String = stringResource(
         PermissionKind.POST_NOTIFICATIONS -> R.string.perm_post_notifications_without
         PermissionKind.PHONE_CALLS -> R.string.perm_phone_calls_without
         PermissionKind.PHOTOS -> R.string.perm_photos_without
+        PermissionKind.CAMERA -> R.string.perm_camera_without
         PermissionKind.COMPANION_LINK -> R.string.perm_companion_link_without
+        PermissionKind.DO_NOT_DISTURB -> R.string.perm_do_not_disturb_without
         PermissionKind.BATTERY -> R.string.perm_battery_without
         PermissionKind.INSTALL_PACKAGES -> R.string.perm_install_packages_without
         PermissionKind.SMS -> R.string.perm_sms_without
@@ -79,7 +85,9 @@ fun permissionIcon(kind: PermissionKind): Pair<ImageVector, Tint> = when (kind) 
     PermissionKind.POST_NOTIFICATIONS -> BridgeyIcons.Notifications to Tint.BLUE
     PermissionKind.PHONE_CALLS -> BridgeyIcons.Call to Tint.GREEN
     PermissionKind.PHOTOS -> BridgeyIcons.Image to Tint.BLUE
+    PermissionKind.CAMERA -> BridgeyIcons.PhotoCamera to Tint.BLUE
     PermissionKind.COMPANION_LINK -> BridgeyIcons.Link to Tint.BLUE
+    PermissionKind.DO_NOT_DISTURB -> BridgeyIcons.Bedtime to Tint.PURPLE
     PermissionKind.BATTERY -> BridgeyIcons.Bolt to Tint.GREEN
     PermissionKind.INSTALL_PACKAGES -> BridgeyIcons.SystemUpdate to Tint.PURPLE
     PermissionKind.SMS -> BridgeyIcons.Description to Tint.NEUTRAL

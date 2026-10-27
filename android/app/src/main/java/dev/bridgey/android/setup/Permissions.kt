@@ -9,7 +9,11 @@ enum class PermissionKind(val key: String) {
     POST_NOTIFICATIONS("post_notifications"),
     PHONE_CALLS("phone_calls"),
     PHOTOS("photos"),
+    /** v0.9 automation: Take photos for the Mac. */
+    CAMERA("camera"),
     COMPANION_LINK("companion_link"),
+    /** v0.9 automation: Do Not Disturb access, for Follow the Mac's Focus. */
+    DO_NOT_DISTURB("do_not_disturb"),
     BATTERY("battery"),
     INSTALL_PACKAGES("install_packages"),
     SMS("sms"),
@@ -31,6 +35,10 @@ data class PermissionFacts(
     val backgroundClipboardOn: Boolean = false,
     /** Files 2.0: the attach sheet's Photos and videos tab and Macs browsing this phone's media (Files on). */
     val mediaOn: Boolean = false,
+    /** Take photos for the Mac (on by default; Android asks the first time a Mac asks for a photo). */
+    val cameraOn: Boolean = true,
+    /** Notifications > Focus > Follow the Mac's Focus (off by default). */
+    val focusFollowOn: Boolean = false,
 )
 
 data class PermissionEntry(val kind: PermissionKind, val state: PermissionState) {
@@ -54,6 +62,8 @@ object PermissionCatalog {
             PermissionKind.NOTIFICATION_ACCESS, PermissionKind.COMPANION_LINK -> facts.notificationsOn
             PermissionKind.PHONE_CALLS -> facts.callsOn
             PermissionKind.PHOTOS -> facts.screenshotOn || facts.mediaOn
+            PermissionKind.CAMERA -> facts.cameraOn
+            PermissionKind.DO_NOT_DISTURB -> facts.focusFollowOn
             PermissionKind.LOGS -> facts.backgroundClipboardOn
             // Only the Code reader test asks, when it starts.
             PermissionKind.SMS -> false

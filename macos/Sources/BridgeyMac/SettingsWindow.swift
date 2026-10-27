@@ -1531,10 +1531,11 @@ struct LiveSettingsView: View {
         actions.clearRemoteAudit = { remoteAudit.clear() }
         actions.setMacActionSwitch = { item, enabled in
             macActions.setSwitch(item, enabled: enabled)
-            // Lock needs Accessibility: macOS asks once, when Lock is turned on, never at launch.
+            // Lock needs Accessibility: macOS asks once, when Lock is turned on, never at launch. The
+            // Permissions explainer comes first, as for remote control.
             if item == .lock && enabled {
                 remoteInput.refreshAccessibility()
-                if !remoteInput.accessibilityTrusted { AccessibilityAccess.request() }
+                if !remoteInput.accessibilityTrusted { setupCenter.requestAccessibility { AccessibilityAccess.request() } }
             }
         }
         actions.addMacActionApps = { macActions.addApps(chooseAllowedApps()) }

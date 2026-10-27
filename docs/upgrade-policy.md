@@ -55,6 +55,8 @@ build, pair again.
 | Activity stream | Every item | 200 items, 7 days |
 | Notification history (Mac, optional) | Every item | 200 items, 7 days |
 | Remote control audit (Mac) | Every entry | 500 entries, 30 days |
+| Mac actions log (Mac) | Every entry | 500 entries, 30 days |
+| Each Mac's saved list of Mac actions (phone) | Every list | Replaced by the Mac's next list |
 | Reconnect address book | Every record | 4 addresses per device |
 | Folder transfer journals (both directions, downloads and uploads) | Resumable transfers | 24 hours after the last progress |
 | Tray (Mac) | Every item; files and folders are bookmarks, so they must still exist | 200 items |
@@ -63,7 +65,9 @@ build, pair again.
 | On-device code model, its paused download and the terms acceptance (Mac) | Always | None |
 
 Not covered: the diagnostics logs (`diagnostics.json` on both, a bounded ring that may be reset),
-the update download cache, and Sparkle's own state.
+the update download cache, and Sparkle's own state. Connection health, the Mac's battery alert memory
+(which alerts were shown this charge cycle) and the phone's record of the Do Not Disturb that Focus sync
+turned on are kept in memory only and start again with the app.
 
 ## How formats are versioned
 
@@ -138,6 +142,8 @@ Commits are on `rr/main`; "Beta N" is the first edition tag `v0.6.0-rr.1-beta.N`
 | | | `calls.ring`, `logging.*` (9 switches) | Beta 11 (ed3b49c, 1c83719) | `defaults.beta.11.plist` |
 | | | `codes.enabled`, `codes.autoCopy`, `codes.installId`, `codes.engine`, `codes.model.acceptance` (JSON data, ISO 8601 dates) | Beta 13 (9e23012, d2c9129) | `defaults.beta.13.plist`, `defaults.codes-before-engine.plist` |
 | | | `folders.receiveMode` (`fixed`, `ask`), `folders.conflict` (`ask`, `merge`, `replace`, `new_folder`), `files.tagReceived` | 0.8.0-rr.1 (3118376) | `defaults.0.8.0-rr.1.plist`, `defaults.files2-wrong-values.plist` |
+| | | v0.9 automation: feature `mac_actions_draft1` in `global.*` and `device.*` (off by default, granted per phone); `links.openRightAway`; `batteryAlerts.<id>.low` and `.full` (integers; a value outside the choices reads as the default); `focusSync` (JSON data `{share, follow, onShortcut?, offShortcut?}`); `camera.copyToClipboard` | Merged after 0.8.0-rr.1-beta.1 (2600a48, b34a5cd, ffe8b8b, 85ef25f) | `settings/defaults.automation.plist` |
+| Mac actions list | defaults data `settings.macActions.config` | JSON `{switches: [name, Bool, ...] (lock, sleep, screensaver, volume), apps: [{bundleID, name}], shortcuts: [{id (lowercase UUID handle), name}]}`; a switch this build does not know, or an app or Shortcut that does not decode, is dropped on its own | Merged after 0.8.0-rr.1-beta.1 (2600a48) | `settings/defaults.automation.plist` |
 | Send and drop options | defaults `send.lastDevice`, `send.menuBarDrop` (`spring_open`, `tray`, `instant`), `send.optimization.v1` (JSON data `{imageMode, maxEdge, format, quality, stripLocation, stripCamera, stripDates, videoMode, folderMode}`) | Strings and data; unknown values read as the defaults | 0.8.0-rr.1 (c29f0fe) | `settings/defaults.0.8.0-rr.1.plist` |
 | Phone files window | defaults `phoneFiles.last.phone`, `phoneFiles.last.section`, `phoneFiles.sort`, `phoneFiles.sort.descending`, `phoneFiles.last.place.<id>`, `phoneFiles.last.path.<id>` | Strings and a Bool | 0.8.0-rr.1 (5894544) | `settings/defaults.0.8.0-rr.1.plist` |
 | Other defaults | `updates.channel`; `media.player`, `media.pauseForCalls`, `shortcuts.*` | Strings and Bools | Beta 1 (696a99d); media and shortcuts upstream | `settings/defaults.beta.*.plist` |
@@ -147,6 +153,7 @@ Commits are on `rr/main`; "Beta N" is the first edition tag `v0.6.0-rr.1-beta.N`
 | | | Adds `fileCount?`, `destination?`, the `folder_*` kinds and folder facts in `content` | Beta 10 (4e97e06) | `activity-stream.beta.10.json` |
 | Notification history | `.../in.roundrobin.bridgey/notification-history.json` (0600) | Array of `{id, packageName, applicationName, title, text, receivedAt}`, dates in seconds since 2001 | Upstream (84d1b54); edition folder since Beta 1 (696a99d) | `notification-history/` |
 | Remote control audit | `.../in.roundrobin.bridgey/remote-control-audit.json` (0600) | Array of `{id, deviceID, deviceName, mode?, accepted, startedAt, endedAt, endReason, counts, dropped, rejected}`, sorted keys, dates in ms | Beta 9 (01396c0) | `remote-control/` |
+| Mac actions log | `.../in.roundrobin.bridgey/mac-actions-audit.json` (0600, folder 0700) | Array of `{id, deviceID, deviceName, action, title, outcome, at}`, sorted keys, dates in ms; 500 entries, 30 days; an entry that does not decode is dropped on its own | Merged after 0.8.0-rr.1-beta.1 (2600a48) | `mac-actions/` |
 | Folder journals (sender) | `.../in.roundrobin.bridgey/FolderTransfers/<id>.json` (0600, folder 0700) | `{version: 1, folderTransferId, deviceID, deviceName, rootPath, bookmark?, displayName, rootName, options, destination?, destinationLabel?, manifestSha256, fileCount, totalSize, createdAt, lastProgressAt, completed}`, dates in ms | Beta 10 (c4c49fb) | `folder-transfers/` |
 | | | Adds `roots?` and `into?` (uploads into a phone folder) | 0.8.0-rr.1 (60898ae) | `folder-transfers-0.8/` |
 | Folder journals (receiver) | `.../in.roundrobin.bridgey/FolderReceives/<id>.journal` (0600, folder 0700) | Text: `v1 <base64 JSON header {version, folderTransferId, peerID, peerName, manifestSha256, createdAt, directoryPath, rootPath, rootName, choice, into, downloadRequestId?, purpose?, destinationLabel, topNames, fileCount, totalSize, displayName}>`, then `d`, `p` (percent-encoded paths), `f`, `x` lines; last progress is the later of the file's modification time and `createdAt`. A journal this build cannot read is removed | 0.8.0-rr.1 (60898ae) | `folder-receives/` |
@@ -172,6 +179,7 @@ Commits are on `rr/main`; "Beta N" is the first edition tag `v0.6.0-rr.1-beta.N`
 | | | `files.folder_destination`, `files.folder_conflict`, `files.folder_default_place`, `files.folder_allow_replace`, `files.folder_recent` (JSON) | Beta 10 (af501f7) | `beta.10/` |
 | | | `clipboard.screenshot.enabled`, `logging.*` (9 switches) | Beta 11 (3ba3f65, 1c83719) | `beta.11/`, `beta.13/` |
 | | | `files.allow_browse` (on by default; "Allow other devices to change files here" keeps `files.folder_allow_replace`) | 0.8.0-rr.1 (3118376) | `shared_prefs/0.8.0-rr.1/` |
+| | | v0.9 automation: features `mac_actions_draft1` and `camera_draft1` in `global.*` and `device.*` (both on by default), `focus.share`, `focus.follow` | Merged after 0.8.0-rr.1-beta.1 (8c62f61, 08b2a15, bb5f5ca) | `shared_prefs/automation/` |
 | Appearance and privacy | SharedPreferences `bridgey.ui` | `show_activity_previews`, `reduce_motion` (Beta 2, 6030623 and a992670); `qs_tile_added` (Beta 4, deac2c5); `battery_prompt_shown` (Beta 8, 129147d) | Beta 2 | `bridgey.ui.xml` |
 | Updates | SharedPreferences `bridgey.updates` | `channel`, `last_checked_at`, `snoozed_version_code`, `snoozed_until`, `notified_version_code` (Beta 1, 696a99d); `skipped_version_code` (Beta 11, 182a07b) | Beta 1 | `bridgey.updates.xml` |
 | Reconnect address book | SharedPreferences `bridgey.reconnect`, key `address_book_v1` | JSON `{id: {lastConnectedAt?, addresses: [{host, port, source, lastSeen}]}}`, dates in ms | Beta 8 (06e8914) | `beta.8/` on, `bridgey.reconnect.xml` |
@@ -184,6 +192,9 @@ Commits are on `rr/main`; "Beta N" is the first edition tag `v0.6.0-rr.1-beta.N`
 | Folder journals (sender) | `noBackupFilesDir/folder-sends/<id>.plan` and `<id>.done` (owner only) | `.plan`: JSON `{v: 1, id, peer, peerName, root, into, download, skipped, created, release, entries: [[type, path, size, sha256, modified, sourceUri]]}` (`""` and `-1` for none); `.done`: one confirmed entry index per line; last progress is the later modification time. A plan this build cannot read is removed | 0.8.0-rr.1 (02b09ed) | `folder-sends/` |
 | Recent documents index | `noBackupFilesDir/document-index.json` (owner only) | JSON `{v: 1, builtAt, signature, items: [{p, d, n, s, m, t, u, l}]}`, dates in ms; a rebuildable cache, bad items dropped one by one, another version starts empty | 0.8.0-rr.1 (82d6e16) | `document-index/` |
 | Attach sheet | SharedPreferences `bridgey.attach` | `tab` (`MEDIA`, `FILES`, `FOLDERS`), `target` (device id), `documents_card_dismissed`, `media_asked` | 0.8.0-rr.1 (e65b5b8) | `shared_prefs/0.8.0-rr.1/bridgey.attach.xml` |
+| Mac actions lists | SharedPreferences `bridgey.mac_actions`, keys `catalog.<Mac id>` | The Mac's last `actions.catalog` as JSON `{version: 1, actions: [{id, title?, blocked?}], volume?}`; a list that does not parse or has another version is dropped on its own, and so is an entry with an id this build does not know | Merged after 0.8.0-rr.1-beta.1 (8c62f61) | `shared_prefs/automation/bridgey.mac_actions.xml` |
+| Widgets | SharedPreferences `bridgey.widgets`, keys `widget.<appWidgetId>` | The Mac id a widget shows; no key follows the Mac selected in Bridgey | Merged after 0.8.0-rr.1-beta.1 (b166756) | `shared_prefs/automation/bridgey.widgets.xml` |
+| Camera photos | `cacheDir/camera/` | JPEGs waiting to be sent to the Mac that asked; removed after an hour | Merged after 0.8.0-rr.1-beta.1 (08b2a15) | Rebuildable cache, name pinned in `StorageNamesTest` |
 | Other preferences | `bridgey.places` (Beta 10, 552f197), `bridgey.remote` (Beta 9, 24a55f7), `bridgey.screenshot` (Beta 11, 3ba3f65), `bridgey_codes` (Beta 13, 9e23012) | Owned by the Files, remote control, screenshot and codes features | As listed | None yet (deferred) |
 
 ## Known gaps (to close before 1.0)

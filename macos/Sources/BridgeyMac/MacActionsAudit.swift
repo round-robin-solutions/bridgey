@@ -30,10 +30,12 @@ final class MacActionsAuditStore {
     }
 
     func load(now: Date) -> [MacActionAuditEntry] {
+        // An entry that does not decode is dropped on its own (docs/upgrade-policy.md), not the whole log.
         guard let data = try? Data(contentsOf: fileURL),
-              let decoded = try? Self.decoder.decode([MacActionAuditEntry].self, from: data) else { return [] }
+              let elements = try? Self.decoder.decode([LenientElement<MacActionAuditEntry>].self, from: data) else { return [] }
+        let decoded = elements.compactMap(\.value)
         let kept = Self.pruned(decoded, now: now)
-        if kept != decoded { save(kept) }
+        if kept != decoded || elements.count != decoded.count { save(kept) }
         return kept
     }
 

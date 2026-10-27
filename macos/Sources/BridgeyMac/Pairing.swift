@@ -3411,6 +3411,18 @@ final class PairingCoordinator: ObservableObject {
 
     // MARK: Connection health
 
+    /// Reset > Activity and logs: round trips, the last disconnect and today's reconnects go; whether each
+    /// phone is connected now, its route and who dialled stay.
+    func clearConnectionHealth() {
+        for id in healthRecords.keys {
+            healthRecords[id]?.roundTrips = HeartbeatRoundTrips()
+            healthRecords[id]?.lastDropReason = nil
+            healthRecords[id]?.lastDropAt = nil
+            healthRecords[id]?.reconnects = DailyCounter()
+        }
+        publishHealth()
+    }
+
     func healthSnapshot(for id: String) -> ConnectionHealthSnapshot {
         ConnectionHealthSnapshot(
             deviceID: id, record: healthRecords[id], connected: registry.session(for: id) != nil,

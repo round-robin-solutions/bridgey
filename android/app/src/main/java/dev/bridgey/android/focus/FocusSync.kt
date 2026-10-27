@@ -146,6 +146,15 @@ class FocusSync(
         return FocusApply.NO_CHANGE
     }
 
+    /**
+     * Reset > Settings: Follow is about to go back to off, so the Do Not Disturb Bridgey turned on is handed
+     * back now, while Bridgey still knows it turned it on (that memory is not kept across the restart).
+     */
+    @Synchronized fun release(): FocusApply {
+        remoteActive.clear()
+        return handBack()
+    }
+
     /** The session ended: the next one sends the state again. A followed Focus stays until the Mac says otherwise. */
     @Synchronized fun sessionEnded(deviceId: String) {
         lastSent.remove(deviceId)

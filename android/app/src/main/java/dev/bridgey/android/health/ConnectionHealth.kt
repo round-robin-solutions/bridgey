@@ -197,6 +197,21 @@ class ConnectionHealthBook(
         changed()
     }
 
+    /**
+     * Reset > Activity and logs: the counters and history go (round trips, the last disconnect, today's
+     * reconnect attempts); whether each device is connected now, its route and who dialled stay true.
+     */
+    @Synchronized fun clearHistory() {
+        facts.values.forEach { entry ->
+            entry.rtts.clear()
+            entry.lastDisconnectReason = null
+            entry.lastDisconnectAt = null
+            entry.attemptsDay = null
+            entry.attempts = 0
+        }
+        changed()
+    }
+
     @Synchronized fun snapshot(deviceId: String, discoverySeesNow: Boolean, batteryOptimisationExempt: Boolean?, nowMillis: Long): DeviceHealth {
         val entry = facts[deviceId]
         val today = Instant.ofEpochMilli(nowMillis).atZone(zone()).toLocalDate()

@@ -1520,6 +1520,12 @@ class PairingCoordinator(
         remoteInputListener?.invoke(current.remoteDeviceId, message.kind, data)
     }
 
+    /** Reset > Activity and logs: connection health counters and history (no addresses were ever kept). */
+    fun clearConnectionHealth() = health.clearHistory()
+
+    /** Reset > Settings: hands back the Do Not Disturb that Follow turned on, before the Focus settings go. */
+    fun releaseFocus() = recordFocus(focusSync.release())
+
     /** Connection health of [deviceId] now. Holds no address, name or content. */
     fun healthOf(deviceId: String): dev.bridgey.android.health.DeviceHealth = health.snapshot(
         deviceId,

@@ -1,0 +1,29 @@
+[
+ {
+  "action": "lock",
+  "at": 1793005200000,
+  "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+  "deviceName": "Test Phone A",
+  "id": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+  "outcome": "done",
+  "title": "Lock screen"
+ },
+ {
+  "action": "app:com.apple.Safari",
+  "at": 1793001600000,
+  "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+  "deviceName": "Test Phone A",
+  "id": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5f",
+  "outcome": "not_allowed",
+  "title": "Safari"
+ },
+ {
+  "action": "shortcut:3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b",
+  "at": 1792998000000,
+  "deviceID": "662af8a6-40db-4ee9-8fa4-7a8d96bc57aa",
+  "deviceName": "Test Phone B",
+  "id": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f60",
+  "outcome": "rate_limited",
+  "title": "Morning routine"
+ }
+]

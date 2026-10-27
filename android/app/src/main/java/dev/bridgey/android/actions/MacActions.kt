@@ -325,6 +325,11 @@ class MacActionsClient(
     /** Forgotten Mac. */
     fun forget(deviceId: String) = revoked(deviceId)
 
+    /** Reset > Models and caches: every Mac's saved list goes; a connected Mac sends its list again with its next update. */
+    @Synchronized fun clearCatalogs() {
+        mutableCatalogs.value.keys.toList().forEach(::revoked)
+    }
+
     /** Every session ended (Bridgey turned off). */
     @Synchronized fun reset() {
         mutableLive.value.forEach(::endPending)

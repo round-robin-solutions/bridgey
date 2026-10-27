@@ -147,6 +147,31 @@ struct MacActionsConfig: Codable, Equatable {
     }
 }
 
+extension MacActionsConfig {
+    private enum StoredKeys: String, CodingKey { case switches, apps, shortcuts }
+
+    /// Reads a stored config entry by entry (docs/upgrade-policy.md): a switch this build does not know (a newer
+    /// build's), or an app or Shortcut that does not decode, is dropped on its own instead of every choice.
+    /// `switches` is stored as JSONEncoder writes a dictionary with enum keys: a flat `[name, Bool, ...]` array.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: StoredKeys.self)
+        var switches: [MacActionSwitch: Bool] = [:]
+        if var list = try? container.nestedUnkeyedContainer(forKey: .switches) {
+            while !list.isAtEnd {
+                let name = try list.decode(LenientElement<String>.self).value
+                guard !list.isAtEnd else { break }
+                let value = try list.decode(LenientElement<Bool>.self).value
+                if let name, let value, let item = MacActionSwitch(rawValue: name) { switches[item] = value }
+            }
+        }
+        self.switches = switches
+        apps = ((try? container.decode([LenientElement<AllowedApp>].self, forKey: .apps)) ?? []).compactMap(\.value)
+            .filter { isValidBundleID($0.bundleID) }
+        shortcuts = ((try? container.decode([LenientElement<AllowedShortcut>].self, forKey: .shortcuts)) ?? []).compactMap(\.value)
+            .filter { isShortcutHandle($0.id) }
+    }
+}
+
 struct MacVolumeState: Equatable {
     var level: Int
     var muted: Bool

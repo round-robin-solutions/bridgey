@@ -23,7 +23,7 @@ enum ResetChoice: String, CaseIterable, Identifiable {
 
     var summary: String {
         switch self {
-        case .activity: L10n.setup("reset.activity.summary", fallback: "Activity, notification history, diagnostics and the remote control log. Keeps settings and pairings.")
+        case .activity: L10n.setup("reset.activity.summary", fallback: "Activity, notification history, diagnostics and the remote control and Mac actions logs. Keeps settings and pairings.")
         case .caches: L10n.setup("reset.caches.summary", fallback: "The code model, clipboard cache and folder transfer journals. Keeps settings, pairings and history.")
         case .settings: L10n.setup("reset.settings.summary", fallback: "Every setting back to its default; setup runs again. Keeps pairings, history and caches.")
         case .everything: L10n.setup("reset.everything.summary", fallback: "All of the above, plus trusted devices and this Mac\u{2019}s identity. Phones need pairing again.")
@@ -73,6 +73,8 @@ enum ResetChoice: String, CaseIterable, Identifiable {
 /// One thing a choice deletes.
 enum ResetItem: String, CaseIterable {
     case activityStream, notificationHistory, diagnostics, remoteAudit, transferHistory
+    /// v0.9: every Mac action a phone ran or was refused.
+    case macActionsAudit
     case codeModel, clipboardCache, folderJournals, otherCaches
     case settings
     case trustedDevices, identityKeys, reconnectAddresses, appRecords
@@ -81,14 +83,15 @@ enum ResetItem: String, CaseIterable {
         switch self {
         case .activityStream: L10n.setup("reset.item.activity", fallback: "Activity stream")
         case .notificationHistory: L10n.setup("reset.item.history", fallback: "Notification history")
-        case .diagnostics: L10n.setup("reset.item.diagnostics", fallback: "Diagnostics events and the log on this Mac")
+        case .diagnostics: L10n.setup("reset.item.diagnostics", fallback: "Diagnostics events, connection health and the log on this Mac")
         case .remoteAudit: L10n.setup("reset.item.remoteAudit", fallback: "Remote control audit log")
         case .transferHistory: L10n.setup("reset.item.transfers", fallback: "Transfer history")
+        case .macActionsAudit: L10n.setup("reset.item.macActionsAudit", fallback: "Mac actions log")
         case .codeModel: L10n.setup("reset.item.codeModel", fallback: "Code model (Codes from messages, On this Mac)")
         case .clipboardCache: L10n.setup("reset.item.clipboardCache", fallback: "Clipboard cache")
         case .folderJournals: L10n.setup("reset.item.folderJournals", fallback: "Folder transfer journals (interrupted folders will not resume)")
         case .otherCaches: L10n.setup("reset.item.otherCaches", fallback: "Other caches (notification icons, phone thumbnails, optimised copies, downloaded updates)")
-        case .settings: L10n.setup("reset.item.settings", fallback: "Every setting: feature switches, per-device settings, update channel, logging switches, folder destinations, send and drop options. Setup runs again.")
+        case .settings: L10n.setup("reset.item.settings", fallback: "Every setting: feature switches, per-device settings, update channel, logging switches, folder destinations, send and drop options, Mac actions lists, Focus, battery alerts and camera options. Setup runs again.")
         case .trustedDevices: L10n.setup("reset.item.trusted", fallback: "Trusted devices")
         case .identityKeys: L10n.setup("reset.item.identity", fallback: "This Mac\u{2019}s identity keys")
         case .reconnectAddresses: L10n.setup("reset.item.addresses", fallback: "Reconnect addresses")
@@ -140,6 +143,7 @@ struct LocalDataLocations {
         case .remoteAudit: [support.appendingPathComponent(RemoteControlAuditStore.fileName)]
         // The History window's file (Files 2.0); the live reset also clears the rows in memory.
         case .transferHistory: [support.appendingPathComponent(TransferHistoryStore.fileName)]
+        case .macActionsAudit: [support.appendingPathComponent(MacActionsAuditStore.fileName)]
         case .codeModel: [support.appendingPathComponent("Models", isDirectory: true)]
         case .clipboardCache: [support.appendingPathComponent("ClipboardCache", isDirectory: true)]
         // Folders this Mac sends (FolderTransfers) and receives from phones (FolderReceives, Files 2.0).
@@ -169,7 +173,7 @@ struct LocalDataReset {
     }
 
     static func items(_ choice: ResetChoice) -> [ResetItem] {
-        let activity: [ResetItem] = [.activityStream, .notificationHistory, .diagnostics, .remoteAudit, .transferHistory]
+        let activity: [ResetItem] = [.activityStream, .notificationHistory, .diagnostics, .remoteAudit, .transferHistory, .macActionsAudit]
         let caches: [ResetItem] = [.codeModel, .clipboardCache, .folderJournals, .otherCaches]
         switch choice {
         case .activity: return activity
@@ -200,7 +204,9 @@ struct LocalDataReset {
 
     /// Settings: every `settings.` key but the two records below, the update channel and
     /// Sparkle's own choices, Media, shortcuts, folder destinations, setup progress, and (Files 2.0) the
-    /// send and menu-bar drop options and what the Phone files window remembers.
+    /// send and menu-bar drop options and what the Phone files window remembers. The v0.9 automation
+    /// settings are all `settings.` keys: `macActions.config`, `links.openRightAway`, `batteryAlerts.<id>.*`,
+    /// `focusSync` and `camera.copyToClipboard`. Battery alert state is in memory and goes with the restart.
     static let settingsPrefixes = ["settings.", "media.", "shortcuts.", "folders.lastDestination.", "setup.", "send.", "phoneFiles."]
     static let settingsKeys = [UpdateChannel.defaultsKey, "SUEnableAutomaticChecks", "SUAutomaticallyUpdate",
                                "SUScheduledCheckInterval", "SUSkippedVersion", "SUSkippedMajorVersion"]

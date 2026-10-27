@@ -226,8 +226,15 @@ final class SetupCenter: ObservableObject {
             codes: settings.codesEnabled,
             remoteControl: settings.globalFeatures[.remoteInput] == true,
             media: settings.globalFeatures[.media] == true,
-            mediaPlayer: pairing?.mediaController.player ?? .off
+            mediaPlayer: pairing?.mediaController.player ?? .off,
+            macActionsLock: settings.globalFeatures[.macActions] == true && pairing?.macActions.config.isOn(.lock) == true,
+            browserTab: settings.globalFeatures[.links] != false
         )
+    }
+
+    /// The browser Send current browser tab would ask: the last one used that is running, else Safari.
+    private var browserBundleID: String {
+        pairing?.browserTab.browser?.rawValue ?? SupportedBrowser.safari.rawValue
     }
 
     private var automationBundleID: String {
@@ -248,14 +255,15 @@ final class SetupCenter: ObservableObject {
                 self?.publishPermissions()
             }
         }
-        let bundleID = automationBundleID
-        let lastKnown = store.lastAutomation(bundleID)
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            let state = PermissionMapping.automation(AutomationProbe.state(bundleID: bundleID, ask: false), lastKnown: lastKnown)
-            Task { @MainActor in
-                self?.store.rememberAutomation(state, for: bundleID)
-                self?.systemStates[.automation] = state
-                self?.publishPermissions()
+        for (permission, bundleID) in [(SetupPermission.automation, automationBundleID), (.browserAutomation, browserBundleID)] {
+            let lastKnown = store.lastAutomation(bundleID)
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let state = PermissionMapping.automation(AutomationProbe.state(bundleID: bundleID, ask: false), lastKnown: lastKnown)
+                Task { @MainActor in
+                    self?.store.rememberAutomation(state, for: bundleID)
+                    self?.systemStates[permission] = state
+                    self?.publishPermissions()
+                }
             }
         }
     }
@@ -326,8 +334,8 @@ final class SetupCenter: ObservableObject {
             }
         case .accessibility:
             AccessibilityAccess.request()
-        case .automation:
-            let bundleID = automationBundleID
+        case .automation, .browserAutomation:
+            let bundleID = permission == .automation ? automationBundleID : browserBundleID
             if NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty {
                 NSWorkspace.shared.open(permission.settingsURL)
             } else {
@@ -368,11 +376,16 @@ final class SetupCenter: ObservableObject {
             pairing?.clearTransferHistory()
             // Files 2.0: the History window's entries, before the file goes.
             pairing?.transferHistory.clear()
+            // v0.9: the Mac actions log and the connection health counters.
+            pairing?.macActions.audit.clear()
+            pairing?.clearConnectionHealth()
             reset.perform(.activity)
         case .caches:
             pairing?.codeModel.remove()
             reset.perform(.caches)
         case .settings, .everything:
+            // v0.9: a Focus that following a phone turned on is handed back while Bridgey still knows it did.
+            pairing?.focusSync.update { $0.follow = false }
             if choice == .everything, let pairing {
                 // Sessions end before their pairings go, and nothing new connects meanwhile.
                 discovery?.stop()

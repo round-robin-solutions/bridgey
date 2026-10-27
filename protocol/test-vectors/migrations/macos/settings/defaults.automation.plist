@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>deviceID</key>
+	<string>9e82d846-bd24-47b7-83ff-7e9210a5e6b2</string>
+	<key>settings.batteryAlerts.662af8a6-40db-4ee9-8fa4-7a8d96bc57aa.full</key>
+	<integer>0</integer>
+	<key>settings.batteryAlerts.662af8a6-40db-4ee9-8fa4-7a8d96bc57aa.low</key>
+	<integer>7</integer>
+	<key>settings.batteryAlerts.d60c274e-f2b8-452d-8031-912d80624414.full</key>
+	<integer>80</integer>
+	<key>settings.batteryAlerts.d60c274e-f2b8-452d-8031-912d80624414.low</key>
+	<integer>15</integer>
+	<key>settings.camera.copyToClipboard</key>
+	<true/>
+	<key>settings.device.d60c274e-f2b8-452d-8031-912d80624414.mac_actions_draft1</key>
+	<true/>
+	<key>settings.deviceName</key>
+	<string>Test Mac</string>
+	<key>settings.focusSync</key>
+	<data>
+	eyJzaGFyZSI6dHJ1ZSwiZm9sbG93Ijp0cnVlLCJvblNob3J0Y3V0IjoiRm9jdXMgT24i
+	LCJvZmZTaG9ydGN1dCI6IkZvY3VzIE9mZiJ9
+	</data>
+	<key>settings.global.mac_actions_draft1</key>
+	<true/>
+	<key>settings.links.openRightAway</key>
+	<true/>
+	<key>settings.macActions.config</key>
+	<data>
+	eyJzd2l0Y2hlcyI6WyJsb2NrIix0cnVlLCJzbGVlcCIsZmFsc2UsInZvbHVtZSIsdHJ1
+	ZSwiYnJpZ2h0bmVzcyIsdHJ1ZV0sImFwcHMiOlt7ImJ1bmRsZUlEIjoiY29tLmFwcGxl
+	LlNhZmFyaSIsIm5hbWUiOiJTYWZhcmkifSx7ImJ1bmRsZUlEIjoiY29tLmFwcGxlLk11
+	c2ljIn0seyJidW5kbGVJRCI6ImJhZCBpZCIsIm5hbWUiOiJCYWQifV0sInNob3J0Y3V0
+	cyI6W3siaWQiOiIzZjJhMWI0Yy01ZDZlLTRmNzAtOGE5Yi0wYzFkMmUzZjRhNWIiLCJu
+	YW1lIjoiTW9ybmluZyByb3V0aW5lIn0seyJpZCI6Ik5PVC1BLUhBTkRMRSIsIm5hbWUi
+	OiJCcm9rZW4ifV19
+	</data>
+</dict>
+</plist>
