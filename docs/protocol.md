@@ -802,10 +802,9 @@ the field and simply receive a file.
 ## Draft: folders, places and settings sync
 
 **Draft, edition only until accepted upstream.** Bridgey by Round Robin implements
-this first; upstream clients never receive these messages. Implemented so far
-(Files 2.0, first slice): folders Mac to phone and places on the phone. Phone to
-Mac and settings sync are not built yet; clients do not advertise
-`settings_sync_draft1`. The full design, user
+this first; upstream clients never receive these messages. Implemented: folders
+Mac to phone and places on the phone (Files 2.0, first slice), phone to Mac (second
+slice, below) and settings sync (v0.10). The full design, user
 experience and reasons are in [folders-and-settings-sync.md](folders-and-settings-sync.md).
 
 ### Negotiation
@@ -963,7 +962,16 @@ plus one, and increments `version`. The higher `changedAt` wins, then the higher
 unchanged and never re-sent as a new edit, so updates cannot ping-pong. Receivers
 answer `settings.ack` `{schema, ackOf, applied[], kept[]}` and send their newer
 records for `kept` keys unless already sent to that peer; unknown keys and invalid records are skipped one by
-one; an unsupported schema is answered `settings.error` `{schema, code, maxSchema}`.
+one; an unsupported schema is answered `settings.error` `{schema, code, maxSchema}`
+(`unsupported_schema`), and a payload that fails validation `invalid_message`.
+
+As built in v0.10 ([section 8.4](folders-and-settings-sync.md#84-as-built-v010-2026-10-27)):
+the four keys `files.folder_destination`, `files.folder_conflict`, `activity.previews` and
+`display.reduce_motion` sync; the reserved `clipboard.*` keys are never sent and are skipped on
+receipt. The key is advertised while the global and per-device switches are both on. Each side
+sends its snapshot once per session (again after sync went off and on), keeps per peer the stamps
+it sent and received, and relays winning records to its other peers, so a phone with two Macs
+carries one Mac's change to the other.
 
 ## Draft: phone files, media and folders both ways
 

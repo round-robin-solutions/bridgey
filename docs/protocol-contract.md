@@ -37,7 +37,7 @@ the tables at the end of this page are generated from it with
 | `edition-extension` | An optional field this edition adds to an `upstream-v1` message (for example `targetDeviceId` on `pairing.offer`, `smsDefaultApp` on `notifications.post`). Upstream peers ignore it; it never changes the meaning of the fields they know. |
 | `edition-draft` | Edition only, gated by a `*_draft1` feature key and sent only to a peer whose latest `features.update` shows that key `true`. It may still change; when upstream accepts it, it moves to a final key (below). |
 | `retired` | No longer sent or advertised. Receivers keep ignoring it, and the key and kinds are never reused. None yet. |
-| `designed` | Specified in [protocol.md](protocol.md) but not built by either client yet (settings sync). Never sent. |
+| `designed` | Specified in [protocol.md](protocol.md) but not built by either client yet. Never sent. None now (settings sync was the last, built in v0.10). |
 
 ## Compatibility rules
 
@@ -68,7 +68,7 @@ the tables at the end of this page are generated from it with
    the Stable channel and prefer the final key; then the draft key is retired by rule 6.
 8. **Malformed is not unknown.** Inside a known kind, a payload that is over its limit or fails
    validation is dropped (or answered with that feature's error message). A payload that fails
-   decryption closes the session for `upstream-v1` messages and for folders, places and browsing, as in
+   decryption closes the session for `upstream-v1` messages and for folders, places, browsing and settings sync, as in
    upstream; clipboard offers, codes, remote input and the automation drafts (Mac actions, Focus sync,
    phone camera) drop it and keep the session.
 9. **Replay.** Encrypted messages with a `messageId` go through one per-session window of the last
@@ -97,7 +97,9 @@ the tables at the end of this page are generated from it with
   against the same plaintext). `mac_actions_draft1` and `camera_draft1` are switches in the apps but
   draft keys on the wire: the vectors pin them once, under the draft keys, and like every draft key
   they read `true` only for JSON `true`. (`remote_input_draft1` predates the shared draft list: a
-  non-boolean value still closes the session.)
+  non-boolean value still closes the session.) Settings sync (v0.10): both decode `settings.snapshot` and `settings.update` payloads alike
+  (`settingsPayload`: records kept, entries skipped one by one, invalid messages, unsupported schemas), pick the
+  same winner between two records (`settingsMerge`) and stamp a local edit alike (`settingsStamp`).
 - Fuzz tests on both platforms feed random bytes, truncated and oversized frames, wrong types,
   unknown kinds, replayed IDs and huge counts to the frame decoder and the payload decoders, and
   check that nothing crashes, memory stays bounded and a valid message still works afterwards. The
@@ -140,7 +142,7 @@ the tables at the end of this page are generated from it with
 | `links_open_draft1` | edition-draft | no | false |
 | `focus_sync_draft1` | edition-draft | no | false |
 | `camera_draft1` | edition-draft | no | false |
-| `settings_sync_draft1` | designed | no | false |
+| `settings_sync_draft1` | edition-draft | no | false |
 
 ### Envelope fields
 
@@ -1092,21 +1094,29 @@ Answered by `folders.cancel.ack`.
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `settings.snapshot` | designed | either | settings_sync_draft1 | yes | messageId | 16,384 B | sessionId, messageId, nonce, ciphertext | not yet |
-| `settings.update` | designed | either | settings_sync_draft1 | yes | messageId | 16,384 B | sessionId, messageId, nonce, ciphertext | not yet |
-| `settings.ack` | designed | either | settings_sync_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | not yet |
-| `settings.error` | designed | either | settings_sync_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | not yet |
+| `settings.snapshot` | edition-draft | either | settings_sync_draft1 | yes | messageId | 16,384 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `settings.update` | edition-draft | either | settings_sync_draft1 | yes | messageId | 16,384 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `settings.ack` | edition-draft | either | settings_sync_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `settings.error` | edition-draft | either | settings_sync_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
 
 `settings.snapshot`
 
 - `schema`: integer, 1
 - `maxSchema`: integer
-- `records`: object of key to {value, changedAt, version, changedBy}
+- `records`: object of key to {value, changedAt, version, changedBy}, at most 32; every schema 1 key the sender syncs
+
+Answered by `settings.ack`.
+
+Sent by each side when settings_sync_draft1 becomes true on both for the session, including right after connecting. Unknown keys and invalid records are skipped one by one. Schema 1 keys synced: files.folder_destination, files.folder_conflict, activity.previews, display.reduce_motion; clipboard.automatic and pair.clipboard.automatic are reserved and never sent. A payload that fails decryption closes the session; one that fails validation is answered settings.error invalid_message.
 
 `settings.update`
 
 - `schema`: integer, 1
-- `records`: object of key to record
+- `records`: object of key to record, at most 32
+
+Answered by `settings.ack`.
+
+Local edits (debounced 500 ms), relayed records from other peers, and records that won (kept) and were not yet sent to this peer.
 
 `settings.ack`
 
@@ -1115,10 +1125,12 @@ Answered by `folders.cancel.ack`.
 - `applied`: array of keys
 - `kept`: array of keys
 
+kept lists keys where the receiver's own record won; it sends those records in settings.update unless it already sent them to this peer.
+
 `settings.error`
 
 - `schema`: integer
-- `code`: unsupported_schema
+- `code`: unsupported_schema | invalid_message
 - `maxSchema`: integer
 
 <!-- END GENERATED -->

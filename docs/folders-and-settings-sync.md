@@ -956,6 +956,76 @@ Android: `SharedPreferences` file `bridgey.sync`, one JSON record per key, `pair
 prefix for pair keys. Mac: `UserDefaults` dictionary `sync.records`. The local setting stays
 where it is today; the store wraps the setter (`setLocal` stamps, `applyRemote` does not).
 
+### 8.4 As built (v0.10, 2026-10-27)
+
+Settings sync shipped in v0.10 under `settings_sync_draft1`. Where the build differs from 8.1 to
+8.3, this section wins.
+
+**What syncs.** An allowlist of four schema 1 keys, the same on both platforms:
+
+| Key | Android setting | Mac setting |
+| --- | --- | --- |
+| `files.folder_destination` | Files > Folders sent to this phone | Files > Folders from the phone (see below) |
+| `files.folder_conflict` | Files > When a folder already exists | Same |
+| `activity.previews` | Privacy > Show previews in activity | Privacy > Show previews |
+| `display.reduce_motion` | General > Reduce motion | General > Reduce motion |
+
+Everything else never syncs: device names, every feature switch and per-device override, every
+permission, pairing keys and trust, places and the default folder, the received-files folder,
+"Allow other devices to change files here", "Let other devices browse this phone", logging,
+update channels, notification app filters, shortcuts, the Mac's media player, Focus, and the
+sync switches themselves. A key outside the allowlist is skipped on receipt, never stored and
+never relayed.
+
+**Off until chosen.** Fresh installs start with every optional feature off. Sync shares
+preferences only, so it never turns a feature on: none of the four keys is a feature switch, and
+the two folder keys only matter once Files is on for that device, which each device chooses
+itself. For that reason sync itself stays on by default, as Rahul decided, on fresh installs too.
+The reserved `clipboard.automatic` and `pair.clipboard.automatic` keys are not synced: automatic
+clipboard sends what you copy, so it stays a choice made on each device (open question 6).
+
+**Switches.** Settings > General > "Sync settings with paired devices" (on) and, on each device's
+page, "Sync settings with this device" (on). A device advertises `settings_sync_draft1` to a peer
+while both are on. The device page shows "Off on <device>" when the peer's latest
+`features.update` shows the key false. Turning sync off keeps every value as it is.
+
+**Session.** When both sides show the key true, each sends `settings.snapshot` once; it sends it
+again only after sync went off and on again for that peer, or in a new session. Each side keeps,
+per peer and per session, the stamp of every record it sent to and received from that peer, and
+sends a record only when it matches neither. Local edits go out after 500 ms. Every valid
+snapshot or update is answered `settings.ack`; an invalid one `settings.error` `invalid_message`;
+a schema other than 1 `settings.error` `unsupported_schema`. After receiving `settings.error` a
+device stops syncing with that peer until the next session.
+
+**Local edits.** Each platform watches the four settings wherever they change (Settings, setup,
+Siri and Shortcuts, Reset). A value that differs from its record is a local edit and is stamped;
+a value applied from a peer is written to the record first, so it is never stamped again.
+
+**Activity.** Every snapshot or update that changes something here records one item in Other:
+"Settings synced with OnePlus 11: Reduce motion on, Previews off". Values are stored as tokens in
+the item's detail, never free text.
+
+**More than one device.** Macs never pair with each other, so a phone paired with two Macs is the
+hub: it relays what one Mac changes to the other. Every device relays to every peer it syncs
+with, so a Mac with two phones is the hub between them in the same way. When the hub is away the
+others keep their values; when each next connects to it, the later edit wins on all of them,
+whatever the order. A peer whose sync switch is off on either side is left out of relaying.
+
+**Mac folder destination.** The Mac has two modes for folders from the phone: Ask on this Mac
+(`receiver_asks`) and Always save to Received files (`fixed`). It reads `sender_picks` as
+`fixed`, because the phone cannot choose a folder on the Mac. Picking a mode on the Mac sends it
+only when it changes what the Mac does.
+
+**Upgrade and reset.** The first build with sync stamps values as in 8.2 (a stored non-default
+value gets `changedAt 1, version 1`). On the Mac a never-chosen folder mode counts as the default.
+Reset > Settings also clears the sync records and switches, so the device takes the other
+devices' values the next time it connects.
+
+**Storage.** Android: `SharedPreferences` file `bridgey.sync` (`record.<key>` JSON, `enabled`,
+`device.<deviceId>`, `stamped`). Mac: `settings.sync.records`, `settings.sync.enabled`,
+`settings.sync.devices` and `settings.sync.stamped` in `UserDefaults`, under the `settings.`
+prefix so Reset covers them.
+
 ## 9. Security and privacy
 
 | Risk | Mitigation |
@@ -1122,6 +1192,19 @@ Storage Access Framework". This design answers those three:
    for the Resume button. Change any?
 5. **Mode (b) sheet (D14).** A Bridgey sheet of places plus "Other folder…", rather than
    jumping straight into Android's picker. Fine?
+
+Raised by the settings sync build (2026-10-27, see 8.4):
+
+6. **Automatic clipboard (reserved keys).** Not synced, because "off until chosen" leaves
+   sharing behaviours to each device. Sync it later (turning it on only where the clipboard
+   feature is already on), or keep it per device?
+7. **Sync on fresh installs.** Sync is on by default on fresh installs too (it shares
+   preferences, not features). Should setup ask instead, like a feature?
+8. **Reset > Settings.** Resetting one device clears its sync records, so the next connection
+   brings the other devices' values back (reduce motion, previews, folder choices). Or should a
+   reset push the defaults to every device?
+9. **Mac folder destination.** The Mac reads "Let the sending device choose" as "Always save
+   to Received files". Fine, or should the Mac show the phone's choice with a note?
 
 ## Decisions confirmed by Rahul (2026-10-25)
 
