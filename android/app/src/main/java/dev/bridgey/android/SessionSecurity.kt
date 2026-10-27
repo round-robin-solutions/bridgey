@@ -44,7 +44,10 @@ internal object SessionSecurity {
 
     fun envelopeKey(sessionKey: ByteArray): ByteArray = hmac(sessionKey, ENVELOPE_LABEL.toByteArray(Charsets.UTF_8))
 
-    /** Base64 HMAC-SHA-256 over the sender's device ID and every envelope field of [message] except `tag`. */
+    /**
+     * Base64 HMAC-SHA-256 over the sender's device ID and every envelope field of [message] except `tag`. An empty
+     * field counts as absent, as the decoders read it.
+     */
     fun tag(envelopeKey: ByteArray, senderDeviceId: String, message: Message): String =
         base64(hmac(envelopeKey, tagInput(senderDeviceId, message)))
 
@@ -64,7 +67,7 @@ internal object SessionSecurity {
             message.publicKey, message.identityKey, message.proof, message.signature, message.messageId,
             message.nonce, message.ciphertext, message.transferId, message.sequence?.toString(), message.targetDeviceId,
             message.commitment, message.protocolVersion?.toString(),
-        ),
+        ).map { it?.takeIf(String::isNotEmpty) },
     )
 
     /** Each field as a 4-byte big-endian length and its UTF-8 bytes; an absent field is length 0xFFFFFFFF. */

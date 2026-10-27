@@ -43,7 +43,8 @@ enum SessionSecurity {
         Data(HMAC<SHA256>.authenticationCode(for: Data(envelopeLabel.utf8), using: SymmetricKey(data: sessionKey)))
     }
 
-    /// Base64 HMAC-SHA-256 over the sender's device ID and every envelope field of `message` except `tag`.
+    /// Base64 HMAC-SHA-256 over the sender's device ID and every envelope field of `message` except `tag`. An empty
+    /// field counts as absent, as the decoders read it.
     static func tag(envelopeKey: Data, senderDeviceID: String, message: PairingMessage) -> String {
         Data(HMAC<SHA256>.authenticationCode(for: tagInput(senderDeviceID, message), using: SymmetricKey(data: envelopeKey)))
             .base64EncodedString()
@@ -67,7 +68,7 @@ enum SessionSecurity {
             message.publicKey, message.identityKey, message.proof, message.signature, message.messageId,
             message.nonce, message.ciphertext, message.transferId, message.sequence.map { String($0) },
             message.targetDeviceId, message.commitment, message.protocolVersion.map { String($0) },
-        ])
+        ].map { $0?.isEmpty == true ? nil : $0 })
     }
 
     /// Each field as a 4-byte big-endian length and its UTF-8 bytes; an absent field is length 0xFFFFFFFF.

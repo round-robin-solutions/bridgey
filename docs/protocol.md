@@ -142,8 +142,8 @@ prompt. Prompts started by another device are limited to three a minute.
 
 When both ends sent `protocolVersion: 2`, every frame after pairing carries
 `tag`: base64 HMAC-SHA-256, under HMAC(session key, `bridgey-envelope-v2`), of the
-sender's device ID and every envelope field (length-prefixed, an absent field
-written as length 0xFFFFFFFF). A frame with a missing or wrong tag is dropped, as
+sender's device ID and every envelope field (length-prefixed, an absent or empty
+field written as length 0xFFFFFFFF). A frame with a missing or wrong tag is dropped, as
 is any non-pairing frame on a session that has not authenticated; 16 dropped
 frames close the connection. A device that once authenticated with protocol 2 is
 pinned to it, so a later session without tags is refused. Shared vectors are in

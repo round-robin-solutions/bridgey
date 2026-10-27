@@ -93,6 +93,10 @@ final class SessionSecurityTests: XCTestCase {
             let sender = "device-\(Int.random(in: 0..<4))"
             message.tag = SessionSecurity.tag(envelopeKey: key, senderDeviceID: sender, message: message)
             XCTAssertTrue(SessionSecurity.tagMatches(envelopeKey: key, senderDeviceID: sender, message: message))
+            // An empty field reads as absent after decoding, so the tag treats it the same.
+            var empty = message
+            empty.deviceName = ""
+            XCTAssertTrue(SessionSecurity.tagMatches(envelopeKey: key, senderDeviceID: sender, message: empty))
             XCTAssertFalse(SessionSecurity.tagMatches(envelopeKey: bytes(32), senderDeviceID: sender, message: message))
             var forged = message
             forged.tag = bytes(32).base64EncodedString()

@@ -88,6 +88,8 @@ class SessionSecurityTest {
             val sender = "device-" + random.nextInt(4)
             val good = message.copy(tag = SessionSecurity.tag(key, sender, message))
             assertTrue(SessionSecurity.tagMatches(key, sender, good))
+            // An empty field reads as absent after decoding, so the tag treats it the same.
+            assertTrue(SessionSecurity.tagMatches(key, sender, good.copy(deviceName = "", targetDeviceId = if (good.targetDeviceId == null) "" else good.targetDeviceId)))
             assertFalse(SessionSecurity.tagMatches(ByteArray(32).also(random::nextBytes), sender, good))
             assertFalse(SessionSecurity.tagMatches(key, sender, good.copy(tag = Base64.getEncoder().encodeToString(random.nextBytes(32)))))
             assertFalse(SessionSecurity.tagMatches(key, sender, good.copy(tag = "%%%")))
