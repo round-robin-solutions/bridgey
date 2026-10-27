@@ -12,6 +12,8 @@ import SwiftUI
 /// feature's switch, followed by its options. Android uses the same order.
 enum SettingsPane: String, CaseIterable, Identifiable {
     case thisMac, devices, clipboard, notifications, calls, files, media, remoteControl, privacy, updates, general, about
+    /// Privacy sub-pages (PermissionsView.swift, ResetView.swift); not in the sidebar.
+    case permissions, reset
 
     var id: String { rawValue }
 
@@ -30,6 +32,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .updates: L10n.text("settings.updates", fallback: "Updates")
         case .general: L10n.text("settings.general", fallback: "General")
         case .about: L10n.text("settings.about", fallback: "About")
+        case .permissions, .reset: subpageTitle
         }
     }
 
@@ -56,11 +59,13 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .updates: "arrow.triangle.2.circlepath"
         case .general: "gearshape"
         case .about: "info.circle"
+        case .permissions: "lock.shield"
+        case .reset: "arrow.counterclockwise"
         }
     }
 
     /// The sidebar list; This Mac is the compact header above it.
-    static let sidebarItems: [SettingsPane] = allCases.filter { $0 != .thisMac }
+    static let sidebarItems: [SettingsPane] = allCases.filter { $0 != .thisMac && $0.parentPane == nil }
 }
 
 struct SettingsModel {
@@ -127,6 +132,8 @@ struct SettingsModel {
     var remoteSession: RemoteInputHost.ActiveSession?
     var accessibilityTrusted = false
     var remoteAudit: [RemoteControlAuditEntry] = []
+    /// Permissions and Reset (SetupCenter).
+    var setup = SetupSettingsModel()
 
     var connectedDeviceID: String? {
         if case let .connected(id, _) = state { return id }
@@ -205,6 +212,8 @@ struct SettingsActions {
     var stopRemoteControl: () -> Void = {}
     var openAccessibilitySettings: () -> Void = {}
     var clearRemoteAudit: () -> Void = {}
+    /// Permissions, Reset and Run setup again (SetupCenter).
+    var setup = SetupSettingsActions()
 }
 
 enum SettingsLinks {
@@ -226,6 +235,7 @@ struct SettingsWindowView: View {
             VStack(alignment: .leading, spacing: 0) {
                 BoundedScroll {
                     VStack(alignment: .leading, spacing: 16) {
+                        SettingsBackButton(pane: $pane)
                         Text(pane.title)
                             .font(BrandFont.heading(24))
                             .foregroundStyle(c.on)
@@ -293,7 +303,7 @@ private struct SettingsSidebar: View {
                     HStack(spacing: 10) {
                         Image(systemName: item.symbol)
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(item == pane ? side.tbi : side.on2)
+                            .foregroundStyle(item == pane.sidebarPane ? side.tbi : side.on2)
                             .frame(width: 18)
                         Text(item.sidebarTitle)
                             .font(BrandFont.body(13, .medium))
@@ -303,11 +313,11 @@ private struct SettingsSidebar: View {
                     }
                     .padding(.horizontal, 10)
                     .frame(height: 30)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(item == pane ? side.tb : Color.clear))
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(item == pane.sidebarPane ? side.tb : Color.clear))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityAddTraits(item == pane ? .isSelected : [])
+                .accessibilityAddTraits(item == pane.sidebarPane ? .isSelected : [])
             }
             Spacer(minLength: 0)
             HStack(spacing: 8) {
@@ -546,6 +556,8 @@ struct SettingsPaneView: View {
         case .updates: UpdatesPane(model: model, actions: actions)
         case .general: GeneralPane(model: model, actions: actions)
         case .about: AboutPane(model: model, actions: actions)
+        case .permissions: PermissionsPane(model: model, actions: actions)
+        case .reset: ResetPane(model: model, actions: actions)
         }
     }
 }
@@ -717,6 +729,7 @@ private struct GeneralPane: View {
             SettingsToggle(title: L10n.text("settings.shortcuts.shift", fallback: "Also require Shift for shortcuts"),
                            isOn: model.shortcutShift, set: actions.setShortcutShift)
         }
+        RunSetupAgainCard(actions: actions)
     }
 }
 
@@ -1077,6 +1090,7 @@ struct PrivacyPane: View {
     @State private var confirmClear = false
 
     var body: some View {
+        PrivacyPermissionsCard(model: model, actions: actions)
         SettingsCard(title: L10n.text("settings.activity", fallback: "Activity")) {
             SettingsToggle(title: L10n.text("settings.previews", fallback: "Show previews in activity"),
                            subtitle: L10n.text("settings.previews.detail", fallback: "Clipboard text, app names and callers. Off keeps only what happened."),
@@ -1094,6 +1108,7 @@ struct PrivacyPane: View {
             Text(L10n.text("settings.activity.clear.body", fallback: "This removes the stream from this Mac. Your other devices keep their own history."))
         }
         LoggingCard(model: model, actions: actions)
+        PrivacyResetCard(actions: actions)
     }
 }
 
@@ -1240,7 +1255,7 @@ final class SettingsWindowController {
     }
 }
 
-private struct LiveSettingsView: View {
+struct LiveSettingsView: View {
     @ObservedObject var discovery: BonjourDiscovery
     @ObservedObject var pairing: PairingCoordinator
     @ObservedObject var settings: BridgeySettings
@@ -1251,16 +1266,20 @@ private struct LiveSettingsView: View {
     @ObservedObject var remoteInput: RemoteInputHost
     @ObservedObject var remoteAudit: RemoteControlAuditLog
     @ObservedObject var codeModel: CodeModelStore
+    @ObservedObject var setupCenter = SetupCenter.shared
+    /// The setup window (SetupWindow.swift) shows the same live settings, one group at a time.
+    let inSetup: Bool
     @State private var pane: SettingsPane = .devices
     @State private var phoneLinkStatus: String?
     /// While Remote control is open: notices Accessibility being allowed in System Settings.
     private let accessibilityTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    init(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings, updater: AppUpdater) {
+    init(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings, updater: AppUpdater, inSetup: Bool = false) {
         self.discovery = discovery
         self.pairing = pairing
         self.settings = settings
         self.updater = updater
+        self.inSetup = inSetup
         activity = pairing.activity
         media = pairing.mediaController
         shortcuts = pairing.shortcuts
@@ -1286,7 +1305,11 @@ private struct LiveSettingsView: View {
 
     var body: some View {
         BrandRoot(reduceMotion: settings.reduceMotion) {
-            SettingsWindowView(model: model, actions: actions, pane: $pane)
+            if inSetup {
+                SetupWindowView.live(model: model, actions: actions, center: setupCenter)
+            } else {
+                SettingsWindowView(model: model, actions: actions, pane: $pane)
+            }
         }
         .onAppear {
             pairing.refreshNotificationAuthorization()
@@ -1358,6 +1381,7 @@ private struct LiveSettingsView: View {
         model.remoteSession = remoteInput.active
         model.accessibilityTrusted = remoteInput.accessibilityTrusted
         model.remoteAudit = remoteAudit.entries
+        model.setup = setupCenter.settingsModel
         return model
     }
 
@@ -1448,7 +1472,7 @@ private struct LiveSettingsView: View {
         actions.checkForUpdates = { updater.checkForUpdates() }
         actions.update = updater.flowActions
         actions.openURL = { NSWorkspace.shared.open($0) }
-        return actions
+        return setupCenter.hooked(actions, showPane: { pane = $0 }, inSetup: inSetup)
     }
 
     /// A session whose grant went away ends now. Turning remote control on asks macOS for
@@ -1457,7 +1481,7 @@ private struct LiveSettingsView: View {
         remoteInput.policyChanged()
         let grants = settings.deviceFeatures.mapValues { $0[.remoteInput] == true }
         if enabled, remoteControlEffectivelyEnabled(globalEnabled: settings.globalFeatures[.remoteInput] == true, deviceGrants: grants) {
-            remoteInput.remoteControlEnabled()
+            setupCenter.requestAccessibility { remoteInput.remoteControlEnabled() }
         }
     }
 

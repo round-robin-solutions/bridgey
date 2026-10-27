@@ -21,6 +21,8 @@ enum NotificationPrompt: Equatable { case request, openSettings }
 
 struct PanelModel {
     var onboardingDone = true
+    /// Once after an update from before v0.10 setup: "See what's new and review your setup".
+    var showsSetupReview = false
     var state: PairingState = .idle
     /// The pairing in progress only; drives the verification and failure cards.
     var pairingFlow: PairingState = .idle
@@ -74,6 +76,8 @@ struct PanelActions {
     var openSettings: () -> Void = {}
     var quit: () -> Void = {}
     var completeOnboarding: () -> Void = {}
+    var openSetupReview: () -> Void = {}
+    var dismissSetupReview: () -> Void = {}
     var connect: (DeviceRing) -> Void = { _ in }
     var disconnect: () -> Void = {}
     var disconnectDevice: (String) -> Void = { _ in }
@@ -156,6 +160,11 @@ struct StreamPanelView: View {
             )
             .padding(.horizontal, 12)
             .padding(.top, 12)
+        }
+        if model.showsSetupReview {
+            SetupReviewBanner(onOpen: actions.openSetupReview, onDismiss: actions.dismissSetupReview)
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
         }
         if let prompt = model.notificationPrompt {
             NoticeBanner(
@@ -1354,6 +1363,7 @@ struct BridgeyPanel: View {
     @ObservedObject var media: MediaController
     @ObservedObject var updater: AppUpdater
     @ObservedObject var codeModel: CodeModelStore
+    @ObservedObject var setupCenter = SetupCenter.shared
     let onOpenSettings: () -> Void
     @State private var clipboard = PasteboardPreview()
     @State private var now = Date()
@@ -1395,6 +1405,7 @@ struct BridgeyPanel: View {
     private var model: PanelModel {
         var model = PanelModel()
         model.onboardingDone = settings.hasCompletedOnboarding
+        model.showsSetupReview = setupCenter.showsReviewBanner
         model.state = pairing.state
         model.pairingFlow = pairing.pairingFlow
         model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, connected: pairing.connectedPhones,
@@ -1440,7 +1451,10 @@ struct BridgeyPanel: View {
         var actions = PanelActions()
         actions.openSettings = onOpenSettings
         actions.quit = { NSApplication.shared.terminate(nil) }
-        actions.completeOnboarding = { settings.completeOnboarding() }
+        // Get started on the first-run card opens setup (SetupWindow.swift), which completes it.
+        actions.completeOnboarding = { setupCenter.startSetup() }
+        actions.openSetupReview = { setupCenter.openReviewBanner() }
+        actions.dismissSetupReview = { setupCenter.dismissReviewBanner() }
         actions.connect = { ring in
             guard let host = ring.peer?.host, let port = ring.peer?.port else { return }
             pairing.pair(host: host, port: port, peerName: ring.name)

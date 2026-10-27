@@ -14,6 +14,8 @@ struct BridgeyApp: App {
 
     init() {
         LegacyPreferences.migrateIfNeeded()
+        // Before BridgeySettings writes anything: a pending reset, then setup or the review banner.
+        SetupCenter.shared.prepareLaunch()
         let settings = BridgeySettings()
         _settings = StateObject(wrappedValue: settings)
         let discovery = BonjourDiscovery(deviceName: settings.deviceName)
@@ -28,6 +30,8 @@ struct BridgeyApp: App {
         let updater = AppUpdater()
         self.updater = updater
         settingsWindow = SettingsWindowController(discovery: discovery, pairing: pairing, settings: settings, updater: updater)
+        SetupCenter.shared.configure(discovery: discovery, pairing: pairing, settings: settings, updater: updater,
+                                     openSettings: settingsWindow.show)
         phoneURLHandler.configure { [weak pairing] number in pairing?.sendCallWhenConnected(number) }
     }
 
