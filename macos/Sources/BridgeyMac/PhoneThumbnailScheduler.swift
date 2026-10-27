@@ -1,0 +1,356 @@
+import Combine
+import Foundation
+
+// Files 2.0: what makes the Phone files grid feel instant.
+//   - Every visible cell observes one ThumbnailBox. A memory hit fills the box before the cell's first frame,
+//     a disk hit a few milliseconds later, the phone after one batched round trip.
+//   - Cells report onAppear/onDisappear; one flush per run-loop turn turns that into a single media.thumbnails
+//     request on the "grid" lane: visible items first (in grid order), then the next screen as prefetch. A new
+//     request replaces the previous one, so items scrolled away are cancelled on the phone.
+//   - Hover prefetch (PhoneHoverPrefetcher): after 150 ms on a thumbnail, the preview-size image (and for a
+//     video the first ~2 MB) is fetched into the same content-addressed cache, at most 3 at a time, LAN only.
+
+/// One cell's thumbnail. `arrived` is true when it came after the cell first drew, so the cell fades it in.
+@MainActor
+final class ThumbnailBox: ObservableObject {
+    @Published private(set) var image: PhoneDecodedImage?
+    @Published private(set) var arrived = false
+    let key: String
+    var tint: UInt32?
+
+    init(key: String, tint: UInt32?) {
+        self.key = key
+        self.tint = tint
+    }
+
+    func set(_ decoded: PhoneDecodedImage, animated: Bool) {
+        guard image == nil || image!.pixelWidth < decoded.pixelWidth else { return }
+        arrived = animated
+        image = decoded
+        tint = decoded.tint ?? tint
+    }
+
+    /// Screenshots and tests.
+    func setForTesting(_ decoded: PhoneDecodedImage?) {
+        arrived = false
+        image = decoded
+    }
+}
+
+@MainActor
+final class PhoneThumbnailScheduler {
+    /// Grid thumbnails: the longest edge the phone renders (256 px covers 128 pt cells on Retina).
+    static let size = 256
+    /// How many items past the last visible one are prefetched.
+    static let prefetchAhead = 48
+    /// At most this many items per media.thumbnails request (protocol limit 64).
+    static let maxPerRequest = 64
+
+    private let service: PhoneFilesService
+    private let cache: PhoneThumbnailCache
+    private var phoneID: String?
+    private var boxes: [String: ThumbnailBox] = [:]
+    private var visible: [String: PhoneFileEntry] = [:]
+    /// The grid's order, to put visible items first and prefetch the next screen.
+    private var order: [PhoneFileEntry] = []
+    private var index: [String: Int] = [:]
+    private var requested = Set<String>()
+    private var missing = Set<String>()
+    /// Arrived from the phone, still decoding: never asked for again meanwhile.
+    private var decoding = Set<String>()
+    private var flushScheduled = false
+    private var current: PhoneFilesCancellable?
+    /// Timing hooks for the perf harness: when every visible box was filled.
+    var onVisibleFilled: (() -> Void)?
+
+    init(service: PhoneFilesService, cache: PhoneThumbnailCache) {
+        self.service = service
+        self.cache = cache
+    }
+
+    func setPhone(_ id: String?) {
+        guard id != phoneID else { return }
+        phoneID = id
+        current?.cancel()
+        current = nil
+        boxes.removeAll()
+        visible.removeAll()
+        requested.removeAll()
+        missing.removeAll()
+        decoding.removeAll()
+    }
+
+    func setOrder(_ entries: [PhoneFileEntry]) {
+        order = entries
+        index = Dictionary(entries.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    func box(for entry: PhoneFileEntry) -> ThumbnailBox {
+        let key = entry.cacheKey(phoneID: phoneID ?? "")
+        if let box = boxes[key] { return box }
+        let box = ThumbnailBox(key: key, tint: cache.tint(key))
+        if let hit = cache.memoryImage(key) { box.set(hit, animated: false) }
+        boxes[key] = box
+        return box
+    }
+
+    func appeared(_ entry: PhoneFileEntry) {
+        guard entry.hasThumbnail else { return }
+        visible[entry.id] = entry
+        scheduleFlush()
+    }
+
+    func disappeared(_ entry: PhoneFileEntry) {
+        guard visible.removeValue(forKey: entry.id) != nil else { return }
+        scheduleFlush()
+    }
+
+    /// Stops the grid lane (window closed, section changed).
+    func stop() {
+        current?.cancel()
+        current = nil
+        visible.removeAll()
+        requested.removeAll()
+    }
+
+    private func scheduleFlush() {
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.flushScheduled = false
+                self?.flush()
+            }
+        }
+    }
+
+    /// Fills visible boxes from disk, and asks the phone for the rest plus the next screen, in one request.
+    func flush() {
+        guard let phoneID else { return }
+        let visibleEntries = visible.values.sorted { (index[$0.id] ?? .max) < (index[$1.id] ?? .max) }
+        var network: [PhoneFileEntry] = []
+        for entry in visibleEntries {
+            let box = self.box(for: entry)
+            if box.image != nil { continue }
+            if cache.contains(box.key, kind: .thumbnail) {
+                cache.load(box.key, maxPixel: Self.size) { [weak self, weak box] decoded in
+                    guard let box else { return }
+                    if let decoded {
+                        box.set(decoded, animated: false)
+                        self?.checkFilled()
+                    } else {
+                        self?.network([entry])
+                    }
+                }
+            } else if !missing.contains(box.key), !decoding.contains(box.key) {
+                network.append(entry)
+            }
+        }
+        // The next screen, as prefetch, only while something visible is still missing or ahead is uncached.
+        if let last = visibleEntries.last.flatMap({ index[$0.id] }) {
+            let upper = min(order.count, last + 1 + Self.prefetchAhead)
+            if last + 1 < upper {
+                for entry in order[(last + 1)..<upper] where entry.hasThumbnail {
+                    let key = entry.cacheKey(phoneID: phoneID)
+                    if cache.memoryImage(key) == nil, !cache.contains(key, kind: .thumbnail), !missing.contains(key), !decoding.contains(key) {
+                        network.append(entry)
+                    }
+                }
+            }
+        }
+        let wanted = Array(network.prefix(Self.maxPerRequest))
+        let keys = Set(wanted.map { $0.cacheKey(phoneID: phoneID) })
+        // Same set already on the wire: let it finish.
+        if keys.isSubset(of: requested), current != nil {
+            checkFilled()
+            return
+        }
+        guard !wanted.isEmpty else {
+            checkFilled()
+            return
+        }
+        request(wanted, phoneID: phoneID)
+    }
+
+    private func network(_ entries: [PhoneFileEntry]) {
+        guard let phoneID else { return }
+        request(entries, phoneID: phoneID)
+    }
+
+    private func request(_ entries: [PhoneFileEntry], phoneID: String) {
+        requested = Set(entries.map { $0.cacheKey(phoneID: phoneID) })
+        current = service.thumbnails(phoneID: phoneID, entries: entries, size: Self.size, lane: "grid", deliver: { [weak self] entry, image in
+            guard let self, self.phoneID == phoneID else { return }
+            let key = entry.cacheKey(phoneID: phoneID)
+            let box = self.boxes[key]
+            self.decoding.insert(key)
+            self.cache.store(key, image: image, maxPixel: Self.size) { [weak self, weak box] decoded in
+                self?.decoding.remove(key)
+                if let decoded {
+                    box?.set(decoded, animated: true)
+                } else {
+                    // Bytes that do not decode count as missing: never asked for again.
+                    self?.missing.insert(key)
+                }
+                self?.checkFilled()
+            }
+        }, finished: { [weak self] result in
+            guard let self, self.phoneID == phoneID else { return }
+            if case let .success(none) = result {
+                for entry in none { self.missing.insert(entry.cacheKey(phoneID: phoneID)) }
+            }
+            self.current = nil
+            self.requested.removeAll()
+            // Anything still visible and empty (scrolled into view meanwhile) gets the next request.
+            if self.visible.values.contains(where: { entry in
+                let key = self.box(for: entry).key
+                return self.box(for: entry).image == nil && !self.missing.contains(key) && !self.decoding.contains(key)
+            }) {
+                self.scheduleFlush()
+            }
+        })
+    }
+
+    private func checkFilled() {
+        guard let onVisibleFilled, !visible.isEmpty else { return }
+        let filled = visible.values.allSatisfy { box(for: $0).image != nil || missing.contains(box(for: $0).key) }
+        if filled { onVisibleFilled() }
+    }
+
+    /// Boxes for items far away are dropped when there are many, so memory follows the visible window.
+    func trim(keeping limit: Int = 800) {
+        guard boxes.count > limit, let phoneID else { return }
+        let keep = Set(visible.values.map { $0.cacheKey(phoneID: phoneID) })
+        for key in boxes.keys where !keep.contains(key) {
+            boxes.removeValue(forKey: key)
+            if boxes.count <= limit / 2 { break }
+        }
+    }
+}
+
+/// Hover prefetch: rest the pointer on a thumbnail for 150 ms and its preview is fetched in the background.
+@MainActor
+final class PhoneHoverPrefetcher {
+    static let delay: TimeInterval = 0.15
+    static let maxInFlight = 3
+    static let previewSize = 1600
+    /// A video's first seconds: enough for AVPlayer to start while the rest downloads.
+    static let videoHeadBytes: Int64 = 2 * 1024 * 1024
+
+    private struct Fetch {
+        let entry: PhoneFileEntry
+        let started: Date
+        var preview: PhoneFilesCancellable?
+        var range: PhoneFilesCancellable?
+        var previewDone = false
+        var rangeDone: Bool
+        var rangeBytes: Int64 = 0
+    }
+
+    private let service: PhoneFilesService
+    private let cache: PhoneThumbnailCache
+    private let clock: () -> Date
+    private var pending: (entry: PhoneFileEntry, timer: DispatchWorkItem)?
+    private var fetches: [String: Fetch] = [:]
+    private var order: [String] = []
+    var phoneID: String?
+    var route: PhoneRoute = .unknown
+    /// Counted for the report: started, kept after the pointer left, cancelled.
+    private(set) var started = 0
+    private(set) var cancelled = 0
+
+    init(service: PhoneFilesService, cache: PhoneThumbnailCache, clock: @escaping () -> Date = Date.init) {
+        self.service = service
+        self.cache = cache
+        self.clock = clock
+    }
+
+    var inFlight: Int { fetches.count }
+
+    func hoverBegan(_ entry: PhoneFileEntry) {
+        pending?.timer.cancel()
+        guard route == .lan, entry.hasThumbnail, phoneID != nil else { return }
+        let timer = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.fire(entry) } }
+        pending = (entry, timer)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.delay, execute: timer)
+    }
+
+    func hoverEnded(_ entry: PhoneFileEntry) {
+        if pending?.entry.id == entry.id {
+            pending?.timer.cancel()
+            pending = nil
+        }
+        guard let fetch = fetches[entry.id] else { return }
+        if !pastHalf(fetch) { cancel(entry.id) }
+    }
+
+    /// Fires the prefetch now (tests and the perf harness skip the 150 ms wait).
+    func fire(_ entry: PhoneFileEntry) {
+        pending = nil
+        guard let phoneID, fetches[entry.id] == nil else { return }
+        let key = entry.cacheKey(phoneID: phoneID)
+        let needsPreview = !cache.contains(key, kind: .preview)
+        let needsRange = entry.isVideo && !cache.contains(key, kind: .range)
+        guard needsPreview || needsRange else { return }
+        if fetches.count >= Self.maxInFlight, let oldest = order.first(where: { fetches[$0].map { !pastHalf($0) } ?? false }) {
+            cancel(oldest)
+        }
+        guard fetches.count < Self.maxInFlight else { return }
+        started += 1
+        var fetch = Fetch(entry: entry, started: clock(), previewDone: !needsPreview, rangeDone: !needsRange)
+        if needsPreview {
+            fetch.preview = service.preview(phoneID: phoneID, entry: entry, size: Self.previewSize) { [weak self] result in
+                guard let self else { return }
+                if case let .success(image) = result {
+                    self.cache.store(key, kind: .preview, image: image, maxPixel: Self.previewSize) { _ in }
+                }
+                self.fetches[entry.id]?.previewDone = true
+                self.finishIfDone(entry.id)
+            }
+        }
+        if needsRange {
+            let length = min(Self.videoHeadBytes, entry.size ?? Self.videoHeadBytes)
+            fetch.range = service.range(phoneID: phoneID, entry: entry, offset: 0, length: max(1, length), progress: { [weak self] bytes in
+                self?.fetches[entry.id]?.rangeBytes = bytes
+            }, completion: { [weak self] result in
+                guard let self else { return }
+                if case let .success(data) = result { self.cache.storeData(key, kind: .range, data: data) }
+                self.fetches[entry.id]?.rangeDone = true
+                self.finishIfDone(entry.id)
+            })
+        }
+        fetches[entry.id] = fetch
+        order.append(entry.id)
+    }
+
+    func cancelAll() {
+        pending?.timer.cancel()
+        pending = nil
+        for id in Array(fetches.keys) { cancel(id) }
+    }
+
+    /// More than half has arrived: the range by its bytes, the preview by time (the contract reports no
+    /// preview progress; at LAN speed a preview takes about 40 ms, so one past 60 ms is treated as half done).
+    private func pastHalf(_ fetch: Fetch) -> Bool {
+        if !fetch.rangeDone {
+            let expected = min(Self.videoHeadBytes, fetch.entry.size ?? Self.videoHeadBytes)
+            return fetch.rangeBytes * 2 > expected
+        }
+        if !fetch.previewDone { return clock().timeIntervalSince(fetch.started) > 0.06 }
+        return true
+    }
+
+    private func cancel(_ id: String) {
+        guard let fetch = fetches.removeValue(forKey: id) else { return }
+        order.removeAll { $0 == id }
+        fetch.preview?.cancel()
+        fetch.range?.cancel()
+        cancelled += 1
+    }
+
+    private func finishIfDone(_ id: String) {
+        guard let fetch = fetches[id], fetch.previewDone, fetch.rangeDone else { return }
+        fetches.removeValue(forKey: id)
+        order.removeAll { $0 == id }
+    }
+}

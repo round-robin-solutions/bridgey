@@ -781,9 +781,15 @@ private struct LiveCards: View {
                     if transfer.active {
                         Button(L10n.text("action.cancel", fallback: "Cancel")) { actions.cancelTransfer(transfer.id) }
                             .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
-                    } else if transfer.retryable {
-                        Button(L10n.text("action.retry", fallback: "Retry")) { actions.retryTransfer(transfer.id) }
-                            .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                    } else {
+                        if let url = transfer.localURL {
+                            Button(L10n.text("phonefiles.showInFinder", fallback: "Show in Finder")) { actions.showInFinder(url) }
+                                .buttonStyle(PillButtonStyle(kind: transfer.retryable ? .neutral : .tonal, height: 28))
+                        }
+                        if transfer.retryable {
+                            Button(L10n.text("action.retry", fallback: "Retry")) { actions.retryTransfer(transfer.id) }
+                                .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                        }
                     }
                 }
                 .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
@@ -884,6 +890,10 @@ private struct FolderLiveCard: View {
                     Button(L10n.text("action.cancel", fallback: "Cancel")) { actions.cancelTransfer(transfer.id) }
                         .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
                 } else {
+                    if let url = transfer.localURL, !folder.canSendAgain, !folder.canResume {
+                        Button(L10n.text("phonefiles.showInFinder", fallback: "Show in Finder")) { actions.showInFinder(url) }
+                            .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                    }
                     if folder.canSendAgain {
                         Button(L10n.text("folders.action.sendAgain", fallback: "Send Again")) { actions.retryTransfer(transfer.id) }
                             .buttonStyle(PillButtonStyle(kind: folder.canResume ? .neutral : .tonal, height: 28))
