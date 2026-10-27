@@ -1722,7 +1722,8 @@ class PairingCoordinator(
     ): List<DeviceConnection> {
         val targets = broadcastTargets(BridgeyFeature.NOTIFICATIONS)
         if (targets.isEmpty()) return emptyList()
-        val payload = JSONObject()
+        // A Mac with Calls off still sees the call, but gets no Answer, Decline or Hang Up.
+        fun payload(callsEnabled: Boolean) = JSONObject()
             .put("packageName", packageName.take(256))
             .put("applicationName", applicationName.take(128))
             .put("notificationId", notificationId.take(512))
@@ -1741,7 +1742,7 @@ class PairingCoordinator(
                 if (smsDefaultApp && redacted != null) put("redacted", redacted)
             }
             .put("actions", JSONArray().apply {
-                actions.take(4).forEach { action ->
+                forwardedActionsFor(actions, callType != null, callsEnabled).take(4).forEach { action ->
                     put(JSONObject()
                         .put("actionToken", action.token)
                         .put("title", action.title.take(64))
@@ -1750,9 +1751,12 @@ class PairingCoordinator(
             })
             .toString()
             .toByteArray()
+        val withCalls by lazy { payload(callsEnabled = true) }
+        val withoutCalls by lazy { payload(callsEnabled = false) }
         scope.launch {
             targets.forEach { current ->
-                if (sendEncrypted(current, "notifications.post", payload)) {
+                val callsEnabled = callType == null || settings.isEnabled(BridgeyFeature.CALLS, current.remoteDeviceId)
+                if (sendEncrypted(current, "notifications.post", if (callsEnabled) withCalls else withoutCalls)) {
                     // Text messages can carry codes: their content never reaches the log, whatever Logging says.
                     BridgeyLogging.line(
                         LogLines.notification(
@@ -2783,7 +2787,10 @@ class PairingCoordinator(
         if (notificationId.isBlank() || notificationId.length > 512 ||
             !actionToken.matches(Regex("[0-9a-f]{64}")) ||
             (replyText?.length ?: 0) > 4_096) return fail(current, "Invalid notification action")
-        BridgeyNotificationListenerService.perform(notificationId, actionToken, replyText)
+        BridgeyNotificationListenerService.perform(
+            notificationId, actionToken, replyText,
+            callsEnabled = settings.isEnabled(BridgeyFeature.CALLS, current.remoteDeviceId),
+        )
         diagnostics.record("notification", if (replyText == null) "action_requested" else "reply_requested")
     }
 
