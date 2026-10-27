@@ -37,12 +37,28 @@ data class MacMediaState(
     val artwork: String? = null,
 )
 
+/** How a link sent with Open on Mac ended. [serial] tells two equal results apart. */
+data class LinkSendResult(val outcome: Outcome, val serial: Long) {
+    enum class Outcome { OPENED, QUEUED, DECLINED, NOT_CONFIRMED, NOT_SENT }
+}
+
 class QuickActions(
     private val context: Context,
     private val scope: CoroutineScope,
     private val available: (BridgeyFeature) -> Boolean,
     private val send: (String, JSONObject) -> Boolean,
+    /** The selected Mac understands `action: "open"` (draft links_open_draft1). */
+    private val linksOpenSupported: () -> Boolean = { false },
 ) {
+    private val mutableLinkResult = MutableStateFlow<LinkSendResult?>(null)
+
+    /** The outcome of the latest link this phone sent, for Open on Mac. */
+    val linkResult = mutableLinkResult.asStateFlow()
+    private var linkSerial = 0L
+    private fun linkResult(outcome: LinkSendResult.Outcome) {
+        linkSerial += 1
+        mutableLinkResult.value = LinkSendResult(outcome, linkSerial)
+    }
     private val mutableLink = MutableStateFlow<String?>(null)
     val receivedLink = mutableLink.asStateFlow()
     private val mutableStatus = MutableStateFlow<String?>(null)
@@ -62,6 +78,7 @@ class QuickActions(
                 if (pending[feature.key]?.first == id) {
                     pending.remove(feature.key)
                     mutableStatus.value = "The other device did not confirm the request"
+                    if (feature == BridgeyFeature.LINKS) linkResult(LinkSendResult.Outcome.NOT_CONFIRMED)
                 }
             }
         }
@@ -72,13 +89,24 @@ class QuickActions(
                 .put("feature", feature.key).put("action", action).put("value", value).put("sequence", sequence))) {
             pending.remove(feature.key)?.second?.cancel()
             mutableStatus.value = "Not connected — request not sent"
+            if (feature == BridgeyFeature.LINKS) linkResult(LinkSendResult.Outcome.NOT_SENT)
         }
     }
 
-    fun sendLink(value: String) {
+    /**
+     * Sends a link to the selected Mac. With [open] (Open on Mac) and a Mac that understands it,
+     * the request asks the Mac to open it right away; the Mac's own setting decides, and otherwise
+     * queues it like any link.
+     */
+    fun sendLink(value: String, open: Boolean = false) {
         val url = validatedWebLink(value)
-        if (url == null) { mutableStatus.value = "Copy a valid http or https link first"; return }
-        request(BridgeyFeature.LINKS, "offer", url)
+        if (url == null) {
+            mutableStatus.value = "Copy a valid http or https link first"
+            if (open) linkResult(LinkSendResult.Outcome.NOT_SENT)
+            return
+        }
+        if (open && (!available(BridgeyFeature.LINKS) || BridgeyFeature.LINKS.key in pending)) linkResult(LinkSendResult.Outcome.NOT_SENT)
+        request(BridgeyFeature.LINKS, if (open && linksOpenSupported()) "open" else "offer", url)
     }
 
     @Synchronized fun receive(kind: String, payload: JSONObject) {
@@ -98,8 +126,20 @@ class QuickActions(
                 val feature = payload.optString("feature")
                 if (pending[feature]?.first != payload.optString("requestId")) return
                 pending.remove(feature)?.second?.cancel()
-                mutableStatus.value = if (payload.opt("accepted") == true) {
-                    if (feature == "links") "Link delivered — waiting for the user to open it" else "Media command completed"
+                val accepted = payload.opt("accepted") == true
+                val opened = feature == "links" && accepted && payload.opt("opened") == true
+                if (feature == "links") {
+                    linkResult(
+                        when {
+                            opened -> LinkSendResult.Outcome.OPENED
+                            accepted -> LinkSendResult.Outcome.QUEUED
+                            else -> LinkSendResult.Outcome.DECLINED
+                        },
+                    )
+                }
+                mutableStatus.value = if (accepted) {
+                    if (opened) "Link opened on the Mac"
+                    else if (feature == "links") "Link delivered — waiting for the user to open it" else "Media command completed"
                 } else if (feature == "media") "Player unavailable or busy — check Mac media settings and try again"
                 else "Link declined — check settings or dismiss the previous link"
             }

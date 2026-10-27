@@ -449,10 +449,7 @@ private fun MediaPage(state: SettingsState, actions: SettingsActions, listState:
     SectionPage(SettingsSection.MEDIA, actions, listState) {
         item(key = "media") {
             RowGroup(Modifier.padding(top = 8.dp)) {
-                listOf(
-                    BridgeyFeature.MEDIA, BridgeyFeature.LINKS, BridgeyFeature.PING,
-                    BridgeyFeature.FIND_DEVICE, BridgeyFeature.BATTERY,
-                ).forEach { feature ->
+                MediaSectionFeatures.forEach { feature ->
                     row { shape -> FeatureSwitch(shape, feature, state, actions) }
                 }
             }
@@ -700,7 +697,7 @@ private fun sectionVisual(section: SettingsSection, state: SettingsState): Pair<
 
 /** The features on the Media and quick actions page, in its order. */
 private val MediaSectionFeatures = listOf(
-    BridgeyFeature.MEDIA, BridgeyFeature.LINKS, BridgeyFeature.PING,
+    BridgeyFeature.MEDIA, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.LINKS, BridgeyFeature.PING,
     BridgeyFeature.FIND_DEVICE, BridgeyFeature.BATTERY,
 )
 
@@ -941,6 +938,7 @@ private fun globalFeatureDetail(feature: BridgeyFeature): String = stringResourc
         BridgeyFeature.LINKS -> R.string.feature_links_detail
         BridgeyFeature.BATTERY -> R.string.settings_battery_detail
         BridgeyFeature.REMOTE_INPUT -> R.string.settings_remote_detail
+        BridgeyFeature.MAC_ACTIONS -> R.string.settings_mac_actions_detail
     },
 )
 

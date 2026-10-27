@@ -566,6 +566,7 @@ private val PermissionOrder = listOf(
     listOf(BridgeyFeature.CALLS),
     listOf(BridgeyFeature.MEDIA),
     listOf(BridgeyFeature.REMOTE_INPUT),
+    listOf(BridgeyFeature.MAC_ACTIONS),
     listOf(BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING),
     listOf(BridgeyFeature.LINKS),
     listOf(BridgeyFeature.BATTERY),

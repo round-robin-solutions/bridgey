@@ -25,10 +25,19 @@ enum class BridgeyFeature(val key: String, val title: String) {
 
     /** Draft, edition only until accepted upstream: this phone may control the Mac. Off by default. */
     REMOTE_INPUT("remote_input_draft1", "Remote control"),
+
+    /**
+     * Draft, edition only: this phone may run the actions a Mac allows it (lock, sleep, volume, apps,
+     * Shortcuts). On by default here; the Mac is the gate (off by default and granted per phone).
+     */
+    MAC_ACTIONS("mac_actions_draft1", "Mac actions"),
 }
 
 internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
-    feature !in setOf(BridgeyFeature.CALLS, BridgeyFeature.PING, BridgeyFeature.LINKS, BridgeyFeature.MEDIA, BridgeyFeature.REMOTE_INPUT)
+    feature !in setOf(
+        BridgeyFeature.CALLS, BridgeyFeature.PING, BridgeyFeature.LINKS, BridgeyFeature.MEDIA,
+        BridgeyFeature.REMOTE_INPUT, BridgeyFeature.MAC_ACTIONS,
+    )
 
 /** Features that start off until the person turns them on. */
 internal fun featureOnByDefault(feature: BridgeyFeature): Boolean = feature != BridgeyFeature.REMOTE_INPUT

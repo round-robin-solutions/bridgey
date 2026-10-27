@@ -426,6 +426,7 @@ fun permissionVisual(feature: BridgeyFeature): Pair<ImageVector, Tint> = when (f
     BridgeyFeature.LINKS -> BridgeyIcons.Link to Tint.BLUE
     BridgeyFeature.BATTERY -> BridgeyIcons.Battery5Bar to Tint.GREEN
     BridgeyFeature.REMOTE_INPUT -> BridgeyIcons.Mouse to Tint.PURPLE
+    BridgeyFeature.MAC_ACTIONS -> BridgeyIcons.Lock to Tint.PURPLE
 }
 
 @Composable
@@ -440,6 +441,7 @@ fun permissionTitle(feature: BridgeyFeature): String = stringResource(
         BridgeyFeature.LINKS -> R.string.feature_links
         BridgeyFeature.BATTERY -> R.string.feature_battery
         BridgeyFeature.REMOTE_INPUT -> R.string.feature_remote_input
+        BridgeyFeature.MAC_ACTIONS -> R.string.feature_mac_actions
     },
 )
 
@@ -458,6 +460,7 @@ private fun permissionDetail(feature: BridgeyFeature, state: DeviceState): Strin
     BridgeyFeature.LINKS -> stringResource(R.string.feature_links_detail)
     BridgeyFeature.BATTERY -> stringResource(R.string.feature_battery_detail, state.ring.name)
     BridgeyFeature.REMOTE_INPUT -> stringResource(R.string.feature_remote_input_detail, state.ring.name)
+    BridgeyFeature.MAC_ACTIONS -> stringResource(R.string.feature_mac_actions_detail, state.ring.name)
 }
 
 /** The device page's send bar: attach a file, type a message or leave it empty to send the clipboard. */

@@ -170,8 +170,19 @@ class PairingCoordinator(
 ) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    val quickActions = QuickActions(appContext, scope, { isFeatureAvailable(it) }, ::sendQuickPayload)
+    val quickActions = QuickActions(appContext, scope, { isFeatureAvailable(it) }, ::sendQuickPayload, ::linksOpenSupported)
     private val registry = SessionRegistry<Session>(localDeviceId)
+
+    /** Mac actions (draft `mac_actions_draft1`): each Mac's list, runs and results. */
+    val macActions = dev.bridgey.android.actions.MacActionsClient(
+        store = dev.bridgey.android.actions.SharedPreferencesCatalogStore(appContext),
+        timer = { delayMillis, block -> scope.launch { delay(delayMillis); block() }.let { job -> { job.cancel() } } },
+        available = { id -> registry.session(id) != null && isFeatureAvailable(BridgeyFeature.MAC_ACTIONS, id) },
+        send = ::sendActionsPayload,
+    )
+
+    /** Connection health per device: route class, round trip, drops, reconnects. Never addresses. */
+    val health = dev.bridgey.android.health.ConnectionHealthBook()
 
     /**
      * Reconnects. Both sides keep trying a dropped trusted device at its known addresses, whoever
@@ -344,6 +355,8 @@ class PairingCoordinator(
                 if (!featureEnabled(BridgeyFeature.PING)) clearPingStatus()
                 publish()
                 quickActions.policyChanged()
+                // Mac actions turned off here for a Mac: its list goes, so controls stop offering it.
+                trust.trustedDeviceIds.value.filter { !settings.isEnabled(BridgeyFeature.MAC_ACTIONS, it) }.forEach(macActions::revoked)
                 registry.connectedIds().forEach { id -> registry.session(id)?.let(::sendFeatureState) }
             }
         }
@@ -449,6 +462,7 @@ class PairingCoordinator(
                 val tag = addressTag(event.address.host)
                 BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT dial peer=${event.deviceId.take(8)} attempt=${event.attempt} reason=${event.reason} source=${event.address.source.key} address=$tag")
                 diagnostics.record("reconnect", "dial", event.reason, device = event.deviceId, detail = "n${event.attempt}_${event.address.source.key}_$tag")
+                health.dialAttempt(event.deviceId, System.currentTimeMillis())
             }
             is ReconnectEvent.NoAddress -> {
                 BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT no dialable address peer=${event.deviceId.take(8)} attempt=${event.attempt} reason=${event.reason}")
@@ -598,6 +612,7 @@ class PairingCoordinator(
                 put("addressSources", JSONArray(addresses.map { it.source.key }))
                 put("reconnectAttempts", reconnect.entry(id)?.attempts ?: 0)
                 reconnect.addressBook.lastConnected(id)?.let { put("lastConnectedAt", java.time.Instant.ofEpochMilli(it).toString()) }
+                put("health", healthOf(id).toJson())
             })
         }
     }
@@ -649,6 +664,8 @@ class PairingCoordinator(
         trust.remove(deviceId)
         reconnect.forget(deviceId)
         settings.removeDevice(deviceId)
+        macActions.forget(deviceId)
+        health.forget(deviceId)
         autoClipboardTracker.clear(deviceId)
         clearClipboardCache()
         disconnect(deviceId)
@@ -1334,6 +1351,47 @@ class PairingCoordinator(
         remoteInputListener?.invoke(current.remoteDeviceId, message.kind, data)
     }
 
+    /** Connection health of [deviceId] now. Holds no address, name or content. */
+    fun healthOf(deviceId: String): dev.bridgey.android.health.DeviceHealth = health.snapshot(
+        deviceId,
+        discoverySeesNow = lastPeers.any { it.deviceIdHint == deviceId },
+        batteryOptimisationExempt = PowerFacts.ignoringBatteryOptimizations(appContext),
+        nowMillis = System.currentTimeMillis(),
+    )
+
+    /** The selected device (or [deviceId]) understands Web links `open` (draft `links_open_draft1`). */
+    fun linksOpenSupported(deviceId: String? = null): Boolean {
+        val current = sessionFor(deviceId) ?: return false
+        return registry.state(current.remoteDeviceId)?.remoteLinksOpen == true
+    }
+
+    /** actions.run to one Mac, only while its latest map shows mac_actions_draft1. */
+    private fun sendActionsPayload(deviceId: String, kind: String, payload: JSONObject): Boolean {
+        val current = registry.session(deviceId) ?: return false
+        if (current.pairingKey == null || !isFeatureAvailable(BridgeyFeature.MAC_ACTIONS, deviceId)) return false
+        val data = payload.toString().toByteArray(Charsets.UTF_8)
+        if (data.size > dev.bridgey.android.actions.MacActionsClient.MAX_RESULT_BYTES) return false
+        scope.launch { sendEncrypted(current, kind, data) }
+        return true
+    }
+
+    /** actions.catalog and actions.result (draft mac_actions_draft1): decrypted, replay-checked, bounded. */
+    private fun receiveActionsMessage(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        val limit = if (message.kind == "actions.catalog") {
+            dev.bridgey.android.actions.MacActionsClient.MAX_CATALOG_BYTES
+        } else {
+            dev.bridgey.android.actions.MacActionsClient.MAX_RESULT_BYTES
+        }
+        if (data.size > limit) return
+        val payload = runCatching { JSONObject(data.toString(Charsets.UTF_8)) }.getOrNull() ?: return
+        macActions.receive(current.remoteDeviceId, message.kind, payload)
+    }
+
     /** Quick actions (links, media) go to the selected device. */
     private fun sendQuickPayload(kind: String, payload: JSONObject): Boolean {
         val current = sessionFor(null) ?: return false
@@ -1889,6 +1947,7 @@ class PairingCoordinator(
         stopPhoneRinging()
         clearPingStatus()
         quickActions.reset()
+        macActions.reset()
         clipboardSessionEnded(null)
         server?.close()
         server = null
@@ -1937,6 +1996,8 @@ class PairingCoordinator(
         clipboardSessionEnded(deviceId)
         if (phoneRingingFrom == deviceId) stopPhoneRinging()
         if (pendingPing?.first == deviceId) clearPingStatus()
+        macActions.sessionEnded(deviceId)
+        health.disconnected(deviceId, reason, System.currentTimeMillis())
         // The power state at the moment of the drop: Doze, screen, saver, standby bucket, exemption.
         diagnostics.record("transport", "disconnected", reason, device = deviceId, detail = PowerFacts.summary(appContext))
         BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT disconnected peerId=${deviceId.take(8)} reason=$reason")
@@ -2004,10 +2065,12 @@ class PairingCoordinator(
                             current.dropReason = "heartbeat_timeout"
                             break
                         }
+                        val pingId = UUID.randomUUID().toString()
+                        health.heartbeatSent(current.remoteDeviceId, pingId, SystemClock.elapsedRealtime())
                         if (!current.send(Message(
                                 kind = "heartbeat.ping",
                                 sessionId = current.id,
-                                messageId = UUID.randomUUID().toString(),
+                                messageId = pingId,
                             ))
                         ) {
                             current.dropReason = "send_failed"
@@ -2071,6 +2134,7 @@ class PairingCoordinator(
             "heartbeat.pong" -> {
                 if (message.sessionId == current.id && registry.isActive(current)) {
                     current.heartbeatSupported = true
+                    health.heartbeatAnswered(current.remoteDeviceId, message.messageId, SystemClock.elapsedRealtime())
                 }
             }
             "pairing.offer" -> {
@@ -2172,6 +2236,7 @@ class PairingCoordinator(
             }
             "notifications.dismiss" -> receiveNotificationDismiss(current, message)
             "codes.advertise_result", "codes.link_request" -> receiveCodesMessage(current, message)
+            "actions.catalog", "actions.result" -> receiveActionsMessage(current, message)
             "notifications.action" -> receiveNotificationAction(current, message)
             "calls.request" -> receiveCallRequest(current, message)
             "find.start" -> receiveFindCommand(current, message, start = true)
@@ -2757,6 +2822,7 @@ class PairingCoordinator(
         val port = if (current.initiatedLocally) current.remotePort else ReconnectPolicy.LISTENING_PORT
         val attempts = reconnect.entry(current.remoteDeviceId)?.attempts ?: 0
         reconnect.connected(current.remoteDeviceId, current.remoteHost, port, source)
+        health.connected(current.remoteDeviceId, current.remoteHost, current.initiatedLocally, System.currentTimeMillis())
         BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT connected peer=${current.remoteDeviceId.take(8)} via=${source.key} address=${current.remoteHost?.let(::addressTag) ?: "unknown"} attempts=$attempts")
         diagnostics.record("transport", "connected", source.key, device = current.remoteDeviceId, detail = "after_${attempts}_attempts")
         if (pairingSession === current) {
@@ -2829,6 +2895,7 @@ class PairingCoordinator(
                 remoteFolders = values.opt(dev.bridgey.android.folders.FOLDERS_FEATURE_KEY) == true,
                 remotePlaces = values.opt(dev.bridgey.android.folders.PLACES_FEATURE_KEY) == true,
                 remoteSmsCodes = values.opt(dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY) == true,
+                remoteLinksOpen = values.opt(dev.bridgey.android.actions.LINKS_OPEN_FEATURE_KEY) == true,
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
                 ringing = state.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
             )
@@ -2841,6 +2908,8 @@ class PairingCoordinator(
         if (received[BridgeyFeature.PING] == false && pendingPing?.first == deviceId) clearPingStatus()
         publish()
         quickActions.policyChanged()
+        // The Mac (or this phone) no longer allows Mac actions: its list goes.
+        if (!isFeatureAvailable(BridgeyFeature.MAC_ACTIONS, deviceId)) macActions.revoked(deviceId)
         if (values.opt(dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY) == true) sendCodeStatus(current)
     }
 

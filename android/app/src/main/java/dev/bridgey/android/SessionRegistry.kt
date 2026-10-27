@@ -13,6 +13,8 @@ data class DeviceLinkState(
     val remotePlaces: Boolean = false,
     /** The device advertised sms_codes_draft1: it reads codes and advertises for the companion link. */
     val remoteSmsCodes: Boolean = false,
+    /** The device advertised links_open_draft1: Web links understands `action: "open"`. */
+    val remoteLinksOpen: Boolean = false,
     val battery: RemoteBatteryStatus? = null,
     /** The device reported that it is ringing (Find device). */
     val ringing: Boolean = false,

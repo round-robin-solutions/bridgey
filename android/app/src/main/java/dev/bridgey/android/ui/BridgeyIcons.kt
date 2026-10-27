@@ -84,10 +84,46 @@ object BridgeyIcons {
     val Shield: ImageVector by lazy { icon("shield", "M467.77-106.16q-6-1-11.62-3-126.53-45-201.34-159.57Q180-383.31 180-516v-180.15q0-22.79 13.11-41.03 13.1-18.23 33.89-26.43l227.69-85q12.85-4.62 25.31-4.62 12.46 0 25.31 4.62l227.69 85q20.79 8.2 33.89 26.43Q780-718.94 780-696.15V-516q0 132.69-74.81 247.27-74.81 114.57-201.34 159.57-5.62 2-11.62 3-6 1-12.23 1t-12.23-1ZM480-164q104-33 172-132t68-220v-180.54q0-3.84-2.12-6.92-2.11-3.08-5.96-4.62l-227.69-85q-1.92-.77-4.23-.77-2.31 0-4.23.77l-227.69 85q-3.85 1.54-5.96 4.62-2.12 3.08-2.12 6.92V-516q0 121 68 220t172 132Zm0-315.23Z") }
     val SystemUpdate: ImageVector by lazy { icon("system_update", "M292.31-60q-29.92 0-51.12-21.19Q220-102.39 220-132.31v-695.38Q220-858 241-879q21-21 51.31-21h376.92q29.92 0 51.11 21.19 21.2 21.2 21.2 51.12v126.31q16.46 4.3 27.46 17.19 11 12.88 11 29.96v75.38q0 17.08-11 29.97-11 12.88-27.46 17.19v399.38q0 29.92-21.2 51.12Q699.15-60 669.23-60H292.31Zm0-60h376.92q5.38 0 8.85-3.46 3.46-3.46 3.46-8.85v-695.38q0-5.39-3.46-8.85-3.47-3.46-8.85-3.46H292.31q-5.39 0-8.85 3.46t-3.46 8.85v695.38q0 5.39 3.46 8.85t8.85 3.46ZM280-120v-720 720Zm213.46-231.23q6.23-2.31 11.85-7.92l99.77-99.77q8.3-8.31 8.8-20.58.5-12.27-8.8-21.58-8.7-8.69-20.77-9-12.08-.3-21.39 8.39L510-449.38v-146.77q0-12.77-8.62-21.39-8.61-8.61-21.38-8.61t-21.38 8.61q-8.62 8.62-8.62 21.39v146.77l-52.92-52.31q-8.31-8.31-20.58-8.5-12.27-.19-21.58 9.11-8.69 8.7-8.69 21.08 0 12.38 8.69 21.08l99.77 99.77q5.62 5.61 11.85 7.92 6.23 2.31 13.46 2.31t13.46-2.31Z") }
 
+    /*
+     * Mac actions: Material Icons (Apache 2.0) on the 24 unit grid, for the actions the Symbols set
+     * above has no glyph for here. The same paths are in res/drawable/ic_action_*.xml for Device
+     * Controls, the widget and the tile.
+     */
+    val Lock: ImageVector by lazy { icon24("lock", MacActionPaths.LOCK) }
+    val Bedtime: ImageVector by lazy { icon24("bedtime", MacActionPaths.SLEEP) }
+    val Screensaver: ImageVector by lazy { icon24("screensaver", MacActionPaths.SCREENSAVER) }
+    val VolumeDown: ImageVector by lazy { icon24("volume_down", MacActionPaths.VOLUME_DOWN) }
+    val VolumeOff: ImageVector by lazy { icon24("volume_off", MacActionPaths.VOLUME_OFF) }
+    val Apps: ImageVector by lazy { icon24("apps", MacActionPaths.APPS) }
+    val Lan: ImageVector by lazy { icon24("lan", MacActionPaths.ROUTE) }
+    val Timer: ImageVector by lazy { icon24("timer", MacActionPaths.TIMER) }
+
+    private fun icon24(name: String, pathData: String): ImageVector =
+        ImageVector.Builder(name = name, defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
+            .addPath(pathData = addPathNodes(pathData), fill = SolidColor(androidx.compose.ui.graphics.Color.Black))
+            .build()
+
     private fun icon(name: String, pathData: String): ImageVector =
         ImageVector.Builder(name = name, defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 960f, viewportHeight = 960f)
             .addGroup(translationY = 960f)
             .addPath(pathData = addPathNodes(pathData), fill = SolidColor(androidx.compose.ui.graphics.Color.Black))
             .clearGroup()
             .build()
+}
+
+/** Material Icons (Apache 2.0) paths on the 24 unit grid; mirrored in res/drawable/ic_action_*.xml. */
+object MacActionPaths {
+    const val LOCK = "M18,8h-1V6c0,-2.76 -2.24,-5 -5,-5S7,3.24 7,6v2H6c-1.1,0 -2,0.9 -2,2v10c0,1.1 0.9,2 2,2h12c1.1,0 2,-0.9 2,-2V10c0,-1.1 -0.9,-2 -2,-2zM12,17c-1.1,0 -2,-0.9 -2,-2s0.9,-2 2,-2 2,0.9 2,2 -0.9,2 -2,2zM15.1,8H8.9V6c0,-1.71 1.39,-3.1 3.1,-3.1s3.1,1.39 3.1,3.1v2z"
+    const val SLEEP = "M12,3c-4.97,0 -9,4.03 -9,9s4.03,9 9,9 9,-4.03 9,-9c0,-0.46 -0.04,-0.92 -0.1,-1.36 -0.98,1.37 -2.58,2.26 -4.4,2.26 -2.98,0 -5.4,-2.42 -5.4,-5.4 0,-1.81 0.89,-3.42 2.26,-4.4C12.92,3.04 12.46,3 12,3z"
+    const val SCREENSAVER = "M21,2H3C1.9,2 1,2.9 1,4v12c0,1.1 0.9,2 2,2h7v2H8v2h8v-2h-2v-2h7c1.1,0 2,-0.9 2,-2V4C23,2.9 22.1,2 21,2zM21,16H3V4h18V16z"
+    const val VOLUME_UP = "M3,9v6h4l5,5V4L7,9H3zM16.5,12c0,-1.77 -1.02,-3.29 -2.5,-4.03v8.05c1.48,-0.73 2.5,-2.25 2.5,-4.02zM14,3.23v2.06c2.89,0.86 5,3.54 5,6.71s-2.11,5.85 -5,6.71v2.06c4.01,-0.91 7,-4.49 7,-8.77s-2.99,-7.86 -7,-8.77z"
+    const val VOLUME_DOWN = "M18.5,12c0,-1.77 -1.02,-3.29 -2.5,-4.03v8.05c1.48,-0.73 2.5,-2.25 2.5,-4.02zM5,9v6h4l5,5V4L9,9H5z"
+    const val VOLUME_OFF = "M16.5,12c0,-1.77 -1.02,-3.29 -2.5,-4.03v2.21l2.45,2.45c0.03,-0.2 0.05,-0.41 0.05,-0.63zM19,12c0,0.94 -0.2,1.82 -0.54,2.64l1.51,1.51C20.63,14.91 21,13.5 21,12c0,-4.28 -2.99,-7.86 -7,-8.77v2.06c2.89,0.86 5,3.54 5,6.71zM4.27,3L3,4.27 7.73,9H3v6h4l5,5v-6.73l4.25,4.25c-0.67,0.52 -1.42,0.93 -2.25,1.18v2.06c1.38,-0.31 2.63,-0.95 3.69,-1.81L19.73,21 21,19.73l-9,-9L4.27,3zM12,4L9.91,6.09 12,8.18V4z"
+    const val APPS = "M4,8h4V4H4V8zM10,20h4v-4h-4V20zM4,20h4v-4H4V20zM4,14h4v-4H4V14zM10,14h4v-4h-4V14zM16,4v4h4V4H16zM10,8h4V4h-4V8zM16,14h4v-4h-4V14zM16,20h4v-4h-4V20z"
+    const val BOLT = "M11,21h-1l1,-7H7.5c-0.88,0 -0.33,-0.75 -0.31,-0.78C8.48,10.94 10.42,7.54 13.01,3h1l-1,7h3.51c0.4,0 0.62,0.19 0.4,0.66C12.97,17.55 11,21 11,21z"
+    const val ROUTE = "M13,22h8v-7h-3v-4h-5V9h3V2H8v7h3v2H6v4H3v7h8v-7H8v-2h8v2h-3V22zM10,7V4h4v3H10zM9,17v3H5v-3H9zM19,17v3h-4v-3H19z"
+    const val TIMER = "M15,1H9v2h6V1zM11,14h2V8h-2V14zM19.03,7.39l1.42,-1.42c-0.43,-0.51 -0.9,-0.99 -1.41,-1.41l-1.42,1.42C16.07,4.74 14.12,4 12,4c-4.97,0 -9,4.03 -9,9s4.02,9 9,9 9,-4.03 9,-9C21,10.88 20.26,8.93 19.03,7.39zM12,20c-3.87,0 -7,-3.13 -7,-7s3.13,-7 7,-7 7,3.13 7,7S15.87,20 12,20z"
+    const val PING = "M7.76,16.24C6.67,15.16 6,13.66 6,12s0.67,-3.16 1.76,-4.24l1.42,1.42C8.45,9.9 8,10.9 8,12c0,1.1 0.45,2.1 1.17,2.83L7.76,16.24zM16.24,16.24l-1.42,-1.42C15.55,14.1 16,13.1 16,12s-0.45,-2.1 -1.17,-2.83l1.42,-1.42C17.33,8.84 18,10.34 18,12S17.33,15.16 16.24,16.24zM12,10c-1.1,0 -2,0.9 -2,2s0.9,2 2,2 2,-0.9 2,-2S13.1,10 12,10zM20,12c0,2.21 -0.9,4.21 -2.35,5.65l1.42,1.42C20.88,17.26 22,14.76 22,12s-1.12,-5.26 -2.93,-7.07l-1.42,1.42C19.1,7.79 20,9.79 20,12zM6.35,6.35L4.93,4.93C3.12,6.74 2,9.24 2,12s1.12,5.26 2.93,7.07l1.42,-1.42C4.9,16.21 4,14.21 4,12S4.9,7.79 6.35,6.35z"
+    const val FIND = "M12,8c-2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4 -1.79,-4 -4,-4zM20.94,11c-0.46,-4.17 -3.77,-7.48 -7.94,-7.94V1h-2v2.06C6.83,3.52 3.52,6.83 3.06,11H1v2h2.06c0.46,4.17 3.77,7.48 7.94,7.94V23h2v-2.06c4.17,-0.46 7.48,-3.77 7.94,-7.94H23v-2h-2.06zM12,19c-3.87,0 -7,-3.13 -7,-7s3.13,-7 7,-7 7,3.13 7,7 -3.13,7 -7,7z"
+    const val SEND = "M2.01,21L23,12 2.01,3 2,10l15,2 -15,2z"
 }
