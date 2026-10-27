@@ -81,6 +81,10 @@ final class RecentFilesQuery: ObservableObject {
     @Published private(set) var recent: [SendCandidate] = []
     @Published private(set) var screenshots: [SendCandidate] = []
     @Published private(set) var gathered = false
+    /// Spotlight gave nothing and none of the three folders could be listed: Files and Folders access is off.
+    @Published private(set) var accessDenied = false
+    /// How long the first results took, for the report and diagnostics (no names).
+    private(set) var firstResultsMilliseconds: Int?
 
     static let recentLimit = 40
     static let screenshotLimit = 20
@@ -88,10 +92,21 @@ final class RecentFilesQuery: ObservableObject {
     private var recentQuery: NSMetadataQuery?
     private var screenshotQuery: NSMetadataQuery?
     private var observers: [NSObjectProtocol] = []
+    private var startedAt = Date()
+    private var gatherTimeout: DispatchWorkItem?
+    private var fallback: [SendCandidate] = []
     private let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+
+    /// Spotlight that has not answered by then (it can stall without Files and Folders access) gives way to a
+    /// plain listing of the three folders.
+    static let gatherTimeout: TimeInterval = 1.5
 
     func start() {
         guard recentQuery == nil else { return }
+        startedAt = Date()
+        let timeout = DispatchWorkItem { [weak self] in self?.gatherTimedOut() }
+        gatherTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.gatherTimeout, execute: timeout)
         let manager = FileManager.default
         let scopes = [FileManager.SearchPathDirectory.downloadsDirectory, .desktopDirectory, .documentDirectory]
             .compactMap { manager.urls(for: $0, in: .userDomainMask).first }
@@ -118,6 +133,8 @@ final class RecentFilesQuery: ObservableObject {
     }
 
     func stop() {
+        gatherTimeout?.cancel()
+        gatherTimeout = nil
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
         recentQuery?.stop()
@@ -137,7 +154,59 @@ final class RecentFilesQuery: ObservableObject {
             screenshots = RecentFileFilter.ordered(candidates(screenshotQuery, screenshot: true), limit: Self.screenshotLimit)
             screenshotQuery.enableUpdates()
         }
-        gathered = !(recentQuery?.isGathering ?? false) && !(screenshotQuery?.isGathering ?? false)
+        if !fallback.isEmpty { recent = RecentFileFilter.ordered(recent + fallback, limit: Self.recentLimit) }
+        let finished = !(recentQuery?.isGathering ?? false) && !(screenshotQuery?.isGathering ?? false)
+        if finished && !gathered { finishGathering() }
+    }
+
+    private func gatherTimedOut() {
+        guard !gathered else { return }
+        finishGathering()
+    }
+
+    private func finishGathering() {
+        gathered = true
+        gatherTimeout?.cancel()
+        if firstResultsMilliseconds == nil { firstResultsMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1000) }
+        guard recent.isEmpty else { return }
+        let home = home
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let (items, denied) = Self.listFolders(home: home)
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.fallback = items
+                self.accessDenied = denied && items.isEmpty && self.screenshots.isEmpty
+                self.recent = RecentFileFilter.ordered(self.recent + items, limit: Self.recentLimit)
+            }
+        }
+    }
+
+    /// The top level of Downloads, Desktop and Documents, changed in the last 30 days. The first listing may
+    /// ask once for each folder (macOS Files and Folders privacy).
+    nonisolated static func listFolders(home: String, now: Date = Date()) -> ([SendCandidate], Bool) {
+        let manager = FileManager.default
+        let since = now.addingTimeInterval(-30 * 24 * 60 * 60)
+        let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .addedToDirectoryDateKey]
+        var items: [SendCandidate] = []
+        var denied = 0
+        let folders = [FileManager.SearchPathDirectory.downloadsDirectory, .desktopDirectory, .documentDirectory]
+            .compactMap { manager.urls(for: $0, in: .userDomainMask).first }
+        for folder in folders {
+            guard let entries = try? manager.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else {
+                denied += 1
+                continue
+            }
+            for url in entries {
+                guard let values = try? url.resourceValues(forKeys: Set(keys)) else { continue }
+                let date = [values.contentModificationDate, values.addedToDirectoryDate].compactMap { $0 }.max() ?? .distantPast
+                let size = Int64(values.fileSize ?? 0)
+                guard date >= since,
+                      RecentFileFilter.include(path: url.standardizedFileURL.path, name: url.lastPathComponent, size: size,
+                                               isDirectory: values.isDirectory ?? false, home: home) else { continue }
+                items.append(SendCandidate(url: url, name: url.lastPathComponent, size: size, date: date, isDirectory: false))
+            }
+        }
+        return (items, denied == folders.count)
     }
 
     private func candidates(_ query: NSMetadataQuery, screenshot: Bool) -> [SendCandidate] {
@@ -200,6 +269,7 @@ struct SendSheetState {
     /// Selected items in the order they were picked (the badge shows the position).
     var selection: [URL] = []
     var gathered = true
+    var accessDenied = false
     var dropTargeted = false
     var status: String?
     /// This send's optimisation (the Settings default until the chip changes it) and its measured saving.
@@ -228,6 +298,7 @@ struct SendSheetActions {
     var drop: ([URL]) -> Bool = { _ in false }
     var targeted: (Bool) -> Void = { _ in }
     var changeOptimization: (SendOptimization) -> Void = { _ in }
+    var openPrivacySettings: () -> Void = {}
 }
 
 // MARK: - View
@@ -317,16 +388,29 @@ struct SendSheetView: View {
     private var emptyCard: some View {
         VStack(spacing: 10) {
             IconTile(symbol: "tray.and.arrow.down", tint: .blue, size: 40, corner: 12)
-            Text(state.gathered
-                 ? L10n.text("sendsheet.empty", fallback: "Nothing recent yet. Drop files or folders anywhere on this window, or Browse.")
-                 : L10n.text("sendsheet.loading", fallback: "Looking for recent files\u{2026}"))
+            Text(emptyText)
                 .font(BrandFont.body(13))
                 .foregroundStyle(c.on2)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 24)
+            if state.accessDenied {
+                Button(L10n.text("sendsheet.access.open", fallback: "Open Privacy Settings"), action: actions.openPrivacySettings)
+                    .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 48)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(c.s2))
+    }
+
+    private var emptyText: String {
+        if state.accessDenied {
+            return L10n.text("sendsheet.access", fallback: "Bridgey can\u{2019}t see Downloads, Desktop or Documents yet. Allow it in Privacy and Security, Files and Folders, or drop files here.")
+        }
+        return state.gathered
+            ? L10n.text("sendsheet.empty", fallback: "Nothing recent yet. Drop files or folders anywhere on this window, or Browse.")
+            : L10n.text("sendsheet.loading", fallback: "Looking for recent files\u{2026}")
     }
 
     private var footer: some View {
@@ -556,6 +640,7 @@ final class SendSheetModel: ObservableObject {
         state.recent = query.recent
         state.screenshots = query.screenshots
         state.gathered = query.gathered
+        state.accessDenied = query.accessDenied
         let known = Set((state.added + state.recent + state.screenshots).map(\.url))
         state.selection.removeAll { !known.contains($0) }
         refreshOptimization()
@@ -587,6 +672,9 @@ final class SendSheetModel: ObservableObject {
         actions.close = { [weak self] in self?.onClose() }
         actions.drop = { [weak self] urls in self?.add(urls) ?? false }
         actions.targeted = { [weak self] value in self?.state.dropTargeted = value }
+        actions.openPrivacySettings = {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders") { NSWorkspace.shared.open(url) }
+        }
         actions.changeOptimization = { [weak self] options in
             self?.override = options
             self?.refreshOptimization()

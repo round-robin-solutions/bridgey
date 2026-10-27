@@ -97,6 +97,8 @@ final class SendDesignScreenshots: XCTestCase {
         empty.targets = sheetState.targets
         empty.targetID = phoneID
         try write(SendSheetView(state: empty, actions: SendSheetActions()).frame(height: 440), scheme: .light, name: "mac-send-to-phone-empty-light")
+        empty.accessDenied = true
+        try write(SendSheetView(state: empty, actions: SendSheetActions()).frame(height: 440), scheme: .dark, name: "mac-send-to-phone-no-access-dark")
     }
 
     private var panelModel: PanelModel {

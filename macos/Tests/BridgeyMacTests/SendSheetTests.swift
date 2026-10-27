@@ -64,4 +64,15 @@ final class SendSheetTests: XCTestCase {
         XCTAssertEqual(preferences.menuBarDropMode, .springOpen)
         XCTAssertEqual(preferences.optimization, .default)
     }
+
+    func testFolderListingFallbackKeepsRecentFilesOnly() throws {
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        let (items, _) = RecentFilesQuery.listFolders(home: home)
+        let cutoff = Date().addingTimeInterval(-30 * 24 * 60 * 60 - 60)
+        for item in items {
+            XCTAssertGreaterThanOrEqual(item.date, cutoff)
+            XCTAssertFalse(item.name.hasPrefix("."))
+            XCTAssertFalse(item.isDirectory)
+        }
+    }
 }

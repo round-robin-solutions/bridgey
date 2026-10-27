@@ -906,3 +906,5 @@
 "optimize.row.items" = "%d items";
 "optimize.row.progress" = "Optimising %d of %d";
 "drop.tiles.chip" = "Sent as: %@";
+"sendsheet.access" = "Bridgey can’t see Downloads, Desktop or Documents yet. Allow it in Privacy and Security, Files and Folders, or drop files here.";
+"sendsheet.access.open" = "Open Privacy Settings";
