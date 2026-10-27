@@ -1,9 +1,18 @@
 package dev.bridgey.android
 
+import android.app.Application
+import androidx.test.core.app.ApplicationProvider
 import java.io.File
+import java.util.UUID
 import javax.xml.parsers.DocumentBuilderFactory
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 class QuickActionsTest {
     @Test fun encryptedRequestSequenceRejectsReplayIndependentlyOfOuterMessageId() {
@@ -48,5 +57,43 @@ class QuickActionsTest {
             it.attributes.getNamedItemNS(ns, "name")?.nodeValue == ".ClipboardTileService"
         }
         assertEquals("android.permission.BIND_QUICK_SETTINGS_TILE", tile.attributes.getNamedItemNS(ns, "permission").nodeValue)
+    }
+}
+
+/** Web-link offers are checked against the Mac that sent them, and answered on its session. */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class)
+class QuickActionsSenderTest {
+    private val toSelected = mutableListOf<JSONObject>()
+    private val replies = mutableListOf<JSONObject>()
+
+    /** The selected Mac is "selected"; Web links are on only for the devices in [linksOn]. */
+    private fun quickActions(selectedLinksOn: Boolean, vararg linksOn: String) = QuickActions(
+        ApplicationProvider.getApplicationContext(), CoroutineScope(Dispatchers.Unconfined),
+        available = { it == BridgeyFeature.LINKS && selectedLinksOn },
+        send = { _, payload -> toSelected += payload; true },
+        availableFor = { feature, deviceId -> feature == BridgeyFeature.LINKS && deviceId in linksOn },
+    )
+
+    private fun offer() = JSONObject().put("version", 1).put("requestId", UUID.randomUUID().toString())
+        .put("feature", "links").put("action", "offer").put("value", "https://example.com/page")
+
+    @Test fun aLinkFromAMacWithWebLinksOffIsDeclinedEvenWhenTheSelectedMacAllowsThem() {
+        val actions = quickActions(selectedLinksOn = true)
+        actions.receive("quick.request", offer(), "other-mac") { _, payload -> replies += payload; true }
+        assertNull(actions.receivedLink.value)
+        assertEquals(false, replies.single().get("accepted"))
+        assertTrue("the answer goes to the sender, not the selected Mac", toSelected.isEmpty())
+    }
+
+    @Test fun aLinkFromAMacWithWebLinksOnIsAcceptedWhenTheSelectedMacHasThemOff() {
+        val actions = quickActions(selectedLinksOn = false, "other-mac")
+        actions.receive("quick.request", offer(), "other-mac") { _, payload -> replies += payload; true }
+        assertEquals("https://example.com/page", actions.receivedLink.value)
+        assertEquals(true, replies.single().get("accepted"))
+        assertTrue(toSelected.isEmpty())
+        // The selected Mac's own setting does not drop a link the sender may send.
+        actions.policyChanged()
+        assertEquals("https://example.com/page", actions.receivedLink.value)
     }
 }

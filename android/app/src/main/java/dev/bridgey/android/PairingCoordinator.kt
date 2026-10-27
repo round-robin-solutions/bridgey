@@ -170,7 +170,10 @@ class PairingCoordinator(
 ) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    val quickActions = QuickActions(appContext, scope, { isFeatureAvailable(it) }, ::sendQuickPayload, ::linksOpenSupported)
+    val quickActions = QuickActions(
+        appContext, scope, { isFeatureAvailable(it) }, ::sendQuickPayload, ::linksOpenSupported,
+        availableFor = { feature, deviceId -> isFeatureAvailable(feature, deviceId) },
+    )
     private val registry = SessionRegistry<Session>(localDeviceId)
 
     /** Mac actions (draft `mac_actions_draft1`): each Mac's list, runs and results. */
@@ -1675,9 +1678,11 @@ class PairingCoordinator(
     }
 
     /** Quick actions (links, media) go to the selected device. */
-    private fun sendQuickPayload(kind: String, payload: JSONObject): Boolean {
-        val current = sessionFor(null) ?: return false
-        if (current.pairingKey == null) return false
+    private fun sendQuickPayload(kind: String, payload: JSONObject): Boolean = sendQuickPayloadTo(sessionFor(null), kind, payload)
+
+    /** A quick payload to [current]; answers go back on the session the request came in on. */
+    private fun sendQuickPayloadTo(current: Session?, kind: String, payload: JSONObject): Boolean {
+        if (current == null || current.pairingKey == null) return false
         val data = payload.toString().toByteArray(Charsets.UTF_8)
         scope.launch { sendEncrypted(current, kind, data) }
         return true
@@ -1702,7 +1707,7 @@ class PairingCoordinator(
             current.media = payload
             if (registry.target(selectedDeviceId) != current.remoteDeviceId) return
         }
-        quickActions.receive(message.kind, payload)
+        quickActions.receive(message.kind, payload, current.remoteDeviceId) { kind, reply -> sendQuickPayloadTo(current, kind, reply) }
     }
 
     /**
