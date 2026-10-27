@@ -378,7 +378,7 @@ impl Node {
                     // A peer that just dropped is raced after 1.5 s, so a LAN TCP reconnect can win first.
                     Some(p) if p.cfg.connected && !cfg.connected => (Instant::now() + Duration::from_millis(1_500), 0),
                     Some(p) => (p.next_attempt, p.failures),
-                    None => (Instant::now() + Duration::from_secs(3), 0),
+                    None => (Instant::now() + Duration::from_millis(1_500), 0),
                 };
                 next.insert(cfg.id.clone(), Peer { sig_key: derive::sig_key(&secret), secret, cfg, next_attempt, failures });
             }
@@ -1107,6 +1107,15 @@ impl Node {
     pub fn addresses(&self) -> Value {
         let addrs: Vec<Value> = addrs::local_addresses().into_iter().map(|a| json!({"a": a.a, "kind": a.kind, "vpn": a.vpn})).collect();
         json!({"ok": true, "port": self.mux.port(), "addrs": addrs})
+    }
+
+    /// Stops the node and releases its relay allocations (each holds relay capacity until it lapses).
+    pub async fn shutdown(&self) {
+        let allocations: Vec<Arc<Allocation>> = self.allocations.lock().unwrap().values().cloned().collect();
+        self.stop();
+        for allocation in allocations {
+            let _ = tokio::time::timeout(Duration::from_millis(800), allocation.release()).await;
+        }
     }
 
     pub fn stop(&self) {

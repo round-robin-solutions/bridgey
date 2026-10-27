@@ -11,9 +11,9 @@ static-auth-secret=@TURN_SECRET@
 fingerprint
 no-multicast-peers
 no-tcp-relay
-# Phase 1 clients use TURN over UDP only; TURN over TLS (5349, 443) comes with phase 3.
+# Phase 1 clients use TURN over UDP only; TURN over TLS (5349, 443) comes with phase 3. Without a
+# certificate coturn opens no TLS or DTLS listener.
 no-tls
-no-dtls
 user-quota=2
 total-quota=@TOTAL_QUOTA@
 max-bps=6250000

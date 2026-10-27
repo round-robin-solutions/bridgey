@@ -123,9 +123,9 @@ pub fn next_event(id: u64, timeout_ms: u32) -> Option<String> {
 }
 
 pub fn stop(id: u64) {
-    if let Some(h) = handles().lock().unwrap().remove(&id) {
-        let _guard = runtime().enter();
-        h.node.stop();
+    let handle = handles().lock().unwrap().remove(&id);
+    if let Some(h) = handle {
+        runtime().block_on(h.node.shutdown());
     }
 }
 
