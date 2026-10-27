@@ -96,6 +96,10 @@ if [ -x "$CARGO_BIN" ]; then
   CONNECT_DYLIB="$APP_PATH/Contents/Frameworks/libbridgey_connect.dylib"
   cp "../rust/target/$CARGO_PROFILE/libbridgey_connect.dylib" "$CONNECT_DYLIB"
   install_name_tool -id "@rpath/libbridgey_connect.dylib" "$CONNECT_DYLIB"
+elif [ "$CONFIGURATION" = release ] && [ "${BRIDGEY_CONNECT_CORE:-}" != skip ]; then
+  # A release must never ship without the core; scripts/rr/rust-toolchain.sh mac installs cargo.
+  echo "error: cargo not found; release builds need the Connect anywhere core (or BRIDGEY_CONNECT_CORE=skip)" >&2
+  exit 1
 else
   echo "warning: cargo not found; building without the Connect anywhere core (it will show as not available)" >&2
 fi

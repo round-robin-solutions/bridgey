@@ -15,6 +15,11 @@ SIGNING_ENV=${BRIDGEY_RR_SIGNING_ENV:-$HOME/.config/bridgey-rr/android-signing.e
 [ -f "$KEYSTORE" ] || die "keystore not found at $KEYSTORE"
 [ -f "$SIGNING_ENV" ] || die "signing env not found at $SIGNING_ENV"
 
+# The Connect anywhere core is part of every APK (Gradle builds it with cargo-ndk).
+sh "$(dirname -- "$0")/rust-toolchain.sh" android
+PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+export PATH
+
 SLOT=""
 command -v iieon-slot >/dev/null 2>&1 && SLOT=iieon-slot
 
@@ -42,6 +47,9 @@ CERTS=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK") || die "apksigner 
 ACTUAL_CERT=$(printf '%s\n' "$CERTS" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr -d ':' | tr 'A-F' 'a-f')
 # Certificate fingerprints are public, so a mismatch names both.
 [ "$ACTUAL_CERT" = "$EXPECTED_CERT" ] || die "APK is not signed with the Round Robin release key (signed with ${ACTUAL_CERT:-nothing}, expected $EXPECTED_CERT; $(basename "$BUILD_TOOLS") apksigner)"
+for abi in arm64-v8a x86_64; do
+  unzip -l "$APK" "lib/$abi/libbridgey_connect.so" >/dev/null 2>&1 || die "the APK has no Connect anywhere core for $abi (lib/$abi/libbridgey_connect.so)"
+done
 BADGING=$("$BUILD_TOOLS/aapt2" dump badging "$APK" | head -n 1)
 echo "$BADGING" | grep -q "name='$(edition_value EDITION_APP_ID)'" || die "unexpected package: $BADGING"
 echo "$BADGING" | grep -q "versionCode='$BRIDGEY_BUILD_NUMBER'" || die "unexpected versionCode: $BADGING"
