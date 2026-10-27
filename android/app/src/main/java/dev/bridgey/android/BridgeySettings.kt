@@ -94,6 +94,11 @@ data class BridgeySettingsState(
     val focusShare: Boolean = false,
     /** Notifications > Follow the Mac's Focus: Do Not Disturb follows the Macs. Off by default. */
     val focusFollow: Boolean = false,
+    /**
+     * Updates > Let paired devices start updates on this phone (updates_draft1). On by default: it only
+     * starts Bridgey's own update from this phone's channel, with its own checks (docs/rr-edition.md).
+     */
+    val updatesRemoteStart: Boolean = true,
 ) {
     /** What a folder transfer to this phone reads when it decides. */
     val folderReceiveSettings: FolderReceiveSettings
@@ -239,6 +244,11 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(focusShare = enabled)
     }
 
+    fun setUpdatesRemoteStart(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_UPDATES_REMOTE_START, enabled).apply()
+        mutableState.value = mutableState.value.copy(updatesRemoteStart = enabled)
+    }
+
     fun setFocusFollow(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_FOCUS_FOLLOW, enabled).apply()
         mutableState.value = mutableState.value.copy(focusFollow = enabled)
@@ -354,6 +364,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             logging = loggingPolicyFrom { key, default -> preferences.getBoolean(key, default) },
             focusShare = preferences.getBoolean(KEY_FOCUS_SHARE, false),
             focusFollow = preferences.getBoolean(KEY_FOCUS_FOLLOW, false),
+            updatesRemoteStart = preferences.getBoolean(KEY_UPDATES_REMOTE_START, true),
         )
     }
 
@@ -377,6 +388,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         private const val KEY_FOLDER_RECENT = "files.folder_recent"
         internal const val KEY_FOCUS_SHARE = "focus.share"
         internal const val KEY_FOCUS_FOLLOW = "focus.follow"
+        private const val KEY_UPDATES_REMOTE_START = "updates.remote_start"
     }
 }
 

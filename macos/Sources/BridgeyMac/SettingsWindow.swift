@@ -124,6 +124,9 @@ struct SettingsModel {
     var canCheckForUpdates = false
     var updateFlow: UpdateFlow = .idle
     var updateDeferral: UpdateDeferral?
+    /// Update all: this Mac and its connected phones; and whether phones may start this Mac's update.
+    var updateAll = UpdateAllDisplay()
+    var remoteStartUpdates = true
     var shortVersion = "Development"
     var versionDescription = "Development"
     var phoneLinkStatus: String?
@@ -252,6 +255,8 @@ struct SettingsActions {
     var setAutomaticallyChecks: (Bool) -> Void = { _ in }
     var checkForUpdates: () -> Void = {}
     var update = UpdateFlowActions()
+    var updateAll = UpdateAllActions()
+    var setRemoteStartUpdates: (Bool) -> Void = { _ in }
     var openURL: (URL) -> Void = { _ in }
     var stopRemoteControl: () -> Void = {}
     var openAccessibilitySettings: () -> Void = {}
@@ -1432,6 +1437,7 @@ struct LiveSettingsView: View {
     @ObservedObject var focusSync: FocusSync
     @ObservedObject var camera: PhoneCamera
     @ObservedObject var settingsSync: SettingsSyncController
+    @ObservedObject var updateAll = UpdateAllCoordinator.shared
     @State private var pane: SettingsPane = .devices
     @State private var availableShortcuts: [String]?
     @State private var phoneLinkStatus: String?
@@ -1551,6 +1557,8 @@ struct LiveSettingsView: View {
         model.canCheckForUpdates = updater.canCheckForUpdates
         model.updateFlow = updater.flow
         model.updateDeferral = updater.deferral
+        model.updateAll = updateAll.display()
+        model.remoteStartUpdates = updateAll.remoteStartAllowed
         model.shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
         model.versionDescription = updater.versionDescription
         model.phoneLinkStatus = phoneLinkStatus
@@ -1698,6 +1706,8 @@ struct LiveSettingsView: View {
         actions.setAutomaticallyChecks = { updater.setAutomaticallyChecks($0) }
         actions.checkForUpdates = { updater.checkForUpdates() }
         actions.update = updater.flowActions
+        actions.updateAll = updateAll.actions
+        actions.setRemoteStartUpdates = { updateAll.setRemoteStartAllowed($0) }
         actions.openURL = { NSWorkspace.shared.open($0) }
         return setupCenter.hooked(actions, showPane: { pane = $0 }, inSetup: inSetup)
     }

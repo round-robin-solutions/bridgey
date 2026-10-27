@@ -994,7 +994,8 @@ per-device grants and overrides (which phone may use Mac actions or remote contr
 turned off for one device, automatic clipboard for one device), device names, paths and folders
 (received-files folder, places, the default folder, last destinations), "Allow other devices to
 change files here" and "Let other devices browse this phone" (they guard this device against the
-others), the background clipboard and Keep Wi-Fi awake (they depend on this phone), logging,
+others), Update all's "Let paired devices start updates on this device" (a security choice each
+device makes for itself), the background clipboard and Keep Wi-Fi awake (they depend on this phone), logging,
 update channels, notification app filters, shortcuts, the Mac's media player, launch at login, and
 the sync switches themselves. A key outside the allowlist is skipped on receipt, never stored and
 never relayed.
@@ -1098,6 +1099,7 @@ Self-contained here; [SECURITY.md](../SECURITY.md) points to it.
 | A paired device is compromised or misused | Turn features on here, for example Files (so it can send files), Notification forwarding (so it receives notifications) or Calls | Only authenticated, trusted peers in a live session can send `settings.*`, and only while this device advertises `settings_sync_draft1` to that peer (both switches on). Every applied change is in the activity stream with the device's name, and turning a feature on posts a notification. Permissions are never granted remotely, so notification access, phone, camera, Accessibility and Do Not Disturb still need the person on this device. Turning sync off for that device, or Forget, stops it at once |
 | Escalation through per-device grants | A phone turning on Mac actions or remote control for itself | Only the global switch syncs. Which phone may use Mac actions or control the Mac stays a grant made on the Mac and never syncs |
 | Opening this device's storage | A Mac turning on writes into places, or browsing | "Allow other devices to change files here" and "Let other devices browse this phone" never sync |
+| Starting updates remotely | A peer turning on "Let paired devices start updates on this device" so it can restart this device's Bridgey | That switch never syncs; each device decides it |
 | Skipping a consent | A peer turning on codes from messages on a Mac, which would send message text to the cloud relay without the person agreeing there | A remote turn-on waits for the consent (and model) on that Mac; nothing turns on until the person allows it there |
 | Secrets or pairing data leaking | Keys, codes or trust read or overwritten | None of them is a sync key; the allowlist is closed and unknown keys are skipped, not relayed |
 | A new device overwriting an existing setup | A freshly paired device pushing its defaults over the choices of the devices already in use | The new device asks; nothing moves until the person answers, and Keep mine leaves both sides as they are |

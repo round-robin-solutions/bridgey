@@ -113,8 +113,14 @@ fun UpdatePrompts(updater: AppUpdater) {
 sealed interface UpdateCardPhase {
     data object Checking : UpdateCardPhase
     data class Downloading(val update: AndroidUpdate, val progress: Float) : UpdateCardPhase
-    /** The APK is with the Android installer (the phone's "ready to restart"). */
+    /** The APK is with the Android installer, which asks the person to confirm. */
     data class Confirming(val update: AndroidUpdate) : UpdateCardPhase
+    /** Handed to the installer without a confirmation: Bridgey restarts next. */
+    data class Installing(val update: AndroidUpdate) : UpdateCardPhase
+    /** Downloaded and verified, waiting for Install (Update all's Later). */
+    data class Ready(val update: AndroidUpdate) : UpdateCardPhase
+    /** [versionName] was installed, but Bridgey started again on its old build. [canRetry] when it is still offered. */
+    data class NotApplied(val versionName: String, val canRetry: Boolean) : UpdateCardPhase
     data class Failed(val error: UpdateError, val retryInstalls: Boolean) : UpdateCardPhase
     data class Available(val update: AndroidUpdate) : UpdateCardPhase
     /** Later was tapped: the update waits behind Show update. */
@@ -129,8 +135,11 @@ fun updateCardPhase(state: UpdateUiState): UpdateCardPhase {
     val progress = state.downloadProgress
     return when {
         update != null && progress != null -> UpdateCardPhase.Downloading(update, progress)
+        update != null && state.installing -> UpdateCardPhase.Installing(update)
         update != null && state.awaitingConfirmation -> UpdateCardPhase.Confirming(update)
         state.error != null -> UpdateCardPhase.Failed(state.error, retryInstalls = update != null && state.error != UpdateError.CHECK)
+        update != null && state.readyToInstall -> UpdateCardPhase.Ready(update)
+        state.notApplied != null && !state.checking -> UpdateCardPhase.NotApplied(state.notApplied.version, canRetry = update != null)
         state.checking -> UpdateCardPhase.Checking
         update != null && !state.deferred -> UpdateCardPhase.Available(update)
         update != null -> UpdateCardPhase.Waiting(update)

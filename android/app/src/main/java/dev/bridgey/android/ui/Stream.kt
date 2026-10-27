@@ -93,6 +93,11 @@ sealed interface LiveCard {
     data class Reconnecting(val deviceId: String, val deviceName: String, val lastSeen: String?, val struggling: Boolean) : LiveCard {
         override val key get() = "reconnecting:$deviceId"
     }
+
+    /** Update all: devices with an update, or a run to follow. */
+    data class UpdateAll(val state: UpdateAllUiState) : LiveCard {
+        override val key get() = "update-all"
+    }
 }
 
 class LiveActions(
@@ -107,6 +112,7 @@ class LiveActions(
     val retryDevice: (String) -> Unit = {},
     /** A folder waits for this phone's answer: open its sheet. */
     val answerFolder: (String) -> Unit = {},
+    val updateAll: UpdateAllActions = UpdateAllActions(),
 )
 
 /** The clock for live countdowns; screenshots fix it. */
@@ -447,6 +453,7 @@ private fun LiveCardRow(card: LiveCard, actions: LiveActions, first: Boolean, la
         is LiveCard.Ringing -> BridgeyIcons.MyLocation to Tint.PURPLE
         is LiveCard.Media -> BridgeyIcons.MusicNote to Tint.BLUE
         is LiveCard.Reconnecting -> (if (card.struggling) BridgeyIcons.WifiOff else BridgeyIcons.Sync) to (if (card.struggling) Tint.NEUTRAL else Tint.BLUE)
+        is LiveCard.UpdateAll -> BridgeyIcons.Update to Tint.PURPLE
     }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp).heightIn(min = 80.dp),
@@ -484,6 +491,7 @@ private fun LiveCardRow(card: LiveCard, actions: LiveActions, first: Boolean, la
                     )
                     CardActions { TonalPillButton(stringResource(R.string.action_retry_now), { actions.retryDevice(card.deviceId) }) }
                 }
+                is LiveCard.UpdateAll -> UpdateAllCardContent(card.state, actions.updateAll)
             }
         }
     }
