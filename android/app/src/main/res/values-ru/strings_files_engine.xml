@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Files 2.0, second slice. -->
+<!-- Files 2.0, second slice: the transfer engine (folders sent from this phone, browsing). -->
 <resources>
+    <string name="folder_send_not_connected">Нет подключения, папка не отправлена</string>
+    <string name="folder_send_unsupported">%1$s пока не принимает папки. Обновите на нём Bridgey.</string>
+    <string name="folder_send_unreadable">Bridgey не может прочитать эту папку</string>
 </resources>

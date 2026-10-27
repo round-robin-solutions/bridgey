@@ -1697,12 +1697,12 @@ class PairingCoordinator(
     fun sendFolder(source: dev.bridgey.android.browse.FolderSource, deviceId: String? = null) {
         val connectedSession = sessionFor(deviceId)
         if (connectedSession == null) {
-            mutableFileTransferStatus.value = "Not connected, so the folder was not sent"
+            mutableFileTransferStatus.value = appContext.getString(R.string.folder_send_not_connected)
             return
         }
         val target = connectedSession.remoteDeviceId
         if (!sendsFoldersTo(target)) {
-            mutableFileTransferStatus.value = "${connectedSession.peerName} can't receive folders yet. Update Bridgey on it."
+            mutableFileTransferStatus.value = appContext.getString(R.string.folder_send_unsupported, connectedSession.peerName)
             return
         }
         val peerName = connectedSession.peerName
@@ -1717,7 +1717,7 @@ class PairingCoordinator(
                     }.getOrDefault(false)
                     val store = runCatching { dev.bridgey.android.folders.SafTreeStore(appContext.contentResolver, tree) }.getOrNull()
                     if (store == null) {
-                        mutableFileTransferStatus.value = "Bridgey can't read that folder"
+                        mutableFileTransferStatus.value = appContext.getString(R.string.folder_send_unreadable)
                         return@launch
                     }
                     val name = store.rootName() ?: "Folder"
@@ -1729,7 +1729,7 @@ class PairingCoordinator(
                     val store = place?.let { runCatching { it.open() }.getOrNull() }
                     val dirId = store?.let { runCatching { dev.bridgey.android.folders.resolveExistingPath(it, source.path) }.getOrNull() }
                     if (place == null || store == null || dirId == null) {
-                        mutableFileTransferStatus.value = "Bridgey can't read that folder"
+                        mutableFileTransferStatus.value = appContext.getString(R.string.folder_send_unreadable)
                         return@launch
                     }
                     val name = if (source.path.isEmpty()) place.label.substringAfterLast('/') else dev.bridgey.android.folders.FolderPaths.leaf(source.path)
@@ -2037,6 +2037,11 @@ class PairingCoordinator(
 
     /** Retries to the same device the file first went to. */
     fun retryFileTransfer(transferId: String) {
+        // An interrupted folder sent from here resumes as soon as its device takes folders again.
+        if (folderSender.owns(transferId)) {
+            mutableFileTransfers.value[transferId]?.deviceId?.takeIf(::sendsFoldersTo)?.let(folderSender::deviceReady)
+            return
+        }
         val uri = outgoingFileSources[transferId] ?: return
         val deviceId = transferDevices[transferId] ?: mutableFileTransfers.value[transferId]?.deviceId
         if (deviceId == null || registry.session(deviceId) == null) {
