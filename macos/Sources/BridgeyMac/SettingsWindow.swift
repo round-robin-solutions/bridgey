@@ -127,6 +127,15 @@ struct SettingsModel {
     var remoteSession: RemoteInputHost.ActiveSession?
     var accessibilityTrusted = false
     var remoteAudit: [RemoteControlAuditEntry] = []
+    /// Media and actions > Mac actions: what phones may run, the Shortcuts on this Mac (nil until
+    /// read), and the private action log.
+    var macActions = MacActionsConfig()
+    var availableShortcuts: [String]?
+    var macActionsAudit: [MacActionAuditEntry] = []
+    /// Media and actions > Open links from phones right away.
+    var openLinksRightAway = false
+    /// Devices > [phone] > Connection health.
+    var health: [String: ConnectionHealthSnapshot] = [:]
 
     var connectedDeviceID: String? {
         if case let .connected(id, _) = state { return id }
@@ -205,6 +214,13 @@ struct SettingsActions {
     var stopRemoteControl: () -> Void = {}
     var openAccessibilitySettings: () -> Void = {}
     var clearRemoteAudit: () -> Void = {}
+    var setMacActionSwitch: (MacActionSwitch, Bool) -> Void = { _, _ in }
+    var addMacActionApps: () -> Void = {}
+    var removeMacActionApp: (String) -> Void = { _ in }
+    var addMacActionShortcut: (String) -> Void = { _ in }
+    var removeMacActionShortcut: (String) -> Void = { _ in }
+    var clearMacActionsAudit: () -> Void = {}
+    var setOpenLinksRightAway: (Bool) -> Void = { _ in }
 }
 
 enum SettingsLinks {
@@ -696,8 +712,15 @@ private struct MediaActionsPane: View {
         SettingsCard(title: L10n.text("settings.quickActions", fallback: "Quick actions")) {
             ForEach(Array([BridgeyFeature.links, .ping, .findDevice, .battery].enumerated()), id: \.element) { index, feature in
                 FeatureSwitch(feature: feature, model: model, actions: actions, divider: index > 0)
+                if feature == .links {
+                    SettingsToggle(title: L10n.text("settings.links.openRightAway", fallback: "Open links from phones right away"),
+                                   subtitle: L10n.text("settings.links.openRightAway.detail", fallback: "Open on Mac from the phone\u{2019}s share sheet opens the link in your browser. Off: it waits for you to open it here."),
+                                   isOn: model.openLinksRightAway, set: actions.setOpenLinksRightAway)
+                        .disabled(model.globalFeatures[.links] == false)
+                }
             }
         }
+        MacActionsCards(model: model, actions: actions)
         ShortcutsCard(model: model, actions: actions, only: [.link, .ping])
     }
 }
@@ -842,6 +865,7 @@ extension BridgeyFeature {
         case .media: L10n.text("feature.media.detail", fallback: "Control this Mac\u{2019}s music from the phone")
         case .calls: L10n.text("feature.calls.detail", fallback: "Start calls on the phone from this Mac")
         case .remoteInput: L10n.text("feature.remoteInput.detail", fallback: "Let a phone you allow move the pointer, type and change slides")
+        case .macActions: L10n.text("feature.macActions.detail", fallback: "Lock, sleep, volume, apps and Shortcuts from a phone you allow")
         }
     }
 }
@@ -902,7 +926,8 @@ struct DeviceCard: View {
                 .font(BrandFont.body(12))
                 .foregroundStyle(c.on2)
                 .padding(.bottom, 4)
-            ForEach(BridgeyFeature.allCases.filter { $0 != .remoteInput }) { feature in
+            ConnectionHealthRow(health: model.health[device.id], now: model.now)
+            ForEach(BridgeyFeature.allCases.filter { !$0.needsDeviceGrant }) { feature in
                 SettingsToggle(
                     title: feature.title,
                     subtitle: note(feature),
@@ -923,6 +948,8 @@ struct DeviceCard: View {
             }
             // Granted on its own, off by default; see Settings > Remote control.
             RemoteControlGrantToggle(device: device, model: model, actions: actions)
+            // The same for Mac actions; see Settings > Media and actions.
+            MacActionsGrantToggle(device: device, model: model, actions: actions)
         }
         .confirmationDialog(
             String(format: L10n.text("devices.forget.title", fallback: "Forget %@?"), device.name),
@@ -1251,7 +1278,10 @@ private struct LiveSettingsView: View {
     @ObservedObject var remoteInput: RemoteInputHost
     @ObservedObject var remoteAudit: RemoteControlAuditLog
     @ObservedObject var codeModel: CodeModelStore
+    @ObservedObject var macActions: MacActionsHost
+    @ObservedObject var macActionsAudit: MacActionsAuditLog
     @State private var pane: SettingsPane = .devices
+    @State private var availableShortcuts: [String]?
     @State private var phoneLinkStatus: String?
     /// While Remote control is open: notices Accessibility being allowed in System Settings.
     private let accessibilityTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -1267,6 +1297,8 @@ private struct LiveSettingsView: View {
         remoteInput = pairing.remoteInput
         remoteAudit = pairing.remoteInput.audit
         codeModel = pairing.codeModel
+        macActions = pairing.macActions
+        macActionsAudit = pairing.macActions.audit
     }
 
     private var codeModelDisplay: CodeModelDisplay {
@@ -1293,9 +1325,13 @@ private struct LiveSettingsView: View {
             settings.refreshLoginItemStatus()
             remoteInput.refreshAccessibility()
             remoteAudit.prune()
+            macActionsAudit.prune()
         }
         .onReceive(accessibilityTicker) { _ in
-            if pane == .remoteControl { remoteInput.refreshAccessibility() }
+            if pane == .remoteControl || pane == .media { remoteInput.refreshAccessibility() }
+        }
+        .onChange(of: pane) { shown in
+            if shown == .media { loadShortcuts() }
         }
     }
 
@@ -1358,6 +1394,11 @@ private struct LiveSettingsView: View {
         model.remoteSession = remoteInput.active
         model.accessibilityTrusted = remoteInput.accessibilityTrusted
         model.remoteAudit = remoteAudit.entries
+        model.macActions = macActions.config
+        model.availableShortcuts = availableShortcuts
+        model.macActionsAudit = macActionsAudit.entries
+        model.openLinksRightAway = settings.openLinksRightAway
+        model.health = pairing.connectionHealth
         return model
     }
 
@@ -1385,6 +1426,20 @@ private struct LiveSettingsView: View {
         actions.stopRemoteControl = { remoteInput.stopLocally() }
         actions.openAccessibilitySettings = { NSWorkspace.shared.open(AccessibilityAccess.settingsURL) }
         actions.clearRemoteAudit = { remoteAudit.clear() }
+        actions.setMacActionSwitch = { item, enabled in
+            macActions.setSwitch(item, enabled: enabled)
+            // Lock needs Accessibility: macOS asks once, when Lock is turned on, never at launch.
+            if item == .lock && enabled {
+                remoteInput.refreshAccessibility()
+                if !remoteInput.accessibilityTrusted { AccessibilityAccess.request() }
+            }
+        }
+        actions.addMacActionApps = { macActions.addApps(chooseAllowedApps()) }
+        actions.removeMacActionApp = { macActions.removeApp(bundleID: $0) }
+        actions.addMacActionShortcut = { macActions.addShortcut(named: $0) }
+        actions.removeMacActionShortcut = { macActions.removeShortcut(id: $0) }
+        actions.clearMacActionsAudit = { macActionsAudit.clear() }
+        actions.setOpenLinksRightAway = { settings.setOpenLinksRightAway($0) }
         actions.setAutoClipboard = { settings.setAutoClipboard($0) }
         actions.setAutoClipboardForDevice = { deviceID, enabled in settings.setAutoClipboard(enabled, for: deviceID) }
         actions.setClipboardFiles = { settings.setClipboardFilesEnabled($0) }
@@ -1458,6 +1513,14 @@ private struct LiveSettingsView: View {
         let grants = settings.deviceFeatures.mapValues { $0[.remoteInput] == true }
         if enabled, remoteControlEffectivelyEnabled(globalEnabled: settings.globalFeatures[.remoteInput] == true, deviceGrants: grants) {
             remoteInput.remoteControlEnabled()
+        }
+    }
+
+    /// The Shortcuts on this Mac, read with `shortcuts list` off the main thread.
+    private func loadShortcuts() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let names = ShortcutsCLI.list() ?? []
+            DispatchQueue.main.async { availableShortcuts = names }
         }
     }
 

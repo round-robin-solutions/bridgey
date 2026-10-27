@@ -69,6 +69,8 @@ final class BonjourDiscovery: NSObject, ObservableObject {
     static let defaultPort: Int32 = 42_458
 
     @Published private(set) var peers: [DiscoveredPeer] = []
+    /// Connection health: browsing, stopped, or refused (Local Network access off, or mDNS failed).
+    @Published private(set) var health: DiscoveryHealth = .stopped
 
     /// A fresh browser per run: a restarted NetServiceBrowser sends new queries straight away,
     /// where a long-running one backs off to about one query an hour (RFC 6762, section 5.2).
@@ -125,6 +127,7 @@ final class BonjourDiscovery: NSObject, ObservableObject {
         isRunning = false
         tearDown()
         peers.removeAll()
+        health = .stopped
         BridgeyLog.discovery.notice("browsing stopped")
     }
 
@@ -163,6 +166,7 @@ final class BonjourDiscovery: NSObject, ObservableObject {
     }
 
     private func begin() {
+        health = .browsing
         publish()
         let browser = NetServiceBrowser()
         browser.delegate = self
@@ -270,6 +274,10 @@ extension BonjourDiscovery: NetServiceBrowserDelegate {
     nonisolated func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
         let code = errorDict[NetService.errorCode]?.intValue ?? 0
         BridgeyLog.discovery.error("browse failed code=\(code, privacy: .public)")
+        Task { @MainActor in
+            guard browser === self.browser else { return }
+            health = .denied
+        }
     }
 }
 

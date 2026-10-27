@@ -14,6 +14,9 @@ enum BridgeyFeature: String, CaseIterable, Identifiable {
     case calls
     /// Draft, edition only until accepted upstream: this Mac accepts remote input from the phone.
     case remoteInput = "remote_input_draft1"
+    /// Draft, edition only: a phone you allow may lock, sleep, change the volume, open listed apps
+    /// and run listed Shortcuts (docs/protocol.md, "Mac actions"). Off by default, granted per device.
+    case macActions = "mac_actions_draft1"
 
     var id: String { rawValue }
     var title: String {
@@ -28,15 +31,16 @@ enum BridgeyFeature: String, CaseIterable, Identifiable {
         case .media: "Media controls"
         case .calls: "Calls from Mac"
         case .remoteInput: L10n.text("settings.remoteControl", fallback: "Remote control")
+        case .macActions: L10n.text("settings.macActions", fallback: "Mac actions")
         }
     }
 
     /// Off by default and granted per device: the global switch alone allows nothing.
-    var needsDeviceGrant: Bool { self == .remoteInput }
+    var needsDeviceGrant: Bool { self == .remoteInput || self == .macActions }
 }
 
 func featureEnabledByLegacyPeer(_ feature: BridgeyFeature) -> Bool {
-    ![.calls, .ping, .links, .media, .remoteInput].contains(feature)
+    ![.calls, .ping, .links, .media, .remoteInput, .macActions].contains(feature)
 }
 
 /// Remote control: on for this Mac and explicitly granted to the device; a missing grant is off.
@@ -106,6 +110,9 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var codeModelAcceptances: [CodeModelAcceptance]
     /// Notifications > Codes from messages > Copy automatically. Off by default.
     @Published private(set) var codesAutoCopy: Bool
+    /// Media and actions > Open links from phones right away (links_open_draft1). Off by default:
+    /// a link waits for Open on this Mac.
+    @Published private(set) var openLinksRightAway: Bool
 
     private let defaults = UserDefaults.standard
 
@@ -137,13 +144,14 @@ final class BridgeySettings: ObservableObject {
         let codesOn = storedDefaults.bool(forKey: "settings.codes.enabled")
         codesEnabled = codesOn
         codesAutoCopy = storedDefaults.bool(forKey: "settings.codes.autoCopy")
+        openLinksRightAway = storedDefaults.bool(forKey: "settings.links.openRightAway")
         let engine = CodeEngine.stored(storedDefaults.string(forKey: "settings.codes.engine"), codesWereEnabled: codesOn)
         // Settle the choice once, so turning codes on later never reads as an old cloud opt-in.
         storedDefaults.set(engine.rawValue, forKey: "settings.codes.engine")
         codesEngine = engine
         codeModelAcceptances = CodeModelAcceptance.decode(storedDefaults.data(forKey: "settings.codes.model.acceptance"))
         globalFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
-            ($0, storedDefaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media && $0 != .remoteInput))
+            ($0, storedDefaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media && $0 != .remoteInput && $0 != .macActions))
         })
         var perDevice: [String: [BridgeyFeature: Bool]] = [:]
         for (key, value) in storedDefaults.dictionaryRepresentation() where key.hasPrefix("settings.device.") {
@@ -192,6 +200,11 @@ final class BridgeySettings: ObservableObject {
     func setCodesAutoCopy(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.codes.autoCopy")
         codesAutoCopy = enabled
+    }
+
+    func setOpenLinksRightAway(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.links.openRightAway")
+        openLinksRightAway = enabled
     }
 
     func setCodesEngine(_ engine: CodeEngine) {
