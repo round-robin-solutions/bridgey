@@ -34,16 +34,23 @@ enum class BridgeyFeature(val key: String, val title: String) {
 
     /** Draft, edition only: a Mac may ask this phone for a photo; the person takes it. On by default. */
     CAMERA("camera_draft1", "Take photos for the Mac"),
+
+    /**
+     * Draft, edition only (v0.9 prototype, view only): a Mac may see this phone's screen. The person confirms in
+     * Android's dialog every time; off by default on every install.
+     */
+    SCREEN("screen_draft1", "Share screen with Macs"),
 }
 
 internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
     feature !in setOf(
         BridgeyFeature.CALLS, BridgeyFeature.PING, BridgeyFeature.LINKS, BridgeyFeature.MEDIA,
-        BridgeyFeature.REMOTE_INPUT, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA,
+        BridgeyFeature.REMOTE_INPUT, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA, BridgeyFeature.SCREEN,
     )
 
 /** Features that start off until the person turns them on. */
-internal fun featureOnByDefault(feature: BridgeyFeature): Boolean = feature != BridgeyFeature.REMOTE_INPUT
+internal fun featureOnByDefault(feature: BridgeyFeature): Boolean =
+    feature != BridgeyFeature.REMOTE_INPUT && feature != BridgeyFeature.SCREEN
 
 data class BridgeySettingsState(
     val deviceName: String,

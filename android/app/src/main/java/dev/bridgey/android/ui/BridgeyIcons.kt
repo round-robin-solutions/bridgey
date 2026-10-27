@@ -98,6 +98,15 @@ object BridgeyIcons {
     val Lan: ImageVector by lazy { icon24("lan", MacActionPaths.ROUTE) }
     val Timer: ImageVector by lazy { icon24("timer", MacActionPaths.TIMER) }
 
+    /** Share screen with Macs: Material Icons screen_share; the same path as res/drawable/ic_action_screen.xml. */
+    val ScreenShare: ImageVector by lazy {
+        icon24(
+            "screen_share",
+            "M20,18c1.1,0 1.99,-0.9 1.99,-2L22,6c0,-1.11 -0.9,-2 -2,-2L4,4c-1.11,0 -2,0.89 -2,2v10c0,1.1 0.89,2 2,2L0,18v2h24v-2h-4z" +
+                "M13,14.47L13,12.28c-2.78,0 -4.61,0.85 -6,2.72 0.56,-2.67 2.11,-5.33 6,-5.87L13,7l4,3.73 -4,3.74z",
+        )
+    }
+
     /** A camera outline with its lens, drawn here (even-odd) in the 24 unit grid. */
     val PhotoCamera: ImageVector by lazy {
         ImageVector.Builder(name = "photo_camera", defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
