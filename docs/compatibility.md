@@ -78,6 +78,20 @@ The app supports Android 8.0 (API 26, `minSdk`) and up. It is built for Android 
 | 15 | 35 | Android hides the text of notifications it thinks hold a code unless the phone is linked to the Mac (see below). |
 | 16 | 36 | As Android 15. |
 
+## Pairing with other Bridgey versions
+
+Decided on 2026-10-27: 0.10 pairs only the safer way, with no fallback.
+
+| Other device runs | First pairing | Devices already paired |
+| --- | --- | --- |
+| Bridgey by Round Robin 0.10 or newer | Works | Works |
+| Bridgey by Round Robin 0.9 or older | Refused in both directions. The 0.10 device says "<name> runs an older Bridgey. Update it to 0.10 or newer, then pair again." | Keep working until the pair has once connected on 0.10 on both sides; after that the pair stays on the 0.10 protocol |
+| Upstream Bridgey | Refused, as for 0.9 | Keep working, as for 0.9 |
+| A 0.10 device rolled back to 0.9 | Refused | Refused once the pair has connected on 0.10: forget and pair again after updating |
+
+Why: the older pairing code can be forced to match by someone on the same Wi-Fi (see
+[security-review-0.10.md](security-review-0.10.md)), so 0.10 does not offer it, even as an option.
+
 ## Phone makers and skins
 
 Only the OnePlus 11 has been tried. The rest is what public sources report, checked against the

@@ -41,7 +41,10 @@ session-local. `protocolVersion` is not part of the signed transcript, so an
 attacker who is on the path every time two devices paired under 0.9 connect can
 keep that pair on protocol 1 (no envelope tags) until one session gets through
 on protocol 2, after which the pair is pinned. Pairing again under 0.10 avoids
-this. This is not a claim of independent cryptographic audit or a
+this. First pairing with a protocol 1 device (Bridgey by Round Robin 0.9 and older,
+and upstream Bridgey) is refused in both directions, with no fallback (Rahul,
+2026-10-27); the user is asked to update the other device. Pairs made earlier
+keep reconnecting. This is not a claim of independent cryptographic audit or a
 complete active-network-attacker defense.
 
 The following items describe the target security design; in particular TLS,
