@@ -29,7 +29,7 @@ import dev.bridgey.android.setup.QuickStep
 import dev.bridgey.android.setup.ResetChoice
 import dev.bridgey.android.setup.SetupEvent
 import dev.bridgey.android.setup.SetupFlow
-import dev.bridgey.android.setup.SetupGroup
+import dev.bridgey.android.setup.SetupFacts
 import dev.bridgey.android.setup.SetupState
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import java.util.Calendar
@@ -149,32 +149,98 @@ class SetupScreenshotTest {
 
     @Test @Config(qualifiers = "+night") fun quickBatteryDark() = quickBattery()
 
-    private fun advanced(group: SetupGroup) = setup(
-        "setup-advanced-${group.name.lowercase().replace('_', '-')}",
-        flow(SetupEvent.ChooseAdvanced, SetupEvent.Next, SetupEvent.Jump(group)),
-        settings = settings.copy(batteryExempt = false),
-        paired = listOf("Personal Mac", "Work MacBook"),
+    private val paired = listOf("Personal Mac", "Work MacBook")
+
+    private fun facts(flowSettings: SettingsState = settings, granted: Set<PermissionKind> = emptySet()) = SetupFacts(
+        paired = true,
+        current = mapOf(dev.bridgey.android.setup.SetupSetting.FEATURE_REMOTE_INPUT to "false"),
+        granted = granted,
+        duplicateApps = listOf("com.whatsapp" to "WhatsApp", "org.telegram.messenger" to "Telegram", "com.Slack" to "Slack", "com.microsoft.teams" to "Microsoft Teams"),
+        codesLinkApplies = true,
     )
 
-    @Test fun advancedDevicesLight() = advanced(SetupGroup.DEVICES)
+    private fun questions(name: String, flow: SetupState, typedText: String = "", picked: Set<String> = emptySet(), dialog: Boolean = false) =
+        capture(name, dialog) {
+            SetupScreen(
+                SetupUiState(flow, settings.copy(batteryExempt = false), paired, emptyList(), oem, facts = facts(), typedText = typedText, pickedBundles = picked),
+                SetupActions(),
+            )
+        }
 
-    @Test @Config(qualifiers = "+night") fun advancedDevicesDark() = advanced(SetupGroup.DEVICES)
+    /** The flow at question [id], having said Not now to the ones before it. */
+    private fun at(id: String, answers: Map<String, String> = emptyMap()): SetupState {
+        var state = SetupFlow.reduce(SetupFlow.reduce(SetupState(), SetupEvent.ChooseAdvanced), SetupEvent.StartQuestions(), facts())
+        while ((state.screen as? dev.bridgey.android.setup.SetupScreen.Question)?.id != id) {
+            val current = (state.screen as dev.bridgey.android.setup.SetupScreen.Question).id
+            state = answers[current]?.let { SetupFlow.reduce(state, SetupEvent.Answer(current, it), facts(granted = PermissionKind.entries.toSet())) }
+                ?: SetupFlow.reduce(state, SetupEvent.NotNow, facts())
+        }
+        return state
+    }
 
-    @Test fun advancedClipboardLight() = advanced(SetupGroup.CLIPBOARD)
+    private fun intro() = questions("setup-intro-typed", flow(SetupEvent.ChooseAdvanced), typedText = "I mainly want my WhatsApp notifications and to send photos to my Mac", picked = setOf("clipboard"))
 
-    @Test @Config(qualifiers = "+night") fun advancedClipboardDark() = advanced(SetupGroup.CLIPBOARD)
+    @Test fun introLight() = intro()
 
-    @Test fun advancedNotificationsLight() = advanced(SetupGroup.NOTIFICATIONS)
+    @Test @Config(qualifiers = "+night") fun introDark() = intro()
 
-    @Test @Config(qualifiers = "+night") fun advancedNotificationsDark() = advanced(SetupGroup.NOTIFICATIONS)
+    private fun clipboardQuestion() = questions("setup-question-clipboard", at("clipboard"))
 
-    @Test fun advancedUpdatesLight() = advanced(SetupGroup.UPDATES)
+    @Test fun clipboardQuestionLight() = clipboardQuestion()
 
-    @Test @Config(qualifiers = "+night") fun advancedUpdatesDark() = advanced(SetupGroup.UPDATES)
+    @Test @Config(qualifiers = "+night") fun clipboardQuestionDark() = clipboardQuestion()
 
-    @Test fun advancedGeneralLight() = advanced(SetupGroup.GENERAL)
+    private fun appsQuestion() = questions("setup-question-apps", at("notification_apps"))
 
-    @Test @Config(qualifiers = "+night") fun advancedGeneralDark() = advanced(SetupGroup.GENERAL)
+    @Test fun appsQuestionLight() = appsQuestion()
+
+    @Test @Config(qualifiers = "+night") fun appsQuestionDark() = appsQuestion()
+
+    private fun updatesQuestion() = questions("setup-question-updates", at("updates").copy(answers = mapOf("updates" to "early")))
+
+    @Test fun updatesQuestionLight() = updatesQuestion()
+
+    @Test @Config(qualifiers = "+night") fun updatesQuestionDark() = updatesQuestion()
+
+    /** Calls: Yes needs Phone and calls, asked right after the answer. */
+    private fun permission() = questions(
+        "setup-question-permission",
+        SetupFlow.reduce(at("calls"), SetupEvent.Answer("calls", "yes"), facts()),
+    )
+
+    @Test fun permissionLight() = permission()
+
+    @Test @Config(qualifiers = "+night") fun permissionDark() = permission()
+
+    /** Not allowed: the next card says so in one line. */
+    private fun deniedNote() = questions(
+        "setup-question-denied-note",
+        SetupFlow.reduce(SetupFlow.reduce(at("calls"), SetupEvent.Answer("calls", "yes"), facts()), SetupEvent.PermissionResult(false), facts()),
+    )
+
+    @Test fun deniedNoteLight() = deniedNote()
+
+    @Test @Config(qualifiers = "+night") fun deniedNoteDark() = deniedNote()
+
+    private fun summaryState(): SetupState {
+        var state = at("updates", mapOf("clipboard" to "auto", "notifications" to "yes", "notification_apps" to "picked:com.whatsapp,org.telegram.messenger", "files" to "yes"))
+        state = SetupFlow.reduce(state, SetupEvent.Answer("updates", "early"), facts())
+        state = state.copy(answers = state.answers + ("calls" to "yes"), denied = mapOf("calls" to PermissionKind.PHONE_CALLS), summaryOff = setOf("files"))
+        while (state.screen != dev.bridgey.android.setup.SetupScreen.Summary) state = SetupFlow.reduce(state, SetupEvent.NotNow, facts())
+        return state
+    }
+
+    private fun summary() = questions("setup-summary", summaryState())
+
+    @Test fun summaryLight() = summary()
+
+    @Test @Config(qualifiers = "+night") fun summaryDark() = summary()
+
+    private fun leave() = questions("setup-leave", at("files", mapOf("clipboard" to "auto")).copy(confirmLeave = true), dialog = true)
+
+    @Test fun leaveLight() = leave()
+
+    @Test @Config(qualifiers = "+night") fun leaveDark() = leave()
 
     private fun done() = setup(
         "setup-done",

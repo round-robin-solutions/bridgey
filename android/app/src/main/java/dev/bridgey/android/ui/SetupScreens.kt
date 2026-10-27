@@ -23,10 +23,6 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -49,16 +45,13 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import dev.bridgey.android.BridgeyFeature
 import dev.bridgey.android.R
-import dev.bridgey.android.UpdateChannel
 import dev.bridgey.android.setup.OemChecklist
 import dev.bridgey.android.setup.OemStep
 import dev.bridgey.android.setup.PermissionKind
 import dev.bridgey.android.setup.QuickStep
-import dev.bridgey.android.setup.SetupChoice
+import dev.bridgey.android.setup.SetupFacts
 import dev.bridgey.android.setup.SetupEvent
-import dev.bridgey.android.setup.SetupGroup
 import dev.bridgey.android.setup.SetupPath
 import dev.bridgey.android.setup.SetupScreen
 import dev.bridgey.android.setup.SetupState
@@ -80,6 +73,11 @@ data class SetupUiState(
     val oem: OemChecklist? = null,
     /** Opened again from Settings: Welcome shows a back arrow. */
     val rerun: Boolean = false,
+    /** What the questions depend on: the settings now, permissions, a paired Mac. */
+    val facts: SetupFacts = SetupFacts(),
+    /** Screenshots: text already typed on the Intro, and bundles already picked. */
+    val typedText: String = "",
+    val pickedBundles: Set<String> = emptySet(),
 ) {
     /** Whether a quick step's permission is granted (or a Mac is paired) right now. */
     fun stepDone(step: QuickStep): Boolean = when (step) {
@@ -99,15 +97,19 @@ class SetupActions(
     val allowNotificationAccess: () -> Unit = {},
     val allowBattery: () -> Unit = {},
     val openOemStep: (OemStep) -> Unit = {},
-    /** "Open Clipboard settings": the full page, above setup; Back returns here. */
-    val openSection: (SettingsSection) -> Unit = {},
+    /** More options and Change in Settings: a Settings page (a [SettingsSection] name), above setup; Back returns here. */
+    val openPage: (String) -> Unit = {},
+    /** Allow on a permission card: the explainer was the card itself, so this asks the system. */
+    val allowPermission: (PermissionKind) -> Unit = {},
     val openSettings: () -> Unit = {},
     val start: () -> Unit = {},
     /** Back on Welcome: leave setup (it is offered again next launch until it is finished). */
     val exit: () -> Unit = {},
+    /** The close button: leave now, or ask first when something was chosen. */
+    val leave: () -> Unit = exit,
 )
 
-/** First-run setup: Welcome, the quick steps, the advanced groups, Done. */
+/** First-run setup: Welcome, the quick steps, the questions and their summary, Done. */
 @Composable
 fun SetupScreen(state: SetupUiState, actions: SetupActions) {
     // A granted permission or a new pairing ticks its quick step (also when setup was left and resumed).
@@ -118,8 +120,11 @@ fun SetupScreen(state: SetupUiState, actions: SetupActions) {
     when (val screen = state.flow.screen) {
         SetupScreen.Welcome -> WelcomePage(state, actions)
         is SetupScreen.Quick -> QuickStepPage(screen.step, state, actions)
-        is SetupScreen.Advanced -> AdvancedPage(screen.group, state, actions)
+        SetupScreen.Intro, is SetupScreen.Question, is SetupScreen.Permission, SetupScreen.Summary -> QuestionPath(state, actions)
         is SetupScreen.Done -> DonePage(screen.path, state, actions)
+    }
+    if (state.flow.confirmLeave) {
+        LeaveSetupDialog(onLeave = actions.exit, onStay = { actions.event(SetupEvent.KeepGoing) })
     }
 }
 
@@ -433,406 +438,4 @@ private fun quickStepName(step: QuickStep): String = when (step) {
     QuickStep.PAIR -> stringResource(R.string.setup_pair_title)
     QuickStep.NOTIFICATION_ACCESS -> stringResource(R.string.perm_notification_access_name)
     QuickStep.BATTERY -> stringResource(R.string.perm_battery_name)
-}
-
-@Composable
-fun setupGroupTitle(group: SetupGroup): String = stringResource(
-    when (group) {
-        SetupGroup.DEVICES -> R.string.setup_group_devices
-        SetupGroup.CLIPBOARD -> R.string.setup_group_clipboard
-        SetupGroup.NOTIFICATIONS -> R.string.setup_group_notifications
-        SetupGroup.CALLS -> R.string.setup_group_calls
-        SetupGroup.FILES -> R.string.setup_group_files
-        SetupGroup.MEDIA -> R.string.setup_group_media
-        SetupGroup.REMOTE_CONTROL -> R.string.setup_group_remote
-        SetupGroup.PRIVACY -> R.string.setup_group_privacy
-        SetupGroup.UPDATES -> R.string.setup_group_updates
-        SetupGroup.GENERAL -> R.string.setup_group_general
-    },
-)
-
-@Composable
-private fun setupGroupIntro(group: SetupGroup): String = stringResource(
-    when (group) {
-        SetupGroup.DEVICES -> R.string.setup_group_devices_intro
-        SetupGroup.CLIPBOARD -> R.string.setup_group_clipboard_intro
-        SetupGroup.NOTIFICATIONS -> R.string.setup_group_notifications_intro
-        SetupGroup.CALLS -> R.string.setup_group_calls_intro
-        SetupGroup.FILES -> R.string.setup_group_files_intro
-        SetupGroup.MEDIA -> R.string.setup_group_media_intro
-        SetupGroup.REMOTE_CONTROL -> R.string.setup_group_remote_intro
-        SetupGroup.PRIVACY -> R.string.setup_group_privacy_intro
-        SetupGroup.UPDATES -> R.string.setup_group_updates_intro
-        SetupGroup.GENERAL -> R.string.setup_group_general_intro
-    },
-)
-
-/** The Settings page a group's "Open … settings" link opens, if any. */
-private fun SetupGroup.section(): SettingsSection? = when (this) {
-    SetupGroup.DEVICES -> null
-    SetupGroup.CLIPBOARD -> SettingsSection.CLIPBOARD
-    SetupGroup.NOTIFICATIONS -> SettingsSection.NOTIFICATIONS
-    SetupGroup.CALLS -> null
-    SetupGroup.FILES -> SettingsSection.FILES
-    SetupGroup.MEDIA -> null
-    SetupGroup.REMOTE_CONTROL -> null
-    SetupGroup.PRIVACY -> null
-    SetupGroup.UPDATES -> SettingsSection.UPDATES
-    SetupGroup.GENERAL -> null
-}
-
-@Composable
-private fun AdvancedPage(group: SetupGroup, state: SetupUiState, actions: SetupActions) {
-    val last = group == SetupGroup.entries.last()
-    SetupFrame(
-        title = setupGroupTitle(group),
-        position = state.flow.position,
-        onBack = { actions.event(SetupEvent.Back) },
-        header = { GroupChips(group, state.flow.visited) { actions.event(SetupEvent.Jump(it)) } },
-        footer = {
-            SetupFooter(
-                secondary = stringResource(R.string.action_back),
-                onSecondary = { actions.event(SetupEvent.Back) },
-                middle = if (last) null else stringResource(R.string.setup_finish_now),
-                onMiddle = { actions.event(SetupEvent.Finish) },
-                primary = stringResource(if (last) R.string.setup_finish_now else R.string.setup_next),
-                onPrimary = { actions.event(if (last) SetupEvent.Finish else SetupEvent.Next) },
-            )
-        },
-    ) {
-        item(key = "$group.intro") { Note(setupGroupIntro(group), Modifier.padding(start = 32.dp, end = 32.dp, top = 16.dp, bottom = 12.dp)) }
-        groupContent(group, state, actions)
-        group.section()?.let { section ->
-            item(key = "$group.open") {
-                RowGroup(Modifier.padding(top = 16.dp)) {
-                    row { shape ->
-                        ListRow(
-                            shape, stringResource(R.string.setup_open_section, stringResource(section.titleRes)), null,
-                            BridgeyIcons.Settings, Tint.NEUTRAL, compact = true, onClick = { actions.openSection(section) },
-                        ) { Icon(BridgeyIcons.ChevronRight, null, tint = BridgeyTheme.colors.onSurfaceVariant) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** "3 of 10" plus a chip per group, to jump to any of them. */
-@Composable
-private fun GroupChips(current: SetupGroup, visited: Set<SetupGroup>, onJump: (SetupGroup) -> Unit) {
-    val colors = BridgeyTheme.colors
-    val listState = rememberLazyListState()
-    LaunchedEffect(current) { listState.scrollToItem((current.ordinal - 1).coerceAtLeast(0)) }
-    LazyRow(
-        Modifier.fillMaxWidth().padding(top = 12.dp).semantics { heading() },
-        state = listState,
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(SetupGroup.entries, key = { it.name }) { group ->
-            val selected = group == current
-            val seen = group in visited
-            Row(
-                Modifier
-                    .heightIn(min = 48.dp)
-                    .padding(vertical = 6.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(if (selected) colors.primary else colors.surface2)
-                    .selectable(selected = selected, role = Role.Tab) { onJump(group) }
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                if (seen && !selected) Icon(BridgeyIcons.Check, null, tint = colors.onTintGreen, modifier = Modifier.size(16.dp))
-                Text(
-                    "${group.ordinal + 1}. ${setupGroupTitle(group)}",
-                    style = BridgeyType.chip,
-                    color = if (selected) colors.onPrimary else colors.onSurface,
-                    maxLines = 1,
-                )
-            }
-        }
-    }
-}
-
-/** A group's choices: the real settings, each with its current value and a one-line explanation. */
-private fun LazyListScope.groupContent(group: SetupGroup, state: SetupUiState, actions: SetupActions) {
-    val settings = state.settings
-    val choose: (String, String) -> Unit = { key, value -> actions.event(SetupEvent.Choose(SetupChoice(group, key, value))) }
-    fun feature(feature: BridgeyFeature, on: Boolean) {
-        actions.settings.setGlobal(feature, on)
-        choose("global.${feature.key}", on.toString())
-    }
-    when (group) {
-        SetupGroup.DEVICES -> {
-            item(key = "devices") {
-                RowGroup {
-                    if (state.pairedNames.isEmpty()) {
-                        row { shape -> ListRow(shape, stringResource(R.string.setup_paired_none), stringResource(R.string.setup_pair_without), BridgeyIcons.LaptopMac, Tint.NEUTRAL) }
-                    }
-                    state.pairedNames.forEach { name ->
-                        row { shape -> ListRow(shape, name, stringResource(R.string.setup_paired), BridgeyIcons.LaptopMac, Tint.BLUE) }
-                    }
-                }
-            }
-            item(key = "devices.add") {
-                RowGroup(Modifier.padding(top = 16.dp)) {
-                    row { shape ->
-                        ListRow(
-                            shape, stringResource(R.string.devices_pair_new), stringResource(R.string.devices_pair_new_detail),
-                            BridgeyIcons.Add, Tint.BLUE, onClick = actions.addDevice,
-                        ) { Icon(BridgeyIcons.ChevronRight, null, tint = BridgeyTheme.colors.onSurfaceVariant) }
-                    }
-                    row { shape ->
-                        ListRow(shape, stringResource(R.string.look_again), stringResource(R.string.look_again_detail), BridgeyIcons.Refresh, Tint.NEUTRAL, onClick = actions.lookForDevices)
-                    }
-                }
-            }
-        }
-        SetupGroup.CLIPBOARD -> item(key = "clipboard") {
-            RowGroup {
-                row { shape -> FeatureRow(shape, BridgeyFeature.CLIPBOARD, R.string.feature_clipboard_detail, settings) { feature(BridgeyFeature.CLIPBOARD, it) } }
-                row { shape ->
-                    SwitchRow(
-                        shape, stringResource(R.string.auto_clipboard_title), stringResource(R.string.auto_clipboard_detail),
-                        BridgeyIcons.Sync, if (settings.autoClipboardEnabled) Tint.BLUE else Tint.NEUTRAL, settings.autoClipboardEnabled,
-                        { actions.settings.setAutoClipboard(it); choose("clipboard.auto", it.toString()) },
-                    )
-                }
-                row { shape ->
-                    SwitchRow(
-                        shape, stringResource(R.string.clipboard_files_title), stringResource(R.string.clipboard_files_detail),
-                        BridgeyIcons.Image, if (settings.clipboardFilesEnabled) Tint.BLUE else Tint.NEUTRAL, settings.clipboardFilesEnabled,
-                        { actions.settings.setClipboardFiles(it); choose("clipboard.files", it.toString()) },
-                    )
-                }
-                row { shape ->
-                    val on = settings.screenshotSendEnabled && settings.clipboardFilesEnabled
-                    SwitchRow(
-                        shape, stringResource(R.string.screenshot_send_title), stringResource(R.string.screenshot_send_detail),
-                        BridgeyIcons.Smartphone, if (on) Tint.BLUE else Tint.NEUTRAL, on,
-                        { actions.settings.setScreenshotSend(it); choose("clipboard.screenshot", it.toString()) },
-                        enabled = settings.clipboardFilesEnabled,
-                    )
-                }
-            }
-        }
-        SetupGroup.NOTIFICATIONS -> {
-            item(key = "notifications") {
-                val on = settings.featureOn(BridgeyFeature.NOTIFICATIONS)
-                RowGroup {
-                    row { shape ->
-                        SwitchRow(
-                            shape, stringResource(R.string.settings_forwarding_title), stringResource(R.string.settings_notifications_detail),
-                            BridgeyIcons.Notifications, if (on) Tint.PURPLE else Tint.NEUTRAL, on, { feature(BridgeyFeature.NOTIFICATIONS, it) },
-                        )
-                    }
-                    if (on) {
-                        row { shape ->
-                            ListRow(
-                                shape, stringResource(R.string.settings_forwarding),
-                                stringResource(if (settings.notificationAccessEnabled) R.string.settings_forwarding_on else R.string.settings_forwarding_off),
-                                BridgeyIcons.Notifications, if (settings.notificationAccessEnabled) Tint.GREEN else Tint.NEUTRAL,
-                                detailWarning = !settings.notificationAccessEnabled, onClick = actions.settings.notificationAccess,
-                            ) { ManageText(settings.notificationAccessEnabled) }
-                        }
-                        row { shape ->
-                            val ok = settings.codes.access == dev.bridgey.android.codes.CodeAccessStatus.ALLOWED
-                            ListRow(
-                                shape, stringResource(R.string.codes_title), codeAccessText(settings.codes.access),
-                                BridgeyIcons.Notifications, if (ok) Tint.GREEN else Tint.NEUTRAL, detailWarning = !ok,
-                            )
-                        }
-                    }
-                    row { shape ->
-                        ListRow(
-                            shape, stringResource(R.string.settings_app_notifications),
-                            stringResource(if (settings.appNotificationsEnabled) R.string.settings_app_notifications_on else R.string.settings_app_notifications_off),
-                            BridgeyIcons.Notifications, if (settings.appNotificationsEnabled) Tint.GREEN else Tint.NEUTRAL,
-                            onClick = actions.settings.appNotifications,
-                        ) { ManageText(settings.appNotificationsEnabled) }
-                    }
-                }
-            }
-            // v0.9: Focus sync, as on the Settings page (Notifications > Focus), each direction its own switch.
-            item(key = "notifications.focus.label") { SectionLabel(stringResource(R.string.focus_section), Modifier.padding(top = 20.dp)) }
-            item(key = "notifications.focus") {
-                RowGroup {
-                    focusRows(
-                        settings.focus,
-                        FocusSettingsActions(
-                            setShare = { actions.settings.focus.setShare(it); choose("focus.share", it.toString()) },
-                            setFollow = { actions.settings.focus.setFollow(it); choose("focus.follow", it.toString()) },
-                            openAccess = actions.settings.focus.openAccess,
-                        ),
-                    )
-                }
-            }
-        }
-        SetupGroup.CALLS -> item(key = "calls") {
-            val on = settings.featureOn(BridgeyFeature.CALLS)
-            RowGroup {
-                row { shape -> FeatureRow(shape, BridgeyFeature.CALLS, R.string.settings_calls_detail, settings) { feature(BridgeyFeature.CALLS, it) } }
-                if (on) {
-                    row { shape ->
-                        SwitchRow(
-                            shape, stringResource(R.string.devices_direct_calls), stringResource(R.string.devices_direct_calls_detail),
-                            BridgeyIcons.Call, if (settings.directCallsEnabled) Tint.GREEN else Tint.NEUTRAL, settings.directCallsEnabled,
-                            { actions.settings.setDirectCalls(it); choose("calls.direct", it.toString()) },
-                        )
-                    }
-                }
-            }
-        }
-        SetupGroup.FILES -> item(key = "files") {
-            val on = settings.featureOn(BridgeyFeature.FILES)
-            RowGroup {
-                row { shape -> FeatureRow(shape, BridgeyFeature.FILES, R.string.feature_files_detail, settings) { feature(BridgeyFeature.FILES, it) } }
-                if (on && settings.folders.supported) folderRows(settings.folders, actions.settings.folders)
-            }
-        }
-        SetupGroup.MEDIA -> item(key = "media") {
-            RowGroup {
-                // The Settings page's order (MediaSectionFeatures): Mac actions and the camera follow media controls.
-                listOf(
-                    BridgeyFeature.MEDIA to R.string.settings_media_detail,
-                    BridgeyFeature.MAC_ACTIONS to R.string.settings_mac_actions_detail,
-                    BridgeyFeature.CAMERA to R.string.settings_camera_detail,
-                    BridgeyFeature.LINKS to R.string.feature_links_detail,
-                    BridgeyFeature.PING to R.string.settings_ping_detail,
-                    BridgeyFeature.FIND_DEVICE to R.string.settings_find_detail,
-                    BridgeyFeature.BATTERY to R.string.settings_battery_detail,
-                ).forEach { (item, detail) ->
-                    row { shape -> FeatureRow(shape, item, detail, settings) { feature(item, it) } }
-                }
-            }
-        }
-        SetupGroup.REMOTE_CONTROL -> item(key = "remote") {
-            val on = settings.featureOn(BridgeyFeature.REMOTE_INPUT)
-            RowGroup {
-                row { shape -> FeatureRow(shape, BridgeyFeature.REMOTE_INPUT, R.string.settings_remote_detail, settings) { feature(BridgeyFeature.REMOTE_INPUT, it) } }
-                if (on) {
-                    row { shape ->
-                        ListRow(shape, stringResource(R.string.remote_speed_title), pointerSpeedName(settings.remotePointerSpeed), BridgeyIcons.Mouse, Tint.PURPLE)
-                    }
-                    row { shape ->
-                        SwitchRow(
-                            shape, stringResource(R.string.remote_volume_keys_title), stringResource(R.string.remote_volume_keys_detail),
-                            BridgeyIcons.VolumeUp, if (settings.remoteVolumeKeys) Tint.PURPLE else Tint.NEUTRAL, settings.remoteVolumeKeys,
-                            { actions.settings.setRemoteVolumeKeys(it); choose("remote.volume_keys", it.toString()) },
-                        )
-                    }
-                }
-            }
-        }
-        SetupGroup.PRIVACY -> {
-            item(key = "privacy") {
-                RowGroup {
-                    row { shape ->
-                        SwitchRow(
-                            shape, stringResource(R.string.settings_show_previews), stringResource(R.string.settings_show_previews_detail),
-                            BridgeyIcons.ContentPaste, if (settings.showPreviews) Tint.BLUE else Tint.NEUTRAL, settings.showPreviews,
-                            { actions.settings.setShowPreviews(it); choose("privacy.previews", it.toString()) },
-                        )
-                    }
-                }
-            }
-            item(key = "privacy.logging") {
-                LoggingSettingsGroup(
-                    settings.logging,
-                    { actions.settings.setLogging(it); choose("privacy.logging", it.toString()) },
-                    actions.settings.exportDiagnostics,
-                    actions.settings.clearLogs,
-                )
-            }
-        }
-        SetupGroup.UPDATES -> item(key = "updates") {
-            RowGroup {
-                UpdateChannel.entries.forEach { channel ->
-                    row { shape ->
-                        val selected = settings.update.channel == channel
-                        ListRow(
-                            shape, channelTitle(channel), stringResource(channelDetailRes(channel)), BridgeyIcons.SystemUpdate,
-                            if (selected) Tint.PURPLE else Tint.NEUTRAL, role = Role.RadioButton,
-                            onClick = { actions.settings.setChannel(channel); choose("updates.channel", channel.key) },
-                        ) { if (selected) Icon(BridgeyIcons.Check, null, tint = BridgeyTheme.colors.primary) }
-                    }
-                }
-            }
-        }
-        SetupGroup.GENERAL -> {
-            item(key = "general") {
-                RowGroup {
-                    row { shape ->
-                        ListRow(
-                            shape, stringResource(R.string.settings_background_title),
-                            stringResource(if (settings.batteryExempt) R.string.settings_background_on else R.string.settings_background_off),
-                            BridgeyIcons.Bolt, if (settings.batteryExempt) Tint.GREEN else Tint.NEUTRAL,
-                            detailWarning = !settings.batteryExempt,
-                        ) {
-                            if (settings.batteryExempt) {
-                                Icon(BridgeyIcons.Check, null, tint = BridgeyTheme.colors.onTintGreen)
-                            } else {
-                                OutlinePillButton(stringResource(R.string.action_allow), null, actions.allowBattery)
-                            }
-                        }
-                    }
-                    if (settings.keepWifiAwakeSupported) {
-                        row { shape ->
-                            SwitchRow(
-                                shape, stringResource(R.string.settings_wifi_awake_title), stringResource(R.string.settings_wifi_awake_detail),
-                                BridgeyIcons.Wifi, if (settings.keepWifiAwake) Tint.BLUE else Tint.NEUTRAL, settings.keepWifiAwake,
-                                { actions.settings.setKeepWifiAwake(it); choose("general.wifi_awake", it.toString()) },
-                            )
-                        }
-                    }
-                    row { shape ->
-                        SwitchRow(
-                            shape, stringResource(R.string.settings_reduce_motion), stringResource(R.string.settings_reduce_motion_detail),
-                            BridgeyIcons.Animation, Tint.NEUTRAL, settings.reduceMotion,
-                            { actions.settings.setReduceMotion(it); choose("general.reduce_motion", it.toString()) },
-                        )
-                    }
-                }
-            }
-            state.oem?.let { checklist ->
-                item(key = "general.oem") { OemChecklistCard(checklist, actions.openOemStep, actions.settings.openUrl, Modifier.padding(top = 16.dp)) }
-            }
-        }
-    }
-}
-
-/** A feature's on/off switch with its title, icon and one-line detail. */
-@Composable
-private fun FeatureRow(shape: androidx.compose.ui.graphics.Shape, feature: BridgeyFeature, detail: Int, settings: SettingsState, onChange: (Boolean) -> Unit) {
-    val (icon, tint) = permissionVisual(feature)
-    val on = settings.featureOn(feature)
-    val title = when (feature) {
-        BridgeyFeature.FIND_DEVICE -> stringResource(R.string.feature_find)
-        BridgeyFeature.PING -> stringResource(R.string.feature_ping)
-        else -> permissionTitle(feature)
-    }
-    SwitchRow(shape, title, stringResource(detail), icon, if (on) tint else Tint.NEUTRAL, on, onChange)
-}
-
-@Composable
-private fun ManageText(enabled: Boolean) {
-    Text(stringResource(if (enabled) R.string.action_manage else R.string.action_enable), style = BridgeyType.label, color = BridgeyTheme.colors.primary)
-}
-
-@Composable
-private fun pointerSpeedName(level: Int): String = stringResource(
-    when (level) {
-        1 -> R.string.remote_speed_1
-        2 -> R.string.remote_speed_2
-        4 -> R.string.remote_speed_4
-        5 -> R.string.remote_speed_5
-        else -> R.string.remote_speed_3
-    },
-)
-
-private fun channelDetailRes(channel: UpdateChannel): Int = when (channel) {
-    UpdateChannel.STABLE -> R.string.channel_stable_detail
-    UpdateChannel.BETA -> R.string.channel_beta_detail
-    UpdateChannel.NIGHTLY -> R.string.channel_nightly_detail
 }

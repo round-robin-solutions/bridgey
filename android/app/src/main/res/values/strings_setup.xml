@@ -14,7 +14,6 @@
     <string name="setup_step_of">%1$d of %2$d</string>
     <string name="setup_skip">Skip</string>
     <string name="setup_next">Next</string>
-    <string name="setup_finish_now">Finish now</string>
     <string name="setup_done_check">Done</string>
     <string name="setup_why">Why: %1$s</string>
     <string name="setup_without">Without it: %1$s</string>
@@ -31,33 +30,18 @@
     <string name="setup_done_skipped">Skipped for now: %1$s. Settings, Privacy, Permissions still offers them.</string>
     <string name="setup_open_settings">Open Settings</string>
     <string name="setup_start">Start</string>
-    <string name="setup_open_section">Open %1$s settings</string>
     <string name="setup_run_again">Run setup again</string>
     <string name="setup_run_again_detail">Go through setup from the start. Pairings and settings are kept.</string>
-    <string name="setup_paired_none">No Mac paired yet</string>
-    <string name="setup_paired">Paired</string>
 
-    <!-- Advanced setup groups, in the settings order -->
+    <!-- Question sections that share a Settings page's name -->
     <string name="setup_group_devices">Devices</string>
     <string name="setup_group_clipboard">Clipboard</string>
     <string name="setup_group_notifications">Notifications</string>
     <string name="setup_group_calls">Calls</string>
     <string name="setup_group_files">Files</string>
-    <string name="setup_group_media">Media and actions</string>
-    <string name="setup_group_remote">Remote control</string>
     <string name="setup_group_privacy">Privacy and Logging</string>
     <string name="setup_group_updates">Updates</string>
     <string name="setup_group_general">General</string>
-    <string name="setup_group_devices_intro">The Macs this phone is paired with. Pair one now or later.</string>
-    <string name="setup_group_clipboard_intro">Copy on one device, paste on the other.</string>
-    <string name="setup_group_notifications_intro">Your phone\'s notifications, calls and codes from messages, on your Mac, and Focus with your Macs.</string>
-    <string name="setup_group_calls_intro">See calls on the Mac, and answer or place them from there.</string>
-    <string name="setup_group_files_intro">Send files and folders, and choose where folders sent to this phone go.</string>
-    <string name="setup_group_media_intro">Control the Mac\'s music, run the Mac actions it allows, take photos for it, send links, ping and find devices, and share the battery level.</string>
-    <string name="setup_group_remote_intro">Use this phone as the Mac\'s touchpad, keyboard and presentation remote. Off by default.</string>
-    <string name="setup_group_privacy_intro">What the activity stream shows, and what Bridgey logs on this phone.</string>
-    <string name="setup_group_updates_intro">Which builds this phone gets, checked once a day.</string>
-    <string name="setup_group_general_intro">Keep Bridgey connected while the phone sleeps, and how the app moves.</string>
 
     <!-- Permission explainer -->
     <string name="perm_explainer_title">Allow %1$s?</string>

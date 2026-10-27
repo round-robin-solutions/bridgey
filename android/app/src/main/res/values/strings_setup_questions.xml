@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Advanced setup as questions. The Mac has the same questions in Setup.strings. -->
+<resources>
+    <!-- Sections -->
+    <string name="setup_section_mac_control">Mac control</string>
+    <string name="setup_section_camera_focus">Camera and Focus</string>
+    <string name="setup_section_quick_actions">Quick actions</string>
+
+    <!-- Start: what brought you here, or type it -->
+    <string name="setup_intro_title">What do you want Bridgey for?</string>
+    <string name="setup_intro_body">Pick what brought you here, type it in your own words, or just answer a few short questions.</string>
+    <string name="setup_intro_bundles">What brought you here?</string>
+    <string name="setup_intro_type">Or type what you want</string>
+    <string name="setup_intro_placeholder">For example: my WhatsApp notifications, and sending photos to my Mac</string>
+    <string name="setup_intro_matched">Bridgey will set these. Nothing changes until you continue.</string>
+    <string name="setup_intro_nothing">Nothing matched. Try words like notifications, photos, calls or clipboard.</string>
+    <string name="setup_intro_apply">Turn these on and continue</string>
+    <string name="setup_intro_start">Start the questions</string>
+    <string name="setup_bundle_clipboard">Copy on one device, paste on the other.</string>
+    <string name="setup_bundle_notifications">Your phone\'s notifications on your Mac.</string>
+    <string name="setup_bundle_calls">See who\'s calling, and answer on your Mac.</string>
+    <string name="setup_bundle_files">Send files and photos both ways.</string>
+    <string name="setup_bundle_remote">Your phone as a touchpad and slide clicker.</string>
+
+    <!-- Every card -->
+    <plurals name="setup_steps_left">
+        <item quantity="one">%d step left</item>
+        <item quantity="other">%d steps left</item>
+    </plurals>
+    <string name="setup_last_step">Last question</string>
+    <string name="setup_not_now">Not now</string>
+    <string name="setup_more_options">More options</string>
+    <string name="setup_answer_current">Current</string>
+    <string name="setup_leave_action">Leave setup</string>
+    <string name="setup_typed_note">Chosen from what you picked or typed. It needs one permission.</string>
+    <string name="setup_denied">%1$s not allowed. Turned off: %2$s.</string>
+    <string name="setup_permission_title">Allow %1$s</string>
+
+    <!-- Leave setup? -->
+    <string name="setup_leave_title">Leave setup?</string>
+    <string name="setup_leave_body">Your choices so far are kept.</string>
+    <string name="setup_leave_leave">Leave</string>
+    <string name="setup_leave_stay">Keep going</string>
+
+    <!-- Summary -->
+    <string name="setup_summary_title">Here\'s what\'s on</string>
+    <string name="setup_summary_body">Turn anything off here, or change it later in Settings.</string>
+    <string name="setup_summary_on">Turned on</string>
+    <string name="setup_summary_choices">Your choices</string>
+    <string name="setup_summary_not_allowed">Not allowed</string>
+    <string name="setup_summary_change">Change in Settings</string>
+    <string name="setup_summary_empty">You kept the defaults. Everything can be changed in Settings.</string>
+    <string name="setup_summary_start">Start using Bridgey</string>
+    <string name="setup_summary_denied_line">%1$s not allowed, so it stays off.</string>
+
+    <!-- Answers used by many questions -->
+    <string name="setup_a_yes">Yes</string>
+    <string name="setup_a_no">No</string>
+    <string name="setup_a_done">Done</string>
+
+    <!-- Devices -->
+    <string name="setup_q_pair_title">Let\'s connect your Mac</string>
+    <string name="setup_q_pair_context">Open Bridgey on your Mac, on the same Wi-Fi. It shows up below.</string>
+    <string name="setup_q_pair_summary">Paired with your Mac</string>
+    <string name="setup_pair_done">Paired with %1$s</string>
+
+    <!-- Clipboard -->
+    <string name="setup_q_clipboard_title">Do you want to copy on one device and paste on the other?</string>
+    <string name="setup_q_clipboard_context">Text and links you copy move between this phone and your Mac.</string>
+    <string name="setup_q_clipboard_summary">Copy and paste between devices</string>
+    <string name="setup_a_clipboard_auto">Yes, automatically</string>
+    <string name="setup_a_clipboard_auto_detail">Copy here, paste there. Nothing to tap.</string>
+    <string name="setup_a_clipboard_tap">Only when I tap Send</string>
+    <string name="setup_a_clipboard_tap_detail">Send what you copied with one tap, from the app or the tile.</string>
+    <string name="setup_q_clipboard_files_title">Should images and files copy too?</string>
+    <string name="setup_q_clipboard_files_context">Big items move only when you paste, so copying stays quick.</string>
+    <string name="setup_q_clipboard_files_summary">Images and files on the clipboard</string>
+    <string name="setup_a_clipboard_files_yes">Yes, images and files too</string>
+    <string name="setup_a_clipboard_files_text">Only text</string>
+    <string name="setup_q_clipboard_screenshot_title">Send your latest screenshot when you tap Send?</string>
+    <string name="setup_q_clipboard_screenshot_context">If you took a screenshot in the last minute, Send copied item sends it to your Mac.</string>
+    <string name="setup_q_clipboard_screenshot_summary">Send a fresh screenshot</string>
+
+    <!-- Notifications -->
+    <string name="setup_q_notifications_title">Do you want your phone\'s notifications on your Mac?</string>
+    <string name="setup_q_notifications_context">Messages and alerts from this phone show up on your Mac too.</string>
+    <string name="setup_q_notifications_summary">Phone notifications on your Mac</string>
+    <string name="setup_q_notification_apps_title">Which apps already have a Mac app you use, like WhatsApp?</string>
+    <string name="setup_q_notification_apps_context">Bridgey keeps their notifications on this phone, so they don\'t show up twice on your Mac.</string>
+    <string name="setup_q_notification_apps_summary">Kept on this phone</string>
+    <string name="setup_a_notification_apps_none">None of these</string>
+    <string name="setup_q_codes_title">Do you want codes from text messages shown on your Mac?</string>
+    <string name="setup_q_codes_context">Android hides one-time codes from other apps until this phone is linked to your Mac. Your Mac reads them on the Mac or in the cloud, as you choose there.</string>
+    <string name="setup_q_codes_summary">Codes from messages on your Mac</string>
+    <string name="setup_a_codes_yes">Yes, link my Mac</string>
+    <string name="setup_q_app_notifications_title">Should Bridgey tell you when something arrives from your Mac?</string>
+    <string name="setup_q_app_notifications_context">Files, links and calls from your Mac show as notifications on this phone.</string>
+    <string name="setup_q_app_notifications_summary">Bridgey\'s own notifications</string>
+
+    <!-- Calls -->
+    <string name="setup_q_calls_title">Do you take calls on your Mac?</string>
+    <string name="setup_q_calls_context">See who\'s calling on your Mac, and answer or decline from there.</string>
+    <string name="setup_q_calls_summary">Phone calls on your Mac</string>
+    <string name="setup_a_calls_yes">Yes, answer and decline on my Mac</string>
+    <string name="setup_a_calls_yes_detail">Your Mac can also start calls through this phone.</string>
+    <string name="setup_a_calls_see">Just show who\'s calling</string>
+    <string name="setup_a_calls_see_detail">You answer on this phone.</string>
+
+    <!-- Files -->
+    <string name="setup_q_files_title">Do you want to send files and photos between your phone and Mac?</string>
+    <string name="setup_q_files_context">Share or drop them, and they land on the other device.</string>
+    <string name="setup_q_files_summary">Sending files and photos</string>
+    <string name="setup_q_files_browse_title">Can your Mac look through this phone\'s files and photos?</string>
+    <string name="setup_q_files_browse_context">Your Mac can list and download them. You choose if it may change anything.</string>
+    <string name="setup_q_files_browse_summary">Your Mac can browse this phone</string>
+    <string name="setup_a_files_browse_look">Yes, just look</string>
+    <string name="setup_a_files_browse_look_detail">Your Mac sees and downloads, and changes nothing.</string>
+    <string name="setup_a_files_browse_change">Yes, and let it change files</string>
+    <string name="setup_a_files_browse_change_detail">Your Mac may also upload and replace files here.</string>
+    <string name="setup_q_files_folder_title">When you send a folder to your phone, where should it go?</string>
+    <string name="setup_q_files_folder_context">Folders keep their structure either way.</string>
+    <string name="setup_q_files_folder_summary">Folders sent to this phone</string>
+    <string name="setup_a_files_folder_sender">I pick on my Mac while sending</string>
+    <string name="setup_a_files_folder_ask">Ask me on this phone each time</string>
+    <string name="setup_a_files_folder_fixed">Always to my default folder</string>
+
+    <!-- Mac control -->
+    <string name="setup_q_remote_title">Do you want to control your Mac from your phone, like a touchpad or a slide clicker?</string>
+    <string name="setup_q_remote_context">Your Mac has to allow this phone too. You can stop at any time.</string>
+    <string name="setup_q_remote_summary">Control your Mac from this phone</string>
+    <string name="setup_q_remote_volume_keys_title">Use the volume keys to change slides?</string>
+    <string name="setup_q_remote_volume_keys_context">While the slides remote is open, volume down goes to the next slide and volume up to the previous one.</string>
+    <string name="setup_q_remote_volume_keys_summary">Volume keys change slides</string>
+    <string name="setup_q_mac_actions_title">Lock, sleep and volume from your phone?</string>
+    <string name="setup_q_mac_actions_context">Quick buttons for your Mac. Your Mac decides what this phone may do.</string>
+    <string name="setup_q_mac_actions_summary">Lock, sleep and volume for your Mac</string>
+    <string name="setup_q_media_title">Control music on your Mac from your phone?</string>
+    <string name="setup_q_media_context">Play, pause and skip what\'s playing on your Mac.</string>
+    <string name="setup_q_media_summary">Music controls for your Mac</string>
+
+    <!-- Phone camera and Focus -->
+    <string name="setup_q_camera_title">Take photos for your Mac with your phone?</string>
+    <string name="setup_q_camera_context">Your Mac asks, you take the photo here, and it lands on your Mac.</string>
+    <string name="setup_q_camera_summary">Photos for your Mac</string>
+    <string name="setup_q_focus_title">Keep Do Not Disturb in step on both devices?</string>
+    <string name="setup_q_focus_context">When one goes quiet, the other follows. Give the same answer on your Mac.</string>
+    <string name="setup_q_focus_summary">Do Not Disturb in step</string>
+    <string name="setup_a_focus_both">Yes, both ways</string>
+    <string name="setup_a_focus_follow">Only this phone follows my Mac</string>
+    <string name="setup_a_focus_share">Only my Mac follows this phone</string>
+
+    <!-- Quick actions -->
+    <string name="setup_q_links_title">Open links from one device on the other?</string>
+    <string name="setup_q_links_context">Share a link to your Mac and it opens in the browser there.</string>
+    <string name="setup_q_links_summary">Open links on the other device</string>
+    <string name="setup_q_find_title">Ring a device when you can\'t find it?</string>
+    <string name="setup_q_find_context">Ring this phone from your Mac, or your Mac from here. A short ping works too.</string>
+    <string name="setup_q_find_summary">Find and ping your devices</string>
+    <string name="setup_q_battery_title">Show this phone\'s battery on your Mac?</string>
+    <string name="setup_q_battery_context">Both devices share their battery level.</string>
+    <string name="setup_q_battery_summary">Battery level on both devices</string>
+
+    <!-- Privacy -->
+    <string name="setup_q_stats_title">Can Bridgey keep connection stats to help fix problems?</string>
+    <string name="setup_q_stats_context">They stay on this phone, without message or file contents, and leave only if you export them.</string>
+    <string name="setup_q_stats_summary">Connection stats on this phone</string>
+    <string name="setup_q_previews_title">Show previews of what you copied in the activity list?</string>
+    <string name="setup_q_previews_context">Off shows only what happened, like Text copied.</string>
+    <string name="setup_q_previews_summary">Previews in activity</string>
+
+    <!-- Updates -->
+    <string name="setup_q_updates_title">How new do you want updates?</string>
+    <string name="setup_q_updates_context">Newer builds get features sooner, with more rough edges.</string>
+    <string name="setup_q_updates_summary">Updates</string>
+    <string name="setup_a_updates_steady">Steady</string>
+    <string name="setup_a_updates_steady_detail">Stable: tested releases. Best for most people.</string>
+    <string name="setup_a_updates_early">Early</string>
+    <string name="setup_a_updates_early_detail">Beta: new features before they reach Stable.</string>
+    <string name="setup_a_updates_newest">Newest every day</string>
+    <string name="setup_a_updates_newest_detail">Nightly: built from every change. Expect rough edges.</string>
+
+    <!-- General -->
+    <string name="setup_q_background_title">Should Bridgey keep working when your phone is locked?</string>
+    <string name="setup_q_background_context">Phones stop apps in the background to save battery. Allowing Bridgey keeps your Mac connected.</string>
+    <string name="setup_q_background_summary">Keeps working in the background</string>
+    <string name="setup_q_wifi_awake_title">Keep Wi-Fi awake while your Mac is connected?</string>
+    <string name="setup_q_wifi_awake_context">Fewer drops on phones that slow Wi-Fi down when the screen is off, at some battery cost.</string>
+    <string name="setup_q_wifi_awake_summary">Wi-Fi stays awake while connected</string>
+    <string name="setup_q_motion_title">Do you prefer less motion on screen?</string>
+    <string name="setup_q_motion_context">Screens fade instead of sliding, and nothing bounces.</string>
+    <string name="setup_q_motion_summary">Less motion</string>
+    <string name="setup_a_motion_yes">Yes, less motion</string>
+    <string name="setup_a_motion_no">No, keep it</string>
+</resources>
