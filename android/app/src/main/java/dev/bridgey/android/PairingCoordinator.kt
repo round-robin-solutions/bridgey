@@ -1565,9 +1565,8 @@ class PairingCoordinator(
         val id = message.messageId ?: return
         if (!current.acceptMessageId(id)) return
         val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
-        if (data.size > dev.bridgey.android.focus.FOCUS_STATE_MAX_BYTES) return
-        val payload = runCatching { JSONObject(data.toString(Charsets.UTF_8)) }.getOrNull() ?: return
-        val active = dev.bridgey.android.focus.parseFocusState(payload) ?: return
+        // Strict JSON at most 256 bytes, as the Mac writes it (docs/protocol-contract.md).
+        val active = dev.bridgey.android.focus.decodeFocusState(data) ?: return
         recordFocus(focusSync.remote(current.remoteDeviceId, active), current.remoteDeviceId)
     }
 
@@ -1584,7 +1583,7 @@ class PairingCoordinator(
         if (!current.acceptMessageId(id)) return
         val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
         if (data.size > dev.bridgey.android.camera.CAMERA_MESSAGE_MAX_BYTES) return
-        val payload = runCatching { JSONObject(data.toString(Charsets.UTF_8)) }.getOrNull() ?: return
+        val payload = strictJsonObject(data) ?: return
         val deviceId = current.remoteDeviceId
         when (val decision = camera.receive(deviceId, current.peerName, payload, isFeatureAvailable(BridgeyFeature.CAMERA, deviceId))) {
             dev.bridgey.android.camera.CameraDecision.Drop -> Unit
@@ -1662,7 +1661,8 @@ class PairingCoordinator(
             dev.bridgey.android.actions.MacActionsClient.MAX_RESULT_BYTES
         }
         if (data.size > limit) return
-        val payload = runCatching { JSONObject(data.toString(Charsets.UTF_8)) }.getOrNull() ?: return
+        // Strict JSON, as the Mac writes it (docs/protocol-contract.md).
+        val payload = strictJsonObject(data) ?: return
         macActions.receive(current.remoteDeviceId, message.kind, payload)
     }
 

@@ -27,7 +27,8 @@ final class ProtocolFuzzTests: XCTestCase {
             .filter { $0["expect"] is [String: Any] }
             .compactMap { $0["line"] as? String }
             .map { $0.trimmingCharacters(in: .whitespaces) }
-        for group in ["featuresUpdate", "batteryUpdate", "clipboardRich", "clipboardOffer", "remoteInput", "browseRef"] {
+        for group in ["featuresUpdate", "batteryUpdate", "clipboardRich", "clipboardOffer", "remoteInput", "browseRef",
+                      "focusState", "actionsCatalog", "actionsRun", "actionsResult", "cameraRequest", "cameraStatus"] {
             for vector in vectors[group] as! [[String: Any]] {
                 if let raw = vector["plaintextString"] as? String { samples.append(Data(raw.utf8)) }
                 else if let object = vector["plaintext"], let data = try? JSONSerialization.data(withJSONObject: object, options: .fragmentsAllowed) { samples.append(data) }
@@ -168,6 +169,16 @@ final class ProtocolFuzzTests: XCTestCase {
             _ = try? decoder.decode(MediaPreviewPartPayload.self, from: payload)
             _ = try? decoder.decode(MediaRangePartPayload.self, from: payload)
             _ = try? decoder.decode(PlacesDownloadStartedPayload.self, from: payload)
+            // Automation (v0.9): what is accepted stays within the contract's limits.
+            if decodeFocusState(payload) != nil { XCTAssertLessThanOrEqual(payload.count, 256) }
+            if let run = MacActionRun.decode(payload) {
+                XCTAssertLessThanOrEqual(payload.count, MacActionRun.maximumBytes)
+                XCTAssertTrue((1...9_007_199_254_740_991).contains(run.sequence))
+                XCTAssertNotNil(UUID(uuidString: run.requestID))
+                if case let .integer(value) = run.value { XCTAssertLessThanOrEqual(abs(value), 9_007_199_254_740_991) }
+                if let action = run.action, let id = MacActionID(wire: action) { XCTAssertEqual(id.wire, action) }
+            }
+            if decodeCameraStatus(payload) != nil { XCTAssertLessThanOrEqual(payload.count, 512) }
         }
     }
 
@@ -292,7 +303,8 @@ final class ProtocolFuzzTests: XCTestCase {
             var object: [String: Any] = [:]
             for key in ["version", "features", "level", "isCharging", "text", "html", "offerId", "createdAt", "items", "inputSessionId", "sequence",
                         "folderTransferId", "requestId", "places", "entries", "pageCount", "mode",
-                        "ref", "mediaId", "placeId", "path", "name", "thumbs", "missing", "done", "nextCursor", "writable"] where random.bool() {
+                        "ref", "mediaId", "placeId", "path", "name", "thumbs", "missing", "done", "nextCursor", "writable",
+                        "active", "actions", "action", "status", "reason", "volume", "value"] where random.bool() {
                 object[key] = randomJSON(depth: 0)
             }
             return (try? JSONSerialization.data(withJSONObject: object)) ?? Data()

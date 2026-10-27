@@ -133,6 +133,24 @@ class ProtocolFuzzTest {
         listOf("input.session.started", "input.session.stop", "input.session.start", "input.pointer").forEach { kind ->
             RemoteInputCodec.decodeHostMessage(kind, payload)?.let { assertTrue(it.sequence >= 1) }
         }
+        // Automation (v0.9): what is accepted stays within the contract's limits.
+        dev.bridgey.android.focus.decodeFocusState(payload)?.let { assertTrue(payload.size <= dev.bridgey.android.focus.FOCUS_STATE_MAX_BYTES) }
+        dev.bridgey.android.actions.decodeMacActionCatalog(payload)?.let { catalog ->
+            assertTrue(payload.size <= dev.bridgey.android.actions.MacActionsClient.MAX_CATALOG_BYTES)
+            assertTrue(catalog.entries.size <= dev.bridgey.android.actions.MacActionCatalog.MAX_ENTRIES)
+            assertTrue(catalog.entries.all { dev.bridgey.android.actions.MacActionIds.kind(it.id) != null })
+            assertEquals(catalog.entries.size, catalog.entries.map { it.id }.toSet().size)
+            catalog.volume?.let { assertTrue(it.level in 0..100) }
+        }
+        dev.bridgey.android.actions.decodeMacActionResult(payload)?.let { result ->
+            assertTrue(payload.size <= dev.bridgey.android.actions.MacActionsClient.MAX_RESULT_BYTES)
+            assertTrue(result.done == (result.reason == null))
+            result.reason?.let { assertTrue(it in dev.bridgey.android.actions.MacActionReasons) }
+        }
+        dev.bridgey.android.camera.decodeCameraRequest(payload)?.let { json ->
+            assertTrue(payload.size <= dev.bridgey.android.camera.CAMERA_MESSAGE_MAX_BYTES)
+            assertTrue(dev.bridgey.android.camera.parseCameraRequest(json)!!.length == 36)
+        }
         strictJsonObject(text)?.let { json ->
             // Files area decoders take a parsed object; they must not throw on any object.
             PlacesListedPayload.parse(json)
@@ -282,7 +300,10 @@ class ProtocolFuzzTest {
     }
 
     private fun randomPayload(): ByteArray {
-        val samples = listOf("featuresUpdate", "batteryUpdate", "clipboardRich", "clipboardOffer", "remoteInput", "browseRef").flatMap { group ->
+        val samples = listOf(
+            "featuresUpdate", "batteryUpdate", "clipboardRich", "clipboardOffer", "remoteInput", "browseRef",
+            "focusState", "actionsCatalog", "actionsRun", "actionsResult", "cameraRequest", "cameraStatus",
+        ).flatMap { group ->
             vectors.getJSONArray(group).let { array -> (0 until array.length()).map { array.getJSONObject(it).let { v -> v.opt("plaintext")?.toString() ?: v.getString("plaintextString") } } }
         }
         return when (random.nextInt(4)) {
@@ -291,7 +312,8 @@ class ProtocolFuzzTest {
             2 -> JSONObject().apply {
                 listOf("version", "features", "level", "isCharging", "text", "html", "offerId", "createdAt", "items", "inputSessionId", "sequence",
                     "folderTransferId", "requestId", "places", "entries", "pageCount", "mode",
-                    "ref", "mediaId", "placeId", "path", "name", "cursor", "sort", "limit", "replaces").filter { random.nextBoolean() }
+                    "ref", "mediaId", "placeId", "path", "name", "cursor", "sort", "limit", "replaces",
+                    "active", "actions", "action", "status", "reason", "volume", "value", "id", "title", "blocked").filter { random.nextBoolean() }
                     .forEach { put(it, randomJson(0)) }
             }.toString().toByteArray()
             else -> samples.random(random).toByteArray()

@@ -40,8 +40,9 @@ class ProtocolContractTest {
 
     @Test fun everyFeatureKeyThisAppAdvertisesIsListed() {
         val keys = contract.getJSONArray("features").let { array -> (0 until array.length()).map { array.getJSONObject(it).getString("key") }.toSet() }
+        // Every switch and every draft key the shared decoder reads (Files 2.0 and automation keys included), as on the Mac.
         val advertised = BridgeyFeature.entries.map(BridgeyFeature::key) +
-            listOf(CLIPBOARD_FILES_FEATURE_KEY, FOLDERS_FEATURE_KEY, PLACES_FEATURE_KEY, SMS_CODES_FEATURE_KEY)
+            listOf(CLIPBOARD_FILES_FEATURE_KEY, FOLDERS_FEATURE_KEY, PLACES_FEATURE_KEY, SMS_CODES_FEATURE_KEY) + KNOWN_DRAFT_FEATURE_KEYS
         assertEquals(emptyList<String>(), advertised.filterNot(keys::contains))
         // The original keys are the ones a peer must send; the decoder and the contract agree on them.
         val required = contract.getJSONArray("features").let { array ->

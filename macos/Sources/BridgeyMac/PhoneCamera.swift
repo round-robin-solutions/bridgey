@@ -14,6 +14,19 @@ enum CameraStatus: String, Equatable {
     case opened, locked, permissionRequired = "permission_required", cancelled, busy, disabled, sending, failed
 }
 
+/// A camera.status plaintext: at most 512 bytes of strict JSON, `version` 1, a string `requestId` and a
+/// known `status`; nil otherwise (an unknown status is dropped, as before).
+func decodeCameraStatus(_ data: Data) -> (requestID: String, status: CameraStatus)? {
+    guard data.count <= 512, isStrictJSONObject(data),
+          let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          jsonInteger(payload["version"]) == 1, let requestID = payload["requestId"] as? String,
+          let wire = payload["status"] as? String, let status = CameraStatus(rawValue: wire) else { return nil }
+    return (requestID, status)
+}
+
+/// The camera.request plaintext for one photo.
+func cameraRequestPayload(_ requestID: String) -> [String: Any] { ["version": 1, "requestId": requestID, "mode": "photo"] }
+
 @MainActor
 final class PhoneCamera: ObservableObject {
     static let lifetime: TimeInterval = 120
@@ -70,7 +83,7 @@ final class PhoneCamera: ObservableObject {
         if pending[deviceID] != nil { status = String(format: L10n.text("camera.status.waiting", fallback: "Waiting for the photo from %@"), phoneName); return nil }
         if let last = lastRequest[deviceID], now.timeIntervalSince(last) < Self.spacing { return nil }
         let id = UUID().uuidString.lowercased()
-        guard send(deviceID, ["version": 1, "requestId": id, "mode": "photo"]) else {
+        guard send(deviceID, cameraRequestPayload(id)) else {
             status = String(format: L10n.text("camera.status.notConnected", fallback: "%@ is not connected"), phoneName)
             return nil
         }

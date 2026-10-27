@@ -69,11 +69,12 @@ the tables at the end of this page are generated from it with
 8. **Malformed is not unknown.** Inside a known kind, a payload that is over its limit or fails
    validation is dropped (or answered with that feature's error message). A payload that fails
    decryption closes the session for `upstream-v1` messages and for folders, places and browsing, as in
-   upstream; clipboard offers, codes and remote input drop it and keep the session.
+   upstream; clipboard offers, codes, remote input and the automation drafts (Mac actions, Focus sync,
+   phone camera) drop it and keep the session.
 9. **Replay.** Encrypted messages with a `messageId` go through one per-session window of the last
    256 accepted IDs (oldest evicted first); a repeated ID is not executed again. Quick actions and
    remote input use a sequence high-water mark instead, so their volume cannot push other IDs out of
-   the window. Nothing is replayable across sessions because every session has its own key.
+   the window; `actions.run` passes the window and then its own per-session sequence. Nothing is replayable across sessions because every session has its own key.
 10. **Major versions.** Anything that changes framing, authentication or required behaviour for all
     peers is a new protocol version, negotiated before use (the future `core.hello` design in
     [protocol.md](protocol.md)). Until then the protocol is v1.
@@ -90,7 +91,13 @@ the tables at the end of this page are generated from it with
 - Golden vectors in [`protocol/test-vectors/protocol-v1.json`](../protocol/test-vectors/protocol-v1.json)
   are decoded by both test suites with the same expected results: valid and invalid frames, and
   key payloads (`features.update`, `clipboard.rich`, `clipboard.offer`, `battery.update`,
-  `quick.request`, `codes.status`, remote input, Files 2.0 browse refs).
+  `quick.request`, `codes.status`, remote input, Files 2.0 browse refs, and the automation drafts:
+  `focus.state` on both, `actions.catalog`, `actions.result` and `camera.request` on the phone,
+  `actions.run` and `camera.status` on the Mac, with each sending platform's own encoding checked
+  against the same plaintext). `mac_actions_draft1` and `camera_draft1` are switches in the apps but
+  draft keys on the wire: the vectors pin them once, under the draft keys, and like every draft key
+  they read `true` only for JSON `true`. (`remote_input_draft1` predates the shared draft list: a
+  non-boolean value still closes the session.)
 - Fuzz tests on both platforms feed random bytes, truncated and oversized frames, wrong types,
   unknown kinds, replayed IDs and huge counts to the frame decoder and the payload decoders, and
   check that nothing crashes, memory stays bounded and a valid message still works afterwards. The
@@ -129,6 +136,10 @@ the tables at the end of this page are generated from it with
 | `places_draft1` | edition-draft | no | false |
 | `files_browse_draft1` | edition-draft | no | false |
 | `folders_receive_draft1` | edition-draft | no | false |
+| `mac_actions_draft1` | edition-draft | no | false |
+| `links_open_draft1` | edition-draft | no | false |
+| `focus_sync_draft1` | edition-draft | no | false |
+| `camera_draft1` | edition-draft | no | false |
 | `settings_sync_draft1` | designed | no | false |
 
 ### Envelope fields
@@ -152,7 +163,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-93 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+99 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -185,6 +196,10 @@ Ends only the session it arrives on.
 `heartbeat.ping`
 
 Answered by `heartbeat.pong`.
+
+`heartbeat.pong`
+
+messageId echoes the ping's. Connection health (both apps) times the round trip from it; health puts nothing new on the wire and has no feature key.
 
 #### `features.*`
 
@@ -287,6 +302,7 @@ Answered by `files.offer`, `clipboard.error`.
 - `folderTransferId`: edition extension (folders_draft1)
 - `entry`: edition extension: manifest index
 - `path`: edition extension: manifest path
+- `cameraRequestId`: edition extension (camera_draft1): string, UUID of the Mac's open camera.request that this photo answers; older Macs ignore it and simply receive a file
 
 Answered by `files.accept`, `files.rejected`.
 
@@ -408,11 +424,13 @@ Answered by `codes.advertise_result`.
 - `version`: integer, 1
 - `requestId`: string, UUID
 - `feature`: links | media
-- `action`: string (links: offer; media: toggle | pause | next | previous | seek | volume)
+- `action`: string (links: offer, or open to a Mac that advertises links_open_draft1; media: toggle | pause | next | previous | seek | volume)
 - `value`: string (links: http(s) URL, at most 4,096 bytes; seek 0 to 604800; volume 0 to 100)
 - `sequence`: integer, 1 to 2^53-1, per feature high-water mark
 
 Answered by `quick.result`.
+
+Edition extension (links_open_draft1): Open on Mac sends links action open. The Mac opens the link at once only when its own Open links from phones right away setting is on (off by default), at most one link per phone every 3 seconds; otherwise it queues the link like offer.
 
 `quick.result`
 
@@ -420,6 +438,7 @@ Answered by `quick.result`.
 - `requestId`: string, echoes the request
 - `feature`: string, echoes the request
 - `accepted`: boolean
+- `opened`: edition extension (links_open_draft1): boolean, true when the Mac opened the link right away; older phones ignore it
 
 #### `media.*`
 
@@ -731,6 +750,83 @@ A phone that receives it answers input.session.stop, reason unsupported.
 - `action`: next | previous | start | end | black | laser_on | laser_move | laser_off
 - `x`: integer 0 to 10,000 with laser_on and laser_move
 - `y`: integer 0 to 10,000 with laser_on and laser_move
+
+#### `actions.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `actions.catalog` | edition-draft | mac-to-phone | mac_actions_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `actions.run` | edition-draft | phone-to-mac | mac_actions_draft1 | yes | sequence | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `actions.result` | edition-draft | mac-to-phone | mac_actions_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+
+`actions.catalog`
+
+- `version`: integer, 1
+- `actions`: array of at most 64 {id, title, blocked?}. id: lock | sleep | screensaver | volume_up | volume_down | volume_mute | volume_set | app:<bundle id, [A-Za-z0-9.-], 1 to 155> | shortcut:<lowercase UUID>. title: 1 to 64 characters, no control characters, required for app: and shortcut: (phones show their own titles for the fixed ids). blocked: only permission_required (Lock without Accessibility)
+- `volume`: optional {level: integer 0 to 100, muted: boolean}, while volume is allowed and the output has a settable volume
+
+What this phone may run now; it replaces the previous list. Sent after each features.update that shows the key on both sides, and whenever the list, a switch, the grant or a permission changes. The phone drops single entries with an unknown id, a missing or bad title or a repeated id, and the whole catalog for a wrong version or more than 64 entries.
+
+`actions.run`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `action`: string, an id from the latest catalog
+- `sequence`: integer, 1 to 2^53-1, per session high-water mark, checked after the messageId window
+- `value`: integer 0 to 100, with volume_set only
+
+Answered by `actions.result`.
+
+Only an identifier from the Mac's own list goes on the wire: no command, argument, Shortcut name or text. A run that fails the version, requestId or sequence check is dropped; anything else gets exactly one actions.result. Rate limits per phone: volume 10 at once then 5 a second, other actions 3 at once then one every 2 seconds. The phone waits 10 seconds for the result (70 for a Shortcut), then reports it not confirmed.
+
+`actions.result`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the run
+- `action`: string, echoes the run
+- `status`: done | refused
+- `reason`: with refused: not_allowed | invalid | rate_limited | busy | permission_required | unavailable | failed; phones read anything else as failed
+- `volume`: optional {level, muted}: the volume after a volume action
+
+The Mac keeps a private audit log of every run and refusal (owner-only, 30 days, at most 500 entries, never the value).
+
+#### `focus.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `focus.state` | edition-draft | either | focus_sync_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, macos |
+
+`focus.state`
+
+- `version`: integer, 1
+- `active`: boolean: the phone's Do Not Disturb (any interruption filter but all), or the Mac's Focus
+
+Sent only while the sender's share switch is on and the peer's latest map shows the key: once after each features.update that shows it on both sides, then on every change. Applied only while the receiver's follow switch is on; a follower does not report the change it just made for 10 seconds, so two followers cannot loop.
+
+#### `camera.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `camera.request` | edition-draft | mac-to-phone | camera_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `camera.status` | edition-draft | phone-to-mac | camera_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+
+`camera.request`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `mode`: photo
+
+Answered by `camera.status`.
+
+One open request per Mac, at most one every 3 seconds; it expires after 2 minutes. The phone opens the camera only when unlocked and after a tap. A malformed request is dropped without an answer.
+
+`camera.status`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `status`: opened | locked | permission_required | cancelled | busy | disabled | sending | failed; the Mac drops an unknown status
+
+The photo itself arrives as a files.offer carrying cameraRequestId.
 
 #### `places.*`
 

@@ -16,6 +16,16 @@ import SwiftUI
 
 let focusSyncFeatureKey = "focus_sync_draft1"
 
+/// A focus.state plaintext: at most 256 bytes of strict JSON, `version` 1 and a boolean `active`; nil otherwise.
+func decodeFocusState(_ data: Data) -> Bool? {
+    guard data.count <= 256, isStrictJSONObject(data),
+          let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          jsonInteger(payload["version"]) == 1 else { return nil }
+    return jsonBool(payload["active"])
+}
+
+func focusStatePayload(_ active: Bool) -> [String: Any] { ["version": 1, "active": active] }
+
 struct FocusSyncSettings: Codable, Equatable {
     var share = false
     var follow = false

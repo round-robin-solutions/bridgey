@@ -48,7 +48,13 @@ class ProtocolGoldenVectorsTest {
         val result = when (val state = decodeFeatureState(plaintext(vector))) {
             FeatureStateDecoding.Invalid -> "invalid"
             FeatureStateDecoding.Ignored -> "ignored"
-            is FeatureStateDecoding.State -> mapOf("features" to state.features.mapKeys { it.key.key }, "drafts" to state.drafts)
+            is FeatureStateDecoding.State -> {
+                // Mac actions and the camera are switches here but draft keys on the wire: they are pinned once,
+                // under drafts, and the switch must read exactly what the draft key says.
+                val drafted = state.features.filterKeys { it.key in KNOWN_DRAFT_FEATURE_KEYS }
+                if (drafted.any { (feature, on) -> state.drafts[feature.key] != on }) return@each false
+                mapOf("features" to (state.features - drafted.keys).mapKeys { it.key.key }, "drafts" to state.drafts)
+            }
         }
         result == normalize(vector.get("expect"))
     }
@@ -82,6 +88,71 @@ class ProtocolGoldenVectorsTest {
     @Test fun browseRef() = each("browseRef") { vector ->
         val result: Any = BrowseRefs.parse(strictJsonObject(plaintext(vector)))?.let { normalize(BrowseRefs.toJson(it)) } ?: "reject"
         result == normalize(vector.get("expect"))
+    }
+
+    /** Focus sync: both platforms read focus.state alike. */
+    @Test fun focusState() = each("focusState") { vector ->
+        val result: Any = dev.bridgey.android.focus.decodeFocusState(plaintext(vector))?.let { mapOf("active" to it) } ?: "reject"
+        result == normalize(vector.get("expect"))
+    }
+
+    /** Mac actions: the phone reads the Mac's catalog. */
+    @Test fun actionsCatalog() = each("actionsCatalog") { vector ->
+        val result: Any = dev.bridgey.android.actions.decodeMacActionCatalog(plaintext(vector))?.let { catalog ->
+            mapOf(
+                "actions" to catalog.entries.map { mapOf("id" to it.id, "title" to it.title, "blocked" to it.blocked) },
+                "volume" to catalog.volume?.let { mapOf("level" to it.level.toLong(), "muted" to it.muted) },
+            )
+        } ?: "reject"
+        result == normalize(vector.get("expect"))
+    }
+
+    /** Mac actions: what the phone sends for a run is byte for byte the plaintext the Mac reads. */
+    @Test fun actionsRunAsThePhoneSendsIt() {
+        var checked = 0
+        each("actionsRun") { vector ->
+            val spec = vector.optJSONObject("android") ?: return@each true
+            checked++
+            val plaintext = vector.getJSONObject("plaintext")
+            val value = if (spec.has("value")) spec.getInt("value") else null
+            val encoded = dev.bridgey.android.actions.macActionRunPayload(
+                plaintext.getString("requestId"), spec.getString("action"), spec.optLong("sequence", plaintext.getLong("sequence")), value,
+            )
+            vector.get("expect") != "reject" && normalize(encoded) == normalize(plaintext)
+        }
+        assertTrue(checked >= 5)
+    }
+
+    /** Mac actions: the phone reads the Mac's result. */
+    @Test fun actionsResult() = each("actionsResult") { vector ->
+        val result: Any = dev.bridgey.android.actions.decodeMacActionResult(plaintext(vector))?.let {
+            mapOf(
+                "requestId" to it.requestId, "action" to it.action, "status" to if (it.done) "done" else "refused", "reason" to it.reason,
+                "volume" to it.volume?.let { volume -> mapOf("level" to volume.level.toLong(), "muted" to volume.muted) },
+            )
+        } ?: "reject"
+        result == normalize(vector.get("expect"))
+    }
+
+    /** Phone camera: the phone reads the Mac's request. */
+    @Test fun cameraRequest() = each("cameraRequest") { vector ->
+        val result: Any = dev.bridgey.android.camera.decodeCameraRequest(plaintext(vector))
+            ?.let { dev.bridgey.android.camera.parseCameraRequest(it) }?.let { mapOf("requestId" to it) } ?: "reject"
+        result == normalize(vector.get("expect"))
+    }
+
+    /** Phone camera: what the phone sends for each status is exactly what the Mac reads. */
+    @Test fun cameraStatusAsThePhoneSendsIt() {
+        var checked = 0
+        each("cameraStatus") { vector ->
+            val wire = vector.optString("android").takeIf { it.isNotEmpty() } ?: return@each true
+            checked++
+            val plaintext = vector.getJSONObject("plaintext")
+            val status = dev.bridgey.android.camera.CameraStatus.entries.first { it.wire == wire }
+            vector.get("expect") != "reject" &&
+                normalize(dev.bridgey.android.camera.cameraStatusPayload(plaintext.getString("requestId"), status)) == normalize(plaintext)
+        }
+        assertEquals(dev.bridgey.android.camera.CameraStatus.entries.size, checked)
     }
 
     /** The phone is the controller: what it would send must be exactly what the Mac host accepts. */

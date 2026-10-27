@@ -1,5 +1,5 @@
 {
- "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject.",
+ "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer.",
  "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
  "frames": [
   {
@@ -400,7 +400,11 @@
      "places_draft1": false,
      "sms_codes_draft1": true,
      "folders_receive_draft1": true,
-     "files_browse_draft1": false
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false
     }
    }
   },
@@ -446,7 +450,161 @@
      "places_draft1": true,
      "sms_codes_draft1": true,
      "folders_receive_draft1": true,
-     "files_browse_draft1": true
+     "files_browse_draft1": true,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false
+    }
+   }
+  },
+  {
+   "name": "v0.9 Mac with Mac actions granted, links open, Focus and camera",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "clipboard_files_draft1": true,
+     "folders_draft1": true,
+     "sms_codes_draft1": true,
+     "folders_receive_draft1": true,
+     "mac_actions_draft1": true,
+     "links_open_draft1": true,
+     "focus_sync_draft1": true,
+     "camera_draft1": true
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": true,
+     "folders_draft1": true,
+     "places_draft1": false,
+     "sms_codes_draft1": true,
+     "folders_receive_draft1": true,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": true,
+     "links_open_draft1": true,
+     "focus_sync_draft1": true,
+     "camera_draft1": true
+    }
+   }
+  },
+  {
+   "name": "v0.9 phone (Mac actions and camera on, Focus off, no links open)",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "files_browse_draft1": true,
+     "mac_actions_draft1": true,
+     "focus_sync_draft1": false,
+     "camera_draft1": true
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": true,
+     "mac_actions_draft1": true,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": true
+    }
+   }
+  },
+  {
+   "name": "automation keys that are not booleans count as false",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "mac_actions_draft1": 1,
+     "links_open_draft1": "true",
+     "focus_sync_draft1": null,
+     "camera_draft1": {
+      "on": true
+     }
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false
     }
    }
   },
@@ -488,7 +646,11 @@
      "places_draft1": false,
      "sms_codes_draft1": false,
      "folders_receive_draft1": false,
-     "files_browse_draft1": false
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false
     }
    }
   },
@@ -523,7 +685,11 @@
      "places_draft1": false,
      "sms_codes_draft1": false,
      "folders_receive_draft1": false,
-     "files_browse_draft1": false
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false
     }
    }
   },
@@ -562,7 +728,11 @@
      "places_draft1": false,
      "sms_codes_draft1": false,
      "folders_receive_draft1": false,
-     "files_browse_draft1": false
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false
     }
    }
   },
@@ -598,7 +768,11 @@
      "places_draft1": false,
      "sms_codes_draft1": false,
      "folders_receive_draft1": false,
-     "files_browse_draft1": false
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false
     }
    }
   },
@@ -4324,6 +4498,2359 @@
     "",
     "a"
    ],
+   "expect": "reject"
+  }
+ ],
+ "focusState": [
+  {
+   "name": "active",
+   "plaintext": {
+    "version": 1,
+    "active": true
+   },
+   "expect": {
+    "active": true
+   }
+  },
+  {
+   "name": "not active",
+   "plaintext": {
+    "version": 1,
+    "active": false
+   },
+   "expect": {
+    "active": false
+   }
+  },
+  {
+   "name": "unknown fields are ignored",
+   "plaintext": {
+    "version": 1,
+    "active": true,
+    "source": "filter",
+    "since": 5
+   },
+   "expect": {
+    "active": true
+   }
+  },
+  {
+   "name": "version written as 1.0",
+   "plaintextString": "{\"version\":1.0,\"active\":true}",
+   "expect": {
+    "active": true
+   }
+  },
+  {
+   "name": "exactly 256 bytes",
+   "plaintextString": "{\"version\":1,\"active\":false,\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": {
+    "active": false
+   }
+  },
+  {
+   "name": "257 bytes",
+   "plaintextString": "{\"version\":1,\"active\":false,\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "active as a number",
+   "plaintext": {
+    "version": 1,
+    "active": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "active as a string",
+   "plaintext": {
+    "version": 1,
+    "active": "true"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "active missing",
+   "plaintext": {
+    "version": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "active": true
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version as a boolean",
+   "plaintext": {
+    "version": true,
+    "active": true
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version missing",
+   "plaintext": {
+    "active": true
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "not an object",
+   "plaintext": [
+    1,
+    true
+   ],
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,active:true}",
+   "expect": "reject"
+  }
+ ],
+ "actionsCatalog": [
+  {
+   "name": "every kind of entry, Lock needs Accessibility",
+   "plaintext": {
+    "version": 1,
+    "actions": [
+     {
+      "id": "lock",
+      "title": "Lock screen",
+      "blocked": "permission_required"
+     },
+     {
+      "id": "sleep",
+      "title": "Sleep"
+     },
+     {
+      "id": "screensaver",
+      "title": "Start screen saver"
+     },
+     {
+      "id": "volume_down",
+      "title": "Volume down"
+     },
+     {
+      "id": "volume_mute",
+      "title": "Mute"
+     },
+     {
+      "id": "volume_up",
+      "title": "Volume up"
+     },
+     {
+      "id": "volume_set",
+      "title": "Set volume"
+     },
+     {
+      "id": "app:com.apple.Safari",
+      "title": "Safari"
+     },
+     {
+      "id": "shortcut:3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b",
+      "title": "Morning routine"
+     }
+    ],
+    "volume": {
+     "level": 40,
+     "muted": false
+    }
+   },
+   "expect": {
+    "actions": [
+     {
+      "id": "lock",
+      "title": null,
+      "blocked": "permission_required"
+     },
+     {
+      "id": "sleep",
+      "title": null,
+      "blocked": null
+     },
+     {
+      "id": "screensaver",
+      "title": null,
+      "blocked": null
+     },
+     {
+      "id": "volume_down",
+      "title": null,
+      "blocked": null
+     },
+     {
+      "id": "volume_mute",
+      "title": null,
+      "blocked": null
+     },
+     {
+      "id": "volume_up",
+      "title": null,
+      "blocked": null
+     },
+     {
+      "id": "volume_set",
+      "title": null,
+      "blocked": null
+     },
+     {
+      "id": "app:com.apple.Safari",
+      "title": "Safari",
+      "blocked": null
+     },
+     {
+      "id": "shortcut:3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b",
+      "title": "Morning routine",
+      "blocked": null
+     }
+    ],
+    "volume": {
+     "level": 40,
+     "muted": false
+    }
+   },
+   "mac": {
+    "switches": [
+     "lock",
+     "sleep",
+     "screensaver",
+     "volume"
+    ],
+    "apps": [
+     {
+      "bundleID": "com.apple.Safari",
+      "name": "Safari"
+     }
+    ],
+    "shortcuts": [
+     {
+      "id": "3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b",
+      "name": "Morning routine"
+     }
+    ],
+    "accessibilityTrusted": false
+   }
+  },
+  {
+   "name": "Lock allowed with Accessibility, nothing else",
+   "plaintext": {
+    "version": 1,
+    "actions": [
+     {
+      "id": "lock",
+      "title": "Lock screen"
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "id": "lock",
+      "title": null,
+      "blocked": null
+     }
+    ],
+    "volume": null
+   },
+   "mac": {
+    "switches": [
+     "lock"
+    ],
+    "apps": [],
+    "shortcuts": [],
+    "accessibilityTrusted": true
+   }
+  },
+  {
+   "name": "empty list",
+   "plaintext": {
+    "version": 1,
+    "actions": []
+   },
+   "expect": {
+    "actions": [],
+    "volume": null
+   },
+   "mac": {
+    "switches": [],
+    "apps": [],
+    "shortcuts": [],
+    "accessibilityTrusted": true
+   }
+  },
+  {
+   "name": "unknown identifiers are dropped",
+   "plaintext": {
+    "version": 1,
+    "actions": [
+     {
+      "id": "power_off"
+     },
+     {
+      "id": "app:com apple"
+     },
+     {
+      "id": "shortcut:NOT-A-UUID",
+      "title": "x"
+     },
+     {
+      "id": "shortcut:3F2A1B4C-5D6E-4F70-8A9B-0C1D2E3F4A5B",
+      "title": "x"
+     },
+     {
+      "id": "app:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "title": "x"
+     },
+     {
+      "id": "sleep"
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "id": "sleep",
+      "title": null,
+      "blocked": null
+     }
+    ],
+    "volume": null
+   }
+  },
+  {
+   "name": "apps and Shortcuts need a title",
+   "plaintext": {
+    "version": 1,
+    "actions": [
+     {
+      "id": "app:com.apple.Notes"
+     },
+     {
+      "id": "app:com.apple.Music",
+      "title": ""
+     },
+     {
+      "id": "app:com.apple.Mail",
+      "title": "   "
+     },
+     {
+      "id": "app:com.apple.Maps",
+      "title": "Maps"
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "id": "app:com.apple.Maps",
+      "title": "Maps",
+      "blocked": null
+     }
+    ],
+    "volume": null
+   }
+  },
+  {
+   "name": "title of 64 characters",
+   "plaintext": {
+    "version": 1,
+    "actions": [
+     {
+      "id": "app:x.y",
+      "title": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "id": "app:x.y",
+      "title": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+      "blocked": null
+     }
+    ],
+    "volume": null
+   }
+  },
+  {
+   "name": "title of 65 characters is dropped",
+   "plaintext": {
+    "version": 1,
+    "actions": [
+     {
+      "id": "app:x.y",
+      "title": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+     }
+    ]
+   },
+   "expect": {
+    "actions": [],
+    "volume": null
+   }
+  },
+  {
+   "name": "title with a control character is dropped",
+   "plaintext": {
+    "version": 1,
+    "actions": [
+     {
+      "id": "app:x.y",
+      "title": "a\u0007b"
+     }
+    ]
+   },
+   "expect": {
+    "actions": [],
+    "volume": null
+   }
+  },
+  {
+   "name": "unicode title",
+   "plaintext": {
+    "version": 1,
+    "actions": [
+     {
+      "id": "app:ru.yandex.music",
+      "title": "Яндекс Музыка 🎵"
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "id": "app:ru.yandex.music",
+      "title": "Яндекс Музыка 🎵",
+      "blocked": null
+     }
+    ],
+    "volume": null
+   }
+  },
+  {
+   "name": "a repeated identifier keeps the first",
+   "plaintext": {
+    "version": 1,
+    "actions": [
+     {
+      "id": "app:x.y",
+      "title": "First"
+     },
+     {
+      "id": "app:x.y",
+      "title": "Second"
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "id": "app:x.y",
+      "title": "First",
+      "blocked": null
+     }
+    ],
+    "volume": null
+   }
+  },
+  {
+   "name": "entries that are not objects are dropped",
+   "plaintext": {
+    "version": 1,
+    "actions": [
+     "lock",
+     5,
+     null,
+     {
+      "id": 5
+     },
+     {
+      "id": "lock"
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "id": "lock",
+      "title": null,
+      "blocked": null
+     }
+    ],
+    "volume": null
+   }
+  },
+  {
+   "name": "blocked other than permission_required is ignored",
+   "plaintext": {
+    "version": 1,
+    "actions": [
+     {
+      "id": "lock",
+      "blocked": "later"
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "id": "lock",
+      "title": null,
+      "blocked": null
+     }
+    ],
+    "volume": null
+   }
+  },
+  {
+   "name": "volume level 101 is dropped",
+   "plaintext": {
+    "version": 1,
+    "actions": [],
+    "volume": {
+     "level": 101,
+     "muted": false
+    }
+   },
+   "expect": {
+    "actions": [],
+    "volume": null
+   }
+  },
+  {
+   "name": "volume level as a string is dropped",
+   "plaintext": {
+    "version": 1,
+    "actions": [],
+    "volume": {
+     "level": "40",
+     "muted": false
+    }
+   },
+   "expect": {
+    "actions": [],
+    "volume": null
+   }
+  },
+  {
+   "name": "volume muted as a number is dropped",
+   "plaintext": {
+    "version": 1,
+    "actions": [],
+    "volume": {
+     "level": 40,
+     "muted": 1
+    }
+   },
+   "expect": {
+    "actions": [],
+    "volume": null
+   }
+  },
+  {
+   "name": "volume level written as 40.0",
+   "plaintextString": "{\"version\":1,\"actions\":[],\"volume\":{\"level\":40.0,\"muted\":true}}",
+   "expect": {
+    "actions": [],
+    "volume": {
+     "level": 40,
+     "muted": true
+    }
+   }
+  },
+  {
+   "name": "64 entries",
+   "plaintext": {
+    "version": 1,
+    "actions": [
+     {
+      "id": "app:a0",
+      "title": "A0"
+     },
+     {
+      "id": "app:a1",
+      "title": "A1"
+     },
+     {
+      "id": "app:a2",
+      "title": "A2"
+     },
+     {
+      "id": "app:a3",
+      "title": "A3"
+     },
+     {
+      "id": "app:a4",
+      "title": "A4"
+     },
+     {
+      "id": "app:a5",
+      "title": "A5"
+     },
+     {
+      "id": "app:a6",
+      "title": "A6"
+     },
+     {
+      "id": "app:a7",
+      "title": "A7"
+     },
+     {
+      "id": "app:a8",
+      "title": "A8"
+     },
+     {
+      "id": "app:a9",
+      "title": "A9"
+     },
+     {
+      "id": "app:a10",
+      "title": "A10"
+     },
+     {
+      "id": "app:a11",
+      "title": "A11"
+     },
+     {
+      "id": "app:a12",
+      "title": "A12"
+     },
+     {
+      "id": "app:a13",
+      "title": "A13"
+     },
+     {
+      "id": "app:a14",
+      "title": "A14"
+     },
+     {
+      "id": "app:a15",
+      "title": "A15"
+     },
+     {
+      "id": "app:a16",
+      "title": "A16"
+     },
+     {
+      "id": "app:a17",
+      "title": "A17"
+     },
+     {
+      "id": "app:a18",
+      "title": "A18"
+     },
+     {
+      "id": "app:a19",
+      "title": "A19"
+     },
+     {
+      "id": "app:a20",
+      "title": "A20"
+     },
+     {
+      "id": "app:a21",
+      "title": "A21"
+     },
+     {
+      "id": "app:a22",
+      "title": "A22"
+     },
+     {
+      "id": "app:a23",
+      "title": "A23"
+     },
+     {
+      "id": "app:a24",
+      "title": "A24"
+     },
+     {
+      "id": "app:a25",
+      "title": "A25"
+     },
+     {
+      "id": "app:a26",
+      "title": "A26"
+     },
+     {
+      "id": "app:a27",
+      "title": "A27"
+     },
+     {
+      "id": "app:a28",
+      "title": "A28"
+     },
+     {
+      "id": "app:a29",
+      "title": "A29"
+     },
+     {
+      "id": "app:a30",
+      "title": "A30"
+     },
+     {
+      "id": "app:a31",
+      "title": "A31"
+     },
+     {
+      "id": "app:a32",
+      "title": "A32"
+     },
+     {
+      "id": "app:a33",
+      "title": "A33"
+     },
+     {
+      "id": "app:a34",
+      "title": "A34"
+     },
+     {
+      "id": "app:a35",
+      "title": "A35"
+     },
+     {
+      "id": "app:a36",
+      "title": "A36"
+     },
+     {
+      "id": "app:a37",
+      "title": "A37"
+     },
+     {
+      "id": "app:a38",
+      "title": "A38"
+     },
+     {
+      "id": "app:a39",
+      "title": "A39"
+     },
+     {
+      "id": "app:a40",
+      "title": "A40"
+     },
+     {
+      "id": "app:a41",
+      "title": "A41"
+     },
+     {
+      "id": "app:a42",
+      "title": "A42"
+     },
+     {
+      "id": "app:a43",
+      "title": "A43"
+     },
+     {
+      "id": "app:a44",
+      "title": "A44"
+     },
+     {
+      "id": "app:a45",
+      "title": "A45"
+     },
+     {
+      "id": "app:a46",
+      "title": "A46"
+     },
+     {
+      "id": "app:a47",
+      "title": "A47"
+     },
+     {
+      "id": "app:a48",
+      "title": "A48"
+     },
+     {
+      "id": "app:a49",
+      "title": "A49"
+     },
+     {
+      "id": "app:a50",
+      "title": "A50"
+     },
+     {
+      "id": "app:a51",
+      "title": "A51"
+     },
+     {
+      "id": "app:a52",
+      "title": "A52"
+     },
+     {
+      "id": "app:a53",
+      "title": "A53"
+     },
+     {
+      "id": "app:a54",
+      "title": "A54"
+     },
+     {
+      "id": "app:a55",
+      "title": "A55"
+     },
+     {
+      "id": "app:a56",
+      "title": "A56"
+     },
+     {
+      "id": "app:a57",
+      "title": "A57"
+     },
+     {
+      "id": "app:a58",
+      "title": "A58"
+     },
+     {
+      "id": "app:a59",
+      "title": "A59"
+     },
+     {
+      "id": "app:a60",
+      "title": "A60"
+     },
+     {
+      "id": "app:a61",
+      "title": "A61"
+     },
+     {
+      "id": "app:a62",
+      "title": "A62"
+     },
+     {
+      "id": "app:a63",
+      "title": "A63"
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "id": "app:a0",
+      "title": "A0",
+      "blocked": null
+     },
+     {
+      "id": "app:a1",
+      "title": "A1",
+      "blocked": null
+     },
+     {
+      "id": "app:a2",
+      "title": "A2",
+      "blocked": null
+     },
+     {
+      "id": "app:a3",
+      "title": "A3",
+      "blocked": null
+     },
+     {
+      "id": "app:a4",
+      "title": "A4",
+      "blocked": null
+     },
+     {
+      "id": "app:a5",
+      "title": "A5",
+      "blocked": null
+     },
+     {
+      "id": "app:a6",
+      "title": "A6",
+      "blocked": null
+     },
+     {
+      "id": "app:a7",
+      "title": "A7",
+      "blocked": null
+     },
+     {
+      "id": "app:a8",
+      "title": "A8",
+      "blocked": null
+     },
+     {
+      "id": "app:a9",
+      "title": "A9",
+      "blocked": null
+     },
+     {
+      "id": "app:a10",
+      "title": "A10",
+      "blocked": null
+     },
+     {
+      "id": "app:a11",
+      "title": "A11",
+      "blocked": null
+     },
+     {
+      "id": "app:a12",
+      "title": "A12",
+      "blocked": null
+     },
+     {
+      "id": "app:a13",
+      "title": "A13",
+      "blocked": null
+     },
+     {
+      "id": "app:a14",
+      "title": "A14",
+      "blocked": null
+     },
+     {
+      "id": "app:a15",
+      "title": "A15",
+      "blocked": null
+     },
+     {
+      "id": "app:a16",
+      "title": "A16",
+      "blocked": null
+     },
+     {
+      "id": "app:a17",
+      "title": "A17",
+      "blocked": null
+     },
+     {
+      "id": "app:a18",
+      "title": "A18",
+      "blocked": null
+     },
+     {
+      "id": "app:a19",
+      "title": "A19",
+      "blocked": null
+     },
+     {
+      "id": "app:a20",
+      "title": "A20",
+      "blocked": null
+     },
+     {
+      "id": "app:a21",
+      "title": "A21",
+      "blocked": null
+     },
+     {
+      "id": "app:a22",
+      "title": "A22",
+      "blocked": null
+     },
+     {
+      "id": "app:a23",
+      "title": "A23",
+      "blocked": null
+     },
+     {
+      "id": "app:a24",
+      "title": "A24",
+      "blocked": null
+     },
+     {
+      "id": "app:a25",
+      "title": "A25",
+      "blocked": null
+     },
+     {
+      "id": "app:a26",
+      "title": "A26",
+      "blocked": null
+     },
+     {
+      "id": "app:a27",
+      "title": "A27",
+      "blocked": null
+     },
+     {
+      "id": "app:a28",
+      "title": "A28",
+      "blocked": null
+     },
+     {
+      "id": "app:a29",
+      "title": "A29",
+      "blocked": null
+     },
+     {
+      "id": "app:a30",
+      "title": "A30",
+      "blocked": null
+     },
+     {
+      "id": "app:a31",
+      "title": "A31",
+      "blocked": null
+     },
+     {
+      "id": "app:a32",
+      "title": "A32",
+      "blocked": null
+     },
+     {
+      "id": "app:a33",
+      "title": "A33",
+      "blocked": null
+     },
+     {
+      "id": "app:a34",
+      "title": "A34",
+      "blocked": null
+     },
+     {
+      "id": "app:a35",
+      "title": "A35",
+      "blocked": null
+     },
+     {
+      "id": "app:a36",
+      "title": "A36",
+      "blocked": null
+     },
+     {
+      "id": "app:a37",
+      "title": "A37",
+      "blocked": null
+     },
+     {
+      "id": "app:a38",
+      "title": "A38",
+      "blocked": null
+     },
+     {
+      "id": "app:a39",
+      "title": "A39",
+      "blocked": null
+     },
+     {
+      "id": "app:a40",
+      "title": "A40",
+      "blocked": null
+     },
+     {
+      "id": "app:a41",
+      "title": "A41",
+      "blocked": null
+     },
+     {
+      "id": "app:a42",
+      "title": "A42",
+      "blocked": null
+     },
+     {
+      "id": "app:a43",
+      "title": "A43",
+      "blocked": null
+     },
+     {
+      "id": "app:a44",
+      "title": "A44",
+      "blocked": null
+     },
+     {
+      "id": "app:a45",
+      "title": "A45",
+      "blocked": null
+     },
+     {
+      "id": "app:a46",
+      "title": "A46",
+      "blocked": null
+     },
+     {
+      "id": "app:a47",
+      "title": "A47",
+      "blocked": null
+     },
+     {
+      "id": "app:a48",
+      "title": "A48",
+      "blocked": null
+     },
+     {
+      "id": "app:a49",
+      "title": "A49",
+      "blocked": null
+     },
+     {
+      "id": "app:a50",
+      "title": "A50",
+      "blocked": null
+     },
+     {
+      "id": "app:a51",
+      "title": "A51",
+      "blocked": null
+     },
+     {
+      "id": "app:a52",
+      "title": "A52",
+      "blocked": null
+     },
+     {
+      "id": "app:a53",
+      "title": "A53",
+      "blocked": null
+     },
+     {
+      "id": "app:a54",
+      "title": "A54",
+      "blocked": null
+     },
+     {
+      "id": "app:a55",
+      "title": "A55",
+      "blocked": null
+     },
+     {
+      "id": "app:a56",
+      "title": "A56",
+      "blocked": null
+     },
+     {
+      "id": "app:a57",
+      "title": "A57",
+      "blocked": null
+     },
+     {
+      "id": "app:a58",
+      "title": "A58",
+      "blocked": null
+     },
+     {
+      "id": "app:a59",
+      "title": "A59",
+      "blocked": null
+     },
+     {
+      "id": "app:a60",
+      "title": "A60",
+      "blocked": null
+     },
+     {
+      "id": "app:a61",
+      "title": "A61",
+      "blocked": null
+     },
+     {
+      "id": "app:a62",
+      "title": "A62",
+      "blocked": null
+     },
+     {
+      "id": "app:a63",
+      "title": "A63",
+      "blocked": null
+     }
+    ],
+    "volume": null
+   }
+  },
+  {
+   "name": "65 entries",
+   "plaintext": {
+    "version": 1,
+    "actions": [
+     {
+      "id": "app:a0",
+      "title": "A0"
+     },
+     {
+      "id": "app:a1",
+      "title": "A1"
+     },
+     {
+      "id": "app:a2",
+      "title": "A2"
+     },
+     {
+      "id": "app:a3",
+      "title": "A3"
+     },
+     {
+      "id": "app:a4",
+      "title": "A4"
+     },
+     {
+      "id": "app:a5",
+      "title": "A5"
+     },
+     {
+      "id": "app:a6",
+      "title": "A6"
+     },
+     {
+      "id": "app:a7",
+      "title": "A7"
+     },
+     {
+      "id": "app:a8",
+      "title": "A8"
+     },
+     {
+      "id": "app:a9",
+      "title": "A9"
+     },
+     {
+      "id": "app:a10",
+      "title": "A10"
+     },
+     {
+      "id": "app:a11",
+      "title": "A11"
+     },
+     {
+      "id": "app:a12",
+      "title": "A12"
+     },
+     {
+      "id": "app:a13",
+      "title": "A13"
+     },
+     {
+      "id": "app:a14",
+      "title": "A14"
+     },
+     {
+      "id": "app:a15",
+      "title": "A15"
+     },
+     {
+      "id": "app:a16",
+      "title": "A16"
+     },
+     {
+      "id": "app:a17",
+      "title": "A17"
+     },
+     {
+      "id": "app:a18",
+      "title": "A18"
+     },
+     {
+      "id": "app:a19",
+      "title": "A19"
+     },
+     {
+      "id": "app:a20",
+      "title": "A20"
+     },
+     {
+      "id": "app:a21",
+      "title": "A21"
+     },
+     {
+      "id": "app:a22",
+      "title": "A22"
+     },
+     {
+      "id": "app:a23",
+      "title": "A23"
+     },
+     {
+      "id": "app:a24",
+      "title": "A24"
+     },
+     {
+      "id": "app:a25",
+      "title": "A25"
+     },
+     {
+      "id": "app:a26",
+      "title": "A26"
+     },
+     {
+      "id": "app:a27",
+      "title": "A27"
+     },
+     {
+      "id": "app:a28",
+      "title": "A28"
+     },
+     {
+      "id": "app:a29",
+      "title": "A29"
+     },
+     {
+      "id": "app:a30",
+      "title": "A30"
+     },
+     {
+      "id": "app:a31",
+      "title": "A31"
+     },
+     {
+      "id": "app:a32",
+      "title": "A32"
+     },
+     {
+      "id": "app:a33",
+      "title": "A33"
+     },
+     {
+      "id": "app:a34",
+      "title": "A34"
+     },
+     {
+      "id": "app:a35",
+      "title": "A35"
+     },
+     {
+      "id": "app:a36",
+      "title": "A36"
+     },
+     {
+      "id": "app:a37",
+      "title": "A37"
+     },
+     {
+      "id": "app:a38",
+      "title": "A38"
+     },
+     {
+      "id": "app:a39",
+      "title": "A39"
+     },
+     {
+      "id": "app:a40",
+      "title": "A40"
+     },
+     {
+      "id": "app:a41",
+      "title": "A41"
+     },
+     {
+      "id": "app:a42",
+      "title": "A42"
+     },
+     {
+      "id": "app:a43",
+      "title": "A43"
+     },
+     {
+      "id": "app:a44",
+      "title": "A44"
+     },
+     {
+      "id": "app:a45",
+      "title": "A45"
+     },
+     {
+      "id": "app:a46",
+      "title": "A46"
+     },
+     {
+      "id": "app:a47",
+      "title": "A47"
+     },
+     {
+      "id": "app:a48",
+      "title": "A48"
+     },
+     {
+      "id": "app:a49",
+      "title": "A49"
+     },
+     {
+      "id": "app:a50",
+      "title": "A50"
+     },
+     {
+      "id": "app:a51",
+      "title": "A51"
+     },
+     {
+      "id": "app:a52",
+      "title": "A52"
+     },
+     {
+      "id": "app:a53",
+      "title": "A53"
+     },
+     {
+      "id": "app:a54",
+      "title": "A54"
+     },
+     {
+      "id": "app:a55",
+      "title": "A55"
+     },
+     {
+      "id": "app:a56",
+      "title": "A56"
+     },
+     {
+      "id": "app:a57",
+      "title": "A57"
+     },
+     {
+      "id": "app:a58",
+      "title": "A58"
+     },
+     {
+      "id": "app:a59",
+      "title": "A59"
+     },
+     {
+      "id": "app:a60",
+      "title": "A60"
+     },
+     {
+      "id": "app:a61",
+      "title": "A61"
+     },
+     {
+      "id": "app:a62",
+      "title": "A62"
+     },
+     {
+      "id": "app:a63",
+      "title": "A63"
+     },
+     {
+      "id": "app:a64",
+      "title": "A64"
+     }
+    ]
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "actions": []
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version missing",
+   "plaintext": {
+    "actions": []
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "actions missing",
+   "plaintext": {
+    "version": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "actions not an array",
+   "plaintext": {
+    "version": 1,
+    "actions": {
+     "id": "lock"
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 8 KiB",
+   "plaintextString": "{\"version\":1,\"actions\":[],\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "exactly 8 KiB",
+   "plaintextString": "{\"version\":1,\"actions\":[],\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": {
+    "actions": [],
+    "volume": null
+   }
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,actions:[]}",
+   "expect": "reject"
+  }
+ ],
+ "actionsRun": [
+  {
+   "name": "lock",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "sequence": 1
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "sequence": 1,
+    "value": null
+   },
+   "android": {
+    "action": "lock"
+   }
+  },
+  {
+   "name": "set the volume",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "volume_set",
+    "sequence": 7,
+    "value": 30
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "volume_set",
+    "sequence": 7,
+    "value": 30
+   },
+   "android": {
+    "action": "volume_set",
+    "value": 30
+   }
+  },
+  {
+   "name": "open an app",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "app:com.apple.Safari",
+    "sequence": 2
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "app:com.apple.Safari",
+    "sequence": 2,
+    "value": null
+   },
+   "android": {
+    "action": "app:com.apple.Safari"
+   }
+  },
+  {
+   "name": "run a Shortcut",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "shortcut:3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b",
+    "sequence": 3
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "shortcut:3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b",
+    "sequence": 3,
+    "value": null
+   },
+   "android": {
+    "action": "shortcut:3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b"
+   }
+  },
+  {
+   "name": "largest sequence",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "sleep",
+    "sequence": 9007199254740991
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "sleep",
+    "sequence": 9007199254740991,
+    "value": null
+   },
+   "android": {
+    "action": "sleep",
+    "sequence": 9007199254740991
+   }
+  },
+  {
+   "name": "unknown fields are ignored",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "sleep",
+    "sequence": 1,
+    "command": "rm -rf /"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "sleep",
+    "sequence": 1,
+    "value": null
+   }
+  },
+  {
+   "name": "unknown action decodes (answered not_allowed)",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "power_off",
+    "sequence": 1
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "power_off",
+    "sequence": 1,
+    "value": null
+   }
+  },
+  {
+   "name": "action missing decodes (answered not_allowed)",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "sequence": 1
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": null,
+    "sequence": 1,
+    "value": null
+   }
+  },
+  {
+   "name": "value as a string (answered invalid)",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "volume_set",
+    "sequence": 1,
+    "value": "30"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "volume_set",
+    "sequence": 1,
+    "value": "other"
+   }
+  },
+  {
+   "name": "value as a fraction (answered invalid)",
+   "plaintextString": "{\"version\":1,\"requestId\":\"8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e\",\"action\":\"volume_set\",\"sequence\":1,\"value\":30.5}",
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "volume_set",
+    "sequence": 1,
+    "value": "other"
+   }
+  },
+  {
+   "name": "value as a boolean (answered invalid)",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "volume_set",
+    "sequence": 1,
+    "value": true
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "volume_set",
+    "sequence": 1,
+    "value": "other"
+   }
+  },
+  {
+   "name": "value written as 30.0",
+   "plaintextString": "{\"version\":1,\"requestId\":\"8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e\",\"action\":\"volume_set\",\"sequence\":1,\"value\":30.0}",
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "volume_set",
+    "sequence": 1,
+    "value": 30
+   }
+  },
+  {
+   "name": "null value counts as absent",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "sequence": 1,
+    "value": null
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "sequence": 1,
+    "value": null
+   }
+  },
+  {
+   "name": "sequence written as 1.0",
+   "plaintextString": "{\"version\":1,\"requestId\":\"8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e\",\"action\":\"lock\",\"sequence\":1.0}",
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "sequence": 1,
+    "value": null
+   }
+  },
+  {
+   "name": "sequence 0",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "sequence": 0
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "sequence 2^53",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "sequence": 9007199254740992
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "sequence as a string",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "sequence": "1"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "sequence missing",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "run-1",
+    "action": "lock",
+    "sequence": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId missing",
+   "plaintext": {
+    "version": 1,
+    "action": "lock",
+    "sequence": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "sequence": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version as a boolean",
+   "plaintext": {
+    "version": true,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "sequence": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 1 KiB",
+   "plaintextString": "{\"version\":1,\"requestId\":\"8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e\",\"action\":\"lock\",\"sequence\":1,\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,requestId:'8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e',action:'lock',sequence:1}",
+   "expect": "reject"
+  }
+ ],
+ "actionsResult": [
+  {
+   "name": "done",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "done"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "done",
+    "reason": null,
+    "volume": null
+   },
+   "mac": {
+    "outcome": "done"
+   }
+  },
+  {
+   "name": "done with the new volume",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "volume_up",
+    "status": "done",
+    "volume": {
+     "level": 50,
+     "muted": false
+    }
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "volume_up",
+    "status": "done",
+    "reason": null,
+    "volume": {
+     "level": 50,
+     "muted": false
+    }
+   },
+   "mac": {
+    "outcome": "done",
+    "volume": {
+     "level": 50,
+     "muted": false
+    }
+   }
+  },
+  {
+   "name": "refused not_allowed",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "not_allowed"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "not_allowed",
+    "volume": null
+   },
+   "mac": {
+    "outcome": "refused",
+    "reason": "not_allowed"
+   }
+  },
+  {
+   "name": "refused invalid",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "invalid"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "invalid",
+    "volume": null
+   },
+   "mac": {
+    "outcome": "refused",
+    "reason": "invalid"
+   }
+  },
+  {
+   "name": "refused rate_limited",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "rate_limited"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "rate_limited",
+    "volume": null
+   },
+   "mac": {
+    "outcome": "refused",
+    "reason": "rate_limited"
+   }
+  },
+  {
+   "name": "refused busy",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "busy"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "busy",
+    "volume": null
+   },
+   "mac": {
+    "outcome": "refused",
+    "reason": "busy"
+   }
+  },
+  {
+   "name": "refused permission_required",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "permission_required"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "permission_required",
+    "volume": null
+   },
+   "mac": {
+    "outcome": "refused",
+    "reason": "permission_required"
+   }
+  },
+  {
+   "name": "refused unavailable",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "unavailable"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "unavailable",
+    "volume": null
+   },
+   "mac": {
+    "outcome": "refused",
+    "reason": "unavailable"
+   }
+  },
+  {
+   "name": "refused failed",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "failed"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "failed",
+    "volume": null
+   },
+   "mac": {
+    "outcome": "refused",
+    "reason": "failed"
+   }
+  },
+  {
+   "name": "an unknown reason reads as failed",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "tired"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "failed",
+    "volume": null
+   }
+  },
+  {
+   "name": "a missing reason reads as failed",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "refused",
+    "reason": "failed",
+    "volume": null
+   }
+  },
+  {
+   "name": "a reason on done is ignored",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "done",
+    "reason": "busy"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "done",
+    "reason": null,
+    "volume": null
+   }
+  },
+  {
+   "name": "a bad volume is dropped",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "volume_up",
+    "status": "done",
+    "volume": {
+     "level": -1,
+     "muted": false
+    }
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "volume_up",
+    "status": "done",
+    "reason": null,
+    "volume": null
+   }
+  },
+  {
+   "name": "unknown status",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "maybe"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "status missing",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId missing",
+   "plaintext": {
+    "version": 1,
+    "action": "lock",
+    "status": "done"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "action missing",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "done"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "action": "lock",
+    "status": "done"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 1 KiB",
+   "plaintextString": "{\"version\":1,\"requestId\":\"8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e\",\"action\":\"lock\",\"status\":\"done\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,requestId:'8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e',action:'lock',status:'done'}",
+   "expect": "reject"
+  }
+ ],
+ "cameraRequest": [
+  {
+   "name": "one photo",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "mode": "photo"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+   },
+   "mac": true
+  },
+  {
+   "name": "an uppercase request ID is read lowercased",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8A5D9C3E-2B47-4F1A-9E60-7C1D2B3A4F5E",
+    "mode": "photo"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+   }
+  },
+  {
+   "name": "unknown fields are ignored",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "mode": "photo",
+    "flash": true
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+   }
+  },
+  {
+   "name": "mode video",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "mode": "video"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "mode missing",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "photo-1",
+    "mode": "photo"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId without dashes",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e2b474f1a9e607c1d2b3a4f5e",
+    "mode": "photo"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId as a number",
+   "plaintext": {
+    "version": 1,
+    "requestId": 5,
+    "mode": "photo"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "mode": "photo"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 512 bytes",
+   "plaintextString": "{\"version\":1,\"requestId\":\"8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e\",\"mode\":\"photo\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,requestId:'8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e',mode:'photo'}",
+   "expect": "reject"
+  }
+ ],
+ "cameraStatus": [
+  {
+   "name": "opened",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "opened"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "opened"
+   },
+   "android": "opened"
+  },
+  {
+   "name": "locked",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "locked"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "locked"
+   },
+   "android": "locked"
+  },
+  {
+   "name": "permission_required",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "permission_required"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "permission_required"
+   },
+   "android": "permission_required"
+  },
+  {
+   "name": "cancelled",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "cancelled"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "cancelled"
+   },
+   "android": "cancelled"
+  },
+  {
+   "name": "busy",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "busy"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "busy"
+   },
+   "android": "busy"
+  },
+  {
+   "name": "disabled",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "disabled"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "disabled"
+   },
+   "android": "disabled"
+  },
+  {
+   "name": "sending",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "sending"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "sending"
+   },
+   "android": "sending"
+  },
+  {
+   "name": "failed",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "failed"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "failed"
+   },
+   "android": "failed"
+  },
+  {
+   "name": "unknown status",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "smiling"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "status missing",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId as a number",
+   "plaintext": {
+    "version": 1,
+    "requestId": 5,
+    "status": "opened"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "opened"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 512 bytes",
+   "plaintextString": "{\"version\":1,\"requestId\":\"8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e\",\"status\":\"opened\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,requestId:'8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e',status:'opened'}",
    "expect": "reject"
   }
  ]

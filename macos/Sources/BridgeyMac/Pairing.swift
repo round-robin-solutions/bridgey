@@ -448,7 +448,7 @@ final class PairingCoordinator: ObservableObject {
         focusSync.broadcast = { [weak self] active in
             guard let self else { return }
             for (_, current) in self.registry.broadcastTargets({ _, link in link.remoteFocusSync }) {
-                _ = self.sendQuickPayload(kind: "focus.state", payload: ["version": 1, "active": active], to: current)
+                _ = self.sendQuickPayload(kind: "focus.state", payload: focusStatePayload(active), to: current)
             }
         }
         focusSync.onSettingsChange = { [weak self] in self?.sendFeatureState() }
@@ -2215,7 +2215,7 @@ final class PairingCoordinator: ObservableObject {
                 refreshPhoneFreeSpace(phoneID)
                 sendActionsCatalog(to: current)
                 if draftKeys[focusSyncFeatureKey] == true, let active = focusSync.stateForNewPhone {
-                    _ = sendQuickPayload(kind: "focus.state", payload: ["version": 1, "active": active], to: current)
+                    _ = sendQuickPayload(kind: "focus.state", payload: focusStatePayload(active), to: current)
                 }
             case "ping.request":
                 try receivePing(message, in: current)
@@ -3303,9 +3303,10 @@ final class PairingCoordinator: ObservableObject {
         guard message.kind == "actions.run", registry.isActive(current), message.sessionId == current.id,
               let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
               let nonce = message.nonce, let ciphertext = message.ciphertext,
-              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key), data.count <= 1024,
-              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
-        macActions.receive(kind: message.kind, payload: payload, deviceID: current.remoteDeviceID, deviceName: current.peerName)
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
+              // Strict JSON at most 1 KiB, as the phone writes it (docs/protocol-contract.md).
+              let run = MacActionRun.decode(data) else { return }
+        macActions.receive(run, deviceID: current.remoteDeviceID, deviceName: current.peerName)
     }
 
     /// Menu bar panel > Link > Send current browser tab: Safari or Chrome's front tab to the selected phone.
@@ -3335,11 +3336,9 @@ final class PairingCoordinator: ObservableObject {
         guard registry.isActive(current), message.sessionId == current.id,
               let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
               let nonce = message.nonce, let ciphertext = message.ciphertext,
-              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key), data.count <= 256,
-              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              payload["version"] as? Int == 1, let number = payload["active"] as? NSNumber,
-              CFGetTypeID(number) == CFBooleanGetTypeID() else { return }
-        focusSync.received(active: number.boolValue, from: current.remoteDeviceID)
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
+              let active = decodeFocusState(data) else { return }
+        focusSync.received(active: active, from: current.remoteDeviceID)
     }
 
     /// camera.status from a phone, for this Mac's open request.
@@ -3347,11 +3346,9 @@ final class PairingCoordinator: ObservableObject {
         guard registry.isActive(current), message.sessionId == current.id,
               let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
               let nonce = message.nonce, let ciphertext = message.ciphertext,
-              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key), data.count <= 512,
-              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              payload["version"] as? Int == 1, let requestID = payload["requestId"] as? String,
-              let status = payload["status"] as? String else { return }
-        camera.received(status: status, requestID: requestID, from: current.remoteDeviceID, phoneName: current.peerName)
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
+              let decoded = decodeCameraStatus(data) else { return }
+        camera.received(status: decoded.status.rawValue, requestID: decoded.requestID, from: current.remoteDeviceID, phoneName: current.peerName)
     }
 
     /// The phone takes photos for this Mac and Files is on for it.

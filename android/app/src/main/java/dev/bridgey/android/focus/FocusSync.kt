@@ -2,6 +2,8 @@ package dev.bridgey.android.focus
 
 import android.app.NotificationManager
 import android.content.Context
+import dev.bridgey.android.jsonInteger
+import dev.bridgey.android.strictJsonObject
 import org.json.JSONObject
 
 /** Draft, edition only (docs/protocol.md, "Focus and Do Not Disturb sync"): the peer understands focus.state. */
@@ -54,9 +56,13 @@ enum class FocusApply { IGNORED, NO_CHANGE, TURNED_ON, TURNED_OFF, NEEDS_ACCESS,
 
 /** focus.state plaintext: `{ "version": 1, "active": bool }`, or null when malformed. */
 fun parseFocusState(payload: JSONObject): Boolean? {
-    if (payload.opt("version") != 1) return null
+    if (jsonInteger(payload.opt("version")) != 1L) return null
     return payload.opt("active") as? Boolean
 }
+
+/** A focus.state plaintext as it arrives: at most 256 bytes of strict JSON. Null when malformed. */
+fun decodeFocusState(plaintext: ByteArray): Boolean? =
+    plaintext.takeIf { it.size <= FOCUS_STATE_MAX_BYTES }?.let(::strictJsonObject)?.let(::parseFocusState)
 
 fun focusStatePayload(active: Boolean): JSONObject = JSONObject().put("version", 1).put("active", active)
 

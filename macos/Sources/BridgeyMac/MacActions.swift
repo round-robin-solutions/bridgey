@@ -187,6 +187,59 @@ protocol MacSystemActing: AnyObject {
     func runShortcut(named name: String, completion: @escaping (ShortcutRunOutcome) -> Void)
 }
 
+/// One `actions.run` as the Mac reads it (docs/protocol-contract.md): `version` 1, a UUID `requestId`, a
+/// `sequence` from 1 to 2^53-1. `action` and `value` are checked later, against the catalog, so that a bad
+/// identifier or level is answered `not_allowed` or `invalid` instead of being dropped.
+struct MacActionRun: Equatable {
+    static let maximumBytes = 1024
+
+    enum Value: Equatable {
+        case absent
+        case integer(Int)
+        /// Present but not an integral number (a string, a fraction, a boolean, an object).
+        case other
+    }
+
+    let requestID: String
+    let action: String?
+    let sequence: Int
+    let value: Value
+
+    init?(payload: [String: Any]) {
+        guard jsonInteger(payload["version"]) == 1,
+              let requestID = payload["requestId"] as? String, UUID(uuidString: requestID) != nil,
+              let sequence = jsonInteger(payload["sequence"]), (1...9_007_199_254_740_991).contains(sequence) else { return nil }
+        self.requestID = requestID
+        action = payload["action"] as? String
+        self.sequence = sequence
+        switch payload["value"] {
+        case nil, is NSNull: value = .absent
+        case let raw: value = jsonInteger(raw).map(Value.integer) ?? .other
+        }
+    }
+
+    /// The decrypted plaintext: at most 1 KiB of strict JSON, else nil (dropped without an answer).
+    static func decode(_ data: Data) -> MacActionRun? {
+        guard data.count <= maximumBytes, isStrictJSONObject(data),
+              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return MacActionRun(payload: payload)
+    }
+}
+
+/// The `actions.result` plaintext for one run: `status` done or refused, the reason, and the new volume.
+func macActionResultPayload(_ outcome: MacActionOutcome, requestID: String, wire: String) -> [String: Any] {
+    var reply: [String: Any] = ["version": 1, "requestId": requestID, "action": String(wire.prefix(200))]
+    switch outcome {
+    case let .done(volume):
+        reply["status"] = "done"
+        if let volume { reply["volume"] = volume.payload }
+    case let .refused(refusal):
+        reply["status"] = "refused"
+        reply["reason"] = refusal.rawValue
+    }
+    return reply
+}
+
 /// Per phone: volume 10 at once then 5 a second; everything else 3 at once then one every 2 seconds.
 struct MacActionRateLimiter: Equatable {
     private var volume = TokenBucket(ratePerSecond: 5, capacity: 10)
@@ -344,24 +397,26 @@ final class MacActionsHost: ObservableObject {
     }
 
     func receive(kind: String, payload: [String: Any], deviceID: String, deviceName: String) {
-        guard kind == "actions.run", payload["version"] as? Int == 1,
-              let requestID = payload["requestId"] as? String, UUID(uuidString: requestID) != nil,
-              let sequence = jsonInteger(payload["sequence"]), (1...9_007_199_254_740_991).contains(sequence),
-              sequence > sequences[deviceID, default: 0] else { return }
-        sequences[deviceID] = sequence
-        let wire = (payload["action"] as? String) ?? ""
+        guard kind == "actions.run", let run = MacActionRun(payload: payload) else { return }
+        receive(run, deviceID: deviceID, deviceName: deviceName)
+    }
+
+    func receive(_ request: MacActionRun, deviceID: String, deviceName: String) {
+        guard request.sequence > sequences[deviceID, default: 0] else { return }
+        sequences[deviceID] = request.sequence
+        let requestID = request.requestID
+        let wire = request.action ?? ""
         let parsed = MacActionID(wire: wire)
         let finish: (MacActionOutcome) -> Void = { [weak self] outcome in
             self?.finish(outcome, requestID: requestID, wire: wire, id: parsed, deviceID: deviceID, deviceName: deviceName)
         }
         guard isAllowed(deviceID), let id = parsed, config.allows(id) else { finish(.refused(.notAllowed)); return }
-        let value = payload["value"]
         let level: Int?
         if case .system(.volumeSet) = id {
-            guard let number = jsonInteger(value), (0...100).contains(number) else { finish(.refused(.invalid)); return }
+            guard case let .integer(number) = request.value, (0...100).contains(number) else { finish(.refused(.invalid)); return }
             level = number
         } else {
-            guard value == nil || value is NSNull else { finish(.refused(.invalid)); return }
+            guard request.value == .absent else { finish(.refused(.invalid)); return }
             level = nil
         }
         var limiter = limiters[deviceID] ?? MacActionRateLimiter()
@@ -412,19 +467,9 @@ final class MacActionsHost: ObservableObject {
     }
 
     private func finish(_ outcome: MacActionOutcome, requestID: String, wire: String, id: MacActionID?, deviceID: String, deviceName: String) {
-        var reply: [String: Any] = ["version": 1, "requestId": requestID, "action": String(wire.prefix(200))]
         let reason: MacActionRefusal?
-        switch outcome {
-        case let .done(volume):
-            reply["status"] = "done"
-            if let volume { reply["volume"] = volume.payload }
-            reason = nil
-        case let .refused(refusal):
-            reply["status"] = "refused"
-            reply["reason"] = refusal.rawValue
-            reason = refusal
-        }
-        _ = send(deviceID, "actions.result", reply)
+        if case let .refused(refusal) = outcome { reason = refusal } else { reason = nil }
+        _ = send(deviceID, "actions.result", macActionResultPayload(outcome, requestID: requestID, wire: wire))
         audit.record(MacActionAuditEntry(
             id: requestID, deviceID: deviceID, deviceName: deviceName,
             action: id?.wire ?? "unknown", title: id.map(auditTitle) ?? "",

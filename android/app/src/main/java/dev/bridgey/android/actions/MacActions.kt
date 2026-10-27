@@ -1,6 +1,8 @@
 package dev.bridgey.android.actions
 
 import android.content.Context
+import dev.bridgey.android.jsonInteger
+import dev.bridgey.android.strictJsonObject
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -87,13 +89,13 @@ data class MacActionCatalog(val entries: List<MacActionEntry>, val volume: MacVo
 
 internal fun MacVolume.toJson(): JSONObject = JSONObject().put("level", level).put("muted", muted)
 
-/** `{level, muted}` with an integer level 0 to 100 and a boolean, else null. */
+/** `{level, muted}` with an integral level 0 to 100 and a boolean, else null. */
 internal fun parseMacVolume(value: Any?): MacVolume? {
     val json = value as? JSONObject ?: return null
-    val level = json.opt("level")
+    val level = jsonInteger(json.opt("level"))
     val muted = json.opt("muted")
-    if (level !is Int || level !in 0..100 || muted !is Boolean) return null
-    return MacVolume(level, muted)
+    if (level == null || level !in 0L..100L || muted !is Boolean) return null
+    return MacVolume(level.toInt(), muted)
 }
 
 /** A shown title: 1 to 64 characters, no control characters. */
@@ -111,7 +113,7 @@ internal fun validActionTitle(value: Any?): String? {
  * (apps and Shortcuts) or a repeated identifier are dropped; a bad `volume` is dropped.
  */
 fun parseMacActionCatalog(payload: JSONObject): MacActionCatalog? {
-    if (payload.opt("version") != 1) return null
+    if (jsonInteger(payload.opt("version")) != 1L) return null
     val array = payload.opt("actions") as? JSONArray ?: return null
     if (array.length() > MacActionCatalog.MAX_ENTRIES) return null
     val seen = HashSet<String>()
@@ -128,6 +130,43 @@ fun parseMacActionCatalog(payload: JSONObject): MacActionCatalog? {
     }
     return MacActionCatalog(entries, parseMacVolume(payload.opt("volume")))
 }
+
+/** An `actions.catalog` plaintext as it arrives: at most 8 KiB of strict JSON (docs/protocol-contract.md). */
+fun decodeMacActionCatalog(plaintext: ByteArray): MacActionCatalog? =
+    plaintext.takeIf { it.size <= MacActionsClient.MAX_CATALOG_BYTES }?.let(::strictJsonObject)?.let(::parseMacActionCatalog)
+
+/** A decoded `actions.result`. [reason] is set for `refused` only, and is one of [MacActionReasons]. */
+data class MacActionResult(val requestId: String, val action: String, val done: Boolean, val reason: String?, val volume: MacVolume?)
+
+/**
+ * Strict parse of an `actions.result` plaintext: `version` 1, string `requestId` and `action`, `status` done or
+ * refused. An unknown or missing reason on a refusal reads as `failed`; a bad `volume` is dropped.
+ */
+fun parseMacActionResult(payload: JSONObject): MacActionResult? {
+    if (jsonInteger(payload.opt("version")) != 1L) return null
+    val requestId = payload.opt("requestId") as? String ?: return null
+    val action = payload.opt("action") as? String ?: return null
+    val done = when (payload.opt("status")) {
+        "done" -> true
+        "refused" -> false
+        else -> return null
+    }
+    val reason = if (done) null else (payload.opt("reason") as? String)?.takeIf { it in MacActionReasons } ?: "failed"
+    return MacActionResult(requestId, action, done, reason, parseMacVolume(payload.opt("volume")))
+}
+
+/** An `actions.result` plaintext as it arrives: at most 1 KiB of strict JSON. */
+fun decodeMacActionResult(plaintext: ByteArray): MacActionResult? =
+    plaintext.takeIf { it.size <= MacActionsClient.MAX_RESULT_BYTES }?.let(::strictJsonObject)?.let(::parseMacActionResult)
+
+/** The `actions.run` plaintext: an identifier from the Mac's catalog, the sequence and, for `volume_set` only, the level. */
+fun macActionRunPayload(requestId: String, action: String, sequence: Long, value: Int? = null): JSONObject =
+    JSONObject()
+        .put("version", 1)
+        .put("requestId", requestId)
+        .put("action", action)
+        .put("sequence", sequence)
+        .apply { if (value != null) put("value", value) }
 
 /** What happened to the last run the person started. */
 enum class MacActionOutcome { RUNNING, DONE, REFUSED, NOT_CONFIRMED, NOT_SENT }
@@ -158,7 +197,7 @@ class SharedPreferencesCatalogStore(context: Context) : MacActionCatalogStore {
 
     override fun load(): Map<String, MacActionCatalog> = preferences.all.mapNotNull { (key, value) ->
         if (!key.startsWith(PREFIX) || value !is String) return@mapNotNull null
-        val catalog = runCatching { parseMacActionCatalog(JSONObject(value)) }.getOrNull() ?: return@mapNotNull null
+        val catalog = strictJsonObject(value)?.let(::parseMacActionCatalog) ?: return@mapNotNull null
         key.removePrefix(PREFIX) to catalog
     }.toMap()
 
@@ -228,12 +267,7 @@ class MacActionsClient(
         } else if (value != null) return false
         if (pending.values.any { it.deviceId == deviceId && it.actionId == actionId }) return false
         val requestId = newRequestId()
-        val payload = JSONObject()
-            .put("version", 1)
-            .put("requestId", requestId)
-            .put("action", actionId)
-            .put("sequence", sequence.incrementAndGet())
-        if (value != null) payload.put("value", value)
+        val payload = macActionRunPayload(requestId, actionId, sequence.incrementAndGet(), value)
         val timeout = if (MacActionIds.kind(actionId) == MacActionKind.SHORTCUT) SHORTCUT_TIMEOUT_MILLIS else TIMEOUT_MILLIS
         val cancel = timer.schedule(timeout) { expire(requestId) }
         pending[requestId] = Pending(deviceId, actionId, cancel)
@@ -258,25 +292,16 @@ class MacActionsClient(
                 // Runs for entries the Mac no longer lists will be refused; let them time out normally.
             }
             "actions.result" -> {
-                if (payload.opt("version") != 1) return
-                val requestId = payload.opt("requestId") as? String ?: return
-                val run = pending[requestId] ?: return
-                if (run.deviceId != deviceId || payload.opt("action") != run.actionId) return
-                val outcome = when (payload.opt("status")) {
-                    "done" -> MacActionOutcome.DONE
-                    "refused" -> MacActionOutcome.REFUSED
-                    else -> return
-                }
-                pending.remove(requestId)
+                val result = parseMacActionResult(payload) ?: return
+                val run = pending[result.requestId] ?: return
+                if (run.deviceId != deviceId || result.action != run.actionId) return
+                pending.remove(result.requestId)
                 run.cancel()
                 publishRunning()
-                parseMacVolume(payload.opt("volume"))?.let { volume ->
+                result.volume?.let { volume ->
                     mutableCatalogs.value[deviceId]?.let { setCatalog(deviceId, it.copy(volume = volume)) }
                 }
-                val reason = if (outcome == MacActionOutcome.REFUSED) {
-                    (payload.opt("reason") as? String)?.takeIf { it in MacActionReasons } ?: "failed"
-                } else null
-                report(deviceId, run.actionId, outcome, reason)
+                report(deviceId, run.actionId, if (result.done) MacActionOutcome.DONE else MacActionOutcome.REFUSED, result.reason)
             }
         }
     }

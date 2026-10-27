@@ -71,14 +71,23 @@ f("CRLF line ending", j({"kind":"ping.ack","sessionId":S}), {"kind":"ping.ack","
 f("frame of 65,536 bytes with CRLF", None, {"kind":"pairing.offer","sessionId":S,"deviceName":"@PAD@"}, padTo=65536, lineEnding="\r\n")
 
 features_all = {"clipboard":True,"files":True,"notifications":True,"battery":True,"find_device":True,"ping":True,"links":True,"media":True,"calls":True,"remote_input_draft1":False}
-drafts_none = {"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False,"folders_receive_draft1":False,"files_browse_draft1":False}
+drafts_none = {"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False,"folders_receive_draft1":False,"files_browse_draft1":False,
+               "mac_actions_draft1":False,"links_open_draft1":False,"focus_sync_draft1":False,"camera_draft1":False}
 feat = []
 def fe(name, plaintext, expect, raw=False):
     feat.append({"name": name, ("plaintextString" if raw else "plaintext"): plaintext, "expect": expect})
 fe("edition Mac", {"version":1,"features":{**features_all,"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":False,"sms_codes_draft1":True,"folders_receive_draft1":True,"files_browse_draft1":False}},
-   {"features":features_all,"drafts":{"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":False,"sms_codes_draft1":True,"folders_receive_draft1":True,"files_browse_draft1":False}})
+   {"features":features_all,"drafts":{**drafts_none,"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":False,"sms_codes_draft1":True,"folders_receive_draft1":True,"files_browse_draft1":False}})
 fe("edition phone serving Files 2.0 browsing", {"version":1,"features":{**features_all,"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":True,"sms_codes_draft1":True,"folders_receive_draft1":True,"files_browse_draft1":True}},
-   {"features":features_all,"drafts":{"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":True,"sms_codes_draft1":True,"folders_receive_draft1":True,"files_browse_draft1":True}})
+   {"features":features_all,"drafts":{**drafts_none,"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":True,"sms_codes_draft1":True,"folders_receive_draft1":True,"files_browse_draft1":True}})
+# Automation (v0.9): mac_actions_draft1 and camera_draft1 are switches in the apps but draft keys on the wire, pinned under drafts.
+automation_mac = {"mac_actions_draft1":True,"links_open_draft1":True,"focus_sync_draft1":True,"camera_draft1":True}
+fe("v0.9 Mac with Mac actions granted, links open, Focus and camera", {"version":1,"features":{**features_all,"clipboard_files_draft1":True,"folders_draft1":True,"sms_codes_draft1":True,"folders_receive_draft1":True,**automation_mac}},
+   {"features":features_all,"drafts":{**drafts_none,"clipboard_files_draft1":True,"folders_draft1":True,"sms_codes_draft1":True,"folders_receive_draft1":True,**automation_mac}})
+fe("v0.9 phone (Mac actions and camera on, Focus off, no links open)", {"version":1,"features":{**features_all,"files_browse_draft1":True,"mac_actions_draft1":True,"focus_sync_draft1":False,"camera_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"files_browse_draft1":True,"mac_actions_draft1":True,"camera_draft1":True}})
+fe("automation keys that are not booleans count as false", {"version":1,"features":{**features_all,"mac_actions_draft1":1,"links_open_draft1":"true","focus_sync_draft1":None,"camera_draft1":{"on":True}}},
+   {"features":features_all,"drafts":drafts_none})
 fe("first-slice Mac (folders_draft1 only, no Files 2.0 keys)", {"version":1,"features":{**features_all,"folders_draft1":True,"places_draft1":False}},
    {"features":features_all,"drafts":{**drafts_none,"folders_draft1":True}})
 legacy = {"clipboard":True,"files":False,"notifications":True,"battery":True,"find_device":False}
@@ -248,8 +257,163 @@ ref("path of 1,025 bytes", {"placeId":"default","path":"/".join(["d"*200]*5)+"/"
 ref("path as a number", {"placeId":"default","path":5,"name":"c"}, "reject")
 ref("not an object", ["default","","a"], "reject")
 
+# Automation (v0.9, docs/protocol.md "Mac actions", "Focus and Do Not Disturb sync", "Phone camera to Mac"). Each group is
+# decoded by the receiving platform; vectors marked "android" or "mac" are also what that sending platform writes.
+def sized(prefix, total, suffix='"}'):
+    """A JSON object text of exactly `total` bytes: prefix + padding + suffix (prefix ends inside a "pad" string)."""
+    return prefix + "x" * (total - len(prefix.encode()) - len(suffix)) + suffix
+
+R1 = "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+SH = "3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b"
+focus = []
+def fs(name, p, expect, raw=False): focus.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+fs("active", {"version":1,"active":True}, {"active":True})
+fs("not active", {"version":1,"active":False}, {"active":False})
+fs("unknown fields are ignored", {"version":1,"active":True,"source":"filter","since":5}, {"active":True})
+fs("version written as 1.0", '{"version":1.0,"active":true}', {"active":True}, raw=True)
+fs("exactly 256 bytes", sized('{"version":1,"active":false,"pad":"', 256), {"active":False}, raw=True)
+fs("257 bytes", sized('{"version":1,"active":false,"pad":"', 257), "reject", raw=True)
+fs("active as a number", {"version":1,"active":1}, "reject")
+fs("active as a string", {"version":1,"active":"true"}, "reject")
+fs("active missing", {"version":1}, "reject")
+fs("version 2", {"version":2,"active":True}, "reject")
+fs("version as a boolean", {"version":True,"active":True}, "reject")
+fs("version missing", {"active":True}, "reject")
+fs("not an object", [1, True], "reject")
+fs("lenient JSON", "{version:1,active:true}", "reject", raw=True)
+
+def cat_entry(i, t=None, b=None): return {"id":i,"title":t,"blocked":b}
+mac_full = {"switches":["lock","sleep","screensaver","volume"],"apps":[{"bundleID":"com.apple.Safari","name":"Safari"}],
+            "shortcuts":[{"id":SH,"name":"Morning routine"}],"accessibilityTrusted":False}
+catalog = []
+def ca(name, p, expect, raw=False, mac=None):
+    v = {"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect}
+    if mac: v["mac"] = mac
+    catalog.append(v)
+ca("every kind of entry, Lock needs Accessibility", {"version":1,"actions":[
+    {"id":"lock","title":"Lock screen","blocked":"permission_required"},{"id":"sleep","title":"Sleep"},{"id":"screensaver","title":"Start screen saver"},
+    {"id":"volume_down","title":"Volume down"},{"id":"volume_mute","title":"Mute"},{"id":"volume_up","title":"Volume up"},{"id":"volume_set","title":"Set volume"},
+    {"id":"app:com.apple.Safari","title":"Safari"},{"id":"shortcut:"+SH,"title":"Morning routine"}],"volume":{"level":40,"muted":False}},
+   {"actions":[cat_entry("lock",None,"permission_required"),cat_entry("sleep"),cat_entry("screensaver"),cat_entry("volume_down"),cat_entry("volume_mute"),
+               cat_entry("volume_up"),cat_entry("volume_set"),cat_entry("app:com.apple.Safari","Safari"),cat_entry("shortcut:"+SH,"Morning routine")],
+    "volume":{"level":40,"muted":False}}, mac=mac_full)
+ca("Lock allowed with Accessibility, nothing else", {"version":1,"actions":[{"id":"lock","title":"Lock screen"}]},
+   {"actions":[cat_entry("lock")],"volume":None}, mac={"switches":["lock"],"apps":[],"shortcuts":[],"accessibilityTrusted":True})
+ca("empty list", {"version":1,"actions":[]}, {"actions":[],"volume":None}, mac={"switches":[],"apps":[],"shortcuts":[],"accessibilityTrusted":True})
+ca("unknown identifiers are dropped", {"version":1,"actions":[{"id":"power_off"},{"id":"app:com apple"},{"id":"shortcut:NOT-A-UUID","title":"x"},
+    {"id":"shortcut:"+SH.upper(),"title":"x"},{"id":"app:"+"a"*156,"title":"x"},{"id":"sleep"}]}, {"actions":[cat_entry("sleep")],"volume":None})
+ca("apps and Shortcuts need a title", {"version":1,"actions":[{"id":"app:com.apple.Notes"},{"id":"app:com.apple.Music","title":""},{"id":"app:com.apple.Mail","title":"   "},{"id":"app:com.apple.Maps","title":"Maps"}]},
+   {"actions":[cat_entry("app:com.apple.Maps","Maps")],"volume":None})
+ca("title of 64 characters", {"version":1,"actions":[{"id":"app:x.y","title":"t"*64}]}, {"actions":[cat_entry("app:x.y","t"*64)],"volume":None})
+ca("title of 65 characters is dropped", {"version":1,"actions":[{"id":"app:x.y","title":"t"*65}]}, {"actions":[],"volume":None})
+ca("title with a control character is dropped", {"version":1,"actions":[{"id":"app:x.y","title":"a\u0007b"}]}, {"actions":[],"volume":None})
+ca("unicode title", {"version":1,"actions":[{"id":"app:ru.yandex.music","title":"Яндекс Музыка 🎵"}]}, {"actions":[cat_entry("app:ru.yandex.music","Яндекс Музыка 🎵")],"volume":None})
+ca("a repeated identifier keeps the first", {"version":1,"actions":[{"id":"app:x.y","title":"First"},{"id":"app:x.y","title":"Second"}]}, {"actions":[cat_entry("app:x.y","First")],"volume":None})
+ca("entries that are not objects are dropped", {"version":1,"actions":["lock",5,None,{"id":5},{"id":"lock"}]}, {"actions":[cat_entry("lock")],"volume":None})
+ca("blocked other than permission_required is ignored", {"version":1,"actions":[{"id":"lock","blocked":"later"}]}, {"actions":[cat_entry("lock")],"volume":None})
+ca("volume level 101 is dropped", {"version":1,"actions":[],"volume":{"level":101,"muted":False}}, {"actions":[],"volume":None})
+ca("volume level as a string is dropped", {"version":1,"actions":[],"volume":{"level":"40","muted":False}}, {"actions":[],"volume":None})
+ca("volume muted as a number is dropped", {"version":1,"actions":[],"volume":{"level":40,"muted":1}}, {"actions":[],"volume":None})
+ca("volume level written as 40.0", '{"version":1,"actions":[],"volume":{"level":40.0,"muted":true}}', {"actions":[],"volume":{"level":40,"muted":True}}, raw=True)
+ca("64 entries", {"version":1,"actions":[{"id":"app:a%d" % i,"title":"A%d" % i} for i in range(64)]},
+   {"actions":[cat_entry("app:a%d" % i,"A%d" % i) for i in range(64)],"volume":None})
+ca("65 entries", {"version":1,"actions":[{"id":"app:a%d" % i,"title":"A%d" % i} for i in range(65)]}, "reject")
+ca("version 2", {"version":2,"actions":[]}, "reject")
+ca("version missing", {"actions":[]}, "reject")
+ca("actions missing", {"version":1}, "reject")
+ca("actions not an array", {"version":1,"actions":{"id":"lock"}}, "reject")
+ca("over 8 KiB", sized('{"version":1,"actions":[],"pad":"', 8193), "reject", raw=True)
+ca("exactly 8 KiB", sized('{"version":1,"actions":[],"pad":"', 8192), {"actions":[],"volume":None}, raw=True)
+ca("lenient JSON", "{version:1,actions:[]}", "reject", raw=True)
+
+run = []
+def ru(name, p, expect, raw=False, android=None):
+    v = {"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect}
+    if android: v["android"] = android
+    run.append(v)
+def rx(action, seq=1, value=None, rid=R1):
+    return {"requestId":rid,"action":action,"sequence":seq,"value":value}
+ru("lock", {"version":1,"requestId":R1,"action":"lock","sequence":1}, rx("lock"), android={"action":"lock"})
+ru("set the volume", {"version":1,"requestId":R1,"action":"volume_set","sequence":7,"value":30}, rx("volume_set",7,30), android={"action":"volume_set","value":30})
+ru("open an app", {"version":1,"requestId":R1,"action":"app:com.apple.Safari","sequence":2}, rx("app:com.apple.Safari",2), android={"action":"app:com.apple.Safari"})
+ru("run a Shortcut", {"version":1,"requestId":R1,"action":"shortcut:"+SH,"sequence":3}, rx("shortcut:"+SH,3), android={"action":"shortcut:"+SH})
+ru("largest sequence", {"version":1,"requestId":R1,"action":"sleep","sequence":9007199254740991}, rx("sleep",9007199254740991), android={"action":"sleep","sequence":9007199254740991})
+ru("unknown fields are ignored", {"version":1,"requestId":R1,"action":"sleep","sequence":1,"command":"rm -rf /"}, rx("sleep"))
+ru("unknown action decodes (answered not_allowed)", {"version":1,"requestId":R1,"action":"power_off","sequence":1}, rx("power_off"))
+ru("action missing decodes (answered not_allowed)", {"version":1,"requestId":R1,"sequence":1}, rx(None))
+ru("value as a string (answered invalid)", {"version":1,"requestId":R1,"action":"volume_set","sequence":1,"value":"30"}, rx("volume_set",1,"other"))
+ru("value as a fraction (answered invalid)", '{"version":1,"requestId":"%s","action":"volume_set","sequence":1,"value":30.5}' % R1, rx("volume_set",1,"other"), raw=True)
+ru("value as a boolean (answered invalid)", {"version":1,"requestId":R1,"action":"volume_set","sequence":1,"value":True}, rx("volume_set",1,"other"))
+ru("value written as 30.0", '{"version":1,"requestId":"%s","action":"volume_set","sequence":1,"value":30.0}' % R1, rx("volume_set",1,30), raw=True)
+ru("null value counts as absent", {"version":1,"requestId":R1,"action":"lock","sequence":1,"value":None}, rx("lock"))
+ru("sequence written as 1.0", '{"version":1,"requestId":"%s","action":"lock","sequence":1.0}' % R1, rx("lock"), raw=True)
+ru("sequence 0", {"version":1,"requestId":R1,"action":"lock","sequence":0}, "reject")
+ru("sequence 2^53", {"version":1,"requestId":R1,"action":"lock","sequence":9007199254740992}, "reject")
+ru("sequence as a string", {"version":1,"requestId":R1,"action":"lock","sequence":"1"}, "reject")
+ru("sequence missing", {"version":1,"requestId":R1,"action":"lock"}, "reject")
+ru("requestId not a UUID", {"version":1,"requestId":"run-1","action":"lock","sequence":1}, "reject")
+ru("requestId missing", {"version":1,"action":"lock","sequence":1}, "reject")
+ru("version 2", {"version":2,"requestId":R1,"action":"lock","sequence":1}, "reject")
+ru("version as a boolean", {"version":True,"requestId":R1,"action":"lock","sequence":1}, "reject")
+ru("over 1 KiB", sized('{"version":1,"requestId":"%s","action":"lock","sequence":1,"pad":"' % R1, 1025), "reject", raw=True)
+ru("lenient JSON", "{version:1,requestId:'%s',action:'lock',sequence:1}" % R1, "reject", raw=True)
+
+result = []
+def rs(name, p, expect, raw=False, mac=None):
+    v = {"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect}
+    if mac: v["mac"] = mac
+    result.append(v)
+def rr(action, status, reason=None, volume=None): return {"requestId":R1,"action":action,"status":status,"reason":reason,"volume":volume}
+rs("done", {"version":1,"requestId":R1,"action":"lock","status":"done"}, rr("lock","done"), mac={"outcome":"done"})
+rs("done with the new volume", {"version":1,"requestId":R1,"action":"volume_up","status":"done","volume":{"level":50,"muted":False}},
+   rr("volume_up","done",volume={"level":50,"muted":False}), mac={"outcome":"done","volume":{"level":50,"muted":False}})
+for reason in ["not_allowed","invalid","rate_limited","busy","permission_required","unavailable","failed"]:
+    rs("refused " + reason, {"version":1,"requestId":R1,"action":"lock","status":"refused","reason":reason}, rr("lock","refused",reason), mac={"outcome":"refused","reason":reason})
+rs("an unknown reason reads as failed", {"version":1,"requestId":R1,"action":"lock","status":"refused","reason":"tired"}, rr("lock","refused","failed"))
+rs("a missing reason reads as failed", {"version":1,"requestId":R1,"action":"lock","status":"refused"}, rr("lock","refused","failed"))
+rs("a reason on done is ignored", {"version":1,"requestId":R1,"action":"lock","status":"done","reason":"busy"}, rr("lock","done"))
+rs("a bad volume is dropped", {"version":1,"requestId":R1,"action":"volume_up","status":"done","volume":{"level":-1,"muted":False}}, rr("volume_up","done"))
+rs("unknown status", {"version":1,"requestId":R1,"action":"lock","status":"maybe"}, "reject")
+rs("status missing", {"version":1,"requestId":R1,"action":"lock"}, "reject")
+rs("requestId missing", {"version":1,"action":"lock","status":"done"}, "reject")
+rs("action missing", {"version":1,"requestId":R1,"status":"done"}, "reject")
+rs("version 2", {"version":2,"requestId":R1,"action":"lock","status":"done"}, "reject")
+rs("over 1 KiB", sized('{"version":1,"requestId":"%s","action":"lock","status":"done","pad":"' % R1, 1025), "reject", raw=True)
+rs("lenient JSON", "{version:1,requestId:'%s',action:'lock',status:'done'}" % R1, "reject", raw=True)
+
+camreq = []
+def cq(name, p, expect, raw=False, mac=False):
+    v = {"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect}
+    if mac: v["mac"] = True
+    camreq.append(v)
+cq("one photo", {"version":1,"requestId":R1,"mode":"photo"}, {"requestId":R1}, mac=True)
+cq("an uppercase request ID is read lowercased", {"version":1,"requestId":R1.upper(),"mode":"photo"}, {"requestId":R1})
+cq("unknown fields are ignored", {"version":1,"requestId":R1,"mode":"photo","flash":True}, {"requestId":R1})
+cq("mode video", {"version":1,"requestId":R1,"mode":"video"}, "reject")
+cq("mode missing", {"version":1,"requestId":R1}, "reject")
+cq("requestId not a UUID", {"version":1,"requestId":"photo-1","mode":"photo"}, "reject")
+cq("requestId without dashes", {"version":1,"requestId":R1.replace("-",""),"mode":"photo"}, "reject")
+cq("requestId as a number", {"version":1,"requestId":5,"mode":"photo"}, "reject")
+cq("version 2", {"version":2,"requestId":R1,"mode":"photo"}, "reject")
+cq("over 512 bytes", sized('{"version":1,"requestId":"%s","mode":"photo","pad":"' % R1, 513), "reject", raw=True)
+cq("lenient JSON", "{version:1,requestId:'%s',mode:'photo'}" % R1, "reject", raw=True)
+
+camstat = []
+def cs(name, p, expect, raw=False, android=None):
+    v = {"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect}
+    if android: v["android"] = android
+    camstat.append(v)
+for status in ["opened","locked","permission_required","cancelled","busy","disabled","sending","failed"]:
+    cs(status, {"version":1,"requestId":R1,"status":status}, {"requestId":R1,"status":status}, android=status)
+cs("unknown status", {"version":1,"requestId":R1,"status":"smiling"}, "reject")
+cs("status missing", {"version":1,"requestId":R1}, "reject")
+cs("requestId as a number", {"version":1,"requestId":5,"status":"opened"}, "reject")
+cs("version 2", {"version":2,"requestId":R1,"status":"opened"}, "reject")
+cs("over 512 bytes", sized('{"version":1,"requestId":"%s","status":"opened","pad":"' % R1, 513), "reject", raw=True)
+cs("lenient JSON", "{version:1,requestId:'%s',status:'opened'}" % R1, "reject", raw=True)
+
 out = {
-  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject.",
+  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer.",
   "sessionId": S,
   "frames": frames,
   "featuresUpdate": feat,
@@ -258,6 +422,12 @@ out = {
   "clipboardOffer": offers,
   "remoteInput": inp,
   "browseRef": refs,
+  "focusState": focus,
+  "actionsCatalog": catalog,
+  "actionsRun": run,
+  "actionsResult": result,
+  "cameraRequest": camreq,
+  "cameraStatus": camstat,
 }
 open(OUT,'w').write(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
-print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs))
+print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat))

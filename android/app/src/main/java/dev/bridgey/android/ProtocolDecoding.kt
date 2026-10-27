@@ -1,6 +1,9 @@
 package dev.bridgey.android
 
+import dev.bridgey.android.actions.LINKS_OPEN_FEATURE_KEY
+import dev.bridgey.android.camera.CAMERA_FEATURE_KEY
 import dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY
+import dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY
 import dev.bridgey.android.folders.FILES_BROWSE_FEATURE_KEY
 import dev.bridgey.android.folders.FOLDERS_FEATURE_KEY
 import dev.bridgey.android.folders.FOLDERS_RECEIVE_FEATURE_KEY
@@ -250,10 +253,13 @@ internal sealed interface FeatureStateDecoding {
 /**
  * Draft feature keys this client reads from features.update. Files 2.0: the phone acts on folders_receive_draft1
  * (the Mac accepts folders); files_browse_draft1 is read too, so both platforms decode the golden vectors alike.
+ * Automation (v0.9): mac_actions_draft1, links_open_draft1, focus_sync_draft1 and camera_draft1. Connection health
+ * has no key (no wire change). The Mac has the same list in the same order.
  */
 internal val KNOWN_DRAFT_FEATURE_KEYS = listOf(
     CLIPBOARD_FILES_FEATURE_KEY, FOLDERS_FEATURE_KEY, PLACES_FEATURE_KEY, SMS_CODES_FEATURE_KEY,
     FOLDERS_RECEIVE_FEATURE_KEY, FILES_BROWSE_FEATURE_KEY,
+    BridgeyFeature.MAC_ACTIONS.key, LINKS_OPEN_FEATURE_KEY, FOCUS_SYNC_FEATURE_KEY, CAMERA_FEATURE_KEY,
 )
 
 internal fun decodeFeatureState(plaintext: ByteArray): FeatureStateDecoding {
@@ -262,6 +268,12 @@ internal fun decodeFeatureState(plaintext: ByteArray): FeatureStateDecoding {
     if (jsonInteger(payload.opt("version")) != 1L) return FeatureStateDecoding.Ignored
     val features = HashMap<BridgeyFeature, Boolean>()
     for (feature in BridgeyFeature.entries) {
+        // A draft key that is also a switch here (Mac actions, camera) reads like every draft key: true only
+        // when it is JSON true. The Mac keeps camera_draft1 as a draft key only, so both decode it alike.
+        if (feature.key in KNOWN_DRAFT_FEATURE_KEYS) {
+            features[feature] = values.opt(feature.key) == true
+            continue
+        }
         if (!values.has(feature.key)) {
             if (featureEnabledByLegacyPeer(feature)) return FeatureStateDecoding.Invalid
             features[feature] = false

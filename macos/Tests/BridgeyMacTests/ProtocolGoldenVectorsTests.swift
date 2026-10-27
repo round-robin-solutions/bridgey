@@ -48,7 +48,12 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
             case .invalid: result = "invalid"
             case .ignored: result = "ignored"
             case let .state(features, drafts):
-                result = ["features": Dictionary(uniqueKeysWithValues: features.map { ($0.key.rawValue, $0.value) }), "drafts": drafts]
+                // Mac actions is a switch here but a draft key on the wire: it is pinned once, under drafts,
+                // and the switch must read exactly what the draft key says.
+                let drafted = features.filter { knownDraftFeatureKeys.contains($0.key.rawValue) }
+                if drafted.contains(where: { drafts[$0.key.rawValue] != $0.value }) { return false }
+                let plain = features.filter { !knownDraftFeatureKeys.contains($0.key.rawValue) }
+                result = ["features": Dictionary(uniqueKeysWithValues: plain.map { ($0.key.rawValue, $0.value) }), "drafts": drafts]
             }
             return Self.same(result, vector["expect"])
         }
@@ -95,6 +100,95 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
                 case let .place(placeId, path, name): return ["placeId": placeId, "path": path, "name": name]
                 }
             } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// Focus sync: both platforms read focus.state alike.
+    func testFocusState() throws {
+        try each("focusState") { vector in
+            let result: Any = decodeFocusState(plaintext(vector)).map { ["active": $0] } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// Mac actions: the Mac reads the phone's run. A bad action or value still decodes; the host answers it.
+    func testActionsRun() throws {
+        try each("actionsRun") { vector in
+            let result: Any = MacActionRun.decode(plaintext(vector)).map { run -> [String: Any] in
+                let value: Any
+                switch run.value {
+                case .absent: value = NSNull()
+                case let .integer(number): value = number
+                case .other: value = "other"
+                }
+                return ["requestId": run.requestID, "action": run.action ?? NSNull(), "sequence": run.sequence, "value": value]
+            } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// Mac actions: the catalog this Mac writes for a configuration is the plaintext the phone reads.
+    func testActionsCatalogAsTheMacWritesIt() throws {
+        var checked = 0
+        try each("actionsCatalog") { vector in
+            guard let spec = vector["mac"] as? [String: Any] else { return true }
+            checked += 1
+            var config = MacActionsConfig()
+            for name in spec["switches"] as? [String] ?? [] { config.switches[MacActionSwitch(rawValue: name)!] = true }
+            for app in spec["apps"] as? [[String: String]] ?? [] { _ = config.addApp(AllowedApp(bundleID: app["bundleID"]!, name: app["name"]!)) }
+            for shortcut in spec["shortcuts"] as? [[String: String]] ?? [] { _ = config.addShortcut(named: shortcut["name"]!, handle: shortcut["id"]!) }
+            let written = macActionsCatalogEntries(config, accessibilityTrusted: spec["accessibilityTrusted"] as? Bool ?? false)
+            let expected = (vector["plaintext"] as? [String: Any])?["actions"] as? [[String: Any]] ?? []
+            guard written.count == expected.count else { return false }
+            // System titles are this Mac's own (localised) words; phones show theirs. Apps and Shortcuts carry the name.
+            return zip(written, expected).allSatisfy { mine, theirs in
+                let id = mine["id"] as? String ?? ""
+                let named = id.hasPrefix("app:") || id.hasPrefix("shortcut:")
+                return id == theirs["id"] as? String && mine["blocked"] as? String == theirs["blocked"] as? String
+                    && (!named || mine["title"] as? String == theirs["title"] as? String)
+                    && (named || !(mine["title"] as? String ?? "").isEmpty)
+            }
+        }
+        XCTAssertGreaterThanOrEqual(checked, 3)
+    }
+
+    /// Mac actions: the result this Mac writes is the plaintext the phone reads.
+    func testActionsResultAsTheMacWritesIt() throws {
+        var checked = 0
+        try each("actionsResult") { vector in
+            guard let spec = vector["mac"] as? [String: Any] else { return true }
+            checked += 1
+            let plaintext = try XCTUnwrap(vector["plaintext"] as? [String: Any])
+            let outcome: MacActionOutcome
+            if spec["outcome"] as? String == "done" {
+                let volume = (spec["volume"] as? [String: Any]).map { MacVolumeState(level: $0["level"] as! Int, muted: $0["muted"] as! Bool) }
+                outcome = .done(volume: volume)
+            } else {
+                outcome = .refused(try XCTUnwrap(MacActionRefusal(rawValue: spec["reason"] as? String ?? "")))
+            }
+            let written = macActionResultPayload(outcome, requestID: plaintext["requestId"] as! String, wire: plaintext["action"] as! String)
+            return NSDictionary(dictionary: written).isEqual(to: plaintext)
+        }
+        XCTAssertGreaterThanOrEqual(checked, 9)
+    }
+
+    /// Phone camera: the request this Mac writes is the plaintext the phone reads.
+    func testCameraRequestAsTheMacWritesIt() throws {
+        var checked = 0
+        try each("cameraRequest") { vector in
+            guard vector["mac"] as? Bool == true else { return true }
+            checked += 1
+            let plaintext = try XCTUnwrap(vector["plaintext"] as? [String: Any])
+            return NSDictionary(dictionary: cameraRequestPayload(plaintext["requestId"] as! String)).isEqual(to: plaintext)
+        }
+        XCTAssertGreaterThanOrEqual(checked, 1)
+    }
+
+    /// Phone camera: the Mac reads the phone's status.
+    func testCameraStatus() throws {
+        try each("cameraStatus") { vector in
+            let result: Any = decodeCameraStatus(plaintext(vector)).map { ["requestId": $0.requestID, "status": $0.status.rawValue] } ?? "reject"
             return Self.same(result, vector["expect"])
         }
     }

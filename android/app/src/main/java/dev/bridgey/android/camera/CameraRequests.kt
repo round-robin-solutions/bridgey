@@ -1,5 +1,7 @@
 package dev.bridgey.android.camera
 
+import dev.bridgey.android.jsonInteger
+import dev.bridgey.android.strictJsonObject
 import java.util.UUID
 import org.json.JSONObject
 
@@ -46,10 +48,14 @@ sealed interface CameraDecision {
 
 /** The request ID of a well-formed camera.request (`version` 1, UUID `requestId`, `mode` photo), else null. */
 fun parseCameraRequest(payload: JSONObject): String? {
-    if (payload.opt("version") != 1 || payload.opt("mode") != "photo") return null
+    if (jsonInteger(payload.opt("version")) != 1L || payload.opt("mode") != "photo") return null
     val id = payload.opt("requestId") as? String ?: return null
     return id.takeIf { runCatching { UUID.fromString(it) }.isSuccess && it.length == 36 }?.lowercase()
 }
+
+/** A camera.request plaintext as it arrives: at most 512 bytes of strict JSON. Null when malformed. */
+fun decodeCameraRequest(plaintext: ByteArray): JSONObject? =
+    plaintext.takeIf { it.size <= CAMERA_MESSAGE_MAX_BYTES }?.let(::strictJsonObject)?.takeIf { parseCameraRequest(it) != null }
 
 fun cameraStatusPayload(requestId: String, status: CameraStatus): JSONObject =
     JSONObject().put("version", 1).put("requestId", requestId).put("status", status.wire)

@@ -271,7 +271,9 @@ enum FeatureStateDecoding: Equatable {
 /// Files 2.0 (BrowseMessages.swift): the Mac reads files_browse_draft1 (the phone serves browsing); it reads
 /// folders_receive_draft1 too, so both platforms decode the golden vectors alike, though only phones act on it.
 let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, placesFeatureKey, smsCodesFeatureKey,
-                             foldersReceiveFeatureKey, filesBrowseFeatureKey]
+                             foldersReceiveFeatureKey, filesBrowseFeatureKey,
+                             // Automation (v0.9). Connection health has no key (no wire change).
+                             macActionsFeatureKey, linksOpenFeatureKey, focusSyncFeatureKey, cameraFeatureKey]
 
 func decodeFeatureState(_ plaintext: Data) -> FeatureStateDecoding {
     guard isStrictJSONObject(plaintext),
@@ -280,6 +282,12 @@ func decodeFeatureState(_ plaintext: Data) -> FeatureStateDecoding {
     guard jsonInteger(object["version"]) == 1 else { return .ignored }
     var features: [BridgeyFeature: Bool] = [:]
     for feature in BridgeyFeature.allCases {
+        // A draft key that is also a switch here (Mac actions) reads like every draft key: true only when
+        // it is JSON true. Android keeps camera_draft1 as a switch too; both decode it alike.
+        if knownDraftFeatureKeys.contains(feature.rawValue) {
+            features[feature] = jsonBool(values[feature.rawValue]) == true
+            continue
+        }
         guard let value = values[feature.rawValue] else {
             if featureEnabledByLegacyPeer(feature) { return .invalid }
             features[feature] = false
