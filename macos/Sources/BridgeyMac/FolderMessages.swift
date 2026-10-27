@@ -84,6 +84,8 @@ struct PlacesListedPayload: Codable, Equatable {
     let mode: DestinationMode
     let places: [PlaceInfo]
     let fixedLabel: String?
+    /// Free bytes where a file or folder sent now lands by default (phones from Files 2.0 quick wins on).
+    var defaultFreeBytes: Int64? = nil
 
     var isValid: Bool {
         version == 1 && FolderJSON.isWireID(requestId) && places.count <= FolderLimits.maxPlaces + 1 && places.allSatisfy { FolderJSON.isPlaceID($0.placeId) }
@@ -154,6 +156,13 @@ struct FolderOfferPayload: Codable, Equatable {
     let destination: FolderDestination?
     let resume: Bool
     let skipped: SkippedCounts?
+    /// Files 2.0 browse: the entries land directly in the destination (uploads and downloads); top-level
+    /// clashes become copies, nothing is merged or replaced.
+    var into: Bool? = nil
+    /// Files 2.0 browse: this offer answers the receiver's places.download.
+    var downloadRequestId: String? = nil
+
+    var isInto: Bool { into == true }
 }
 
 struct ManifestPagePayload: Codable, Equatable {
@@ -199,6 +208,8 @@ struct FolderAcceptPayload: Codable, Equatable {
     let destinationLabel: String
     let choice: ConflictChoice
     let completedBitmap: String?
+    /// Free bytes at the chosen destination before the folder (phones from Files 2.0 quick wins on).
+    var freeBytes: Int64? = nil
 }
 
 struct FolderRejectedPayload: Codable, Equatable {

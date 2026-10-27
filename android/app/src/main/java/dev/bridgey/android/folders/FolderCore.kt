@@ -72,6 +72,10 @@ object FolderTimeouts {
 const val FOLDERS_FEATURE_KEY = "folders_draft1"
 const val PLACES_FEATURE_KEY = "places_draft1"
 
+/** Files 2.0 draft keys: this device serves browsing (phones), and this device accepts folders from the peer. */
+const val FILES_BROWSE_FEATURE_KEY = "files_browse_draft1"
+const val FOLDERS_RECEIVE_FEATURE_KEY = "folders_receive_draft1"
+
 /** Section 5.1: names that are safe on FAT-style storage, Android shared storage and macOS. */
 object PortableName {
     private const val PART_SUFFIX = ".bridgey-part"
@@ -330,4 +334,7 @@ object FolderCodes {
     const val RESUME_UNAVAILABLE = "resume_unavailable"
     const val TOO_MANY_FAILURES = "too_many_failures"
     const val CANCELLED = "cancelled"
+
+    /** Files 2.0: writing into places needs "Allow other devices to change files here". */
+    const val READ_ONLY = "read_only"
 }

@@ -97,6 +97,12 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var folderIncludeHidden: Bool
     /// Files > Include system files when sending folders (.DS_Store, ._*, Thumbs.db, ...). Off by default.
     @Published private(set) var folderIncludeSystem: Bool
+    /// Files > Folders sent to this Mac (phone to Mac): Received files (default) or ask each time.
+    @Published private(set) var folderReceiveMode: MacFolderReceiveMode
+    /// Files > When a folder already exists (folders sent to this Mac). Ask by default.
+    @Published private(set) var folderConflictPolicy: MacFolderConflictPolicy
+    /// Files > Tag received files in Finder with "Bridgey". Off by default; "Where from" is always set.
+    @Published private(set) var tagReceivedFiles: Bool
     /// Notifications > Codes from messages: read SMS text that looks like it has a code and show the
     /// code with a Copy button. Off by default.
     @Published private(set) var codesEnabled: Bool
@@ -134,6 +140,9 @@ final class BridgeySettings: ObservableObject {
         ).bytes
         folderIncludeHidden = storedDefaults.bool(forKey: "settings.folders.includeHidden")
         folderIncludeSystem = storedDefaults.bool(forKey: "settings.folders.includeSystem")
+        folderReceiveMode = MacFolderReceiveMode(rawValue: storedDefaults.string(forKey: "settings.folders.receiveMode") ?? "") ?? .fixed
+        folderConflictPolicy = MacFolderConflictPolicy(rawValue: storedDefaults.string(forKey: "settings.folders.conflict") ?? "") ?? .ask
+        tagReceivedFiles = storedDefaults.bool(forKey: "settings.files.tagReceived")
         let codesOn = storedDefaults.bool(forKey: "settings.codes.enabled")
         codesEnabled = codesOn
         codesAutoCopy = storedDefaults.bool(forKey: "settings.codes.autoCopy")
@@ -282,6 +291,21 @@ final class BridgeySettings: ObservableObject {
         folderIncludeSystem = enabled
     }
 
+    func setFolderReceiveMode(_ mode: MacFolderReceiveMode) {
+        defaults.set(mode.rawValue, forKey: "settings.folders.receiveMode")
+        folderReceiveMode = mode
+    }
+
+    func setFolderConflictPolicy(_ policy: MacFolderConflictPolicy) {
+        defaults.set(policy.rawValue, forKey: "settings.folders.conflict")
+        folderConflictPolicy = policy
+    }
+
+    func setTagReceivedFiles(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.files.tagReceived")
+        tagReceivedFiles = enabled
+    }
+
     /// The defaults for the next folder send.
     var folderScanOptions: FolderScanOptions {
         FolderScanOptions(includeHidden: folderIncludeHidden, includeSystem: folderIncludeSystem)
@@ -394,4 +418,19 @@ func loggingPolicy(read: (String, Bool) -> Bool) -> LoggingPolicy {
         fileNames: value("settings.logging.files.names"),
         remoteControl: value("settings.logging.remoteControl")
     )
+}
+
+
+/// Files > Folders sent to this Mac. A Mac serves no places, so "Choose on the phone" is not offered.
+enum MacFolderReceiveMode: String, CaseIterable {
+    /// Always save to the Received files folder (protocol `fixed`).
+    case fixed
+    /// Ask on this Mac each time, with a Save panel (protocol `receiver_asks`).
+    case ask
+}
+
+/// Files > When a folder already exists, for folders sent to this Mac (protocol 3.3).
+enum MacFolderConflictPolicy: String, CaseIterable {
+    case ask, merge, replace
+    case newFolder = "new_folder"
 }

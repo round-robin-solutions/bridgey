@@ -65,7 +65,7 @@ fun folderRecord(transfer: FileTransferState): FolderRecord? {
         else -> FolderDetail.CANCELLED
     }
     val kind = when (folder.end) {
-        FolderEnd.COMPLETE -> ActivityKind.FOLDER_RECEIVED
+        FolderEnd.COMPLETE -> if (folder.outgoing) ActivityKind.FOLDER_SENT else ActivityKind.FOLDER_RECEIVED
         FolderEnd.INCOMPLETE -> {
             if (folder.endCode != FolderCodes.TOO_MANY_FAILURES) tokens += reason() to null
             ActivityKind.FOLDER_INCOMPLETE

@@ -1,10 +1,27 @@
 package dev.bridgey.android.folders
 
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
 
 /** One child of a folder in a [TreeStore]: the store's own handle, the name and whether it is a folder. */
 data class TreeNode(val id: String, val name: String, val isDirectory: Boolean)
+
+/**
+ * A child with what browsing and sending need (Files 2.0): size, modified time, type and whether the provider
+ * makes thumbnails. Unknown values are null. [uri] is the content URI of the item, never sent to the other device.
+ */
+data class TreeEntry(
+    val id: String,
+    val name: String,
+    val isDirectory: Boolean,
+    val size: Long? = null,
+    val modifiedMillis: Long? = null,
+    val mimeType: String? = null,
+    /** The provider makes thumbnails for it (SAF `FLAG_SUPPORTS_THUMBNAIL`, or a MediaStore image or video). */
+    val providerThumbnail: Boolean = false,
+    val uri: String? = null,
+)
 
 /** The place is gone: grant revoked, folder deleted or renamed elsewhere, storage removed (`place_unavailable`). */
 class PlaceUnavailableException(message: String = "place unavailable", cause: Throwable? = null) : IOException(message, cause)
@@ -67,6 +84,26 @@ interface TreeStore {
 
     /** The ID of a string from [uriOf], or null when it does not belong to this store. */
     fun idOf(uri: String): String? = uri
+
+    /** Direct children with sizes, dates and types, one query (browsing and sending from the phone). */
+    @Throws(IOException::class)
+    fun entries(dirId: String): List<TreeEntry> = children(dirId).map { TreeEntry(it.id, it.name, it.isDirectory) }
+
+    /** Reads a file (browsing previews, ranges and folders sent from the phone). */
+    @Throws(IOException::class)
+    fun openInput(fileId: String): InputStream = throw IOException("not readable")
+
+    /** The thumbnail source kind of this store's items. */
+    val thumbnailKind: ThumbnailKind get() = ThumbnailKind.NONE
+}
+
+enum class ThumbnailKind { NONE, DOCUMENT, MEDIA_STORE }
+
+/** The existing child named exactly [name] (5.3: never a hidden item or a part file), or null. */
+@Throws(IOException::class)
+fun resolveExistingChild(store: TreeStore, dirId: String, name: String): TreeEntry? {
+    if (name.startsWith(".")) return null
+    return store.entries(dirId).firstOrNull { it.name == name }
 }
 
 /**

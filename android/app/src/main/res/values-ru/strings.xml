@@ -756,8 +756,8 @@
     <string name="conflict_policy_merge">Объединять</string>
     <string name="conflict_policy_replace">Заменять файлы</string>
     <string name="conflict_policy_new_folder">Сохранять как новую папку</string>
-    <string name="settings_allow_replace">Разрешить другим устройствам заменять файлы</string>
-    <string name="settings_allow_replace_detail">Пока выключено, замена, выбранная на Mac, сначала спрашивает на телефоне</string>
+    <string name="settings_allow_replace">Разрешить другим устройствам менять файлы здесь</string>
+    <string name="settings_allow_replace_detail">Mac сможет загружать файлы в ваши папки. Пока выключено, загрузки отклоняются, а замена, выбранная на Mac, сначала спрашивает на телефоне</string>
     <string name="settings_places">Места</string>
     <plurals name="settings_places_detail">
         <item quantity="one">Download/Bridgey и %1$d добавленная папка</item>

@@ -20,6 +20,13 @@ let package = Package(
                 .define("BLAKE3_NO_AVX2"), .define("BLAKE3_NO_AVX512"),
             ]
         ),
+        // libwebp 1.4.0 (BSD-3-Clause), unmodified: WebP encoding for Settings > Files > Before sending.
+        .target(
+            name: "CWebP",
+            exclude: ["COPYING", "PATENTS", "LIBWEBP_SOURCE.txt"],
+            publicHeadersPath: "include",
+            cSettings: [.headerSearchPath("."), .define("WEBP_USE_THREAD"), .unsafeFlags(["-w", "-O2"])]
+        ),
         // llama.cpp release b11899 (MIT): the Apple framework, with Metal, that runs the on-device
         // code model (Codes from messages > On this Mac). build-app.sh embeds and signs it.
         .binaryTarget(
@@ -29,7 +36,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "BridgeyMac",
-            dependencies: [.product(name: "Sparkle", package: "Sparkle"), "CBlake3", "llama"]
+            dependencies: [.product(name: "Sparkle", package: "Sparkle"), "CBlake3", "CWebP", "llama"]
         ),
         .testTarget(name: "BridgeyMacTests", dependencies: ["BridgeyMac"]),
     ],

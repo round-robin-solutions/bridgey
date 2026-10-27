@@ -34,9 +34,21 @@ data class FolderReceiveSettings(
     val mode: DestinationMode = DestinationMode.SENDER_PICKS,
     val policy: ConflictPolicy = ConflictPolicy.ASK,
     val defaultPlaceId: String = DEFAULT_PLACE_ID,
-    /** "Allow other devices to replace files here": off by default. */
+    /** "Allow other devices to change files here" (was "replace"): off by default. Uploads need it too. */
     val allowReplaceFromOtherDevices: Boolean = false,
+    /** "Let other devices browse this phone" and Files 2.0 browsing served (files_browse_draft1). Uploads need it. */
+    val allowBrowse: Boolean = false,
 )
+
+/**
+ * Free bytes where a file or folder sent now lands by default: the default folder in `fixed` mode, else
+ * Download/Bridgey (its granted tree, or MediaStore's Downloads volume). Best effort; null when unknown.
+ */
+fun defaultFreeBytes(places: PlaceDirectory, settings: FolderReceiveSettings): Long? {
+    val placeId = if (settings.mode == DestinationMode.FIXED) settings.defaultPlaceId else DEFAULT_PLACE_ID
+    val place = places.place(placeId)?.takeIf { it.available } ?: return null
+    return runCatching { place.open().freeBytes() }.getOrNull()
+}
 
 /** Display path: the place's label, then the path inside it ("Pictures/Trip"), at most 128 characters. */
 fun destinationLabel(placeLabel: String, path: String): String =
@@ -133,6 +145,10 @@ data class FolderSnapshot(
     val rootUri: String? = null,
     /** The journal stays: the folder resumes when the device reconnects. */
     val resumable: Boolean = false,
+    /** This phone sends the folder (phone to Mac, or a download the Mac asked for); false when it receives. */
+    val outgoing: Boolean = false,
+    /** A download the Mac asked for from its Phone files window (outgoing only). */
+    val download: Boolean = false,
 ) {
     val active: Boolean get() = end == null
 }

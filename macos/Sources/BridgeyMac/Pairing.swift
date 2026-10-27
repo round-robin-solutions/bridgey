@@ -47,6 +47,8 @@ struct FileTransferRow: Identifiable, Equatable {
     let queued: Bool
     /// Set for a folder transfer (one row per folder): progress, destination, failures, last names.
     let folder: FolderRowSummary?
+    /// The item on this Mac, for "Show in Finder": what was received, or the source of a send. Nil when unknown.
+    let localURL: URL?
 
     init(
         id: String,
@@ -56,7 +58,8 @@ struct FileTransferRow: Identifiable, Equatable {
         startedAt: Date = Date(),
         retryable: Bool = false,
         queued: Bool = false,
-        folder: FolderRowSummary? = nil
+        folder: FolderRowSummary? = nil,
+        localURL: URL? = nil
     ) {
         self.id = id
         self.name = name
@@ -66,6 +69,7 @@ struct FileTransferRow: Identifiable, Equatable {
         self.retryable = retryable
         self.queued = queued
         self.folder = folder
+        self.localURL = localURL
     }
 }
 
@@ -158,6 +162,8 @@ private final class NotificationPresenter: NSObject, UNUserNotificationCenterDel
     var onAction: ((String, String, String, String?) -> Void)?
     /// Copy code, or a click on a code banner: the in-memory reference of the code to copy.
     var onCopyCode: ((String) -> Void)?
+    /// Open or Show in Finder on a received-file notification (Files 2.0).
+    var onReceived: ((ReceivedNotificationAction) -> Void)?
 
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
@@ -174,6 +180,10 @@ private final class NotificationPresenter: NSObject, UNUserNotificationCenterDel
     ) {
         defer { completionHandler() }
         let userInfo = response.notification.request.content.userInfo
+        if response.notification.request.content.categoryIdentifier == receivedNotificationCategory {
+            onReceived?(ReceivedNotificationAction.route(actionIdentifier: response.actionIdentifier, userInfo: userInfo))
+            return
+        }
         if let codeReference = userInfo[codeReferenceUserInfoKey] as? String,
            response.actionIdentifier == codeCopyActionIdentifier || response.actionIdentifier == UNNotificationDefaultActionIdentifier {
             onCopyCode?(codeReference)
@@ -227,6 +237,17 @@ final class PairingCoordinator: ObservableObject {
     let shortcuts = ShortcutSettings()
     /// Remote input (draft): a paired phone as touchpad, keyboard and presentation remote.
     let remoteInput: RemoteInputHost
+    /// Files 2.0: every finished transfer, for the History window and Show in Finder (owner-only, 30 days).
+    let transferHistory = TransferHistoryStore()
+    /// Notifications for files and folders that arrive from a phone (Files 2.0 quick win).
+    private let receivedNotifier = ReceivedNotifier()
+    private var freeSpaceThrottle = FreeSpaceThrottle()
+    private var freeSpaceTrailing: [String: DispatchWorkItem] = [:]
+    /// Free space each connected phone reported for its default destination (FreeSpace.swift).
+    @Published private(set) var phoneFreeSpace: [String: PhoneFreeSpace] = [:]
+    /// Files 2.0: browsing, thumbnails, downloads and uploads for the Phone files window.
+    var phoneFiles: PhoneFilesService { phoneFilesController }
+    private(set) lazy var phoneFilesController = PhoneFilesController(host: self)
 
     var trustedDevices: [TrustedDeviceInfo] {
         trustRegistry.devices.map { device in
@@ -315,6 +336,8 @@ final class PairingCoordinator: ObservableObject {
     private var fileSendQueues: [String: FileSendQueue<OutgoingQueueItem>] = [:]
     /// Folders this Mac sends (Files 2.0); one item each in the phone's queue.
     private lazy var folders = FolderSender(host: self)
+    /// Folders sent to this Mac, and downloads from the Phone files window (Files 2.0 browse).
+    private lazy var folderReceiver = FolderReceiver(host: self)
     /// Hashing in progress, per queued file, so Cancel stops it.
     private var filePreparationCancellations: [String: FileCancellationToken] = [:]
     private var fileTransferWindow: FileTransferWindowController?
@@ -385,11 +408,16 @@ final class PairingCoordinator: ObservableObject {
             options: [.customDismissAction]
         )
         remoteNotificationCategories[remoteNotificationCategory.identifier] = remoteNotificationCategory
+        remoteNotificationCategories[receivedNotificationCategory] = ReceivedNotifier.category
+        notificationPresenter.onReceived = { action in
+            Task { @MainActor in action.perform() }
+        }
         UNUserNotificationCenter.current().setNotificationCategories(Set(remoteNotificationCategories.values))
         UNUserNotificationCenter.current().delegate = notificationPresenter
         refreshNotificationAuthorization()
         if identity != nil { startListener() }
         folders.loadJournals()
+        folderReceiver.loadJournals()
         quickActions.available = { [weak self] in self?.isFeatureAvailable($0) == true }
         quickActions.send = { [weak self] in self?.sendQuickPayload(kind: $0, payload: $1) == true }
         quickActions.onActivity = { [weak self] kind in self?.recordConnectedActivity(kind) }
@@ -666,6 +694,8 @@ final class PairingCoordinator: ObservableObject {
 
     func forget(deviceID: String) {
         folders.forget(deviceID)
+        folderReceiver.forget(deviceID)
+        transferHistory.forget(deviceID: deviceID)
         clearClipboardCache()
         trustRegistry.remove(deviceID: deviceID)
         trustedDeviceIDs.remove(deviceID)
@@ -677,6 +707,7 @@ final class PairingCoordinator: ObservableObject {
 
     /// Recomputes the per-phone list and the selected phone's mirrors (state, features, battery).
     private func publish() {
+        defer { phoneFilesController.phonesChanged() }
         let phones = registry.connections
         if connectedPhones != phones { connectedPhones = phones }
         let targetID = registry.target(selected: selectedDeviceID)
@@ -1497,6 +1528,11 @@ final class PairingCoordinator: ObservableObject {
     @discardableResult
     private func sendItems(_ urls: [URL]) -> Bool {
         guard let targetID = session?.remoteDeviceID, case .connected = state else { return false }
+        return sendItems(urls, to: targetID)
+    }
+
+    @discardableResult
+    private func sendItems(_ urls: [URL], to targetID: String) -> Bool {
         var files: [URL] = []
         var directories: [URL] = []
         for url in urls where url.isFileURL {
@@ -1531,6 +1567,89 @@ final class PairingCoordinator: ObservableObject {
             return false
         }
         return sendItems(urls)
+    }
+
+    /// Sends files and folders to one phone (drop tiles, Tray, send sheet). Nil: the selected phone.
+    @discardableResult
+    func sendDroppedFiles(_ urls: [URL], to deviceID: String?) -> Bool {
+        guard let id = deviceID else { return sendDroppedFiles(urls) }
+        guard registry.session(for: id) != nil else {
+            fileTransferStatus = "Not connected, so the file was not sent"
+            return false
+        }
+        guard isFeatureAvailable(.files, for: id) else {
+            fileTransferStatus = "File transfer is turned off on one of your devices"
+            return false
+        }
+        return sendItems(urls, to: id)
+    }
+
+    /// Sends text as a clipboard update to one phone (Tray text and links). Nil: the selected phone.
+    @discardableResult
+    func sendText(_ text: String, to deviceID: String?) -> Bool {
+        let target = deviceID.flatMap { registry.session(for: $0) } ?? session
+        guard let current = target, registry.isActive(current), !text.isEmpty else { return false }
+        guard isFeatureAvailable(.clipboard, for: current.remoteDeviceID) else {
+            clipboardStatus = "Clipboard is turned off on one of your devices"
+            return false
+        }
+        guard clipboardTextFits(text) else {
+            clipboardStatus = "Clipboard exceeds 32 KiB. Send large text or diagnostics as a file."
+            return false
+        }
+        sendClipboardContent(text: text, html: nil, concealed: false, automatic: false, in: current)
+        return true
+    }
+
+    /// Asks the phone for its free space (places.list), at most once per 20 s per phone. Send surfaces call it
+    /// when they open; the answer lands in `phoneFreeSpace`. A call inside the window asks once at its end.
+    func refreshPhoneFreeSpace(_ phoneID: String) {
+        // Only phones that serve places answer places.list (any destination mode).
+        guard folderSupport(for: phoneID)?.places == true else { return }
+        switch freeSpaceThrottle.request(phoneID, now: Date()) {
+        case .alreadyWaiting:
+            return
+        case let .later(delay):
+            freeSpaceTrailing[phoneID]?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.freeSpaceTrailing.removeValue(forKey: phoneID)
+                self.freeSpaceThrottle.trailingDone(phoneID)
+                self.refreshPhoneFreeSpace(phoneID)
+            }
+            freeSpaceTrailing[phoneID] = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        case .ask:
+            guard let wire = folderTransport(for: phoneID) else { return }
+            folders.places.list(phoneID: phoneID, send: { kind, payload in
+                wire.transport.send(kind: kind, payload: payload, transferID: nil, sequence: nil)
+            }) { [weak self] result in
+                guard let self, case let .success(listed) = result, let free = FreeSpaceReading.bytes(from: listed) else { return }
+                self.phoneReportedFreeSpace(phoneID, bytes: free)
+            }
+        }
+    }
+
+    func phoneReportedFreeSpace(_ phoneID: String, bytes: Int64) {
+        guard registry.session(for: phoneID) != nil else { return }
+        phoneFreeSpace[phoneID] = PhoneFreeSpace(bytes: bytes, checkedAt: Date())
+    }
+
+    /// Disconnect: the value is stale at once, and nothing is asked for that phone any more.
+    private func forgetPhoneFreeSpace(_ phoneID: String) {
+        phoneFreeSpace.removeValue(forKey: phoneID)
+        freeSpaceTrailing.removeValue(forKey: phoneID)?.cancel()
+        freeSpaceThrottle.forget(phoneID)
+    }
+
+    /// A row in the transfer list for work before a send (Tray and send-sheet optimisation: "Optimising 3 of 12").
+    func showPreparationRow(id: String, name: String, status: String, active: Bool) {
+        updateFileTransfer(id: id, name: name, status: status, active: active)
+    }
+
+    func removePreparationRow(id: String) {
+        fileTransfers.removeValue(forKey: id)
+        fileTransferActive = fileTransfers.values.contains(where: { $0.active })
     }
 
     /// Settings > Privacy > Logging > Clear logs: the diagnostics log on this Mac. The unified log
@@ -1697,6 +1816,7 @@ final class PairingCoordinator: ObservableObject {
         queued.filter { !folders.owns($0) }.forEach { markFileTransferFinished(id: $0, status: "Transfer cancelled") }
         // Folders: the running one sends folders.cancel; the waiting ones end here.
         folders.cancelAll()
+        folderReceiver.cancelAll()
         let transferIDs = Set(incomingFiles.keys).union(outgoingFiles.keys)
         transferIDs.forEach { transferID in
             markTransferCancelled(transferID)
@@ -1718,6 +1838,10 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func cancelFileTransfer(id transferID: String) {
+        if folderReceiver.owns(transferID) {
+            folderReceiver.cancel(transferID)
+            return
+        }
         if folders.owns(transferID) {
             if let targetID = transferDevices[transferID], fileSendQueues[targetID]?.removePending(id: transferID) == true {
                 folders.removedFromQueue(transferID, text: nil)
@@ -1775,6 +1899,7 @@ final class PairingCoordinator: ObservableObject {
         let inactiveIDs = fileTransfers.values.filter { !keep($0) }.map(\.id)
         inactiveIDs.forEach { outgoingFileSources.removeValue(forKey: $0) }
         folders.clearFinished()
+        folderReceiver.clearFinished()
         fileTransfers = fileTransfers.filter { keep($0.value) }
         fileTransferActive = fileTransfers.values.contains(where: { $0.active })
     }
@@ -2001,6 +2126,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteClipboardFiles = clipboardFiles
                     link.remoteFolders = draftKeys[foldersFeatureKey] == true
                     link.remotePlaces = draftKeys[placesFeatureKey] == true
+                    link.remoteBrowse = draftKeys[filesBrowseFeatureKey] == true
                     link.remoteSmsCodes = draftKeys[smsCodesFeatureKey] == true
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
@@ -2028,6 +2154,7 @@ final class PairingCoordinator: ObservableObject {
                 refreshAutoClipboard()
                 // Folders interrupted for this phone resume now (within 24 hours of their last progress).
                 folders.phoneReady(phoneID)
+                refreshPhoneFreeSpace(phoneID)
             case "ping.request":
                 try receivePing(message, in: current)
             case "ping.ack":
@@ -2222,6 +2349,13 @@ final class PairingCoordinator: ObservableObject {
                     throw PairingError.invalidMessage
                 }
                 guard incomingFiles[offer.transferId] == nil else { throw PairingError.invalidMessage }
+                // A file inside a folder coming to this Mac (4.6): the folder session checks it against the manifest.
+                if (try? JSONDecoder().decode(FolderFileProbe.self, from: plaintext))?.folderTransferId != nil {
+                    if !folderReceiver.fileOffer(plaintext, from: current.remoteDeviceID) {
+                        current.send(PairingMessage(kind: "files.cancel", sessionId: current.id, transferId: offer.transferId))
+                    }
+                    return
+                }
                 let transfer = try IncomingFileTransfer(offer: offer, directoryAccess: settings.receiveDirectoryAccess())
                 incomingFiles[offer.transferId] = transfer
                 transferDevices[offer.transferId] = current.remoteDeviceID
@@ -2242,6 +2376,15 @@ final class PairingCoordinator: ObservableObject {
                           let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
                           let chunk = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return }
                     clipboardInbox.handleChunk(transferID: transferID, sequence: sequence, data: chunk)
+                    return
+                }
+                if folderReceiver.ownsFile(message.transferId) {
+                    guard registry.isActive(current), message.sessionId == current.id,
+                          let messageID = message.messageId, current.acceptMessageID(messageID),
+                          let transferID = message.transferId, let sequence = message.sequence,
+                          let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey else { return }
+                    guard let chunk = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { throw PairingError.invalidMessage }
+                    _ = folderReceiver.chunk(transferID, sequence: sequence, data: chunk, from: current.remoteDeviceID)
                     return
                 }
                 if let transferID = message.transferId,
@@ -2285,6 +2428,7 @@ final class PairingCoordinator: ObservableObject {
                       let completion = try? JSONDecoder().decode(FileCompletePayload.self, from: plaintext) else {
                     throw PairingError.invalidMessage
                 }
+                if folderReceiver.fileComplete(completion.transferId, sha256: completion.sha256, from: current.remoteDeviceID) { return }
                 guard let transfer = incomingFiles.removeValue(forKey: completion.transferId) else {
                     if cancelledTransferIDs.contains(completion.transferId) { return }
                     throw PairingError.invalidMessage
@@ -2292,8 +2436,11 @@ final class PairingCoordinator: ObservableObject {
                 do {
                     let destination = try transfer.finish(expectedHash: completion.sha256)
                     let folder = destination.deletingLastPathComponent().path
+                    FinderMetadata.finish([destination], phoneName: current.peerName, tag: settings.tagReceivedFiles)
                     fileTransferStatus = "Saved \(transfer.displayName) to \(folder)"
-                    updateFileTransfer(id: completion.transferId, name: transfer.displayName, status: fileTransferStatus!, active: false)
+                    updateFileTransfer(id: completion.transferId, name: transfer.displayName, status: fileTransferStatus!, active: false, localURL: destination)
+                    recordFileHistory(completion.transferId, direction: .received, outcome: .completed, name: destination.lastPathComponent,
+                                      bytes: transfer.expectedSize, localURL: destination, phoneID: current.remoteDeviceID)
                     fileTransferActive = fileTransfers.values.contains(where: { $0.active })
                     current.send(PairingMessage(
                         kind: "files.complete.ack",
@@ -2301,12 +2448,14 @@ final class PairingCoordinator: ObservableObject {
                         transferId: completion.transferId
                     ))
                     recordActivity(.fileReceived, in: current, fileName: transfer.displayName)
-                    NSWorkspace.shared.activateFileViewerSelecting([destination])
+                    announceReceived([ReceivedItem(url: destination, isFolder: false)], phoneID: current.remoteDeviceID, revealIfSilent: true)
                     BridgeyLog.line(BridgeyLog.files, LogLines.file(BridgeyLog.policy, event: "received", transfer: completion.transferId, name: transfer.displayName))
                 } catch {
                     transfer.cancel()
                     fileTransferStatus = "File verification failed"
                     recordActivity(.fileFailed, in: current, fileName: transfer.displayName)
+                    recordFileHistory(completion.transferId, direction: .received, outcome: .failed, name: transfer.displayName,
+                                      bytes: transfer.receivedSize, localURL: nil, phoneID: current.remoteDeviceID)
                     throw error
                 }
             case "files.accept":
@@ -2343,6 +2492,8 @@ final class PairingCoordinator: ObservableObject {
                             current.send(completion)
                         case .failure:
                             self.outgoingFiles.removeValue(forKey: transferID)
+                            self.recordFileHistory(transferID, direction: .sent, outcome: transfer.isCancelled ? .cancelled : .failed, name: transfer.displayName,
+                                                   bytes: 0, localURL: self.outgoingFileSources[transferID], phoneID: current.remoteDeviceID)
                             if transfer.isCancelled {
                                 self.fileTransferStatus = "Transfer cancelled"
                                 self.markFileTransferFinished(id: transferID, status: "Transfer cancelled")
@@ -2379,7 +2530,10 @@ final class PairingCoordinator: ObservableObject {
                 if folders.receiveFile(kind: message.kind, transferID: message.transferId, sequence: nil, from: current.remoteDeviceID) { return }
                 guard let transferID = message.transferId,
                       let transfer = outgoingFiles.removeValue(forKey: transferID) else { return }
-                outgoingFileSources.removeValue(forKey: transferID)
+                let source = outgoingFileSources.removeValue(forKey: transferID)
+                recordFileHistory(transferID, direction: .sent, outcome: .completed, name: transfer.displayName, bytes: transfer.offer.size,
+                                  localURL: source, phoneID: current.remoteDeviceID)
+                refreshPhoneFreeSpace(current.remoteDeviceID)
                 fileTransferStatus = "\(transfer.displayName) saved on Android"
                 recordActivity(.fileSent, in: current, fileName: transfer.displayName)
                 updateFileTransfer(id: transferID, name: transfer.displayName, status: fileTransferStatus!, active: false)
@@ -2395,6 +2549,14 @@ final class PairingCoordinator: ObservableObject {
                     return
                 }
                 if folders.receiveFile(kind: message.kind, transferID: transferID, sequence: nil, from: current.remoteDeviceID) { return }
+                if folderReceiver.fileCancelled(transferID, from: current.remoteDeviceID) { return }
+                if let incoming = incomingFiles[transferID] {
+                    recordFileHistory(transferID, direction: .received, outcome: .cancelled, name: incoming.displayName, bytes: incoming.receivedSize,
+                                      localURL: nil, phoneID: current.remoteDeviceID)
+                } else if let outgoing = outgoingFiles[transferID] {
+                    recordFileHistory(transferID, direction: .sent, outcome: .cancelled, name: outgoing.displayName, bytes: 0,
+                                      localURL: outgoingFileSources[transferID], phoneID: current.remoteDeviceID)
+                }
                 markTransferCancelled(transferID)
                 incomingFiles.removeValue(forKey: transferID)?.cancel()
                 outgoingFiles.removeValue(forKey: transferID)?.cancel()
@@ -2414,6 +2576,8 @@ final class PairingCoordinator: ObservableObject {
                     outgoingFiles[transferID]?.acknowledge(sequence: sequence)
                     clipboardOutbox.handleChunkAck(transferID, sequence: sequence)
                 }
+            case let kind where BrowseKind.answerKinds.contains(kind):
+                try receiveBrowseMessage(message, in: current)
             case let kind where FolderKind.folderKinds.contains(kind) || FolderKind.placesKinds.contains(kind):
                 try receiveFolderMessage(message, in: current)
             case let kind where kind.hasPrefix("input."):
@@ -2507,6 +2671,9 @@ final class PairingCoordinator: ObservableObject {
         // places, so places_draft1 is false.
         features[foldersFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
         features[placesFeatureKey] = false
+        // Files 2.0 browse (draft): this Mac receives folders from the phone; it browses but serves nothing.
+        features[foldersReceiveFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
+        features[filesBrowseFeatureKey] = false
         // Draft, edition only: this Mac reads codes from SMS and can advertise for the phone's companion link.
         features[smsCodesFeatureKey] = settings.isEnabled(.notifications, for: current.remoteDeviceID)
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
@@ -2524,6 +2691,10 @@ final class PairingCoordinator: ObservableObject {
     /// Its folders stop where they are and resume when it reconnects.
     private func cancelTransfers(for id: String) {
         folders.phoneDisconnected(id)
+        folderReceiver.phoneDisconnected(id)
+        forgetPhoneFreeSpace(id)
+        receivedNotifier.forget(id)
+        phoneFilesController.phoneDisconnected(id)
         let ids = Set(transferDevices.filter { $0.value == id && !folders.owns($0.key) }.keys)
         let hadActiveTransfers = fileTransfers.values.contains(where: { $0.active && ids.contains($0.id) })
         if var queue = fileSendQueues.removeValue(forKey: id) {
@@ -2553,7 +2724,7 @@ final class PairingCoordinator: ObservableObject {
         }
     }
 
-    private func updateFileTransfer(id: String, name: String, status: String, active: Bool) {
+    private func updateFileTransfer(id: String, name: String, status: String, active: Bool, localURL: URL? = nil) {
         let previous = fileTransfers[id]
         fileTransfers[id] = FileTransferRow(
             id: id,
@@ -2561,10 +2732,20 @@ final class PairingCoordinator: ObservableObject {
             status: status,
             active: active,
             startedAt: previous?.startedAt ?? Date(),
-            retryable: !active && outgoingFileSources[id] != nil
+            retryable: !active && outgoingFileSources[id] != nil,
+            localURL: localURL ?? previous?.localURL ?? outgoingFileSources[id]
         )
         pruneTransferHistory()
         fileTransferActive = fileTransfers.values.contains(where: { $0.active })
+    }
+
+    /// The History window's record of one finished file (Files 2.0).
+    private func recordFileHistory(_ id: String, direction: TransferHistoryEntry.Direction, outcome: TransferHistoryEntry.Outcome, name: String,
+                                   bytes: Int64, localURL: URL?, phoneID: String) {
+        transferHistory.record(TransferHistoryEntry(
+            id: id, date: Date(), direction: direction, deviceID: phoneID, deviceName: phoneName(phoneID), name: name,
+            bytes: bytes, outcome: outcome, localPath: localURL?.path
+        ))
     }
 
     private func markFileTransferFinished(id: String, status: String) {
@@ -2575,7 +2756,8 @@ final class PairingCoordinator: ObservableObject {
             status: status,
             active: false,
             startedAt: transfer.startedAt,
-            retryable: outgoingFileSources[id] != nil
+            retryable: outgoingFileSources[id] != nil,
+            localURL: transfer.localURL
         )
         pruneTransferHistory()
         fileTransferActive = fileTransfers.values.contains(where: { $0.active })
@@ -3491,9 +3673,18 @@ extension PairingCoordinator: FolderSenderHost {
     fileprivate func receiveFolderMessage(_ message: PairingMessage, in current: Session) throws {
         guard registry.isActive(current), message.sessionId == current.id else { return }
         let phoneID = current.remoteDeviceID
-        // This Mac advertises folders only while Files is on for the phone.
-        guard settings.isEnabled(.files, for: phoneID) else { return }
+        // This Mac advertises folders only while Files is on for the phone. A folder offered meanwhile gets the
+        // outer-only folders.rejected (no decryption), then the features again; a running folder may finish.
+        let running = message.transferId.map { folderReceiver.owns($0) || folders.owns($0) } ?? false
+        guard settings.isEnabled(.files, for: phoneID) || (running && message.kind != FolderKind.offer) else {
+            if message.kind == FolderKind.offer, let id = message.transferId, FolderJSON.isWireID(id) {
+                current.send(PairingMessage(kind: FolderKind.rejected, sessionId: current.id, transferId: id))
+                sendFeatureState(to: current)
+            }
+            return
+        }
         guard let ciphertext = message.ciphertext else {
+            if folderReceiver.receive(kind: message.kind, payload: nil, outerTransferID: message.transferId, from: phoneID) { return }
             folders.receive(kind: message.kind, payload: nil, outerTransferID: message.transferId, from: phoneID)
             return
         }
@@ -3501,7 +3692,21 @@ extension PairingCoordinator: FolderSenderHost {
               let nonce = message.nonce, let key = current.pairingKey else { return }
         guard let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { throw PairingError.invalidMessage }
         guard plaintext.count <= FolderKind.plaintextLimit(message.kind) else { return }
+        // Browse answers (places.listed for browsing, places.error) go to the browse client first.
+        if FolderKind.placesKinds.contains(message.kind), phoneFilesController.handle(kind: message.kind, payload: plaintext, from: phoneID) { return }
+        // Folders coming to this Mac (phone to Mac, downloads).
+        if FolderKind.folderKinds.contains(message.kind), folderReceiver.receive(kind: message.kind, payload: plaintext, outerTransferID: message.transferId, from: phoneID) { return }
         folders.receive(kind: message.kind, payload: plaintext, outerTransferID: message.transferId, from: phoneID)
+    }
+
+    /// Answers to this Mac's browse requests (draft): checked like other encrypted messages.
+    fileprivate func receiveBrowseMessage(_ message: PairingMessage, in current: Session) throws {
+        guard registry.isActive(current), message.sessionId == current.id, let ciphertext = message.ciphertext,
+              let messageID = message.messageId, current.acceptMessageID(messageID),
+              let nonce = message.nonce, let key = current.pairingKey else { return }
+        guard let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { throw PairingError.invalidMessage }
+        guard plaintext.count <= BrowseKind.plaintextLimit(message.kind) else { return }
+        phoneFilesController.handle(kind: message.kind, payload: plaintext, from: current.remoteDeviceID)
     }
 
     func folderTransport(for phoneID: String) -> (transport: FolderTransport, session: ObjectIdentifier)? {
@@ -3539,6 +3744,7 @@ extension PairingCoordinator: FolderSenderHost {
     }
 
     func folderEnded(_ id: String) {
+        if let phoneID = transferDevices[id] { refreshPhoneFreeSpace(phoneID) }
         finishQueuedFile(id)
     }
 
@@ -3557,9 +3763,71 @@ extension PairingCoordinator: FolderSenderHost {
     var folderScanDefaults: FolderScanOptions { settings.folderScanOptions }
 }
 
+// MARK: - Folders to this Mac (Files 2.0 browse)
+
+extension PairingCoordinator: FolderReceiverHost {
+    var folderReceiveMode: MacFolderReceiveMode { settings.folderReceiveMode }
+    var folderConflictPolicy: MacFolderConflictPolicy { settings.folderConflictPolicy }
+    var tagsReceivedFiles: Bool { settings.tagReceivedFiles }
+    func receiveDirectoryAccess() -> ReceiveDirectoryAccess { settings.receiveDirectoryAccess() }
+    func recordHistory(_ entry: TransferHistoryEntry) { transferHistory.record(entry) }
+
+    func receivedItems(_ urls: [URL], phoneID: String, purpose: PhoneDownloadPurpose?) {
+        // Previews are private; a Finder drop is already where the user put it.
+        guard purpose != .preview, purpose != .dragOut, !urls.isEmpty else { return }
+        // Pushed folders fall back to revealing in Finder; downloads from the Phone files window keep their row.
+        announceReceived(urls.map { ReceivedItem(url: $0, isFolder: $0.hasDirectoryPath) }, phoneID: phoneID, revealIfSilent: purpose == nil)
+    }
+
+    /// A notification with Open and Show in Finder while macOS allows Bridgey's notifications; otherwise the
+    /// old behaviour, revealing the item in Finder.
+    func announceReceived(_ items: [ReceivedItem], phoneID: String, revealIfSilent: Bool) {
+        if notificationsAuthorized {
+            receivedNotifier.post(items, phoneID: phoneID, phoneName: phoneName(phoneID))
+        } else if revealIfSilent {
+            NSWorkspace.shared.activateFileViewerSelecting(items.map(\.url))
+        }
+    }
+}
+
+private struct FolderFileProbe: Decodable {
+    let folderTransferId: String?
+}
+
+// MARK: - Phone files (Files 2.0 browse)
+
+extension PairingCoordinator: PhoneFilesHost {
+    func browseTransport(for phoneID: String) -> FolderTransport? { folderTransport(for: phoneID)?.transport }
+
+    func browsePhones() -> [BrowsablePhone] {
+        registry.connections.map { phone in
+            let link = registry.state(for: phone.id)
+            let browsable = link?.featureStateReceived == true && link?.remoteBrowse == true && isFeatureAvailable(.files, for: phone.id)
+            return BrowsablePhone(id: phone.id, name: phone.name, browsable: browsable,
+                                  route: PhoneRouteClassifier.route(host: registry.session(for: phone.id)?.remoteHost))
+        }
+    }
+
+    func expectDownload(_ download: ExpectedDownload) {
+        folderReceiver.expect(download)
+    }
+
+    func cancelDownload(_ download: ExpectedDownload) {
+        folderReceiver.cancelExpected(download)
+    }
+
+    func startUpload(_ upload: UploadRequest) -> String? {
+        folders.upload(upload)
+    }
+
+    func cancelUpload(_ id: String) {
+        folders.cancel(id)
+    }
+}
+
 /// Folder messages to one phone over the session they started on. Safe from any queue: it only encrypts
 /// and hands the frame to the connection.
-private final class SessionFolderTransport: FolderTransport {
+private final class SessionFolderTransport: SequencedFolderTransport {
     private let session: Session
     private let key: Data
 
@@ -3585,6 +3853,10 @@ private final class SessionFolderTransport: FolderTransport {
 
     func sendOuter(kind: String, transferID: String) {
         session.send(PairingMessage(kind: kind, sessionId: session.id, transferId: transferID))
+    }
+
+    func sendOuterSequenced(kind: String, transferID: String, sequence: Int64) {
+        session.send(PairingMessage(kind: kind, sessionId: session.id, transferId: transferID, sequence: sequence))
     }
 }
 

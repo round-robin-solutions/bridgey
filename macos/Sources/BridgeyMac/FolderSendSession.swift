@@ -86,8 +86,13 @@ struct FolderSendPlan {
     let destination: FolderDestination?
     let skipped: SkippedCounts
     let resume: Bool
+    /// Files 2.0 browse: the entries land directly in the destination (uploads, downloads).
+    var into = false
+    /// Files 2.0 browse: the offer answers the receiver's places.download.
+    var downloadRequestId: String?
 
-    init(folderTransferID: String, scan: FolderScan, destination: FolderDestination?, resume: Bool) {
+    init(folderTransferID: String, scan: FolderScan, destination: FolderDestination?, resume: Bool, into: Bool = false) {
+        self.into = into
         self.folderTransferID = folderTransferID
         rootName = scan.rootName
         displayName = scan.displayName
@@ -106,7 +111,8 @@ struct FolderSendPlan {
         FolderOfferPayload(
             folderTransferId: folderTransferID, rootName: rootName, fileCount: fileCount, folderCount: folderCount,
             totalSize: totalSize, pageCount: pages.count, manifestSha256: manifestSha256, destination: destination,
-            resume: resume, skipped: skipped.total > 0 ? skipped : nil
+            resume: resume, skipped: skipped.total > 0 ? skipped : nil,
+            into: into ? true : nil, downloadRequestId: downloadRequestId
         )
     }
 }

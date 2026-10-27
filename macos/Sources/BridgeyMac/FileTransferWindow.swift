@@ -50,8 +50,11 @@ private struct FileTransferView: View {
                                     Button("Cancel", role: .destructive) {
                                         pairing.cancelFileTransfer(id: transfer.id)
                                     }
-                                } else if transfer.retryable {
-                                    Button("Retry") { pairing.retryFileTransfer(id: transfer.id) }
+                                } else {
+                                    ShowInFinderButton(url: transfer.localURL)
+                                    if transfer.retryable {
+                                        Button("Retry") { pairing.retryFileTransfer(id: transfer.id) }
+                                    }
                                 }
                             }
                             }
@@ -69,6 +72,7 @@ private struct FileTransferView: View {
                     Button("Clear History") { pairing.clearTransferHistory() }
                 }
                 Spacer()
+                Button(L10n.text("history.entry", fallback: "History")) { TransferHistoryWindowController.show(pairing: pairing) }
                 Button("Close") { NSApp.keyWindow?.close() }
             }
         }
@@ -109,6 +113,7 @@ private struct FolderTransferRow: View {
                 if transfer.active {
                     Button(L10n.text("action.cancel", fallback: "Cancel"), role: .destructive) { pairing.cancelFileTransfer(id: transfer.id) }
                 } else {
+                    ShowInFinderButton(url: transfer.localURL)
                     if folder.canResume {
                         Button(L10n.text("folders.action.resume", fallback: "Resume")) { pairing.resumeFolderTransfer(id: transfer.id) }
                     }
@@ -123,6 +128,20 @@ private struct FolderTransferRow: View {
                 }
                 .padding(.leading, 24)
             }
+        }
+    }
+}
+
+/// Show in Finder for a finished row; disabled when the item is gone (moved or deleted).
+private struct ShowInFinderButton: View {
+    let url: URL?
+
+    var body: some View {
+        if let url {
+            Button(L10n.text("phonefiles.showInFinder", fallback: "Show in Finder")) {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
+            .disabled(!FileManager.default.fileExists(atPath: url.path))
         }
     }
 }

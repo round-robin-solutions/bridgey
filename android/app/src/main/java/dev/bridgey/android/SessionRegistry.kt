@@ -11,6 +11,8 @@ data class DeviceLinkState(
     /** The device advertised folders_draft1 and places_draft1 (draft folders protocol). */
     val remoteFolders: Boolean = false,
     val remotePlaces: Boolean = false,
+    /** The device advertised folders_receive_draft1: it accepts folders from this phone (Files 2.0). */
+    val remoteFoldersReceive: Boolean = false,
     /** The device advertised sms_codes_draft1: it reads codes and advertises for the companion link. */
     val remoteSmsCodes: Boolean = false,
     val battery: RemoteBatteryStatus? = null,

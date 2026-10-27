@@ -97,6 +97,15 @@ class BridgeyApplication : Application() {
         updater = AppUpdater(this, applicationScope)
         val deviceName = settings.state.value.deviceName
         pairing = PairingCoordinator(this, deviceId, deviceName, settings = settings)
+        // Files 2.0: photos and videos, and recent documents over the granted places, for the attach sheet and the Mac.
+        pairing.mediaLibrary = dev.bridgey.android.browse.MediaStoreLibrary(this)
+        val documentIndex = dev.bridgey.android.browse.TreeDocumentIndex.create(this, pairing.placesStore)
+        pairing.documentIndex = documentIndex
+        applicationScope.launch {
+            kotlinx.coroutines.flow.combine(pairing.placesStore.places, pairing.placesStore.defaultTree) { places, tree -> places to tree }
+                .drop(1)
+                .collect { documentIndex.placesChanged() }
+        }
         discovery = NsdDiscoveryService(this, LocalDiscoveryIdentity(deviceId, deviceName))
         uiPreferences = UiPreferences(this)
         activityLog = ActivityLog(File(noBackupFilesDir, ActivityLog.FILE_NAME), Executors.newSingleThreadExecutor())

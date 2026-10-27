@@ -92,7 +92,7 @@ class PlacesServer(
             emptyList()
         }
         val fixedLabel = if (current.mode == DestinationMode.FIXED) places.place(current.defaultPlaceId)?.label else null
-        return PlacesListedPayload(requestId, current.mode, list, fixedLabel)
+        return PlacesListedPayload(requestId, current.mode, list, fixedLabel, defaultFreeBytes(places, current))
     }
 
     private fun openDir(placeId: String, path: String): Pair<TreeStore, String>? {

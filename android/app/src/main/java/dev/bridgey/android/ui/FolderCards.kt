@@ -109,7 +109,8 @@ internal fun FolderCardContent(transfer: FileTransferState, cancelAll: Boolean, 
     }
     CardActions {
         when {
-            transfer.active && (folder.waiting == FolderWaiting.DESTINATION || folder.waiting == FolderWaiting.CONFLICT_HERE) -> {
+            // A folder this phone sends waits for the other device's answer: nothing to choose here.
+            transfer.active && !folder.outgoing && (folder.waiting == FolderWaiting.DESTINATION || folder.waiting == FolderWaiting.CONFLICT_HERE) -> {
                 TonalPillButton(stringResource(R.string.action_cancel), { actions.cancelTransfer(transfer.id) }, tint = Tint.NEUTRAL)
                 TonalPillButton(
                     stringResource(if (folder.waiting == FolderWaiting.DESTINATION) R.string.action_choose else R.string.action_answer),

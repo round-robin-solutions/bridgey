@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Files 2.0, second slice: the transfer engine (folders sent from this phone, browsing). -->
+<resources>
+    <string name="folder_send_not_connected">Not connected, so the folder was not sent</string>
+    <string name="folder_send_unsupported">%1$s can\'t receive folders yet. Update Bridgey on it.</string>
+    <string name="folder_send_unreadable">Bridgey can\'t read that folder</string>
+    <string name="file_receive_no_space">Not enough space on this phone for that file</string>
+</resources>

@@ -634,7 +634,6 @@ private fun BridgeyApp(
     var pairDialog by rememberSaveable { mutableStateOf(false) }
     var forgetting by remember { mutableStateOf<DeviceRing?>(null) }
     var pickedTarget by rememberSaveable { mutableStateOf<String?>(null) }
-    var fileTarget by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val stack = rememberBackStack()
     val uriHandler = LocalUriHandler.current
@@ -724,7 +723,8 @@ private fun BridgeyApp(
         retryDevice = pairing::retryNow,
         answerFolder = folderUi.showQuestion,
     )
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> if (uris.isNotEmpty()) pairing.sendFiles(uris, fileTarget) }
+    // Files 2.0: the in-app attach sheet is the main way to send; the system pickers are its Browse… fallback.
+    val attach = rememberAttachUi(pairing, snackbar)
     val readClipboard = {
         val clipboard = context.getSystemService(ClipboardManager::class.java)
         clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
@@ -799,6 +799,7 @@ private fun BridgeyApp(
                         activity = activity,
                         live = homeLive,
                         canSendClipboard = target != null && BridgeyFeature.CLIPBOARD in availableWith(target.deviceId),
+                        canAttach = target != null && BridgeyFeature.FILES in availableWith(target.deviceId),
                         now = now,
                         rediscovering = rediscover == RediscoverState.Running,
                     ),
@@ -813,6 +814,7 @@ private fun BridgeyApp(
                             val deviceId = target?.deviceId
                             screenshotAccess.beforeSend(pairing.clipboardOffersAvailable(deviceId)) { pairing.sendClipboard(deviceId) }
                         },
+                        attach = { attach.open(target?.deviceId) },
                         lookForDevices = pairing::lookForDevices,
                         live = liveActions,
                     ),
@@ -863,10 +865,7 @@ private fun BridgeyApp(
                             actions = DeviceActions(
                                 back = { stack.pop() },
                                 forget = { forgetting = ring },
-                                sendFile = {
-                                    fileTarget = ring.deviceId
-                                    filePicker.launch(arrayOf("*/*"))
-                                },
+                                sendFile = { attach.open(ring.deviceId) },
                                 sendLink = {
                                     pairing.selectDevice(ring.deviceId)
                                     pairing.quickActions.sendLink(readClipboard())
@@ -1123,6 +1122,7 @@ private fun BridgeyApp(
 
     UpdatePrompts(updater)
     FolderQuestionHost(folderUi)
+    AttachSheetHost(attach)
 
     // Asked once, after the first connection, while Android may still pause Bridgey in Doze.
     if (!batteryExempt && !batteryPromptShown && !showOnboarding && connections.isNotEmpty() && pairingFlow !is PairingState.Verification) {

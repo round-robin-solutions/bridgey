@@ -81,6 +81,9 @@ struct SettingsModel {
     var clipboardEagerLimit: ClipboardEagerLimit = .default
     var folderIncludeHidden = false
     var folderIncludeSystem = false
+    var folderReceiveMode: MacFolderReceiveMode = .fixed
+    var folderConflictPolicy: MacFolderConflictPolicy = .ask
+    var tagReceivedFiles = false
     var launchAtLogin = false
     var loginItemMessage: String?
     var receiveFolderPath = ""
@@ -161,6 +164,11 @@ struct SettingsActions {
     var setClipboardEagerLimit: (ClipboardEagerLimit) -> Void = { _ in }
     var setFolderIncludeHidden: (Bool) -> Void = { _ in }
     var setFolderIncludeSystem: (Bool) -> Void = { _ in }
+    var setFolderReceiveMode: (MacFolderReceiveMode) -> Void = { _ in }
+    var setFolderConflictPolicy: (MacFolderConflictPolicy) -> Void = { _ in }
+    var setTagReceivedFiles: (Bool) -> Void = { _ in }
+    /// Opens the Phone files window on a phone (Devices page).
+    var openPhoneFiles: (String) -> Void = { _ in }
     var forget: (String) -> Void = { _ in }
     var pair: (DeviceRing) -> Void = { _ in }
     var retryDevice: (String) -> Void = { _ in }
@@ -681,6 +689,44 @@ private struct FilesPane: View {
                            subtitle: L10n.text("settings.folders.system.detail", fallback: "Clutter the system makes, such as .DS_Store, ._ files and Thumbs.db."),
                            isOn: model.folderIncludeSystem, set: actions.setFolderIncludeSystem)
         }
+        SettingsCard(footnote: L10n.text("settings.folders.receive.note", fallback: "Folders from your phone keep their structure. Received files get a Where from line in Finder.")) {
+            SettingsRow(title: L10n.text("settings.folders.receive", fallback: "Folders sent to this Mac"),
+                        subtitle: nil, divider: false) {
+                ChoiceButton(value: folderReceiveModeTitle(model.folderReceiveMode)) {
+                    MacFolderReceiveMode.allCases.map { mode in
+                        PopUpMenuItem(title: folderReceiveModeTitle(mode), checked: mode == model.folderReceiveMode) { actions.setFolderReceiveMode(mode) }
+                    }
+                }
+            }
+            SettingsRow(title: L10n.text("settings.folders.conflict", fallback: "When a folder already exists"), subtitle: nil) {
+                ChoiceButton(value: folderConflictTitle(model.folderConflictPolicy)) {
+                    MacFolderConflictPolicy.allCases.map { policy in
+                        PopUpMenuItem(title: folderConflictTitle(policy), checked: policy == model.folderConflictPolicy) { actions.setFolderConflictPolicy(policy) }
+                    }
+                }
+            }
+            SettingsToggle(title: L10n.text("settings.files.tag", fallback: "Tag received files in Finder"),
+                           subtitle: L10n.text("settings.files.tag.detail", fallback: "Adds the Bridgey tag, so Finder can list everything that came from your phone."),
+                           isOn: model.tagReceivedFiles, set: actions.setTagReceivedFiles)
+        }
+        // Send options (Before sending, menu-bar drops): SendOptionsSettings.swift.
+        SendOptionsSettingsSection()
+    }
+}
+
+func folderReceiveModeTitle(_ mode: MacFolderReceiveMode) -> String {
+    switch mode {
+    case .fixed: return L10n.text("settings.folders.receive.fixed", fallback: "Always save to Received files")
+    case .ask: return L10n.text("settings.folders.receive.ask", fallback: "Ask on this Mac each time")
+    }
+}
+
+func folderConflictTitle(_ policy: MacFolderConflictPolicy) -> String {
+    switch policy {
+    case .ask: return L10n.text("settings.folders.conflict.ask", fallback: "Ask each time")
+    case .merge: return L10n.text("settings.folders.conflict.merge", fallback: "Merge")
+    case .replace: return L10n.text("settings.folders.conflict.replace", fallback: "Replace files")
+    case .newFolder: return L10n.text("settings.folders.conflict.newFolder", fallback: "Save as new folder")
     }
 }
 
@@ -894,6 +940,8 @@ struct DeviceCard: View {
                         .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
                         .help(ring.map(ringRetryHelp) ?? "")
                 }
+                // Phone files window (Files 2.0): PhoneFilesDeviceEntry.swift.
+                PhoneFilesDeviceEntry(deviceID: device.id, model: model, actions: actions)
                 Button(L10n.text("action.forget", fallback: "Forget")) { confirmForget = true }
                     .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
             }
@@ -1318,6 +1366,9 @@ private struct LiveSettingsView: View {
         model.clipboardFiles = settings.clipboardFilesEnabled
         model.folderIncludeHidden = settings.folderIncludeHidden
         model.folderIncludeSystem = settings.folderIncludeSystem
+        model.folderReceiveMode = settings.folderReceiveMode
+        model.folderConflictPolicy = settings.folderConflictPolicy
+        model.tagReceivedFiles = settings.tagReceivedFiles
         model.clipboardEagerLimit = ClipboardEagerLimit(bytes: settings.clipboardEagerLimit)
         model.launchAtLogin = settings.launchAtLogin
         model.loginItemMessage = settings.loginItemMessage
@@ -1390,8 +1441,12 @@ private struct LiveSettingsView: View {
         actions.setClipboardFiles = { settings.setClipboardFilesEnabled($0) }
         actions.setFolderIncludeHidden = { settings.setFolderIncludeHidden($0) }
         actions.setFolderIncludeSystem = { settings.setFolderIncludeSystem($0) }
+        actions.setFolderReceiveMode = { settings.setFolderReceiveMode($0) }
+        actions.setFolderConflictPolicy = { settings.setFolderConflictPolicy($0) }
+        actions.setTagReceivedFiles = { settings.setTagReceivedFiles($0) }
         actions.setClipboardEagerLimit = { settings.setClipboardEagerLimit($0) }
         actions.forget = { pairing.forget(deviceID: $0) }
+        actions.openPhoneFiles = { PhoneFilesWindowController.show(pairing: pairing, phoneID: $0) }
         actions.pair = { ring in
             guard let host = ring.peer?.host, let port = ring.peer?.port else { return }
             pairing.pair(host: host, port: port, peerName: ring.name)

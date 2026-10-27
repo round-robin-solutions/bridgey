@@ -77,8 +77,31 @@ if [ "$(lipo -archs "$LLAMA_BINARY")" != "$APP_ARCHS" ]; then
   lipo "$LLAMA_BINARY" "$@" -output "$LLAMA_BINARY.thin"
   mv "$LLAMA_BINARY.thin" "$LLAMA_BINARY"
 fi
+# The Share extension (Share > Bridgey in every app): a separate sandboxed executable built with swiftc for
+# the app's own architectures, signed before the app below. It only hands items to the app.
+APPEX="$APP_PATH/Contents/PlugIns/BridgeyShare.appex"
+mkdir -p "$APPEX/Contents/MacOS"
+cp ShareExtension/Info.plist "$APPEX/Contents/Info.plist"
+"$PLIST_BUDDY" -c "Set :CFBundleIdentifier $EDITION_APP_ID.share" "$APPEX/Contents/Info.plist"
+for key in CFBundleShortVersionString CFBundleVersion; do
+  "$PLIST_BUDDY" -c "Set :$key $("$PLIST_BUDDY" -c "Print :$key" "$APP_PATH/Contents/Info.plist")" "$APPEX/Contents/Info.plist"
+done
+SHARE_OPT=-Onone
+[ "$CONFIGURATION" = release ] && SHARE_OPT=-O
+set --
+for arch in $APP_ARCHS; do
+  xcrun swiftc -sdk "$SDK_PATH" -target "$arch-apple-macos13.0" "$SHARE_OPT" -warnings-as-errors \
+    -module-name ShareExtension -parse-as-library -application-extension \
+    -module-cache-path "$CACHE_ROOT/share-modules" \
+    -Xlinker -e -Xlinker _NSExtensionMain \
+    ShareExtension/ShareViewController.swift -o "$CACHE_ROOT/BridgeyShare-$arch"
+  set -- "$@" "$CACHE_ROOT/BridgeyShare-$arch"
+done
+lipo -create "$@" -output "$APPEX/Contents/MacOS/BridgeyShare"
 # The bundled model manifest, the licences (About > Licences) and the Gemma notice.
 cp Resources/otp-model.json "$APP_PATH/Contents/Resources/otp-model.json"
+# Settings > Files > Before sending: the live preview's sample photo (CC BY 4.0, see docs).
+cp Resources/send-preview-sample.jpg "$APP_PATH/Contents/Resources/send-preview-sample.jpg"
 mkdir -p "$APP_PATH/Contents/Resources/Licences"
 cp ../NOTICE "$APP_PATH/Contents/Resources/Licences/NOTICE.txt"
 cp ../LICENSE "$APP_PATH/Contents/Resources/Licences/LICENSE.txt"
@@ -154,6 +177,7 @@ sign_code "$SPARKLE_VERSIONED/Autoupdate"
 sign_code "$SPARKLE_VERSIONED/Updater.app"
 sign_code "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 sign_code "$APP_PATH/Contents/Frameworks/llama.framework"
+sign_code --entitlements ShareExtension/Share.entitlements "$APPEX"
 if [ -n "$APP_REQUIREMENT" ]; then
   sign_code --entitlements Resources/Bridgey.entitlements --requirements "$APP_REQUIREMENT" "$APP_PATH"
 else

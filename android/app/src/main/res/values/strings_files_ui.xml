@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Files 2.0, second slice: the attach sheet, browse settings and outgoing folder cards. -->
+<resources>
+    <string name="attach_title">Send</string>
+    <string name="attach_title_to">Send to %1$s</string>
+    <string name="attach_browse">Browse…</string>
+    <string name="attach_browse_files">Files…</string>
+    <string name="attach_browse_folder">Folder…</string>
+    <string name="attach_tab_media">Photos and videos</string>
+    <string name="attach_tab_files">Files</string>
+    <string name="attach_tab_folders">Folders</string>
+    <string name="attach_media_empty">No photos or videos yet</string>
+    <string name="attach_photo_description">Photo, %1$s</string>
+    <string name="attach_video_description">Video, %1$s</string>
+    <string name="attach_media_access_title">See your photos and videos here</string>
+    <string name="attach_media_access_body">Pick recent photos and videos right here, without the system picker. Android asks once.</string>
+    <string name="attach_media_access_mac">Paired Macs can browse them too while Settings › Files › Let other devices browse this phone is on.</string>
+    <string name="attach_media_allow">Allow access</string>
+    <string name="attach_media_open_settings">Open settings</string>
+    <string name="attach_media_partial">Bridgey sees only the photos and videos you selected.</string>
+    <string name="attach_media_select_more">Select more</string>
+    <string name="attach_media_allow_all">Allow all</string>
+    <string name="attach_files_indexing">Looking for recent documents…</string>
+    <string name="attach_files_empty">No recent documents in your folders yet</string>
+    <string name="attach_files_add_folder">Add another folder</string>
+    <string name="attach_files_add_folder_detail">Its documents show here, and paired Macs can browse it</string>
+    <string name="attach_folders_add_detail">Choose a folder once; it stays in this list</string>
+    <string name="attach_documents_title">Let Bridgey see your documents</string>
+    <string name="attach_documents_body">Choose Documents once, and its files show here every time you send. Nothing else on the phone is read.</string>
+    <string name="attach_documents_download_note">Android does not let apps see the whole Download folder. You can add folders inside it, such as Download/WhatsApp, with Add another folder.</string>
+    <string name="attach_documents_later">Not now</string>
+    <string name="attach_documents_choose">Choose Documents</string>
+    <string name="attach_documents_not_usable">Android did not allow this folder. Try a folder inside it.</string>
+    <string name="attach_folders_unsupported">%1$s can\'t receive folders yet. Update Bridgey there to send folders.</string>
+    <string name="attach_this_device">This device</string>
+    <string name="attach_send_none">Send</string>
+    <plurals name="attach_send_count">
+        <item quantity="one">Send %1$d</item>
+        <item quantity="other">Send %1$d</item>
+    </plurals>
+    <plurals name="attach_send_count_size">
+        <item quantity="one">Send %1$d · %2$s</item>
+        <item quantity="other">Send %1$d · %2$s</item>
+    </plurals>
+
+    <string name="settings_allow_browse">Let other devices browse this phone</string>
+    <string name="settings_allow_browse_detail">Paired devices with File transfer on can see your places, recent documents and the photos and videos you allowed, and download them. They change nothing</string>
+    <string name="settings_folders_note_browse">Folders need Android 10 or newer. With browsing on, paired devices can see and download what is in your places; they change files only with your permission.</string>
+    <string name="places_intro_browse">Folders Bridgey may save into. Paired devices can browse and download what is inside them; changing files needs Allow other devices to change files here.</string>
+
+    <string name="live_send_folder_title">Sending %1$s to %2$s › %3$s</string>
+    <string name="live_send_folder_title_plain">Sending %1$s to %2$s</string>
+    <string name="live_download_title_one">%1$s is downloading %2$s</string>
+    <plurals name="live_download_title">
+        <item quantity="one">%1$s is downloading %2$d file</item>
+        <item quantity="other">%1$s is downloading %2$d files</item>
+    </plurals>
+    <string name="live_send_preparing">Reading files…</string>
+    <string name="live_send_waiting_destination">Waiting for %1$s to choose where to save (%2$s)</string>
+    <string name="live_send_waiting_conflict">Waiting for %1$s to answer (%2$s)</string>
+</resources>

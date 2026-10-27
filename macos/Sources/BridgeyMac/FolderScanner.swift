@@ -156,6 +156,29 @@ enum FolderScanner {
     /// A placeholder hash, the length of a real one, to check the manifest size before hashing.
     private static let placeholderHash = Data(count: 32).base64EncodedString()
 
+    /// Files 2.0 browse: several dropped files and folders as the top-level entries of one `into` transfer.
+    /// The root name is the first item's portable name (display and digest only).
+    static func scan(items: [URL], options: FolderScanOptions, listing: FolderListing = DiskFolderListing(), isCancelled: () -> Bool = { false }) -> FolderScan {
+        let first = items.first?.lastPathComponent ?? "Files"
+        let parent = items.first?.deletingLastPathComponent() ?? URL(fileURLWithPath: "/")
+        var scan = FolderScan(root: parent, displayName: first, rootName: PortableName.convert(first), options: options)
+        let children = items.map { DiskFolderListing.item($0) }
+        var deepest = 0
+        walk(children, relative: "", depth: 0, scan: &scan, deepest: &deepest, listing: listing, isCancelled: isCancelled)
+        if scan.problem == nil {
+            if scan.entries.isEmpty { scan.problem = .unreadable }
+            else if scan.fileCount > FolderLimits.maxFiles { scan.problem = .tooManyFiles(scan.fileCount) }
+            else if scan.folderCount > FolderLimits.maxFolders { scan.problem = .tooManyFolders(scan.folderCount) }
+            else if deepest > FolderLimits.maxDepth { scan.problem = .tooDeep }
+            else if scan.totalSize > FolderLimits.maxTotalSize { scan.problem = .tooBig(scan.totalSize) }
+            else {
+                let sized = scan.entries.map { $0.isDirectory ? $0 : ManifestEntry.file($0.path, size: $0.size ?? 0, sha256: placeholderHash, modified: $0.modified) }
+                if ManifestPager.pages(folderTransferID: UUID().uuidString.lowercased(), entries: sized) == nil { scan.problem = .manifestTooLarge }
+            }
+        }
+        return scan
+    }
+
     static func scan(_ root: URL, options: FolderScanOptions, listing: FolderListing = DiskFolderListing(), isCancelled: () -> Bool = { false }) -> FolderScan {
         let rootValues = try? root.resourceValues(forKeys: [.isPackageKey])
         var scan = FolderScan(root: root, displayName: root.lastPathComponent, rootName: PortableName.convert(root.lastPathComponent), options: options)
