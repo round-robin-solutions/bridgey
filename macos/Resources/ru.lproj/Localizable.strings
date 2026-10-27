@@ -1108,3 +1108,7 @@
 "quick.file.photo.none" = "Сделать фото на телефоне";
 "intent.camera.description" = "Открывает камеру на сопряжённом телефоне и возвращает фото, когда вы его сделаете.";
 "intent.camera.title" = "Сделать фото на телефоне";
+"call.confirm.title" = "Позвонить на %1$@ с %2$@?";
+"call.confirm.title.anyPhone" = "Позвонить на %@ с вашего телефона?";
+"call.confirm.detail" = "Другое приложение попросило Bridgey позвонить на этот номер.";
+"call.confirm.call" = "Позвонить";

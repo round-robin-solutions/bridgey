@@ -826,9 +826,17 @@ final class PairingCoordinator: ObservableObject {
         sendCall(value)
     }
 
-    func sendCallWhenConnected(_ value: String) {
+    func sendCallWhenConnected(_ value: String, source: CallRequestSource) {
         guard let number = normalizedPhoneNumber(value) else {
             setTransientCallStatus("Phone link does not contain a valid number")
+            return
+        }
+        if source.needsConfirmation {
+            // Asked once the Service or the link handler has returned, so the other app does not wait on it.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.confirmCall(number) else { return }
+                self.sendCallWhenConnected(number, source: .bridgey)
+            }
             return
         }
         pendingCallNumber = number
@@ -845,6 +853,17 @@ final class PairingCoordinator: ObservableObject {
         }
         pendingCallExpiryWorkItem = expiry
         DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: expiry)
+    }
+
+    /// Asks on this Mac before a call another app started goes to the phone.
+    private func confirmCall(_ number: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = callConfirmationTitle(number: number, phoneName: session?.peerName)
+        alert.informativeText = L10n.text("call.confirm.detail", fallback: "Another app asked Bridgey to place this call.")
+        alert.addButton(withTitle: L10n.text("call.confirm.call", fallback: "Call"))
+        alert.addButton(withTitle: L10n.text("action.cancel", fallback: "Cancel"))
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     func sendCall(_ value: String) {

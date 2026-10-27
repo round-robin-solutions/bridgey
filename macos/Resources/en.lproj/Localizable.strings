@@ -1108,3 +1108,7 @@
 "quick.file.photo.none" = "Take Photo with Phone";
 "intent.camera.description" = "Opens the camera on a paired phone and returns the photo when you take it.";
 "intent.camera.title" = "Take Photo with Phone";
+"call.confirm.title" = "Call %1$@ from %2$@?";
+"call.confirm.title.anyPhone" = "Call %@ from your phone?";
+"call.confirm.detail" = "Another app asked Bridgey to place this call.";
+"call.confirm.call" = "Call";
