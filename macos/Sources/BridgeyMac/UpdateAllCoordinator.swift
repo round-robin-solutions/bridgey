@@ -35,8 +35,8 @@ struct UpdateAllActions {
 @MainActor
 final class UpdateAllCoordinator: ObservableObject {
     static let shared = UpdateAllCoordinator()
-    static let remoteStartKey = "updates.remoteStart"
-    static let runKey = "updates.updateAllRun"
+    nonisolated static let remoteStartKey = "updates.remoteStart"
+    nonisolated static let runKey = "updates.updateAllRun"
 
     /// Settings > Updates > Let paired devices start updates on this Mac. On by default: it only triggers
     /// this Mac's own signed update from its own channel.

@@ -149,8 +149,13 @@ private struct UpdateStatusCard: View {
         }
     }
 
+    /// While Update all runs this Mac's turn, its card (countdown, Later) owns Install and Restart.
+    private var runOwnsThisMac: Bool { model.updateAll.activeRun?.local != nil }
+
     private var hasFooter: Bool {
-        switch flow {
+        if runOwnsThisMac, case .available = flow { return false }
+        if runOwnsThisMac, case .ready = flow { return false }
+        return switch flow {
         case .available, .ready, .failed: true
         default: false
         }

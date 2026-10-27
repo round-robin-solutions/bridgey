@@ -219,9 +219,12 @@ struct UpdateAllPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 6 : 8) {
-            Text(UpdateAllText.summary(plan))
-                .font(BrandFont.body(compact ? 11 : 12, .semibold))
-                .foregroundStyle(c.on2)
+            // The panel card already says it in its title line.
+            if !compact {
+                Text(UpdateAllText.summary(plan))
+                    .font(BrandFont.body(12, .semibold))
+                    .foregroundStyle(c.on2)
+            }
             VStack(spacing: 0) {
                 ForEach(plan.targets) { entry in
                     UpdateAllDeviceRow(name: entry.isLocal ? UpdateAllText.thisMac : entry.name, isLocal: entry.isLocal,
@@ -365,7 +368,7 @@ struct UpdateAllRunRows: View {
     }
 
     private func version(_ item: UpdateRunItem) -> String {
-        guard let target = item.targetApp else { return item.fromApp }
+        guard let target = item.targetApp, item.step != .upToDate else { return item.fromApp }
         return "\(item.fromApp) > \(UpdateFlowText.shortVersion(target, comparedTo: item.fromApp))"
     }
 
