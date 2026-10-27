@@ -21,10 +21,13 @@ class SetupStore(context: Context) {
     /** The Home banner "See what's new and review your setup" is waiting to be seen. */
     val bannerPending: StateFlow<Boolean> = mutableBanner.asStateFlow()
 
-    /** Decides once per launch, and stores the status so later launches agree. */
-    fun launch(): SetupLaunch {
+    /**
+     * Decides once per launch, and stores the status so later launches agree. [oldOnboardingCompleted]
+     * is the pre-v0.10 `bridgey_onboarding.completed` flag, read by MainActivity where it always was.
+     */
+    fun launch(oldOnboardingCompleted: Boolean): SetupLaunch {
         val stored = preferences.getString(KEY_STATUS, null)?.let { runCatching { SetupStatus.valueOf(it) }.getOrNull() }
-        val launch = SetupLaunchLogic.decide(stored, legacyOnboarding.getBoolean(KEY_LEGACY_COMPLETED, false), settings.all.isNotEmpty())
+        val launch = SetupLaunchLogic.decide(stored, oldOnboardingCompleted, settings.all.isNotEmpty())
         if (stored == null) {
             preferences.edit().putString(KEY_STATUS, launch.status.name).apply()
         }

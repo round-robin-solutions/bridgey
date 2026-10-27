@@ -91,9 +91,9 @@ internal class SetupHooks(
     fun takeStart(): SetupState = nextStart.also { nextStart = SetupState() }
 
     companion object {
-        fun create(activity: Activity, restart: () -> Unit, resetHook: (ResetHook) -> Unit): SetupHooks {
+        fun create(activity: Activity, oldOnboardingCompleted: Boolean, restart: () -> Unit, resetHook: (ResetHook) -> Unit): SetupHooks {
             val store = SetupStore(activity)
-            return SetupHooks(store, store.launch(), OemBattery.checklist(Build.MANUFACTURER, Build.BRAND), restart, resetHook)
+            return SetupHooks(store, store.launch(oldOnboardingCompleted), OemBattery.checklist(Build.MANUFACTURER, Build.BRAND), restart, resetHook)
         }
     }
 }

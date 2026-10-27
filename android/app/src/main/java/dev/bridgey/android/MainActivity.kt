@@ -212,7 +212,10 @@ class MainActivity : ComponentActivity() {
             return
         }
         bridgey.enableBridgey()
-        setupHooks = SetupHooks.create(this, restart = ::restartBridgey, resetHook = bridgey::runResetHook)
+        // Pre-v0.10 onboarding flag: people who finished it skip setup and get the What's new banner.
+        val oldOnboardingCompleted = getSharedPreferences("bridgey_onboarding", MODE_PRIVATE)
+            .getBoolean("completed", false)
+        setupHooks = SetupHooks.create(this, oldOnboardingCompleted, restart = ::restartBridgey, resetHook = bridgey::runResetHook)
         showOnboarding = setupHooks.launch.showSetup
         pairing = bridgey.pairing
         discovery = bridgey.discovery
