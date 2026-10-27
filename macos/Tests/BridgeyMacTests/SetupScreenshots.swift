@@ -110,52 +110,68 @@ final class SetupScreenshots: XCTestCase {
         try questionPath()
     }
 
-    /// The question path: Intro (with picks and typing), cards, a permission, the line after a
-    /// refusal, Mac control, the summary, Leave setup? and More options.
+    /// The short question path: Intro (with picks and typing), a follow-up, the switches, the
+    /// permissions page with mixed statuses, the summary with a refused permission, Leave setup?
+    /// and More options. A fresh install: every feature off.
     @MainActor private func questionPath() throws {
-        let facts = SetupFacts.make(model: pairedModel)
+        var fresh = pairedModel
+        for feature in BridgeyFeature.allCases { fresh.globalFeatures[feature] = false }
+        fresh.codesEnabled = false
+        fresh.mediaPlayer = .off
+        let facts = SetupFacts.make(model: fresh)
         var flow = SetupFlow()
         flow.send(.chooseAdvanced)
-        try setup("setup-intro", flow: flow, model: pairedModel)
-        try setup("setup-intro-typed", flow: flow, model: pairedModel,
+        try setup("setup-intro", flow: flow, model: fresh)
+        try setup("setup-intro-typed", flow: flow, model: fresh,
                   typed: "I mainly want my WhatsApp notifications and to send photos to my Mac", picked: ["clipboard"])
-        flow.send(.startQuestions([:]), facts: facts)
-        try setup("setup-question-clipboard", flow: flow, model: pairedModel)
-        try setup("setup-more-options", flow: flow, model: pairedModel, openPane: .clipboard)
-        flow.send(.answer("clipboard", SetupAnswerKey.auto), facts: facts)
+        flow.send(.startQuestions(["clipboard": SetupAnswerKey.pick, "notifications": SetupAnswerKey.pick, "files": SetupAnswerKey.pick]), facts: facts)
+        var picked = fresh
+        picked.globalFeatures[.clipboard] = true
+        picked.globalFeatures[.notifications] = true
+        picked.globalFeatures[.files] = true
+        let pickedFacts = SetupFacts.make(model: picked)
+        try setup("setup-question-clipboard", flow: flow, model: picked)
+        try setup("setup-more-options", flow: flow, model: picked, openPane: .clipboard)
+        flow.send(.answer("clipboard", SetupAnswerKey.auto), facts: pickedFacts)
+        try setup("setup-question-codes", flow: flow, model: picked)
+        flow.send(.answer("codes", SetupAnswerKey.onMac), facts: pickedFacts)
+        flow.send(.notNow, facts: pickedFacts)
+        try setup("setup-switches", flow: flow, model: picked)
+        flow.send(.setSwitch("remote", true), facts: pickedFacts)
+        flow.send(.setSwitch("battery", true), facts: pickedFacts)
+        var switched = picked
+        switched.globalFeatures[.remoteInput] = true
+        switched.globalFeatures[.battery] = true
+        switched.codesEnabled = true
+        try setup("setup-switches-on", flow: flow, model: switched)
 
-        var ask = pairedModel
-        ask.notificationsAuthorized = false
-        ask.setup.permissions = statuses([.localNetwork: .allowed], needs: PermissionNeeds())
-        let askFacts = SetupFacts.make(model: ask)
-        flow.send(.answer("clipboard_files", SetupAnswerKey.yes), facts: askFacts)
-        try setup("setup-question-notifications", flow: flow, model: ask)
-        flow.send(.answer("notifications", SetupAnswerKey.yes), facts: askFacts)
-        try setup("setup-question-permission", flow: flow, model: ask)
-        try setup("setup-question-permission-asked", flow: flow, model: ask, requested: [.notifications])
-        flow.send(.permissionResult(false), facts: askFacts)
-        try setup("setup-question-denied-note", flow: flow, model: ask)
-
-        while flow.screen != .question("remote") { flow.send(.notNow, facts: askFacts) }
-        try setup("setup-question-remote", flow: flow, model: ask)
-        flow.send(.answer("remote", SetupAnswerKey.yes), facts: facts)
-        while flow.screen != .question("updates") { flow.send(.notNow, facts: facts) }
-        try setup("setup-question-updates", flow: flow, model: pairedModel)
-        flow.send(.answer("updates", SetupAnswerKey.early), facts: facts)
-        while case .question = flow.screen { flow.send(.notNow, facts: facts) }
-        try setup("setup-summary", flow: flow, model: ask)
+        // The permissions page: Local Network allowed, Notifications refused, Accessibility and Bluetooth not yet.
+        var asking = switched
+        asking.accessibilityTrusted = false
+        asking.setup.permissions = statuses([.localNetwork: .allowed, .notifications: .denied, .bluetooth: .notDetermined,
+                                             .accessibility: .notDetermined], needs: PermissionNeeds())
+        let askingFacts = SetupFacts.make(model: asking)
+        flow.send(.proceed, facts: askingFacts)
+        try setup("setup-permissions", flow: flow, model: asking)
+        flow.send(.asked([.notifications, .accessibility]), facts: askingFacts)
+        flow.send(.proceed, facts: askingFacts)
+        var after = asking
+        after.globalFeatures[.notifications] = false
+        after.globalFeatures[.remoteInput] = false
+        try setup("setup-summary", flow: flow, model: after)
 
         var leaving = SetupFlow()
         leaving.send(.chooseAdvanced)
-        leaving.send(.startQuestions([:]), facts: facts)
-        leaving.send(.answer("clipboard", SetupAnswerKey.auto), facts: facts)
+        leaving.send(.startQuestions(["clipboard": SetupAnswerKey.pick]), facts: facts)
         leaving.send(.askLeave)
-        try setup("setup-leave", flow: leaving, model: pairedModel)
+        try setup("setup-leave", flow: leaving, model: picked)
 
         var pair = SetupFlow()
+        var unpaired = firstRunModel
+        for feature in BridgeyFeature.allCases { unpaired.globalFeatures[feature] = false }
         pair.send(.chooseAdvanced)
-        pair.send(.startQuestions([:]), facts: SetupFacts.make(model: firstRunModel))
-        try setup("setup-question-pair", flow: pair, model: firstRunModel)
+        pair.send(.startQuestions(["calls": SetupAnswerKey.pick]), facts: SetupFacts.make(model: unpaired))
+        try setup("setup-question-pair", flow: pair, model: unpaired)
     }
 
     // MARK: Explainer, Permissions, Reset

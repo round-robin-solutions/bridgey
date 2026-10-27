@@ -2,10 +2,11 @@ import AppKit
 import SwiftUI
 
 /*
- * The setup window: Welcome, the quick path (Local Network, Notifications, Pair a phone, Done)
- * and the question path (Intro with Type what you want, one question per card, the permission an
- * answer needs, the summary). The view draws from a `SetupFlow`, a `SettingsModel` and plain
- * closures, so screenshots render it from sample state. Escape does what Android's back does.
+ * The setup window: Welcome, the quick path (Local Network, Notifications, Pair a phone, Done:
+ * the Essentials) and the short question path (Intro with bundles and Type what you want, a
+ * follow-up only for what was picked, one page of feature switches, one permissions page, the
+ * summary). The view draws from a `SetupFlow`, a `SettingsModel` and plain closures, so
+ * screenshots render it from sample state. Escape does what Android's back does.
  */
 
 struct SetupActions {
@@ -13,8 +14,10 @@ struct SetupActions {
     var dispatch: (SetupEvent, SetupFacts) -> Void = { _, _ in }
     /// Quick path: the explainer (first time), then the macOS prompt or the System Settings page.
     var allow: (SetupPermission) -> Void = { _ in }
-    /// A question's permission step: the macOS prompt or the System Settings page (the card explained it).
-    var requestForQuestion: (SetupPermission) -> Void = { _ in }
+    /// A row on the permissions page: the macOS prompt or the System Settings page (the row explains it).
+    var requestFromPage: (SetupPermission) -> Void = { _ in }
+    /// Allow all: each permission in turn, coming back to the page after each.
+    var allowAll: ([SetupPermission]) -> Void = { _ in }
     var confirmPairing: () -> Void = {}
     var cancelPairing: () -> Void = {}
     var openSettings: () -> Void = {}
@@ -102,7 +105,7 @@ struct SetupWindowView: View {
 
     @ViewBuilder private var screen: some View {
         switch flow.screen {
-        case .welcome: SetupWelcomeView(send: setup.send)
+        case .welcome: SetupWelcomeView(send: send)
         case let .quick(step):
             SetupQuickStepView(step: step, flow: flow, model: model, actions: actions, setup: setup, requested: requested)
         case .intro:
@@ -112,11 +115,10 @@ struct SetupWindowView: View {
                 SetupQuestionView(question: question, flow: flow, facts: facts, model: model, actions: actions, setup: setup,
                                   send: send, more: { morePane = $0 })
             }
-        case let .permission(id, permission):
-            if let question = SetupQuestions.question(id) {
-                SetupPermissionView(question: question, permission: permission, flow: flow, facts: facts, model: model,
-                                    asked: requested.contains(permission), setup: setup, send: send)
-            }
+        case .switches:
+            SetupSwitchesView(flow: flow, facts: facts, send: send, more: { morePane = $0 })
+        case .permissions:
+            SetupPermissionsView(flow: flow, facts: facts, model: model, setup: setup, send: send)
         case .summary:
             SetupSummaryView(flow: flow, facts: facts, model: model, setup: setup, send: send, change: { morePane = $0 })
         case .done: SetupDoneView(flow: flow, setup: setup)
@@ -129,7 +131,8 @@ struct SetupWindowView: View {
         case let .quick(step): "quick.\(step.rawValue)"
         case .intro: "intro"
         case let .question(id): "question.\(id)"
-        case let .permission(id, permission): "permission.\(id).\(permission.rawValue)"
+        case .switches: "switches"
+        case .permissions: "permissions"
         case .summary: "summary"
         case .done: "done"
         }
@@ -192,14 +195,14 @@ private struct SetupWelcomeView: View {
                     symbol: "bolt.fill", tint: .blue,
                     title: L10n.setup("setup.quick.title", fallback: "Get started quickly"),
                     badge: L10n.setup("setup.quick.badge", fallback: "Recommended"),
-                    detail: L10n.setup("setup.quick.detail", fallback: "Sensible defaults and only the permissions you need now. Change anything later in Settings."),
+                    detail: L10n.setup("setup.quick.detail", fallback: "Turns on the Essentials: pair your phone, clipboard when you click Send, and your phone\u{2019}s notifications. Everything else stays off."),
                     highlighted: true
                 ) { send(.chooseQuick) }
                 SetupChoiceCard(
                     symbol: "slider.horizontal.3", tint: .purple,
                     title: L10n.setup("setup.advanced.title", fallback: "Advanced setup"),
                     badge: nil,
-                    detail: L10n.setup("setup.advanced.detail", fallback: "Go through every feature and choose how it works. Defaults are already selected."),
+                    detail: L10n.setup("setup.advanced.detail", fallback: "Pick what you want, answer a few short questions, and switch on anything else."),
                     highlighted: false
                 ) { send(.chooseAdvanced) }
             }
@@ -255,7 +258,7 @@ private struct SetupChoiceCard: View {
                 .foregroundStyle(c.pri)
             }
             .padding(20)
-            .frame(width: 300, height: 210, alignment: .topLeading)
+            .frame(width: 300, height: 244, alignment: .topLeading)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(c.s1))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(highlighted ? c.pri : c.ol, lineWidth: highlighted ? 1.5 : 1))
@@ -537,7 +540,7 @@ private struct SetupDoneView: View {
                 .foregroundStyle(c.on)
                 .accessibilityAddTraits(.isHeader)
                 .padding(.bottom, 10)
-            Text(L10n.setup("setup.done.body", fallback: "Bridgey is ready in the menu bar. Change anything later in Settings."))
+            Text(L10n.setup("setup.done.body", fallback: "The Essentials are on: clipboard when you click Send, and your phone\u{2019}s notifications. Everything else stays off until you turn it on in Settings."))
                 .font(BrandFont.body(14))
                 .foregroundStyle(c.on2)
                 .multilineTextAlignment(.center)
@@ -579,17 +582,15 @@ private struct SetupDoneView: View {
 
 // MARK: - Question path chrome
 
-/// The top of a question card: its section, the steps left (from the adaptive count) and a bar.
+/// The top of a question page: its section, the steps left (from the path as it is now) and a bar.
 private struct SetupQuestionHeader: View {
     let eyebrow: String
-    let flow: SetupFlow
-    let facts: SetupFacts
+    let done: Int
+    let left: Int
     @Environment(\.brand) private var c
     @Environment(\.brandReduceMotion) private var reduce
 
     var body: some View {
-        let left = flow.stepsLeft(facts)
-        let done = max(flow.trail.count - 1, 0) + (flow.screen == .intro ? 0 : 1)
         let fraction = CGFloat(done) / CGFloat(max(done + left, 1))
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
@@ -622,9 +623,15 @@ private struct SetupQuestionHeader: View {
         .accessibilityElement(children: .combine)
     }
 
+    init(eyebrow: String, flow: SetupFlow, facts: SetupFacts, left: Int? = nil) {
+        self.eyebrow = eyebrow
+        done = flow.trail.count
+        self.left = left ?? flow.stepsLeft(facts)
+    }
+
     static func stepsLeft(_ count: Int) -> String {
         switch count {
-        case 0: L10n.setup("setup.left.last", fallback: "Last question")
+        case 0: L10n.setup("setup.left.last", fallback: "Last step")
         case 1: L10n.setup("setup.left.one", fallback: "1 step left")
         default: String(format: L10n.setup("setup.left.other", fallback: "%d steps left"), count)
         }
@@ -665,29 +672,6 @@ private struct SetupHeading: View {
                 .foregroundStyle(c.on2)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-}
-
-/// One line on a card: a permission was not allowed, or answers came from typing.
-private struct SetupNotice: View {
-    let text: String
-    var warning = true
-    @Environment(\.brand) private var c
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: warning ? "exclamationmark.circle.fill" : "text.cursor")
-                .font(.system(size: 12, weight: .semibold))
-            Text(text)
-                .font(BrandFont.body(13, .medium))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .foregroundStyle(warning ? c.warn : c.tbi)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(warning ? c.warn.opacity(c.isDark ? 0.14 : 0.08) : c.tb))
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -741,7 +725,7 @@ private struct SetupAnswerButton: View {
     }
 }
 
-/// A plain link under the answers: More options, Change in Settings.
+/// A plain link: More options, Change details in Settings, Change in Settings.
 private struct SetupLink: View {
     let title: String
     let action: () -> Void
@@ -764,7 +748,7 @@ private struct SetupLink: View {
 // MARK: - Intro
 
 /// The question path's start: one-click bundles, Type what you want (keyword rules, shown for
-/// confirmation before anything changes), or straight to the questions.
+/// confirmation before anything changes), or straight on.
 private struct SetupIntroView: View {
     let flow: SetupFlow
     let facts: SetupFacts
@@ -782,24 +766,26 @@ private struct SetupIntroView: View {
         _picked = State(initialValue: picked)
     }
 
-    private var typed: [String: String] { SetupTyped.match(text) }
-    private var chosen: [String: String] { SetupBundles.answers(picked: picked, typed: typed) }
+    private var chosen: [(id: String, key: String)] { SetupBundles.answers(picked: picked, typed: SetupTyped.match(text)) }
+
+    private var chosenMap: [String: String] { Dictionary(chosen.map { ($0.id, $0.key) }, uniquingKeysWith: { _, last in last }) }
 
     var body: some View {
         VStack(spacing: 0) {
-            SetupQuestionHeader(eyebrow: L10n.setup("setup.advanced.title", fallback: "Advanced setup"), flow: flow, facts: facts)
+            SetupQuestionHeader(eyebrow: L10n.setup("setup.advanced.title", fallback: "Advanced setup"), flow: flow, facts: facts,
+                                left: flow.stepsLeft(ifStarted: chosenMap, facts: facts))
             SetupColumn {
                 SetupHeading(title: L10n.setup("setup.intro.title", fallback: "What do you want Bridgey for?"),
-                             context: L10n.setup("setup.intro.body", fallback: "Pick what brought you here, type it in your own words, or just answer a few short questions."))
+                             context: L10n.setup("setup.intro.body", fallback: "Pick what brought you here or type it in your own words. Everything else stays off until you turn it on."))
                 bundles.padding(.top, 22)
                 input.padding(.top, 18)
                 preview.padding(.top, 14)
             }
             SetupBottomBar(back: flow.entry == .intro ? nil : { send(.back) }) {
                 Button(chosen.isEmpty
-                       ? L10n.setup("setup.intro.start", fallback: "Start the questions")
+                       ? L10n.setup("setup.intro.start", fallback: "Continue")
                        : L10n.setup("setup.intro.apply", fallback: "Turn these on and continue")) {
-                    send(.startQuestions(chosen))
+                    send(.startQuestions(chosenMap))
                 }
                 .buttonStyle(PillButtonStyle(kind: .gradient, height: 34))
                 .keyboardShortcut(.defaultAction)
@@ -869,11 +855,20 @@ private struct SetupIntroView: View {
         L10n.setup("setup.intro.placeholder", fallback: "For example: my WhatsApp notifications, and sending photos to my Mac")
     }
 
-    @ViewBuilder private var preview: some View {
-        let items = SetupQuestions.all.compactMap { question -> (String, String)? in
-            guard let key = chosen[question.id], let answer = question.answer(key) else { return nil }
-            return (question.summary, answer.label)
+    /// What each pick means, in plain words: a feature on or off, a follow-up's answer, Focus, updates.
+    private var items: [(String, String)] {
+        chosen.compactMap { id, key in
+            if let feature = SetupFeatures.feature(id) {
+                return (feature.title, key == SetupAnswerKey.no ? L10n.setup("setup.intro.off", fallback: "Stays off") : L10n.setup("setup.intro.on", fallback: "On"))
+            }
+            if let question = SetupQuestions.question(id), let answer = question.answer(key) { return (question.summary, answer.label) }
+            if let label = SetupQuestions.typedOnlyLabel(id, key) { return (label.title, label.value) }
+            return nil
         }
+    }
+
+    @ViewBuilder private var preview: some View {
+        let items = items
         if !items.isEmpty {
             SettingsCard(title: L10n.setup("setup.intro.matched", fallback: "Bridgey will set these. Nothing changes until you continue.")) {
                 VStack(alignment: .leading, spacing: 7) {
@@ -945,7 +940,7 @@ struct SetupWrap: Layout {
     }
 }
 
-// MARK: - Question
+// MARK: - Follow-up
 
 private struct SetupQuestionView: View {
     let question: SetupQuestion
@@ -956,7 +951,6 @@ private struct SetupQuestionView: View {
     let setup: SetupActions
     let send: (SetupEvent) -> Void
     let more: (SettingsPane) -> Void
-    @Environment(\.brand) private var c
 
     private var paired: Bool { !model.trustedDevices.isEmpty }
 
@@ -965,20 +959,13 @@ private struct SetupQuestionView: View {
             SetupQuestionHeader(eyebrow: question.section.title, flow: flow, facts: facts)
             SetupColumn {
                 VStack(alignment: .leading, spacing: 0) {
-                    if let note = notice {
-                        SetupNotice(text: note).padding(.bottom, 18)
-                    } else if flow.typed[question.id] != nil {
-                        SetupNotice(text: L10n.setup("setup.typed.note", fallback: "Chosen from what you picked or typed. It needs one permission."),
-                                    warning: false)
-                            .padding(.bottom, 18)
-                    }
                     SetupHeading(title: question.title, context: question.context)
                     if question.id == "pair" {
                         pairing.padding(.top, 22)
                     } else {
                         VStack(spacing: 10) {
                             ForEach(question.visibleAnswers(facts), id: \.key) { answer in
-                                SetupAnswerButton(answer: answer, selected: selected == answer.key, current: isCurrent(answer)) {
+                                SetupAnswerButton(answer: answer, selected: flow.answers[question.id] == answer.key, current: isCurrent(answer)) {
                                     send(.answer(question.id, answer.key))
                                 }
                             }
@@ -1004,17 +991,9 @@ private struct SetupQuestionView: View {
         }
     }
 
-    /// The answer given before (going back), or the one typed.
-    private var selected: String? { flow.answers[question.id] ?? flow.typed[question.id] }
-
     /// The settings already match this answer (before anything is chosen).
     private func isCurrent(_ answer: SetupAnswer) -> Bool {
-        !answer.changes.isEmpty && answer.changes.allSatisfy { facts.value($0.setting) == $0.value }
-    }
-
-    private var notice: String? {
-        guard let id = flow.notice, let denied = SetupQuestions.question(id), let permission = flow.denied[id] else { return nil }
-        return SetupQuestions.deniedLine(denied, answer: flow.answers[id], permission)
+        flow.answers[question.id] == nil && !answer.changes.isEmpty && answer.changes.allSatisfy { facts.value($0.setting) == $0.value }
     }
 
     @ViewBuilder private var pairing: some View {
@@ -1026,86 +1005,154 @@ private struct SetupQuestionView: View {
     }
 }
 
-// MARK: - Permission
+// MARK: - Switches
 
-/// The permission an answer needs, right after it: the permission's own why and without-it,
-/// Allow, then Continue once macOS has asked.
-private struct SetupPermissionView: View {
-    let question: SetupQuestion
-    let permission: SetupPermission
+/// Every feature that was not picked: one line each, off until switched on, with the details on
+/// its Settings page.
+private struct SetupSwitchesView: View {
+    let flow: SetupFlow
+    let facts: SetupFacts
+    let send: (SetupEvent) -> Void
+    let more: (SettingsPane) -> Void
+
+    private var features: [SetupFeature] { SetupFeatures.all.filter { !flow.picked.contains($0.id) } }
+
+    var body: some View {
+        let effective = flow.effective(facts)
+        VStack(spacing: 0) {
+            SetupQuestionHeader(eyebrow: L10n.setup("setup.switches.eyebrow", fallback: "Everything else"), flow: flow, facts: facts)
+            SetupColumn {
+                SetupHeading(title: L10n.setup("setup.switches.title", fallback: "Anything else you want on?"),
+                             context: L10n.setup("setup.switches.body", fallback: "Turn on what you need. The rest stays off until you want it."))
+                SettingsCard {
+                    ForEach(Array(features.enumerated()), id: \.element.id) { index, feature in
+                        SettingsToggle(title: feature.title, subtitle: feature.detail, divider: index > 0,
+                                       isOn: SetupFeatures.isOn(feature, effective)) { send(.setSwitch(feature.id, $0)) }
+                    }
+                }
+                .padding(.top, 20)
+                SetupLink(title: L10n.setup("setup.switches.details", fallback: "Change details in Settings")) {
+                    more(features.first?.pane ?? .clipboard)
+                }
+                .padding(.top, 14)
+            }
+            SetupBottomBar(back: { send(.back) }) {
+                Button(L10n.setup("action.continue", fallback: "Continue")) { send(.proceed) }
+                    .buttonStyle(PillButtonStyle(kind: .gradient, height: 34))
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+    }
+}
+
+// MARK: - Permissions
+
+/// The live status of one permission on the page.
+enum SetupPermissionRowStatus: Equatable {
+    case allowed, notYet, refused
+
+    var title: String {
+        switch self {
+        case .allowed: L10n.setup("setup.permissions.allowed", fallback: "Allowed")
+        case .notYet: L10n.setup("setup.permissions.notYet", fallback: "Not yet")
+        case .refused: L10n.setup("setup.permissions.refused", fallback: "Refused")
+        }
+    }
+
+    static func of(_ permission: SetupPermission, model: SettingsModel) -> SetupPermissionRowStatus {
+        if permission == .accessibility && model.accessibilityTrusted { return .allowed }
+        switch model.setup.permissions.first(where: { $0.permission == permission })?.system {
+        case .allowed: return .allowed
+        case .denied: return .refused
+        default: return .notYet
+        }
+    }
+}
+
+/// Every permission the chosen features need, on one page: why, which features need it, the live
+/// status and Allow; Allow all walks through them in order; Continue always works.
+private struct SetupPermissionsView: View {
     let flow: SetupFlow
     let facts: SetupFacts
     let model: SettingsModel
-    let asked: Bool
     let setup: SetupActions
     let send: (SetupEvent) -> Void
     @Environment(\.brand) private var c
 
-    private var system: PermissionSystemState {
-        model.setup.permissions.first { $0.permission == permission }?.system ?? .notDetermined
-    }
-
-    private var allowed: Bool { facts.granted.contains(permission) }
+    private var needs: [SetupPermissionNeed] { flow.neededPermissions(facts) }
 
     var body: some View {
+        let waiting = needs.filter { SetupPermissionRowStatus.of($0.permission, model: model) != .allowed }.map(\.permission)
         VStack(spacing: 0) {
-            SetupQuestionHeader(eyebrow: question.section.title, flow: flow, facts: facts)
+            SetupQuestionHeader(eyebrow: L10n.setup("setup.permissions.eyebrow", fallback: "Permissions"), flow: flow, facts: facts)
             SetupColumn {
-                VStack(alignment: .leading, spacing: 18) {
-                    IconTile(symbol: permission.symbol, tint: permission.tint, size: 56, corner: 16)
-                    Text(permission.explainerTitle)
-                        .font(BrandFont.heading(26))
-                        .foregroundStyle(c.on)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityAddTraits(.isHeader)
-                    VStack(alignment: .leading, spacing: 8) {
-                        SetupWhyLine(label: L10n.setup("permission.why", fallback: "Why:"), text: permission.why)
-                        SetupWhyLine(label: L10n.setup("permission.without", fallback: "Without it:"), text: permission.without)
-                    }
-                    if allowed {
-                        SetupDoneBadge(text: L10n.setup("setup.step.done", fallback: "Done"))
-                    } else if system == .denied {
-                        Text(L10n.setup("setup.step.denied", fallback: "Not allowed. Open System Settings to allow it."))
-                            .font(BrandFont.body(13, .medium))
-                            .foregroundStyle(c.warn)
-                    } else if asked {
-                        Text(L10n.setup("setup.step.asked", fallback: "If macOS asked, choose Allow. Then continue."))
-                            .font(BrandFont.body(13))
-                            .foregroundStyle(c.on2)
+                SetupHeading(title: L10n.setup("setup.permissions.title", fallback: "Allow what these features need"),
+                             context: L10n.setup("setup.permissions.body", fallback: "macOS asks once for each. Anything you skip stays off, and you can allow it later in Settings."))
+                SettingsCard {
+                    ForEach(Array(needs.enumerated()), id: \.element.permission) { index, need in
+                        row(need, divider: index > 0)
                     }
                 }
+                .padding(.top, 20)
             }
             SetupBottomBar(back: { send(.back) }) {
-                if !allowed {
-                    Button(L10n.setup("action.notNow", fallback: "Not now")) { send(.notNow) }
-                        .buttonStyle(PillButtonStyle(kind: .neutral, height: 34))
-                }
-                if allowed || asked {
-                    Button(L10n.setup("action.continue", fallback: "Continue")) { send(.permissionResult(granted)) }
-                        .buttonStyle(PillButtonStyle(kind: .gradient, height: 34))
-                        .keyboardShortcut(.defaultAction)
-                } else {
-                    Button(system == .denied
-                           ? L10n.setup("setup.step.openSettings", fallback: "Open System Settings")
-                           : L10n.setup("setup.step.allow", fallback: "Allow")) { setup.requestForQuestion(permission) }
+                Button(L10n.setup("action.continue", fallback: "Continue")) { send(.proceed) }
+                    .buttonStyle(PillButtonStyle(kind: waiting.isEmpty ? .gradient : .neutral, height: 34))
+                if !waiting.isEmpty {
+                    Button(L10n.setup("setup.permissions.allowAll", fallback: "Allow all")) { setup.allowAll(waiting) }
                         .buttonStyle(PillButtonStyle(kind: .gradient, height: 34))
                         .keyboardShortcut(.defaultAction)
                 }
             }
-        }
-        .onChange(of: allowed) { now in
-            if now { send(.permissionResult(true)) }
         }
     }
 
-    /// Allowed; for Music and Spotify, also not decided yet (macOS asks the first time the phone uses it).
-    private var granted: Bool { allowed || (permission == .automation && system != .denied) }
+    @ViewBuilder private func row(_ need: SetupPermissionNeed, divider: Bool) -> some View {
+        let status = SetupPermissionRowStatus.of(need.permission, model: model)
+        HStack(alignment: .center, spacing: 12) {
+            IconTile(symbol: need.permission.symbol, tint: need.permission.tint, size: 30, corner: 8)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(need.permission.name)
+                    .font(BrandFont.body(13, .semibold))
+                    .foregroundStyle(c.on)
+                Text(need.permission.why)
+                    .font(BrandFont.body(12))
+                    .foregroundStyle(c.on2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(need.neededFor)
+                    .font(BrandFont.body(11.5, .medium))
+                    .foregroundStyle(c.on2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            chip(status)
+            if status != .allowed {
+                Button(status == .refused
+                       ? L10n.setup("setup.step.openSettings", fallback: "Open System Settings")
+                       : L10n.setup("setup.step.allow", fallback: "Allow")) { setup.requestFromPage(need.permission) }
+                    .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+                    .fixedSize()
+            }
+        }
+        .padding(.vertical, 10)
+        .overlay(alignment: .top) { if divider { Rectangle().fill(c.olv).frame(height: 1) } }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func chip(_ status: SetupPermissionRowStatus) -> some View {
+        Text(status.title)
+            .font(BrandFont.body(11, .semibold))
+            .foregroundStyle(status == .allowed ? c.tgi : status == .refused ? c.warn : c.on2)
+            .padding(.horizontal, 9)
+            .frame(height: 22)
+            .background(Capsule().fill(status == .allowed ? c.tg : status == .refused ? c.warn.opacity(c.isDark ? 0.16 : 0.1) : c.s3))
+            .fixedSize()
+    }
 }
 
 // MARK: - Summary
 
-/// What was turned on, in plain words, each with a switch and Change in Settings; the choices;
-/// and what is off because a permission was not allowed, or still waits for one.
+/// What is on, each with a switch and Change in Settings; the typed choices; and what stayed off
+/// because a permission was not allowed.
 private struct SetupSummaryView: View {
     let flow: SetupFlow
     let facts: SetupFacts
@@ -1116,7 +1163,7 @@ private struct SetupSummaryView: View {
     @Environment(\.brand) private var c
 
     var body: some View {
-        let items = SetupSummary.items(flow)
+        let items = SetupSummary.items(flow, facts: facts)
         VStack(spacing: 0) {
             SetupColumn {
                 VStack(alignment: .leading, spacing: 20) {
@@ -1130,11 +1177,11 @@ private struct SetupSummaryView: View {
                     }
                     .padding(.top, 12)
                     if items.isEmpty {
-                        Text(L10n.setup("setup.summary.empty", fallback: "You kept the defaults. Everything can be changed in Settings."))
+                        Text(L10n.setup("setup.summary.empty", fallback: "Nothing is on yet. Turn features on any time in Settings."))
                             .font(BrandFont.body(14))
                             .foregroundStyle(c.on2)
                     }
-                    section(L10n.setup("setup.summary.on", fallback: "Turned on"), items.filter { if case .turnedOn = $0 { true } else { false } })
+                    section(L10n.setup("setup.summary.on", fallback: "Turned on"), items.filter { if case .featureOn = $0 { true } else { false } })
                     section(L10n.setup("setup.summary.choices", fallback: "Your choices"), items.filter { if case .chosen = $0 { true } else { false } })
                     section(L10n.setup("setup.summary.notAllowed", fallback: "Not allowed"), items.filter { if case .notAllowed = $0 { true } else { false } })
                 }
@@ -1160,23 +1207,24 @@ private struct SetupSummaryView: View {
     }
 
     @ViewBuilder private func row(_ item: SetupSummaryItem, divider: Bool) -> some View {
-        let question = item.question
         HStack(spacing: 12) {
             switch item {
-            case let .turnedOn(_, answer, on):
-                RowText(title: question.summary, subtitle: waiting(answer) ?? hint(question, answer) ?? answerLine(question, answer),
-                        warning: waiting(answer) != nil)
-                changeLink(question)
-                Toggle(isOn: Binding(get: { on }, set: { send(.summarySwitch(question.id, $0)) })) { EmptyView() }
+            case let .featureOn(feature, on, detail):
+                RowText(title: feature.title, subtitle: hint(feature) ?? detail ?? feature.detail)
+                changeLink(feature.pane)
+                Toggle(isOn: Binding(get: { on }, set: { send(.summarySwitch(feature.id, $0)) })) { EmptyView() }
                     .toggleStyle(BrandSwitchStyle())
                     .fixedSize()
-                    .accessibilityLabel(question.summary)
-            case let .chosen(_, answer):
-                RowText(title: question.summary, subtitle: answer.label)
-                changeLink(question)
-            case let .notAllowed(_, _, note):
-                RowText(title: question.summary, subtitle: note, warning: true)
-                changeLink(question)
+                    .accessibilityLabel(feature.title)
+            case let .chosen(title, value, pane):
+                RowText(title: title, subtitle: value)
+                changeLink(pane)
+            case let .notAllowed(need):
+                RowText(title: need.permission.name,
+                        subtitle: String(format: L10n.setup("setup.summary.refused", fallback: "Not allowed, so it stays off: %@"),
+                                         ListFormatter.localizedString(byJoining: need.features.compactMap { SetupFeatures.feature($0)?.title })),
+                        warning: true)
+                changeLink(.permissions)
             }
         }
         .padding(.vertical, 8)
@@ -1184,31 +1232,18 @@ private struct SetupSummaryView: View {
         .overlay(alignment: .top) { if divider { Rectangle().fill(c.olv).frame(height: 1) } }
     }
 
-    /// The answer, unless it is a plain Yes.
-    private func answerLine(_ question: SetupQuestion, _ answer: SetupAnswer) -> String? {
-        answer.key == SetupAnswerKey.yes && question.answers.count <= 2 ? nil : answer.label
-    }
-
-    /// Still waiting on a permission (asked, not answered yet in System Settings).
-    private func waiting(_ answer: SetupAnswer) -> String? {
-        guard let permission = answer.permission, permission != .automation, !facts.granted.contains(permission) else { return nil }
-        return String(format: L10n.setup("setup.summary.waiting", fallback: "Waiting for %@ in System Settings"), permission.name)
-    }
-
     /// Codes read on this Mac need the model: offered here, downloaded from Settings.
-    private func hint(_ question: SetupQuestion, _ answer: SetupAnswer) -> String? {
-        guard question.id == "codes", answer.key == SetupAnswerKey.onMac, model.codeModel.installed == nil else { return nil }
+    private func hint(_ feature: SetupFeature) -> String? {
+        guard feature.id == "notifications", flow.answers["codes"] == SetupAnswerKey.onMac, model.codeModel.installed == nil else { return nil }
         return L10n.setup("setup.summary.codesModel", fallback: "Download the code model in Settings to start reading codes.")
     }
 
-    @ViewBuilder private func changeLink(_ question: SetupQuestion) -> some View {
-        if let pane = question.pane {
-            Button(L10n.setup("setup.summary.change", fallback: "Change in Settings")) { change(pane) }
-                .buttonStyle(.plain)
-                .font(BrandFont.body(12, .semibold))
-                .foregroundStyle(c.pri)
-                .fixedSize()
-        }
+    private func changeLink(_ pane: SettingsPane) -> some View {
+        Button(L10n.setup("setup.summary.change", fallback: "Change in Settings")) { change(pane) }
+            .buttonStyle(.plain)
+            .font(BrandFont.body(12, .semibold))
+            .foregroundStyle(c.pri)
+            .fixedSize()
     }
 }
 

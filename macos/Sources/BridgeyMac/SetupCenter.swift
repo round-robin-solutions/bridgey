@@ -57,7 +57,11 @@ final class SetupCenter: ObservableObject {
         LocalDataReset(defaults: store.defaults).performPending()
         let trustFile = MacPairingStore.defaultDirectory.appendingPathComponent(MacPairingStore.fileName)
         let hadWhatsNewRecord = whatsNewStore.lastBuild != nil
-        launchDecision = SetupLaunch.evaluate(store, trustFileExists: FileManager.default.fileExists(atPath: trustFile.path))
+        let trustFileExists = FileManager.default.fileExists(atPath: trustFile.path)
+        // Before BridgeySettings reads its switches: an install that ran before keeps its feature defaults.
+        DefaultsGeneration.settle(store.defaults, priorInstall: SetupLaunch.hasStoredState(keys: store.defaults.dictionaryRepresentation().keys,
+                                                                                           trustFileExists: trustFileExists))
+        launchDecision = SetupLaunch.evaluate(store, trustFileExists: trustFileExists)
         freshInstall = launchDecision == .runSetup && !hadWhatsNewRecord
     }
 
@@ -114,22 +118,34 @@ final class SetupCenter: ObservableObject {
 
     // MARK: Setup
 
-    /// `review`: Settings > What's new > Review setup, which starts at the questions.
+    /// `review`: Settings > What's new > Review setup, which starts at the questions. A first-run
+    /// setup left part way (window closed, or Bridgey quit) comes back at the same step.
     func startSetup(review: Bool = false) {
-        flow = review ? .review() : SetupFlow()
+        if review {
+            flow = .review()
+        } else if launchDecision == .runSetup, let saved = store.savedFlow, saved.screen != .done {
+            flow = saved
+        } else {
+            flow = SetupFlow()
+        }
         requested = []
+        allowQueue = []
+        allowCurrent = nil
         refreshPermissions()
         showSetupWindow()
     }
 
-    /// Applies what the event sets (an answer's settings, a refused permission's undo, a summary
-    /// switch), then moves the flow on.
+    /// Applies what the event sets (picks, an answer, a switch, the Essentials, a refused
+    /// permission's undo, a summary switch), then moves the flow on and keeps it for later.
     func send(_ event: SetupEvent, facts: SetupFacts) {
         for change in flow.changes(for: event, facts: facts) { apply(change) }
         flow.send(event, facts: facts)
+        if flow.path == .advanced || flow.hasProgress { store.savedFlow = flow }
     }
 
     func finishSetup(openSettings: Bool) {
+        allowQueue = []
+        allowCurrent = nil
         store.finish(flow.choices)
         settings?.completeOnboarding()
         recordWhatsNewSeen()
@@ -142,6 +158,9 @@ final class SetupCenter: ObservableObject {
     /// Leaves setup without finishing: what was answered stays, and a fresh setup runs again next launch.
     func leaveSetup() {
         if flow.confirmLeave { flow.send(.keepGoing) }
+        if flow.hasProgress { store.savedFlow = flow }
+        allowQueue = []
+        allowCurrent = nil
         closeSetupWindow()
     }
 
@@ -149,13 +168,33 @@ final class SetupCenter: ObservableObject {
         closingSetup = true
         setupWindow?.close()
         closingSetup = false
+        stopPolling()
+    }
+
+    /// While the permissions page shows, its statuses follow System Settings live.
+    private var pollTimer: Timer?
+
+    private func startPolling() {
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.setupWindow?.isVisible == true, self.flow.screen == .permissions else { return }
+                self.refreshPermissions()
+            }
+        }
+    }
+
+    fileprivate func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
     }
 
     var setupActions: SetupActions {
         var actions = SetupActions()
         actions.dispatch = { [weak self] event, facts in self?.send(event, facts: facts) }
         actions.allow = { [weak self] in self?.manage($0) }
-        actions.requestForQuestion = { [weak self] in self?.requestForQuestion($0) }
+        actions.requestFromPage = { [weak self] in self?.requestFromPage($0) }
+        actions.allowAll = { [weak self] in self?.allowAll($0) }
         actions.confirmPairing = { [weak self] in self?.pairing?.confirm() }
         actions.cancelPairing = { [weak self] in self?.pairing?.cancel() }
         actions.openSettings = { [weak self] in self?.finishSetup(openSettings: true) }
@@ -164,11 +203,53 @@ final class SetupCenter: ObservableObject {
         return actions
     }
 
-    /// A question's permission step: its card already explained why, so macOS asks now (or the
-    /// exact System Settings page opens). The card offers Continue once asked.
-    private func requestForQuestion(_ permission: SetupPermission) {
+    /// A row on setup's permissions page: the row already says why, so macOS asks now (or the
+    /// exact System Settings page opens). The page shows the live status when Bridgey is back.
+    private func requestFromPage(_ permission: SetupPermission) {
         store.markExplained(permission)
+        flow.send(.asked([permission]))
         request(permission)
+    }
+
+    // MARK: Allow all
+
+    /// Allow all on the permissions page: each row that is not allowed, in order. The next one
+    /// starts when macOS has answered, when Bridgey is back from System Settings, or after a while.
+    private var allowQueue: [SetupPermission] = []
+    private var allowCurrent: SetupPermission?
+    private var allowLeftWindow = false
+    private var allowToken = 0
+
+    func allowAll(_ permissions: [SetupPermission]) {
+        allowQueue = permissions.filter { status($0).system != .allowed }
+        allowNext()
+    }
+
+    private func allowNext() {
+        allowToken += 1
+        guard !allowQueue.isEmpty else {
+            allowCurrent = nil
+            return
+        }
+        let next = allowQueue.removeFirst()
+        allowCurrent = next
+        allowLeftWindow = false
+        requestFromPage(next)
+        let token = allowToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+            guard let self, self.allowToken == token, !self.allowLeftWindow else { return }
+            self.allowNext()
+        }
+    }
+
+    /// macOS answered the current one (allowed or not): on to the next.
+    private func allowAnswered() {
+        guard let current = allowCurrent, status(current).system != .notDetermined else { return }
+        let token = allowToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let self, self.allowToken == token else { return }
+            self.allowNext()
+        }
     }
 
     /// Sets one setting an answer chose. Permissions (`macNotifications`, `accessibility`) are asked
@@ -211,7 +292,10 @@ final class SetupCenter: ObservableObject {
         case .macActionSwitches:
             let listed = Set(change.value.split(separator: ",").map(String.init))
             for item in [MacActionSwitch.lock, .sleep, .volume] { pairing.macActions.setSwitch(item, enabled: listed.contains(item.rawValue)) }
-        case .featureMedia: settings.setGlobal(.media, enabled: on)
+        case .featureMedia:
+            settings.setGlobal(.media, enabled: on)
+            // Turned on without a player: Music, which a follow-up or Settings can change.
+            if on && pairing.mediaController.player == .off { pairing.mediaController.player = .music }
         case .mediaPlayer: MediaPlayer(rawValue: change.value).map { pairing.mediaController.player = $0 }
         case .featureLinks: settings.setGlobal(.links, enabled: on)
         case .openLinksRightAway: settings.setOpenLinksRightAway(on)
@@ -260,6 +344,7 @@ final class SetupCenter: ObservableObject {
             created.delegate = windowDelegate
             setupWindow = created
         }
+        startPolling()
         NSApp.activate(ignoringOtherApps: true)
         setupWindow?.makeKeyAndOrderFront(nil)
     }
@@ -271,9 +356,18 @@ final class SetupCenter: ObservableObject {
         return false
     }
 
-    /// Back in the app after System Settings: read the permissions again.
+    /// Back in the app after System Settings: read the permissions again, and Allow all goes on.
     fileprivate func setupWindowBecameKey() {
         refreshPermissions()
+        if allowCurrent != nil && allowLeftWindow {
+            allowLeftWindow = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.allowNext() }
+        }
+    }
+
+    /// System Settings (or a macOS prompt) took the focus while Allow all waits.
+    fileprivate func setupWindowResignedKey() {
+        if allowCurrent != nil { allowLeftWindow = true }
     }
 
     // MARK: Review banner and What's new
@@ -385,6 +479,7 @@ final class SetupCenter: ObservableObject {
             PermissionStatus(permission: $0, system: systemStates[$0] ?? .notDetermined, needed: needs.needed($0))
         }
         if next != permissions { permissions = next }
+        allowAnswered()
     }
 
     private func status(_ permission: SetupPermission) -> PermissionStatus {
@@ -583,6 +678,10 @@ final class SetupWindowDelegate: NSObject, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool { center?.setupWindowShouldClose() ?? true }
 
     func windowDidBecomeKey(_ notification: Notification) { center?.setupWindowBecameKey() }
+
+    func windowDidResignKey(_ notification: Notification) { center?.setupWindowResignedKey() }
+
+    func windowWillClose(_ notification: Notification) { center?.stopPolling() }
 }
 
 // MARK: - Sheets
