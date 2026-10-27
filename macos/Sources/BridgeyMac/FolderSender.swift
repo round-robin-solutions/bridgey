@@ -187,6 +187,12 @@ final class FolderSender {
 
     func owns(_ id: String) -> Bool { items[id] != nil }
 
+    /// Files 2.0 browse: files and folders into a folder of a place (an `into` offer). Nil when it cannot start.
+    func upload(_ request: UploadRequest) -> String? {
+        request.completion(.failure(.code(FolderCode.unsupported)))
+        return nil
+    }
+
     // MARK: Sending
 
     /// Folders dropped or picked for one phone. Each becomes one queue item. False when the phone cannot

@@ -233,9 +233,9 @@ final class PairingCoordinator: ObservableObject {
     let remoteInput: RemoteInputHost
     /// Files 2.0: every finished transfer, for the History window and Show in Finder (owner-only, 30 days).
     let transferHistory = TransferHistoryStore()
-    /// Files 2.0: browsing, thumbnails, downloads and uploads for the Phone files window. Replaced by the
-    /// engine in init; the placeholder browses nothing.
-    private(set) var phoneFiles: PhoneFilesService = UnavailablePhoneFiles()
+    /// Files 2.0: browsing, thumbnails, downloads and uploads for the Phone files window.
+    var phoneFiles: PhoneFilesService { phoneFilesController }
+    private(set) lazy var phoneFilesController = PhoneFilesController(host: self)
 
     var trustedDevices: [TrustedDeviceInfo] {
         trustRegistry.devices.map { device in
@@ -324,6 +324,8 @@ final class PairingCoordinator: ObservableObject {
     private var fileSendQueues: [String: FileSendQueue<OutgoingQueueItem>] = [:]
     /// Folders this Mac sends (Files 2.0); one item each in the phone's queue.
     private lazy var folders = FolderSender(host: self)
+    /// Folders sent to this Mac, and downloads from the Phone files window (Files 2.0 browse).
+    private lazy var folderReceiver = FolderReceiver()
     /// Hashing in progress, per queued file, so Cancel stops it.
     private var filePreparationCancellations: [String: FileCancellationToken] = [:]
     private var fileTransferWindow: FileTransferWindowController?
@@ -675,6 +677,7 @@ final class PairingCoordinator: ObservableObject {
 
     func forget(deviceID: String) {
         folders.forget(deviceID)
+        transferHistory.forget(deviceID: deviceID)
         clearClipboardCache()
         trustRegistry.remove(deviceID: deviceID)
         trustedDeviceIDs.remove(deviceID)
@@ -686,6 +689,7 @@ final class PairingCoordinator: ObservableObject {
 
     /// Recomputes the per-phone list and the selected phone's mirrors (state, features, battery).
     private func publish() {
+        defer { phoneFilesController.phonesChanged() }
         let phones = registry.connections
         if connectedPhones != phones { connectedPhones = phones }
         let targetID = registry.target(selected: selectedDeviceID)
@@ -2057,6 +2061,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteClipboardFiles = clipboardFiles
                     link.remoteFolders = draftKeys[foldersFeatureKey] == true
                     link.remotePlaces = draftKeys[placesFeatureKey] == true
+                    link.remoteBrowse = draftKeys[filesBrowseFeatureKey] == true
                     link.remoteSmsCodes = draftKeys[smsCodesFeatureKey] == true
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
@@ -2470,6 +2475,8 @@ final class PairingCoordinator: ObservableObject {
                     outgoingFiles[transferID]?.acknowledge(sequence: sequence)
                     clipboardOutbox.handleChunkAck(transferID, sequence: sequence)
                 }
+            case let kind where BrowseKind.answerKinds.contains(kind):
+                try receiveBrowseMessage(message, in: current)
             case let kind where FolderKind.folderKinds.contains(kind) || FolderKind.placesKinds.contains(kind):
                 try receiveFolderMessage(message, in: current)
             case let kind where kind.hasPrefix("input."):
@@ -2563,6 +2570,9 @@ final class PairingCoordinator: ObservableObject {
         // places, so places_draft1 is false.
         features[foldersFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
         features[placesFeatureKey] = false
+        // Files 2.0 browse (draft): this Mac receives folders from the phone; it browses but serves nothing.
+        features[foldersReceiveFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
+        features[filesBrowseFeatureKey] = false
         // Draft, edition only: this Mac reads codes from SMS and can advertise for the phone's companion link.
         features[smsCodesFeatureKey] = settings.isEnabled(.notifications, for: current.remoteDeviceID)
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
@@ -2580,6 +2590,7 @@ final class PairingCoordinator: ObservableObject {
     /// Its folders stop where they are and resume when it reconnects.
     private func cancelTransfers(for id: String) {
         folders.phoneDisconnected(id)
+        phoneFilesController.phoneDisconnected(id)
         let ids = Set(transferDevices.filter { $0.value == id && !folders.owns($0.key) }.keys)
         let hadActiveTransfers = fileTransfers.values.contains(where: { $0.active && ids.contains($0.id) })
         if var queue = fileSendQueues.removeValue(forKey: id) {
@@ -3557,7 +3568,19 @@ extension PairingCoordinator: FolderSenderHost {
               let nonce = message.nonce, let key = current.pairingKey else { return }
         guard let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { throw PairingError.invalidMessage }
         guard plaintext.count <= FolderKind.plaintextLimit(message.kind) else { return }
+        // Browse answers (places.listed for browsing, places.error) go to the browse client first.
+        if FolderKind.placesKinds.contains(message.kind), phoneFilesController.handle(kind: message.kind, payload: plaintext, from: phoneID) { return }
         folders.receive(kind: message.kind, payload: plaintext, outerTransferID: message.transferId, from: phoneID)
+    }
+
+    /// Answers to this Mac's browse requests (draft): checked like other encrypted messages.
+    fileprivate func receiveBrowseMessage(_ message: PairingMessage, in current: Session) throws {
+        guard registry.isActive(current), message.sessionId == current.id, let ciphertext = message.ciphertext,
+              let messageID = message.messageId, current.acceptMessageID(messageID),
+              let nonce = message.nonce, let key = current.pairingKey else { return }
+        guard let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { throw PairingError.invalidMessage }
+        guard plaintext.count <= BrowseKind.plaintextLimit(message.kind) else { return }
+        phoneFilesController.handle(kind: message.kind, payload: plaintext, from: current.remoteDeviceID)
     }
 
     func folderTransport(for phoneID: String) -> (transport: FolderTransport, session: ObjectIdentifier)? {
@@ -3611,6 +3634,37 @@ extension PairingCoordinator: FolderSenderHost {
 
     var folderReduceMotion: Bool { settings.reduceMotion }
     var folderScanDefaults: FolderScanOptions { settings.folderScanOptions }
+}
+
+// MARK: - Phone files (Files 2.0 browse)
+
+extension PairingCoordinator: PhoneFilesHost {
+    func browseTransport(for phoneID: String) -> FolderTransport? { folderTransport(for: phoneID)?.transport }
+
+    func browsePhones() -> [BrowsablePhone] {
+        registry.connections.map { phone in
+            let link = registry.state(for: phone.id)
+            let browsable = link?.featureStateReceived == true && link?.remoteBrowse == true && isFeatureAvailable(.files, for: phone.id)
+            return BrowsablePhone(id: phone.id, name: phone.name, browsable: browsable,
+                                  route: PhoneRouteClassifier.route(host: registry.session(for: phone.id)?.remoteHost))
+        }
+    }
+
+    func expectDownload(_ download: ExpectedDownload) {
+        folderReceiver.expect(download)
+    }
+
+    func cancelDownload(_ download: ExpectedDownload) {
+        folderReceiver.cancelExpected(download)
+    }
+
+    func startUpload(_ upload: UploadRequest) -> String? {
+        folders.upload(upload)
+    }
+
+    func cancelUpload(_ id: String) {
+        folders.cancel(id)
+    }
 }
 
 /// Folder messages to one phone over the session they started on. Safe from any queue: it only encrypts

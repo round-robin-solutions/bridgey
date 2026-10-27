@@ -154,6 +154,13 @@ struct FolderOfferPayload: Codable, Equatable {
     let destination: FolderDestination?
     let resume: Bool
     let skipped: SkippedCounts?
+    /// Files 2.0 browse: the entries land directly in the destination (uploads and downloads); top-level
+    /// clashes become copies, nothing is merged or replaced.
+    var into: Bool? = nil
+    /// Files 2.0 browse: this offer answers the receiver's places.download.
+    var downloadRequestId: String? = nil
+
+    var isInto: Bool { into == true }
 }
 
 struct ManifestPagePayload: Codable, Equatable {

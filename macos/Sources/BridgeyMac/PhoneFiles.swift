@@ -172,6 +172,7 @@ struct BrowsablePhone: Identifiable, Equatable {
     let route: PhoneRoute
 }
 
+@MainActor
 protocol PhoneFilesService: AnyObject {
     /// Connected phones, browsable or not.
     var phones: [BrowsablePhone] { get }
