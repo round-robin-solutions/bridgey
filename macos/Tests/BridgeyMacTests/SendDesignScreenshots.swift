@@ -196,6 +196,20 @@ final class SendDesignScreenshots: XCTestCase {
         }
     }
 
+    @MainActor func testShareChooser() throws {
+        var state = QuickSendState()
+        state.payloads = [.files([URL(fileURLWithPath: "/a"), URL(fileURLWithPath: "/b"), URL(fileURLWithPath: "/c")])]
+        state.bytes = 48_200_000
+        state.devices = tileDevices
+        state.trayCount = 2
+        state.optimization = .recommended
+        state.saving = 0.41
+        for scheme in [ColorScheme.light, .dark] {
+            let suffix = scheme == .dark ? "dark" : "light"
+            try write(QuickSendView(state: state, actions: QuickSendActions()), scheme: scheme, name: "mac-share-chooser-\(suffix)")
+        }
+    }
+
     @MainActor func write<V: View>(_ content: V, scheme: ColorScheme, name: String, padding: CGFloat = 24) throws {
         let view = BrandRoot(reduceMotion: false) { content }
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))

@@ -369,20 +369,24 @@ struct DropTilesView: View {
     let trayCount: Int
     /// What drops are sent as (Settings > Files > Before sending), shown under the tiles.
     var chip: String?
+    /// The heading; nil is "Drop to send".
+    var title: String?
     /// Screenshots: which tile looks hovered.
     var highlighted: DropTarget?
     var onDrop: ((DropTarget, [NSItemProvider]) -> Bool)?
+    /// Tiles are buttons (the Share and Services chooser) instead of drop targets.
+    var onPick: ((DropTarget) -> Void)?
     @Environment(\.brand) private var c
 
     var body: some View {
         VStack(spacing: 14) {
-            Text(L10n.text("drop.tiles.title", fallback: "Drop to send"))
+            Text(title ?? L10n.text("drop.tiles.title", fallback: "Drop to send"))
                 .font(BrandFont.heading(15))
                 .foregroundStyle(c.on)
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                 ForEach(devices) { device in
                     DropTile(target: .device(device.id), highlighted: highlighted == .device(device.id), warning: device.freeSpace.message != nil,
-                             onDrop: onDrop) {
+                             onDrop: onDrop, onPick: device.freeSpace.refuses ? nil : onPick, disabled: onPick != nil && device.freeSpace.refuses) {
                         DeviceRingView(state: .connected, platform: "android", size: 44)
                         Text(device.name)
                             .font(BrandFont.body(13, .semibold))
@@ -403,7 +407,7 @@ struct DropTilesView: View {
                         }
                     }
                 }
-                DropTile(target: .tray, highlighted: highlighted == .tray, warning: false, onDrop: onDrop) {
+                DropTile(target: .tray, highlighted: highlighted == .tray, warning: false, onDrop: onDrop, onPick: onPick) {
                     IconTile(symbol: "tray.full", tint: .purple, size: 44, corner: 22)
                     Text(L10n.text("tray.title", fallback: "Tray"))
                         .font(BrandFont.body(13, .semibold))
@@ -438,13 +442,16 @@ private struct DropTile<Content: View>: View {
     let highlighted: Bool
     let warning: Bool
     let onDrop: ((DropTarget, [NSItemProvider]) -> Bool)?
+    var onPick: ((DropTarget) -> Void)? = nil
+    var disabled = false
     @ViewBuilder let content: Content
+    @State private var hovered = false
     @State private var targeted = false
     @Environment(\.brand) private var c
     @Environment(\.brandReduceMotion) private var reduce
     @Environment(\.snapshotRendering) private var snapshot
 
-    private var lit: Bool { targeted || highlighted }
+    private var lit: Bool { targeted || highlighted || (hovered && !disabled) }
 
     var body: some View {
         let tile = VStack(spacing: 6) { content }
@@ -455,7 +462,13 @@ private struct DropTile<Content: View>: View {
                 .strokeBorder(warning ? c.warn : (lit ? c.pri : c.olv), lineWidth: lit || warning ? 2 : 1))
             .scaleEffect(lit && !reduce ? 1.04 : 1)
             .animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce), value: lit)
-        if snapshot || onDrop == nil {
+        if let onPick, !snapshot {
+            Button { onPick(target) } label: { tile.contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous)) }
+                .buttonStyle(.plain)
+                .onHover { hovered = $0 }
+        } else if disabled {
+            tile.opacity(0.6)
+        } else if snapshot || onDrop == nil {
             tile
         } else {
             tile.onDrop(of: [.fileURL, .url, .image, .utf8PlainText], isTargeted: $targeted) { providers in

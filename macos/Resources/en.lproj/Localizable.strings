@@ -924,3 +924,9 @@
 
 /* Files 2.0 quick wins: Share and Services (M-SEND adds below) */
 "drop.toast.keepInTray" = "Keep in Tray";
+"share.nothing" = "There is nothing here Bridgey can send.";
+"share.service" = "Bridgey";
+"share.noDevice" = "No device connected";
+"share.title.one" = "Send 1 item%@ to";
+"share.title" = "Send %d items%@ to";
+"share.window" = "Send to phone";

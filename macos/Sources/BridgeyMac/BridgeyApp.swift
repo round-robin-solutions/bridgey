@@ -3,12 +3,12 @@ import Combine
 import SwiftUI
 
 struct BridgeyApp: App {
-    @NSApplicationDelegateAdaptor(PhoneURLHandler.self) private var phoneURLHandler
+    @NSApplicationDelegateAdaptor(BridgeyAppDelegate.self) private var appDelegate
     @StateObject private var discovery: BonjourDiscovery
     @StateObject private var pairing: PairingCoordinator
     @StateObject private var settings: BridgeySettings
     private let settingsWindow: SettingsWindowController
-    private let callServiceProvider: CallServiceProvider
+    private let serviceProvider: BridgeyServiceProvider
     private let updater: AppUpdater
 
     init() {
@@ -21,13 +21,20 @@ struct BridgeyApp: App {
         pairing.observe(discovery)
         _pairing = StateObject(wrappedValue: pairing)
         let callServiceProvider = CallServiceProvider { [weak pairing] number in pairing?.sendCallWhenConnected(number) }
-        self.callServiceProvider = callServiceProvider
-        NSApplication.shared.servicesProvider = callServiceProvider
+        // Services: Call with Bridgey RR and Send to Phone with Bridgey (ShareAndServices.swift).
+        let serviceProvider = BridgeyServiceProvider(calls: callServiceProvider) { payloads in
+            QuickSendController.shared.present(payloads)
+        }
+        self.serviceProvider = serviceProvider
+        NSApplication.shared.servicesProvider = serviceProvider
+        QuickSendController.shared.attach(pairing: pairing)
         let updater = AppUpdater()
         self.updater = updater
         let settingsWindow = SettingsWindowController(discovery: discovery, pairing: pairing, settings: settings, updater: updater)
         self.settingsWindow = settingsWindow
-        phoneURLHandler.configure { [weak pairing] number in pairing?.sendCallWhenConnected(number) }
+        appDelegate.configure { [weak pairing] number in pairing?.sendCallWhenConnected(number) }
+        // The Share extension's hand-off: what it put on the private pasteboard goes to the chooser.
+        appDelegate.configure(onShare: { QuickSendController.shared.present(ShareHandoff.take()) })
         MenuBarHost.start(discovery: discovery, pairing: pairing, settings: settings, updater: updater, openSettings: settingsWindow.show)
     }
 

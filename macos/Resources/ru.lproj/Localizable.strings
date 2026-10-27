@@ -924,3 +924,9 @@
 
 /* Files 2.0 quick wins: Share and Services (M-SEND adds below) */
 "drop.toast.keepInTray" = "Оставить в лотке";
+"share.nothing" = "Здесь нет ничего, что Bridgey может отправить.";
+"share.service" = "Bridgey";
+"share.noDevice" = "Нет подключённых устройств";
+"share.title.one" = "Отправить 1 объект%@ на";
+"share.title" = "Отправить объекты (%d)%@ на";
+"share.window" = "Отправить на телефон";
