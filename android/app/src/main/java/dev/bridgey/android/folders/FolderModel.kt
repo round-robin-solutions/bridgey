@@ -40,6 +40,16 @@ data class FolderReceiveSettings(
     val allowBrowse: Boolean = false,
 )
 
+/**
+ * Free bytes where a file or folder sent now lands by default: the default folder in `fixed` mode, else
+ * Download/Bridgey (its granted tree, or MediaStore's Downloads volume). Best effort; null when unknown.
+ */
+fun defaultFreeBytes(places: PlaceDirectory, settings: FolderReceiveSettings): Long? {
+    val placeId = if (settings.mode == DestinationMode.FIXED) settings.defaultPlaceId else DEFAULT_PLACE_ID
+    val place = places.place(placeId)?.takeIf { it.available } ?: return null
+    return runCatching { place.open().freeBytes() }.getOrNull()
+}
+
 /** Display path: the place's label, then the path inside it ("Pictures/Trip"), at most 128 characters. */
 fun destinationLabel(placeLabel: String, path: String): String =
     (if (path.isEmpty()) placeLabel else "$placeLabel/$path").take(FolderLimits.MAX_DESTINATION_LABEL_CHARS)

@@ -124,7 +124,8 @@ class BrowseServer(
                 PlaceInfo(place.placeId, place.label, place.available, free)
             }
             val fixedLabel = if (folderSettings.mode == DestinationMode.FIXED) env.places.place(folderSettings.defaultPlaceId)?.label else null
-            val answer = PlacesListedPayload(requestId, folderSettings.mode, list, fixedLabel).toJson()
+            val answer = PlacesListedPayload(requestId, folderSettings.mode, list, fixedLabel,
+                dev.bridgey.android.folders.defaultFreeBytes(env.places, folderSettings)).toJson()
                 .put("writable", env.settings().writable)
                 .put("media", runCatching { env.media().access() }.getOrDefault(MediaAccess.NONE).wire)
                 .put("documents", list.any { it.placeId != DEFAULT_PLACE_ID })

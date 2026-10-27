@@ -112,6 +112,10 @@ class BrowseServerTest {
         assertEquals(2, answer.getJSONArray("places").length())
         assertFalse(answer.getBoolean("writable"))
         assertEquals("partial", answer.getString("media"))
+        phone.downloads.free = 7_000_000
+        val again = java.util.UUID.randomUUID().toString()
+        phone.server.placesForBrowsing(JSONObject().put("version", 1).put("requestId", again).put("purpose", "browse"))
+        assertEquals(7_000_000, phone.answer(again)!!.second.getLong("defaultFreeBytes"))
         assertTrue(answer.getBoolean("documents"))
     }
 

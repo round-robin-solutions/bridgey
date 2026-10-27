@@ -470,7 +470,8 @@ class FolderReceiveSession(
         deadline = null
         listener.question(null)
         cancelTimer()
-        link.send(FolderKinds.ACCEPT, FolderAcceptPayload(id, rootName, targetLabel, choice, bitmap).toJson())
+        val free = runCatching { store?.freeBytes() }.getOrNull()
+        link.send(FolderKinds.ACCEPT, FolderAcceptPayload(id, rootName, targetLabel, choice, bitmap, free).toJson())
         log("accepted choice=${choice.wire} resume=${bitmap != null}")
         emit(force = true)
     }

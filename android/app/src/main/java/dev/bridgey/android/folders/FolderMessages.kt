@@ -108,10 +108,18 @@ data class PlaceInfo(val placeId: String, val label: String, val available: Bool
     }
 }
 
-data class PlacesListedPayload(val requestId: String, val mode: DestinationMode, val places: List<PlaceInfo>, val fixedLabel: String?) {
+data class PlacesListedPayload(
+    val requestId: String,
+    val mode: DestinationMode,
+    val places: List<PlaceInfo>,
+    val fixedLabel: String?,
+    /** Free bytes where something sent now lands by default (the default folder in `fixed` mode), in every mode. */
+    val defaultFreeBytes: Long? = null,
+) {
     fun toJson(): JSONObject = JSONObject().put("version", 1).put("requestId", requestId).put("mode", mode.wire)
         .put("places", JSONArray().apply { places.forEach { put(it.toJson()) } })
         .put("fixedLabel", fixedLabel?.take(FolderLimits.MAX_DESTINATION_LABEL_CHARS).orNull())
+        .put("defaultFreeBytes", defaultFreeBytes.orNull())
 
     companion object {
         fun parse(json: JSONObject): PlacesListedPayload? {
@@ -123,6 +131,7 @@ data class PlacesListedPayload(val requestId: String, val mode: DestinationMode,
                 DestinationMode.fromWire(json.stringOrNull("mode")) ?: return null,
                 (0 until array.length()).map { PlaceInfo.parse(array.optJSONObject(it) ?: return null) ?: return null },
                 json.stringOrNull("fixedLabel"),
+                json.longOrNull("defaultFreeBytes"),
             )
         }
     }
@@ -388,10 +397,12 @@ data class FolderAcceptPayload(
     val destinationLabel: String,
     val choice: ConflictChoice,
     val completedBitmap: String?,
+    /** Free bytes of the chosen destination's storage, best effort. */
+    val freeBytes: Long? = null,
 ) {
     fun toJson(): JSONObject = JSONObject().put("version", 1).put("folderTransferId", folderTransferId).put("rootName", rootName)
         .put("destinationLabel", destinationLabel.take(FolderLimits.MAX_DESTINATION_LABEL_CHARS)).put("choice", choice.wire)
-        .put("completedBitmap", completedBitmap.orNull())
+        .put("completedBitmap", completedBitmap.orNull()).put("freeBytes", freeBytes.orNull())
 }
 
 fun foldersRejectedJson(id: String, code: String, entry: Int? = null, neededBytes: Long? = null, freeBytes: Long? = null): JSONObject =
@@ -498,6 +509,7 @@ fun parseFolderAccept(json: JSONObject): FolderAcceptPayload? {
         json.stringOrNull("destinationLabel").orEmpty().take(FolderLimits.MAX_DESTINATION_LABEL_CHARS),
         ConflictChoice.fromWire(json.stringOrNull("choice")) ?: ConflictChoice.NONE,
         json.stringOrNull("completedBitmap"),
+        json.longOrNull("freeBytes"),
     )
 }
 

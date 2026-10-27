@@ -2765,6 +2765,24 @@ class PairingCoordinator(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             return fail(current, "Receiving files requires Android 10 or newer")
         }
+        // Single files land in Download/Bridgey through MediaStore: refuse up front when the file plus 64 MiB does
+        // not fit, instead of failing when the disk fills mid-way. The answer is the existing outer files.cancel
+        // (the Mac ends the file and moves on), with an encrypted {transferId, code, neededBytes, freeBytes} a newer
+        // Mac can read; older Macs ignore it.
+        val free = runCatching { dev.bridgey.android.folders.MediaStoreTreeStore(appContext.contentResolver).freeBytes() }.getOrNull()
+        val needed = size + dev.bridgey.android.folders.FolderLimits.SPACE_MARGIN
+        if (free != null && free < needed) {
+            val detail = JSONObject().put("version", 1).put("transferId", transferId)
+                .put("code", dev.bridgey.android.folders.FolderCodes.INSUFFICIENT_SPACE).put("neededBytes", needed).put("freeBytes", free)
+            val encrypted = Crypto.encrypt(current.pairingKey!!, detail.toString().toByteArray(Charsets.UTF_8))
+            current.send(Message(kind = "files.cancel", sessionId = current.id, messageId = UUID.randomUUID().toString(), transferId = transferId,
+                nonce = encrypted.nonce, ciphertext = encrypted.ciphertext))
+            markTransferCancelled(transferId)
+            mutableFileTransferStatus.value = appContext.getString(R.string.file_receive_no_space)
+            diagnostics.record("transfer", "receive_refused", "insufficient_space")
+            BridgeyLogging.i(LogCategory.FILES, "FILE refused code=insufficient_space transfer=${transferId.take(8)}")
+            return
+        }
         val transfer = runCatching {
             IncomingFileTransfer(appContext, transferId, name, mimeType, size, hash)
         }.getOrElse { return fail(current, "Could not create file in Downloads") }
