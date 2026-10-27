@@ -809,9 +809,12 @@ Mac) is not part of this draft; see [screen-control-decision.md](screen-control-
 stream shares the session instead of using a second connection, how it adapts to the link and what it
 measured: [screen-sharing.md](screen-sharing.md).
 
-**Negotiation.** `features.update` gains the boolean key `screen_draft1`. The phone sets it when its
-"Share screen with Macs" switch is on (off by default). The Mac sets it when its "Show phone screens"
-switch is on (off by default). `screen.*` messages go only to a peer whose latest map shows `true`.
+**Negotiation.** `features.update` gains the boolean key `screen_draft1`. The phone sets it when
+"Share screen with Macs" is on for that Mac (off by default; a global switch with per-Mac choices, like
+the phone's other features). The Mac sets it when its "Show phone screens" switch is on (off by
+default; one switch for every phone). The grant per device lives on the phone because the phone's
+content is what is shared, as remote control's grant lives on the Mac it controls; the Mac's switch
+only decides whether it will display streams at all. `screen.*` messages go only to a peer whose latest map shows `true`.
 A receiver whose own switch is off answers `screen.request` with `screen.status` `disabled` and
 `screen.start` with `screen.stop` `disabled`, and drops every other `screen.*` message.
 
@@ -846,7 +849,7 @@ and never close the transport session. JSON plaintext is UTF-8, `version: 1`, at
 | `screen.start` | phone to Mac | optional `requestId`; `codec`: `h264`; `width`, `height` (even integers, 16 to 4,096); `fps` (1 to 60); `bitrate` (bits a second, 100,000 to 50,000,000) | a new stream. Its first frame is a key frame |
 | `screen.started` | Mac to phone | none | the window is open; frames may follow. The phone gives up after 5 seconds without it |
 | `screen.frame` | phone to Mac | binary, below | one part of one encoded frame |
-| `screen.ack` | Mac to phone | `frame` (1 to 2^32-1), `decodeMs` (0 to 60,000); optional `keyframe`: `true` | the newest frame the Mac has received completely and decoded, and how long decoding took. `keyframe` asks for a key frame after a frame was lost or failed to decode (at most one a second) |
+| `screen.ack` | Mac to phone | `frame` (1 to 2^32-1), `decodeMs` (0 to 60,000); optional `keyframe`: `true` | the newest frame the Mac has received completely and decoded (or dropped while waiting for a key frame, with `decodeMs` 0), and how long decoding took. `keyframe` asks for a key frame after a frame was lost or failed to decode (at most one a second) |
 | `screen.stats` | phone to Mac | `latencyMs`, `rttMs` (0 to 60,000), `bitrate`, `sentBitrate` (0 to 50,000,000), `fps` (0 to 120), `dropped` (0 to 1,000) | once a second: the phone's latency estimate, its round trip, its target and measured bit rate, frames sent and dropped in the last second. Shown in the Mac window |
 | `screen.stop` | either | `reason` | ends the stream (below) |
 
@@ -877,7 +880,7 @@ limit). Integers are big-endian.
 | 4 to 19 | stream ID | the 16 bytes of the `streamId` UUID |
 | 20 to 27 | sequence | 1 to 2^53-1, the phone's stream sequence above |
 | 28 to 31 | frame | 1 to 2^32-1; increases from one frame to the next |
-| 32 to 39 | capture time | 0 to 2^63-1 microseconds on the phone's monotonic clock; only differences mean anything |
+| 32 to 39 | capture time | 0 to 2^63-1 microseconds on the phone's monotonic clock (a signed 64-bit value; a set top bit is rejected); only differences mean anything |
 
 A frame is one H.264 access unit, split into parts sent in order 0, 1, 2, ...; part 0 starts with an
 Annex B start code. Every key frame carries the current SPS and PPS at its start (flag bit 1), so it
@@ -889,7 +892,10 @@ one. Frames over 64 parts (2 MiB) are dropped.
 **Pacing (phone).** The phone sends a frame only while at most 6 frames and at most
 max(64 KiB, 250 ms at the current bit rate) are sent and not yet acknowledged. A frame that does not
 fit is dropped, along with every following frame up to the next key frame, which the phone requests
-from the encoder at once; then it lowers the bit rate. This keeps at most a quarter of a second of
+from the encoder at once; then it lowers the bit rate. One exception keeps a stream from stalling:
+when nothing is unacknowledged, a key frame is always sent, whatever its size. The Mac acknowledges
+every frame it receives completely, including frames it drops while waiting for a key frame, so the
+phone's count of unacknowledged frames always drains. This keeps at most a quarter of a second of
 video queued in the socket, so clipboard, notifications and acknowledgements wait behind one part at
 most. The bit rate goes down by a quarter when frames are dropped or the round trip grows 80 ms over
 its minimum (at most every 500 ms), and up by 15 percent after 2 seconds without either, between

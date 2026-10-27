@@ -22,7 +22,10 @@ object SetupTyped {
         Rule("media", Answers.PICK, listOf("music", "spotify", "song", "музык", "песн")),
         Rule("camera", Answers.PICK, listOf("camera", "камер")),
         // Never plain "screen": "screenshot" is the clipboard's.
-        Rule("screen", Answers.PICK, listOf("mirror", "screen shar", "share screen", "share my screen", "see my screen", "трансляц", "показ экран", "показать экран", "демонстрац")),
+        Rule("screen", Answers.PICK, listOf(
+            "mirror", "screen shar", "share screen", "share my screen", "share the screen", "see my screen", "phone screen", "phone's screen",
+            "трансляц", "показ экран", "показать экран", "демонстрац", "экран телефона",
+        )),
         Rule("focus", Answers.BOTH, listOf("dnd", "focus", "фокус")),
         Rule("links", Answers.PICK, listOf("link", "url", "browser", "ссылк", "браузер")),
         Rule("find", Answers.PICK, listOf("find my", "lost", "ring", "найти", "потерял")),
