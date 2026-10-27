@@ -34,6 +34,8 @@ struct FolderRowSummary: Equatable {
     var endText: String?
     var canResume = false
     var canSendAgain = false
+    /// Files 2.0 browse: the folder comes from the phone (pushed, or a download) and lands on this Mac.
+    var incoming = false
 }
 
 enum FolderText {
@@ -57,6 +59,14 @@ enum FolderText {
 
     /// "Photos → OnePlus 11 › Pictures/Trip", or "Photos → OnePlus 11" before the destination is known.
     static func title(_ summary: FolderRowSummary) -> String {
+        if summary.incoming {
+            // "Photos ← OnePlus 11 › Downloads/Bridgey".
+            let name = summary.progress.rootName ?? summary.displayName
+            if let place = summary.destinationLabel, !place.isEmpty {
+                return format("folders.row.titleFrom", "%1$@ \u{2190} %2$@ \u{203A} %3$@", name, summary.phoneName, place)
+            }
+            return format("folders.row.titleFromNoPlace", "%1$@ \u{2190} %2$@", name, summary.phoneName)
+        }
         // The phone's final name ("Photos (1)") once it accepted; the Finder name before.
         let name = summary.progress.destinationLabel != nil ? summary.progress.rootName ?? summary.displayName : summary.displayName
         if let place = summary.destinationLabel ?? summary.fixedLabel, !place.isEmpty {
@@ -103,6 +113,7 @@ enum FolderText {
         case .running:
             switch summary.progress.phase {
             case .offered:
+                if summary.incoming { return format("folders.status.incoming", "Receiving from %@\u{2026}", phone) }
                 if let fixed = summary.fixedLabel { return format("folders.status.savingTo", "Saving to %1$@ on %2$@", fixed, phone) }
                 return format("folders.status.offered", "Waiting for %@\u{2026}", phone)
             case let .waiting(reason, deadline):
@@ -111,6 +122,9 @@ enum FolderText {
                     ? format("folders.status.waitingDestination", "Waiting for %1$@: choose where to save (%2$@)", phone, time)
                     : format("folders.status.waitingConflict", "Waiting for %1$@: the folder already exists (%2$@)", phone, time)
             case let .asking(deadline):
+                if summary.incoming {
+                    return format("folders.status.answerHere", "Answer on this Mac (%@)", countdown(until: deadline, now: now))
+                }
                 return format("folders.status.asking", "The folder already exists on %1$@. Answer on this Mac (%2$@)", phone, countdown(until: deadline, now: now))
             case .sending:
                 return progressLine(summary.progress)
@@ -122,6 +136,7 @@ enum FolderText {
                 return summary.endText ?? progressLine(summary.progress)
             }
         case .interrupted:
+            if summary.incoming { return summary.endText ?? format("folders.status.interruptedIncoming", "Interrupted, resumes when %@ sends it again", phone) }
             return summary.endText ?? format("folders.status.interrupted", "Interrupted, resumes when %@ reconnects", phone)
         case .done, .incomplete:
             return summary.endText ?? progressLine(summary.progress)
@@ -186,6 +201,8 @@ enum FolderText {
             return format("folders.rejected.notFound", "That folder no longer exists on %@", phone)
         case FolderCode.resumeUnavailable:
             return format("folders.rejected.resume", "%@ can\u{2019}t resume this folder. Send it again.", phone)
+        case FolderCode.readOnly:
+            return format("folders.rejected.readOnly", "%@ doesn\u{2019}t allow changes. Turn on Allow other devices to change files here on the phone.", phone)
         case FolderCode.policy:
             return format("folders.end.filesOff", "File transfer is turned off on %@", phone)
         case FolderCode.limitExceeded:

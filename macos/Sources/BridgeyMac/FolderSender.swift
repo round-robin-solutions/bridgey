@@ -21,6 +21,8 @@ protocol FolderSenderHost: AnyObject {
     func folderEnded(_ id: String)
     func folderStatus(_ text: String)
     func recordFolderActivity(_ kind: ActivityKind, phoneID: String, name: String, fileCount: Int, bytes: Int64, destination: String?, detail: FolderActivityDetail)
+    /// Files 2.0: the History window's record of a finished send.
+    func recordHistory(_ entry: TransferHistoryEntry)
     var folderReduceMotion: Bool { get }
     var folderScanDefaults: FolderScanOptions { get }
 }
@@ -53,6 +55,8 @@ final class FolderSender {
         var startWhenReady = false
         var inQueue = false
         var session: FolderSendSession?
+        /// The session holds its events weakly: the item keeps the relay alive while the session runs.
+        var relay: AnyObject?
         var sessionQueue: DispatchQueue?
         var sessionToken: ObjectIdentifier?
         var journal: FolderJournal?
@@ -66,6 +70,12 @@ final class FolderSender {
         var previous: FolderScan?
         /// Automatic resumes in a row without a finished file; stops a loop with a stuck phone.
         var autoResumes = 0
+        /// Files 2.0 browse: an upload into a folder of a place (`into`, several top-level items).
+        var into = false
+        var roots: [URL] = []
+        var upload: UploadRequest?
+        /// Why it ended, for the upload's completion.
+        var endCode: String?
 
         init(id: String, phoneID: String, root: URL, options: FolderScanOptions, startedAt: Date) {
             self.id = id
@@ -120,6 +130,8 @@ final class FolderSender {
             item.progress.filesDone = journal.completed.count
             item.progress.rootName = journal.rootName
             item.progress.destinationLabel = journal.destinationLabel
+            item.into = journal.into == true
+            item.roots = (journal.roots ?? []).map { URL(fileURLWithPath: $0) }
             items[item.id] = item
             publish(item)
         }
@@ -189,8 +201,41 @@ final class FolderSender {
 
     /// Files 2.0 browse: files and folders into a folder of a place (an `into` offer). Nil when it cannot start.
     func upload(_ request: UploadRequest) -> String? {
-        request.completion(.failure(.code(FolderCode.unsupported)))
-        return nil
+        guard let host else { return nil }
+        guard let support = host.folderSupport(for: request.phoneID), support.folders else {
+            request.completion(.failure(.code(FolderCode.unsupported)))
+            return nil
+        }
+        let urls = request.urls.filter(\.isFileURL)
+        guard let first = urls.first else {
+            request.completion(.failure(.code(FolderCode.invalidMessage)))
+            return nil
+        }
+        let item = Item(id: UUID().uuidString.lowercased(), phoneID: request.phoneID, root: first, options: host.folderScanDefaults, startedAt: Date())
+        item.into = true
+        item.roots = urls
+        item.upload = request
+        item.destination = request.destination
+        item.displayName = urls.count == 1 ? first.lastPathComponent
+            : String(format: L10n.text("folders.upload.items", fallback: "%1$@ and %2$@ more"), first.lastPathComponent, FolderText.number(urls.count - 1))
+        items[item.id] = item
+        publish(item)
+        startScan(item)
+        enqueue(item)
+        request.progress(PhoneTransferProgress(phase: .preparing))
+        return item.id
+    }
+
+    private func finishUpload(_ item: Item, state: FolderRowState) {
+        guard let upload = item.upload, state == .done || state == .incomplete else { return }
+        item.upload = nil
+        if state == .done {
+            upload.completion(.success(()))
+        } else if item.endCode == FolderCode.cancelled {
+            upload.completion(.failure(.cancelled))
+        } else {
+            upload.completion(.failure(.code(item.endCode ?? "incomplete")))
+        }
     }
 
     // MARK: Sending
@@ -313,10 +358,12 @@ final class FolderSender {
         item.hashed = nil
         item.hashing = nil
         let root = item.root
+        let roots = item.into ? item.roots : []
         let options = item.options
         let id = item.id
         scanQueue.async { [weak self] in
-            let scan = FolderScanner.scan(root, options: options, isCancelled: { token.isCancelled })
+            let scan = roots.isEmpty ? FolderScanner.scan(root, options: options, isCancelled: { token.isCancelled })
+                : FolderScanner.scan(items: roots, options: options, isCancelled: { token.isCancelled })
             guard !token.isCancelled else { return }
             DispatchQueue.main.async { self?.scanned(id, scan, token: token) }
             guard scan.problem == nil else { return }
@@ -410,7 +457,8 @@ final class FolderSender {
             host.folderEnded(item.id)
             return
         }
-        let plan = FolderSendPlan(folderTransferID: item.id, scan: hashed, destination: item.resuming ? item.journal?.destination : item.destination, resume: item.resuming)
+        let plan = FolderSendPlan(folderTransferID: item.id, scan: hashed, destination: item.resuming ? item.journal?.destination : item.destination,
+                                  resume: item.resuming, into: item.into)
         let queue = DispatchQueue(label: "in.roundrobin.bridgey.folder-send", qos: .userInitiated)
         let relay = FolderSessionRelay(owner: self, id: item.id)
         let session = FolderSendSession(
@@ -424,6 +472,7 @@ final class FolderSender {
         )
         relay.session = session
         item.session = session
+        item.relay = relay
         item.sessionQueue = queue
         item.sessionToken = wire.session
         item.state = .running
@@ -454,6 +503,7 @@ final class FolderSender {
         let reuse = item.hashed ?? item.previous
         item.resuming = true
         item.root = journal.resolveRoot()
+        if journal.into == true { item.roots = (journal.roots ?? []).map { URL(fileURLWithPath: $0) } }
         item.options = journal.options
         item.destination = journal.destination
         item.state = .queued
@@ -657,6 +707,15 @@ final class FolderSender {
     fileprivate func sessionProgress(_ id: String, _ progress: FolderProgress, session: FolderSendSession) {
         guard let item = items[id], item.session === session, item.state == .running else { return }
         item.progress = progress
+        if let upload = item.upload {
+            var update = PhoneTransferProgress(phase: progress.phase == .sending ? .transferring : (progress.phase == .completing ? .finishing : .waiting))
+            update.filesDone = progress.filesDone
+            update.filesTotal = progress.filesTotal
+            update.bytesDone = progress.bytesDone
+            update.bytesTotal = progress.bytesTotal
+            update.bytesPerSecond = Int64(progress.bytesPerSecond)
+            upload.progress(update)
+        }
         publish(item)
     }
 
@@ -702,7 +761,8 @@ final class FolderSender {
                 rootPath: item.root.path, bookmark: try? item.root.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil),
                 displayName: item.displayName, rootName: hashed.rootName, options: item.options, destination: item.destination,
                 destinationLabel: accept.destinationLabel, manifestSha256: hashed.manifestDigest, fileCount: hashed.fileCount,
-                totalSize: hashed.totalSize, createdAt: Date(), lastProgressAt: Date(), completed: []
+                totalSize: hashed.totalSize, createdAt: Date(), lastProgressAt: Date(), completed: [],
+                roots: item.into ? item.roots.map(\.path) : nil, into: item.into ? true : nil
             )
             item.journal = journal
             journals.save(journal)
@@ -729,6 +789,7 @@ final class FolderSender {
     fileprivate func sessionFinished(_ id: String, _ outcome: FolderOutcome, progress: FolderProgress, session: FolderSendSession) {
         guard let item = items[id], item.session === session, let host else { return }
         item.session = nil
+        item.relay = nil
         item.sessionQueue = nil
         item.sessionToken = nil
         item.progress = progress
@@ -738,6 +799,7 @@ final class FolderSender {
         let phone = host.phoneName(item.phoneID)
         let name = progress.destinationLabel != nil ? progress.rootName ?? item.displayName : item.displayName
         let text = FolderText.outcome(outcome, name: name, phone: phone, destination: item.destinationLabel, progress: progress)
+        item.endCode = Self.code(outcome)
         BridgeyLog.plugin.notice("folder ended transfer=\(String(id.prefix(8)), privacy: .public) outcome=\(Self.logName(outcome), privacy: .public) done=\(progress.filesDone, privacy: .public) failed=\(progress.failedCount, privacy: .public)")
         switch outcome {
         case .interrupted:
@@ -798,6 +860,19 @@ final class FolderSender {
         host.folderEnded(id)
     }
 
+    private static func code(_ outcome: FolderOutcome) -> String? {
+        switch outcome {
+        case let .done(result): return result.isComplete ? nil : "incomplete"
+        case .unconfirmed: return "unconfirmed"
+        case let .rejected(code, _, _): return code
+        case .filesOff: return FolderCode.policy
+        case .cancelledHere: return FolderCode.cancelled
+        case .cancelledByPhone: return FolderCode.declined
+        case .noAnswer, .questionTimedOut: return FolderCode.timeout
+        case .interrupted: return nil
+        }
+    }
+
     private static func logName(_ outcome: FolderOutcome) -> String {
         switch outcome {
         case let .done(result): return result.isComplete ? "complete" : "incomplete"
@@ -818,9 +893,12 @@ final class FolderSender {
     }
 
     private func end(_ item: Item, state: FolderRowState, text: String?, sendAgain: Bool) {
+        if item.upload != nil, state == .incomplete, item.endCode == nil { item.endCode = FolderCode.cancelled }
+        defer { finishUpload(item, state: state) }
         item.state = state
         item.endText = text
-        item.canSendAgain = sendAgain
+        // An upload's Send again would need the Phone files window's folder: drop it on the window again instead.
+        item.canSendAgain = sendAgain && !item.into
         item.canResume = false
         item.hashing = nil
         item.inQueue = false
@@ -844,6 +922,14 @@ final class FolderSender {
         }
         host.recordFolderActivity(kind, phoneID: item.phoneID, name: item.displayName, fileCount: item.progress.filesTotal,
                                   bytes: item.progress.bytesTotal, destination: item.destinationLabel, detail: detail)
+        let outcome: TransferHistoryEntry.Outcome = kind == .folderSent ? .completed : (end == "cancelled" ? .cancelled : .incomplete)
+        let singleFile = item.into && item.roots.count == 1 && item.progress.filesTotal == 1 && item.hashed?.folderCount == 0
+        host.recordHistory(TransferHistoryEntry(
+            id: item.id, date: Date(), direction: .sent, deviceID: item.phoneID, deviceName: host.phoneName(item.phoneID),
+            name: item.displayName, isFolder: !singleFile, fileCount: item.progress.filesTotal,
+            bytes: outcome == .completed ? item.progress.bytesTotal : item.progress.bytesDone, outcome: outcome,
+            localPath: (item.into ? item.roots.first : item.root)?.path, destination: item.destinationLabel
+        ))
     }
 
     // MARK: Rows
@@ -869,7 +955,8 @@ final class FolderSender {
             startedAt: item.startedAt,
             retryable: !active && (summary.canResume || summary.canSendAgain),
             queued: item.state == .queued,
-            folder: summary
+            folder: summary,
+            localURL: item.into ? item.roots.first : item.root
         ))
     }
 

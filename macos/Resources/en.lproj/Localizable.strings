@@ -702,6 +702,18 @@
 "settings.files.tag.detail" = "Adds the Bridgey tag, so Finder can list everything that came from your phone.";
 
 /* Files 2.0: transfer engine (Mac engine agent adds below) */
+"folders.upload.items" = "%1$@ and %2$@ more";
+"folders.rejected.readOnly" = "%@ doesn’t allow changes. Turn on Allow other devices to change files here on the phone.";
+"folders.row.titleFrom" = "%1$@ ← %2$@ › %3$@";
+"folders.row.titleFromNoPlace" = "%1$@ ← %2$@";
+"folders.status.answerHere" = "Answer on this Mac (%@)";
+"folders.status.incoming" = "Receiving from %@…";
+"folders.status.interruptedIncoming" = "Interrupted, resumes when %@ sends it again";
+"folders.receive.saveHere" = "Save Here";
+"folders.receive.choose" = "Choose where to save “%1$@” from %2$@";
+"folders.receive.thisMac" = "this Mac";
+"folders.receive.done.noPlace" = "%@ saved on this Mac";
+"folders.receive.done" = "%1$@ saved in %2$@";
 
 /* Files 2.0: Phone files and History windows (browse UI agent adds below) */
 "action.close" = "Close";

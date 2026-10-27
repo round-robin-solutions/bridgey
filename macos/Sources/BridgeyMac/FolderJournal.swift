@@ -24,6 +24,9 @@ struct FolderJournal: Codable, Equatable {
     var lastProgressAt: Date
     /// Entries whose files.complete.ack arrived.
     var completed: [Int]
+    /// Files 2.0 browse: an upload of several items (`into`): their paths, scanned again on resume.
+    var roots: [String]? = nil
+    var into: Bool? = nil
 
     func canResume(now: Date) -> Bool { FolderTimeouts.canResume(lastProgress: lastProgressAt, now: now) }
 
