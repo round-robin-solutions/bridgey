@@ -1,0 +1,18 @@
+[
+  {
+    "id": "d60c274e-f2b8-452d-8031-912d80624414:0|com.example.chat|7|null|10001",
+    "packageName": "com.example.chat",
+    "applicationName": "Chat App",
+    "title": "Synthetic title",
+    "text": "Synthetic message text",
+    "receivedAt": 814701600
+  },
+  {
+    "id": "d60c274e-f2b8-452d-8031-912d80624414:0|com.example.mail|3|null|10001",
+    "packageName": "com.example.mail",
+    "applicationName": "Mail App",
+    "title": "Another title",
+    "text": "",
+    "receivedAt": 814698000
+  }
+]

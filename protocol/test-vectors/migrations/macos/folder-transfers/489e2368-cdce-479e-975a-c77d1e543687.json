@@ -1,0 +1,29 @@
+{
+  "completed": [
+    0,
+    1,
+    2,
+    5
+  ],
+  "createdAt": 1793005200000,
+  "destination": {
+    "path": "Trip 2026",
+    "placeId": "default"
+  },
+  "destinationLabel": "Download/Bridgey",
+  "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+  "deviceName": "Test Phone A",
+  "displayName": "Trip 2026",
+  "fileCount": 12,
+  "folderTransferId": "489e2368-cdce-479e-975a-c77d1e543687",
+  "lastProgressAt": 1793005800000,
+  "manifestSha256": "99d35512273e0bf7ceb7a67b0ec97805a5c6cfb2b30a8852e5c452c6cf6a108f",
+  "options": {
+    "includeHidden": false,
+    "includeSystem": true
+  },
+  "rootName": "Trip 2026",
+  "rootPath": "/Users/test/Pictures/Trip 2026",
+  "totalSize": 52428800,
+  "version": 2
+}

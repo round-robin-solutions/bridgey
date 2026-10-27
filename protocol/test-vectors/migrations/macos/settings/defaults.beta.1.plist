@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>deviceID</key>
+	<string>9e82d846-bd24-47b7-83ff-7e9210a5e6b2</string>
+	<key>media.pauseForCalls</key>
+	<true/>
+	<key>media.player</key>
+	<string>spotify</string>
+	<key>settings.device.662af8a6-40db-4ee9-8fa4-7a8d96bc57aa.files</key>
+	<false/>
+	<key>settings.device.d60c274e-f2b8-452d-8031-912d80624414.calls</key>
+	<true/>
+	<key>settings.device.d60c274e-f2b8-452d-8031-912d80624414.notifications</key>
+	<false/>
+	<key>settings.deviceName</key>
+	<string>Test Mac</string>
+	<key>settings.global.clipboard</key>
+	<false/>
+	<key>settings.global.media</key>
+	<true/>
+	<key>settings.notificationHistory.enabled</key>
+	<true/>
+	<key>settings.onboarding.completed</key>
+	<true/>
+	<key>settings.receiveFolderPath</key>
+	<string>/Users/test/Downloads/Bridgey Inbox</string>
+	<key>shortcuts.clipboard</key>
+	<string>V</string>
+	<key>shortcuts.shift</key>
+	<true/>
+	<key>updates.channel</key>
+	<string>beta</string>
+</dict>
+</plist>

@@ -1,0 +1,33 @@
+[
+  {
+    "accepted": true,
+    "counts": {
+      "button": 6,
+      "key": 9,
+      "pointer": 120,
+      "present": 3,
+      "scroll": 4
+    },
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "dropped": 2,
+    "endReason": "user",
+    "endedAt": 1793007000000,
+    "id": "50f4e68f-8530-487d-bb8d-36247499c0e9",
+    "mode": "touchpad",
+    "rejected": 1,
+    "startedAt": 1793005800000
+  },
+  {
+    "accepted": false,
+    "counts": {},
+    "deviceID": "662af8a6-40db-4ee9-8fa4-7a8d96bc57aa",
+    "deviceName": "Test Phone B",
+    "dropped": 0,
+    "endReason": "permission_required",
+    "endedAt": 1793005200000,
+    "id": "89023c56-51a3-42e9-bcea-50fe8b6f70d8",
+    "rejected": 0,
+    "startedAt": 1793005200000
+  }
+]

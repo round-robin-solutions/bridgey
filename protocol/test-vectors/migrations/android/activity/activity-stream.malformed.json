@@ -1,0 +1,102 @@
+[
+  {
+    "id": 40,
+    "kind": "clipboard_sent",
+    "deviceId": "e2acaa6d-7980-4e5c-b5cb-9c8742216271",
+    "deviceName": "  Test Mac A  ",
+    "fileName": "should be dropped",
+    "preview": "line one\n\n   line two",
+    "appName": "dropped",
+    "sensitive": false,
+    "automatic": true,
+    "count": 0,
+    "at": 1793005200000,
+    "bytes": 99,
+    "content": "image",
+    "fileCount": 3,
+    "destination": "dropped",
+    "detail": "merged=1"
+  },
+  {
+    "id": 41,
+    "kind": "teleported",
+    "deviceId": "e2acaa6d-7980-4e5c-b5cb-9c8742216271",
+    "deviceName": "Test Mac A",
+    "count": 1,
+    "at": 1793005200000
+  },
+  {
+    "kind": "clipboard_sent",
+    "deviceId": "e2acaa6d-7980-4e5c-b5cb-9c8742216271",
+    "deviceName": "Test Mac A",
+    "count": 1,
+    "at": 1793005200000
+  },
+  {
+    "id": -3,
+    "kind": "clipboard_sent",
+    "deviceId": "e2acaa6d-7980-4e5c-b5cb-9c8742216271",
+    "deviceName": "Test Mac A",
+    "count": 1,
+    "at": 1793005200000
+  },
+  42,
+  "not an item",
+  null,
+  [
+    1,
+    2
+  ],
+  {
+    "id": 43,
+    "kind": "clip_offer_received",
+    "deviceId": "",
+    "deviceName": "Test Mac A",
+    "count": 99999,
+    "at": 1793005260000,
+    "bytes": -5,
+    "content": "video",
+    "preview": "dropped for offers"
+  },
+  {
+    "id": 44,
+    "kind": "folder_received",
+    "deviceId": "e2acaa6d-7980-4e5c-b5cb-9c8742216271",
+    "deviceName": "Test Mac A",
+    "fileName": "Trip",
+    "count": 1,
+    "at": 1793005320000,
+    "fileCount": -1,
+    "destination": "   ",
+    "detail": "Not A Detail!"
+  },
+  {
+    "id": 45,
+    "kind": "file_received",
+    "deviceId": "e2acaa6d-7980-4e5c-b5cb-9c8742216271",
+    "deviceName": "Test Mac A",
+    "fileName": "old.pdf",
+    "count": 1,
+    "at": 1792314000000
+  },
+  {
+    "id": 46,
+    "kind": "file_received",
+    "deviceId": "e2acaa6d-7980-4e5c-b5cb-9c8742216271",
+    "deviceName": "Test Mac A",
+    "fileName": "future.pdf",
+    "count": 1,
+    "at": 1795597200000
+  },
+  {
+    "id": 47,
+    "kind": "ping_received",
+    "deviceId": null,
+    "deviceName": "Test Mac A",
+    "count": 1,
+    "at": 1793005380000,
+    "futureField": {
+      "nested": true
+    }
+  }
+]

@@ -1,0 +1,132 @@
+[
+  {
+    "id": 12,
+    "kind": "folder_sent",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "sensitive": false,
+    "automatic": false,
+    "count": 1,
+    "at": 1793012400000,
+    "fileName": "Trip",
+    "bytes": 52428800,
+    "content": "done=12;links=3",
+    "fileCount": 12,
+    "destination": "Pictures/Trip"
+  },
+  {
+    "id": 11,
+    "kind": "folder_incomplete",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "sensitive": false,
+    "automatic": false,
+    "count": 1,
+    "at": 1793010600000,
+    "fileName": "Scans",
+    "bytes": 1048576,
+    "content": "done=3;failed=1;end=timeout",
+    "fileCount": 4,
+    "destination": "Download/Bridgey/Scans"
+  },
+  {
+    "id": 10,
+    "kind": "clip_offer_sent",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "sensitive": false,
+    "automatic": false,
+    "count": 1,
+    "at": 1793008800000,
+    "bytes": 2100000,
+    "content": "image"
+  },
+  {
+    "id": 9,
+    "kind": "clip_pasted",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "sensitive": false,
+    "automatic": false,
+    "count": 1,
+    "at": 1793008200000,
+    "fileName": "video.mp4",
+    "bytes": 340000000,
+    "content": "file"
+  },
+  {
+    "id": 8,
+    "kind": "clipboard_sent",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "sensitive": false,
+    "automatic": true,
+    "count": 1,
+    "at": 1793007600000,
+    "preview": "Automatic copy from the Mac"
+  },
+  {
+    "id": 6,
+    "kind": "clipboard_sent",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "sensitive": false,
+    "automatic": false,
+    "count": 1,
+    "at": 1793006400000,
+    "preview": "Meeting notes for Tuesday"
+  },
+  {
+    "id": 5,
+    "kind": "clipboard_received",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "sensitive": true,
+    "automatic": false,
+    "count": 1,
+    "at": 1793006100000
+  },
+  {
+    "id": 4,
+    "kind": "notifications_shown",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "sensitive": false,
+    "automatic": false,
+    "count": 4,
+    "at": 1793005800000,
+    "appName": "Chat App"
+  },
+  {
+    "id": 3,
+    "kind": "file_received",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "sensitive": false,
+    "automatic": false,
+    "count": 1,
+    "at": 1793005500000,
+    "fileName": "report.pdf"
+  },
+  {
+    "id": 2,
+    "kind": "call_shown",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "sensitive": false,
+    "automatic": false,
+    "count": 1,
+    "at": 1793005320000,
+    "preview": "Test Caller"
+  },
+  {
+    "id": 1,
+    "kind": "paired",
+    "deviceID": "662af8a6-40db-4ee9-8fa4-7a8d96bc57aa",
+    "deviceName": "Test Phone B",
+    "sensitive": false,
+    "automatic": false,
+    "count": 1,
+    "at": 1793005200000
+  }
+]

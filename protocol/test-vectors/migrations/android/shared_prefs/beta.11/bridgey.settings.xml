@@ -1,0 +1,32 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="device_name">Test Phone</string>
+    <boolean name="global.clipboard" value="false" />
+    <boolean name="global.media" value="false" />
+    <boolean name="device.e2acaa6d-7980-4e5c-b5cb-9c8742216271.notifications" value="false" />
+    <boolean name="device.e2acaa6d-7980-4e5c-b5cb-9c8742216271.calls" value="true" />
+    <boolean name="device.95b2dd40-4f91-44e7-9f28-d6655fcbd197.files" value="false" />
+    <string name="notification.application.com.example.chat">Chat App</string>
+    <string name="notification.application.com.example.mail">Mail App</string>
+    <set name="notification.disabled_packages">
+        <string>com.example.mail</string>
+    </set>
+    <boolean name="calls.direct_enabled" value="true" />
+    <boolean name="clipboard.auto.global" value="false" />
+    <boolean name="clipboard.auto.device.e2acaa6d-7980-4e5c-b5cb-9c8742216271" value="true" />
+    <boolean name="clipboard.background.enabled" value="true" />
+    <boolean name="clipboard.files.enabled" value="false" />
+    <long name="clipboard.files.eager_limit" value="100000000" />
+    <boolean name="connection.keep_wifi_awake" value="true" />
+    <boolean name="global.remote_input_draft1" value="true" />
+    <boolean name="device.e2acaa6d-7980-4e5c-b5cb-9c8742216271.remote_input_draft1" value="true" />
+    <string name="files.folder_destination">fixed</string>
+    <string name="files.folder_conflict">merge</string>
+    <string name="files.folder_default_place">q3Jx0bVv1eG7tq8Wm2l5wA</string>
+    <boolean name="files.folder_allow_replace" value="true" />
+    <string name="files.folder_recent">[{&quot;placeId&quot;:&quot;default&quot;,&quot;path&quot;:&quot;Trips&quot;},{&quot;placeId&quot;:&quot;q3Jx0bVv1eG7tq8Wm2l5wA&quot;,&quot;path&quot;:&quot;Photos/2026&quot;}]</string>
+    <boolean name="clipboard.screenshot.enabled" value="false" />
+    <boolean name="logging.connection" value="false" />
+    <boolean name="logging.calls.numbers" value="true" />
+    <boolean name="logging.remote_control" value="false" />
+</map>

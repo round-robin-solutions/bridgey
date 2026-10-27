@@ -1,0 +1,22 @@
+{
+  "d60c274e-f2b8-452d-8031-912d80624414": {
+    "addresses": [
+      {
+        "host": "192.168.1.30",
+        "port": 42458,
+        "source": "relay",
+        "lastSeen": 814698000
+      }
+    ]
+  },
+  "662af8a6-40db-4ee9-8fa4-7a8d96bc57aa": {
+    "addresses": [
+      {
+        "host": "10.0.0.8",
+        "port": 42458,
+        "source": "inbound",
+        "lastSeen": 814698000
+      }
+    ]
+  }
+}

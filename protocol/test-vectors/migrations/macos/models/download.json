@@ -1,0 +1,14 @@
+{
+  "userPaused": true,
+  "manifest": {
+    "schema": 1,
+    "version": 2,
+    "name": "Synthetic test model v2",
+    "url": "https://github.com/round-robin-solutions/bridgey/releases/download/models/bridgey-otp-v2.gguf",
+    "size": 2000000,
+    "sha256": "34fc080262f59cdc94ad5c3ff09c819157a78db99ae433c18fbace4cafd60972",
+    "termsVersion": "gemma-2026-04-01+pup-2024-02-21+bridgey-1",
+    "licenceURL": "https://ai.google.dev/gemma/terms",
+    "prohibitedUseURL": "https://ai.google.dev/gemma/prohibited_use_policy"
+  }
+}

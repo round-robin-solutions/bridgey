@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="peer.e2acaa6d-7980-4e5c-b5cb-9c8742216271.name">Test Mac A</string>
+    <string name="peer.e2acaa6d-7980-4e5c-b5cb-9c8742216271.identityKey">BBAl8z4gV38J9A9qZ3ytWpBVd9Cs8PS58tGNSCcZqHgwgcwSMonestjOd1d6teJg+Xr3dOyj+EXbmiXNpVLGstA=</string>
+    <string name="peer.95b2dd40-4f91-44e7-9f28-d6655fcbd197.name">Test Mac B</string>
+    <string name="peer.95b2dd40-4f91-44e7-9f28-d6655fcbd197.identityKey">BPLnIdaHWwZpRVUTpTuHGKuh2e4QBB2PHmBSIBs4+wi71fqNHfopx8ZRvVDiNdCD7am8zcQLQ9Afu3RrYJbTJJg=</string>
+    <string name="peer.6718981b-b9e7-4688-a8c9-9b5a5bb8e3ed.identityKey">BFixS0AdxLGMMkv9/7qbO2HI1XLVaUz923fIZaE5ZKVF2cuyYTH/Gsv0xYva7U/vqdEtju8a/GGoXOZFC/lq2YU=</string>
+    <string name="peer.d5dc899e-aaf6-4196-9ed0-3c1cdb3ea832.name">Name without a key</string>
+</map>
