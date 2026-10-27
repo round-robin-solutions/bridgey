@@ -213,6 +213,7 @@ fun dropReasonText(token: String): String = when (token) {
     "user_disconnect" -> stringResource(R.string.health_reason_user)
     "closed_by_peer", "reset_by_peer", "broken_pipe", "cancelled_remote" -> stringResource(R.string.health_reason_peer)
     "network_unreachable", "host_unreachable" -> stringResource(R.string.health_reason_network)
+    "network_changed" -> stringResource(R.string.health_reason_network_changed)
     "timed_out", "handshake_timeout" -> stringResource(R.string.health_reason_timeout)
     "replaced", "duplicate" -> stringResource(R.string.health_reason_replaced)
     else -> stringResource(R.string.health_reason_other, token)

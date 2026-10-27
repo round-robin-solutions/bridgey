@@ -848,6 +848,7 @@
     <string name="health_reason_user">Disconnected by you</string>
     <string name="health_reason_peer">Closed by the other device</string>
     <string name="health_reason_network">Network not reachable</string>
+    <string name="health_reason_network_changed">The network changed and the old route stopped answering</string>
     <string name="health_reason_timeout">Timed out</string>
     <string name="health_reason_replaced">Replaced by a newer connection</string>
     <string name="health_reason_other">Other (%1$s)</string>

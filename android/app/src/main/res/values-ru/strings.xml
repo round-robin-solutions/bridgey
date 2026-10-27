@@ -904,6 +904,7 @@
     <string name="health_reason_user">Вы отключили</string>
     <string name="health_reason_peer">Закрыто другим устройством</string>
     <string name="health_reason_network">Сеть недоступна</string>
+    <string name="health_reason_network_changed">Сеть сменилась, и старый маршрут перестал отвечать</string>
     <string name="health_reason_timeout">Время ожидания истекло</string>
     <string name="health_reason_replaced">Заменено новым подключением</string>
     <string name="health_reason_other">Другое (%1$s)</string>

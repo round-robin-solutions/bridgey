@@ -20,6 +20,20 @@ behind an opt-in switch. The transfer engine (section 8) is not part of it.
 | Protocol | Draft key `connect_draft1` (instead of the `capabilities` array, per the contract's draft rule), `connect.setup`, `connect.setup.ack`, `connect.addresses`; in-band ICE and `connect.route` listed as designed | `protocol/messages.json`, `docs/protocol.md` |
 | Vectors | `connect-v1.json` from the Rust core (pair secret, pair check, rendezvous IDs, signal key, sealing, node auth, TURN credentials, transcript), checked by Rust, Python, Android and the Mac; `connectSetup` and `connectAddresses` in `protocol-v1.json` | `protocol/test-vectors` |
 
+Live test (2026-10-27, rr-dev-1 and the personal Mac; nothing public): the control service (its
+image) and coturn ran on rr-dev-1 bound to the tailnet only. The Android build on the emulator paired
+over TCP with `server/local/test_peer.py` (a headless peer with the same core), set up the pair
+secret, then reached it through the relay with LAN blocked:
+
+| Measure | Result |
+| --- | --- |
+| Relay connect, core to core (5 runs) | 202 to 254 ms from the race start to the tunnel; the peer is raced 1.5 s after it drops or appears |
+| Phone app to peer through the relay | tunnel 1.8 s after the race started, session authenticated (`bridgey-auth-v2`) 0.25 s later |
+| Failover, direct or private network to relay (core, 3 runs) | 3.1 to 3.3 s from blocking the path to the relay tunnel (3 s probe plus about 0.1 s) |
+| Failover in the phone app | 6.7 s from blocking the path to the relay session (3 s probe, 1.5 s grace, 1.8 s race, 0.25 s handshake) |
+| What the relay saw | 4,077 relay packets captured; no device name, device ID, message kind or test marker in any of them |
+| Core size | 3.5 MB arm64-v8a, 4.1 MB x86_64 (release, stripped); the control service image is 2.6 MB |
+
 Calls made while building (for review):
 
 - **No UniFFI yet.** The apps talk to the core through five C functions (Mac, `dlopen`) and four JNI
