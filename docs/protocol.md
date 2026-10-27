@@ -107,8 +107,8 @@ available only when both peers report the corresponding feature as enabled. Clie
 predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
-`sms_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`) are optional booleans described in
-their own sections; a missing draft key means `false`.
+`sms_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`)
+are optional booleans described in their own sections; a missing draft key means `false`.
 
 ## Pairing flow
 
@@ -758,6 +758,46 @@ optimisation is off. The round trip is measured from the existing `heartbeat.pin
 `heartbeat.pong`, which echoes the ping's `messageId`, so nothing new goes on the wire. The view and
 its part of the diagnostics report hold no addresses, names or content: the first eight characters
 of the device ID, tokens and numbers only.
+
+### Focus and Do Not Disturb sync (`focus_sync_draft1`)
+
+Status: **Draft, edition only.** Mirrors "quiet mode" between a phone and a Mac, each direction opt-in
+on the device that changes (off by default). What each platform can read and set without private
+interfaces is in [automation.md](automation.md).
+
+**Negotiation.** `features.update` gains `focus_sync_draft1`: the peer understands `focus.state`. A
+peer sends `focus.state` only when its own "share" switch is on for that peer and the peer's key is
+`true`; the receiver applies it only when its own "follow" switch is on.
+
+**Message.** `focus.state`, either direction, encrypted like `codes.*` (`messageId` in the replay
+window), plaintext at most 256 bytes: `{ "version": 1, "active": bool }`. Sent once after each
+`features.update` that shows the key on both sides, and whenever the state changes. A phone reports
+Do Not Disturb as active for any interruption filter other than "all"; a Mac reports whether a Focus
+is on. A receiver that follows sets its own quiet mode to match and does not send the resulting
+change back for 10 seconds, so two devices following each other cannot loop.
+
+### Phone camera to Mac (`camera_draft1`)
+
+Status: **Draft, edition only.** "Take photo with OnePlus 11" on the Mac opens a full-screen camera on
+the phone; the photo comes back as an ordinary file.
+
+**Negotiation.** The phone sets `camera_draft1` when its "Take photos for the Mac" switch is on for
+that Mac (on by default; Android asks for the camera permission the first time it is used). The
+Mac sets it when it can ask (always, in builds that have the feature).
+
+**Messages.** Encrypted like `codes.*`, plaintext at most 512 bytes, `version: 1`.
+
+| Message | Direction | Fields | Meaning |
+| --- | --- | --- | --- |
+| `camera.request` | Mac to phone | `requestId` (UUID), `mode`: `photo` | ask for one photo. One open request per Mac; at most one request every 3 seconds; it expires after 2 minutes |
+| `camera.status` | phone to Mac | `requestId`, `status` | `opened` (the camera is on screen), `locked` (the phone is locked: it shows "Unlock your phone to take the photo" and opens the camera after unlocking), `permission_required`, `cancelled`, `busy`, `disabled`, `sending`, `failed` |
+
+The phone never opens the camera while it is locked or without the person tapping (Android does not
+let an app start an activity from the background). The photo is sent with `files.v1` as a JPEG; its
+encrypted `files.offer` payload adds `cameraRequestId`, which the Mac matches to its open request.
+The Mac saves it in the received files folder like any file and, if its "Copy photos to the
+clipboard" setting is on (off by default), also puts the image on the clipboard. Older Macs ignore
+the field and simply receive a file.
 
 ## Draft: folders, places and settings sync
 
