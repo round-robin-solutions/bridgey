@@ -73,6 +73,8 @@ final class MigrationSettingsTests: XCTestCase {
         var globals = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map { ($0, true) })
         globals[.clipboard] = false
         globals[.remoteInput] = release >= 9
+        // v0.9 automation: Mac actions is off until the person turns it on, and no older release stored it.
+        globals[.macActions] = false
         XCTAssertEqual(settings.globalFeatures, globals, label, file: file, line: line)
         var phoneA: [BridgeyFeature: Bool] = [.notifications: false, .calls: true]
         if release >= 9 { phoneA[.remoteInput] = true }
