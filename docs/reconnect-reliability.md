@@ -55,6 +55,19 @@ now" and discovery restarts. Events within 2 s collapse into one recovery (at mo
 | Risks | A flapping Wi-Fi: covered by the 2 s debounce and the 30 s spacing. |
 | Default | On. Knobs: `eventQuietPeriod`, `eventMaxWait`, `eventRestartSpacing`. |
 
+## 3a. Devices that are away, and addresses that moved on (27 October)
+
+On 27 October a Mac kept dialling a paired MacBook every minute for an hour after each launch and
+each wake, for twelve hours, after that MacBook had been reset and came back under a new identity.
+Each dial reached the MacBook at its old address and it closed the connection, and the panel said
+"Can't reach. Retrying" with nothing to explain why.
+
+| | |
+|---|---|
+| Away | A trusted device not connected for over an hour (`awayAfter`) is away. A launch, wake or network change tries it once, then keeps to the slow delay (10 minutes) instead of a fresh hour of 60 s dials. Periodic discovery restarts run only for devices that dropped within the hour. Discovery seeing the device, "Retry now" and "Look for devices again" still start a fast phase. |
+| Moved addresses | A remembered address that discovery now shows for another device (an advertised id that is not this device's) is not dialled: DHCP gave it to someone else, or the device was reset. Its live discovery addresses are still dialled first. Someone advertising a fake id at a trusted device's address can only stop the remembered address being dialled; the device still reconnects through its own discovery entry or by dialling in. |
+| Panel | An away device that discovery does not see says "Not nearby" ("Not on this network (last seen 10:20)" where there is room). When a new, unpaired device with the same name is nearby, the tooltip says it was probably reset and should be paired again. |
+
 ## 4. Heartbeat (unchanged: ping every 10 s, link dead after 30 s silent)
 
 | | |

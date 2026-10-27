@@ -524,6 +524,9 @@ class PairingCoordinator(
     private fun disconnectedTrustedIds(): List<String> =
         trust.trustedDeviceIds.value.filter { registry.session(it) == null }.sorted()
 
+    /** Disconnected trusted devices that are not away: the ones periodic discovery restarts are for. */
+    private fun recentlyDroppedTrustedIds(): List<String> = disconnectedTrustedIds().filterNot(reconnect::isAway)
+
     private fun trustedName(id: String): String =
         trust.trustedDevices.value.firstOrNull { it.id == id }?.name
             ?: lastPeers.firstOrNull { it.deviceIdHint == id }?.deviceNameHint
@@ -622,13 +625,13 @@ class PairingCoordinator(
             discoveryRestartTask = null
             val start = discoveryWindowStart ?: return
             val now = SystemClock.elapsedRealtime()
-            if (!reconnecting || disconnectedTrustedIds().isEmpty() || now - start >= ReconnectPolicy.DISCOVERY_RESTART_WINDOW_MILLIS) return
+            if (!reconnecting || recentlyDroppedTrustedIds().isEmpty() || now - start >= ReconnectPolicy.DISCOVERY_RESTART_WINDOW_MILLIS) return
             val next = maxOf(lastDiscoveryRestart + ReconnectPolicy.DISCOVERY_RESTART_INTERVAL_MILLIS, now + 30_000)
             discoveryRestartTask = reconnectClock.schedule(next - now) {
                 val due = synchronized(discoveryLock) {
                     discoveryRestartTask = null
                     val windowStart = discoveryWindowStart
-                    reconnecting && windowStart != null && disconnectedTrustedIds().isNotEmpty() &&
+                    reconnecting && windowStart != null && recentlyDroppedTrustedIds().isNotEmpty() &&
                         SystemClock.elapsedRealtime() - windowStart < ReconnectPolicy.DISCOVERY_RESTART_WINDOW_MILLIS
                 }
                 if (due) {

@@ -4,9 +4,10 @@ import Foundation
 // Files 2.0: what makes the Phone files grid feel instant.
 //   - Every visible cell observes one ThumbnailBox. A memory hit fills the box before the cell's first frame,
 //     a disk hit a few milliseconds later, the phone after one batched round trip.
-//   - Cells report onAppear/onDisappear; one flush per run-loop turn turns that into a single media.thumbnails
-//     request on the "grid" lane: visible items first (in grid order), then the next screen as prefetch. A new
-//     request replaces the previous one, so items scrolled away are cancelled on the phone.
+//   - Cells report onAppear/onDisappear; one flush per run-loop turn turns that into one job on the "grid" lane
+//     (a media.thumbnails request per size): visible items first (in grid order), then the next screen as
+//     prefetch. A job is replaced only when a visible cell needs an item it does not carry, so items scrolled
+//     away are cancelled on the phone and a job answering part by part is left to finish.
 //   - Hover prefetch (PhoneHoverPrefetcher): after 150 ms on a thumbnail, the preview-size image (and for a
 //     video the first ~2 MB) is fetched into the same content-addressed cache, at most 3 at a time, LAN only.
 
@@ -73,6 +74,13 @@ final class PhoneThumbnailScheduler {
     private var decoding = Set<String>()
     private var flushScheduled = false
     private var current: PhoneFilesCancellable?
+    /// Counts requests on the grid lane. A request the next one replaced still reports back (the client ends it
+    /// as cancelled, synchronously, inside the next call); only the latest one may touch `current` and
+    /// `requested`, or the replaced one empties them and every flush replaces the request again.
+    private var generation = 0
+    /// After a failed request (timeout, busy) visible cells ask again after this long, not on the next turn.
+    static let retryAfterFailure: TimeInterval = 2
+    private var retry: DispatchWorkItem?
     /// Timing hooks for the perf harness: when every visible box was filled.
     var onVisibleFilled: (() -> Void)?
 
@@ -84,6 +92,9 @@ final class PhoneThumbnailScheduler {
     func setPhone(_ id: String?) {
         guard id != phoneID else { return }
         phoneID = id
+        generation += 1
+        retry?.cancel()
+        retry = nil
         current?.cancel()
         current = nil
         boxes.removeAll()
@@ -121,6 +132,9 @@ final class PhoneThumbnailScheduler {
 
     /// Stops the grid lane (window closed, section changed).
     func stop() {
+        generation += 1
+        retry?.cancel()
+        retry = nil
         current?.cancel()
         current = nil
         visible.removeAll()
@@ -160,6 +174,7 @@ final class PhoneThumbnailScheduler {
                 network.append(entry)
             }
         }
+        let visibleCount = network.count
         // The next screen, as prefetch, only while something visible is still missing or ahead is uncached.
         if let last = visibleEntries.last.flatMap({ index[$0.id] }) {
             let upper = min(order.count, last + 1 + Self.prefetchAhead)
@@ -173,9 +188,11 @@ final class PhoneThumbnailScheduler {
             }
         }
         let wanted = Array(network.prefix(Self.maxPerRequest))
-        let keys = Set(wanted.map { $0.cacheKey(phoneID: phoneID) })
-        // Same set already on the wire: let it finish.
-        if keys.isSubset(of: requested), current != nil {
+        // Every visible cell that needs the phone is already on the wire: let that request finish. Prefetch
+        // drifting is no reason to replace it: answers arriving part by part (one request per size) move the
+        // prefetch window on every turn, and replacing cancels what is about to arrive.
+        let visibleNeeded = Set(network.prefix(visibleCount).map { $0.cacheKey(phoneID: phoneID) })
+        if current != nil, visibleNeeded.isSubset(of: requested) {
             checkFilled()
             return
         }
@@ -192,8 +209,12 @@ final class PhoneThumbnailScheduler {
     }
 
     private func request(_ entries: [PhoneFileEntry], phoneID: String) {
-        requested = Set(entries.map { $0.cacheKey(phoneID: phoneID) })
-        current = service.thumbnails(phoneID: phoneID, entries: entries, size: Self.size(for:), lane: "grid", deliver: { [weak self] entry, image in
+        generation += 1
+        let generation = generation
+        retry?.cancel()
+        retry = nil
+        var ended = false
+        let handle = service.thumbnails(phoneID: phoneID, entries: entries, size: Self.size(for:), lane: "grid", deliver: { [weak self] entry, image in
             guard let self, self.phoneID == phoneID else { return }
             let key = entry.cacheKey(phoneID: phoneID)
             let box = self.boxes[key]
@@ -209,20 +230,40 @@ final class PhoneThumbnailScheduler {
                 self?.checkFilled()
             }
         }, finished: { [weak self] result in
-            guard let self, self.phoneID == phoneID else { return }
+            // A replaced or stopped request: the newer one owns the lane.
+            guard let self, self.phoneID == phoneID, self.generation == generation else { return }
+            ended = true
             if case let .success(none) = result {
                 for entry in none { self.missing.insert(entry.cacheKey(phoneID: phoneID)) }
             }
             self.current = nil
             self.requested.removeAll()
-            // Anything still visible and empty (scrolled into view meanwhile) gets the next request.
-            if self.visible.values.contains(where: { entry in
+            // Anything still visible and empty (scrolled into view meanwhile) gets the next request; after a
+            // failure, not before a pause, so a phone answering `busy` or not at all is not asked in a loop.
+            guard self.visible.values.contains(where: { entry in
                 let key = self.box(for: entry).key
                 return self.box(for: entry).image == nil && !self.missing.contains(key) && !self.decoding.contains(key)
-            }) {
+            }) else { return }
+            switch result {
+            case .success:
                 self.scheduleFlush()
+            case .failure(.cancelled):
+                break
+            case .failure:
+                let retry = DispatchWorkItem { [weak self] in
+                    MainActor.assumeIsolated {
+                        self?.retry = nil
+                        self?.flush()
+                    }
+                }
+                self.retry = retry
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.retryAfterFailure, execute: retry)
             }
         })
+        // A request with nothing to send ends inside the call.
+        guard !ended, generation == self.generation else { return }
+        requested = Set(entries.map { $0.cacheKey(phoneID: phoneID) })
+        current = handle
     }
 
     private func checkFilled() {

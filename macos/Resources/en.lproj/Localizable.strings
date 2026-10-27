@@ -491,6 +491,10 @@
 "ring.lastSeen" = "%1$@ (last seen %2$@)";
 "ring.reconnecting.help" = "Reconnecting to %@. Click to retry now.";
 "ring.cantReach.help" = "Can’t reach %@. Bridgey keeps retrying. Click to retry now.";
+"ring.away" = "Not nearby";
+"ring.away.detail" = "Not on this network";
+"ring.away.help" = "%@ has not been on this network for over an hour. Bridgey checks every 10 minutes. Click to retry now.";
+"ring.namesake.help" = "A new device named %@ is nearby. If this device was reset, pair the new one and remove this one.";
 "panel.retryNow" = "Retry now";
 "panel.lookAgain" = "Look for devices again";
 "devices.lookAgain.detail" = "Announces this Mac again and retries every paired device now";
