@@ -303,8 +303,8 @@ enum ActivityHistory {
         guard data.count <= maximumFileBytes else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .millisecondsSince1970
-        guard let raw = try? decoder.decode([StoredItem].self, from: data) else { return [] }
-        let items: [ActivityItem] = raw.prefix(maximumItems * 2).compactMap { value in
+        guard let raw = try? decoder.decode([LenientItem].self, from: data) else { return [] }
+        let items: [ActivityItem] = raw.prefix(maximumItems * 2).compactMap(\.value).compactMap { value in
             guard let id = value.id, id >= 0,
                   let kind = value.kind.flatMap(ActivityKind.init(rawValue:)),
                   let at = value.at else { return nil }
@@ -347,6 +347,13 @@ enum ActivityHistory {
     private static func clean(_ value: String?, limit: Int) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
         return String(value.prefix(limit))
+    }
+
+    /// One element of the file. An element that does not decode (a field of another type, not an
+    /// object) is dropped on its own instead of failing the whole stream.
+    private struct LenientItem: Decodable {
+        let value: StoredItem?
+        init(from decoder: Decoder) throws { value = try? StoredItem(from: decoder) }
     }
 
     private struct StoredItem: Decodable {

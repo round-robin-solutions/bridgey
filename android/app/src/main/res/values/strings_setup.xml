@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v0.10 setup, permissions, reset, What's new, OEM checklist, Obtainium and the Codes link picker.
+     Kept apart from strings.xml so parallel branches do not conflict. The Mac uses the same copy. -->
+<resources>
+    <!-- First-run setup -->
+    <string name="setup_title">Setup</string>
+    <string name="setup_welcome_title">Welcome to Bridgey</string>
+    <string name="setup_welcome_body">Your phone and your Mac, working together on your own network: clipboard, files, notifications, calls and more.</string>
+    <string name="setup_quick_title">Get started quickly</string>
+    <string name="setup_quick_badge">Recommended</string>
+    <string name="setup_quick_body">Sensible defaults and only the permissions you need now. Change anything later in Settings.</string>
+    <string name="setup_advanced_title">Advanced setup</string>
+    <string name="setup_advanced_body">Go through every feature and choose how it works. Defaults are already selected.</string>
+    <string name="setup_step_of">%1$d of %2$d</string>
+    <string name="setup_skip">Skip</string>
+    <string name="setup_next">Next</string>
+    <string name="setup_finish_now">Finish now</string>
+    <string name="setup_done_check">Done</string>
+    <string name="setup_why">Why: %1$s</string>
+    <string name="setup_without">Without it: %1$s</string>
+    <string name="setup_allow">Allow</string>
+    <string name="setup_pair_title">Pair a Mac</string>
+    <string name="setup_pair_why">Pair once, and from then on your phone and Mac find each other on this network.</string>
+    <string name="setup_pair_without">Nothing reaches a Mac until you pair one.</string>
+    <string name="setup_pair_later">Pair later</string>
+    <string name="setup_pair_searching">Looking for Macs on this network. Open Bridgey on the Mac.</string>
+    <string name="setup_pair_nearby">Macs nearby</string>
+    <string name="setup_pair_action">Pair</string>
+    <string name="setup_done_title">You\'re set</string>
+    <string name="setup_done_body">Bridgey is ready. Change anything later in Settings.</string>
+    <string name="setup_done_skipped">Skipped for now: %1$s. Settings, Privacy, Permissions still offers them.</string>
+    <string name="setup_open_settings">Open Settings</string>
+    <string name="setup_start">Start</string>
+    <string name="setup_open_section">Open %1$s settings</string>
+    <string name="setup_run_again">Run setup again</string>
+    <string name="setup_run_again_detail">Go through setup from the start. Pairings and settings are kept.</string>
+    <string name="setup_paired_none">No Mac paired yet</string>
+    <string name="setup_paired">Paired</string>
+
+    <!-- Advanced setup groups, in the settings order -->
+    <string name="setup_group_devices">Devices</string>
+    <string name="setup_group_clipboard">Clipboard</string>
+    <string name="setup_group_notifications">Notifications</string>
+    <string name="setup_group_calls">Calls</string>
+    <string name="setup_group_files">Files</string>
+    <string name="setup_group_media">Media and actions</string>
+    <string name="setup_group_remote">Remote control</string>
+    <string name="setup_group_privacy">Privacy and Logging</string>
+    <string name="setup_group_updates">Updates</string>
+    <string name="setup_group_general">General</string>
+    <string name="setup_group_devices_intro">The Macs this phone is paired with. Pair one now or later.</string>
+    <string name="setup_group_clipboard_intro">Copy on one device, paste on the other.</string>
+    <string name="setup_group_notifications_intro">Your phone\'s notifications, calls and codes from messages, on your Mac.</string>
+    <string name="setup_group_calls_intro">See calls on the Mac, and answer or place them from there.</string>
+    <string name="setup_group_files_intro">Send files and folders, and choose where folders sent to this phone go.</string>
+    <string name="setup_group_media_intro">Control the Mac\'s music, send links, ping and find devices, and share the battery level.</string>
+    <string name="setup_group_remote_intro">Use this phone as the Mac\'s touchpad, keyboard and presentation remote. Off by default.</string>
+    <string name="setup_group_privacy_intro">What the activity stream shows, and what Bridgey logs on this phone.</string>
+    <string name="setup_group_updates_intro">Which builds this phone gets, checked once a day.</string>
+    <string name="setup_group_general_intro">Keep Bridgey connected while the phone sleeps, and how the app moves.</string>
+
+    <!-- Permission explainer -->
+    <string name="perm_explainer_title">Allow %1$s?</string>
+    <string name="perm_continue">Continue</string>
+    <string name="perm_notification_access_name">Notification access</string>
+    <string name="perm_notification_access_why">Shows your phone\'s notifications and calls on your Mac.</string>
+    <string name="perm_notification_access_without">No phone notifications, call alerts or codes on the Mac.</string>
+    <string name="perm_post_notifications_name">Notifications</string>
+    <string name="perm_post_notifications_why">Lets Bridgey show transfers, find-my-phone and call prompts.</string>
+    <string name="perm_post_notifications_without">You will not see progress, requests from the Mac or the Stop button for Find Device.</string>
+    <string name="perm_phone_calls_name">Phone and calls</string>
+    <string name="perm_phone_calls_why">Lets the Mac answer, decline and place calls through this phone.</string>
+    <string name="perm_phone_calls_without">Calls from the Mac open the dialer for you to confirm; Answer and Decline do not work.</string>
+    <string name="perm_photos_name">Photos</string>
+    <string name="perm_photos_why">Sends a screenshot you just took with \"Send copied item\".</string>
+    <string name="perm_photos_without">\"Send a fresh screenshot\" stays off.</string>
+    <string name="perm_companion_link_name">Bluetooth companion link</string>
+    <string name="perm_companion_link_why">Android 15 and later hide one-time codes from apps that are not linked to a nearby device.</string>
+    <string name="perm_companion_link_without">Codes from messages show \"hidden\" on the Mac.</string>
+    <string name="perm_battery_name">Battery optimisation</string>
+    <string name="perm_battery_why">Keeps Bridgey connected while the phone sleeps.</string>
+    <string name="perm_battery_without">The connection drops in the background and reconnects late.</string>
+    <string name="perm_install_packages_name">Install unknown apps</string>
+    <string name="perm_install_packages_why">Installs Bridgey\'s own updates.</string>
+    <string name="perm_install_packages_without">Updates download but you install them by hand.</string>
+    <string name="perm_sms_name">SMS (Code reader test build only)</string>
+    <string name="perm_sms_why">Reads test messages for the Code reader test.</string>
+    <string name="perm_sms_without">The Code reader test cannot run. Normal builds never ask.</string>
+    <string name="perm_logs_name">Logs (one-time ADB step)</string>
+    <string name="perm_logs_why">Background clipboard (advanced) reads the clipboard while Bridgey is in the background.</string>
+    <string name="perm_logs_without">Copying on the phone sends only while Bridgey is open, or with one tap.</string>
+
+    <!-- Settings > Privacy > Permissions -->
+    <string name="perm_page_title">Permissions</string>
+    <string name="perm_page_detail">What Bridgey may use, and why</string>
+    <string name="perm_page_intro">Bridgey asks for a permission only when a feature needs it. Manage opens the matching Android screen.</string>
+    <string name="perm_state_allowed">Allowed</string>
+    <string name="perm_state_not_allowed">Not allowed</string>
+    <string name="perm_state_not_needed">Not needed yet</string>
+    <string name="perm_state_not_on_device">Not on this device</string>
+
+    <!-- Settings > Privacy > Reset Bridgey on this device -->
+    <string name="reset_title">Reset Bridgey on this device</string>
+    <string name="reset_detail">Delete activity, caches, settings or everything</string>
+    <string name="reset_intro">Choose what to delete. Each choice lists exactly what goes and what stays. Your Macs keep their own data.</string>
+    <string name="reset_choice_activity">Activity and logs</string>
+    <string name="reset_choice_activity_summary">Activity, notification history, diagnostics and transfer history. Keeps settings and pairings.</string>
+    <string name="reset_choice_caches">Downloaded models and caches</string>
+    <string name="reset_choice_caches_summary">Downloaded updates, the clipboard cache and folder journals. Keeps settings, pairings and history.</string>
+    <string name="reset_choice_settings">Settings</string>
+    <string name="reset_choice_settings_summary">Every setting back to its default, and setup runs again. Keeps pairings, history and caches.</string>
+    <string name="reset_choice_everything">Everything, including pairings</string>
+    <string name="reset_choice_everything_summary">All of the above, plus trusted devices and this phone\'s identity. Pair your Macs again afterwards.</string>
+    <string name="reset_confirm_activity">Delete activity and logs?</string>
+    <string name="reset_confirm_caches">Delete downloaded models and caches?</string>
+    <string name="reset_confirm_settings">Reset every setting?</string>
+    <string name="reset_confirm_everything">Reset Bridgey completely?</string>
+    <string name="reset_deleted">Deleted</string>
+    <string name="reset_kept">Kept</string>
+    <string name="reset_restart_note">Bridgey restarts afterwards.</string>
+    <string name="reset_everything_note">Bridgey disconnects, restarts and opens first-run setup. Paired devices will need pairing again.</string>
+    <string name="reset_delete">Delete</string>
+    <string name="reset_bridgey">Reset Bridgey</string>
+    <string name="reset_done_activity">Activity and logs deleted</string>
+    <string name="reset_done_caches">Downloaded models and caches deleted</string>
+    <string name="reset_done_settings">Settings reset</string>
+    <string name="reset_done_everything">Bridgey reset</string>
+    <string name="reset_item_activity">Activity stream, including notification history</string>
+    <string name="reset_item_diagnostics">Diagnostics events, including the remote control audit log</string>
+    <string name="reset_item_transfers">Transfer history</string>
+    <string name="reset_item_logs">Exported diagnostics and log files</string>
+    <string name="reset_item_updates">Downloaded update APKs</string>
+    <string name="reset_item_clipboard">Clipboard cache</string>
+    <string name="reset_item_folders">Folder transfer journals (interrupted folders will not resume)</string>
+    <string name="reset_item_caches">Other caches</string>
+    <string name="reset_item_features">Feature switches, per-device settings, logging switches and this phone\'s name</string>
+    <string name="reset_item_app">Previews, reduced motion, remote control and screenshot choices</string>
+    <string name="reset_item_channel">Update channel</string>
+    <string name="reset_item_places">Folder destinations and places</string>
+    <string name="reset_item_setup">Setup choices (setup runs again)</string>
+    <string name="reset_item_trusted">Trusted devices</string>
+    <string name="reset_item_identity">This phone\'s identity keys</string>
+    <string name="reset_item_reconnect">Reconnect addresses</string>
+    <string name="reset_item_codes">The Codes from messages link</string>
+    <string name="reset_item_whats_new">What\'s new history</string>
+    <string name="reset_keep_settings">Settings</string>
+    <string name="reset_keep_pairings">Pairings</string>
+    <string name="reset_keep_history">Activity and history</string>
+    <string name="reset_keep_caches">Caches</string>
+    <string name="reset_keep_app">The Bridgey app itself</string>
+
+    <!-- What's new -->
+    <string name="whats_new_title">What\'s new in Bridgey</string>
+    <string name="whats_new_version">Version %1$s</string>
+    <string name="whats_new_got_it">Got it</string>
+    <string name="whats_new_review">Review setup</string>
+    <string name="whats_new_review_note">Setup is new. Review it to see every feature and choose how it works; your settings stay as they are.</string>
+    <string name="whats_new_no_notes">Bridgey was updated. The release notes list everything that changed.</string>
+    <string name="whats_new_release_notes">Release notes</string>
+    <string name="whats_new_banner_title">See what\'s new and review your setup</string>
+    <string name="whats_new_banner_body">A new setup, a Permissions page and Reset are in Settings.</string>
+    <!-- Notes that ship in the APK, for builds towards this version (feed notes win when reachable). -->
+    <string name="whats_new_bundled_for" translatable="false">0.6.0-rr.1</string>
+    <string name="whats_new_bundled">- A new first-run setup: get started quickly with sensible defaults, or go through every feature.\n- Settings, Privacy, Permissions lists every permission, why Bridgey asks and what stops working without it.\n- Settings, Privacy, Reset Bridgey on this device deletes activity, caches, settings or everything.\n- Codes from messages shows which Mac the phone is linked to, and lets you choose.\n- Phones that stop background apps get their own battery checklist.\n- Settings, About can add Bridgey to Obtainium.</string>
+
+    <!-- OEM battery checklist (steps from dontkillmyapp.com) -->
+    <string name="oem_title">Keep Bridgey running on %1$s</string>
+    <string name="oem_intro">This phone stops apps in the background beyond Android\'s own battery settings. Change these once.</string>
+    <string name="oem_source">Steps from dontkillmyapp.com</string>
+    <string name="oem_vendor_oneplus">OnePlus</string>
+    <string name="oem_vendor_coloros">Oppo and Realme (ColorOS)</string>
+    <string name="oem_vendor_xiaomi">Xiaomi, Redmi and Poco (HyperOS and MIUI)</string>
+    <string name="oem_vendor_samsung">Samsung (One UI)</string>
+    <string name="oem_vendor_vivo">Vivo and iQOO</string>
+    <string name="oem_step_auto_start">Auto-start</string>
+    <string name="oem_step_background">Background activity</string>
+    <string name="oem_step_battery">Battery optimisation</string>
+    <string name="oem_step_never_sleeping">Never sleeping apps</string>
+    <string name="oem_oneplus_auto_start">Settings, Apps, Auto launch: turn on Bridgey.</string>
+    <string name="oem_oneplus_background">App info, Battery usage: allow background activity.</string>
+    <string name="oem_oneplus_battery">Battery, Battery optimisation: choose Don\'t optimise for Bridgey.</string>
+    <string name="oem_coloros_auto_start">Settings, App management, Auto launch: turn on Bridgey.</string>
+    <string name="oem_coloros_background">App info, Battery usage: allow background activity.</string>
+    <string name="oem_coloros_battery">Battery, More settings, Optimise battery use: choose Don\'t optimise for Bridgey.</string>
+    <string name="oem_xiaomi_auto_start">Security, Autostart: turn on Bridgey.</string>
+    <string name="oem_xiaomi_background">App info, Battery saver: choose No restrictions.</string>
+    <string name="oem_xiaomi_battery">Battery optimisation: choose Don\'t optimise. Also lock Bridgey in recent apps.</string>
+    <string name="oem_samsung_background">App info, Battery: choose Unrestricted.</string>
+    <string name="oem_samsung_battery">Battery, Background usage limits: turn off Put unused apps to sleep.</string>
+    <string name="oem_samsung_never_sleeping">Battery, Background usage limits, Never sleeping apps: add Bridgey.</string>
+    <string name="oem_vivo_auto_start">i Manager, App manager, Autostart manager: turn on Bridgey.</string>
+    <string name="oem_vivo_background">Battery, Background power consumption: allow Bridgey.</string>
+    <string name="oem_vivo_battery">App info, Battery: choose Don\'t restrict background activity.</string>
+
+    <!-- Settings > About -->
+    <string name="obtainium_title">Add to Obtainium</string>
+    <string name="obtainium_detail">Get %1$s updates through Obtainium</string>
+
+    <!-- Codes from messages: the link and its Mac -->
+    <string name="codes_link_to">Link to %1$s</string>
+    <string name="codes_linked_to">Linked to %1$s</string>
+    <string name="codes_linked_unknown">Linked to a Mac</string>
+    <string name="codes_not_linked_yet">Not linked yet</string>
+    <string name="codes_picker_title">Link this phone to which Mac?</string>
+    <string name="codes_picker_body">Android links the phone to one nearby Mac. Codes then reach every Mac that reads them.</string>
+    <string name="codes_picker_link">Link</string>
+</resources>

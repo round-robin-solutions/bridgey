@@ -116,6 +116,8 @@ data class SettingsState(
     val folders: FolderSettingsState = FolderSettingsState(),
     /** Notifications > Codes from messages: code access and the companion link. */
     val codes: CodesSettingsState = CodesSettingsState(),
+    /** v0.10: OEM checklist (General). */
+    val setup: SetupSettingsState = SetupSettingsState(),
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean = globalFeatures[feature] != false
 }
@@ -161,6 +163,8 @@ class SettingsActions(
     val setKeepWifiAwake: (Boolean) -> Unit = {},
     val folders: FolderSettingsActions = FolderSettingsActions(),
     val codes: CodesSettingsActions = CodesSettingsActions(),
+    /** v0.10: Permissions, Reset, Run setup again, OEM steps, Obtainium. */
+    val setup: SetupSettingsActions = SetupSettingsActions(),
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
@@ -507,6 +511,7 @@ private fun PrivacyPage(state: SettingsState, actions: SettingsActions, listStat
                 }
             }
         }
+        item(key = "privacy.setup") { PrivacySetupRows(actions.setup) }
         item(key = "privacy.logging") {
             LoggingSettingsGroup(state.logging, actions.setLogging, actions.exportDiagnostics, actions.clearLogs)
         }
@@ -566,6 +571,7 @@ private fun GeneralPage(state: SettingsState, actions: SettingsActions, listStat
             }
         }
         item(key = "general.background.note") { Note(stringResource(R.string.settings_background_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) }
+        item(key = "general.oem") { GeneralOemChecklist(state.setup, actions.setup, actions.openUrl) }
         item(key = "general") {
             RowGroup(Modifier.padding(top = 24.dp)) {
                 row { shape ->
@@ -585,6 +591,7 @@ private fun GeneralPage(state: SettingsState, actions: SettingsActions, listStat
                 }
             }
         }
+        item(key = "general.setup") { GeneralSetupRows(actions.setup) }
     }
 }
 
@@ -614,6 +621,7 @@ private fun AboutPage(state: SettingsState, actions: SettingsActions, listState:
                 }
             }
         }
+        item(key = "about.obtainium") { ObtainiumRow(state.update.channel, actions.setup) }
         item(key = "credit") { Credit(actions) }
     }
     if (licences) {

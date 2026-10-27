@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <boolean name="show_activity_previews" value="false" />
+    <boolean name="reduce_motion" value="true" />
+    <boolean name="qs_tile_added" value="true" />
+    <boolean name="battery_prompt_shown" value="true" />
+</map>

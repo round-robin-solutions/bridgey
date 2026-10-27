@@ -1,0 +1,88 @@
+[
+  {
+    "id": 40,
+    "kind": "clipboard_sent",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "  Test Phone A  ",
+    "fileName": "dropped",
+    "preview": "line one\n\n   line two",
+    "appName": "dropped",
+    "sensitive": false,
+    "automatic": true,
+    "count": 0,
+    "at": 1793005200000,
+    "bytes": 99,
+    "content": "image",
+    "fileCount": 3,
+    "destination": "dropped"
+  },
+  {
+    "id": 41,
+    "kind": "teleported",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "count": 1,
+    "at": 1793005200000
+  },
+  {
+    "kind": "clipboard_sent",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "count": 1,
+    "at": 1793005200000
+  },
+  {
+    "id": -3,
+    "kind": "clipboard_sent",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "count": 1,
+    "at": 1793005200000
+  },
+  {
+    "id": 42,
+    "kind": "clipboard_sent",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "count": 1
+  },
+  {
+    "id": 43,
+    "kind": "clip_offer_received",
+    "deviceID": "",
+    "deviceName": "Test Phone A",
+    "count": 99999,
+    "at": 1793005260000,
+    "bytes": -5,
+    "content": "video",
+    "preview": "dropped for offers"
+  },
+  {
+    "id": 45,
+    "kind": "file_received",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "fileName": "old.pdf",
+    "count": 1,
+    "at": 1792314000000
+  },
+  {
+    "id": 46,
+    "kind": "file_received",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "fileName": "future.pdf",
+    "count": 1,
+    "at": 1795597200000
+  },
+  {
+    "id": 47,
+    "kind": "ping_received",
+    "deviceName": "Test Phone A",
+    "count": 1,
+    "at": 1793005380000,
+    "futureField": {
+      "nested": true
+    }
+  }
+]

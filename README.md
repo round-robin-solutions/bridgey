@@ -8,10 +8,53 @@ under the same [MIT licence](LICENSE).
   Bridgey and pairs with upstream clients over the same protocol.
 - In-app updates with three channels, Stable, Beta and Nightly, chosen in Settings.
 - Downloads: [releases of round-robin-solutions/bridgey](https://github.com/round-robin-solutions/bridgey/releases).
-  Each release has the Android APK, a macOS DMG and ZIP, and `SHA256SUMS`.
+  Each release has the Android APK, a macOS DMG and ZIP, `SHA256SUMS`, an SBOM per platform and a
+  provenance file.
 
 What differs from upstream, how releases and channels work, where the signing keys live and
 how to merge upstream changes: [docs/rr-edition.md](docs/rr-edition.md).
+
+## Install
+
+- **Mac, Homebrew:** `brew install --cask round-robin-solutions/tap/bridgey-rr`. The cask comes from
+  [round-robin-solutions/homebrew-tap](https://github.com/round-robin-solutions/homebrew-tap) and
+  installs the newest Stable release (until the first Stable release exists, the newest Beta). The app
+  is ad-hoc signed because Round Robin has no Apple Developer membership yet, so the cask clears the
+  quarantine flag on the installed app. The app then updates itself.
+- **Mac, DMG:** download `Bridgey-RR-<version>-macOS.dmg` from the
+  [releases page](https://github.com/round-robin-solutions/bridgey/releases), drag the app to
+  Applications and, the first time, right-click it and choose **Open**.
+- **Android, APK:** download `Bridgey-RR-<version>-Android.apk` from the same page and open it.
+  Android asks once to allow installs from your browser or Files.
+- **Android, Obtainium:** open one of the links below on the phone with
+  [Obtainium](https://obtainium.imranr.dev) installed. Obtainium then installs and updates the APK from
+  GitHub Releases. There is no Stable release yet, so use the Beta link for now.
+
+<!-- obtainium:start markdown -->
+[Stable](https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522in.roundrobin.bridgey%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fround-robin-solutions%252Fbridgey%2522%252C%2522author%2522%253A%2522Round%2520Robin%2522%252C%2522name%2522%253A%2522Bridgey%2520by%2520Round%2520Robin%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522includePrereleases%255C%2522%253Afalse%257D%2522%257D) | [Beta](https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522in.roundrobin.bridgey%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fround-robin-solutions%252Fbridgey%2522%252C%2522author%2522%253A%2522Round%2520Robin%2522%252C%2522name%2522%253A%2522Bridgey%2520by%2520Round%2520Robin%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522includePrereleases%255C%2522%253Atrue%252C%255C%2522filterReleaseTitlesByRegEx%255C%2522%253A%255C%2522-rr%255B.%255D%255B0-9%255D%252B%28-beta%255B.%255D%255B0-9%255D%252B%29%253F%2524%255C%2522%257D%2522%257D)
+<!-- obtainium:end -->
+
+The apps check for updates themselves on the channel you pick in Settings (Stable, Beta or Nightly).
+More in the [user guide](docs/user-guide.md#install).
+
+Edition milestones (upstream's own roadmap follows below, unchanged):
+
+- **v0.10 (stabilisation)**, in progress: a draft protocol contract
+  ([docs/protocol-contract.md](docs/protocol-contract.md), `protocol/messages.json`), fuzz and
+  cross-platform golden tests, upgrade and migration tests
+  ([docs/upgrade-policy.md](docs/upgrade-policy.md)), every optional permission explained with a
+  Permissions page, "Reset Bridgey on this device", SBOM and provenance with each release, and the
+  compatibility, diagnostics and user guides.
+- **v1.0**, later: freezes the protocol contract once v0.10 has been tested on more devices.
+
+Guides:
+
+- [User guide](docs/user-guide.md): install, pair, send, notifications, calls, codes, remote
+  control, updates, permissions, reset, uninstall, troubleshooting.
+- [Compatibility](docs/compatibility.md): which phones and Macs have been tested, and how to
+  report a result.
+- [Diagnostics](docs/diagnostics.md): how to export, what is inside, what is never included.
+- [Developer guide](#developer-guide): checks to run, protocol contract, tests, releases.
 
 ### Why can't copying on the phone sync automatically like O+ Connect or Phone Link?
 
@@ -363,7 +406,10 @@ app keeps the same stream under the same rules in its Application Support folder
 Settings can export a structured diagnostics JSON file. It contains bounded
 event metadata, application/platform versions, feature states, connection
 state, and transfer counts. It never includes clipboard text, notification
-content, file names, network addresses, or device/session/transfer identifiers.
+content, file names, network addresses, or full device/session/transfer
+identifiers (a device appears only as the first eight characters of its ID).
+See [docs/diagnostics.md](docs/diagnostics.md) for the export steps, the
+fields, and how to share a report safely.
 
 ## Development principles
 
@@ -378,6 +424,68 @@ content, file names, network addresses, or device/session/transfer identifiers.
 Suggested debug log categories are `DISCOVERY`, `PAIRING`, `TRANSPORT`, and
 `PLUGIN`. See [the architecture](docs/architecture.md), [wire protocol](docs/protocol.md),
 the [security model](SECURITY.md), and [security testing](docs/security-testing.md).
+
+## Developer guide
+
+Run these before opening a pull request. They are close to what RR CI runs (see
+[docs/rr-edition.md](docs/rr-edition.md#with-rr-ci)).
+
+```bash
+# Android: lint, unit tests and a debug build
+cd android && ./gradlew :app:lintDebug :core:discovery:lintDebug \
+  :app:testDebugUnitTest :core:discovery:testDebugUnitTest :app:assembleDebug
+
+# macOS: tests (warnings are errors) and the app bundle
+cd macos && swift test -Xswiftc -warnings-as-errors --skip MacTrustRegistryTests && ./build-app.sh
+
+# Release scripts
+python3 -m unittest discover -s scripts/rr/tests
+```
+
+Android needs JDK 17 and the Android SDK 36. The Mac needs Swift 5.10 or later. The Mac test run
+skips `MacTrustRegistryTests`.
+
+### Protocol changes
+
+- Document a change in [docs/protocol.md](docs/protocol.md) before you implement it. The
+  compatibility rules are in `docs/protocol-contract.md`.
+- `protocol/messages.json` is the list of every message kind. A new kind must be added there. A
+  test on each platform fails if a kind used in code is missing from the list.
+- `protocol/test-vectors/` holds golden vectors that both platforms must match (for example the
+  cryptographic vectors in `crypto-v1.properties`). Change a vector only with a protocol change,
+  and update both platforms in the same pull request.
+
+### Fuzz tests
+
+Parser and decoder fuzz tests run in normal test runs with a bounded number of iterations, so they
+stay fast. For a long run, set `BRIDGEY_FUZZ_ITERATIONS=100000` for both suites:
+
+```bash
+cd android && BRIDGEY_FUZZ_ITERATIONS=100000 ./gradlew :app:testDebugUnitTest -Pfuzz=100000
+cd macos && BRIDGEY_FUZZ_ITERATIONS=100000 swift test -Xswiftc -warnings-as-errors --skip MacTrustRegistryTests
+```
+
+On Android the `-Pfuzz=100000` Gradle property does the same as the environment variable, and the
+two can be used together.
+
+### Stored data and upgrades
+
+Every change to a file format on disk or a stored setting needs a migration, a fixture of the old
+format, and a test that loads the fixture. The rules are in `docs/upgrade-policy.md`.
+
+### Releases
+
+Releases are built by `scripts/rr/` (see [docs/rr-edition.md](docs/rr-edition.md#releasing) and
+[docs/releasing.md](docs/releasing.md)). Each release has the APK, the DMG and ZIP and
+`SHA256SUMS`. The SBOM and provenance assets, and how to verify them, are described in
+[docs/releasing.md](docs/releasing.md).
+
+### Other developer docs
+
+[Architecture](docs/architecture.md), [wire protocol](docs/protocol.md),
+[security model](SECURITY.md), [security testing](docs/security-testing.md),
+[reconnect reliability](docs/reconnect-reliability.md), [device test plans](docs/testing-0.6.md),
+and [Mac signing](docs/rr-mac-signing.md).
 
 ## Contributing
 

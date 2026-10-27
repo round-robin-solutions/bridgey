@@ -146,6 +146,10 @@ private class CodesHooks(
     val stopTest: () -> Unit,
     val restart: () -> Unit,
     val openAppSettings: () -> Unit,
+    /** The link picker's choice (empty: none). */
+    val pickedTarget: String?,
+    val pickTarget: (String) -> Unit,
+    val linkRecord: dev.bridgey.android.codes.CodeLinkRecord,
 )
 
 class MainActivity : ComponentActivity() {
@@ -164,6 +168,10 @@ class MainActivity : ComponentActivity() {
     /** A notification asked for a Settings page (a [SettingsSection] name), e.g. Updates. */
     private var settingsTarget by mutableStateOf<String?>(null)
     private var showOnboarding by mutableStateOf(false)
+    /** v0.10 setup, Permissions, Reset and What's new. */
+    private lateinit var setupHooks: SetupHooks
+    /** Codes from messages: the Mac chosen in the link picker. */
+    private var pickedLinkTarget by mutableStateOf<String?>(null)
     private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         refreshPermissionState()
     }
@@ -204,8 +212,11 @@ class MainActivity : ComponentActivity() {
             return
         }
         bridgey.enableBridgey()
-        showOnboarding = !getSharedPreferences("bridgey_onboarding", MODE_PRIVATE)
+        // Pre-v0.10 onboarding flag: people who finished it skip setup and get the What's new banner.
+        val oldOnboardingCompleted = getSharedPreferences("bridgey_onboarding", MODE_PRIVATE)
             .getBoolean("completed", false)
+        setupHooks = SetupHooks.create(this, oldOnboardingCompleted, restart = ::restartBridgey, resetHook = bridgey::runResetHook)
+        showOnboarding = setupHooks.launch.showSetup
         pairing = bridgey.pairing
         discovery = bridgey.discovery
         bridgeySettings = bridgey.settings
@@ -266,11 +277,14 @@ class MainActivity : ComponentActivity() {
                         stopTest = ::finishCodeTest,
                         restart = ::restartForPermissionRemoval,
                         openAppSettings = ::openAppDetails,
+                        pickedTarget = pickedLinkTarget,
+                        pickTarget = { pickedLinkTarget = it },
+                        linkRecord = dev.bridgey.android.codes.CodeLinkRecord(this),
                     ),
+                    setup = setupHooks,
                     showOnboarding = showOnboarding,
                     onOnboardingComplete = {
-                        getSharedPreferences("bridgey_onboarding", MODE_PRIVATE)
-                            .edit().putBoolean("completed", true).apply()
+                        setupHooks.store.complete()
                         showOnboarding = false
                     },
                 )
@@ -322,7 +336,7 @@ class MainActivity : ComponentActivity() {
         override fun linkTarget(): String? {
             val requested = linkRequest?.takeIf { it.isNotEmpty() }
             val supported = pairing.connections.value.filter { it.state.remoteSmsCodes }.map { it.deviceId }
-            return requested?.takeIf { it in supported } ?: pairing.companionLinkTarget()
+            return requested?.takeIf { it in supported } ?: pickedLinkTarget?.takeIf { it in supported } ?: pairing.companionLinkTarget()
         }
 
         override fun macTooOld(): Boolean = pairing.companionLinkMacTooOld()
@@ -330,8 +344,14 @@ class MainActivity : ComponentActivity() {
         override fun requestAdvertising(deviceId: String, serviceUuid: java.util.UUID, onResult: (Boolean, String?) -> Unit) =
             pairing.requestCompanionAdvertising(deviceId, serviceUuid, onResult)
 
-        override fun stopAdvertising(deviceId: String, serviceUuid: java.util.UUID, linked: Boolean) =
+        override fun stopAdvertising(deviceId: String, serviceUuid: java.util.UUID, linked: Boolean) {
+            // Android's association does not say which Mac it was: remember it for "Linked to ...".
+            if (linked) {
+                val name = pairing.connections.value.firstOrNull { it.deviceId == deviceId }?.peerName.orEmpty()
+                dev.bridgey.android.codes.CodeLinkRecord(this@MainActivity).save(dev.bridgey.android.codes.CodeLinkMac(deviceId, name))
+            }
             pairing.stopCompanionAdvertising(deviceId, serviceUuid, linked)
+        }
     }
 
     /** Android trusts a listener when it connects: reconnect it, then tell the Macs. */
@@ -605,6 +625,7 @@ private fun BridgeyApp(
     sharedContent: SharedContent?,
     onSharedContentHandled: () -> Unit,
     codes: CodesHooks,
+    setup: SetupHooks,
     showOnboarding: Boolean,
     onOnboardingComplete: () -> Unit,
 ) {
@@ -635,7 +656,7 @@ private fun BridgeyApp(
     var forgetting by remember { mutableStateOf<DeviceRing?>(null) }
     var pickedTarget by rememberSaveable { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
-    val stack = rememberBackStack()
+    val stack = rememberBackStack(if (showOnboarding) listOf(Route.Home, Route.Setup) else listOf(Route.Home))
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
 
@@ -902,7 +923,7 @@ private fun BridgeyApp(
                     preferences = remotePrefs,
                     onBack = { stack.pop() },
                 )
-                Route.Settings, is Route.SettingsPane -> {
+                Route.Settings, is Route.SettingsPane, Route.Setup, Route.Permissions, Route.Reset -> {
                     val (enabledApps, totalApps) = notificationAppCounts(settingsState.notificationApplications, settingsState.disabledNotificationPackages)
                     val bridgeyApp = context.applicationContext as BridgeyApplication
                     val bgSourceStatus by bridgeyApp.backgroundClipboardSource.status.collectAsStateWithLifecycle()
@@ -925,9 +946,9 @@ private fun BridgeyApp(
                             else -> stringResource(R.string.settings_status_not_connected)
                         }
                     }
-                    SettingsScreen(
-                        section = (route as? Route.SettingsPane)?.section,
-                        state = SettingsState(
+                    val codeTargets = connections.filter { it.state.remoteSmsCodes }.map { dev.bridgey.android.codes.CodeLinkMac(it.deviceId, it.peerName) }
+                    val settingsUi =
+                        SettingsState(
                             deviceName = settingsState.deviceName,
                             connectionStatus = connectionStatus,
                             connected = connected != null,
@@ -966,9 +987,14 @@ private fun BridgeyApp(
                                 linkApplies = Build.VERSION.SDK_INT >= dev.bridgey.android.codes.SENSITIVE_REDACTION_SDK,
                                 linked = remember(codeAccessStatus, companionLink) { codes.access.isLinked() },
                                 adbCommand = dev.bridgey.android.codes.codeAccessAdbCommand(BuildConfig.APPLICATION_ID),
+                                linkTargets = codeTargets,
+                                linkTarget = dev.bridgey.android.codes.CodeLinkTargets.current(codeTargets, codes.pickedTarget, pairing.companionLinkTarget()),
+                                linkedMac = remember(companionLink) { codes.linkRecord.linked() },
                             ),
-                        ),
-                        actions = SettingsActions(
+                            setup = dev.bridgey.android.ui.SetupSettingsState(oem = setup.oem),
+                        )
+                    val settingsUiActions =
+                        SettingsActions(
                             back = { stack.pop() },
                             openDevices = { stack.push(Route.Devices) },
                             openSection = { stack.push(settingsRoute(it)) },
@@ -1020,8 +1046,22 @@ private fun BridgeyApp(
                             openBatterySettings = onOpenBatterySettings,
                             setKeepWifiAwake = settings::setKeepWifiAwake,
                             folders = folderUi.settingsActions,
+                            setup = dev.bridgey.android.ui.SetupSettingsActions(
+                                openPermissions = { stack.push(Route.Permissions) },
+                                openReset = { stack.push(Route.Reset) },
+                                runSetup = {
+                                    setup.startRerun()
+                                    stack.push(Route.Setup)
+                                },
+                                openOemStep = { dev.bridgey.android.setup.OemBattery.open(context, it) },
+                                addToObtainium = { dev.bridgey.android.setup.Obtainium.open(context, updateState.channel) },
+                            ),
                             codes = CodesSettingsActions(
                                 link = codes.linker::start,
+                                linkTo = { deviceId ->
+                                    codes.pickTarget(deviceId)
+                                    codes.linker.start()
+                                },
                                 copyCommand = {
                                     context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
                                         ClipData.newPlainText("Bridgey", dev.bridgey.android.codes.codeAccessAdbCommand(BuildConfig.APPLICATION_ID)),
@@ -1029,8 +1069,41 @@ private fun BridgeyApp(
                                     android.widget.Toast.makeText(context, context.getString(R.string.codes_adb_copied), android.widget.Toast.LENGTH_SHORT).show()
                                 },
                             ),
-                        ),
-                    )
+                        )
+                    when (route) {
+                        Route.Setup -> SetupRoute(
+                            hooks = setup,
+                            settings = settingsUi,
+                            actions = settingsUiActions,
+                            pairedNames = trustedDevices.map { it.name },
+                            nearby = peers.map { peer ->
+                                dev.bridgey.android.ui.SetupNearbyMac(peer.key, peer.deviceNameHint, trustedDevices.any { it.id == peer.deviceIdHint })
+                            },
+                            onPair = { mac ->
+                                peers.firstOrNull { it.key == mac.key }?.let { peer -> peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint) } }
+                            },
+                            onAddDevice = { pairDialog = true },
+                            onLookForDevices = pairing::lookForDevices,
+                            onOpenNotificationAccess = onOpenNotificationAccessSettings,
+                            onOpenSection = { stack.push(settingsRoute(it)) },
+                            onFinish = { openSettings ->
+                                onOnboardingComplete()
+                                stack.pop()
+                                if (openSettings) stack.openSettings(Route.Settings)
+                            },
+                            onExit = { stack.pop() },
+                        )
+                        Route.Permissions -> PermissionsRoute(
+                            hooks = setup,
+                            settings = settingsUi,
+                            actions = settingsUiActions,
+                            onRequestAppNotifications = onRequestAppNotifications,
+                            onRequestDirectCalls = onRequestDirectCalls,
+                            onOpenSection = { stack.push(settingsRoute(it)) },
+                        )
+                        Route.Reset -> ResetRoute(setup, onBack = { stack.pop() })
+                        else -> SettingsScreen(section = (route as? Route.SettingsPane)?.section, state = settingsUi, actions = settingsUiActions)
+                    }
                 }
                 Route.PerfTest -> {
                     val benchState by BenchState.state.collectAsStateWithLifecycle()
@@ -1140,18 +1213,18 @@ private fun BridgeyApp(
         )
     }
 
-    if (showOnboarding) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text(stringResource(R.string.welcome_title)) },
-            text = { Text(stringResource(R.string.welcome_body)) },
-            confirmButton = {
-                Button(onClick = onOnboardingComplete) {
-                    Text(stringResource(R.string.welcome_continue))
-                }
-            },
-        )
-    }
+    // What's new, once after an update (the Home banner first for people who updated from before setup).
+    WhatsNewHost(
+        hooks = setup,
+        updater = updater,
+        onHome = stack.top == Route.Home,
+        setupShowing = Route.Setup in stack.entries,
+        onReviewSetup = {
+            setup.startReview()
+            stack.push(Route.Setup)
+        },
+        openUrl = { runCatching { uriHandler.openUri(it) } },
+    )
 
     if (pairDialog) {
         PairDialog(
@@ -1206,40 +1279,24 @@ private fun BridgeyApp(
 
     ScreenshotAccessDialog(screenshotAccess)
 
+    // The explainer the first time a feature needs the permission; straight on once explained.
     permissionPrompt?.let { prompt ->
-        val isForwarding = prompt == PermissionPrompt.NotificationForwarding
-        val isDirectCalls = prompt == PermissionPrompt.DirectCalls
-        AlertDialog(
-            onDismissRequest = { permissionPrompt = null },
-            title = {
-                Text(
-                    when {
-                        isForwarding -> "Forward Android notifications?"
-                        isDirectCalls -> "Allow call status and controls?"
-                        else -> "Allow Bridgey notifications?"
-                    },
-                )
+        val kind = when (prompt) {
+            PermissionPrompt.BridgeyNotifications -> dev.bridgey.android.setup.PermissionKind.POST_NOTIFICATIONS
+            PermissionPrompt.NotificationForwarding -> dev.bridgey.android.setup.PermissionKind.NOTIFICATION_ACCESS
+            PermissionPrompt.DirectCalls -> dev.bridgey.android.setup.PermissionKind.PHONE_CALLS
+        }
+        ExplainedPermission(
+            setup, kind,
+            onContinue = {
+                permissionPrompt = null
+                when (prompt) {
+                    PermissionPrompt.NotificationForwarding -> onOpenNotificationAccessSettings()
+                    PermissionPrompt.DirectCalls -> onRequestDirectCalls()
+                    PermissionPrompt.BridgeyNotifications -> onRequestAppNotifications()
+                }
             },
-            text = {
-                Text(
-                    when {
-                        isForwarding -> "This optional access lets Bridgey read notification titles and text and send them only to your paired Mac over the encrypted local connection."
-                        isDirectCalls -> "These optional Phone permissions let an authenticated paired Mac start calls, distinguish ringing from active calls, and answer, decline, or hang up. Bridgey does not read contacts or call history."
-                        else -> "Bridgey uses notifications to keep the connection visible and show file transfers, received files, and Find Device. It does not use notifications for advertising."
-                    },
-                )
-            },
-            confirmButton = {
-                Button(onClick = {
-                    permissionPrompt = null
-                    when {
-                        isForwarding -> onOpenNotificationAccessSettings()
-                        isDirectCalls -> onRequestDirectCalls()
-                        else -> onRequestAppNotifications()
-                    }
-                }) { Text("Continue") }
-            },
-            dismissButton = { TextButton(onClick = { permissionPrompt = null }) { Text("Not now") } },
+            onDismiss = { permissionPrompt = null },
         )
     }
 

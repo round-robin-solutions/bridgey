@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="channel">beta</string>
+    <long name="last_checked_at" value="1792918800000" />
+    <long name="snoozed_version_code" value="262981315" />
+    <long name="snoozed_until" value="1793005200000" />
+    <long name="notified_version_code" value="262981315" />
+    <long name="skipped_version_code" value="262990905" />
+</map>

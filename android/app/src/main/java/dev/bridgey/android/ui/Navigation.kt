@@ -77,9 +77,27 @@ sealed interface Route {
         override val key = "places"
     }
 
+    /** First-run setup (v0.10); also Settings > General > Run setup again. */
+    data object Setup : Route {
+        override val key = "setup"
+    }
+
+    /** Settings > Privacy > Permissions. */
+    data object Permissions : Route {
+        override val key = "permissions"
+    }
+
+    /** Settings > Privacy > Reset Bridgey on this device. */
+    data object Reset : Route {
+        override val key = "reset"
+    }
+
     companion object {
         fun fromKey(key: String): Route? = when {
             key == Home.key -> Home
+            key == Setup.key -> Setup
+            key == Permissions.key -> Permissions
+            key == Reset.key -> Reset
             key == Settings.key -> Settings
             key == Devices.key -> Devices
             key == NotificationApps.key -> NotificationApps
@@ -153,13 +171,14 @@ class BackStack(initial: List<Route>) {
     }
 }
 
+/** [initial]: the first launch's pages, for example Home with first-run setup above it. */
 @Composable
-fun rememberBackStack(): BackStack = rememberSaveable(
+fun rememberBackStack(initial: List<Route> = listOf(Route.Home)): BackStack = rememberSaveable(
     saver = listSaver(
         save = { stack -> stack.entries.map { it.key } },
         restore = { keys -> BackStack(keys.mapNotNull(Route::fromKey).ifEmpty { listOf(Route.Home) }) },
     ),
-) { BackStack(listOf(Route.Home)) }
+) { BackStack(initial) }
 
 /**
  * Shows the top of [stack]. A pushed page comes in on a shared axis (15 % of the width on the page

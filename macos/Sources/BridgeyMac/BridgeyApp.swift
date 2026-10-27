@@ -13,6 +13,8 @@ struct BridgeyApp: App {
 
     init() {
         LegacyPreferences.migrateIfNeeded()
+        // Before BridgeySettings writes anything: a pending reset, then setup or the review banner.
+        SetupCenter.shared.prepareLaunch()
         let settings = BridgeySettings()
         _settings = StateObject(wrappedValue: settings)
         let discovery = BonjourDiscovery(deviceName: settings.deviceName)
@@ -36,6 +38,8 @@ struct BridgeyApp: App {
         // The Share extension's hand-off: what it put on the private pasteboard goes to the chooser.
         appDelegate.configure(onShare: { QuickSendController.shared.present(ShareHandoff.take()) })
         MenuBarHost.start(discovery: discovery, pairing: pairing, settings: settings, updater: updater, openSettings: settingsWindow.show)
+        SetupCenter.shared.configure(discovery: discovery, pairing: pairing, settings: settings, updater: updater,
+                                     openSettings: settingsWindow.show)
     }
 
     var body: some Scene {

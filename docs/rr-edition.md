@@ -460,9 +460,25 @@ Other options: `--skip-macos` / `--skip-android` (that platform's feed entry sta
 A release directory `dist/<tag>/` holds:
 
 - `release/`: `Bridgey-RR-<version>-Android.apk`, `Bridgey-RR-<version>-macOS.dmg`,
-  `Bridgey-RR-<version>-macOS.zip`, `SHA256SUMS`
+  `Bridgey-RR-<version>-macOS.zip`, `Bridgey-RR-<version>-Android.sbom.cdx.json`,
+  `Bridgey-RR-<version>-macOS.sbom.cdx.json`, `Bridgey-RR-<version>-provenance.json`, `SHA256SUMS`
+  (which lists every file above)
 - `channels/`: `<channel>.json` and `appcast.xml`, merged with what is already published
 - `release.env`, `notes.md`
+
+The SBOMs are CycloneDX 1.5 JSON. Android is parsed from Gradle's own
+`:app:dependencies --configuration releaseRuntimeClasspath` report (`scripts/rr/android-deps.sh`, run by
+`release.sh`; no build file changes, no plugin), plus the vendored BLAKE3 code. macOS is parsed from
+`macos/Package.resolved`, the binary targets in `macos/Package.swift` (llama.cpp, with its SHA-256) and
+the vendored BLAKE3 code, so it needs no Mac. The provenance file is an unsigned in-toto statement
+(SLSA v1 shaped): git commit, describe and dirty flag, channel, version, build number and tag, the
+builders and toolchains (Java, Gradle, Android Gradle Plugin, Kotlin; Swift and Xcode from the Mac), build
+time, and the SHA-256 of every file above except itself and `SHA256SUMS`. `build-android.sh` and
+`build-macos.sh` leave a `build-info` note (host, OS, tools) next to their output for it; where that note
+does not travel (the hosted nightly uploads only the APK, DMG and ZIP) the provenance names the assembling
+host and says so (`hostSource`). A failed Android dependency listing stops a beta or stable release; a
+nightly goes out without the Android SBOM and a warning. Run one piece by hand with
+`python3 scripts/rr/supplychain.py macos --version X --out sbom.json`.
 
 `publish.sh` then:
 
@@ -477,6 +493,32 @@ A release directory `dist/<tag>/` holds:
 5. uploads `<channel>.json` and `appcast.xml` to the `channels` release with `--clobber`, only
    after the release assets exist,
 6. for Nightly, deletes all but the newest 10 nightly releases and their tags, and releases the lock.
+
+### Install channels: Homebrew cask and Obtainium
+
+Besides the DMG and APK on the release page, there are two install routes. Neither changes how
+releases are built.
+
+- **Homebrew cask** `bridgey-rr` in the public tap
+  [round-robin-solutions/homebrew-tap](https://github.com/round-robin-solutions/homebrew-tap)
+  (`Casks/bridgey-rr.rb`). It pins one release by `version` and `sha256` of that release's DMG, sets
+  `auto_updates true` (Sparkle updates the app) and clears the quarantine flag in `postflight_steps`
+  because the app is ad-hoc signed. `scripts/rr/bump-cask.py` rewrites `version` and `sha256`, then
+  clones the tap, commits and pushes (token from `GH_TOKEN`). `release.sh --publish` runs it after the
+  release is out: always for Stable, for Beta only with `--bump-cask` (or `BRIDGEY_RR_BUMP_CASK=1`),
+  never for Nightly. A failure prints a warning and leaves the release published; run it again with
+  `python3 scripts/rr/bump-cask.py --tag v<version> --push`. It refuses to move the cask to an older
+  version unless `--force` is given. Until the first Stable release, the cask points at the newest Beta.
+- **Obtainium** links, built by `scripts/rr/obtainium.py` as `obtainium://app/<URL-encoded JSON>` and,
+  for README and website, through the redirect page
+  `https://apps.obtainium.imranr.dev/redirect?r=...` (GitHub does not link custom schemes). The JSON is
+  `{"id","url","author","name","additionalSettings"}` with `additionalSettings` as a JSON string: Stable
+  `{"includePrereleases":false}`; Beta and Nightly `{"includePrereleases":true,"filterReleaseTitlesByRegEx":...}`
+  where the regex matches the end of our release titles (Beta: `-rr.N` or `-rr.N-beta.N`; Nightly adds
+  `-rr.N-nightly.N`), which keeps the `channels` and `models` releases out. The Android app builds the
+  same links and must match this builder. Regenerate the links in `README.md`, `docs/user-guide.md`
+  and `website/index.html` with `python3 scripts/rr/obtainium.py update README.md docs/user-guide.md website/index.html`;
+  a test fails when they are out of date.
 
 After a Stable release, bump `EDITION_NEXT_VERSION` (for example to `0.6.0-rr.2`) and commit.
 

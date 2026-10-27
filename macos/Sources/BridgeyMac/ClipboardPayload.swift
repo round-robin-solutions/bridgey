@@ -8,7 +8,8 @@ struct RichClipboardContent: Codable, Equatable {
     let html: String
 
     init?(text: String, html: String?) {
-        guard let html, !text.isEmpty, !html.isEmpty,
+        // Like Android: HTML that is only whitespace is no rich content.
+        guard let html, !text.isEmpty, html.contains(where: { !$0.isWhitespace }),
               text.utf8.count + html.utf8.count <= maximumClipboardContentBytes else { return nil }
         version = 1
         self.text = text

@@ -1,0 +1,54 @@
+
+------------------------------------------------------------
+Project ':app'
+------------------------------------------------------------
+
+releaseRuntimeClasspath - Runtime classpath of '/release'.
++--- org.jetbrains.kotlin:kotlin-stdlib:2.4.10
+|    +--- org.jetbrains:annotations:13.0 -> 23.0.0
+|    \--- org.jetbrains.kotlin:kotlin-stdlib-common:2.4.10 (c)
++--- project ':core:discovery'
+|    +--- org.jetbrains.kotlin:kotlin-stdlib:2.4.10 (*)
+|    \--- org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0
+|         +--- org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0
+|         |    \--- org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.11.0
+|         |         +--- org.jetbrains:annotations:23.0.0
+|         |         +--- org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.11.0
+|         |         |    +--- org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0 (c)
+|         |         |    +--- org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.11.0 (c)
+|         |         |    \--- org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0 (c)
+|         |         \--- org.jetbrains.kotlin:kotlin-stdlib:2.2.20 -> 2.4.10 (*)
+|         +--- org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.11.0 (*)
+|         \--- org.jetbrains.kotlin:kotlin-stdlib:2.2.20 -> 2.4.10 (*)
++--- androidx.activity:activity-compose:1.13.0
+|    +--- androidx.activity:activity:1.13.0
+|    |    +--- androidx.annotation:annotation:1.8.1 -> 1.9.1
+|    |    |    \--- androidx.annotation:annotation-jvm:1.9.1
+|    |    |         \--- org.jetbrains.kotlin:kotlin-stdlib:1.9.24 -> 2.4.10 (*)
+|    |    +--- androidx.core:core-ktx:1.18.0
+|    |    |    +--- androidx.annotation:annotation:1.8.1 -> 1.9.1 (*)
+|    |    |    +--- androidx.core:core:1.18.0
+|    |    |    |    +--- androidx.annotation:annotation:1.8.1 -> 1.9.1 (*)
+|    |    |    |    +--- androidx.annotation:annotation-experimental:1.4.1
+|    |    |    |    |    \--- org.jetbrains.kotlin:kotlin-stdlib:1.7.10 -> 2.4.10 (*)
+|    |    |    |    +--- androidx.collection:collection:1.4.2 -> 1.5.0
+|    |    |    |    |    \--- androidx.collection:collection-jvm:1.5.0
+|    |    |    |    |         +--- androidx.annotation:annotation:1.9.1 (*)
+|    |    |    |    |         +--- org.jetbrains.kotlin:kotlin-stdlib -> 2.4.10 (*)
+|    |    |    |    |         +--- org.jetbrains.kotlin:kotlin-stdlib:1.9.24 -> 2.4.10 (c)
+|    |    |    |    |         \--- androidx.collection:collection-ktx:1.5.0 (c)
+|    |    |    |    +--- androidx.concurrent:concurrent-futures:1.0.0 -> 1.1.0
+|    |    |    |    |    +--- androidx.annotation:annotation:1.1.0 -> 1.9.1 (*)
+|    |    |    |    |    \--- com.google.guava:listenablefuture:1.0
+|    |    |    |    +--- androidx.core:core-viewtree:1.0.0
+|    |    |    |    |    +--- org.jetbrains.kotlin:kotlin-stdlib -> 2.4.10 (*)
+|    |    |    |    |    \--- org.jetbrains.kotlin:kotlin-stdlib:1.8.22 -> 2.4.10 (c)
+|    |    |    |    +--- androidx.interpolator:interpolator:1.0.0
+|    |    |    |    |    \--- androidx.annotation:annotation:1.0.0 -> 1.9.1 (*)
+|    |    |    |    +--- androidx.lifecycle:lifecycle-common:2.6.2 -> 2.9.4
++--- com.example:old-name:1.0 -> com.example:new-name:2.0
++--- com.example:noversion -> 3.1
+\--- com.example:strict:{strictly 1.4} -> 1.4
+
+(c) - A dependency constraint, not a dependency. The dependency affected by the constraint occurs elsewhere in the tree.
+(*) - Indicates repeated occurrences of a transitive dependency subtree. Gradle expands transitive dependency subtrees only once per project; repeat occurrences only display the root of the subtree, followed by this annotation.

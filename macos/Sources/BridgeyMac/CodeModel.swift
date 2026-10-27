@@ -17,10 +17,11 @@ enum CodeEngine: String, CaseIterable, Equatable {
     case cloud
 
     /// The stored choice. A Mac that turned codes on before there was a choice had agreed to the
-    /// cloud, so it keeps the cloud until the user picks again.
+    /// cloud, so it keeps the cloud until the user picks again. A value this build does not know
+    /// (written by a newer build, then downgraded) is not that agreement: it reads as on this Mac.
     static func stored(_ value: String?, codesWereEnabled: Bool) -> CodeEngine {
-        if let value, let engine = CodeEngine(rawValue: value) { return engine }
-        return codesWereEnabled ? .cloud : .local
+        guard let value else { return codesWereEnabled ? .cloud : .local }
+        return CodeEngine(rawValue: value) ?? .local
     }
 }
 

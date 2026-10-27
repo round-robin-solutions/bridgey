@@ -3,9 +3,11 @@
 
 Subcommands
   version   Print VERSION_NAME, BUILD_NUMBER, TAG and PRERELEASE for a channel (shell KEY=value lines).
-  assemble  Copy built artifacts into <dist>/release with release file names, write SHA256SUMS,
+  assemble  Copy built artifacts into <dist>/release with release file names, write the CycloneDX SBOMs
+            and <prefix>-<version>-provenance.json (see supplychain.py), write SHA256SUMS,
             <dist>/channels/<channel>.json and the merged, EdDSA-signed <dist>/channels/appcast.xml.
-  verify    Validate every feed and appcast item in <dist>/channels against the files in <dist>/release.
+  verify    Validate every feed and appcast item in <dist>/channels against the files in <dist>/release,
+            plus the SBOMs and the provenance file when present.
   rebase    Re-merge an assembled release into feeds downloaded just now (publish.sh runs it under the
             channels lock, so a beta and a nightly published together never drop each other's item).
 
@@ -31,6 +33,8 @@ import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+import supplychain
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROPERTIES_PATH = REPO_ROOT / "rr-edition.properties"
@@ -428,6 +432,7 @@ def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
         feed["macos"] = previous_feed["macos"]
 
     validate_feed(feed, channel, app_id, asset_prefix)
+    write_supply_chain(args, props, release_dir, sums, published, prefix)
     (release_dir / "SHA256SUMS").write_text("".join(f"{digest}  {name}\n" for digest, name in sorted(sums, key=lambda s: s[1])))
     (channels_dir / f"{channel}.json").write_text(json.dumps(feed, indent=2) + "\n", encoding="utf-8")
 
@@ -443,6 +448,52 @@ def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
     if notes:
         (dist / "notes.md").write_text(notes + "\n", encoding="utf-8")
     return dist
+
+
+def write_supply_chain(
+    args: argparse.Namespace, props: dict[str, str], release_dir: Path, sums: list[tuple[str, str]], published: dt.datetime, prefix: str
+) -> None:
+    """Write the SBOMs (macOS always, Android when --android-deps is given) and the provenance file,
+    and add them to the checksum list."""
+    root = Path(args.repo_root)
+    common = {
+        "app_name": props["EDITION_DISPLAY_NAME"],
+        "app_id": props["EDITION_APP_ID"],
+        "version": args.version,
+        "build": str(args.build),
+        "timestamp": iso(published),
+    }
+    builds: dict[str, dict] = {}
+
+    def add(name: str, content: bytes) -> None:
+        (release_dir / name).write_bytes(content)
+        sums.append((sha256_file(release_dir / name), name))
+
+    try:
+        if args.apk:
+            if args.android_deps:
+                blake3 = (root / "android/app/src/main/cpp/blake3/BLAKE3_SOURCE.txt").read_text(encoding="utf-8")
+                document = supplychain.android_sbom(Path(args.android_deps).read_text(encoding="utf-8"), blake3, **common)
+                add(f"{prefix}-{args.version}-Android.sbom.cdx.json", supplychain.dump_json(document))
+            info = supplychain.read_build_info(Path(args.android_build_info) if args.android_build_info else None)
+            builds["android"] = supplychain.build_record(info, supplychain.android_toolchain(root, info))
+        if args.zip:
+            blake3 = (root / "macos/Sources/CBlake3/BLAKE3_SOURCE.txt").read_text(encoding="utf-8")
+            resolved = json.loads((root / "macos/Package.resolved").read_text(encoding="utf-8"))
+            document = supplychain.macos_sbom(resolved, (root / "macos/Package.swift").read_text(encoding="utf-8"), blake3, **common)
+            add(f"{prefix}-{args.version}-macOS.sbom.cdx.json", supplychain.dump_json(document))
+            info = supplychain.read_build_info(Path(args.mac_build_info) if args.mac_build_info else None)
+            builds["macos"] = supplychain.build_record(
+                info, {"swift": info.get("swift", "unknown"), "xcode": info.get("xcode", "unknown")}
+            )
+        provenance = supplychain.build_provenance(
+            app_id=props["EDITION_APP_ID"], repo=props["GITHUB_REPO"], channel=args.channel, version=args.version,
+            build=int(args.build), tag=args.tag, built_at=iso(published), git=supplychain.git_info(root), builds=builds,
+            assembler=supplychain.build_record({}, {}), artifacts={name: digest for digest, name in sums},
+        )
+    except (supplychain.SupplyChainError, OSError, ValueError) as error:
+        raise ReleaseError(f"could not write the SBOMs and provenance: {error}") from error
+    add(f"{prefix}-{args.version}-provenance.json", supplychain.dump_json(provenance))
 
 
 # ---------------------------------------------------------------- verify
@@ -498,6 +549,14 @@ def verify(dist: Path, props: dict[str, str], public_key: str) -> list[str]:
                     raise ReleaseError(f"appcast signature for {local.name} does not verify")
                 report.append(f"appcast: {local.name} EdDSA ok")
         report.append(f"appcast: {len(items)} item(s)")
+    try:
+        for path in sorted(release_dir.glob("*.sbom.cdx.json")) if release_dir.is_dir() else []:
+            supplychain.check_sbom(json.loads(path.read_text(encoding="utf-8")), path.name)
+            report.append(f"{path.name} CycloneDX ok")
+        for path in sorted(release_dir.glob("*-provenance.json")) if release_dir.is_dir() else []:
+            report += supplychain.check_provenance(json.loads(path.read_text(encoding="utf-8")), release_dir, sha256_file)
+    except (supplychain.SupplyChainError, ValueError, KeyError) as error:
+        raise ReleaseError(str(error)) from error
     sums = release_dir / "SHA256SUMS"
     if sums.is_file():
         for line in sums.read_text().splitlines():
@@ -578,6 +637,10 @@ def main(argv: list[str] | None = None) -> int:
     assemble_parser.add_argument("--ed-key", help="file with the base64 Sparkle EdDSA private key")
     assemble_parser.add_argument("--ed-public-key", help=argparse.SUPPRESS)
     assemble_parser.add_argument("--published", help="ISO publish time; default now")
+    assemble_parser.add_argument("--android-deps", help="output of ./gradlew :app:dependencies --configuration releaseRuntimeClasspath (adds the Android SBOM)")
+    assemble_parser.add_argument("--android-build-info", help="<apk>.build-info written by build-android.sh")
+    assemble_parser.add_argument("--mac-build-info", help="build-info file written by build-macos.sh")
+    assemble_parser.add_argument("--repo-root", default=str(REPO_ROOT), help=argparse.SUPPRESS)
     previous = assemble_parser.add_mutually_exclusive_group()
     previous.add_argument("--previous-channels", help="directory with the currently published <channel>.json/appcast.xml")
     previous.add_argument("--fetch-previous", action="store_true", help="download the published feeds (read-only)")

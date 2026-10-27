@@ -13,14 +13,19 @@
 #   --now ISO            UTC time the version, build number and tag derive from (default now; the hosted
 #                        nightly passes one value to its Android, macOS and publish jobs)
 #   --publish            create the GitHub release and update the channel feeds (default: dry run into dist/)
+#   --bump-cask          after --publish of a beta, also update the Homebrew cask (stable always does; nightly never;
+#                        BRIDGEY_RR_BUMP_CASK=1 does the same). Needs GH_TOKEN with push access to the tap. A
+#                        failure only warns: the release stays published. See scripts/rr/bump-cask.py.
 #
-# Runs on rr-dev-1 (Android build, Sparkle signing key) and drives the Mac over ssh. See docs/rr-edition.md.
+# Each release also carries a CycloneDX SBOM per platform and a provenance file (supplychain.py); all of
+# them are listed in SHA256SUMS. Runs on rr-dev-1 (Android build, Sparkle signing key) and drives the Mac
+# over ssh. See docs/rr-edition.md.
 set -eu
 . "$(dirname -- "$0")/common.sh"
 
 CHANNEL=${1:-}
-case "$CHANNEL" in stable|beta|nightly) shift ;; *) sed -n '2,17p' "$0"; exit 2 ;; esac
-VERSION="" NOTES_FILE="" MAC_HOST="" MAC_ARTIFACTS="" SKIP_MAC=0 SKIP_ANDROID=0 APK_IN="" PUBLISH=0 NOW=""
+case "$CHANNEL" in stable|beta|nightly) shift ;; *) sed -n '2,22p' "$0"; exit 2 ;; esac
+VERSION="" NOTES_FILE="" MAC_HOST="" MAC_ARTIFACTS="" SKIP_MAC=0 SKIP_ANDROID=0 APK_IN="" PUBLISH=0 NOW="" BUMP_CASK=${BRIDGEY_RR_BUMP_CASK:-0}
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) VERSION=$2; shift 2 ;;
@@ -33,6 +38,7 @@ while [ $# -gt 0 ]; do
     --apk) APK_IN=$2; shift 2 ;;
     --now) NOW=$2; shift 2 ;;
     --publish) PUBLISH=1; shift ;;
+    --bump-cask) BUMP_CASK=1; shift ;;
     *) die "unknown option $1" ;;
   esac
 done
@@ -56,10 +62,20 @@ set --
 if [ $SKIP_ANDROID = 0 ]; then
   if [ -n "$APK_IN" ]; then
     cp "$APK_IN" "$WORK/app-release.apk"
+    [ ! -f "$APK_IN.build-info" ] || cp "$APK_IN.build-info" "$WORK/app-release.apk.build-info"
   else
     sh "$RR_ROOT/scripts/rr/build-android.sh" "$WORK/app-release.apk"
   fi
   set -- "$@" --apk "$WORK/app-release.apk"
+  [ ! -f "$WORK/app-release.apk.build-info" ] || set -- "$@" --android-build-info "$WORK/app-release.apk.build-info"
+  # SBOM input. A listing that fails stops beta and stable; a nightly ships without the Android SBOM.
+  if sh "$RR_ROOT/scripts/rr/android-deps.sh" "$WORK/android-dependencies.txt"; then
+    set -- "$@" --android-deps "$WORK/android-dependencies.txt"
+  elif [ "$CHANNEL" = nightly ]; then
+    echo "warning: no Android SBOM in this nightly (the dependency listing failed)" >&2
+  else
+    die "the Android dependency listing for the SBOM failed"
+  fi
 fi
 if [ $SKIP_MAC = 0 ]; then
   PREFIX=$(edition_value EDITION_ASSET_PREFIX)
@@ -68,6 +84,7 @@ if [ $SKIP_MAC = 0 ]; then
     MAC_ARTIFACTS="$WORK/macos"
   fi
   set -- "$@" --dmg "$MAC_ARTIFACTS/$PREFIX-macOS.dmg" --zip "$MAC_ARTIFACTS/$PREFIX-macOS.zip" --ed-key "$ED_KEY"
+  [ ! -f "$MAC_ARTIFACTS/mac.build-info" ] || set -- "$@" --mac-build-info "$MAC_ARTIFACTS/mac.build-info"
 fi
 [ -n "$NOTES_FILE" ] && set -- "$@" --notes-file "$NOTES_FILE"
 
@@ -78,6 +95,15 @@ rm -rf "$WORK"
 
 if [ $PUBLISH = 1 ]; then
   sh "$RR_ROOT/scripts/rr/publish.sh" "$DIST"
+  # Homebrew cask: stable always, beta only with --bump-cask, never nightly. It points at the release
+  # just published, so it needs a macOS build; a failure here warns and leaves the release as it is.
+  case "$CHANNEL" in stable) CASK_WANTED=1 ;; beta) CASK_WANTED=$BUMP_CASK ;; *) CASK_WANTED=0 ;; esac
+  if [ "$CASK_WANTED" = 1 ] && [ $SKIP_MAC = 0 ]; then
+    if ! python3 "$RR_ROOT/scripts/rr/bump-cask.py" --version "$VERSION_NAME" --push \
+      --dmg "$DIST/release/$(edition_value EDITION_ASSET_PREFIX)-$VERSION_NAME-macOS.dmg"; then
+      echo "warning: the Homebrew cask was not updated (the release is published); run: python3 scripts/rr/bump-cask.py --tag $TAG --push" >&2
+    fi
+  fi
 else
   echo "Dry run complete. Review $DIST, then publish with: scripts/rr/publish.sh $DIST"
 fi

@@ -1,0 +1,27 @@
+{
+  "offer": {
+    "version": 1,
+    "offerId": "7128e2f0-3296-4d06-9af8-136a4a16cac5",
+    "createdAt": 1793005200000,
+    "items": [
+      {
+        "index": 0,
+        "kind": "image",
+        "mime": "image/png",
+        "size": 2100000,
+        "sha256": "u7mjCsN3clkxsJFxx0mU5EKO3TIpSttr9JKF54ZxUpk="
+      },
+      {
+        "index": 1,
+        "kind": "file",
+        "mime": "application/pdf",
+        "name": "report.pdf",
+        "size": 1200,
+        "sha256": "u7mjCsN3clkxsJFxx0mU5EKO3TIpSttr9JKF54ZxUpk="
+      }
+    ]
+  },
+  "deviceId": "e2acaa6d-7980-4e5c-b5cb-9c8742216271",
+  "peerName": "Test Mac A",
+  "receivedAt": 1793005201000
+}

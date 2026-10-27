@@ -1,0 +1,22 @@
+[
+  {
+    "id": 2,
+    "kind": "ping_sent",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "sensitive": false,
+    "automatic": false,
+    "count": "three",
+    "at": 1793005260000
+  },
+  {
+    "id": 1,
+    "kind": "paired",
+    "deviceID": "d60c274e-f2b8-452d-8031-912d80624414",
+    "deviceName": "Test Phone A",
+    "sensitive": false,
+    "automatic": false,
+    "count": 1,
+    "at": 1793005200000
+  }
+]
