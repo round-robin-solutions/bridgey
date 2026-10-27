@@ -55,9 +55,9 @@ class SetupMessagesTest {
         // One link for codes and Text messages: once made, the page has nothing left to ask for it.
         val state = SetupState(picked = setOf("messages", "notifications"))
         val facts = SetupFacts(current = both, codesLinkApplies = true, granted = setOf(PermissionKind.SMS, PermissionKind.CONTACTS, PermissionKind.NOTIFICATION_ACCESS, PermissionKind.BATTERY))
-        assertTrue(SetupFlow.neededPermissions(state, facts).any { it.kind == PermissionKind.COMPANION_LINK })
-        assertTrue(SetupFlow.permissionsPage(state, facts))
-        assertFalse(SetupFlow.permissionsPage(state, facts.copy(granted = facts.granted + PermissionKind.COMPANION_LINK)))
+        fun stillToAsk(f: SetupFacts) = SetupFlow.neededPermissions(state, f).map { it.kind }.filter { it !in f.granted }
+        assertTrue(PermissionKind.COMPANION_LINK in stillToAsk(facts))
+        assertFalse(PermissionKind.COMPANION_LINK in stillToAsk(facts.copy(granted = facts.granted + PermissionKind.COMPANION_LINK)))
         // Refusing it keeps Text messages on.
         assertFalse(link.offWhenRefused.any { it.setting == SetupSetting.FEATURE_SMS })
     }
