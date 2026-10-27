@@ -104,6 +104,9 @@ dependencies {
     implementation("androidx.camera:camera-view:1.4.2")
     // Home-screen widget (Mac actions): Glance, Compose-style RemoteViews.
     implementation("androidx.glance:glance-appwidget:1.1.1")
+    // Glance brings WorkManager 2.7.1 with Room 2.2.5, whose keep rules predate R8 full mode: the
+    // minified release then cannot create WorkDatabase and crashes at startup. Pin a current WorkManager.
+    implementation("androidx.work:work-runtime-ktx:2.11.0")
     testImplementation("junit:junit:4.13.2")
     // Real org.json for JVM unit tests of the update feed parser (android.jar only has stubs).
     testImplementation("org.json:json:20240303")
