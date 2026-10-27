@@ -139,3 +139,20 @@ Off). Each alert shows once per charge cycle: the low alert again only after the
 in or climbed 5 points above the threshold, the charged alert again only after it drained 5 points
 below. Nothing new goes on the wire; the alerts come from `battery.update`. The memory is in
 memory only, so restarting Bridgey may show a current alert once more.
+
+## Focus and Do Not Disturb sync
+
+Both directions are off by default and set on the device that changes: the phone in Settings >
+Notifications > Focus, the Mac in Settings > Notifications > Focus. Wire contract: protocol.md,
+"Focus and Do Not Disturb sync".
+
+| Direction | Read on the source | Set on the target |
+| --- | --- | --- |
+| Phone to Mac | Android `NotificationManager.getCurrentInterruptionFilter` and its change broadcast (no permission needed to read) | macOS has no public interface to turn a Focus on or off. Bridgey runs a Shortcut the person picks for "on" and one for "off"; the Shortcuts app's own Set Focus action does it |
+| Mac to phone | macOS reads Focus only through `INFocusStatusCenter`, which needs the Communication Notifications entitlement and so a paid Apple developer account (an ad-hoc signed app cannot use it). Bridgey instead offers a **Focus filter** (System Settings > Focus > a Focus > Focus filters > Bridgey, "Share this Focus with my phones") and a **Share Focus with Phones** Shortcuts action for a Focus automation | Android `setInterruptionFilter` with Do Not Disturb access (`ACCESS_NOTIFICATION_POLICY`, granted by the person in Android settings). On Android 15 and later this becomes an app-owned mode. Bridgey only turns off what it turned on |
+
+Not possible without private interfaces: reading the Mac's Focus automatically (without the filter
+or an automation), and changing the Mac's Focus without a Shortcut. A device that follows does not
+send the resulting change back for 10 seconds, so two devices following each other cannot loop.
+Turning Follow off hands the quiet mode back (runs the "off" Shortcut on the Mac; on the phone,
+removes the Do Not Disturb Bridgey set).

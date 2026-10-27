@@ -820,3 +820,24 @@
 "battery.alerts.full" = "Charged";
 "battery.alerts.low" = "Low";
 "battery.alerts.off" = "Off";
+
+/* Focus and Do Not Disturb sync */
+"focus.follow" = "Follow the phone’s Do Not Disturb";
+"focus.follow.detail" = "Runs your Shortcut when Do Not Disturb turns on or off on a phone that shares it";
+"focus.follow.none" = "Choose a Shortcut";
+"focus.follow.off" = "When it turns off, run";
+"focus.follow.on" = "When it turns on, run";
+"focus.footnote" = "To share, add Bridgey to a Focus in System Settings > Focus > Focus filters, or use the Share Focus with Phones action in a Shortcuts automation. To follow, pick Shortcuts that use the Set Focus action. macOS does not let apps read or change a Focus directly.";
+"focus.share" = "Share Focus with phones";
+"focus.share.detail" = "Phones that follow this Mac turn on Do Not Disturb with your Focus";
+"focus.title" = "Focus";
+
+/* Focus filter and Shortcuts action */
+"focus.filter.description" = "Tell your phones when this Focus is on, if Share Focus with phones is on in Bridgey.";
+"focus.filter.off" = "Phones stay as they are";
+"focus.filter.on" = "Phones go quiet";
+"focus.filter.quiet" = "Share this Focus with my phones";
+"focus.filter.title" = "Bridgey";
+"focus.intent.description" = "Tells phones that follow this Mac’s Focus whether it is on.";
+"focus.intent.on" = "Focus is on";
+"focus.intent.title" = "Share Focus with Phones";

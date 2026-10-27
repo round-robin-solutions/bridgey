@@ -233,6 +233,8 @@ final class PairingCoordinator: ObservableObject {
     let browserTab = BrowserTabReader()
     /// "OnePlus 11 at 15%" and "OnePlus 11 fully charged", per phone thresholds.
     let batteryAlerts = BatteryAlerts()
+    /// Focus and Do Not Disturb sync with phones (draft focus_sync_draft1), off by default.
+    let focusSync = FocusSync()
     /// Connection health per paired phone (no addresses, names or content).
     @Published private(set) var connectionHealth: [String: ConnectionHealthSnapshot] = [:]
     private var healthRecords: [String: DeviceHealthRecord] = [:]
@@ -414,6 +416,13 @@ final class PairingCoordinator: ObservableObject {
             return self.sendQuickPayload(kind: kind, payload: payload, to: current)
         }
         macActions.onCatalogChange = { [weak self] in self?.sendActionsCatalogs() }
+        focusSync.broadcast = { [weak self] active in
+            guard let self else { return }
+            for (_, current) in self.registry.broadcastTargets({ _, link in link.remoteFocusSync }) {
+                _ = self.sendQuickPayload(kind: "focus.state", payload: ["version": 1, "active": active], to: current)
+            }
+        }
+        focusSync.onSettingsChange = { [weak self] in self?.sendFeatureState() }
         remoteInput.isAllowed = { [weak self] id in self?.isFeatureAvailable(.remoteInput, for: id) == true }
         remoteInput.send = { [weak self] id, kind, payload in
             guard let self, let current = self.registry.session(for: id) else { return false }
@@ -696,6 +705,7 @@ final class PairingCoordinator: ObservableObject {
         trustedDeviceIDs.remove(deviceID)
         settings.removeDevice(deviceID)
         batteryAlerts.forget(deviceID)
+        focusSync.forget(deviceID)
         reconnect.forget(deviceID)
         disconnect(deviceID: deviceID)
         BridgeyLog.pairing.notice("pairing revoked peer=\(shortDeviceID(deviceID), privacy: .public)")
@@ -2039,6 +2049,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteFolders = draftKeys[foldersFeatureKey] == true
                     link.remotePlaces = draftKeys[placesFeatureKey] == true
                     link.remoteSmsCodes = draftKeys[smsCodesFeatureKey] == true
+                    link.remoteFocusSync = draftKeys[focusSyncFeatureKey] == true
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
                 }
@@ -2066,6 +2077,9 @@ final class PairingCoordinator: ObservableObject {
                 // Folders interrupted for this phone resume now (within 24 hours of their last progress).
                 folders.phoneReady(phoneID)
                 sendActionsCatalog(to: current)
+                if draftKeys[focusSyncFeatureKey] == true, let active = focusSync.stateForNewPhone {
+                    _ = sendQuickPayload(kind: "focus.state", payload: ["version": 1, "active": active], to: current)
+                }
             case "ping.request":
                 try receivePing(message, in: current)
             case "ping.ack":
@@ -2461,6 +2475,8 @@ final class PairingCoordinator: ObservableObject {
                 receiveCodesMessage(message, in: current)
             case let kind where kind.hasPrefix("actions."):
                 receiveActionsMessage(message, in: current)
+            case "focus.state":
+                receiveFocusState(message, in: current)
             default:
                 break
             }
@@ -2559,6 +2575,8 @@ final class PairingCoordinator: ObservableObject {
         features[smsCodesFeatureKey] = settings.isEnabled(.notifications, for: current.remoteDeviceID)
         // Draft, edition only: this Mac understands links "open" (Open on Mac from the phone).
         features[linksOpenFeatureKey] = settings.isEnabled(.links, for: current.remoteDeviceID)
+        // Draft, edition only: focus.state, while either Focus direction is on.
+        features[focusSyncFeatureKey] = focusSync.advertised
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
               let encrypted = try? encrypt(payload, key: key) else { return }
         current.send(PairingMessage(
@@ -3113,6 +3131,18 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func quickActionsStatus(_ text: String) { quickActions.showStatus(text) }
+
+    /// focus.state from a phone: its Do Not Disturb, applied only when Follow is on here.
+    private func receiveFocusState(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key), data.count <= 256,
+              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              payload["version"] as? Int == 1, let number = payload["active"] as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID() else { return }
+        focusSync.received(active: number.boolValue, from: current.remoteDeviceID)
+    }
 
     // MARK: Shortcuts and Siri (App Intents)
 

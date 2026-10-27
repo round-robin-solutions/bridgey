@@ -428,3 +428,78 @@ final class BatteryAlertTests: XCTestCase {
         XCTAssertEqual(alerts.thresholds(for: "b"), .default)
     }
 }
+
+@MainActor
+final class FocusSyncTests: XCTestCase {
+    private var now = Date(timeIntervalSince1970: 1_000)
+    private var sent: [Bool] = []
+    private var ran: [String] = []
+
+    private func make(_ settings: FocusSyncSettings) -> FocusSync {
+        let sync = FocusSync(defaults: nil, clock: { [unowned self] in self.now })
+        sync.broadcast = { [unowned self] in self.sent.append($0) }
+        sync.runShortcut = { [unowned self] in self.ran.append($0) }
+        sync.update { $0 = settings }
+        sent = []
+        ran = []
+        return sync
+    }
+
+    func testNothingHappensWhileBothDirectionsAreOff() {
+        let sync = make(FocusSyncSettings())
+        XCTAssertFalse(sync.advertised)
+        sync.localFocusChanged(true)
+        sync.received(active: true, from: "phone")
+        XCTAssertEqual(sent, [])
+        XCTAssertEqual(ran, [])
+    }
+
+    func testShareSendsChangesOnly() {
+        let sync = make(FocusSyncSettings(share: true))
+        sync.localFocusChanged(true)
+        sync.localFocusChanged(true)
+        sync.localFocusChanged(false)
+        XCTAssertEqual(sent, [true, false])
+        XCTAssertEqual(sync.stateForNewPhone, false)
+    }
+
+    func testFollowRunsTheChosenShortcutsAndDoesNotEchoBack() {
+        let sync = make(FocusSyncSettings(share: true, follow: true, onShortcut: "Focus on", offShortcut: "Focus off"))
+        sync.received(active: true, from: "phone")
+        XCTAssertEqual(ran, ["Focus on"])
+        // The Focus filter fires for the change Bridgey made: not sent back within 10 seconds.
+        sync.localFocusChanged(true)
+        XCTAssertEqual(sent, [])
+        sync.received(active: true, from: "phone")
+        XCTAssertEqual(ran, ["Focus on"], "the same state runs nothing")
+        now = now.addingTimeInterval(11)
+        sync.received(active: false, from: "phone")
+        XCTAssertEqual(ran, ["Focus on", "Focus off"])
+    }
+
+    func testAnyQuietPhoneKeepsTheFocusOn() {
+        let sync = make(FocusSyncSettings(follow: true, onShortcut: "On", offShortcut: "Off"))
+        sync.received(active: true, from: "a")
+        sync.received(active: true, from: "b")
+        sync.received(active: false, from: "a")
+        XCTAssertEqual(ran, ["On"])
+        sync.received(active: false, from: "b")
+        XCTAssertEqual(ran, ["On", "Off"])
+    }
+
+    func testTurningFollowOffHandsTheFocusBack() {
+        let sync = make(FocusSyncSettings(follow: true, onShortcut: "On", offShortcut: "Off"))
+        sync.received(active: true, from: "a")
+        sync.update { $0.follow = false }
+        XCTAssertEqual(ran, ["On", "Off"])
+        sync.received(active: true, from: "a")
+        XCTAssertEqual(ran, ["On", "Off"])
+    }
+
+    func testWithoutAShortcutNothingRuns() {
+        let sync = make(FocusSyncSettings(follow: true))
+        sync.received(active: true, from: "a")
+        XCTAssertEqual(ran, [])
+        XCTAssertNil(sync.applied)
+    }
+}

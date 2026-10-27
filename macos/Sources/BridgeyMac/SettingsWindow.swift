@@ -138,6 +138,8 @@ struct SettingsModel {
     var health: [String: ConnectionHealthSnapshot] = [:]
     /// Devices > [phone] > Battery alerts; a missing phone uses the defaults.
     var batteryAlerts: [String: BatteryAlertThresholds] = [:]
+    /// Notifications > Focus.
+    var focusSync = FocusSyncSettings()
 
     var connectedDeviceID: String? {
         if case let .connected(id, _) = state { return id }
@@ -224,6 +226,7 @@ struct SettingsActions {
     var clearMacActionsAudit: () -> Void = {}
     var setOpenLinksRightAway: (Bool) -> Void = { _ in }
     var setBatteryAlerts: (String, BatteryAlertThresholds) -> Void = { _, _ in }
+    var setFocusSync: ((inout FocusSyncSettings) -> Void) -> Void = { _ in }
 }
 
 enum SettingsLinks {
@@ -664,6 +667,7 @@ private struct NotificationsPane: View {
             NotificationPermissionRow(model: model, actions: actions)
         }
         CodesCard(model: model, actions: actions)
+        FocusSyncCard(model: model, actions: actions)
         NotificationHistoryCard(model: model, actions: actions)
     }
 }
@@ -1288,6 +1292,7 @@ private struct LiveSettingsView: View {
     @ObservedObject var macActions: MacActionsHost
     @ObservedObject var macActionsAudit: MacActionsAuditLog
     @ObservedObject var batteryAlerts: BatteryAlerts
+    @ObservedObject var focusSync: FocusSync
     @State private var pane: SettingsPane = .devices
     @State private var availableShortcuts: [String]?
     @State private var phoneLinkStatus: String?
@@ -1308,6 +1313,7 @@ private struct LiveSettingsView: View {
         macActions = pairing.macActions
         macActionsAudit = pairing.macActions.audit
         batteryAlerts = pairing.batteryAlerts
+        focusSync = pairing.focusSync
     }
 
     private var codeModelDisplay: CodeModelDisplay {
@@ -1340,7 +1346,7 @@ private struct LiveSettingsView: View {
             if pane == .remoteControl || pane == .media { remoteInput.refreshAccessibility() }
         }
         .onChange(of: pane) { shown in
-            if shown == .media { loadShortcuts() }
+            if shown == .media || shown == .notifications { loadShortcuts() }
         }
     }
 
@@ -1408,6 +1414,7 @@ private struct LiveSettingsView: View {
         model.macActionsAudit = macActionsAudit.entries
         model.openLinksRightAway = settings.openLinksRightAway
         model.health = pairing.connectionHealth
+        model.focusSync = focusSync.settings
         model.batteryAlerts = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, batteryAlerts.thresholds(for: $0.id)) })
         return model
     }
@@ -1451,6 +1458,10 @@ private struct LiveSettingsView: View {
         actions.clearMacActionsAudit = { macActionsAudit.clear() }
         actions.setOpenLinksRightAway = { settings.setOpenLinksRightAway($0) }
         actions.setBatteryAlerts = { id, thresholds in batteryAlerts.setThresholds(thresholds, for: id) }
+        actions.setFocusSync = { change in
+            focusSync.update(change)
+            if focusSync.settings.follow { loadShortcuts() }
+        }
         actions.setAutoClipboard = { settings.setAutoClipboard($0) }
         actions.setAutoClipboardForDevice = { deviceID, enabled in settings.setAutoClipboard(enabled, for: deviceID) }
         actions.setClipboardFiles = { settings.setClipboardFilesEnabled($0) }
