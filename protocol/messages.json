@@ -67,7 +67,7 @@
     { "key": "links_open_draft1", "status": "edition-draft", "requiredInMap": false, "missingMeans": "false", "note": "the Mac understands quick.request links action open (Open on Mac); set while Web links is on for that phone. Phones advertise nothing" },
     { "key": "focus_sync_draft1", "status": "edition-draft", "requiredInMap": false, "missingMeans": "false", "note": "the device understands focus.state; advertised while either Focus direction (share, follow) is on" },
     { "key": "camera_draft1", "status": "edition-draft", "requiredInMap": false, "missingMeans": "false", "note": "the phone takes photos for that Mac (its switch, on by default); the Mac sets it while Files is on for that phone; gates camera.*. The photo comes back over files.v1 with cameraRequestId" },
-    { "key": "settings_sync_draft1", "status": "edition-draft", "requiredInMap": false, "missingMeans": "false", "note": "the device syncs shared preferences with that peer: its global switch (on by default) and its switch for that peer are both on; gates settings.*" }
+    { "key": "settings_sync_draft1", "status": "edition-draft", "requiredInMap": false, "missingMeans": "false", "note": "the device syncs settings and feature switches with that peer: its global switch (on by default) and its switch for that peer are both on; gates settings.*" }
   ],
   "messages": [
     { "kind": "pairing.offer", "status": "upstream-v1", "direction": "either", "feature": null, "encrypted": false,
@@ -515,14 +515,14 @@
       "implemented": ["android", "macos"] },
     { "kind": "settings.snapshot", "status": "edition-draft", "direction": "either", "feature": "settings_sync_draft1", "encrypted": true, "replay": "messageId", "maxPlaintextBytes": 16384,
       "outer": ["sessionId", "messageId", "nonce", "ciphertext"],
-      "payload": { "schema": "integer, 1", "maxSchema": "integer", "records": "object of key to {value, changedAt, version, changedBy}, at most 32; every schema 1 key the sender syncs" },
-      "notes": "Sent by each side when settings_sync_draft1 becomes true on both for the session, including right after connecting. Unknown keys and invalid records are skipped one by one. Schema 1 keys synced: files.folder_destination, files.folder_conflict, activity.previews, display.reduce_motion; clipboard.automatic and pair.clipboard.automatic are reserved and never sent. A payload that fails decryption closes the session; one that fails validation is answered settings.error invalid_message.",
+      "payload": { "schema": "integer, 1", "maxSchema": "integer", "records": "object of key to {value, changedAt, version, changedBy}, at most 32; every schema 1 key the sender syncs", "waiting": "optional array of at most 32 keys that are on but wait for a permission on the sender" },
+      "notes": "Sent by each side when settings_sync_draft1 becomes true on both for the session, including right after connecting. A snapshot never overwrites a chosen value: a setting the receiver never chose (version 0) takes the sender's chosen record; two different chosen values stay and show as Different on <device> with Apply to all. Schema 1 has 21 keys (docs/folders-and-settings-sync.md 8.4); unknown and per-device keys and invalid records are skipped one by one. A payload that fails decryption closes the session; one that fails validation is answered settings.error invalid_message.",
       "reply": ["settings.ack"],
       "implemented": ["android", "macos"] },
     { "kind": "settings.update", "status": "edition-draft", "direction": "either", "feature": "settings_sync_draft1", "encrypted": true, "replay": "messageId", "maxPlaintextBytes": 16384,
       "outer": ["sessionId", "messageId", "nonce", "ciphertext"],
-      "payload": { "schema": "integer, 1", "records": "object of key to record, at most 32" },
-      "notes": "Local edits (debounced 500 ms), relayed records from other peers, and records that won (kept) and were not yet sent to this peer.",
+      "payload": { "schema": "integer, 1", "records": "object of key to record, at most 32", "waiting": "optional array of at most 32 keys" },
+      "notes": "Local edits and Apply to all (debounced 500 ms), relayed records from other peers, records that won (kept) and were not yet sent to this peer, and waiting list changes (records may be empty). A record that wins by the merge rule is applied.",
       "reply": ["settings.ack"],
       "implemented": ["android", "macos"] },
     { "kind": "settings.ack", "status": "edition-draft", "direction": "either", "feature": "settings_sync_draft1", "encrypted": true, "replay": "messageId", "maxPlaintextBytes": 8192,
@@ -532,7 +532,8 @@
       "implemented": ["android", "macos"] },
     { "kind": "settings.error", "status": "edition-draft", "direction": "either", "feature": "settings_sync_draft1", "encrypted": true, "replay": "messageId", "maxPlaintextBytes": 8192,
       "outer": ["sessionId", "messageId", "nonce", "ciphertext"],
-      "payload": { "schema": "integer", "code": "unsupported_schema | invalid_message", "maxSchema": "integer" },
+      "payload": { "schema": "integer", "code": "unsupported_schema | invalid_message | rate_limited", "maxSchema": "integer" },
+      "notes": "rate_limited: more than 20 settings.* messages from this peer in 10 seconds; the extra messages were dropped. Sent at most once per window.",
       "implemented": ["android", "macos"] }
   ]
 }

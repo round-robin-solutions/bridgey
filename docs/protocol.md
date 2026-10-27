@@ -966,12 +966,16 @@ one; an unsupported schema is answered `settings.error` `{schema, code, maxSchem
 (`unsupported_schema`), and a payload that fails validation `invalid_message`.
 
 As built in v0.10 ([section 8.4](folders-and-settings-sync.md#84-as-built-v010-2026-10-27)):
-the four keys `files.folder_destination`, `files.folder_conflict`, `activity.previews` and
-`display.reduce_motion` sync; the reserved `clipboard.*` keys are never sent and are skipped on
-receipt. The key is advertised while the global and per-device switches are both on. Each side
-sends its snapshot once per session (again after sync went off and on), keeps per peer the stamps
-it sent and received, and relays winning records to its other peers, so a phone with two Macs
-carries one Mac's change to the other.
+21 keys sync, feature switches included (`feature.<key>`, `clipboard.automatic`,
+`clipboard.files`, `focus.share`, `focus.follow`, `codes.enabled`) next to the four preferences;
+per-device grants and overrides, permissions, pairing, paths and the file access guards never
+sync. Live updates apply when they win by the rule above and are relayed to the device's other
+peers, so a phone with two Macs carries one Mac's change to the other. A snapshot never overwrites
+a chosen value: a setting the receiver never chose (`version` 0) takes the sender's, and two
+different chosen values stay as they are until Apply to all on either device. Snapshots and updates
+may carry `waiting` (keys that are on but wait for a permission on the sender). More than 20
+`settings.*` messages from one peer in 10 seconds are dropped and answered `settings.error`
+`rate_limited`. Threat model: [section 8.5](folders-and-settings-sync.md#85-threat-model-settings-sync).
 
 ## Draft: phone files, media and folders both ways
 

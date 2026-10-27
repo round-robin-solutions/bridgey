@@ -1,5 +1,5 @@
 {
- "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins (local, remote or equal); settingsStamp is the record a local edit makes from current at now by device (value null: the new value is the edit's own).",
+ "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, waiting, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins when an update arrives (local, remote or equal); settingsSnapshot says what a snapshot record does (adopt, different or same); settingsStamp is the record a local edit or Apply to all makes from current at now by device (value null: the new value is the edit's own).",
  "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
  "frames": [
   {
@@ -6957,7 +6957,7 @@
  ],
  "settingsPayload": [
   {
-   "name": "snapshot with every schema 1 key this build syncs",
+   "name": "snapshot with every schema 1 key",
    "kind": "snapshot",
    "plaintext": {
     "schema": 1,
@@ -6986,6 +6986,108 @@
       "changedAt": 1,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.clipboard": {
+      "value": true,
+      "changedAt": 1792900000000,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.files": {
+      "value": true,
+      "changedAt": 1792900000001,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.notifications": {
+      "value": true,
+      "changedAt": 1792900000002,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.battery": {
+      "value": true,
+      "changedAt": 1792900000003,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.find_device": {
+      "value": true,
+      "changedAt": 1792900000004,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.ping": {
+      "value": true,
+      "changedAt": 1792900000005,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.links": {
+      "value": true,
+      "changedAt": 1792900000006,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.media": {
+      "value": true,
+      "changedAt": 1792900000007,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.calls": {
+      "value": true,
+      "changedAt": 1792900000008,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.remote_input": {
+      "value": true,
+      "changedAt": 1792900000009,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.mac_actions": {
+      "value": true,
+      "changedAt": 1792900000010,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.camera": {
+      "value": true,
+      "changedAt": 1792900000011,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "clipboard.automatic": {
+      "value": true,
+      "changedAt": 1792900000012,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "clipboard.files": {
+      "value": true,
+      "changedAt": 1792900000013,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "focus.share": {
+      "value": true,
+      "changedAt": 1792900000014,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "focus.follow": {
+      "value": true,
+      "changedAt": 1792900000015,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "codes.enabled": {
+      "value": true,
+      "changedAt": 1792900000016,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     }
    },
@@ -7014,8 +7116,111 @@
       "changedAt": 1,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.clipboard": {
+      "value": true,
+      "changedAt": 1792900000000,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.files": {
+      "value": true,
+      "changedAt": 1792900000001,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.notifications": {
+      "value": true,
+      "changedAt": 1792900000002,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.battery": {
+      "value": true,
+      "changedAt": 1792900000003,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.find_device": {
+      "value": true,
+      "changedAt": 1792900000004,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.ping": {
+      "value": true,
+      "changedAt": 1792900000005,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.links": {
+      "value": true,
+      "changedAt": 1792900000006,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.media": {
+      "value": true,
+      "changedAt": 1792900000007,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.calls": {
+      "value": true,
+      "changedAt": 1792900000008,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.remote_input": {
+      "value": true,
+      "changedAt": 1792900000009,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.mac_actions": {
+      "value": true,
+      "changedAt": 1792900000010,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.camera": {
+      "value": true,
+      "changedAt": 1792900000011,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "clipboard.automatic": {
+      "value": true,
+      "changedAt": 1792900000012,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "clipboard.files": {
+      "value": true,
+      "changedAt": 1792900000013,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "focus.share": {
+      "value": true,
+      "changedAt": 1792900000014,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "focus.follow": {
+      "value": true,
+      "changedAt": 1792900000015,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "codes.enabled": {
+      "value": true,
+      "changedAt": 1792900000016,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
+    "waiting": [],
     "skipped": 0
    }
   },
@@ -7042,23 +7247,30 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000b"
      }
     },
+    "waiting": [],
     "skipped": 0
    }
   },
   {
-   "name": "update with no records",
+   "name": "update with no records (a waiting list change)",
    "kind": "update",
    "plaintext": {
     "schema": 1,
-    "records": {}
+    "records": {},
+    "waiting": [
+     "feature.calls"
+    ]
    },
    "expect": {
     "records": {},
+    "waiting": [
+     "feature.calls"
+    ],
     "skipped": 0
    }
   },
   {
-   "name": "never-edited default",
+   "name": "never-chosen value",
    "kind": "update",
    "plaintext": {
     "schema": 1,
@@ -7080,11 +7292,12 @@
       "changedBy": ""
      }
     },
+    "waiting": [],
     "skipped": 0
    }
   },
   {
-   "name": "folder destination sender_picks",
+   "name": "files.folder_destination sender_picks",
    "kind": "update",
    "plaintext": {
     "schema": 1,
@@ -7106,11 +7319,12 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
+    "waiting": [],
     "skipped": 0
    }
   },
   {
-   "name": "folder destination receiver_asks",
+   "name": "files.folder_destination receiver_asks",
    "kind": "update",
    "plaintext": {
     "schema": 1,
@@ -7132,11 +7346,12 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
+    "waiting": [],
     "skipped": 0
    }
   },
   {
-   "name": "folder destination fixed",
+   "name": "files.folder_destination fixed",
    "kind": "update",
    "plaintext": {
     "schema": 1,
@@ -7158,11 +7373,12 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
+    "waiting": [],
     "skipped": 0
    }
   },
   {
-   "name": "folder conflict ask",
+   "name": "files.folder_conflict ask",
    "kind": "update",
    "plaintext": {
     "schema": 1,
@@ -7184,11 +7400,12 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
+    "waiting": [],
     "skipped": 0
    }
   },
   {
-   "name": "folder conflict merge",
+   "name": "files.folder_conflict merge",
    "kind": "update",
    "plaintext": {
     "schema": 1,
@@ -7210,11 +7427,12 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
+    "waiting": [],
     "skipped": 0
    }
   },
   {
-   "name": "folder conflict replace",
+   "name": "files.folder_conflict replace",
    "kind": "update",
    "plaintext": {
     "schema": 1,
@@ -7236,11 +7454,12 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
+    "waiting": [],
     "skipped": 0
    }
   },
   {
-   "name": "folder conflict new_folder",
+   "name": "files.folder_conflict new_folder",
    "kind": "update",
    "plaintext": {
     "schema": 1,
@@ -7262,6 +7481,520 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "activity.previews off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "activity.previews": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "activity.previews": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "display.reduce_motion off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "display.reduce_motion": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "display.reduce_motion": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "feature.clipboard off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "feature.clipboard": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "feature.clipboard": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "feature.files off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "feature.files": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "feature.files": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "feature.notifications off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "feature.notifications": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "feature.notifications": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "feature.battery off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "feature.battery": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "feature.battery": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "feature.find_device off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "feature.find_device": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "feature.find_device": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "feature.ping off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "feature.ping": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "feature.ping": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "feature.links off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "feature.links": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "feature.links": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "feature.media off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "feature.media": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "feature.media": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "feature.calls off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "feature.calls": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "feature.calls": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "feature.remote_input off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "feature.remote_input": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "feature.remote_input": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "feature.mac_actions off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "feature.mac_actions": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "feature.mac_actions": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "feature.camera off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "feature.camera": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "feature.camera": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "clipboard.automatic off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "clipboard.automatic": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "clipboard.automatic": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "clipboard.files off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "clipboard.files": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "clipboard.files": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "focus.share off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "focus.share": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "focus.share": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "focus.follow off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "focus.follow": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "focus.follow": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "codes.enabled off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "codes.enabled": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "codes.enabled": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
     "skipped": 0
    }
   },
@@ -7294,24 +8027,43 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
+    "waiting": [],
     "skipped": 1
    }
   },
   {
-   "name": "reserved clipboard keys are skipped (never synced by this build)",
+   "name": "per-device and local-only keys are never synced",
    "kind": "snapshot",
    "plaintext": {
     "schema": 1,
     "maxSchema": 1,
     "records": {
-     "clipboard.automatic": {
+     "pair.clipboard.automatic": {
       "value": true,
       "changedAt": 9,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
-     "pair.clipboard.automatic": {
+     "files.allow_replace": {
       "value": true,
+      "changedAt": 9,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.allow_browse": {
+      "value": true,
+      "changedAt": 9,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "device.name": {
+      "value": "x",
+      "changedAt": 9,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "updates.channel": {
+      "value": "beta",
       "changedAt": 9,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
@@ -7333,11 +8085,12 @@
       "changedBy": ""
      }
     },
-    "skipped": 2
+    "waiting": [],
+    "skipped": 5
    }
   },
   {
-   "name": "feature switches are never settings",
+   "name": "bare feature keys are not settings keys",
    "kind": "update",
    "plaintext": {
     "schema": 1,
@@ -7358,6 +8111,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 2
    }
   },
@@ -7377,6 +8131,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7386,7 +8141,7 @@
    "plaintext": {
     "schema": 1,
     "records": {
-     "activity.previews": {
+     "feature.calls": {
       "value": 1,
       "changedAt": 9,
       "version": 1,
@@ -7396,6 +8151,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7415,6 +8171,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7434,6 +8191,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7453,6 +8211,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7471,6 +8230,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7490,6 +8250,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7516,6 +8277,7 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
+    "waiting": [],
     "skipped": 0
    }
   },
@@ -7535,6 +8297,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7554,6 +8317,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7570,6 +8334,7 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
+    "waiting": [],
     "skipped": 0
    }
   },
@@ -7579,6 +8344,7 @@
    "plaintextString": "{\"schema\":1,\"records\":{\"display.reduce_motion\":{\"value\":true,\"changedAt\":9.5,\"version\":1,\"changedBy\":\"7e57d00d-0000-4000-8000-00000000000a\"}}}",
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7598,6 +8364,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7616,6 +8383,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7635,6 +8403,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7653,6 +8422,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7679,6 +8449,7 @@
       "changedBy": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
      }
     },
+    "waiting": [],
     "skipped": 0
    }
   },
@@ -7698,6 +8469,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7712,6 +8484,7 @@
    },
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 1
    }
   },
@@ -7740,11 +8513,52 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
+    "waiting": [],
     "skipped": 0
    }
   },
   {
-   "name": "32 records (28 unknown)",
+   "name": "waiting: unknown keys and non-strings are dropped, repeats once, schema order",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {},
+    "waiting": [
+     "feature.notifications",
+     "x.y",
+     5,
+     "feature.calls",
+     "feature.calls",
+     null,
+     "focus.follow"
+    ]
+   },
+   "expect": {
+    "records": {},
+    "waiting": [
+     "feature.notifications",
+     "feature.calls",
+     "focus.follow"
+    ],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "waiting that is not an array counts as empty",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {},
+    "waiting": "feature.calls"
+   },
+   "expect": {
+    "records": {},
+    "waiting": [],
+    "skipped": 0
+   }
+  },
+  {
+   "name": "32 records (11 unknown)",
    "kind": "snapshot",
    "plaintext": {
     "schema": 1,
@@ -7771,6 +8585,108 @@
      "display.reduce_motion": {
       "value": true,
       "changedAt": 1,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.clipboard": {
+      "value": true,
+      "changedAt": 1792900000000,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.files": {
+      "value": true,
+      "changedAt": 1792900000001,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.notifications": {
+      "value": true,
+      "changedAt": 1792900000002,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.battery": {
+      "value": true,
+      "changedAt": 1792900000003,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.find_device": {
+      "value": true,
+      "changedAt": 1792900000004,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.ping": {
+      "value": true,
+      "changedAt": 1792900000005,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.links": {
+      "value": true,
+      "changedAt": 1792900000006,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.media": {
+      "value": true,
+      "changedAt": 1792900000007,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.calls": {
+      "value": true,
+      "changedAt": 1792900000008,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.remote_input": {
+      "value": true,
+      "changedAt": 1792900000009,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.mac_actions": {
+      "value": true,
+      "changedAt": 1792900000010,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.camera": {
+      "value": true,
+      "changedAt": 1792900000011,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "clipboard.automatic": {
+      "value": true,
+      "changedAt": 1792900000012,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "clipboard.files": {
+      "value": true,
+      "changedAt": 1792900000013,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "focus.share": {
+      "value": true,
+      "changedAt": 1792900000014,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "focus.follow": {
+      "value": true,
+      "changedAt": 1792900000015,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "codes.enabled": {
+      "value": true,
+      "changedAt": 1792900000016,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
@@ -7839,108 +8755,6 @@
       "changedAt": 1,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k11": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k12": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k13": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k14": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k15": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k16": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k17": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k18": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k19": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k20": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k21": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k22": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k23": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k24": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k25": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k26": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k27": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     }
    },
@@ -7969,9 +8783,112 @@
       "changedAt": 1,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.clipboard": {
+      "value": true,
+      "changedAt": 1792900000000,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.files": {
+      "value": true,
+      "changedAt": 1792900000001,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.notifications": {
+      "value": true,
+      "changedAt": 1792900000002,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.battery": {
+      "value": true,
+      "changedAt": 1792900000003,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.find_device": {
+      "value": true,
+      "changedAt": 1792900000004,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.ping": {
+      "value": true,
+      "changedAt": 1792900000005,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.links": {
+      "value": true,
+      "changedAt": 1792900000006,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.media": {
+      "value": true,
+      "changedAt": 1792900000007,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.calls": {
+      "value": true,
+      "changedAt": 1792900000008,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.remote_input": {
+      "value": true,
+      "changedAt": 1792900000009,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.mac_actions": {
+      "value": true,
+      "changedAt": 1792900000010,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.camera": {
+      "value": true,
+      "changedAt": 1792900000011,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "clipboard.automatic": {
+      "value": true,
+      "changedAt": 1792900000012,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "clipboard.files": {
+      "value": true,
+      "changedAt": 1792900000013,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "focus.share": {
+      "value": true,
+      "changedAt": 1792900000014,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "focus.follow": {
+      "value": true,
+      "changedAt": 1792900000015,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "codes.enabled": {
+      "value": true,
+      "changedAt": 1792900000016,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
-    "skipped": 28
+    "waiting": [],
+    "skipped": 11
    }
   },
   {
@@ -8005,6 +8922,108 @@
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
+     "feature.clipboard": {
+      "value": true,
+      "changedAt": 1792900000000,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.files": {
+      "value": true,
+      "changedAt": 1792900000001,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.notifications": {
+      "value": true,
+      "changedAt": 1792900000002,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.battery": {
+      "value": true,
+      "changedAt": 1792900000003,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.find_device": {
+      "value": true,
+      "changedAt": 1792900000004,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.ping": {
+      "value": true,
+      "changedAt": 1792900000005,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.links": {
+      "value": true,
+      "changedAt": 1792900000006,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.media": {
+      "value": true,
+      "changedAt": 1792900000007,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.calls": {
+      "value": true,
+      "changedAt": 1792900000008,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.remote_input": {
+      "value": true,
+      "changedAt": 1792900000009,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.mac_actions": {
+      "value": true,
+      "changedAt": 1792900000010,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.camera": {
+      "value": true,
+      "changedAt": 1792900000011,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "clipboard.automatic": {
+      "value": true,
+      "changedAt": 1792900000012,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "clipboard.files": {
+      "value": true,
+      "changedAt": 1792900000013,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "focus.share": {
+      "value": true,
+      "changedAt": 1792900000014,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "focus.follow": {
+      "value": true,
+      "changedAt": 1792900000015,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "codes.enabled": {
+      "value": true,
+      "changedAt": 1792900000016,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
      "x.k00": {
       "value": true,
       "changedAt": 1,
@@ -8071,108 +9090,6 @@
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
-     "x.k11": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k12": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k13": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k14": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k15": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k16": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k17": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k18": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k19": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k20": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k21": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k22": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k23": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k24": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k25": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k26": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k27": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
      "x.k99": {
       "value": true,
       "changedAt": 1,
@@ -8180,6 +9097,50 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     }
+   },
+   "expect": "invalid"
+  },
+  {
+   "name": "waiting of 33 entries",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {},
+    "waiting": [
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls",
+     "feature.calls"
+    ]
    },
    "expect": "invalid"
   },
@@ -8212,6 +9173,7 @@
    "plaintextString": "{\"schema\":1.0,\"records\":{}}",
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 0
    }
   },
@@ -8269,6 +9231,7 @@
    "plaintextString": "{\"schema\":1,\"records\":{},\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
    "expect": {
     "records": {},
+    "waiting": [],
     "skipped": 0
    }
   },
@@ -8393,7 +9356,7 @@
    "expect": "equal"
   },
   {
-   "name": "any edit beats a never-edited default",
+   "name": "any edit beats a never-chosen value",
    "local": {
     "value": "sender_picks",
     "changedAt": 0,
@@ -8409,7 +9372,7 @@
    "expect": "remote"
   },
   {
-   "name": "two defaults are equal",
+   "name": "two never-chosen values are equal",
    "local": {
     "value": false,
     "changedAt": 0,
@@ -8439,6 +9402,136 @@
     "changedBy": "7e57d00d-0000-4000-8000-00000000000b"
    },
    "expect": "remote"
+  }
+ ],
+ "settingsSnapshot": [
+  {
+   "name": "never chosen here, chosen there: adopt",
+   "local": {
+    "value": false,
+    "changedAt": 0,
+    "version": 0,
+    "changedBy": ""
+   },
+   "remote": {
+    "value": true,
+    "changedAt": 1792900000000,
+    "version": 3,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000b"
+   },
+   "expect": "adopt"
+  },
+  {
+   "name": "upgrade stamp there counts as chosen",
+   "local": {
+    "value": "ask",
+    "changedAt": 0,
+    "version": 0,
+    "changedBy": ""
+   },
+   "remote": {
+    "value": "merge",
+    "changedAt": 1,
+    "version": 1,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000b"
+   },
+   "expect": "adopt"
+  },
+  {
+   "name": "both chose different values: different, even when the peer's is later",
+   "local": {
+    "value": false,
+    "changedAt": 1000,
+    "version": 2,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+   },
+   "remote": {
+    "value": true,
+    "changedAt": 1200,
+    "version": 5,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000b"
+   },
+   "expect": "different"
+  },
+  {
+   "name": "both chose different values: different, when ours is later",
+   "local": {
+    "value": false,
+    "changedAt": 1200,
+    "version": 2,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+   },
+   "remote": {
+    "value": true,
+    "changedAt": 1000,
+    "version": 5,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000b"
+   },
+   "expect": "different"
+  },
+  {
+   "name": "both chose the same value: same",
+   "local": {
+    "value": true,
+    "changedAt": 1000,
+    "version": 2,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+   },
+   "remote": {
+    "value": true,
+    "changedAt": 1200,
+    "version": 5,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000b"
+   },
+   "expect": "same"
+  },
+  {
+   "name": "never chosen there: same (the peer adopts ours)",
+   "local": {
+    "value": true,
+    "changedAt": 1000,
+    "version": 2,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+   },
+   "remote": {
+    "value": false,
+    "changedAt": 0,
+    "version": 0,
+    "changedBy": ""
+   },
+   "expect": "same"
+  },
+  {
+   "name": "never chosen on either side: same",
+   "local": {
+    "value": false,
+    "changedAt": 0,
+    "version": 0,
+    "changedBy": ""
+   },
+   "remote": {
+    "value": true,
+    "changedAt": 0,
+    "version": 0,
+    "changedBy": ""
+   },
+   "expect": "same"
+  },
+  {
+   "name": "the same record: same",
+   "local": {
+    "value": true,
+    "changedAt": 1000,
+    "version": 2,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+   },
+   "remote": {
+    "value": true,
+    "changedAt": 1000,
+    "version": 2,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+   },
+   "expect": "same"
   }
  ],
  "settingsStamp": [
@@ -8477,7 +9570,7 @@
    }
   },
   {
-   "name": "first edit of a default",
+   "name": "first edit of a never-chosen value",
    "current": {
     "value": false,
     "changedAt": 0,
@@ -8507,6 +9600,40 @@
     "value": null,
     "changedAt": 9007199254740991,
     "version": 4,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+   }
+  },
+  {
+   "name": "same changedAt as now still moves forward",
+   "current": {
+    "value": true,
+    "changedAt": 5000,
+    "version": 1,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000b"
+   },
+   "now": 5000,
+   "device": "7e57d00d-0000-4000-8000-00000000000a",
+   "expect": {
+    "value": null,
+    "changedAt": 5001,
+    "version": 2,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+   }
+  },
+  {
+   "name": "Apply to all from a chosen value",
+   "current": {
+    "value": true,
+    "changedAt": 1792900000000,
+    "version": 7,
+    "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+   },
+   "now": 1792900005000,
+   "device": "7e57d00d-0000-4000-8000-00000000000a",
+   "expect": {
+    "value": null,
+    "changedAt": 1792900005000,
+    "version": 8,
     "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
    }
   }

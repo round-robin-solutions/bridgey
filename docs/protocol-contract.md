@@ -1104,19 +1104,21 @@ Answered by `folders.cancel.ack`.
 - `schema`: integer, 1
 - `maxSchema`: integer
 - `records`: object of key to {value, changedAt, version, changedBy}, at most 32; every schema 1 key the sender syncs
+- `waiting`: optional array of at most 32 keys that are on but wait for a permission on the sender
 
 Answered by `settings.ack`.
 
-Sent by each side when settings_sync_draft1 becomes true on both for the session, including right after connecting. Unknown keys and invalid records are skipped one by one. Schema 1 keys synced: files.folder_destination, files.folder_conflict, activity.previews, display.reduce_motion; clipboard.automatic and pair.clipboard.automatic are reserved and never sent. A payload that fails decryption closes the session; one that fails validation is answered settings.error invalid_message.
+Sent by each side when settings_sync_draft1 becomes true on both for the session, including right after connecting. A snapshot never overwrites a chosen value: a setting the receiver never chose (version 0) takes the sender's chosen record; two different chosen values stay and show as Different on <device> with Apply to all. Schema 1 has 21 keys (docs/folders-and-settings-sync.md 8.4); unknown and per-device keys and invalid records are skipped one by one. A payload that fails decryption closes the session; one that fails validation is answered settings.error invalid_message.
 
 `settings.update`
 
 - `schema`: integer, 1
 - `records`: object of key to record, at most 32
+- `waiting`: optional array of at most 32 keys
 
 Answered by `settings.ack`.
 
-Local edits (debounced 500 ms), relayed records from other peers, and records that won (kept) and were not yet sent to this peer.
+Local edits and Apply to all (debounced 500 ms), relayed records from other peers, records that won (kept) and were not yet sent to this peer, and waiting list changes (records may be empty). A record that wins by the merge rule is applied.
 
 `settings.ack`
 
@@ -1130,7 +1132,9 @@ kept lists keys where the receiver's own record won; it sends those records in s
 `settings.error`
 
 - `schema`: integer
-- `code`: unsupported_schema | invalid_message
+- `code`: unsupported_schema | invalid_message | rate_limited
 - `maxSchema`: integer
+
+rate_limited: more than 20 settings.* messages from this peer in 10 seconds; the extra messages were dropped. Sent at most once per window.
 
 <!-- END GENERATED -->

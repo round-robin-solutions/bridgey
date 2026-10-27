@@ -418,78 +418,92 @@ cs("version 2", {"version":2,"requestId":R1,"status":"opened"}, "reject")
 cs("over 512 bytes", sized('{"version":1,"requestId":"%s","status":"opened","pad":"' % R1, 513), "reject", raw=True)
 cs("lenient JSON", "{version:1,requestId:'%s',status:'opened'}" % R1, "reject", raw=True)
 
-# Settings sync (settings_sync_draft1, docs/folders-and-settings-sync.md sections 4.9 and 8). settingsPayload: a
-# settings.snapshot or settings.update plaintext as the receiver reads it. expect is {records, skipped} (the records this
-# build syncs, and how many entries it skipped one by one: unknown or reserved keys, wrong types, values out of range),
-# "invalid" (the whole message is dropped and answered settings.error invalid_message) or {"unsupportedSchema": N}.
+# Settings sync (settings_sync_draft1, docs/folders-and-settings-sync.md sections 4.9, 8 and 8.4). settingsPayload: a
+# settings.snapshot or settings.update plaintext as the receiver reads it. expect is {records, waiting, skipped} (the
+# records of the 21 schema 1 keys, the keys the sender says wait for a permission there, and how many record entries were
+# skipped one by one: unknown or per-device keys, wrong types, values out of range), "invalid" (the whole message is
+# dropped and answered settings.error invalid_message) or {"unsupportedSchema": N}.
 DA = "7e57d00d-0000-4000-8000-00000000000a"
 DB = "7e57d00d-0000-4000-8000-00000000000b"
 def rec(v, at, ver, by): return {"value":v,"changedAt":at,"version":ver,"changedBy":by}
+SYNC_STRING_KEYS = {"files.folder_destination":["sender_picks","receiver_asks","fixed"], "files.folder_conflict":["ask","merge","replace","new_folder"]}
+SYNC_BOOL_KEYS = ["activity.previews","display.reduce_motion",
+                  "feature.clipboard","feature.files","feature.notifications","feature.battery","feature.find_device","feature.ping",
+                  "feature.links","feature.media","feature.calls","feature.remote_input","feature.mac_actions","feature.camera",
+                  "clipboard.automatic","clipboard.files","focus.share","focus.follow","codes.enabled"]
+assert len(SYNC_STRING_KEYS) + len(SYNC_BOOL_KEYS) == 21
 spay = []
 def sp(name, kind, p, expect, raw=False): spay.append({"name":name, "kind":kind, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+def ok(records, skipped=0, waiting=None): return {"records":records, "waiting":waiting or [], "skipped":skipped}
 four = {"files.folder_destination":rec("fixed",1792900000000,2,DA),"files.folder_conflict":rec("ask",0,0,""),
         "activity.previews":rec(False,1792900000500,4,DB),"display.reduce_motion":rec(True,1,1,DA)}
-sp("snapshot with every schema 1 key this build syncs", "snapshot", {"schema":1,"maxSchema":1,"records":four}, {"records":four,"skipped":0})
+every = {**four, **{k: rec(True, 1792900000000 + n, 1, DA) for n, k in enumerate(SYNC_BOOL_KEYS[2:])}}
+sp("snapshot with every schema 1 key", "snapshot", {"schema":1,"maxSchema":1,"records":every}, ok(every))
 sp("update with one record", "update", {"schema":1,"records":{"display.reduce_motion":rec(False,1792900001000,5,DB)}},
-   {"records":{"display.reduce_motion":rec(False,1792900001000,5,DB)},"skipped":0})
-sp("update with no records", "update", {"schema":1,"records":{}}, {"records":{},"skipped":0})
-sp("never-edited default", "update", {"schema":1,"records":{"files.folder_destination":rec("sender_picks",0,0,"")}},
-   {"records":{"files.folder_destination":rec("sender_picks",0,0,"")},"skipped":0})
-for mode in ["sender_picks","receiver_asks","fixed"]:
-    sp("folder destination " + mode, "update", {"schema":1,"records":{"files.folder_destination":rec(mode,7,1,DA)}},
-       {"records":{"files.folder_destination":rec(mode,7,1,DA)},"skipped":0})
-for policy in ["ask","merge","replace","new_folder"]:
-    sp("folder conflict " + policy, "update", {"schema":1,"records":{"files.folder_conflict":rec(policy,7,1,DA)}},
-       {"records":{"files.folder_conflict":rec(policy,7,1,DA)},"skipped":0})
+   ok({"display.reduce_motion":rec(False,1792900001000,5,DB)}))
+sp("update with no records (a waiting list change)", "update", {"schema":1,"records":{},"waiting":["feature.calls"]}, ok({}, waiting=["feature.calls"]))
+sp("never-chosen value", "update", {"schema":1,"records":{"files.folder_destination":rec("sender_picks",0,0,"")}},
+   ok({"files.folder_destination":rec("sender_picks",0,0,"")}))
+for key, values in SYNC_STRING_KEYS.items():
+    for value in values:
+        sp("%s %s" % (key, value), "update", {"schema":1,"records":{key:rec(value,7,1,DA)}}, ok({key:rec(value,7,1,DA)}))
+for key in SYNC_BOOL_KEYS:
+    sp("%s off" % key, "update", {"schema":1,"records":{key:rec(False,7,1,DA)}}, ok({key:rec(False,7,1,DA)}))
 sp("unknown key is skipped, the rest applies", "update", {"schema":1,"records":{"display.theme":rec("dark",9,1,DA),"display.reduce_motion":rec(True,9,1,DA)}},
-   {"records":{"display.reduce_motion":rec(True,9,1,DA)},"skipped":1})
-sp("reserved clipboard keys are skipped (never synced by this build)", "snapshot",
-   {"schema":1,"maxSchema":1,"records":{"clipboard.automatic":rec(True,9,1,DA),"pair.clipboard.automatic":rec(True,9,1,DA),"activity.previews":rec(True,0,0,"")}},
-   {"records":{"activity.previews":rec(True,0,0,"")},"skipped":2})
-sp("feature switches are never settings", "update", {"schema":1,"records":{"files":rec(True,9,1,DA),"remote_input_draft1":rec(True,9,1,DA)}},
-   {"records":{},"skipped":2})
-sp("bool key with a string value", "update", {"schema":1,"records":{"display.reduce_motion":rec("true",9,1,DA)}}, {"records":{},"skipped":1})
-sp("bool key with a number value", "update", {"schema":1,"records":{"activity.previews":rec(1,9,1,DA)}}, {"records":{},"skipped":1})
-sp("string key with a bool value", "update", {"schema":1,"records":{"files.folder_conflict":rec(True,9,1,DA)}}, {"records":{},"skipped":1})
-sp("string value not allowed", "update", {"schema":1,"records":{"files.folder_conflict":rec("overwrite",9,1,DA)}}, {"records":{},"skipped":1})
-sp("value null", "update", {"schema":1,"records":{"display.reduce_motion":rec(None,9,1,DA)}}, {"records":{},"skipped":1})
-sp("value missing", "update", {"schema":1,"records":{"display.reduce_motion":{"changedAt":9,"version":1,"changedBy":DA}}}, {"records":{},"skipped":1})
-sp("changedAt negative", "update", {"schema":1,"records":{"display.reduce_motion":rec(True,-1,1,DA)}}, {"records":{},"skipped":1})
+   ok({"display.reduce_motion":rec(True,9,1,DA)}, 1))
+sp("per-device and local-only keys are never synced", "snapshot",
+   {"schema":1,"maxSchema":1,"records":{"pair.clipboard.automatic":rec(True,9,1,DA),"files.allow_replace":rec(True,9,1,DA),"files.allow_browse":rec(True,9,1,DA),
+                                         "device.name":rec("x",9,1,DA),"updates.channel":rec("beta",9,1,DA),"activity.previews":rec(True,0,0,"")}},
+   ok({"activity.previews":rec(True,0,0,"")}, 5))
+sp("bare feature keys are not settings keys", "update", {"schema":1,"records":{"files":rec(True,9,1,DA),"remote_input_draft1":rec(True,9,1,DA)}}, ok({}, 2))
+sp("bool key with a string value", "update", {"schema":1,"records":{"display.reduce_motion":rec("true",9,1,DA)}}, ok({}, 1))
+sp("bool key with a number value", "update", {"schema":1,"records":{"feature.calls":rec(1,9,1,DA)}}, ok({}, 1))
+sp("string key with a bool value", "update", {"schema":1,"records":{"files.folder_conflict":rec(True,9,1,DA)}}, ok({}, 1))
+sp("string value not allowed", "update", {"schema":1,"records":{"files.folder_conflict":rec("overwrite",9,1,DA)}}, ok({}, 1))
+sp("value null", "update", {"schema":1,"records":{"display.reduce_motion":rec(None,9,1,DA)}}, ok({}, 1))
+sp("value missing", "update", {"schema":1,"records":{"display.reduce_motion":{"changedAt":9,"version":1,"changedBy":DA}}}, ok({}, 1))
+sp("changedAt negative", "update", {"schema":1,"records":{"display.reduce_motion":rec(True,-1,1,DA)}}, ok({}, 1))
 sp("changedAt 2^53-1", "update", {"schema":1,"records":{"display.reduce_motion":rec(True,9007199254740991,1,DA)}},
-   {"records":{"display.reduce_motion":rec(True,9007199254740991,1,DA)},"skipped":0})
-sp("changedAt 2^53", "update", {"schema":1,"records":{"display.reduce_motion":rec(True,9007199254740992,1,DA)}}, {"records":{},"skipped":1})
-sp("changedAt as a string", "update", {"schema":1,"records":{"display.reduce_motion":rec(True,"9",1,DA)}}, {"records":{},"skipped":1})
+   ok({"display.reduce_motion":rec(True,9007199254740991,1,DA)}))
+sp("changedAt 2^53", "update", {"schema":1,"records":{"display.reduce_motion":rec(True,9007199254740992,1,DA)}}, ok({}, 1))
+sp("changedAt as a string", "update", {"schema":1,"records":{"display.reduce_motion":rec(True,"9",1,DA)}}, ok({}, 1))
 sp("changedAt written as 9.0", "update", '{"schema":1,"records":{"display.reduce_motion":{"value":true,"changedAt":9.0,"version":1,"changedBy":"%s"}}}' % DA,
-   {"records":{"display.reduce_motion":rec(True,9,1,DA)},"skipped":0}, raw=True)
+   ok({"display.reduce_motion":rec(True,9,1,DA)}), raw=True)
 sp("changedAt a fraction", "update", '{"schema":1,"records":{"display.reduce_motion":{"value":true,"changedAt":9.5,"version":1,"changedBy":"%s"}}}' % DA,
-   {"records":{},"skipped":1}, raw=True)
-sp("version negative", "update", {"schema":1,"records":{"display.reduce_motion":rec(True,9,-1,DA)}}, {"records":{},"skipped":1})
-sp("version missing", "update", {"schema":1,"records":{"display.reduce_motion":{"value":True,"changedAt":9,"changedBy":DA}}}, {"records":{},"skipped":1})
-sp("changedBy as a number", "update", {"schema":1,"records":{"display.reduce_motion":rec(True,9,1,7)}}, {"records":{},"skipped":1})
-sp("changedBy missing", "update", {"schema":1,"records":{"display.reduce_motion":{"value":True,"changedAt":9,"version":1}}}, {"records":{},"skipped":1})
+   ok({}, 1), raw=True)
+sp("version negative", "update", {"schema":1,"records":{"display.reduce_motion":rec(True,9,-1,DA)}}, ok({}, 1))
+sp("version missing", "update", {"schema":1,"records":{"display.reduce_motion":{"value":True,"changedAt":9,"changedBy":DA}}}, ok({}, 1))
+sp("changedBy as a number", "update", {"schema":1,"records":{"display.reduce_motion":rec(True,9,1,7)}}, ok({}, 1))
+sp("changedBy missing", "update", {"schema":1,"records":{"display.reduce_motion":{"value":True,"changedAt":9,"version":1}}}, ok({}, 1))
 sp("changedBy of 128 bytes", "update", {"schema":1,"records":{"display.reduce_motion":rec(True,9,1,"d"*128)}},
-   {"records":{"display.reduce_motion":rec(True,9,1,"d"*128)},"skipped":0})
-sp("changedBy of 129 bytes", "update", {"schema":1,"records":{"display.reduce_motion":rec(True,9,1,"d"*129)}}, {"records":{},"skipped":1})
-sp("record not an object", "update", {"schema":1,"records":{"display.reduce_motion":True}}, {"records":{},"skipped":1})
+   ok({"display.reduce_motion":rec(True,9,1,"d"*128)}))
+sp("changedBy of 129 bytes", "update", {"schema":1,"records":{"display.reduce_motion":rec(True,9,1,"d"*129)}}, ok({}, 1))
+sp("record not an object", "update", {"schema":1,"records":{"display.reduce_motion":True}}, ok({}, 1))
 sp("unknown fields are ignored", "update", {"schema":1,"source":"x","records":{"display.reduce_motion":{**rec(True,9,1,DA),"note":"x"}}},
-   {"records":{"display.reduce_motion":rec(True,9,1,DA)},"skipped":0})
-filler = {"x.k%02d" % n: rec(True,1,1,DA) for n in range(28)}
-sp("32 records (28 unknown)", "snapshot", {"schema":1,"maxSchema":1,"records":{**four,**filler}}, {"records":four,"skipped":28})
-sp("33 records", "snapshot", {"schema":1,"maxSchema":1,"records":{**four,**filler,"x.k99":rec(True,1,1,DA)}}, "invalid")
+   ok({"display.reduce_motion":rec(True,9,1,DA)}))
+sp("waiting: unknown keys and non-strings are dropped, repeats once, schema order", "update",
+   {"schema":1,"records":{},"waiting":["feature.notifications","x.y",5,"feature.calls","feature.calls",None,"focus.follow"]},
+   ok({}, waiting=["feature.notifications","feature.calls","focus.follow"]))
+sp("waiting that is not an array counts as empty", "update", {"schema":1,"records":{},"waiting":"feature.calls"}, ok({}))
+filler = {"x.k%02d" % n: rec(True,1,1,DA) for n in range(11)}
+assert len(every) + len(filler) == 32
+sp("32 records (11 unknown)", "snapshot", {"schema":1,"maxSchema":1,"records":{**every,**filler}}, ok(every, 11))
+sp("33 records", "snapshot", {"schema":1,"maxSchema":1,"records":{**every,**filler,"x.k99":rec(True,1,1,DA)}}, "invalid")
+sp("waiting of 33 entries", "update", {"schema":1,"records":{},"waiting":["feature.calls"]*33}, "invalid")
 sp("schema 2", "update", {"schema":2,"records":{}}, {"unsupportedSchema":2})
 sp("schema 0", "snapshot", {"schema":0,"maxSchema":0,"records":{}}, {"unsupportedSchema":0})
-sp("schema written as 1.0", "update", '{"schema":1.0,"records":{}}', {"records":{},"skipped":0}, raw=True)
+sp("schema written as 1.0", "update", '{"schema":1.0,"records":{}}', ok({}), raw=True)
 sp("schema as a string", "update", {"schema":"1","records":{}}, "invalid")
 sp("schema missing", "update", {"records":{}}, "invalid")
 sp("records missing", "update", {"schema":1}, "invalid")
 sp("records as an array", "update", {"schema":1,"records":[]}, "invalid")
 sp("not an object", "update", [1], "invalid")
 sp("lenient JSON", "update", "{schema:1,records:{}}", "invalid", raw=True)
-sp("exactly 16,384 bytes", "update", sized('{"schema":1,"records":{},"pad":"', 16384), {"records":{},"skipped":0}, raw=True)
+sp("exactly 16,384 bytes", "update", sized('{"schema":1,"records":{},"pad":"', 16384), ok({}), raw=True)
 sp("16,385 bytes", "update", sized('{"schema":1,"records":{},"pad":"', 16385), "invalid", raw=True)
 
-# settingsMerge: which record wins (section 8.2). The higher changedAt, then the higher version, then the larger changedBy in
-# UTF-8 byte order. "equal" when all three match (the same record: nothing to do).
+# settingsMerge: which record wins when a settings.update arrives (section 8.2). The higher changedAt, then the higher
+# version, then the larger changedBy in UTF-8 byte order. "equal" when all three match (the same record: nothing to do).
 smerge = []
 def sm(name, local, remote, expect): smerge.append({"name":name, "local":local, "remote":remote, "expect":expect})
 sm("later changedAt wins", rec(True,1000,3,DA), rec(False,1200,3,DB), "remote")
@@ -499,20 +513,38 @@ sm("same changedAt and version: larger changedBy wins", rec(True,1000,3,DB), rec
 sm("changedBy compares bytes, not case", rec(True,5,1,"a"), rec(False,5,1,"B"), "local")
 sm("changedBy compares UTF-8 bytes (U+1F600 sorts after U+FFFD)", rec(True,5,1,"\ufffd"), rec(False,5,1,"\U0001F600"), "remote")
 sm("all three equal is the same record", rec(True,1000,3,DA), rec(True,1000,3,DA), "equal")
-sm("any edit beats a never-edited default", rec("sender_picks",0,0,""), rec("fixed",1,1,DB), "remote")
-sm("two defaults are equal", rec(False,0,0,""), rec(False,0,0,""), "equal")
+sm("any edit beats a never-chosen value", rec("sender_picks",0,0,""), rec("fixed",1,1,DB), "remote")
+sm("two never-chosen values are equal", rec(False,0,0,""), rec(False,0,0,""), "equal")
 sm("upgrade stamps resolve by device ID", rec("merge",1,1,DA), rec("replace",1,1,DB), "remote")
 
-# settingsStamp: a local edit (section 8.2). changedAt = max(now, current.changedAt + 1), at most 2^53-1; version + 1.
+# settingsSnapshot: what a settings.snapshot record does here (section 8.4). "adopt": this device never chose the
+# setting and the peer did, so it takes the peer's record; "different": both chose and the values differ, so nothing
+# changes and Settings shows "Different on <device>" with Apply to all; "same": nothing to do (same value, or the peer
+# never chose).
+ssnap = []
+def sn(name, local, remote, expect): ssnap.append({"name":name, "local":local, "remote":remote, "expect":expect})
+sn("never chosen here, chosen there: adopt", rec(False,0,0,""), rec(True,1792900000000,3,DB), "adopt")
+sn("upgrade stamp there counts as chosen", rec("ask",0,0,""), rec("merge",1,1,DB), "adopt")
+sn("both chose different values: different, even when the peer's is later", rec(False,1000,2,DA), rec(True,1200,5,DB), "different")
+sn("both chose different values: different, when ours is later", rec(False,1200,2,DA), rec(True,1000,5,DB), "different")
+sn("both chose the same value: same", rec(True,1000,2,DA), rec(True,1200,5,DB), "same")
+sn("never chosen there: same (the peer adopts ours)", rec(True,1000,2,DA), rec(False,0,0,""), "same")
+sn("never chosen on either side: same", rec(False,0,0,""), rec(True,0,0,""), "same")
+sn("the same record: same", rec(True,1000,2,DA), rec(True,1000,2,DA), "same")
+
+# settingsStamp: a local edit or Apply to all (section 8.2). changedAt = max(now, current.changedAt + 1), at most 2^53-1;
+# version + 1; changedBy this device.
 sstamp = []
 def ss(name, current, now, expect): sstamp.append({"name":name, "current":current, "now":now, "device":DA, "expect":expect})
 ss("clock ahead of the record", rec(True,1000,3,DB), 5000, rec(None,5000,4,DA))
 ss("clock behind the record still moves forward", rec(True,9000,3,DB), 5000, rec(None,9001,4,DA))
-ss("first edit of a default", rec(False,0,0,""), 1792900000000, rec(None,1792900000000,1,DA))
+ss("first edit of a never-chosen value", rec(False,0,0,""), 1792900000000, rec(None,1792900000000,1,DA))
 ss("changedAt at 2^53-1 stays there; the version decides", rec(True,9007199254740991,3,DB), 5000, rec(None,9007199254740991,4,DA))
+ss("same changedAt as now still moves forward", rec(True,5000,1,DB), 5000, rec(None,5001,2,DA))
+ss("Apply to all from a chosen value", rec(True,1792900000000,7,DA), 1792900005000, rec(None,1792900005000,8,DA))
 
 out = {
-  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins (local, remote or equal); settingsStamp is the record a local edit makes from current at now by device (value null: the new value is the edit's own).",
+  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, waiting, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins when an update arrives (local, remote or equal); settingsSnapshot says what a snapshot record does (adopt, different or same); settingsStamp is the record a local edit or Apply to all makes from current at now by device (value null: the new value is the edit's own).",
   "sessionId": S,
   "frames": frames,
   "featuresUpdate": feat,
@@ -529,7 +561,8 @@ out = {
   "cameraStatus": camstat,
   "settingsPayload": spay,
   "settingsMerge": smerge,
+  "settingsSnapshot": ssnap,
   "settingsStamp": sstamp,
 }
 open(OUT,'w').write(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
-print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat), len(spay), len(smerge), len(sstamp))
+print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat), len(spay), len(smerge), len(ssnap), len(sstamp))
