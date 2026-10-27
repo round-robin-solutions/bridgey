@@ -2809,26 +2809,22 @@ class PairingCoordinator(
             message.nonce ?: return,
             message.ciphertext ?: return,
         ) ?: return fail(current, "Invalid encrypted feature state")
-        val payload = runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)) }.getOrNull()
-            ?: return fail(current, "Invalid feature state")
-        val values = payload.optJSONObject("features") ?: return fail(current, "Invalid feature state")
-        if (payload.optInt("version") != 1) return
-        val received = BridgeyFeature.entries.associateWith { feature ->
-            if (!values.has(feature.key)) {
-                if (!featureEnabledByLegacyPeer(feature)) return@associateWith false
-                return fail(current, "Invalid feature state")
-            }
-            if (values.opt(feature.key) !is Boolean) return fail(current, "Invalid feature state")
-            values.getBoolean(feature.key)
+        // Unknown keys are ignored; an unknown version keeps the previous state (docs/protocol-contract.md).
+        val decoded = when (val state = decodeFeatureState(plaintext)) {
+            FeatureStateDecoding.Invalid -> return fail(current, "Invalid feature state")
+            FeatureStateDecoding.Ignored -> return
+            is FeatureStateDecoding.State -> state
         }
+        val received = decoded.features
+        val drafts = decoded.drafts
         val deviceId = current.remoteDeviceId
         registry.update(deviceId) { state ->
             state.copy(
                 remoteFeatures = received,
-                remoteClipboardFiles = values.opt(CLIPBOARD_FILES_FEATURE_KEY) == true,
-                remoteFolders = values.opt(dev.bridgey.android.folders.FOLDERS_FEATURE_KEY) == true,
-                remotePlaces = values.opt(dev.bridgey.android.folders.PLACES_FEATURE_KEY) == true,
-                remoteSmsCodes = values.opt(dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY) == true,
+                remoteClipboardFiles = drafts[CLIPBOARD_FILES_FEATURE_KEY] == true,
+                remoteFolders = drafts[dev.bridgey.android.folders.FOLDERS_FEATURE_KEY] == true,
+                remotePlaces = drafts[dev.bridgey.android.folders.PLACES_FEATURE_KEY] == true,
+                remoteSmsCodes = drafts[dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY] == true,
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
                 ringing = state.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
             )
@@ -2841,7 +2837,7 @@ class PairingCoordinator(
         if (received[BridgeyFeature.PING] == false && pendingPing?.first == deviceId) clearPingStatus()
         publish()
         quickActions.policyChanged()
-        if (values.opt(dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY) == true) sendCodeStatus(current)
+        if (drafts[dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY] == true) sendCodeStatus(current)
     }
 
     // MARK: Codes from messages (draft sms_codes_draft1)
@@ -2941,13 +2937,10 @@ class PairingCoordinator(
             message.nonce ?: return fail(current, "Invalid encrypted battery status"),
             message.ciphertext ?: return fail(current, "Invalid encrypted battery status"),
         ) ?: return fail(current, "Invalid encrypted battery status")
-        val payload = runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)) }.getOrNull()
-            ?: return fail(current, "Invalid battery status")
-        val level = payload.optInt("level", -1)
-        if (level !in 0..100 || payload.opt("isCharging") !is Boolean) return fail(current, "Invalid battery status")
-        registry.update(current.remoteDeviceId) { it.copy(battery = RemoteBatteryStatus(level, payload.getBoolean("isCharging"))) }
+        val battery = decodeBatteryStatus(plaintext) ?: return fail(current, "Invalid battery status")
+        registry.update(current.remoteDeviceId) { it.copy(battery = battery) }
         publish()
-        BridgeyLogging.i(LogCategory.GENERAL, "PLUGIN battery received level=$level")
+        BridgeyLogging.i(LogCategory.GENERAL, "PLUGIN battery received level=${battery.level}")
     }
 
     /** A protocol error on one session: that session closes (and reconnects); nothing else changes. */
@@ -3062,7 +3055,7 @@ class PairingCoordinator(
         @Volatile var media: JSONObject? = null
         @Volatile var lastReceivedAtMillis = SystemClock.elapsedRealtime()
         @Volatile var heartbeatSupported = false
-        private val seenMessageIds = LinkedHashSet<String>()
+        private val seenMessageIds = ReplayWindow()
 
         @Synchronized fun send(message: Message): Boolean {
             val result = runCatching {
@@ -3083,11 +3076,7 @@ class PairingCoordinator(
 
         val quickSequence = QuickRequestSequence()
 
-        @Synchronized fun acceptMessageId(id: String): Boolean {
-            if (!seenMessageIds.add(id)) return false
-            while (seenMessageIds.size > 256) seenMessageIds.remove(seenMessageIds.first())
-            return true
-        }
+        fun acceptMessageId(id: String): Boolean = seenMessageIds.accept(id)
     }
 }
 
@@ -3202,7 +3191,7 @@ private class IncomingFileTransfer(
     }
 }
 
-private data class Message(
+internal data class Message(
     val kind: String,
     val sessionId: String,
     val deviceId: String? = null,
@@ -3237,24 +3226,8 @@ private data class Message(
     }.toString()
 
     companion object {
-        fun decode(value: String): Message = JSONObject(value).let {
-            Message(
-                kind = it.getString("kind"),
-                sessionId = it.getString("sessionId"),
-                deviceId = it.optString("deviceId").takeIf(String::isNotEmpty),
-                deviceName = it.optString("deviceName").takeIf(String::isNotEmpty),
-                publicKey = it.optString("publicKey").takeIf(String::isNotEmpty),
-                identityKey = it.optString("identityKey").takeIf(String::isNotEmpty),
-                proof = it.optString("proof").takeIf(String::isNotEmpty),
-                signature = it.optString("signature").takeIf(String::isNotEmpty),
-                messageId = it.optString("messageId").takeIf(String::isNotEmpty),
-                nonce = it.optString("nonce").takeIf(String::isNotEmpty),
-                ciphertext = it.optString("ciphertext").takeIf(String::isNotEmpty),
-                transferId = it.optString("transferId").takeIf(String::isNotEmpty),
-                sequence = if (it.has("sequence")) it.getLong("sequence") else null,
-                targetDeviceId = it.optString("targetDeviceId").takeIf(String::isNotEmpty),
-            )
-        }
+        /** Strict: see [decodeProtocolMessage] and docs/protocol-contract.md. */
+        fun decode(value: String): Message = decodeProtocolMessage(value)
     }
 }
 

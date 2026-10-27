@@ -111,6 +111,10 @@ dependencies {
 
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     systemProperty("bridgey.repoRoot", rootProject.projectDir.parentFile.absolutePath)
+    // Protocol fuzz tests: -Pfuzz=<cases per property> (or BRIDGEY_FUZZ_ITERATIONS) for long runs, -Pfuzz.seed to replay.
+    (project.findProperty("fuzz") as String?)?.let { systemProperty("bridgey.fuzzIterations", it) }
+    (project.findProperty("fuzz.seed") as String?)?.let { systemProperty("bridgey.fuzzSeed", it) }
+    System.getenv("BRIDGEY_FUZZ_ITERATIONS")?.let { environment("BRIDGEY_FUZZ_ITERATIONS", it) }
     systemProperty("robolectric.pixelCopyRenderMode", "hardware")
     // ./gradlew :app:testDebugUnitTest -Pscreenshots=<dir> writes the screen PNGs to <dir>.
     (project.findProperty("screenshots") as String?)?.let {

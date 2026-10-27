@@ -144,11 +144,6 @@ private struct FeatureStatePayload: Codable {
     let features: [String: Bool]
 }
 
-/// Reads one key of a features.update map without requiring the rest to be booleans.
-private struct ClipboardFeatureProbe: Decodable {
-    let features: [String: Bool]
-}
-
 private func defaultRemoteFeatureState() -> [BridgeyFeature: Bool] {
     Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map { ($0, featureEnabledByLegacyPeer($0)) })
 }
@@ -1983,16 +1978,19 @@ final class PairingCoordinator: ObservableObject {
                       current.acceptMessageID(messageID),
                       let nonce = message.nonce,
                       let ciphertext = message.ciphertext,
-                      let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: current.pairingKey!),
-                      let payload = try? JSONDecoder().decode(FeatureStatePayload.self, from: plaintext),
-                      payload.version == 1,
-                      BridgeyFeature.allCases.filter(featureEnabledByLegacyPeer).allSatisfy({ payload.features[$0.rawValue] != nil }) else {
+                      let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: current.pairingKey!) else {
                     throw PairingError.invalidMessage
                 }
-                let features = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
-                    ($0, payload.features[$0.rawValue] ?? false)
-                })
-                let draftKeys = (try? JSONDecoder().decode(ClipboardFeatureProbe.self, from: plaintext))?.features ?? [:]
+                // Unknown keys are ignored; an unknown version keeps the previous state (docs/protocol-contract.md).
+                let features: [BridgeyFeature: Bool]
+                let draftKeys: [String: Bool]
+                switch decodeFeatureState(plaintext) {
+                case .invalid: throw PairingError.invalidMessage
+                case .ignored: return
+                case let .state(decoded, drafts):
+                    features = decoded
+                    draftKeys = drafts
+                }
                 let clipboardFiles = draftKeys[clipboardFilesFeatureKey] == true
                 let phoneID = current.remoteDeviceID
                 registry.update(phoneID) { link in
@@ -2064,8 +2062,7 @@ final class PairingCoordinator: ObservableObject {
                 let text: String
                 let html: String?
                 if message.kind == "clipboard.rich" {
-                    guard let payload = try? JSONDecoder().decode(RichClipboardContent.self, from: plaintext),
-                          let content = payload.validated() else { throw PairingError.invalidMessage }
+                    guard let content = decodeRichClipboard(plaintext) else { throw PairingError.invalidMessage }
                     text = content.text
                     html = content.html
                 } else {
@@ -2141,13 +2138,10 @@ final class PairingCoordinator: ObservableObject {
                       let nonce = message.nonce,
                       let ciphertext = message.ciphertext,
                       let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: current.pairingKey!),
-                      let payload = try? JSONDecoder().decode(BatteryPayload.self, from: plaintext),
-                      (0...100).contains(payload.level) else {
+                      let payload = decodeBatteryStatus(plaintext) else {
                     throw PairingError.invalidMessage
                 }
-                registry.update(current.remoteDeviceID) {
-                    $0.battery = RemoteBatteryStatus(level: payload.level, isCharging: payload.isCharging)
-                }
+                registry.update(current.remoteDeviceID) { $0.battery = payload }
                 publish()
                 BridgeyLog.plugin.debug("battery received level=\(payload.level, privacy: .public) charging=\(payload.isCharging, privacy: .public)")
             case "notifications.post":
@@ -3624,8 +3618,8 @@ private final class Session {
     var heartbeatSupported = false
     var onMessage: ((PairingMessage) -> Void)?
     var onFailure: (() -> Void)?
-    private var buffer = Data()
-    private var seenMessageIDs = Set<String>()
+    private var frames = ProtocolFrameReader()
+    private var seenMessageIDs = ReplayWindow()
     var quickSequence = QuickRequestSequence()
 
     init(connection: NWConnection, peerName: String) {
@@ -3656,23 +3650,21 @@ private final class Session {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, complete, error in
             DispatchQueue.main.async {
                 guard let self else { return }
-                if let data { self.buffer.append(data) }
-                while let newline = self.buffer.firstIndex(of: 0x0A) {
-                    let line = self.buffer[..<newline]
-                    self.buffer.removeSubrange(...newline)
+                if let data { self.frames.append(data) }
+                while true {
                     do {
-                        let message = try decodeProtocolMessage(Data(line))
+                        guard let message = try self.frames.next() else { break }
                         self.lastReceivedAt = Date()
                         self.onMessage?(message)
                     } catch {
                         BridgeyLog.transport.error("invalid message error=\(String(describing: error), privacy: .public)")
-                        self.dropReason = "protocol_error"
+                        self.dropReason = self.frames.overLimit ? "frame_too_large" : "protocol_error"
                         self.close()
                         self.onFailure?()
                         return
                     }
                 }
-                guard self.buffer.count <= maximumProtocolFrameBytes else {
+                guard !self.frames.overLimit else {
                     BridgeyLog.transport.error("protocol frame exceeded size limit")
                     self.dropReason = "frame_too_large"
                     self.close()
@@ -3693,11 +3685,7 @@ private final class Session {
 
     func close() { connection.cancel() }
 
-    func acceptMessageID(_ id: String) -> Bool {
-        guard seenMessageIDs.insert(id).inserted else { return false }
-        if seenMessageIDs.count > 256 { seenMessageIDs.remove(seenMessageIDs.first!) }
-        return true
-    }
+    func acceptMessageID(_ id: String) -> Bool { seenMessageIDs.accept(id) }
 }
 
 struct PairingMessage: Codable {
