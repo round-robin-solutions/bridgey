@@ -225,3 +225,5 @@
 "whatsNew.review.title" = "Review your setup";
 "whatsNew.title" = "What’s new";
 "whatsNew.version" = "Bridgey %@";
+"setup.summary.sync" = "Settings stay the same on your devices";
+"setup.summary.sync.detail" = "Change what syncs any time in Settings > General.";

@@ -211,7 +211,8 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
             case let .unsupportedSchema(schema): result = ["unsupportedSchema": schema]
             case let .payload(payload):
                 result = ["records": Dictionary(uniqueKeysWithValues: payload.records.map { ($0.key.rawValue, $0.value.json) }),
-                          "waiting": payload.waiting.map(\.rawValue), "skipped": payload.skipped] as [String: Any]
+                          "waiting": payload.waiting.map(\.rawValue), "skipped": payload.skipped,
+                          "first": payload.first, "new": payload.new, "answered": payload.answered] as [String: Any]
             }
             return Self.same(result, vector["expect"])
         }
@@ -231,6 +232,17 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
         try each("settingsSnapshot") { vector in
             guard let local = Self.syncRecord(vector["local"]), let remote = Self.syncRecord(vector["remote"]) else { return false }
             return snapshotOutcome(local: local, remote: remote).rawValue == vector["expect"] as? String
+        }
+    }
+
+    /// Settings sync: both platforms pick the same asker on a first connect.
+    func testSettingsAsker() throws {
+        try each("settingsAsker") { vector in
+            guard let local = vector["local"] as? [String: Any], let remote = vector["remote"] as? [String: Any] else { return false }
+            let asker = settingsAsker(localFirst: local["first"] as? Bool == true, localNew: local["new"] as? Bool == true,
+                                      isPhone: local["phone"] as? Bool == true,
+                                      remoteFirst: remote["first"] as? Bool == true, remoteNew: remote["new"] as? Bool == true)
+            return asker.rawValue == vector["expect"] as? String
         }
     }
 

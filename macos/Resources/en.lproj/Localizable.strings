@@ -1157,3 +1157,8 @@
 "stream.settings.conflict.merge" = "Existing folders: merge";
 "stream.settings.conflict.replace" = "Existing folders: replace files";
 "stream.settings.conflict.newFolder" = "Existing folders: save as new folder";
+"sync.question.title" = "Use the same settings as %@?";
+"sync.question.body" = "Use these takes %1$@’s settings and features on this Mac. Keep mine keeps this Mac’s and shows where they differ.";
+"sync.question.keep" = "Keep mine";
+"sync.question.use" = "Use these";
+"sync.question.window" = "Settings sync";

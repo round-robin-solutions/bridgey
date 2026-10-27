@@ -1157,3 +1157,8 @@
 "stream.settings.conflict.merge" = "Существующие папки: объединять";
 "stream.settings.conflict.replace" = "Существующие папки: заменять файлы";
 "stream.settings.conflict.newFolder" = "Существующие папки: сохранять как новую папку";
+"sync.question.title" = "Использовать те же настройки, что на %@?";
+"sync.question.body" = "«Использовать эти» переносит настройки и функции %1$@ на этот Mac. «Оставить мои» сохраняет настройки этого Mac и показывает, где они различаются.";
+"sync.question.keep" = "Оставить мои";
+"sync.question.use" = "Использовать эти";
+"sync.question.window" = "Синхронизация настроек";

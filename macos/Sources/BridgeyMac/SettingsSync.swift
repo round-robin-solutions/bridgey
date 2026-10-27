@@ -354,6 +354,12 @@ struct SettingsPayload: Equatable {
     /// The keys the sender has on but waiting for a permission there, in schema order.
     var waiting: [SyncKey]
     var skipped: Int
+    /// First connect (8.4): the sender has no answer for the receiver yet.
+    var first = false
+    /// The sender has no answer for any device.
+    var new = false
+    /// The asker's update that ends the wait on the other side.
+    var answered = false
 }
 
 enum SettingsPayloadDecoding: Equatable {
@@ -386,17 +392,47 @@ func decodeSettingsPayload(_ data: Data) -> SettingsPayloadDecoding {
         }
         records[key] = record
     }
-    return .payload(SettingsPayload(records: records, waiting: waiting, skipped: skipped))
+    return .payload(SettingsPayload(records: records, waiting: waiting, skipped: skipped,
+                                    first: jsonBool(object["first"]) == true, new: jsonBool(object["new"]) == true,
+                                    answered: jsonBool(object["answered"]) == true))
 }
 
-func settingsRecordsPayload(_ records: [SyncKey: SyncRecord], waiting: [SyncKey], snapshot: Bool) -> [String: Any] {
+func settingsRecordsPayload(_ records: [SyncKey: SyncRecord], waiting: [SyncKey], snapshot: Bool,
+                            first: Bool = false, new: Bool = false, answered: Bool = false) -> [String: Any] {
     var payload: [String: Any] = [
         "schema": SettingsSyncLimits.schema,
         "records": Dictionary(uniqueKeysWithValues: records.map { ($0.key.rawValue, $0.value.json) }),
         "waiting": waiting.sorted().map(\.rawValue),
     ]
-    if snapshot { payload["maxSchema"] = SettingsSyncLimits.schema }
+    if snapshot {
+        payload["maxSchema"] = SettingsSyncLimits.schema
+        payload["first"] = first
+        payload["new"] = new
+    }
+    if answered { payload["answered"] = true }
     return payload
+}
+
+/// Who asks "Use the same settings as <device>?" on a first connect (8.4), from this device's side.
+enum SettingsAsker: String {
+    /// This device asks.
+    case local
+    /// The other device asks; this one waits for its answer.
+    case remote
+    /// Nobody asks; the usual snapshot rules apply at once.
+    case none
+}
+
+/// Nobody asks unless both sides are on their first connect with each other. Then the device that never
+/// synced with anyone asks; when both are new, the phone asks; when neither is, nobody does.
+func settingsAsker(localFirst: Bool, localNew: Bool, isPhone: Bool, remoteFirst: Bool, remoteNew: Bool) -> SettingsAsker {
+    guard localFirst && remoteFirst else { return .none }
+    switch (localNew, remoteNew) {
+    case (true, false): return .local
+    case (false, true): return .remote
+    case (true, true): return isPhone ? .local : .remote
+    case (false, false): return .none
+    }
 }
 
 func settingsAckPayload(ackOf messageID: String, applied: [SyncKey], kept: [SyncKey]) -> [String: Any] {
@@ -509,6 +545,8 @@ struct SettingsSyncReceipt: Equatable {
     var kept: [SyncKey] = []
     /// The values that changed here, for the activity item.
     var changes: [SyncKey: SyncValue] = [:]
+    /// This update ended the wait for the peer's first-connect answer.
+    var answerReceived = false
 }
 
 /// The merge rules and per-peer bookkeeping, without transport or storage (sections 8.2 and 8.4).
@@ -537,6 +575,22 @@ final class SettingsSyncEngine {
         var waiting: Set<SyncKey> = []
         var inflight: [String: [SyncKey: SyncRecord]] = [:]
         var lastWaitingSent: [SyncKey] = []
+        /// First connect: the flags this device put in its snapshot to the peer, and who asks.
+        var sentFirst = false
+        var sentNew = false
+        var phase = Phase.normal
+        /// The next update carries `answered: true`, and goes out even when it has nothing else.
+        var sendAnswered = false
+        /// Records this device took from the peer on Use these: sent back once so the peer knows they match.
+        var echo: Set<SyncKey> = []
+    }
+
+    enum Phase {
+        case normal
+        /// This device asks the person; nothing syncs with the peer until the answer.
+        case asking
+        /// The peer asks; this device applies nothing until its answered update.
+        case awaitingAnswer
     }
 
     init(localDeviceID: String, records: [SyncKey: SyncRecord], settings: [SyncKey: SyncedSetting],
@@ -555,6 +609,10 @@ final class SettingsSyncEngine {
     var activePeers: [String] { peers.keys.sorted() }
     func isActive(_ peer: String) -> Bool { peers[peer] != nil }
     func isReady(_ peer: String) -> Bool { peers[peer]?.ready == true }
+    func isAsking(_ peer: String) -> Bool { peers[peer]?.phase == .asking }
+    func isAwaitingAnswer(_ peer: String) -> Bool { peers[peer]?.phase == .awaitingAnswer }
+    /// The first and new flags this device sent the peer in its snapshot (the asker is decided from them).
+    func sentFlags(_ peer: String) -> (first: Bool, new: Bool)? { peers[peer].map { ($0.sentFirst, $0.sentNew) } }
 
     /// This device already does what `value` means for `key`.
     func alreadyMeans(_ key: SyncKey, _ value: SyncValue) -> Bool {
@@ -600,8 +658,10 @@ final class SettingsSyncEngine {
     }
 
     /// Sync became available with `peer`: its snapshot is every shared record and the waiting list.
-    func start(_ peer: String, messageID: String) -> (records: [SyncKey: SyncRecord], waiting: [SyncKey]) {
+    func start(_ peer: String, messageID: String, first: Bool = false, new: Bool = false) -> (records: [SyncKey: SyncRecord], waiting: [SyncKey]) {
         var state = Peer()
+        state.sentFirst = first
+        state.sentNew = new
         let out = shared
         for (key, record) in out { state.sent[key] = record.stamp }
         state.inflight[messageID] = out
@@ -615,10 +675,21 @@ final class SettingsSyncEngine {
         peers.removeValue(forKey: peer)
     }
 
-    func receiveSnapshot(_ payload: SettingsPayload, from peer: String) -> SettingsSyncReceipt {
+    func receiveSnapshot(_ payload: SettingsPayload, from peer: String, asker: SettingsAsker = .none) -> SettingsSyncReceipt {
         var state = peers[peer] ?? Peer()
         var receipt = SettingsSyncReceipt()
         state.waiting = Set(payload.waiting)
+        if asker != .none {
+            // First connect with a question: take nothing from this snapshot, and sync nothing with the peer, until the answer.
+            for key in payload.records.keys where !excluded.contains(key) {
+                state.received[key] = payload.records[key]!.stamp
+                state.known[key] = payload.records[key]!
+            }
+            state.phase = asker == .local ? .asking : .awaitingAnswer
+            state.ready = false
+            peers[peer] = state
+            return receipt
+        }
         for key in payload.records.keys.sorted() where !excluded.contains(key) {
             let remote = payload.records[key]!
             state.received[key] = remote.stamp
@@ -647,6 +718,24 @@ final class SettingsSyncEngine {
         var state = peers[peer] ?? Peer()
         var receipt = SettingsSyncReceipt()
         state.waiting = Set(payload.waiting)
+        if !state.ready {
+            for key in payload.records.keys where !excluded.contains(key) {
+                state.received[key] = payload.records[key]!.stamp
+                state.known[key] = payload.records[key]!
+            }
+            guard state.phase == .awaitingAnswer && payload.answered else {
+                // Not ready (its snapshot, or the person's answer, is still to come): nothing applies yet.
+                peers[peer] = state
+                return receipt
+            }
+            // The peer's person answered. Never push this device's value over that answer: where the values still
+            // differ (Keep mine there), they stay different until Apply to all.
+            peers[peer] = state
+            pinDiffering(&state, peer)
+            state.phase = .normal
+            state.ready = true
+            receipt.answerReceived = true
+        }
         for key in payload.records.keys.sorted() where !excluded.contains(key) {
             let remote = payload.records[key]!
             state.received[key] = remote.stamp
@@ -678,19 +767,69 @@ final class SettingsSyncEngine {
 
     /// The update `peer` needs now (records it has neither sent nor been sent, or a new waiting list), marked
     /// sent; nil when there is nothing, or before its snapshot arrived.
-    func nextUpdate(for peer: String, messageID: String) -> (records: [SyncKey: SyncRecord], waiting: [SyncKey])? {
+    func nextUpdate(for peer: String, messageID: String) -> (records: [SyncKey: SyncRecord], waiting: [SyncKey], answered: Bool)? {
         guard var state = peers[peer], state.ready else { return nil }
         let waiting = waitingList
         var out: [SyncKey: SyncRecord] = [:]
-        for (key, record) in shared where state.sent[key] != record.stamp && state.received[key] != record.stamp {
+        for (key, record) in shared where (state.sent[key] != record.stamp && state.received[key] != record.stamp) || state.echo.contains(key) {
             out[key] = record
         }
-        guard !out.isEmpty || waiting != state.lastWaitingSent else { return nil }
+        let answered = state.sendAnswered
+        guard !out.isEmpty || waiting != state.lastWaitingSent || answered else { return nil }
         for (key, record) in out { state.sent[key] = record.stamp }
         state.inflight[messageID] = out
         state.lastWaitingSent = waiting
+        state.sendAnswered = false
+        state.echo = []
         peers[peer] = state
-        return (out, waiting)
+        return (out, waiting, answered)
+    }
+
+    /// Keep mine (here or on the peer): every setting that still differs stays as it is on both sides. A value
+    /// nobody chose here becomes chosen (`changedAt 1, version 1`, like the upgrade stamp), so a later snapshot
+    /// shows it as different instead of quietly adopting the peer's; and it is never pushed over the peer's.
+    private func pinDiffering(_ state: inout Peer, _ peer: String) {
+        var pinned = false
+        for key in differingKeys(peer) {
+            if !record(key).chosen {
+                records[key] = SyncRecord(value: record(key).value, changedAt: 1, version: 1, changedBy: localDeviceID)
+                pinned = true
+            }
+            state.sent[key] = record(key).stamp
+        }
+        if pinned { save(records) }
+    }
+
+    /// Asking: the settings that differ between this device and the peer (what Use these would change).
+    func differingKeys(_ peer: String) -> [SyncKey] {
+        guard let state = peers[peer] else { return [] }
+        return SyncKey.allCases.filter { key in
+            guard !excluded.contains(key), let known = state.known[key] else { return false }
+            return !alreadyMeans(key, known.value)
+        }
+    }
+
+    /// The person answered "Use the same settings as <peer>?". Use these takes the peer's record for every
+    /// setting that differs, unchanged; Keep mine keeps this device's and never pushes it over the peer's (they
+    /// show "Different on" until Apply to all). Either way sync starts, and the next update says it was answered.
+    func answer(_ peer: String, use: Bool) -> SettingsSyncReceipt {
+        guard var state = peers[peer], state.phase == .asking else { return SettingsSyncReceipt() }
+        var receipt = SettingsSyncReceipt()
+        for key in differingKeys(peer) {
+            if use, let known = state.known[key] {
+                records[key] = known
+                receipt.applied.append(key)
+                receipt.changes[key] = known.value
+                state.echo.insert(key)
+            }
+        }
+        if !use { pinDiffering(&state, peer) }
+        state.phase = .normal
+        state.ready = true
+        state.sendAnswered = true
+        peers[peer] = state
+        commit(receipt)
+        return receipt
     }
 
     /// settings.ack: the peer now holds what it applied from that message.
@@ -800,6 +939,9 @@ final class SettingsSyncController: ObservableObject {
     static let devicesKey = "settings.sync.devices"
     static let excludedKey = "settings.sync.excluded"
     static let stampedKey = "settings.sync.stamped"
+    /// First-connect answers per phone: "use", "keep", "peer" or "auto". Outside `settings.`, so Reset > Settings
+    /// keeps them; Forget and Reset > Everything remove them.
+    static let answersKey = "sync.answers"
 
     /// Settings > General > Sync settings with paired devices. On by default, on fresh installs too.
     @Published private(set) var enabled: Bool
@@ -809,6 +951,8 @@ final class SettingsSyncController: ObservableObject {
     @Published private(set) var excluded: Set<SyncKey>
     /// Bumped whenever a row's status may have changed, so Settings redraws.
     @Published private(set) var revision = 0
+    /// First connect: phones whose "Use the same settings as <phone>?" waits for the person, in arrival order.
+    @Published private(set) var questions: [String] = []
 
     /// Sends an encrypted message to a connected phone.
     var send: (_ deviceID: String, _ kind: String, _ payload: [String: Any], _ messageID: String) -> Bool = { _, _, _, _ in false }
@@ -822,10 +966,15 @@ final class SettingsSyncController: ObservableObject {
     var onSwitchChange: () -> Void = {}
     /// A sync changed values here (activity content tokens).
     var onApplied: (_ deviceID: String, _ content: String) -> Void = { _, _ in }
-    /// A phone turned on something that shares more; `waiting`: it needs a permission here.
+    /// A phone turned on something that waits for a permission or a consent on this Mac (the only notification).
     var onTurnedOn: (_ deviceID: String, _ key: SyncKey, _ waiting: Bool) -> Void = { _, _, _ in }
+    /// A first-connect question opened or closed (the app shows or closes its window).
+    var onQuestionsChange: () -> Void = {}
     /// Diagnostics: event names and counts only.
     var onEvent: (_ event: String, _ outcome: String?, _ deviceID: String?) -> Void = { _, _, _ in }
+
+    /// When both sides are new, the phone asks. This Mac is never the phone; tests model a phone with it.
+    var isPhone = false
 
     let engine: SettingsSyncEngine
     private let defaults: UserDefaults
@@ -981,6 +1130,34 @@ final class SettingsSyncController: ObservableObject {
 
     private func changed() { revision &+= 1 }
 
+    // MARK: First connect
+
+    /// What this Mac answered (or decided) for each phone.
+    var answers: [String: String] { (defaults.dictionary(forKey: Self.answersKey) ?? [:]).compactMapValues { $0 as? String } }
+
+    private func storeAnswer(_ answer: String, for deviceID: String) {
+        var all = answers
+        all[deviceID] = answer
+        defaults.set(all, forKey: Self.answersKey)
+    }
+
+    private func setQuestions(_ list: [String]) {
+        guard list != questions else { return }
+        questions = list
+        onQuestionsChange()
+    }
+
+    /// The person answered "Use the same settings as <phone>?".
+    func answer(_ deviceID: String, use: Bool) {
+        guard engine.isAsking(deviceID) else { return }
+        let receipt = engine.answer(deviceID, use: use)
+        storeAnswer(use ? "use" : "keep", for: deviceID)
+        setQuestions(questions.filter { $0 != deviceID })
+        onEvent("first_connect", use ? "use" : "keep", deviceID)
+        announce(receipt, from: deviceID)
+        flush()
+    }
+
     // MARK: Sessions
 
     /// Both sides advertise the key, and the phone has not answered `unsupported_schema` this session.
@@ -1006,8 +1183,11 @@ final class SettingsSyncController: ObservableObject {
 
     private func sendSnapshot(to deviceID: String) {
         let messageID = UUID().uuidString.lowercased()
-        let snapshot = engine.start(deviceID, messageID: messageID)
-        if send(deviceID, SettingsSyncKinds.snapshot, settingsRecordsPayload(snapshot.records, waiting: snapshot.waiting, snapshot: true), messageID) {
+        let all = answers
+        let first = all[deviceID] == nil, new = all.isEmpty
+        let snapshot = engine.start(deviceID, messageID: messageID, first: first, new: new)
+        let payload = settingsRecordsPayload(snapshot.records, waiting: snapshot.waiting, snapshot: true, first: first, new: new)
+        if send(deviceID, SettingsSyncKinds.snapshot, payload, messageID) {
             onEvent("snapshot_sent", nil, deviceID)
         }
         changed()
@@ -1015,6 +1195,8 @@ final class SettingsSyncController: ObservableObject {
 
     func sessionEnded(_ deviceID: String) {
         engine.stop(deviceID)
+        // An open question goes with the session; the next one asks again.
+        setQuestions(questions.filter { $0 != deviceID })
         failed.remove(deviceID)
         arrivals.removeValue(forKey: deviceID)
         rateErrorSent.removeValue(forKey: deviceID)
@@ -1024,6 +1206,8 @@ final class SettingsSyncController: ObservableObject {
     /// Forget device: its switch and session state go; every value stays.
     func forget(_ deviceID: String) {
         sessionEnded(deviceID)
+        var all = answers
+        if all.removeValue(forKey: deviceID) != nil { defaults.set(all, forKey: Self.answersKey) }
         guard devices.removeValue(forKey: deviceID) != nil else { return }
         defaults.set(devices, forKey: Self.devicesKey)
     }
@@ -1064,11 +1248,32 @@ final class SettingsSyncController: ObservableObject {
                 _ = send(deviceID, SettingsSyncKinds.error, settingsErrorPayload("unsupported_schema"), UUID().uuidString.lowercased())
                 onEvent("rejected", "unsupported_schema", deviceID)
             case let .payload(payload):
+                var asker = SettingsAsker.none
+                if kind == SettingsSyncKinds.snapshot {
+                    // Decided from the flags this Mac sent in its own snapshot, so both sides agree.
+                    let sent = engine.sentFlags(deviceID) ?? (answers[deviceID] == nil, answers.isEmpty)
+                    asker = settingsAsker(localFirst: sent.first, localNew: sent.new, isPhone: isPhone,
+                                          remoteFirst: payload.first, remoteNew: payload.new)
+                    if asker == .none && answers[deviceID] == nil { storeAnswer("auto", for: deviceID) }
+                }
                 let receipt = kind == SettingsSyncKinds.snapshot
-                    ? engine.receiveSnapshot(payload, from: deviceID)
+                    ? engine.receiveSnapshot(payload, from: deviceID, asker: asker)
                     : engine.receiveUpdate(payload, from: deviceID)
                 _ = send(deviceID, SettingsSyncKinds.ack, settingsAckPayload(ackOf: messageID, applied: receipt.applied, kept: receipt.kept),
                          UUID().uuidString.lowercased())
+                if receipt.answerReceived {
+                    storeAnswer("peer", for: deviceID)
+                    onEvent("first_connect", "peer", deviceID)
+                }
+                if asker == .local {
+                    if engine.differingKeys(deviceID).isEmpty {
+                        // Nothing differs: no question, and the phone hears it is answered.
+                        _ = engine.answer(deviceID, use: true)
+                        storeAnswer("use", for: deviceID)
+                    } else {
+                        setQuestions(questions.filter { $0 != deviceID } + [deviceID])
+                    }
+                }
                 announce(receipt, from: deviceID)
                 // Winning records go back once, changes go on to the other phones, and the waiting list follows.
                 flush()
@@ -1091,9 +1296,10 @@ final class SettingsSyncController: ObservableObject {
         guard let content = SettingsSyncDetail.encode(receipt.changes) else { return }
         onApplied(deviceID, content)
         onEvent("applied", String(receipt.changes.count), deviceID)
+        // A remote turn-on is an activity entry; it notifies only when it waits for a permission or consent here.
         let waiting = Set(computeWaiting())
-        for key in receipt.changes.keys.sorted() where key.sharesWhenOn && receipt.changes[key] == .bool(true) {
-            onTurnedOn(deviceID, key, waiting.contains(key))
+        for key in receipt.changes.keys.sorted() where key.sharesWhenOn && receipt.changes[key] == .bool(true) && waiting.contains(key) {
+            onTurnedOn(deviceID, key, true)
         }
         lastWaiting = engine.waitingList
     }
@@ -1134,7 +1340,8 @@ final class SettingsSyncController: ObservableObject {
         for id in engine.activePeers {
             let messageID = UUID().uuidString.lowercased()
             guard let update = engine.nextUpdate(for: id, messageID: messageID) else { continue }
-            _ = send(id, SettingsSyncKinds.update, settingsRecordsPayload(update.records, waiting: update.waiting, snapshot: false), messageID)
+            _ = send(id, SettingsSyncKinds.update, settingsRecordsPayload(update.records, waiting: update.waiting, snapshot: false,
+                                                                          answered: update.answered), messageID)
         }
         changed()
     }

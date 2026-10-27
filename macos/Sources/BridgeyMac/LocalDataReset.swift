@@ -216,7 +216,8 @@ struct LocalDataReset {
     static let notSettingsKeys = ["settings.codes.installId", "settings.codes.model.acceptance"]
     static let identityKeys = ["deviceID", "settings.codes.installId"]
     /// Upstream's pre-file trust records, imported once by MacTrustRegistry.
-    static let trustKeys = ["trustedDeviceIDs"]
+    /// Settings sync's first-connect answers go with the trusted devices (Reset > Settings keeps them).
+    static let trustKeys = ["trustedDeviceIDs", "sync.answers"]
     static let trustPrefixes = ["trusted."]
     static let addressPrefixes = ["reconnect."]
     static let recordKeys = ["settings.codes.model.acceptance", "legacyPreferencesMigrated", pendingKey]

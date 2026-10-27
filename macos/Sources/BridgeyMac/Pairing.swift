@@ -263,6 +263,7 @@ final class PairingCoordinator: ObservableObject {
         canEnable: { [unowned self] in self.settings.codesEngine == .local && self.codeModel.installed != nil }
     )
     private var settingsSyncCancellables: Set<AnyCancellable> = []
+    private let syncQuestionWindows = SyncQuestionWindows()
     /// "Take Photo with OnePlus 11" (draft camera_draft1).
     let camera = PhoneCamera()
     /// Incoming transfers that are camera photos, by transfer ID, with their request ID.
@@ -3386,6 +3387,11 @@ final class PairingCoordinator: ObservableObject {
         }
         settingsSync.onSwitchChange = { [weak self] in self?.sendFeatureState() }
         codesSyncGate.onChange = { [weak self] in self?.settingsSync.permissionsChanged() }
+        settingsSync.onQuestionsChange = { [weak self] in
+            guard let self else { return }
+            self.syncQuestionWindows.update(questions: self.settingsSync.questions, name: { [weak self] in self?.settingsSyncPeerName($0) ?? "" },
+                                            reduceMotion: self.settings.reduceMotion) { [weak self] id, use in self?.settingsSync.answer(id, use: use) }
+        }
         settings.$codesEnabled
             .sink { [weak self] on in self?.codesSyncGate.codesChanged(on: on) }
             .store(in: &settingsSyncCancellables)

@@ -67,6 +67,15 @@ final class SettingsSyncScreenshots: XCTestCase {
         }
     }
 
+    @MainActor func testFirstConnectQuestion() throws {
+        for scheme in [ColorScheme.light, .dark] {
+            let view = BrandRoot(reduceMotion: false) {
+                SyncQuestionView(phone: "OnePlus 11", use: {}, keep: {}).fixedSize(horizontal: false, vertical: true)
+            }
+            try write(view, scheme: scheme, name: "mac-settings-sync-first-connect-\(scheme == .dark ? "dark" : "light")")
+        }
+    }
+
     @MainActor func testActivityItem() throws {
         let items = [
             ActivityItem(id: 3, kind: .settingsSynced, deviceID: phoneID, deviceName: "OnePlus 11", fileName: nil, preview: nil, appName: nil,

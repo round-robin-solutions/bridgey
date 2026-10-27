@@ -133,7 +133,8 @@ final class SettingsSyncTests: XCTestCase {
         XCTAssertEqual(net.values[macA]![.reduceMotion], .bool(true))
         XCTAssertEqual(net.values[macA]![.featureFiles], .bool(true))
         XCTAssertEqual(net.activity, ["\(macA)<-\(phone): reduce_motion=1,files=1"])
-        XCTAssertEqual(net.turnedOn, ["\(macA): feature.files waiting=false"])
+        // Turned on from the phone, needing nothing here: an activity entry, no notification.
+        XCTAssertEqual(net.turnedOn, [])
         // Applying never stamps again, and nothing is different afterwards (the ack updated what the phone holds).
         XCTAssertEqual(net.controllers[macA]!.engine.observeLocal(), [])
         XCTAssertEqual(net.controllers[phone]!.engine.differentOn(.reduceMotion), [])
@@ -206,13 +207,13 @@ final class SettingsSyncTests: XCTestCase {
         net.deliverAll()
         XCTAssertEqual(net.values[phone]![.featureCalls], .bool(true))
         XCTAssertEqual(net.activity, ["\(phone)<-\(macA): calls=1"])
-        XCTAssertEqual(net.turnedOn, ["\(phone): feature.calls waiting=false"])
-        // Turning a preference on or a feature off is recorded, never announced.
+        // Needs nothing here: recorded, never announced (only a change that waits for a permission notifies).
+        XCTAssertEqual(net.turnedOn, [])
         net.values[macA]![.featureCalls] = .bool(false)
         net.values[macA]![.reduceMotion] = .bool(true)
         net.controllers[macA]!.localChanged(); net.controllers[macA]!.flush()
         net.deliverAll()
-        XCTAssertEqual(net.turnedOn.count, 1)
+        XCTAssertEqual(net.turnedOn.count, 0)
         XCTAssertEqual(net.activity.last, "\(phone)<-\(macA): reduce_motion=1,calls=0")
     }
 
@@ -466,6 +467,187 @@ final class SettingsSyncTests: XCTestCase {
         XCTAssertTrue(keys!.allSatisfy { key in LocalDataReset.settingsPrefixes.contains { key.hasPrefix($0) } })
     }
 
+    // MARK: First connect: ask once
+
+    /// A new Mac meets a phone that synced before: the Mac asks. Use these takes the phone's settings and features.
+    func testUseTheseAdoptsThePhonesSettings() {
+        let net = Net(self)
+        net.add(phone, clock: 1000, isPhone: true)
+        net.add(macA, clock: 2000, fresh: true)
+        net.edit(phone, .featureCalls, .bool(true))
+        net.edit(phone, .reduceMotion, .bool(true))
+        net.edit(macA, .featureFiles, .bool(true))
+        net.connect(phone, macA)
+        net.deliverAll()
+        let mac = net.controllers[macA]!
+        XCTAssertEqual(mac.questions, [phone])
+        XCTAssertEqual(net.controllers[phone]!.questions, [])
+        // Nothing moved yet, either way.
+        XCTAssertEqual(net.values[macA]![.featureCalls], .bool(false))
+        XCTAssertEqual(net.values[phone]![.featureFiles], .bool(false))
+        XCTAssertEqual(net.activity, [])
+        mac.answer(phone, use: true)
+        net.deliverAll()
+        XCTAssertEqual(net.values[macA]![.featureCalls], .bool(true))
+        XCTAssertEqual(net.values[macA]![.reduceMotion], .bool(true))
+        XCTAssertEqual(net.values[macA]![.featureFiles], .bool(false))
+        XCTAssertEqual(net.values[phone]![.featureFiles], .bool(false))
+        XCTAssertEqual(net.activity, ["\(macA)<-\(phone): reduce_motion=1,files=0,calls=1"])
+        XCTAssertEqual(net.turnedOn, [])
+        XCTAssertEqual(mac.answers[phone], "use")
+        XCTAssertEqual(net.controllers[phone]!.answers[macA], "peer")
+        for key in SyncKey.allCases {
+            XCTAssertEqual(mac.engine.differentOn(key), [], key.rawValue)
+            XCTAssertEqual(net.controllers[phone]!.engine.differentOn(key), [], key.rawValue)
+        }
+        // From then on sync runs as usual.
+        net.edit(phone, .featurePing, .bool(true))
+        net.controllers[phone]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(net.values[macA]![.featurePing], .bool(true))
+    }
+
+    /// Keep mine keeps this Mac's values; both sides show "Different on", and Apply to all settles it.
+    func testKeepMineKeepsValuesAndShowsDifferent() {
+        let net = Net(self)
+        net.add(phone, clock: 1000, isPhone: true)
+        net.add(macA, clock: 2000, fresh: true)
+        net.edit(phone, .featureCalls, .bool(true))
+        net.connect(phone, macA)
+        net.deliverAll()
+        net.controllers[macA]!.answer(phone, use: false)
+        net.deliverAll()
+        XCTAssertEqual(net.values[macA]![.featureCalls], .bool(false))
+        XCTAssertEqual(net.values[phone]![.featureCalls], .bool(true))
+        XCTAssertEqual(net.controllers[macA]!.status(.featureCalls).differentOn, ["Device a"])
+        XCTAssertEqual(net.controllers[phone]!.status(.featureCalls).differentOn, ["Device b"])
+        XCTAssertEqual(net.controllers[macA]!.answers[phone], "keep")
+        net.controllers[macA]!.applyToAll(.featureCalls)
+        net.deliverAll()
+        XCTAssertEqual(net.values[phone]![.featureCalls], .bool(false))
+        XCTAssertEqual(net.controllers[macA]!.status(.featureCalls).differentOn, [])
+    }
+
+    /// The phone asks: this Mac applies nothing until the answer, then never pushes its value over it.
+    func testThePassiveSideWaitsForTheAnswer() {
+        let net = Net(self)
+        net.add(phone, clock: 1000, fresh: true, isPhone: true)
+        net.add(macA, clock: 2000)
+        net.edit(phone, .featureCalls, .bool(true))
+        net.edit(macA, .reduceMotion, .bool(true))
+        net.connect(phone, macA)
+        net.deliverAll()
+        let mac = net.controllers[macA]!
+        XCTAssertEqual(net.controllers[phone]!.questions, [macA])
+        XCTAssertEqual(mac.questions, [])
+        XCTAssertTrue(mac.engine.isAwaitingAnswer(phone))
+        // An edit on the Mac meanwhile goes nowhere.
+        net.log.removeAll()
+        net.edit(macA, .featurePing, .bool(true))
+        mac.flush()
+        net.deliverAll()
+        XCTAssertTrue(net.log.isEmpty)
+        XCTAssertEqual(net.values[macA]![.featureCalls], .bool(false))
+        net.controllers[phone]!.answer(macA, use: false)
+        net.deliverAll()
+        XCTAssertEqual(mac.answers[phone], "peer")
+        // Keep mine there: nothing is pushed over it, and both sides show the differences.
+        XCTAssertEqual(net.values[phone]![.reduceMotion], .bool(false))
+        XCTAssertEqual(net.values[phone]![.featurePing], .bool(false))
+        XCTAssertEqual(net.values[macA]![.featureCalls], .bool(false))
+        XCTAssertEqual(Set(mac.status(.reduceMotion).differentOn + mac.status(.featurePing).differentOn + mac.status(.featureCalls).differentOn), ["Device a"])
+        // New edits sync again.
+        net.edit(macA, .featureLinks, .bool(true))
+        mac.flush()
+        net.deliverAll()
+        XCTAssertEqual(net.values[phone]![.featureLinks], .bool(true))
+    }
+
+    func testNoQuestionWhenNothingDiffers() {
+        let net = Net(self)
+        net.add(phone, fresh: true, isPhone: true)
+        net.add(macA, fresh: true)
+        net.connect(phone, macA)
+        net.deliverAll()
+        XCTAssertEqual(net.controllers[phone]!.questions, [])
+        XCTAssertEqual(net.controllers[phone]!.answers[macA], "use")
+        XCTAssertEqual(net.controllers[macA]!.answers[phone], "peer")
+        net.edit(macA, .featureMedia, .bool(true))
+        net.controllers[macA]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(net.values[phone]![.featureMedia], .bool(true))
+    }
+
+    /// Both new: the phone asks and the Mac waits. Neither new: nobody asks and a chosen value is adopted at once.
+    func testWhoAsks() {
+        let both = Net(self)
+        both.add(phone, fresh: true, isPhone: true)
+        both.add(macA, fresh: true)
+        both.edit(macA, .featureCalls, .bool(true))
+        both.connect(phone, macA)
+        both.deliverAll()
+        XCTAssertEqual(both.controllers[phone]!.questions, [macA])
+        XCTAssertEqual(both.controllers[macA]!.questions, [])
+        let neither = Net(self)
+        neither.add(phone, isPhone: true)
+        neither.add(macA)
+        neither.edit(macA, .featureCalls, .bool(true))
+        neither.connect(phone, macA)
+        neither.deliverAll()
+        XCTAssertEqual(neither.controllers[phone]!.questions, [])
+        XCTAssertEqual(neither.values[phone]![.featureCalls], .bool(true))
+        XCTAssertEqual(neither.controllers[phone]!.answers[macA], "auto")
+        XCTAssertEqual(neither.controllers[macA]!.answers[phone], "auto")
+    }
+
+    /// The answer is kept: the next session asks nothing. A question left open goes with its session.
+    func testAnswerIsKeptAndAnOpenQuestionEndsWithTheSession() {
+        let net = Net(self)
+        net.add(phone, clock: 1000, isPhone: true)
+        net.add(macA, clock: 2000, fresh: true)
+        net.edit(phone, .featureCalls, .bool(true))
+        net.connect(phone, macA)
+        net.deliverAll()
+        XCTAssertEqual(net.controllers[macA]!.questions, [phone])
+        net.disconnect(phone, macA)
+        XCTAssertEqual(net.controllers[macA]!.questions, [])
+        XCTAssertNil(net.controllers[macA]!.answers[phone])
+        net.connect(phone, macA)
+        net.deliverAll()
+        XCTAssertEqual(net.controllers[macA]!.questions, [phone])
+        net.controllers[macA]!.answer(phone, use: false)
+        net.deliverAll()
+        net.disconnect(phone, macA)
+        net.connect(phone, macA)
+        net.deliverAll()
+        XCTAssertEqual(net.controllers[macA]!.questions, [])
+        XCTAssertEqual(net.controllers[macA]!.status(.featureCalls).differentOn, ["Device a"])
+    }
+
+    /// Reset > Settings keeps the answers: the next connect takes the other device's chosen values silently and
+    /// pushes nothing.
+    func testResetSettingsKeepsAnswers() {
+        let net = Net(self)
+        net.add(phone, clock: 1000, isPhone: true)
+        net.add(macA, clock: 2000, fresh: true)
+        net.edit(phone, .featureCalls, .bool(true))
+        net.connect(phone, macA)
+        net.deliverAll()
+        net.controllers[macA]!.answer(phone, use: true)
+        net.deliverAll()
+        net.disconnect(phone, macA)
+        net.resetSettings(macA)
+        XCTAssertEqual(net.controllers[macA]!.answers[phone], "use")
+        XCTAssertEqual(net.values[macA]![.featureCalls], .bool(false))
+        net.log.removeAll()
+        net.connect(phone, macA)
+        net.deliverAll()
+        XCTAssertEqual(net.controllers[macA]!.questions, [])
+        XCTAssertEqual(net.values[macA]![.featureCalls], .bool(true))
+        XCTAssertEqual(net.values[phone]![.featureCalls], .bool(true))
+        XCTAssertEqual(net.sentLog(kind: SettingsSyncKinds.update), 0)
+    }
+
     // MARK: Helpers
 
     fileprivate func suite() -> (UserDefaults, String) {
@@ -505,11 +687,22 @@ final class SettingsSyncTests: XCTestCase {
         init(_ test: SettingsSyncTests) { self.test = test }
 
         /// Every device starts with every key at its default, never chosen. "Device a" for an ID ending in a.
-        func add(_ id: String, clock: Int64 = 1000, override: [SyncKey: SyncedSetting] = [:], lacks: ((SyncKey) -> Bool)? = nil) {
-            values[id] = Dictionary(uniqueKeysWithValues: SyncKey.allCases.map { ($0, $0.defaultValue) })
+        var defaults: [String: UserDefaults] = [:]
+
+        /// `fresh`: the device never synced with anyone (first connects ask). Otherwise it synced before with a device
+        /// not in this test, so a first connect between two such devices asks nobody. `isPhone`: it asks when both are new.
+        func add(_ id: String, clock: Int64 = 1000, override: [SyncKey: SyncedSetting] = [:], lacks: ((SyncKey) -> Bool)? = nil,
+                 fresh: Bool = false, isPhone: Bool = false, keep store: UserDefaults? = nil) {
+            let store = store ?? test.suite().0
+            if !fresh && store.dictionary(forKey: SettingsSyncController.answersKey) == nil {
+                store.set(["0e0e0e0e-0000-4000-8000-000000000000": "auto"], forKey: SettingsSyncController.answersKey)
+            }
+            defaults[id] = store
+            if values[id] == nil { values[id] = Dictionary(uniqueKeysWithValues: SyncKey.allCases.map { ($0, $0.defaultValue) }) }
             var settings = SettingsSyncTests.fakeSettings(except: []) { [unowned self] in self.values[id]![$0]! } set: { [unowned self] in self.values[id]![$0] = $1 }
             settings.merge(override) { $1 }
-            let controller = SettingsSyncController(localDeviceID: id, defaults: test.suite().0, settings: settings, clock: { clock }, debounce: 3600)
+            let controller = SettingsSyncController(localDeviceID: id, defaults: store, settings: settings, clock: { clock }, debounce: 3600)
+            controller.isPhone = isPhone
             controller.send = { [unowned self] to, kind, payload, messageID in
                 let data = try! JSONSerialization.data(withJSONObject: payload)
                 let echoed = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
@@ -534,6 +727,24 @@ final class SettingsSyncTests: XCTestCase {
         func edit(_ id: String, _ key: SyncKey, _ value: SyncValue) {
             values[id]![key] = value
             controllers[id]!.localChanged()
+        }
+
+        /// The session ends on both sides.
+        func disconnect(_ a: String, _ b: String) {
+            links[a]?.remove(b)
+            links[b]?.remove(a)
+            queue.removeAll { ($0.from == a && $0.to == b) || ($0.from == b && $0.to == a) }
+            controllers[a]!.sessionEnded(b)
+            controllers[b]!.sessionEnded(a)
+        }
+
+        /// Reset > Settings on `id`: every `settings.` key goes (records, switches, choices), the answers stay; the
+        /// values go back to their defaults and the app starts again.
+        func resetSettings(_ id: String, isPhone: Bool = false) {
+            let store = defaults[id]!
+            for key in store.dictionaryRepresentation().keys where key.hasPrefix("settings.") { store.removeObject(forKey: key) }
+            values[id] = Dictionary(uniqueKeysWithValues: SyncKey.allCases.map { ($0, $0.defaultValue) })
+            add(id, isPhone: isPhone, keep: store)
         }
 
         /// Both sides see the other's features.update.

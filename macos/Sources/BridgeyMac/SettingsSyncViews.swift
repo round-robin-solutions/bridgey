@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 extension SyncKey {
@@ -147,5 +148,71 @@ struct SettingsSyncDeviceToggle: View {
         if !model.settingsSyncEnabled { return L10n.text("permission.offEverywhere", fallback: "Off for every device") }
         guard model.isSettingsSyncEnabled(for: device.id), model.phoneSettingsSync[device.id] == false else { return nil }
         return String(format: L10n.text("permission.offRemote", fallback: "Off on %@"), device.name)
+    }
+}
+
+/// First connect (8.4): "Use the same settings as <phone>?", once per phone.
+struct SyncQuestionView: View {
+    let phone: String
+    let use: () -> Void
+    let keep: () -> Void
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(c.pri)
+            Text(String(format: L10n.text("sync.question.title", fallback: "Use the same settings as %@?"), phone))
+                .font(BrandFont.heading(18))
+                .foregroundStyle(c.on)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(String(format: L10n.text("sync.question.body", fallback: "Use these takes %1$@\u{2019}s settings and features on this Mac. Keep mine keeps this Mac\u{2019}s and shows where they differ."), phone))
+                .font(BrandFont.body(13))
+                .foregroundStyle(c.on2)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Spacer()
+                Button(L10n.text("sync.question.keep", fallback: "Keep mine"), action: keep)
+                    .buttonStyle(PillButtonStyle(kind: .outline, height: 30))
+                Button(L10n.text("sync.question.use", fallback: "Use these"), action: use)
+                    .buttonStyle(PillButtonStyle(kind: .tonal, height: 30))
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(.top, 4)
+        }
+        .padding(24)
+        .frame(width: 400, alignment: .leading)
+        .background(c.bg)
+    }
+}
+
+/// One small window per open first-connect question. It closes only through an answer, or when the session ends.
+@MainActor
+final class SyncQuestionWindows {
+    private var windows: [String: NSWindow] = [:]
+
+    func update(questions: [String], name: (String) -> String, reduceMotion: Bool, answer: @escaping (String, Bool) -> Void) {
+        for (id, window) in windows where !questions.contains(id) {
+            window.close()
+            windows.removeValue(forKey: id)
+        }
+        for id in questions where windows[id] == nil {
+            let phone = name(id)
+            let root = BrandRoot(reduceMotion: reduceMotion) {
+                SyncQuestionView(phone: phone, use: { answer(id, true) }, keep: { answer(id, false) })
+            }
+            let panel = NSPanel(contentViewController: NSHostingController(rootView: root))
+            panel.title = L10n.text("sync.question.window", fallback: "Settings sync")
+            panel.styleMask = [.titled]
+            panel.isFloatingPanel = true
+            panel.level = .floating
+            panel.hidesOnDeactivate = false
+            panel.isReleasedWhenClosed = false
+            panel.center()
+            windows[id] = panel
+            NSApp.activate(ignoringOtherApps: true)
+            panel.makeKeyAndOrderFront(nil)
+        }
     }
 }
