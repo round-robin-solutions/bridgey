@@ -70,15 +70,30 @@ class SettingsSyncTest {
         fun kinds(): List<String> = log.map { it.kind }
     }
 
-    private inner class Device(val id: String, val name: String, val net: Net, settings: Map<SyncKey, Fake> = fakes(), prefs: String = id) {
+    /**
+     * One device. [veteran]: it synced with another device before (it has a first-connect answer), so a first connect
+     * with it asks nobody unless the other device is new (8.4).
+     */
+    private inner class Device(
+        val id: String,
+        val name: String,
+        val net: Net,
+        settings: Map<SyncKey, Fake> = fakes(),
+        prefs: String = id,
+        veteran: Boolean = true,
+    ) {
         val settings = settings
-        val sync = SettingsSyncController(
-            context.getSharedPreferences("sync-test-$prefs", Context.MODE_PRIVATE), id, CoroutineScope(Dispatchers.Unconfined), { now }, debounceMillis = 0,
-        )
+        val answers = context.getSharedPreferences("sync-test-answers-$prefs", Context.MODE_PRIVATE)
+        val sync: SettingsSyncController
         val synced = ArrayList<List<SyncChange>>()
-        val turnedOn = ArrayList<Pair<SyncKey, Boolean>>()
+        val turnedOn = ArrayList<SyncKey>()
 
         init {
+            if (veteran && answers.all.isEmpty()) answers.edit().putString("an-older-device", SyncAnswers.AUTO).commit()
+            sync = SettingsSyncController(
+                context.getSharedPreferences("sync-test-$prefs", Context.MODE_PRIVATE), answers, id,
+                CoroutineScope(Dispatchers.Unconfined), { now }, debounceMillis = 0, isPhone = id == "phone",
+            )
             net.devices[id] = this
             sync.transport = object : SettingsSyncController.Transport {
                 override fun send(deviceId: String, kind: String, payload: JSONObject, messageId: String): Boolean {
@@ -93,7 +108,7 @@ class SettingsSyncTest {
             }
             sync.attach(settings)
             sync.onSynced = { _, _, changes -> synced += changes }
-            sync.onTurnedOn = { _, _, key, waiting -> turnedOn += key to waiting }
+            sync.onNeedsPermission = { _, _, key -> turnedOn += key }
         }
 
         operator fun get(key: SyncKey): Any = settings.getValue(key).value
@@ -107,7 +122,10 @@ class SettingsSyncTest {
 
     private fun fakes(): Map<SyncKey, Fake> = SyncKey.entries.filter { it != SyncKey.CODES }.associateWith { Fake(it.default) }
 
-    private fun clear(vararg names: String) = names.forEach { context.getSharedPreferences("sync-test-$it", Context.MODE_PRIVATE).edit().clear().commit() }
+    private fun clear(vararg names: String) = names.forEach {
+        context.getSharedPreferences("sync-test-$it", Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences("sync-test-answers-$it", Context.MODE_PRIVATE).edit().clear().commit()
+    }
 
     private fun pair(): Triple<Net, Device, Device> {
         clear("phone", "mac")
@@ -164,7 +182,8 @@ class SettingsSyncTest {
         mac.edit(SyncKey.CALLS, true)
         net.pump()
         assertEquals(true, phone[SyncKey.CALLS])
-        assertEquals(listOf(SyncKey.CALLS to false), phone.turnedOn)
+        // An activity item only: no notification, since the phone needs no permission for it.
+        assertTrue(phone.turnedOn.isEmpty())
         assertEquals("calls=1", SyncDetail.encode(phone.synced.single()))
     }
 
@@ -176,7 +195,7 @@ class SettingsSyncTest {
         mac.edit(SyncKey.NOTIFICATIONS, true)
         net.pump()
         assertEquals(true, phone[SyncKey.NOTIFICATIONS])
-        assertEquals(listOf(SyncKey.NOTIFICATIONS to true), phone.turnedOn)
+        assertEquals(listOf(SyncKey.NOTIFICATIONS), phone.turnedOn)
         assertTrue(phone.sync.ui.value.row(SyncKey.NOTIFICATIONS)!!.waitingHere)
         // The phone's update (here its ack's follow-up) carries the waiting list.
         phone.sync.permissionsChanged()
@@ -424,6 +443,142 @@ class SettingsSyncTest {
         assertEquals(true, phone.sync.record(SyncKey.CODES)!!.value)
         // Nothing to show on the phone for a setting it does not have.
         assertTrue(phone.synced.isEmpty())
+    }
+
+    // MARK: First connect, ask once (Rahul, 2026-10-27)
+
+    private fun newPhoneAndMac(): Triple<Net, Device, Device> {
+        clear("phone", "mac")
+        val net = Net()
+        return Triple(net, Device("phone", "OnePlus 11", net, veteran = false), Device("mac", "Work Mac", net))
+    }
+
+    @Test fun aNewPhoneAsksAndUseTheseTakesTheMacsFeatures() {
+        val (net, phone, mac) = newPhoneAndMac()
+        mac.edit(SyncKey.CALLS, true)
+        mac.edit(SyncKey.FOLDER_CONFLICT, "merge")
+        net.link(phone, mac)
+        net.pump()
+        assertEquals(listOf(SyncQuestion("mac", "Work Mac")), phone.sync.ui.value.questions)
+        assertTrue(mac.sync.ui.value.questions.isEmpty())
+        // Nothing moved yet, either way.
+        assertEquals(false, phone[SyncKey.CALLS])
+        assertEquals("merge", mac[SyncKey.FOLDER_CONFLICT])
+        phone.sync.answer("mac", use = true)
+        net.pump()
+        assertEquals(true, phone[SyncKey.CALLS])
+        assertEquals("merge", phone[SyncKey.FOLDER_CONFLICT])
+        assertTrue(phone.sync.ui.value.questions.isEmpty())
+        assertEquals(SyncAnswers.USE, phone.answers.getString("mac", null))
+        assertEquals(SyncAnswers.PEER, mac.answers.getString("phone", null))
+        assertNull(phone.sync.ui.value.row(SyncKey.CALLS))
+        assertNull(mac.sync.ui.value.row(SyncKey.CALLS))
+        // From now on sync runs silently.
+        mac.edit(SyncKey.REDUCE_MOTION, true)
+        net.pump()
+        assertEquals(true, phone[SyncKey.REDUCE_MOTION])
+        net.unlink(phone, mac)
+        net.link(phone, mac)
+        net.pump()
+        assertTrue(phone.sync.ui.value.questions.isEmpty())
+    }
+
+    @Test fun keepMineKeepsBothSidesAndShowsWhereTheyDiffer() {
+        val (net, phone, mac) = newPhoneAndMac()
+        phone.edit(SyncKey.FILES, true)
+        mac.edit(SyncKey.CALLS, true)
+        net.link(phone, mac)
+        net.pump()
+        phone.sync.answer("mac", use = false)
+        net.pump()
+        assertEquals(false, phone[SyncKey.CALLS])
+        assertEquals(true, phone[SyncKey.FILES])
+        // The Mac never took the phone's values either.
+        assertEquals(false, mac[SyncKey.FILES])
+        assertEquals(listOf("Work Mac"), phone.sync.ui.value.row(SyncKey.CALLS)!!.differentOn)
+        assertEquals(listOf("OnePlus 11"), mac.sync.ui.value.row(SyncKey.FILES)!!.differentOn)
+        assertEquals(SyncAnswers.KEEP, phone.answers.getString("mac", null))
+        // The kept values nobody had chosen are pinned, so the next connect does not quietly take the other's.
+        assertEquals(SyncRecord(false, 1, 1, "phone"), phone.sync.record(SyncKey.CALLS))
+        assertEquals(SyncRecord(false, 1, 1, "mac"), mac.sync.record(SyncKey.FILES))
+        net.unlink(phone, mac)
+        net.link(phone, mac)
+        net.pump()
+        assertEquals(false, phone[SyncKey.CALLS])
+        assertEquals(false, mac[SyncKey.FILES])
+        assertEquals(listOf("Work Mac"), phone.sync.ui.value.row(SyncKey.CALLS)!!.differentOn)
+        phone.sync.applyToAll(SyncKey.CALLS)
+        net.pump()
+        assertEquals(false, mac[SyncKey.CALLS])
+        assertNull(phone.sync.ui.value.row(SyncKey.CALLS))
+        // Live edits sync as usual after the answer.
+        phone.edit(SyncKey.PING, true)
+        net.pump()
+        assertEquals(true, mac[SyncKey.PING])
+    }
+
+    @Test fun nothingToAskWhenNothingDiffers() {
+        val (net, phone, mac) = newPhoneAndMac()
+        net.link(phone, mac)
+        net.pump()
+        assertTrue(phone.sync.ui.value.questions.isEmpty())
+        assertEquals(SyncAnswers.USE, phone.answers.getString("mac", null))
+        mac.edit(SyncKey.MEDIA, true)
+        net.pump()
+        assertEquals(true, phone[SyncKey.MEDIA])
+    }
+
+    @Test fun whenBothAreNewThePhoneAsks() {
+        clear("phone", "mac")
+        val net = Net()
+        val phone = Device("phone", "OnePlus 11", net, veteran = false)
+        val mac = Device("mac", "Work Mac", net, veteran = false)
+        mac.edit(SyncKey.LINKS, true)
+        net.link(phone, mac)
+        net.pump()
+        assertEquals(listOf("mac"), phone.sync.ui.value.questions.map { it.deviceId })
+        assertTrue(mac.sync.ui.value.questions.isEmpty())
+    }
+
+    @Test fun aQuestionLeftOpenIsAskedAgainNextTime() {
+        val (net, phone, mac) = newPhoneAndMac()
+        mac.edit(SyncKey.CALLS, true)
+        net.link(phone, mac)
+        net.pump()
+        net.unlink(phone, mac)
+        assertTrue(phone.sync.ui.value.questions.isEmpty())
+        net.link(phone, mac)
+        net.pump()
+        assertEquals(listOf("mac"), phone.sync.ui.value.questions.map { it.deviceId })
+    }
+
+    @Test fun resetSettingsKeepsTheAnswerSoTheOthersChoicesComeBackSilently() {
+        val (net, phone, mac) = newPhoneAndMac()
+        mac.edit(SyncKey.CALLS, true)
+        net.link(phone, mac)
+        net.pump()
+        phone.sync.answer("mac", use = false)
+        net.pump()
+        net.unlink(phone, mac)
+        // Reset > Settings clears bridgey.sync and the settings, not the answers.
+        context.getSharedPreferences("sync-test-phone", Context.MODE_PRIVATE).edit().clear().commit()
+        val reset = Device("phone", "OnePlus 11", net, veteran = false)
+        net.link(reset, mac)
+        net.pump()
+        assertTrue(reset.sync.ui.value.questions.isEmpty())
+        assertEquals(true, reset[SyncKey.CALLS])
+        // Nothing was pushed to the Mac.
+        assertEquals(true, mac[SyncKey.CALLS])
+    }
+
+    @Test fun forgetClearsTheAnswer() {
+        val (net, phone, mac) = newPhoneAndMac()
+        net.link(phone, mac)
+        net.pump()
+        assertEquals(SyncAnswers.USE, phone.answers.getString("mac", null))
+        net.unlink(phone, mac)
+        phone.sync.forget("mac")
+        assertNull(phone.answers.getString("mac", null))
     }
 
     @Test fun activityDetailRoundTrips() {

@@ -136,9 +136,8 @@ object SettingsDeepLink {
 
     fun section(name: String?): SettingsSection? = SettingsSection.entries.firstOrNull { it.name == name }
 
-    /** Settings sync notifications: the Permissions page, or General (where sync lives). */
+    /** Settings sync's notification: the Permissions page. */
     const val PERMISSIONS = "PERMISSIONS"
-    val GENERAL: String = SettingsSection.GENERAL.name
 }
 
 class BackStack(initial: List<Route>) {

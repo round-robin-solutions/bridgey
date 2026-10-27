@@ -79,6 +79,8 @@ sealed interface SetupEvent {
     /** Continue on the switches or permissions page (it works whatever the permissions say). */
     data object Continue : SetupEvent
     data class SummarySwitch(val feature: String, val on: Boolean) : SetupEvent
+    /** The summary's "Settings stay the same on your devices" switch (settings sync). */
+    data class SummarySync(val on: Boolean) : SetupEvent
     /** "Leave setup?": shown, or answered Keep going. */
     data object AskLeave : SetupEvent
     data object KeepGoing : SetupEvent
@@ -106,6 +108,8 @@ data class SetupState(
     val refused: Set<PermissionKind> = emptySet(),
     /** Features switched off on the summary. */
     val summaryOff: Set<String> = emptySet(),
+    /** Settings sync switched on the summary; null when untouched. */
+    val summarySync: Boolean? = null,
     val confirmLeave: Boolean = false,
 ) {
     val finished: Boolean get() = screen is SetupScreen.Done
@@ -139,6 +143,7 @@ data class SetupState(
         put("asked", JSONArray(asked.map { it.name }))
         put("refused", JSONArray(refused.map { it.name }))
         put("summaryOff", JSONArray(summaryOff.toList()))
+        summarySync?.let { put("summarySync", it) }
         put("confirmLeave", confirmLeave)
     }.toString()
 
@@ -194,6 +199,7 @@ data class SetupState(
                 asked = strings(json.optJSONArray("asked")).mapTo(LinkedHashSet(), PermissionKind::valueOf),
                 refused = strings(json.optJSONArray("refused")).mapTo(LinkedHashSet(), PermissionKind::valueOf),
                 summaryOff = strings(json.optJSONArray("summaryOff")).toSet(),
+                summarySync = if (json.has("summarySync")) json.optBoolean("summarySync") else null,
                 confirmLeave = json.optBoolean("confirmLeave"),
             )
         }.getOrNull()
@@ -249,6 +255,7 @@ object SetupFlow {
                 else -> state
             }
             is SetupEvent.SummarySwitch -> state.copy(summaryOff = if (event.on) state.summaryOff - event.feature else state.summaryOff + event.feature)
+            is SetupEvent.SummarySync -> state.copy(summarySync = event.on)
             SetupEvent.AskLeave -> state.copy(confirmLeave = true)
             SetupEvent.KeepGoing -> state.copy(confirmLeave = false)
         }
@@ -356,6 +363,7 @@ object SetupFlow {
         state.switches.forEach { (id, on) -> SetupFeatures.feature(id)?.let { put(if (on) it.on else it.off) } }
         state.refused.forEach { kind -> SetupQuestions.permission(kind)?.let { put(it.offWhenRefused) } }
         state.summaryOff.forEach { id -> SetupFeatures.feature(id)?.let { put(it.off) } }
+        state.summarySync?.let { overlay[SetupSetting.SETTINGS_SYNC] = it.toString() }
         return overlay
     }
 
@@ -399,9 +407,14 @@ sealed interface SummaryItem {
     data class Chosen(@StringRes val title: Int, @StringRes val value: Int?, val packages: List<String>, val page: String) : SummaryItem
     /** Not allowed when the permissions page was left: its features stayed off. */
     data class NotAllowed(val permission: SetupPermission) : SummaryItem
+    /** "Settings stay the same on your devices": settings sync, with its switch (always shown). */
+    data class Sync(val on: Boolean) : SummaryItem
 }
 
 object SetupSummary {
+    /** Settings set only on the summary (the coverage table's "summary"). */
+    val settings: Set<SetupSetting> = setOf(SetupSetting.SETTINGS_SYNC)
+
     private val typedOnlyLabels: Map<String, Pair<Int, Map<String, Int>>> = mapOf(
         "focus" to (R.string.setup_q_focus_summary to mapOf(Answers.BOTH to R.string.setup_a_focus_both, Answers.NO to R.string.setup_a_no)),
         "updates" to (R.string.setup_q_updates_summary to mapOf(
@@ -426,7 +439,8 @@ object SetupSummary {
             }
         }
         val refused = state.refused.mapNotNull { SetupQuestions.permission(it) }.map(SummaryItem::NotAllowed)
-        return on + chosen + refused
+        val sync = SummaryItem.Sync(SetupFlow.effective(state, facts).on(SetupSetting.SETTINGS_SYNC))
+        return on + chosen + listOf(sync) + refused
     }
 }
 

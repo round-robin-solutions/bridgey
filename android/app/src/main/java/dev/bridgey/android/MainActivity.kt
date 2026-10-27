@@ -820,6 +820,15 @@ private fun BridgeyApp(
         onRemoteTargetHandled()
     }
 
+    // Settings sync, first connect with a Mac: asked once, in the app.
+    syncUi.questions.firstOrNull()?.let { question ->
+        dev.bridgey.android.ui.FirstConnectQuestion(
+            question.deviceName,
+            onUse = { pairing.settingsSync.answer(question.deviceId, use = true) },
+            onKeep = { pairing.settingsSync.answer(question.deviceId, use = false) },
+        )
+    }
+
     // A notification opens its Settings page, e.g. the update notification opens Updates.
     LaunchedEffect(settingsTarget) {
         val target = settingsTarget ?: return@LaunchedEffect
@@ -1159,7 +1168,9 @@ private fun BridgeyApp(
                                 if (openSettings) stack.openSettings(Route.Settings)
                             },
                             onExit = { stack.pop() },
-                            apply = { change -> applySetupChange(change, settings, onSetGlobalFeature, uiPreferences, remotePreferences, updater) },
+                            apply = { change ->
+                                applySetupChange(change, settings, onSetGlobalFeature, uiPreferences, remotePreferences, updater, pairing.settingsSync::setEnabled)
+                            },
                         )
                         Route.Permissions -> PermissionsRoute(
                             hooks = setup,

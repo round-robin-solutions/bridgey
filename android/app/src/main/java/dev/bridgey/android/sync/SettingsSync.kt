@@ -154,7 +154,16 @@ fun snapshotOutcome(local: SyncRecord, remote: SyncRecord, same: (Any, Any) -> B
 
 /** A settings.snapshot or settings.update plaintext as it arrives. */
 sealed interface SettingsPayloadDecoding {
-    data class Records(val records: Map<SyncKey, SyncRecord>, val waiting: List<SyncKey>, val skipped: Int) : SettingsPayloadDecoding
+    data class Records(
+        val records: Map<SyncKey, SyncRecord>,
+        val waiting: List<SyncKey>,
+        val skipped: Int,
+        /** First connect (8.4): the sender has no answer for the receiver yet, and none for any device. */
+        val first: Boolean = false,
+        val new: Boolean = false,
+        /** The asker's person answered "Use the same settings as <device>?". */
+        val answered: Boolean = false,
+    ) : SettingsPayloadDecoding
     data class UnsupportedSchema(val schema: Long) : SettingsPayloadDecoding
     data object Invalid : SettingsPayloadDecoding
 }
@@ -180,15 +189,49 @@ fun decodeSettingsPayload(plaintext: ByteArray): SettingsPayloadDecoding {
         SyncKey.entries.filter { it in records }.associateWith { records.getValue(it) },
         SyncKey.entries.filter { it in waiting },
         skipped,
+        first = payload.opt("first") == true,
+        new = payload.opt("new") == true,
+        answered = payload.opt("answered") == true,
     )
 }
 
-fun settingsPayload(records: Map<SyncKey, SyncRecord>, waiting: Collection<SyncKey>, snapshot: Boolean): JSONObject {
+fun settingsPayload(records: Map<SyncKey, SyncRecord>, waiting: Collection<SyncKey>, snapshot: Boolean, out: SyncOutgoing? = null): JSONObject {
     val values = JSONObject()
     SyncKey.entries.forEach { key -> records[key]?.let { values.put(key.key, it.toJson()) } }
     val payload = JSONObject().put("schema", SETTINGS_SCHEMA)
     if (snapshot) payload.put("maxSchema", SETTINGS_SCHEMA)
-    return payload.put("records", values).put("waiting", JSONArray(SyncKey.entries.filter { it in waiting }.map { it.key }))
+    payload.put("records", values).put("waiting", JSONArray(SyncKey.entries.filter { it in waiting }.map { it.key }))
+    if (out?.first == true) payload.put("first", true)
+    if (out?.new == true) payload.put("new", true)
+    if (out?.answered == true) payload.put("answered", true)
+    return payload
+}
+
+fun settingsPayload(out: SyncOutgoing, snapshot: Boolean): JSONObject = settingsPayload(out.records, out.waiting, snapshot, out)
+
+/** Who asks "Use the same settings as <device>?" on a first connect, seen from this device (vectors settingsAsker). */
+enum class SyncAsker { LOCAL, REMOTE, NONE }
+
+fun settingsAsker(localFirst: Boolean, localNew: Boolean, localIsPhone: Boolean, remoteFirst: Boolean, remoteNew: Boolean): SyncAsker = when {
+    !localFirst || !remoteFirst -> SyncAsker.NONE
+    localNew && !remoteNew -> SyncAsker.LOCAL
+    !localNew && remoteNew -> SyncAsker.REMOTE
+    localNew && remoteNew -> if (localIsPhone) SyncAsker.LOCAL else SyncAsker.REMOTE
+    else -> SyncAsker.NONE
+}
+
+/** The first-connect answer kept per device: Use these, Keep mine, the other device asked, or nobody had to. */
+object SyncAnswers {
+    const val USE = "use"
+    const val KEEP = "keep"
+    const val PEER = "peer"
+    const val AUTO = "auto"
+}
+
+/** First-connect answers between launches. Kept through Reset > Settings; Forget removes one. */
+interface SyncAnswerStore {
+    fun load(): Map<String, String>
+    fun save(answers: Map<String, String>)
 }
 
 fun settingsAckPayload(ackOf: String, applied: Collection<SyncKey>, kept: Collection<SyncKey>): JSONObject = JSONObject()
@@ -255,10 +298,18 @@ data class SyncReceipt(
     val kept: List<SyncKey>,
     /** Applied keys whose value changed here, for the activity stream. */
     val changes: List<SyncChange>,
+    /** First connect: this device must ask "Use the same settings as <device>?" before anything moves. */
+    val question: Boolean = false,
 )
 
 /** A settings.update to send to one peer. */
-data class SyncOutgoing(val records: Map<SyncKey, SyncRecord>, val waiting: List<SyncKey>)
+data class SyncOutgoing(
+    val records: Map<SyncKey, SyncRecord>,
+    val waiting: List<SyncKey>,
+    val first: Boolean = false,
+    val new: Boolean = false,
+    val answered: Boolean = false,
+)
 
 /** Per setting, what the other devices say: shown under the row in Settings. */
 data class SyncKeyStatus(
@@ -285,9 +336,24 @@ class SettingsSyncEngine(
     private val settings: Map<SyncKey, SyncedSetting>,
     /** Keys this device keeps to itself ("Choose what syncs"). */
     private val excluded: () -> Set<SyncKey> = { emptySet() },
+    private val answers: SyncAnswerStore = object : SyncAnswerStore {
+        private var saved: Map<String, String> = emptyMap()
+        override fun load() = saved
+        override fun save(answers: Map<String, String>) { saved = answers }
+    },
+    /** When both devices are new, the phone asks (8.4). */
+    private val isPhone: Boolean = true,
 ) {
     private class Peer {
         var ready = false
+        /** First connect: this device asks its person (true), or waits for the other device's answer (false). */
+        var asking = false
+        var waitingForAnswer = false
+        /** The next update tells the other device the person answered. */
+        var sendAnswered = false
+        /** What this device's snapshot said, so both sides pick the asker from the same facts. */
+        var sentFirst = false
+        var sentNew = false
         val sent = HashMap<SyncKey, SyncStamp>()
         val received = HashMap<SyncKey, SyncStamp>()
         val known = HashMap<SyncKey, SyncRecord>()
@@ -298,6 +364,23 @@ class SettingsSyncEngine(
 
     private val records: MutableMap<SyncKey, SyncRecord> = load()
     private val peers = LinkedHashMap<String, Peer>()
+    private val answered: MutableMap<String, String> = LinkedHashMap(answers.load())
+
+    @Synchronized fun answer(peerId: String): String? = answered[peerId]
+
+    /** Devices whose first-connect question is open. */
+    @Synchronized fun questions(): List<String> = peers.filter { it.value.asking }.keys.toList()
+
+    /** Forget device: its first-connect answer goes too. */
+    @Synchronized fun forget(peerId: String) {
+        peers.remove(peerId)
+        if (answered.remove(peerId) != null) answers.save(answered)
+    }
+
+    private fun remember(peerId: String, answer: String) {
+        answered[peerId] = answer
+        answers.save(answered)
+    }
 
     private fun load(): MutableMap<SyncKey, SyncRecord> {
         val stored = store.load()
@@ -364,7 +447,9 @@ class SettingsSyncEngine(
         peer.inflight[messageId] = out
         val waiting = waitingHere()
         peer.waitingSent = waiting
-        return SyncOutgoing(out, waiting)
+        peer.sentFirst = peerId !in answered
+        peer.sentNew = answered.isEmpty()
+        return SyncOutgoing(out, waiting, first = peer.sentFirst, new = peer.sentNew)
     }
 
     /** Sync went off for [peerId], or its session ended: the next start sends a fresh snapshot. */
@@ -372,10 +457,38 @@ class SettingsSyncEngine(
         peers.remove(peerId)
     }
 
-    @Synchronized fun receiveSnapshot(peerId: String, incoming: Map<SyncKey, SyncRecord>, waiting: List<SyncKey>): SyncReceipt? {
+    @Synchronized fun receiveSnapshot(
+        peerId: String,
+        incoming: Map<SyncKey, SyncRecord>,
+        waiting: List<SyncKey>,
+        remoteFirst: Boolean = false,
+        remoteNew: Boolean = false,
+    ): SyncReceipt? {
         val peer = peers[peerId] ?: return null
         peer.waiting = waiting
         val hidden = excluded()
+        val asker = settingsAsker(peer.sentFirst, peer.sentNew, isPhone, remoteFirst, remoteNew)
+        if (asker == SyncAsker.NONE) {
+            if (peerId !in answered) remember(peerId, SyncAnswers.AUTO)
+        } else {
+            // First connect: nothing moves either way until the person answers on the asking device.
+            incoming.forEach { (key, remote) ->
+                if (key in hidden) return@forEach
+                peer.received[key] = remote.stamp
+                peer.known[key] = remote
+            }
+            if (asker == SyncAsker.REMOTE) {
+                peer.waitingForAnswer = true
+            } else if (differing(peer).isEmpty()) {
+                // Nothing differs: no question.
+                remember(peerId, SyncAnswers.USE)
+                peer.ready = true
+                peer.sendAnswered = true
+            } else {
+                peer.asking = true
+            }
+            return SyncReceipt(emptyList(), emptyList(), emptyList(), question = peer.asking)
+        }
         val applied = ArrayList<SyncKey>()
         val kept = ArrayList<SyncKey>()
         val changes = ArrayList<SyncChange>()
@@ -402,10 +515,75 @@ class SettingsSyncEngine(
         return SyncReceipt(applied, kept, changes)
     }
 
-    @Synchronized fun receiveUpdate(peerId: String, incoming: Map<SyncKey, SyncRecord>, waiting: List<SyncKey>): SyncReceipt? {
+    /**
+     * The person answered "Use the same settings as <device>?": [use] takes that device's value for every setting
+     * that differs, features included; otherwise both keep theirs and Settings shows where they differ.
+     */
+    @Synchronized fun answer(peerId: String, use: Boolean): SyncReceipt? {
+        val peer = peers[peerId]?.takeIf { it.asking } ?: return null
+        val changes = ArrayList<SyncChange>()
+        val applied = ArrayList<SyncKey>()
+        differing(peer).forEach { key ->
+            if (use) {
+                take(key, peer.known.getValue(key), changes)
+                applied += key
+                // Sent back once in the answered update, so the other device knows this side now holds it.
+                peer.received.remove(key)
+            } else {
+                pinKept(peer, key)
+            }
+        }
+        store.save(records)
+        remember(peerId, if (use) SyncAnswers.USE else SyncAnswers.KEEP)
+        peer.asking = false
+        peer.ready = true
+        peer.sendAnswered = true
+        return SyncReceipt(applied, emptyList(), changes)
+    }
+
+    /**
+     * Keep mine: a differing value nobody chose here becomes chosen (`changedAt 1, version 1`), so a later snapshot does
+     * not quietly take the other device's value; it is not sent, so neither side pushes over the other.
+     */
+    private fun pinKept(peer: Peer, key: SyncKey) {
+        val local = records.getValue(key)
+        if (!local.chosen) records[key] = SyncRecord(local.value, 1, 1, localDeviceId)
+        peer.sent[key] = records.getValue(key).stamp
+    }
+
+    /** Non-excluded keys whose value on [peer] does something else here. */
+    private fun differing(peer: Peer): List<SyncKey> {
+        val hidden = excluded()
+        return SyncKey.entries.filter { key ->
+            key !in hidden && peer.known[key]?.let { !sameHere(key, records.getValue(key).value, it.value) } == true
+        }
+    }
+
+    @Synchronized fun receiveUpdate(
+        peerId: String,
+        incoming: Map<SyncKey, SyncRecord>,
+        waiting: List<SyncKey>,
+        answeredThere: Boolean = false,
+    ): SyncReceipt? {
         val peer = peers[peerId] ?: return null
         peer.waiting = waiting
         val hidden = excluded()
+        if (peer.waitingForAnswer && answeredThere) {
+            // The other device's person answered: from now on sync runs, and this side never pushes over the answer.
+            differing(peer).forEach { key -> pinKept(peer, key) }
+            store.save(records)
+            remember(peerId, SyncAnswers.PEER)
+            peer.waitingForAnswer = false
+            peer.ready = true
+        }
+        if (!peer.ready) {
+            incoming.forEach { (key, remote) ->
+                if (key in hidden) return@forEach
+                peer.received[key] = remote.stamp
+                peer.known[key] = remote
+            }
+            return SyncReceipt(emptyList(), emptyList(), emptyList())
+        }
         val applied = ArrayList<SyncKey>()
         val kept = ArrayList<SyncKey>()
         val changes = ArrayList<SyncChange>()
@@ -447,7 +625,7 @@ class SettingsSyncEngine(
                 val record = records.getValue(key)
                 key.takeIf { record.stamp != peer.sent[key] && record.stamp != peer.received[key] }?.let { it to record }
             }.toMap()
-            if (pending.isEmpty() && waiting == peer.waitingSent) return@forEach
+            if (pending.isEmpty() && waiting == peer.waitingSent && !peer.sendAnswered) return@forEach
             val messageIdForPeer = messageId()
             pending.forEach { (key, record) -> peer.sent[key] = record.stamp }
             peer.waitingSent = waiting
@@ -455,7 +633,8 @@ class SettingsSyncEngine(
                 peer.inflight[messageIdForPeer] = pending
                 while (peer.inflight.size > 64) peer.inflight.remove(peer.inflight.keys.first())
             }
-            out[id] = messageIdForPeer to SyncOutgoing(pending, waiting)
+            out[id] = messageIdForPeer to SyncOutgoing(pending, waiting, answered = peer.sendAnswered)
+            peer.sendAnswered = false
         }
         return out
     }

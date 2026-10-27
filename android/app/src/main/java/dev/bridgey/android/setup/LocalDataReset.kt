@@ -117,7 +117,14 @@ enum class ResetItem(val key: String, val targets: List<ResetTarget>) {
     UPDATE_CHANNEL("channel", listOf(ResetTarget.Preferences("bridgey.updates"))),
     FOLDER_PLACES("places", listOf(ResetTarget.Live(ResetHook.RELEASE_FOLDER_GRANTS), ResetTarget.Preferences("bridgey.places"))),
     SETUP("setup", listOf(ResetTarget.Preferences(SetupStore.PREFERENCES), ResetTarget.Preferences(SetupStore.LEGACY_ONBOARDING_PREFERENCES))),
-    TRUSTED_DEVICES("trusted", listOf(ResetTarget.Live(ResetHook.DISCONNECT), ResetTarget.Preferences("bridgey.trust"))),
+    TRUSTED_DEVICES(
+        "trusted",
+        listOf(
+            ResetTarget.Live(ResetHook.DISCONNECT), ResetTarget.Preferences("bridgey.trust"),
+            // Settings sync's first-connect answers belong with the pairings: Reset > Settings keeps them.
+            ResetTarget.Preferences(dev.bridgey.android.sync.SettingsSyncController.ANSWER_PREFERENCES),
+        ),
+    ),
     IDENTITY(
         "identity",
         listOf(ResetTarget.Preferences("bridgey"), ResetTarget.KeystoreAlias(LocalDataReset.IDENTITY_ALIAS)),

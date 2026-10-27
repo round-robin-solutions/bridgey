@@ -141,7 +141,22 @@ class SetupFlowTest {
         val walk = start(fresh(), emptyMap()).toTheEnd()
         // Nothing is on, so nothing needs a permission.
         assertEquals(listOf(SetupScreen.Intro, SetupScreen.Switches, SetupScreen.Summary), walk.steps)
-        assertTrue(SetupSummary.items(walk.state, walk.facts).isEmpty())
+        // Only the settings sync line, which is always there.
+        assertEquals(listOf(SummaryItem.Sync(on = true)), SetupSummary.items(walk.state, walk.facts))
+    }
+
+    @Test
+    fun theSummarySaysSettingsStayTheSameAndItsSwitchTurnsSyncOff() {
+        val walk = start(fresh(), SetupBundles.answers(setOf("clipboard"), emptyMap())).toTheEnd()
+        assertEquals(SummaryItem.Sync(on = true), SetupSummary.items(walk.state, walk.facts).filterIsInstance<SummaryItem.Sync>().single())
+        val off = run(SetupEvent.SummarySync(on = false), from = walk.state)
+        assertEquals(SummaryItem.Sync(on = false), SetupSummary.items(off, walk.facts).filterIsInstance<SummaryItem.Sync>().single())
+        assertEquals("false", SetupFlow.overlay(off)[SetupSetting.SETTINGS_SYNC])
+        // Kept across a restore, like the other summary switches.
+        assertEquals(false, SetupState.decode(off.encode())!!.summarySync)
+        // A phone where sync is already off shows it off.
+        val synced = walk.facts.copy(current = walk.facts.current + (SetupSetting.SETTINGS_SYNC to "false"))
+        assertEquals(SummaryItem.Sync(on = false), SetupSummary.items(walk.state, synced).filterIsInstance<SummaryItem.Sync>().single())
     }
 
     @Test

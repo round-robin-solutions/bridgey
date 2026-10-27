@@ -30,9 +30,14 @@ data class SyncRowStatus(
     val waitingOn: List<String> = emptyList(),
 )
 
+/** A first-connect question waiting for the person: "Use the same settings as <device>?". */
+data class SyncQuestion(val deviceId: String, val deviceName: String)
+
 /** What Settings and the device pages show about sync. */
 data class SyncUiState(
     val switches: SyncSwitches = SyncSwitches(),
+    /** Open first-connect questions, oldest first. */
+    val questions: List<SyncQuestion> = emptyList(),
     val rows: Map<SyncKey, SyncRowStatus> = emptyMap(),
     /** Connected devices whose latest features.update shows sync off (or an older build): "Off on <device>". */
     val offOn: Set<String> = emptySet(),
@@ -49,10 +54,14 @@ data class SyncUiState(
  */
 class SettingsSyncController(
     private val preferences: SharedPreferences,
+    /** First-connect answers, apart from [preferences] so Reset > Settings keeps them (`bridgey.sync.answers`). */
+    private val answerPreferences: SharedPreferences,
     private val localDeviceId: String,
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
     private val debounceMillis: Long = SETTINGS_DEBOUNCE_MILLIS,
+    /** When both devices are new, the phone asks; tests play a Mac with false. */
+    private val isPhone: Boolean = true,
 ) {
     /** The coordinator's side: sessions, names and the peer's latest feature map. */
     interface Transport {
@@ -72,8 +81,8 @@ class SettingsSyncController(
     /** A device's snapshot or update changed settings here: one activity item. */
     @Volatile var onSynced: (deviceId: String, deviceName: String, changes: List<SyncChange>) -> Unit = { _, _, _ -> }
 
-    /** A device turned a feature on here; [waiting] when it needs a permission on this phone. */
-    @Volatile var onTurnedOn: (deviceId: String, deviceName: String, key: SyncKey, waiting: Boolean) -> Unit = { _, _, _, _ -> }
+    /** A device turned a feature on here that needs a permission on this phone: the only notification sync posts. */
+    @Volatile var onNeedsPermission: (deviceId: String, deviceName: String, key: SyncKey) -> Unit = { _, _, _ -> }
 
     /** A switch changed: the coordinator sends features.update again. */
     @Volatile var onSwitchesChanged: () -> Unit = {}
@@ -97,7 +106,9 @@ class SettingsSyncController(
     /** Starts syncing with the settings this phone has. Call once, before sessions start. */
     fun attach(settings: Map<SyncKey, SyncedSetting>) = synchronized(lock) {
         this.settings = settings
-        engine = SettingsSyncEngine(localDeviceId, clock, PreferencesStore(), settings) { mutableSwitches.value.excluded }
+        engine = SettingsSyncEngine(
+            localDeviceId, clock, PreferencesStore(), settings, { mutableSwitches.value.excluded }, AnswerStore(), isPhone,
+        )
         publish()
     }
 
@@ -128,11 +139,22 @@ class SettingsSyncController(
         publish()
     }
 
-    /** Forget device: its switch and its session state go. */
+    /** Forget device: its switch, its first-connect answer and its session state go. */
     fun forget(deviceId: String) {
         preferences.edit().remove(KEY_DEVICE_PREFIX + deviceId).apply()
         mutableSwitches.value = mutableSwitches.value.copy(devices = mutableSwitches.value.devices - deviceId)
+        engine?.forget(deviceId)
         sessionEnded(deviceId)
+    }
+
+    /** The person answered "Use the same settings as <device>?" ([use]: Use these; else Keep mine). */
+    fun answer(deviceId: String, use: Boolean) {
+        val current = engine ?: return
+        val receipt = current.answer(deviceId, use) ?: return
+        diagnostics("first_connect", if (use) SyncAnswers.USE else SyncAnswers.KEEP, deviceId)
+        reportChanges(current, deviceId, receipt.changes)
+        scheduleFlush(immediately = true)
+        publish()
     }
 
     /** A synced setting may have changed here (Settings, setup, shortcuts): stamp it and send it after 500 ms. */
@@ -166,7 +188,7 @@ class SettingsSyncController(
             available && !current.isActive(deviceId) -> {
                 val messageId = UUID.randomUUID().toString()
                 val snapshot = current.start(deviceId, messageId)
-                send(deviceId, SettingsSyncKinds.SNAPSHOT, settingsPayload(snapshot.records, snapshot.waiting, snapshot = true), messageId)
+                send(deviceId, SettingsSyncKinds.SNAPSHOT, settingsPayload(snapshot, snapshot = true), messageId)
                 diagnostics("snapshot_sent", "${snapshot.records.size}", deviceId)
             }
             !available && current.isActive(deviceId) -> current.stop(deviceId)
@@ -226,22 +248,27 @@ class SettingsSyncController(
             is SettingsPayloadDecoding.Records -> decoded
         }
         val receipt = if (kind == SettingsSyncKinds.SNAPSHOT) {
-            current.receiveSnapshot(deviceId, records.records, records.waiting)
+            current.receiveSnapshot(deviceId, records.records, records.waiting, records.first, records.new)
         } else {
-            current.receiveUpdate(deviceId, records.records, records.waiting)
+            current.receiveUpdate(deviceId, records.records, records.waiting, records.answered)
         } ?: return
         send(deviceId, SettingsSyncKinds.ACK, settingsAckPayload(messageId, receipt.applied, receipt.kept))
+        if (receipt.question) diagnostics("first_connect", "asked", deviceId)
         if (receipt.changes.isNotEmpty()) {
-            val name = transport?.peerName(deviceId).orEmpty()
             diagnostics(if (kind == SettingsSyncKinds.SNAPSHOT) "snapshot_applied" else "update_applied", "${receipt.changes.size}", deviceId)
-            onSynced(deviceId, name, receipt.changes)
-            val waiting = current.waitingHere().toSet()
-            receipt.changes.filter { it.key.feature && it.value == true }.forEach { change ->
-                onTurnedOn(deviceId, name, change.key, change.key in waiting)
-            }
+            reportChanges(current, deviceId, receipt.changes)
         }
         // Relays what won here to the other Macs, and answers what this phone kept.
         scheduleFlush(immediately = true)
+    }
+
+    /** One activity item; a notification only for a feature turned on here that waits for a permission. */
+    private fun reportChanges(current: SettingsSyncEngine, deviceId: String, changes: List<SyncChange>) {
+        if (changes.isEmpty()) return
+        val name = transport?.peerName(deviceId).orEmpty()
+        onSynced(deviceId, name, changes)
+        val waiting = current.waitingHere().toSet()
+        changes.filter { it.key.feature && it.value == true && it.key in waiting }.forEach { onNeedsPermission(deviceId, name, it.key) }
     }
 
     private fun switchesChanged() {
@@ -282,7 +309,7 @@ class SettingsSyncController(
         val current = engine ?: return
         current.flush { UUID.randomUUID().toString() }.forEach { (deviceId, out) ->
             val (messageId, outgoing) = out
-            send(deviceId, SettingsSyncKinds.UPDATE, settingsPayload(outgoing.records, outgoing.waiting, snapshot = false), messageId)
+            send(deviceId, SettingsSyncKinds.UPDATE, settingsPayload(outgoing, snapshot = false), messageId)
         }
         publish()
     }
@@ -297,6 +324,7 @@ class SettingsSyncController(
         val status = engine?.status().orEmpty()
         mutableUi.value = SyncUiState(
             switches = mutableSwitches.value,
+            questions = engine?.questions().orEmpty().map { SyncQuestion(it, names(it)) },
             rows = status.mapValues { (_, value) -> SyncRowStatus(value.waitingHere, value.differentOn.map(names), value.waitingOn.map(names)) },
             offOn = link?.connected()?.filterTo(HashSet()) { !link.remoteOn(it) }.orEmpty(),
         )
@@ -331,8 +359,20 @@ class SettingsSyncController(
         }
     }
 
+    private inner class AnswerStore : SyncAnswerStore {
+        override fun load(): Map<String, String> =
+            answerPreferences.all.mapNotNull { (key, value) -> (value as? String)?.let { key to it } }.toMap()
+
+        override fun save(answers: Map<String, String>) {
+            val editor = answerPreferences.edit().clear()
+            answers.forEach { (key, value) -> editor.putString(key, value) }
+            editor.apply()
+        }
+    }
+
     companion object {
         const val PREFERENCES = "bridgey.sync"
+        const val ANSWER_PREFERENCES = "bridgey.sync.answers"
         const val KEY_ENABLED = "enabled"
         const val KEY_DEVICE_PREFIX = "device."
         const val KEY_EXCLUDED = "excluded"

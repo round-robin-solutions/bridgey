@@ -164,6 +164,9 @@ class ProtocolGoldenVectorsTest {
                 "records" to decoded.records.entries.associate { (key, record) -> key.key to normalize(record.toJson()) },
                 "waiting" to decoded.waiting.map { it.key },
                 "skipped" to decoded.skipped.toLong(),
+                "first" to decoded.first,
+                "new" to decoded.new,
+                "answered" to decoded.answered,
             )
         }
         result == normalize(vector.get("expect"))
@@ -186,6 +189,16 @@ class ProtocolGoldenVectorsTest {
     @Test fun settingsSnapshot() = each("settingsSnapshot") { vector ->
         val outcome = dev.bridgey.android.sync.snapshotOutcome(syncRecord(vector.getJSONObject("local")), syncRecord(vector.getJSONObject("remote")))
         outcome.name.lowercase() == vector.getString("expect")
+    }
+
+    /** Settings sync: both sides pick the same device to ask "Use the same settings as <device>?". */
+    @Test fun settingsAsker() = each("settingsAsker") { vector ->
+        val local = vector.getJSONObject("local")
+        val remote = vector.getJSONObject("remote")
+        val asker = dev.bridgey.android.sync.settingsAsker(
+            local.getBoolean("first"), local.getBoolean("new"), local.getBoolean("phone"), remote.getBoolean("first"), remote.getBoolean("new"),
+        )
+        asker.name.lowercase() == vector.getString("expect")
     }
 
     /** Settings sync: a local edit or Apply to all stamps alike on both platforms. */

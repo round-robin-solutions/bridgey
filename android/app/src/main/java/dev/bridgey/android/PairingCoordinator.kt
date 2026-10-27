@@ -202,6 +202,7 @@ class PairingCoordinator(
      */
     val settingsSync = dev.bridgey.android.sync.SettingsSyncController(
         appContext.getSharedPreferences(dev.bridgey.android.sync.SettingsSyncController.PREFERENCES, Context.MODE_PRIVATE),
+        appContext.getSharedPreferences(dev.bridgey.android.sync.SettingsSyncController.ANSWER_PREFERENCES, Context.MODE_PRIVATE),
         localDeviceId,
         scope,
     )

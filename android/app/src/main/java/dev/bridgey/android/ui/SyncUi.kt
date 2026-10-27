@@ -206,3 +206,20 @@ internal fun SyncedMark() {
         tint = BridgeyTheme.colors.onSurfaceVariant, modifier = Modifier.padding(start = 6.dp).size(14.dp),
     )
 }
+
+/**
+ * First connect with a device (8.4): "Use the same settings as <device>?". Asked once per device, in the app only;
+ * nothing moves between the two until it is answered. Not dismissed by tapping outside, so it is never lost.
+ */
+@Composable
+fun FirstConnectQuestion(deviceName: String, onUse: () -> Unit, onKeep: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = {},
+        icon = { Icon(BridgeyIcons.Sync, null) },
+        title = { Text(stringResource(R.string.sync_first_title, deviceName)) },
+        text = { Text(stringResource(R.string.sync_first_body, deviceName)) },
+        confirmButton = { TextButton(onClick = onUse) { Text(stringResource(R.string.sync_first_use)) } },
+        dismissButton = { TextButton(onClick = onKeep) { Text(stringResource(R.string.sync_first_keep)) } },
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = false),
+    )
+}

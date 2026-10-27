@@ -33,10 +33,9 @@
     <string name="stream_settings_synced_title">Настройки синхронизированы с %1$s</string>
     <string name="stream_settings_synced_detail">Настройки изменены здесь</string>
     <string name="sync_notification_channel">Настройки с других устройств</string>
-    <string name="sync_notification_channel_detail">Когда связанное устройство включает здесь функцию</string>
+    <string name="sync_notification_channel_detail">Когда связанное устройство включает функцию, которой нужно ваше разрешение здесь</string>
     <string name="sync_notification_title">%1$s: включено с %2$s</string>
     <string name="sync_notification_waiting">Нужно ваше разрешение на этом телефоне. Нажмите «Разрешить».</string>
-    <string name="sync_notification_ok">Выключите это в настройках, если не ожидали.</string>
     <string name="settings_sync_title">Синхронизировать настройки со связанными устройствами</string>
     <string name="settings_sync_detail">Настройки и функции одинаковы на ваших устройствах. Разрешения, связывание и папки остаются на каждом устройстве.</string>
     <string name="settings_sync_choose">Что синхронизировать</string>
@@ -52,4 +51,10 @@
     <string name="settings_sync_devices_more">%1$s +%2$d</string>
     <string name="devices_sync_title">Синхронизировать настройки с этим устройством</string>
     <string name="devices_sync_detail">Настройки и функции одинаковы на обоих</string>
+    <string name="sync_first_title">Использовать те же настройки, что на %1$s?</string>
+    <string name="sync_first_body">«Использовать эти» переносит настройки и функции с %1$s на этот телефон. «Оставить мои» сохраняет настройки телефона и показывает, где они различаются.</string>
+    <string name="sync_first_use">Использовать эти</string>
+    <string name="sync_first_keep">Оставить мои</string>
+    <string name="setup_summary_sync">Настройки одинаковы на ваших устройствах</string>
+    <string name="setup_summary_sync_detail">Функции и параметры, со связанными устройствами. Изменить можно в настройках, раздел «Основные».</string>
 </resources>

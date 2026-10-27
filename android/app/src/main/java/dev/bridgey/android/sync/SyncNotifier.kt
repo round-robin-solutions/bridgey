@@ -12,13 +12,13 @@ import dev.bridgey.android.ui.SettingsDeepLink
 import dev.bridgey.android.ui.syncKeyName
 
 /**
- * Settings sync, 8.4 and 8.5: another device turned a feature on here. Always visible, so a change the person did
- * not expect is never silent; with Allow when this phone still has to give a permission.
+ * Settings sync, 8.4 and 8.5: another device turned a feature on here that needs a permission only this phone can give.
+ * The one notification sync posts; every other change is an activity item only (Rahul, 2026-10-27).
  */
 object SyncNotifier {
     private const val CHANNEL_ID = "bridgey_settings_sync_v1"
 
-    fun turnedOn(context: Context, deviceName: String, key: SyncKey, waiting: Boolean) {
+    fun needsPermission(context: Context, deviceName: String, key: SyncKey) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         if (!manager.areNotificationsEnabled()) return
         manager.createNotificationChannel(
@@ -26,21 +26,18 @@ object SyncNotifier {
                 description = context.getString(R.string.sync_notification_channel_detail)
             },
         )
-        val target = if (waiting) SettingsDeepLink.PERMISSIONS else SettingsDeepLink.GENERAL
         val intent = Intent(context, MainActivity::class.java)
-            .putExtra(SettingsDeepLink.EXTRA_SECTION, target)
+            .putExtra(SettingsDeepLink.EXTRA_SECTION, SettingsDeepLink.PERMISSIONS)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val open = PendingIntent.getActivity(context, key.ordinal, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = Notification.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_bridgey_notification)
             .setContentTitle(context.getString(R.string.sync_notification_title, syncKeyName(context, key), deviceName))
-            .setContentText(context.getString(if (waiting) R.string.sync_notification_waiting else R.string.sync_notification_ok))
+            .setContentText(context.getString(R.string.sync_notification_waiting))
             .setContentIntent(open)
             .setAutoCancel(true)
             .setCategory(Notification.CATEGORY_STATUS)
-        if (waiting) {
-            builder.addAction(Notification.Action.Builder(null, context.getString(R.string.settings_sync_allow), open).build())
-        }
+        builder.addAction(Notification.Action.Builder(null, context.getString(R.string.settings_sync_allow), open).build())
         // One notification per setting: a later change to the same setting replaces it.
         manager.notify(NOTIFICATION_BASE + key.ordinal, builder.build())
     }

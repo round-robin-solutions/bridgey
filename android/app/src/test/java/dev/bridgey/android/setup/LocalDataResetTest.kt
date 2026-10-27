@@ -36,8 +36,8 @@ class LocalDataResetTest {
         "bridgey.attach",
         // v0.9 automation: each Mac's saved list of Mac actions, and the widgets' Macs.
         "bridgey.mac_actions", "bridgey.widgets",
-        // v0.10 settings sync: records, switches and choices.
-        "bridgey.sync",
+        // v0.10 settings sync: records, switches and choices; first-connect answers.
+        "bridgey.sync", "bridgey.sync.answers",
     )
 
     /** Every file and directory, relative to its root. */

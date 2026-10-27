@@ -41,7 +41,8 @@ class SettingsSyncMigrationTest {
         val settings = BridgeySettings(context, "Default name")
         val ui = UiPreferences(context)
         val sync = SettingsSyncController(
-            context.getSharedPreferences(SettingsSyncController.PREFERENCES, Context.MODE_PRIVATE), phone, CoroutineScope(Dispatchers.Unconfined),
+            context.getSharedPreferences(SettingsSyncController.PREFERENCES, Context.MODE_PRIVATE),
+            context.getSharedPreferences(SettingsSyncController.ANSWER_PREFERENCES, Context.MODE_PRIVATE), phone, CoroutineScope(Dispatchers.Unconfined),
         )
         sync.attach(phoneSyncedSettings(settings, ui, Granted))
         return sync to settings

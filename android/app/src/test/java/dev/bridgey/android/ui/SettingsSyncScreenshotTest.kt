@@ -130,6 +130,16 @@ class SettingsSyncScreenshotTest {
         ChooseWhatSyncsDialog(sync, SyncSettingsActions()) {}
     }
 
+    /** First connect: the question over the Settings page it appears on. */
+    private fun firstConnect() = capture("first-connect", dialog = true) {
+        SettingsScreen(state = sampleSettingsState(now).copy(sync = sync), actions = SettingsActions(), section = SettingsSection.GENERAL)
+        FirstConnectQuestion("Work MacBook", onUse = {}, onKeep = {})
+    }
+
+    @Test fun firstConnectLight() = firstConnect()
+
+    @Test @Config(qualifiers = "+night") fun firstConnectDark() = firstConnect()
+
     @Test fun chooseLight() = choose()
 
     @Test @Config(qualifiers = "+night") fun chooseDark() = choose()

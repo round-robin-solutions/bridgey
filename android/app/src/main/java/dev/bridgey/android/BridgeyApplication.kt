@@ -171,7 +171,8 @@ class BridgeyApplication : Application() {
 
     /**
      * Settings sync (settings_sync_draft1): this phone's settings and feature switches, kept the same as on the Macs
-     * that sync. Every change a Mac makes here is an activity item; a feature it turns on also posts a notification.
+     * that sync. Every change a Mac makes here is an activity item; a feature it turns on that needs a permission here
+     * also posts a notification.
      */
     private fun startSettingsSync() {
         val sync = pairing.settingsSync
@@ -182,7 +183,8 @@ class BridgeyApplication : Application() {
                 detail = dev.bridgey.android.sync.SyncDetail.encode(changes),
             )
         }
-        sync.onTurnedOn = { _, deviceName, key, waiting -> dev.bridgey.android.sync.SyncNotifier.turnedOn(this, deviceName, key, waiting) }
+        // A Mac's change is an activity item; it notifies only when this phone must give a permission (Rahul, 2026-10-27).
+        sync.onNeedsPermission = { _, deviceName, key -> dev.bridgey.android.sync.SyncNotifier.needsPermission(this, deviceName, key) }
         applicationScope.launch {
             // Any synced setting changed here (Settings, setup, shortcuts, a Mac's change being applied): the
             // controller stamps only what differs from its record, so applied changes are never sent back.
