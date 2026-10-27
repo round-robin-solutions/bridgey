@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -116,7 +117,9 @@ fun runSummaryText(summary: RunSummary): String = when (summary) {
     is RunSummary.Slow -> stringResource(R.string.update_all_capsule_slow, summary.name, summary.minutes.toInt())
     is RunSummary.WaitingFor -> if (summary.here) stringResource(R.string.update_all_capsule_waiting_here) else stringResource(R.string.update_all_capsule_waiting_for, summary.name)
     is RunSummary.Progress -> stringResource(R.string.update_all_capsule_progress, summary.done, summary.total)
-    is RunSummary.Failed -> summary.name?.let { stringResource(R.string.update_all_capsule_failed_one, it) }
+    is RunSummary.Failed -> summary.name?.let {
+        stringResource(if (summary.notApplied) R.string.update_all_capsule_not_applied_one else R.string.update_all_capsule_failed_one, it)
+    }
         ?: pluralStringResource(R.plurals.update_all_capsule_failed_many, summary.count, summary.count)
     RunSummary.ReadyLater -> stringResource(R.string.update_all_capsule_ready_later)
     is RunSummary.AllUpdated -> stringResource(R.string.update_all_capsule_done)
@@ -471,7 +474,7 @@ fun YourDevicesCard(state: UpdateAllUiState, actions: UpdateAllActions, modifier
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = 64.dp)
-                .clickable(role = Role.Switch) { actions.setRemoteStart(!state.remoteStart) }
+                .toggleable(value = state.remoteStart, role = Role.Switch) { actions.setRemoteStart(it) }
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),

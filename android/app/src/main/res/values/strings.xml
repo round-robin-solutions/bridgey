@@ -949,6 +949,7 @@
     <string name="update_all_capsule_waiting_here">Waiting for you to confirm on this phone</string>
     <string name="update_all_capsule_progress">%1$d of %2$d updated</string>
     <string name="update_all_capsule_failed_one">%1$s: update didn\'t finish</string>
+    <string name="update_all_capsule_not_applied_one">%1$s: update didn\'t apply</string>
     <plurals name="update_all_capsule_failed_many">
         <item quantity="one">%1$d didn\'t finish</item>
         <item quantity="other">%1$d didn\'t finish</item>

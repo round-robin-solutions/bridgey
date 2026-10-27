@@ -400,6 +400,16 @@ class UpdateAllTest {
         assertTrue(machine.run!!.finished)
     }
 
+    @Test fun summaryNamesAVersionThatDidNotApply() {
+        val effects = FakeEffects()
+        val machine = UpdateRunMachine(clock, effects)
+        machine.start(plan(withLocal = false), "run")
+        machine.onResult("a", accepted(effects, "a"))
+        machine.onStatus("a", status(app = beta3, build = 903003))
+        machine.onResult("b", UpdateResult(machine.item("b").requestId!!, UpdateResultStatus.REFUSED, UpdateRefusal.NOT_APPLIED))
+        assertEquals(RunSummary.Failed("Work Mac", 1, notApplied = true), summarizeRun(machine.run!!, now))
+    }
+
     @Test fun summaryCountsAndFailures() {
         val effects = FakeEffects()
         val machine = UpdateRunMachine(clock, effects)

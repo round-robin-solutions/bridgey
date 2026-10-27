@@ -1011,6 +1011,7 @@
     <string name="update_all_capsule_waiting_here">Ждёт вашего подтверждения на этом телефоне</string>
     <string name="update_all_capsule_progress">Обновлено %1$d из %2$d</string>
     <string name="update_all_capsule_failed_one">%1$s: обновление не завершено</string>
+    <string name="update_all_capsule_not_applied_one">%1$s: обновление не применилось</string>
     <plurals name="update_all_capsule_failed_many">
         <item quantity="one">%1$d не завершено</item>
         <item quantity="few">%1$d не завершены</item>

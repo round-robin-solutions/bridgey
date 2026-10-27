@@ -463,7 +463,8 @@ sealed interface RunSummary {
     /** [here]: this phone waits for the person (Android's confirmation or Install unknown apps). */
     data class WaitingFor(val name: String, val here: Boolean = false) : RunSummary
     data class Progress(val done: Int, val total: Int) : RunSummary
-    data class Failed(val name: String?, val count: Int) : RunSummary
+    /** [notApplied]: the one device that failed came back on its old build. */
+    data class Failed(val name: String?, val count: Int, val notApplied: Boolean = false) : RunSummary
     data object ReadyLater : RunSummary
     data class AllUpdated(val total: Int) : RunSummary
 }
@@ -479,7 +480,10 @@ fun summarizeRun(run: UpdateRun, now: Long): RunSummary {
         return RunSummary.Progress(done, run.items.size)
     }
     val failed = run.items.filter { it.step == RunStep.FAILED || it.step == RunStep.NOT_APPLIED }
-    if (failed.isNotEmpty()) return RunSummary.Failed(failed.singleOrNull()?.name, failed.size)
+    if (failed.isNotEmpty()) {
+        val only = failed.singleOrNull()
+        return RunSummary.Failed(only?.name, failed.size, notApplied = only?.step == RunStep.NOT_APPLIED)
+    }
     if (run.later && run.local?.step == RunStep.READY) return RunSummary.ReadyLater
     return RunSummary.AllUpdated(run.items.size)
 }
