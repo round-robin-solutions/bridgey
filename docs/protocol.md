@@ -107,7 +107,8 @@ available only when both peers report the corresponding feature as enabled. Clie
 predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
-`sms_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`)
+`sms_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`,
+`screen_draft1`)
 are optional booleans described in their own sections; a missing draft key means `false`.
 
 ## Pairing flow
@@ -798,6 +799,111 @@ encrypted `files.offer` payload adds `cameraRequestId`, which the Mac matches to
 The Mac saves it in the received files folder like any file and, if its "Copy photos to the
 clipboard" setting is on (off by default), also puts the image on the clipboard. Older Macs ignore
 the field and simply receive a file.
+
+### Phone screen to Mac (`screen_draft1`)
+
+Status: **Draft, edition only, view only.** The Mac shows the phone's screen in a window. The phone
+captures with Android's MediaProjection after the person confirms in the system dialog, encodes H.264
+in hardware and streams it over the existing encrypted session. Control (touching the phone from the
+Mac) is not part of this draft; see [screen-control-decision.md](screen-control-decision.md). Why the
+stream shares the session instead of using a second connection, how it adapts to the link and what it
+measured: [screen-sharing.md](screen-sharing.md).
+
+**Negotiation.** `features.update` gains the boolean key `screen_draft1`. The phone sets it when its
+"Share screen with Macs" switch is on (off by default). The Mac sets it when its "Show phone screens"
+switch is on (off by default). `screen.*` messages go only to a peer whose latest map shows `true`.
+A receiver whose own switch is off answers `screen.request` with `screen.status` `disabled` and
+`screen.start` with `screen.stop` `disabled`, and drops every other `screen.*` message.
+
+**Asking and answering.** Both are encrypted like `camera.*` (outer `kind`, `sessionId`, a unique
+`messageId` in the replay window, `nonce`, `ciphertext`), plaintext at most 512 bytes, `version: 1`.
+
+| Message | Direction | Fields | Meaning |
+| --- | --- | --- | --- |
+| `screen.request` | Mac to phone | `requestId` (UUID) | "Phone screen" on the Mac. One open request per phone, at most one every 3 seconds; it expires after 2 minutes |
+| `screen.status` | phone to Mac | `requestId`, `status` | `waiting` (the phone shows "MacBook Air wants to see your screen", with the Mac's name, and waits for the person to tap and confirm), `declined` (the person said no in Android's dialog), `busy` (the phone already shares with another Mac), `disabled`, `failed` |
+
+Android does not let an app start capture, or open an activity, from the background, and asks for
+consent before every capture (each time on Android 14 and later). So a request always ends with the
+person tapping on the phone; the stream itself then starts with `screen.start` carrying the
+`requestId`. The phone can also start sharing on its own (its device screen or the Quick Settings
+tile), with no `requestId`; the Mac then opens the window if its switch is on.
+
+**Stream messages.** Encrypted on the current session like remote input: the JSON ones have outer
+`kind`, `sessionId`, a unique `messageId`, `nonce` and `ciphertext`; `screen.frame` has only `kind`,
+`sessionId`, `nonce` and `ciphertext`. None of them enters the shared `messageId` window, because 30
+frames a second would push every other feature's IDs out of it. Instead each side numbers its own
+messages of a stream 1, 2, 3, ... (the phone from `screen.start`, the Mac from `screen.started` or the
+refusing `screen.stop`), JSON and frames alike, and a receiver drops any message whose `sequence` is
+not higher than the last one it accepted from that side for that stream. A `streamId` is chosen by the
+phone and used once; the Mac remembers the last 16 ended stream IDs and ignores a start that reuses
+one. Malformed, out-of-sequence or undecryptable messages are dropped and counted, never answered,
+and never close the transport session. JSON plaintext is UTF-8, `version: 1`, at most 1,024 bytes for
+`screen.start` and 512 for the others.
+
+| Message | Direction | Fields (besides `version`, `streamId`, `sequence`) | Meaning |
+| --- | --- | --- | --- |
+| `screen.start` | phone to Mac | optional `requestId`; `codec`: `h264`; `width`, `height` (even integers, 16 to 4,096); `fps` (1 to 60); `bitrate` (bits a second, 100,000 to 50,000,000) | a new stream. Its first frame is a key frame |
+| `screen.started` | Mac to phone | none | the window is open; frames may follow. The phone gives up after 5 seconds without it |
+| `screen.frame` | phone to Mac | binary, below | one part of one encoded frame |
+| `screen.ack` | Mac to phone | `frame` (1 to 2^32-1), `decodeMs` (0 to 60,000); optional `keyframe`: `true` | the newest frame the Mac has received completely and decoded, and how long decoding took. `keyframe` asks for a key frame after a frame was lost or failed to decode (at most one a second) |
+| `screen.stats` | phone to Mac | `latencyMs`, `rttMs` (0 to 60,000), `bitrate`, `sentBitrate` (0 to 50,000,000), `fps` (0 to 120), `dropped` (0 to 1,000) | once a second: the phone's latency estimate, its round trip, its target and measured bit rate, frames sent and dropped in the last second. Shown in the Mac window |
+| `screen.stop` | either | `reason` | ends the stream (below) |
+
+| `reason` | Sent by | Meaning |
+| --- | --- | --- |
+| `user` | phone | the person tapped Stop (notification, tile or app) |
+| `closed` | Mac | the person closed the window or chose Stop |
+| `ended` | phone | Android ended the capture (the status bar Stop, another app capturing, the shared app closed) |
+| `screen_off` | phone | the phone's screen turned off or locked |
+| `disabled` | either | the switch is off on this side |
+| `invalid` | Mac | the start was malformed, or asked for a codec or size the Mac cannot decode |
+| `timeout` | either | the phone got no `screen.started` within 5 seconds or no `screen.ack` for 6 seconds while frames were outstanding; the Mac got no frame or `screen.stats` for 6 seconds |
+| `failed` | either | the encoder, the capture or the decoder failed |
+
+An unknown `reason` reads as `failed`. When the transport session closes, both sides end the stream
+locally (reason `disconnected`, never sent). One stream at a time per phone (a second Mac's request
+gets `busy`); a Mac may show several phones, each in its own window.
+
+**Frames.** The plaintext of `screen.frame` is a 40-byte header followed by 1 to 32,768 bytes of
+H.264 Annex B data (at most 32,808 bytes; the encrypted frame stays well under the 65,536-byte frame
+limit). Integers are big-endian.
+
+| Bytes | Field | Rule |
+| --- | --- | --- |
+| 0 | version | `1` |
+| 1 | flags | bit 0 key frame (IDR), bit 1 the frame starts with its SPS and PPS, bit 2 last part of the frame; other bits are sent as 0 and ignored |
+| 2 to 3 | part | 0 to 63, the index of this part within the frame |
+| 4 to 19 | stream ID | the 16 bytes of the `streamId` UUID |
+| 20 to 27 | sequence | 1 to 2^53-1, the phone's stream sequence above |
+| 28 to 31 | frame | 1 to 2^32-1; increases from one frame to the next |
+| 32 to 39 | capture time | 0 to 2^63-1 microseconds on the phone's monotonic clock; only differences mean anything |
+
+A frame is one H.264 access unit, split into parts sent in order 0, 1, 2, ...; part 0 starts with an
+Annex B start code. Every key frame carries the current SPS and PPS at its start (flag bit 1), so it
+can be decoded on its own and a size change (rotation) needs no separate message. B-frames are not
+used, so frames are decoded and shown in the order they arrive. The Mac drops an unfinished frame when
+a part of a later frame arrives, and drops frames until the next key frame after a lost or undecodable
+one. Frames over 64 parts (2 MiB) are dropped.
+
+**Pacing (phone).** The phone sends a frame only while at most 6 frames and at most
+max(64 KiB, 250 ms at the current bit rate) are sent and not yet acknowledged. A frame that does not
+fit is dropped, along with every following frame up to the next key frame, which the phone requests
+from the encoder at once; then it lowers the bit rate. This keeps at most a quarter of a second of
+video queued in the socket, so clipboard, notifications and acknowledgements wait behind one part at
+most. The bit rate goes down by a quarter when frames are dropped or the round trip grows 80 ms over
+its minimum (at most every 500 ms), and up by 15 percent after 2 seconds without either, between
+300 kb/s and 8 Mb/s.
+
+**Security.**
+
+| Threat | Mitigations |
+| --- | --- |
+| The Mac watches the phone without the person knowing | Both switches are off by default. Every stream needs the person's confirmation in Android's own dialog on the phone, every time. While it runs, the phone shows a persistent "Your screen is being shared with MacBook Air" notification (the Mac's name) with Stop, and Android 15 and later add the status bar indicator. The phone stops when its screen turns off |
+| Sensitive content on screen | Android 15 and later hide one-time codes and other sensitive notification content during capture; secure windows (banking apps, passwords, FLAG_SECURE) appear black. The Mac never saves, records or forwards frames; nothing is written to disk |
+| Another device on the network watches or injects frames | Frames are AES-GCM encrypted with the session key of the authenticated, pinned peer. The per-stream sequence and the stream ID in each header reject replays and splicing between streams; the session key rejects them across sessions |
+| A flood of frames or huge frames | Parts are at most 32 KiB, frames at most 64 parts, and the Mac keeps one unfinished frame. Frames go only to a Mac whose switch is on; the Mac stops a stream with no traffic for 6 seconds |
+| Sharing left running unnoticed | The notification stays until the stream ends; Stop on either side, a locked screen, a disconnect or switching the feature off ends it |
 
 ## Draft: folders, places and settings sync
 
