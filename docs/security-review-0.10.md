@@ -29,9 +29,11 @@ from `b5a4cf1`.
 | Medium | 15 | 15 | 0 |
 | Low | 23 | 13 | 10 |
 
-The protocol changes (H1, M1, M2) need both apps at 0.10. An 0.10 app and an 0.9 app that are
-already paired keep working until they have once connected on protocol 2; a new pairing between
-0.10 and 0.9 is refused. See [protocol.md](protocol.md#pairing-flow).
+The protocol changes (H1, H3, M1, M2) need both apps at 0.10. An 0.10 app and an 0.9 (or
+upstream) app that are already paired keep reconnecting on protocol 1 until they have once
+connected on protocol 2. A new pairing between 0.10 and 0.9 or upstream is refused in both
+directions, because the old side's code can still be ground. See
+[protocol.md](protocol.md#pairing-flow).
 
 ## High
 
@@ -49,6 +51,12 @@ already paired keep working until they have once connected on protocol 2; a new 
 - **Fix:** protocol 2. A first pairing sends a SHA-256 commitment to the initiator's key instead
   of the key, the answer comes back, and only then `pairing.reveal` opens the commitment. The code
   comes from its own HKDF label over both keys, so it no longer leaks session key bits.
+  Pairing frames are only taken in order (the dialled end takes the offer and the reveal, the
+  dialler the answer), a first pairing from an offer without a commitment is refused, a reconnect
+  dial that did not commit never shows a code, and every answered offer from an untrusted device
+  counts toward three a minute even if it never reveals. A second review of the first version
+  of this fix found the answer-instead-of-reveal path, the free attempts before the reveal and the
+  reconnect prompt; all three are closed, each with a test (`PairingRules` in both apps).
   `SessionSecurity.kt`, `SessionSecurity.swift`; shared vectors in
   `protocol/test-vectors/crypto-v1.properties` (written by `protocol/tools/crypto_v2_vectors.py`,
   which is independent of both apps). Tests: `ProtocolCryptoIntegrationTest`,
