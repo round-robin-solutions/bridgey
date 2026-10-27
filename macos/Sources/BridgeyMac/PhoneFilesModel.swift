@@ -85,6 +85,8 @@ final class PhoneFilesModel: ObservableObject {
     @Published private(set) var previewImage: PhoneDecodedImage?
     @Published private(set) var notice: String?
     @Published var dropTargeted = false
+    /// Screenshots pin "now" so day headers and dates do not depend on when they render.
+    var displayNow: Date?
 
     let service: PhoneFilesService
     let cache: PhoneThumbnailCache

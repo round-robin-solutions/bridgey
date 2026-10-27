@@ -288,9 +288,9 @@ private struct PhoneFilesContent: View {
         } else {
             switch model.section {
             case .media:
-                PhoneMediaGrid(model: model, promises: promises, quickLook: quickLook, showInFinder: showInFinder)
+                PhoneMediaGrid(model: model, promises: promises, quickLook: quickLook, showInFinder: showInFinder, now: model.displayNow ?? Date())
             case .files, .recent, .folders:
-                PhoneFileList(model: model, promises: promises, quickLook: quickLook, showInFinder: showInFinder)
+                PhoneFileList(model: model, promises: promises, quickLook: quickLook, showInFinder: showInFinder, now: model.displayNow ?? Date())
             }
         }
     }
@@ -383,7 +383,8 @@ private struct PhoneScroll<Content: View>: View {
     var body: some View {
         if snapshot {
             VStack(spacing: 0) { content }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
                 .clipped()
         } else {
             ScrollView(.vertical) { content }
@@ -1012,7 +1013,7 @@ struct PhonePreviewOverlay: View {
                     .foregroundStyle(c.on)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text([PhoneFilesText.size(state.entry.size), PhoneFilesText.date(state.entry.modified), dimensions(state.entry)]
+                Text([PhoneFilesText.size(state.entry.size), PhoneFilesText.date(state.entry.modified, now: model.displayNow ?? Date()), dimensions(state.entry)]
                     .filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(BrandFont.body(11))
                     .foregroundStyle(c.on2)

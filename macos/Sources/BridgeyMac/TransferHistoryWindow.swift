@@ -189,7 +189,7 @@ struct TransferHistoryView: View {
         .padding(.horizontal, 8)
         .padding(.bottom, 16)
         if snapshot {
-            content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).clipped()
+            content.fixedSize(horizontal: false, vertical: true).frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top).clipped()
         } else {
             ScrollView { content }
         }
