@@ -20,6 +20,7 @@ struct BridgeyApp: App {
         _discovery = StateObject(wrappedValue: discovery)
         let pairing = PairingCoordinator(deviceID: discovery.localDeviceID, deviceName: discovery.localDeviceName, settings: settings)
         pairing.observe(discovery)
+        IntentHost.pairing = pairing
         _pairing = StateObject(wrappedValue: pairing)
         _remoteInput = StateObject(wrappedValue: pairing.remoteInput)
         let callServiceProvider = CallServiceProvider { [weak pairing] number in pairing?.sendCallWhenConnected(number) }

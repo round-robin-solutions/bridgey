@@ -775,3 +775,35 @@
 "settings.links.openRightAway" = "Open links from phones right away";
 "settings.links.openRightAway.detail" = "Open on Mac from the phone’s share sheet opens the link in your browser. Off: it waits for you to open it here.";
 "settings.macActions" = "Mac actions";
+
+/* Shortcuts and Siri (App Intents) */
+"intent.battery.charging" = "Charging";
+"intent.battery.description" = "Returns a paired phone’s battery level and whether it is charging.";
+"intent.battery.dialog" = "%@ is at %lld%%.";
+"intent.battery.dialogCharging" = "%@ is at %lld%% and charging.";
+"intent.battery.level" = "Level";
+"intent.battery.phone" = "Phone";
+"intent.battery.title" = "Get Phone Battery";
+"intent.battery.type" = "Phone battery";
+"intent.clipboard.description" = "Sends what is on this Mac’s clipboard to a paired phone.";
+"intent.clipboard.title" = "Send Clipboard to Phone";
+"intent.error.failed" = "Bridgey could not do that.";
+"intent.error.featureOff" = "%@ is turned off on this Mac or the phone.";
+"intent.error.notConnected" = "No phone is connected to this Mac.";
+"intent.error.notConnectedNamed" = "%@ is not connected to this Mac.";
+"intent.error.nothing" = "There is nothing to send.";
+"intent.files" = "Files";
+"intent.files.description" = "Sends files to a paired phone, one after another.";
+"intent.files.sent" = "Sending to %@.";
+"intent.files.title" = "Send Files to Phone";
+"intent.phone" = "Phone";
+"intent.ping.description" = "Plays one short alert on a paired phone.";
+"intent.ping.done" = "Pinged %@.";
+"intent.ping.title" = "Ping Phone";
+"intent.ring.description" = "Rings a paired phone until you stop it there or in Bridgey.";
+"intent.ring.done" = "Ringing %@.";
+"intent.ring.title" = "Ring My Phone";
+"intent.sent" = "Sent to %@.";
+"intent.text" = "Text";
+"intent.text.description" = "Puts text on a paired phone’s clipboard.";
+"intent.text.title" = "Send Text to Phone";

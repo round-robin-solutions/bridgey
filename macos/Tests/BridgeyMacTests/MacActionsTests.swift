@@ -264,7 +264,8 @@ final class MacActionsTests: XCTestCase {
         XCTAssertEqual(entries.count, 2)
         XCTAssertEqual(entries.map(\.outcome).sorted(), ["done", "not_allowed"])
         let encoded = String(data: try! JSONEncoder().encode(entries), encoding: .utf8)!
-        XCTAssertFalse(encoded.contains("73"), "the volume level is never kept")
+        XCTAssertFalse(encoded.contains("value") || encoded.contains("level"), "the volume level is never kept: \(encoded)")
+        XCTAssertEqual(Set(entries.map(\.action)), ["volume_set", "app:com.apple.Terminal"])
     }
 
     func testConfigSurvivesARestart() {
@@ -353,5 +354,24 @@ final class OpenLinksRightAwayTests: XCTestCase {
         actions.receive("quick.request", payload: request("run", "https://example.com"), from: "phone")
         XCTAssertEqual(opened, 0)
         XCTAssertNil(actions.receivedLink)
+    }
+}
+
+final class IntentFileStagingTests: XCTestCase {
+    func testFileNamesCannotEscapeTheStagingFolder() {
+        XCTAssertEqual(IntentFileStaging.safeFileName("../../etc/passwd", fallback: "f"), "_.._etc_passwd")
+        XCTAssertEqual(IntentFileStaging.safeFileName(".hidden", fallback: "f"), "hidden")
+        XCTAssertEqual(IntentFileStaging.safeFileName("   ", fallback: "file-1"), "file-1")
+        XCTAssertEqual(IntentFileStaging.safeFileName("a:b.txt", fallback: "f"), "a_b.txt")
+    }
+
+    func testOldStagingFoldersAreRemoved() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("bridgey-intents-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let old = root.appendingPathComponent("old", isDirectory: true)
+        try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.creationDate: Date(timeIntervalSinceNow: -3 * 86_400)], ofItemAtPath: old.path)
+        _ = try IntentFileStaging.stage([], root: root)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path))
     }
 }

@@ -3110,6 +3110,52 @@ final class PairingCoordinator: ObservableObject {
 
     private func quickActionsStatus(_ text: String) { quickActions.showStatus(text) }
 
+    // MARK: Shortcuts and Siri (App Intents)
+
+    /// Paired phones for the Shortcuts phone picker.
+    func intentPhones() -> [PhoneEntity] {
+        trustedDevices.map { PhoneEntity(id: $0.id, name: $0.name) }
+    }
+
+    /// The connected phone an intent aims at: the named one, else the panel's selection.
+    func intentTarget(_ id: String?) -> String? {
+        if let id { return registry.session(for: id) != nil ? id : nil }
+        return registry.target(selected: selectedDeviceID)
+    }
+
+    func intentName(_ id: String) -> String {
+        connectedPhones.first { $0.id == id }?.name ?? trustedName(id)
+    }
+
+    func intentBattery(for id: String) -> PhoneBatteryEntity? {
+        guard isFeatureAvailable(.battery, for: id), let battery = registry.state(for: id)?.battery else { return nil }
+        return PhoneBatteryEntity(id: id, phone: intentName(id), level: battery.level, charging: battery.isCharging)
+    }
+
+    /// Runs a single-phone action aimed at `id`, then puts the panel's selection back. The panel
+    /// keeps its link card: a temporary target change does not reset quick actions.
+    @discardableResult
+    func withIntentTarget<T>(_ id: String, _ body: () -> T) -> T {
+        let previous = selectedDeviceID
+        let previousTarget = publishedTarget
+        selectedDeviceID = id
+        publishedTarget = registry.target(selected: id)
+        publish()
+        let result = body()
+        selectedDeviceID = previous
+        publishedTarget = previousTarget
+        publish()
+        return result
+    }
+
+    /// Send text to phone: the phone's clipboard, without touching this Mac's pasteboard.
+    func sendText(_ text: String, to id: String) -> Bool {
+        guard let current = registry.session(for: id), registry.isActive(current), isFeatureAvailable(.clipboard, for: id),
+              !text.isEmpty, clipboardTextFits(text) else { return false }
+        sendClipboardContent(text: text, html: nil, concealed: false, automatic: false, in: current)
+        return true
+    }
+
     // MARK: Connection health
 
     func healthSnapshot(for id: String) -> ConnectionHealthSnapshot {

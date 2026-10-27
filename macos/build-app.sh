@@ -90,6 +90,34 @@ for localization in Resources/*.lproj; do
   [ -d "$localization" ] || continue
   cp -R "$localization" "$APP_PATH/Contents/Resources/"
 done
+# Shortcuts and Siri: App Intents metadata (Metadata.appintents), which Xcode makes with
+# appintentsmetadataprocessor and SwiftPM does not. The compiler already wrote the .swiftconstvalues
+# files; run the processor with the flags Xcode uses. Best effort: without it the app still works,
+# only its actions are missing from Shortcuts (docs/automation.md).
+CONFIG_DIR=$(printf '%s' "$CONFIGURATION" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
+INTENTS_OBJECTS=$(find .build/out/Intermediates.noindex/BridgeyMac.build/"$CONFIG_DIR" -type d -path "*BridgeyMac-p.build/Objects-normal/*" 2>/dev/null | head -n 1)
+if [ -n "$INTENTS_OBJECTS" ] && ls "$INTENTS_OBJECTS"/*.swiftconstvalues >/dev/null 2>&1 && xcrun --find appintentsmetadataprocessor >/dev/null 2>&1; then
+  CONST_LIST="$CACHE_ROOT/BridgeyMac-constvalues.list"
+  mkdir -p "$CACHE_ROOT"
+  ls "$INTENTS_OBJECTS"/*.swiftconstvalues > "$CONST_LIST"
+  ARCH=$(basename "$INTENTS_OBJECTS")
+  XCODE_BUILD=$(xcodebuild -version 2>/dev/null | sed -n 's/^Build version //p')
+  if xcrun appintentsmetadataprocessor \
+      --toolchain-dir "$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain" \
+      --module-name BridgeyMac --sdk-root "$SDK_PATH" --xcode-version "${XCODE_BUILD:-unknown}" \
+      --platform-family macOS --deployment-target 13.0 --bundle-identifier "$EDITION_APP_ID" \
+      --target-triple "$ARCH-apple-macos13.0" --binary-file "$APP_PATH/Contents/MacOS/BridgeyMac" \
+      --source-file-list "$INTENTS_OBJECTS/BridgeyMac.SwiftFileList" --swift-const-vals-list "$CONST_LIST" \
+      --output "$APP_PATH/Contents/Resources" --compile-time-extraction --deployment-aware-processing \
+      --no-app-shortcuts-localization --force >"$CACHE_ROOT/appintents.log" 2>&1 \
+      && [ -f "$APP_PATH/Contents/Resources/Metadata.appintents/extract.actionsdata" ]; then
+    echo "App Intents metadata: $APP_PATH/Contents/Resources/Metadata.appintents"
+  else
+    echo "warning: App Intents metadata failed (see $CACHE_ROOT/appintents.log); Shortcuts will not list Bridgey actions" >&2
+  fi
+else
+  echo "warning: no .swiftconstvalues or appintentsmetadataprocessor; Shortcuts will not list Bridgey actions" >&2
+fi
 python3 ./create-icns.py \
   "Resources/AppIcon.iconset" \
   "$APP_PATH/Contents/Resources/Bridgey.icns"

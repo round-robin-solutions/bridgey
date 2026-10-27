@@ -111,3 +111,21 @@ open apps or run Shortcuts. On real devices:
    Automation when asked. The phone shows the link.
 7. Settings > Devices on the Mac and the Connection tab on the phone: route, round trip, last
    disconnect after toggling Wi-Fi, reconnects today. Export diagnostics and check `health`.
+
+## Shortcuts and Siri on the Mac
+
+Bridgey offers six App Intents actions in the Shortcuts app, Spotlight and Siri: Send Clipboard to
+Phone, Send Files to Phone, Send Text to Phone, Ring My Phone, Ping Phone and Get Phone Battery
+(it returns the phone, its level and whether it is charging). Each has an optional Phone
+parameter; without it the action uses the phone selected in the panel. If Bridgey was not running,
+macOS starts it and the action waits up to 10 seconds for the phone to connect. The phone's own
+switches still apply: an action for a feature that is off says so. Four of them are App Shortcuts,
+so they appear without any setup. Their spoken phrases are English only for now (titles and
+messages are translated).
+
+**SwiftPM and the metadata.** Shortcuts only sees actions listed in `Metadata.appintents` inside
+the app, which Xcode makes with `appintentsmetadataprocessor`. Swift 6.4's SwiftPM already writes
+the compiler's `.swiftconstvalues` files, so `build-app.sh` runs the processor itself with the
+flags Xcode uses, before signing. It is best effort: if a toolchain lacks the files or the tool,
+the build prints a warning and the app works without Shortcuts actions. macOS indexes the actions
+only for an app in a normal location such as /Applications, not under /tmp.

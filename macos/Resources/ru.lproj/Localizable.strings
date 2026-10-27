@@ -775,3 +775,35 @@
 "settings.links.openRightAway" = "Сразу открывать ссылки с телефонов";
 "settings.links.openRightAway.detail" = "«Открыть на Mac» в меню «Поделиться» на телефоне открывает ссылку в браузере. Если выключено, ссылка ждёт, пока вы откроете её здесь.";
 "settings.macActions" = "Действия на Mac";
+
+/* Shortcuts and Siri (App Intents) */
+"intent.battery.charging" = "Заряжается";
+"intent.battery.description" = "Возвращает уровень заряда сопряжённого телефона и заряжается ли он.";
+"intent.battery.dialog" = "У %@ %lld%%.";
+"intent.battery.dialogCharging" = "У %@ %lld%%, заряжается.";
+"intent.battery.level" = "Уровень";
+"intent.battery.phone" = "Телефон";
+"intent.battery.title" = "Заряд телефона";
+"intent.battery.type" = "Заряд телефона";
+"intent.clipboard.description" = "Отправляет содержимое буфера обмена этого Mac на сопряжённый телефон.";
+"intent.clipboard.title" = "Отправить буфер на телефон";
+"intent.error.failed" = "Bridgey не удалось это сделать.";
+"intent.error.featureOff" = "«%@» выключено на этом Mac или на телефоне.";
+"intent.error.notConnected" = "К этому Mac не подключён ни один телефон.";
+"intent.error.notConnectedNamed" = "%@ не подключён к этому Mac.";
+"intent.error.nothing" = "Нечего отправлять.";
+"intent.files" = "Файлы";
+"intent.files.description" = "Отправляет файлы на сопряжённый телефон, по очереди.";
+"intent.files.sent" = "Отправляем на %@.";
+"intent.files.title" = "Отправить файлы на телефон";
+"intent.phone" = "Телефон";
+"intent.ping.description" = "Проигрывает один короткий сигнал на сопряжённом телефоне.";
+"intent.ping.done" = "Пинг отправлен на %@.";
+"intent.ping.title" = "Пинг телефона";
+"intent.ring.description" = "Звонит на сопряжённом телефоне, пока вы не остановите звук там или в Bridgey.";
+"intent.ring.done" = "%@ звонит.";
+"intent.ring.title" = "Позвонить на мой телефон";
+"intent.sent" = "Отправлено на %@.";
+"intent.text" = "Текст";
+"intent.text.description" = "Помещает текст в буфер обмена сопряжённого телефона.";
+"intent.text.title" = "Отправить текст на телефон";
