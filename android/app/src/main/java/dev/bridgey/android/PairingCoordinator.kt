@@ -260,6 +260,7 @@ class PairingCoordinator(
 
     private val identity = AndroidIdentity(context.applicationContext)
     private val trust = AndroidTrustRegistry(context.applicationContext)
+    private val inboundPairingLimiter = InboundPairingLimiter()
     val trustedDeviceIds: StateFlow<Set<String>> = trust.trustedDeviceIds
     val trustedDevices: StateFlow<List<TrustedDevice>> = trust.trustedDevices
     @Volatile private var localDeviceName = localDeviceName
@@ -2389,7 +2390,16 @@ class PairingCoordinator(
         current.remotePort = socket.port
         if (!initiatedLocally) {
             BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT inbound connection address=${current.remoteHost?.let(::addressTag) ?: "unknown"}")
+            // Connections that have not authenticated yet are capped, in all and per address.
+            val pendingHosts = registry.pendingSessions().filterNot { it.initiatedLocally }.map { it.remoteHost }
+            if (!admitsPendingConnection(pendingHosts, current.remoteHost)) {
+                BridgeyLogging.w(LogCategory.CONNECTION, "TRANSPORT inbound connection refused: too many unauthenticated connections")
+                diagnostics.record("transport", "inbound_refused", "pending_limit")
+                current.close()
+                return
+            }
         }
+        current.tagSender = localDeviceId
         registry.addPending(current, initiatedLocally)
         if (manual) pairingSession = current
         if (initiatedLocally) {
@@ -2397,14 +2407,19 @@ class PairingCoordinator(
             current.keyPair = Crypto.generateKeyPair()
             current.localEphemeralKey = Crypto.encodePublicKey(current.keyPair!!)
             current.id = UUID.randomUUID().toString()
+            // A first pairing commits to its key and reveals it after the answer (protocol 2); a reconnect to a
+            // trusted device sends the key, because that device's pinned identity signature authenticates it.
+            current.committed = dialDeviceId == null || trust.identityKey(dialDeviceId) == null
             current.send(
                 Message(
                     kind = "pairing.offer",
                     sessionId = current.id,
                     deviceId = localDeviceId,
                     deviceName = localDeviceName,
-                    publicKey = current.localEphemeralKey,
+                    publicKey = current.localEphemeralKey.takeUnless { current.committed },
                     targetDeviceId = dialDeviceId,
+                    commitment = if (current.committed) SessionSecurity.commitment(current.id, current.localEphemeralKey) else null,
+                    protocolVersion = SessionSecurity.PROTOCOL_VERSION,
                 ),
             )
         }
@@ -2413,7 +2428,20 @@ class PairingCoordinator(
                 try {
                     val line = current.input.readProtocolLine() ?: break
                     current.lastReceivedAtMillis = SystemClock.elapsedRealtime()
-                    receive(current, Message.decode(line))
+                    val message = Message.decode(line)
+                    if (admitFrame(current, message)) {
+                        receive(current, message)
+                    } else if (current.droppedFrames >= MAX_DROPPED_FRAMES) {
+                        current.dropReason = "unauthenticated_frames"
+                        break
+                    }
+                    // The handshake deadline holds even while the other end keeps sending.
+                    if (!current.closed && !registry.isActive(current) && pendingExpired(current, SystemClock.elapsedRealtime())) {
+                        current.failure = PairingFailure.TIMEOUT
+                        current.dropReason = "handshake_timeout"
+                        BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING timed out")
+                        break
+                    }
                 } catch (_: SocketTimeoutException) {
                     if (current.closed) break
                     val now = SystemClock.elapsedRealtime()
@@ -2476,6 +2504,31 @@ class PairingCoordinator(
         reconnect.dialEnded(dialed)
     }
 
+    /**
+     * Only pairing frames reach [receive] before authentication; after it, frames must belong to this session
+     * and, on protocol 2, carry a valid envelope tag from the other end.
+     */
+    private fun admitFrame(current: Session, message: Message): Boolean {
+        if (SessionSecurity.allowedBeforeAuthentication(message.kind)) return true
+        val reason = when {
+            !registry.isActive(current) || message.sessionId != current.id -> "unauthenticated"
+            current.envelopeKey?.let { !SessionSecurity.tagMatches(it, current.remoteDeviceId, message) } == true -> "bad_tag"
+            else -> return true
+        }
+        if (current.droppedFrames++ == 0) {
+            BridgeyLogging.w(LogCategory.CONNECTION, "TRANSPORT frame dropped kind=${message.kind.take(32)} reason=$reason")
+            diagnostics.record("protocol", "frame_dropped", reason)
+        }
+        return false
+    }
+
+    /** Session key in place: protocol 2 on both ends also turns on envelope tags. */
+    private fun applyPairingMaterial(current: Session, material: Crypto.PairingMaterial) {
+        current.code = material.code
+        current.pairingKey = material.key
+        if (current.remoteProtocol >= SessionSecurity.PROTOCOL_VERSION) current.envelopeKey = SessionSecurity.envelopeKey(material.key)
+    }
+
     /** A pending session waits 20 s for the handshake, or two minutes for the user to confirm the code. */
     private fun pendingExpired(current: Session, now: Long): Boolean {
         val limit = if (current.code != null && trust.identityKey(current.remoteDeviceId) == null) {
@@ -2509,23 +2562,45 @@ class PairingCoordinator(
                     current.close()
                     return
                 }
+                if (current.remoteCommitment != null) return
                 current.id = message.sessionId
-                current.peerName = message.deviceName ?: "Android device"
+                current.peerName = sanitizedPeerName(message.deviceName, "Android device")
                 current.remoteDeviceId = message.deviceId ?: return
-                current.remoteEphemeralKey = message.publicKey ?: return
+                current.remoteProtocol = message.protocolVersion ?: 1L
+                val revealed = message.publicKey
+                if (revealed == null && (message.commitment == null || current.remoteProtocol < SessionSecurity.PROTOCOL_VERSION)) return
                 current.keyPair = Crypto.generateKeyPair()
                 current.localEphemeralKey = Crypto.encodePublicKey(current.keyPair!!)
-                val material = Crypto.pairingMaterial(current.keyPair!!, current.remoteEphemeralKey, current.id)
-                current.code = material.code
-                current.pairingKey = material.key
-                current.send(
-                    Message(
-                        kind = "pairing.answer",
-                        sessionId = current.id,
-                        deviceId = localDeviceId,
-                        deviceName = localDeviceName,
-                        publicKey = current.localEphemeralKey,
-                    ),
+                val answer = Message(
+                    kind = "pairing.answer",
+                    sessionId = current.id,
+                    deviceId = localDeviceId,
+                    deviceName = localDeviceName,
+                    publicKey = current.localEphemeralKey,
+                    protocolVersion = SessionSecurity.PROTOCOL_VERSION,
+                )
+                if (revealed == null) {
+                    // Protocol 2 first pairing: answer first; the key and the code come with pairing.reveal.
+                    current.remoteCommitment = message.commitment
+                    current.send(answer)
+                    return
+                }
+                current.remoteEphemeralKey = revealed
+                applyPairingMaterial(current, Crypto.pairingMaterial(current.keyPair!!, current.remoteEphemeralKey, current.id))
+                current.send(answer)
+                authenticateOrPrompt(current)
+            }
+            "pairing.reveal" -> {
+                val commitment = current.remoteCommitment ?: return
+                if (message.sessionId != current.id || current.pairingKey != null) return
+                val revealed = message.publicKey
+                if (revealed == null || !SessionSecurity.commitmentMatches(commitment, current.id, revealed)) {
+                    return failHandshake(current, PairingFailure.CODE_REJECTED, "Pairing commitment did not match")
+                }
+                current.remoteEphemeralKey = revealed
+                applyPairingMaterial(
+                    current,
+                    Crypto.pairingMaterial(current.keyPair!!, revealed, current.id, sasKeys = revealed to current.localEphemeralKey),
                 )
                 authenticateOrPrompt(current)
             }
@@ -2538,12 +2613,18 @@ class PairingCoordinator(
                     current.close()
                     return
                 }
-                current.peerName = message.deviceName ?: current.peerName
+                current.peerName = sanitizedPeerName(message.deviceName, current.peerName)
                 current.remoteDeviceId = message.deviceId ?: return
                 current.remoteEphemeralKey = message.publicKey ?: return
-                val material = Crypto.pairingMaterial(current.keyPair!!, current.remoteEphemeralKey, current.id)
-                current.code = material.code
-                current.pairingKey = material.key
+                current.remoteProtocol = message.protocolVersion ?: 1L
+                if (current.committed && current.remoteProtocol < SessionSecurity.PROTOCOL_VERSION) {
+                    return failHandshake(current, PairingFailure.INVALID, "Pairing answer without protocol 2")
+                }
+                val sasKeys = if (current.committed) current.localEphemeralKey to current.remoteEphemeralKey else null
+                applyPairingMaterial(current, Crypto.pairingMaterial(current.keyPair!!, current.remoteEphemeralKey, current.id, sasKeys))
+                if (current.committed) {
+                    current.send(Message(kind = "pairing.reveal", sessionId = current.id, publicKey = current.localEphemeralKey))
+                }
                 authenticateOrPrompt(current)
             }
             "pairing.confirm" -> {
@@ -3154,13 +3235,19 @@ class PairingCoordinator(
     }
 
     private fun authenticateOrPrompt(current: Session) {
+        // A device that once spoke protocol 2 keeps it: a session without envelope tags is a downgrade.
+        if (current.envelopeKey == null && trust.pinnedProtocol(current.remoteDeviceId) >= SessionSecurity.PROTOCOL_VERSION) {
+            return failHandshake(current, PairingFailure.INVALID, "Protocol downgrade refused")
+        }
         if (trust.identityKey(current.remoteDeviceId) != null) {
             confirm(current)
             return
         }
-        // A new device: it needs the code prompt, which belongs to one pairing at a time.
+        // A new device: it needs the code prompt, which belongs to one pairing at a time. A pairing this phone
+        // started keeps the prompt even before its code is ready, and other devices may start only a few a minute.
         val existing = pairingSession
-        if (existing != null && existing !== current && existing.code != null && !existing.closed) {
+        val busy = existing != null && existing !== current && !existing.closed && (existing.code != null || existing.initiatedLocally)
+        if (busy || (!current.initiatedLocally && !inboundPairingLimiter.tryAcquire(SystemClock.elapsedRealtime()))) {
             BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING rejected: another pairing is waiting for confirmation")
             current.failure = PairingFailure.BUSY
             current.send(Message(kind = "pairing.cancel", sessionId = current.id))
@@ -3201,6 +3288,7 @@ class PairingCoordinator(
     @Synchronized private fun completeIfConfirmed(current: Session) {
         if (!current.localConfirmed || !current.remoteConfirmed || current.authenticated) return
         trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!)
+        if (current.envelopeKey != null) trust.pinProtocol(current.remoteDeviceId, SessionSecurity.PROTOCOL_VERSION)
         when (val admission = registry.authenticate(current, current.remoteDeviceId, current.peerName)) {
             SessionRegistry.Admission.Rejected -> {
                 // A live session for this device wins the duplicate rule; this socket closes quietly.
@@ -3520,6 +3608,7 @@ class PairingCoordinator(
         const val REMOTE_INPUT_MAX_BYTES = 2_048
         const val LOW_PRIORITY_MAX_WAIT_MILLIS = 2_000
         const val LOW_PRIORITY_CHUNK_GAP_MILLIS = 2L
+        const val MAX_DROPPED_FRAMES = 16
     }
 
     private class Session(private val socket: Socket) {
@@ -3535,6 +3624,20 @@ class PairingCoordinator(
         var keyPair: KeyPair? = null
         var code: String? = null
         var pairingKey: ByteArray? = null
+
+        /** Protocol 2: this end sent a commitment instead of its key (a first pairing it started). */
+        var committed = false
+
+        /** Protocol 2: the initiator's commitment, until pairing.reveal opens it. */
+        var remoteCommitment: String? = null
+        var remoteProtocol = 1L
+
+        /** Protocol 2 on both ends: the key for envelope tags, and this device's ID they are made with. */
+        @Volatile var envelopeKey: ByteArray? = null
+        @Volatile var tagSender = ""
+
+        /** Frames dropped for arriving before authentication or with a bad tag; the session closes at 16. */
+        var droppedFrames = 0
         @Volatile var localConfirmed = false
         @Volatile var remoteConfirmed = false
 
@@ -3596,8 +3699,14 @@ class PairingCoordinator(
         }
 
         private fun write(message: Message): Boolean = synchronized(writeLock) {
+            val key = envelopeKey
+            val framed = if (key != null && !SessionSecurity.allowedBeforeAuthentication(message.kind)) {
+                message.copy(tag = SessionSecurity.tag(key, tagSender, message))
+            } else {
+                message
+            }
             val result = runCatching {
-                writer.write(message.encode())
+                writer.write(framed.encode())
                 writer.newLine()
                 writer.flush()
             }
@@ -3745,6 +3854,12 @@ internal data class Message(
     val sequence: Long? = null,
     /** On a reconnect offer: the trusted device it is meant for. Any other device declines quietly. */
     val targetDeviceId: String? = null,
+    /** Protocol 2 first pairing: SHA-256 commitment to the offer's ephemeral key, revealed in pairing.reveal. */
+    val commitment: String? = null,
+    /** In pairing.offer and pairing.answer: the highest protocol version the sender speaks (absent means 1). */
+    val protocolVersion: Long? = null,
+    /** Protocol 2: HMAC over the envelope, see [SessionSecurity.tag]. */
+    val tag: String? = null,
 ) {
     fun encode(): String = JSONObject().apply {
         put("kind", kind)
@@ -3761,6 +3876,9 @@ internal data class Message(
         transferId?.let { put("transferId", it) }
         sequence?.let { put("sequence", it) }
         targetDeviceId?.let { put("targetDeviceId", it) }
+        commitment?.let { put("commitment", it) }
+        protocolVersion?.let { put("protocolVersion", it) }
+        tag?.let { put("tag", it) }
     }.toString()
 
     companion object {
@@ -3783,7 +3901,11 @@ internal object Crypto {
         return java.util.Base64.getEncoder().encodeToString(raw)
     }
 
-    fun pairingMaterial(pair: KeyPair, remoteBase64: String, sessionId: String): PairingMaterial {
+    /**
+     * The session key and the six-digit code. [sasKeys] (initiator's then responder's ephemeral key) selects the
+     * protocol 2 code from its own label (see [SessionSecurity.sasCode]); without it the code is protocol 1's.
+     */
+    fun pairingMaterial(pair: KeyPair, remoteBase64: String, sessionId: String, sasKeys: Pair<String, String>? = null): PairingMaterial {
         val agreement = KeyAgreement.getInstance("ECDH")
         agreement.init(pair.private)
         agreement.doPhase(decodePublicKey(java.util.Base64.getDecoder().decode(remoteBase64)), true)
@@ -3793,6 +3915,7 @@ internal object Crypto {
         val prk = extract.doFinal(sharedSecret)
         val expand = Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(prk, "HmacSHA256")) }
         val output = expand.doFinal("bridgey-pairing-v1".toByteArray() + byteArrayOf(1))
+        if (sasKeys != null) return PairingMaterial(SessionSecurity.sasCode(prk, sasKeys.first, sasKeys.second), output)
         val number = ((output[0].toLong() and 0xff) shl 24) or
             ((output[1].toLong() and 0xff) shl 16) or
             ((output[2].toLong() and 0xff) shl 8) or (output[3].toLong() and 0xff)
@@ -3932,12 +4055,20 @@ private class AndroidTrustRegistry(context: Context) {
         preferences.edit()
             .remove("peer.$deviceId.name")
             .remove("peer.$deviceId.identityKey")
+            .remove("peer.$deviceId.protocol")
             .apply()
         mutableIds.value = loadIds()
         mutableDevices.value = loadDevices()
     }
 
     fun identityKey(deviceId: String): String? = preferences.getString("peer.$deviceId.identityKey", null)
+
+    /** The protocol version this device last authenticated with; later sessions may not go below it. */
+    fun pinnedProtocol(deviceId: String): Long = preferences.getLong("peer.$deviceId.protocol", 1L)
+
+    fun pinProtocol(deviceId: String, version: Long) {
+        if (version > pinnedProtocol(deviceId)) preferences.edit().putLong("peer.$deviceId.protocol", version).apply()
+    }
 
     private fun loadIds(): Set<String> = preferences.all.keys
         .asSequence()

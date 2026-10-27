@@ -5,10 +5,13 @@ enum ProtocolCryptoError: Error {
     case invalidInput
 }
 
+/// The session key and the six-digit code. `sasKeys` (initiator's then responder's ephemeral key) selects the
+/// protocol 2 code from its own label (see SessionSecurity.sasCode); without it the code is protocol 1's.
 func pairingMaterial(
     privateKey: P256.KeyAgreement.PrivateKey,
     remoteKey: String,
-    sessionID: String
+    sessionID: String,
+    sasKeys: (initiator: String, responder: String)? = nil
 ) throws -> (code: String, key: Data) {
     guard let data = Data(base64Encoded: remoteKey) else { throw ProtocolCryptoError.invalidInput }
     let publicKey = try P256.KeyAgreement.PublicKey(x963Representation: data)
@@ -20,6 +23,11 @@ func pairingMaterial(
         sharedInfo: Data("bridgey-pairing-v1".utf8),
         outputByteCount: 32
     )
+    if let sasKeys {
+        let prk = secret.withUnsafeBytes { Data(HMAC<SHA256>.authenticationCode(for: Data($0), using: SymmetricKey(data: salt))) }
+        let code = SessionSecurity.sasCode(prk: prk, initiatorKey: sasKeys.initiator, responderKey: sasKeys.responder)
+        return (code, key.withUnsafeBytes { Data($0) })
+    }
     let bytes = key.withUnsafeBytes { Array($0.prefix(4)) }
     let value = (UInt32(bytes[0]) << 24) | (UInt32(bytes[1]) << 16) |
         (UInt32(bytes[2]) << 8) | UInt32(bytes[3])

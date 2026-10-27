@@ -153,7 +153,7 @@
 
     <!-- Шаги производителя (по dontkillmyapp.com) -->
     <string name="oem_title">Чтобы Bridgey работал на %1$s</string>
-    <string name="oem_intro">Этот телефон закрывает фоновые приложения сверх обычных настроек батареи Android. Измените это один раз.</string>
+    <string name="oem_intro">Этот телефон закрывает фоновые приложения сверх обычных настроек батареи Android. Измените это один раз и проверьте снова после обновления системы.</string>
     <string name="oem_source">Шаги по dontkillmyapp.com</string>
     <string name="oem_vendor_oneplus">OnePlus</string>
     <string name="oem_vendor_coloros">Oppo и Realme (ColorOS)</string>
@@ -166,7 +166,7 @@
     <string name="oem_step_never_sleeping">Приложения, которые не усыпляются</string>
     <string name="oem_oneplus_auto_start">Настройки, Приложения, Автозапуск: включите Bridgey.</string>
     <string name="oem_oneplus_background">О приложении, Батарея: разрешите работу в фоне.</string>
-    <string name="oem_oneplus_battery">Батарея, Оптимизация батареи: для Bridgey выберите «Не оптимизировать».</string>
+    <string name="oem_oneplus_battery">Батарея, Оптимизация батареи: для Bridgey выберите «Не оптимизировать». В разделе «Расширенная оптимизация» отключите «Глубокую оптимизацию» и «Оптимизацию в режиме сна».</string>
     <string name="oem_coloros_auto_start">Настройки, Управление приложениями, Автозапуск: включите Bridgey.</string>
     <string name="oem_coloros_background">О приложении, Батарея: разрешите работу в фоне.</string>
     <string name="oem_coloros_battery">Батарея, Другие настройки, Оптимизация расхода: для Bridgey выберите «Не оптимизировать».</string>
@@ -175,7 +175,7 @@
     <string name="oem_xiaomi_battery">Оптимизация батареи: выберите «Не оптимизировать». И закрепите Bridgey в недавних приложениях.</string>
     <string name="oem_samsung_background">О приложении, Батарея: выберите «Без ограничений».</string>
     <string name="oem_samsung_battery">Батарея, Ограничения в фоне: выключите «Переводить в спящий режим».</string>
-    <string name="oem_samsung_never_sleeping">Батарея, Ограничения в фоне, Приложения, которые не усыпляются: добавьте Bridgey.</string>
+    <string name="oem_samsung_never_sleeping">Батарея, Ограничения в фоне, Приложения, которые не усыпляются: добавьте Bridgey и уберите его из списков «Спящие приложения» и «Приложения в глубоком сне».</string>
     <string name="oem_vivo_auto_start">i Manager, Диспетчер приложений, Автозапуск: включите Bridgey.</string>
     <string name="oem_vivo_background">Батарея, Энергопотребление в фоне: разрешите Bridgey.</string>
     <string name="oem_vivo_battery">О приложении, Батарея: выберите «Не ограничивать работу в фоне».</string>

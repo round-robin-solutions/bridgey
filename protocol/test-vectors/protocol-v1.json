@@ -158,6 +158,57 @@
    "expect": "reject"
   },
   {
+   "name": "protocol 2 first-pairing offer",
+   "line": "{\"kind\":\"pairing.offer\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"deviceId\":\"7e57d00d-0000-4000-8000-000000000001\",\"deviceName\":\"Test Mac\",\"commitment\":\"Y29tbWl0\",\"protocolVersion\":2}",
+   "expect": {
+    "kind": "pairing.offer",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "deviceId": "7e57d00d-0000-4000-8000-000000000001",
+    "deviceName": "Test Mac",
+    "commitment": "Y29tbWl0",
+    "protocolVersion": 2
+   }
+  },
+  {
+   "name": "pairing.reveal",
+   "line": "{\"kind\":\"pairing.reveal\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"publicKey\":\"BAAA\"}",
+   "expect": {
+    "kind": "pairing.reveal",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "publicKey": "BAAA"
+   }
+  },
+  {
+   "name": "tagged frame",
+   "line": "{\"kind\":\"ping.ack\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"messageId\":\"0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "ping.ack",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "messageId": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "protocolVersion is a string",
+   "line": "{\"kind\":\"pairing.answer\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"protocolVersion\":\"2\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "protocolVersion is a fraction",
+   "line": "{\"kind\":\"pairing.answer\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"protocolVersion\":2.5}",
+   "expect": "reject"
+  },
+  {
+   "name": "tag is a number",
+   "line": "{\"kind\":\"ping.ack\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"tag\":5}",
+   "expect": "reject"
+  },
+  {
+   "name": "commitment is an array",
+   "line": "{\"kind\":\"pairing.offer\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"commitment\":[\"a\"]}",
+   "expect": "reject"
+  },
+  {
    "name": "deviceName is an object",
    "line": "{\"kind\":\"pairing.offer\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"deviceName\":{\"a\":1}}",
    "expect": "reject"

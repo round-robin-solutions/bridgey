@@ -160,23 +160,31 @@ the tables at the end of this page are generated from it with
 | `transferId` | string | no |  |
 | `sequence` | integer | no | min -9007199254740991; max 9007199254740991; an integral JSON number; each kind checks its own range |
 | `targetDeviceId` | string | no | edition-extension |
+| `commitment` | string | no | protocol 2: base64 SHA-256 commitment to the first-pairing offer's ephemeral key, opened by pairing.reveal; edition-extension |
+| `protocolVersion` | integer | no | in pairing.offer and pairing.answer: the highest protocol the sender speaks; absent means 1; edition-extension |
+| `tag` | string | no | protocol 2: base64 HMAC-SHA-256 over the sender's device ID and every other envelope field, on every frame after pairing when both ends sent protocolVersion 2; edition-extension |
 
 ### Messages
 
-99 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+100 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `pairing.offer` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, deviceName, publicKey, targetDeviceId? | android, macos |
-| `pairing.answer` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, deviceName, publicKey | android, macos |
+| `pairing.offer` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, deviceName, publicKey?, targetDeviceId?, commitment?, protocolVersion? | android, macos |
+| `pairing.answer` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, deviceName, publicKey, protocolVersion? | android, macos |
+| `pairing.reveal` | edition-extension | either | none | no | none | frame | sessionId, publicKey | android, macos |
 | `pairing.confirm` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, identityKey, proof, signature | android, macos |
 | `pairing.cancel` | upstream-v1 | either | none | no | none | frame | sessionId | android, macos |
 
 `pairing.offer`
 
-Sent by the side that dials. targetDeviceId (edition extension) names the trusted peer a reconnect is for; any other receiver closes quietly.
+Sent by the side that dials. targetDeviceId (edition extension) names the trusted peer a reconnect is for; any other receiver closes quietly. Protocol 2: a first pairing sends commitment instead of publicKey, and reveals the key in pairing.reveal after the answer.
+
+`pairing.reveal`
+
+Protocol 2 first pairing: the initiator's ephemeral key after the answer. The responder checks it against the offer's commitment and fails the pairing on a mismatch.
 
 `pairing.confirm`
 

@@ -275,6 +275,8 @@ final class PairingCoordinator: ObservableObject {
     private var identity: MacIdentity?
     private let pairingStore: MacPairingStore
     private let trustRegistry: MacTrustRegistry
+    private let protocolPins = ProtocolPins()
+    private var inboundPairingLimiter = InboundPairingLimiter()
     private var listener: NWListener?
     /// Multi-device sessions: pending (handshaking or pairing) and one per phone.
     private lazy var registry = SessionRegistry<Session>(localDeviceID: deviceID)
@@ -644,6 +646,10 @@ final class PairingCoordinator: ObservableObject {
         current.id = UUID().uuidString.lowercased()
         current.privateKey = P256.KeyAgreement.PrivateKey()
         current.localEphemeralKey = current.privateKey!.publicKey.x963Representation.base64EncodedString()
+        current.tagSender = deviceID
+        // A first pairing commits to its key and reveals it after the answer (protocol 2); a reconnect to a
+        // trusted phone sends the key, because that phone's pinned identity signature authenticates it.
+        current.committed = dialDeviceID.map { trustedIdentityKey($0) == nil } ?? true
         registry.addPending(current, initiatedLocally: true)
         scheduleConnectionTimeout(for: current)
         configure(current) { [weak self, weak current] in
@@ -653,8 +659,11 @@ final class PairingCoordinator: ObservableObject {
                 sessionId: current.id,
                 deviceId: self.deviceID,
                 deviceName: self.deviceName,
-                publicKey: current.localEphemeralKey,
-                targetDeviceId: current.dialDeviceID
+                publicKey: current.committed ? nil : current.localEphemeralKey,
+                targetDeviceId: current.dialDeviceID,
+                commitment: current.committed
+                    ? SessionSecurity.commitment(sessionID: current.id, publicKey: current.localEphemeralKey) : nil,
+                protocolVersion: SessionSecurity.protocolVersion
             ))
         }
         return current
@@ -737,6 +746,7 @@ final class PairingCoordinator: ObservableObject {
         transferHistory.forget(deviceID: deviceID)
         clearClipboardCache()
         trustRegistry.remove(deviceID: deviceID)
+        protocolPins.remove(deviceID)
         trustedDeviceIDs.remove(deviceID)
         settings.removeDevice(deviceID)
         batteryAlerts.forget(deviceID)
@@ -2000,6 +2010,15 @@ final class PairingCoordinator: ObservableObject {
         // Where the phone connected from: once it authenticates, the next reconnect can dial it there.
         current.remoteHost = endpointHost(connection.endpoint)
         BridgeyLog.transport.notice("inbound connection address=\(current.remoteHost.map(addressTag) ?? "unknown", privacy: .public)")
+        // Connections that have not authenticated yet are capped, in all and per address.
+        let pendingHosts = registry.pendingSessions.filter { !$0.initiatedLocally }.map(\.remoteHost)
+        guard admitsPendingConnection(pendingHosts: pendingHosts, host: current.remoteHost) else {
+            BridgeyLog.transport.error("inbound connection refused: too many unauthenticated connections")
+            diagnostics.record(category: "transport", event: "inbound_refused", outcome: "pending_limit")
+            connection.cancel()
+            return
+        }
+        current.tagSender = deviceID
         registry.addPending(current, initiatedLocally: false)
         scheduleConnectionTimeout(for: current)
         configure(current, onReady: {})
@@ -2007,8 +2026,13 @@ final class PairingCoordinator: ObservableObject {
 
     private func configure(_ current: Session, onReady: @escaping () -> Void) {
         current.onMessage = { [weak self, weak current] message in
-            guard let self, let current else { return }
-            self.receive(message, in: current)
+            guard let self, let current, !current.ended else { return }
+            if self.admitFrame(message, in: current) {
+                self.receive(message, in: current)
+            } else if current.droppedFrames >= 16 {
+                current.dropReason = "unauthenticated_frames"
+                current.close()
+            }
         }
         current.onFailure = { [weak self, weak current] in
             guard let self, let current, !current.ended else { return }
@@ -2085,25 +2109,56 @@ final class PairingCoordinator: ObservableObject {
                     current.close()
                     return
                 }
-                guard let publicKey = message.publicKey else { throw PairingError.invalidMessage }
+                guard current.remoteCommitment == nil else { return }
+                let remoteProtocol = message.protocolVersion ?? 1
+                let revealed = message.publicKey
+                guard revealed != nil || (message.commitment != nil && remoteProtocol >= SessionSecurity.protocolVersion) else {
+                    throw PairingError.invalidMessage
+                }
                 current.id = message.sessionId
-                current.peerName = message.deviceName ?? "Android device"
+                current.peerName = sanitizedPeerName(message.deviceName, fallback: "Android device")
                 guard let remoteDeviceID = message.deviceId else { throw PairingError.invalidMessage }
                 current.remoteDeviceID = remoteDeviceID
-                current.remoteEphemeralKey = publicKey
+                current.remoteProtocol = remoteProtocol
                 let key = P256.KeyAgreement.PrivateKey()
                 current.privateKey = key
                 current.localEphemeralKey = key.publicKey.x963Representation.base64EncodedString()
-                let material = try pairingMaterial(privateKey: key, remoteKey: publicKey, sessionID: current.id)
-                current.code = material.code
-                current.pairingKey = material.key
-                current.send(PairingMessage(
+                let answer = PairingMessage(
                     kind: "pairing.answer",
                     sessionId: current.id,
                     deviceId: deviceID,
                     deviceName: deviceName,
-                    publicKey: current.localEphemeralKey
-                ))
+                    publicKey: current.localEphemeralKey,
+                    protocolVersion: SessionSecurity.protocolVersion
+                )
+                guard let publicKey = revealed else {
+                    // Protocol 2 first pairing: answer first; the key and the code come with pairing.reveal.
+                    current.remoteCommitment = message.commitment
+                    current.send(answer)
+                    return
+                }
+                current.remoteEphemeralKey = publicKey
+                applyPairingMaterial(try pairingMaterial(privateKey: key, remoteKey: publicKey, sessionID: current.id), to: current)
+                current.send(answer)
+                authenticateOrPrompt(current)
+            case "pairing.reveal":
+                guard let commitment = current.remoteCommitment else { return }
+                guard message.sessionId == current.id, current.pairingKey == nil, let key = current.privateKey else { return }
+                guard let publicKey = message.publicKey,
+                      SessionSecurity.commitmentMatches(commitment, sessionID: current.id, publicKey: publicKey) else {
+                    current.failure = .codeRejected
+                    throw PairingError.invalidMessage
+                }
+                current.remoteEphemeralKey = publicKey
+                applyPairingMaterial(
+                    try pairingMaterial(
+                        privateKey: key,
+                        remoteKey: publicKey,
+                        sessionID: current.id,
+                        sasKeys: (initiator: publicKey, responder: current.localEphemeralKey)
+                    ),
+                    to: current
+                )
                 authenticateOrPrompt(current)
             case "pairing.answer":
                 guard current.pairingKey == nil else { return }
@@ -2117,12 +2172,21 @@ final class PairingCoordinator: ObservableObject {
                       let key = current.privateKey,
                       let publicKey = message.publicKey,
                       let remoteDeviceID = message.deviceId else { throw PairingError.invalidMessage }
-                current.peerName = message.deviceName ?? current.peerName
+                current.peerName = sanitizedPeerName(message.deviceName, fallback: current.peerName)
                 current.remoteDeviceID = remoteDeviceID
                 current.remoteEphemeralKey = publicKey
-                let material = try pairingMaterial(privateKey: key, remoteKey: publicKey, sessionID: current.id)
-                current.code = material.code
-                current.pairingKey = material.key
+                current.remoteProtocol = message.protocolVersion ?? 1
+                if current.committed && current.remoteProtocol < SessionSecurity.protocolVersion {
+                    throw PairingError.invalidMessage
+                }
+                let sasKeys = current.committed ? (initiator: current.localEphemeralKey, responder: publicKey) : nil
+                applyPairingMaterial(
+                    try pairingMaterial(privateKey: key, remoteKey: publicKey, sessionID: current.id, sasKeys: sasKeys),
+                    to: current
+                )
+                if current.committed {
+                    current.send(PairingMessage(kind: "pairing.reveal", sessionId: current.id, publicKey: current.localEphemeralKey))
+                }
                 authenticateOrPrompt(current)
             case "pairing.confirm":
                 guard message.sessionId == current.id, current.pairingKey != nil,
@@ -2855,13 +2919,53 @@ final class PairingCoordinator: ObservableObject {
         fileTransfers = Dictionary(uniqueKeysWithValues: (active + Array(history)).map { ($0.id, $0) })
     }
 
+    /// Only pairing frames reach `receive` before authentication; after it, frames must belong to this session
+    /// and, on protocol 2, carry a valid envelope tag from the phone.
+    private func admitFrame(_ message: PairingMessage, in current: Session) -> Bool {
+        if SessionSecurity.allowedBeforeAuthentication(message.kind) { return true }
+        let reason: String
+        if !registry.isActive(current) || message.sessionId != current.id {
+            reason = "unauthenticated"
+        } else if let key = current.envelopeKey,
+                  !SessionSecurity.tagMatches(envelopeKey: key, senderDeviceID: current.remoteDeviceID, message: message) {
+            reason = "bad_tag"
+        } else {
+            return true
+        }
+        if current.droppedFrames == 0 {
+            BridgeyLog.transport.error("frame dropped kind=\(String(message.kind.prefix(32)), privacy: .public) reason=\(reason, privacy: .public)")
+            diagnostics.record(category: "protocol", event: "frame_dropped", outcome: reason)
+        }
+        current.droppedFrames += 1
+        return false
+    }
+
+    /// Session key in place: protocol 2 on both ends also turns on envelope tags.
+    private func applyPairingMaterial(_ material: (code: String, key: Data), to current: Session) {
+        current.code = material.code
+        current.pairingKey = material.key
+        if current.remoteProtocol >= SessionSecurity.protocolVersion {
+            current.envelopeKey = SessionSecurity.envelopeKey(sessionKey: material.key)
+        }
+    }
+
     private func authenticateOrPrompt(_ current: Session) {
+        // A phone that once spoke protocol 2 keeps it: a session without envelope tags is a downgrade.
+        if current.envelopeKey == nil && protocolPins.pinned(current.remoteDeviceID) >= SessionSecurity.protocolVersion {
+            BridgeyLog.pairing.error("protocol downgrade refused")
+            current.failure = .invalid
+            current.dropReason = "protocol_downgrade"
+            current.close()
+            return
+        }
         if trustedIdentityKey(current.remoteDeviceID) != nil {
             confirm(current)
             return
         }
-        // A new phone needs the code prompt, which belongs to one pairing at a time.
-        if let existing = pairingSession, existing !== current, existing.code != nil, !existing.ended {
+        // A new phone needs the code prompt, which belongs to one pairing at a time. A pairing this Mac started
+        // keeps the prompt even before its code is ready, and phones may start only a few a minute.
+        let busy = pairingSession.map { $0 !== current && !$0.ended && ($0.code != nil || $0.initiatedLocally) } ?? false
+        if busy || (!current.initiatedLocally && !inboundPairingLimiter.tryAcquire()) {
             BridgeyLog.pairing.notice("rejected: another pairing is waiting for confirmation")
             current.send(PairingMessage(kind: "pairing.cancel", sessionId: current.id))
             current.close()
@@ -3896,6 +4000,7 @@ final class PairingCoordinator: ObservableObject {
 
     private func saveTrust(_ current: Session) {
         guard let identityKey = current.remoteIdentityKey else { return }
+        if current.envelopeKey != nil { protocolPins.pin(current.remoteDeviceID, version: SessionSecurity.protocolVersion) }
         if trustRegistry.remember(
             deviceID: current.remoteDeviceID,
             name: current.peerName,
@@ -4115,6 +4220,16 @@ private final class Session {
     var privateKey: P256.KeyAgreement.PrivateKey?
     var code: String?
     var pairingKey: Data?
+    /// Protocol 2: this end sent a commitment instead of its key (a first pairing it started).
+    var committed = false
+    /// Protocol 2: the initiator's commitment, until pairing.reveal opens it.
+    var remoteCommitment: String?
+    var remoteProtocol: Int64 = 1
+    /// Protocol 2 on both ends: the key for envelope tags, and this Mac's ID they are made with.
+    var envelopeKey: Data?
+    var tagSender = ""
+    /// Frames dropped for arriving before authentication or with a bad tag; the session closes at 16.
+    var droppedFrames = 0
     var localConfirmed = false
     var remoteConfirmed = false
     /// Authenticated and registered as its phone's session.
@@ -4148,15 +4263,23 @@ private final class Session {
         self.peerName = peerName
     }
 
+    /// Protocol 2: every frame but pairing ones carries the envelope tag.
+    private func framed(_ message: PairingMessage) -> PairingMessage {
+        guard let envelopeKey, !SessionSecurity.allowedBeforeAuthentication(message.kind) else { return message }
+        var tagged = message
+        tagged.tag = SessionSecurity.tag(envelopeKey: envelopeKey, senderDeviceID: tagSender, message: message)
+        return tagged
+    }
+
     func send(_ message: PairingMessage) {
-        guard let encoded = try? JSONEncoder().encode(message) else { return }
+        guard let encoded = try? JSONEncoder().encode(framed(message)) else { return }
         connection.send(content: encoded + Data([0x0A]), completion: .contentProcessed { error in
             if let error { BridgeyLog.transport.error("send failed kind=\(message.kind, privacy: .public) error=\(String(describing: error), privacy: .public)") }
         })
     }
 
     func sendAndWait(_ message: PairingMessage) -> Bool {
-        guard let encoded = try? JSONEncoder().encode(message) else { return false }
+        guard let encoded = try? JSONEncoder().encode(framed(message)) else { return false }
         let semaphore = DispatchSemaphore(value: 0)
         var succeeded = false
         connection.send(content: encoded + Data([0x0A]), completion: .contentProcessed { error in
@@ -4225,6 +4348,12 @@ struct PairingMessage: Codable {
     var sequence: Int64? = nil
     /// On a reconnect offer: the trusted device it is meant for. Any other device declines quietly.
     var targetDeviceId: String? = nil
+    /// Protocol 2 first pairing: SHA-256 commitment to the offer's ephemeral key, revealed in pairing.reveal.
+    var commitment: String? = nil
+    /// In pairing.offer and pairing.answer: the highest protocol version the sender speaks (absent means 1).
+    var protocolVersion: Int64? = nil
+    /// Protocol 2: HMAC over the envelope, see SessionSecurity.tag.
+    var tag: String? = nil
 }
 
 enum PairingError: Error { case invalidMessage, cancelled }

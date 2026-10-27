@@ -220,6 +220,10 @@ internal fun decodeProtocolMessage(line: String): Message {
         null, JSONObject.NULL -> null
         else -> jsonInteger(value) ?: throw JSONException("sequence is not an integer")
     }
+    val protocolVersion = when (val value = json.opt("protocolVersion")) {
+        null, JSONObject.NULL -> null
+        else -> jsonInteger(value) ?: throw JSONException("protocolVersion is not an integer")
+    }
     return Message(
         kind = kind,
         sessionId = sessionId,
@@ -235,6 +239,9 @@ internal fun decodeProtocolMessage(line: String): Message {
         transferId = optional("transferId"),
         sequence = sequence,
         targetDeviceId = optional("targetDeviceId"),
+        commitment = optional("commitment"),
+        protocolVersion = protocolVersion,
+        tag = optional("tag"),
     )
 }
 

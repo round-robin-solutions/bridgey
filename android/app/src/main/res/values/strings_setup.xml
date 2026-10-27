@@ -156,7 +156,7 @@
 
     <!-- OEM battery checklist (steps from dontkillmyapp.com) -->
     <string name="oem_title">Keep Bridgey running on %1$s</string>
-    <string name="oem_intro">This phone stops apps in the background beyond Android\'s own battery settings. Change these once.</string>
+    <string name="oem_intro">This phone stops apps in the background beyond Android\'s own battery settings. Change these once, and check them again after a system update.</string>
     <string name="oem_source">Steps from dontkillmyapp.com</string>
     <string name="oem_vendor_oneplus">OnePlus</string>
     <string name="oem_vendor_coloros">Oppo and Realme (ColorOS)</string>
@@ -169,7 +169,7 @@
     <string name="oem_step_never_sleeping">Never sleeping apps</string>
     <string name="oem_oneplus_auto_start">Settings, Apps, Auto launch: turn on Bridgey.</string>
     <string name="oem_oneplus_background">App info, Battery usage: allow background activity.</string>
-    <string name="oem_oneplus_battery">Battery, Battery optimisation: choose Don\'t optimise for Bridgey.</string>
+    <string name="oem_oneplus_battery">Battery, Battery optimisation: choose Don\'t optimise for Bridgey. Under Advanced optimisation, turn off Deep optimisation and Sleep standby optimisation.</string>
     <string name="oem_coloros_auto_start">Settings, App management, Auto launch: turn on Bridgey.</string>
     <string name="oem_coloros_background">App info, Battery usage: allow background activity.</string>
     <string name="oem_coloros_battery">Battery, More settings, Optimise battery use: choose Don\'t optimise for Bridgey.</string>
@@ -178,7 +178,7 @@
     <string name="oem_xiaomi_battery">Battery optimisation: choose Don\'t optimise. Also lock Bridgey in recent apps.</string>
     <string name="oem_samsung_background">App info, Battery: choose Unrestricted.</string>
     <string name="oem_samsung_battery">Battery, Background usage limits: turn off Put unused apps to sleep.</string>
-    <string name="oem_samsung_never_sleeping">Battery, Background usage limits, Never sleeping apps: add Bridgey.</string>
+    <string name="oem_samsung_never_sleeping">Battery, Background usage limits, Never sleeping apps: add Bridgey, and remove it from Sleeping apps and Deep sleeping apps.</string>
     <string name="oem_vivo_auto_start">i Manager, App manager, Autostart manager: turn on Bridgey.</string>
     <string name="oem_vivo_background">Battery, Background power consumption: allow Bridgey.</string>
     <string name="oem_vivo_battery">App info, Battery: choose Don\'t restrict background activity.</string>

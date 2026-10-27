@@ -26,6 +26,58 @@ final class ProtocolCryptoIntegrationTests: XCTestCase {
         XCTAssertEqual(fromA.key, fromB.key)
     }
 
+    func testMacMatchesSharedProtocol2CommitmentCodeAndEnvelopeVectors() throws {
+        let a = try P256.KeyAgreement.PrivateKey(rawRepresentation: data("privateKeyA"))
+        let b = try P256.KeyAgreement.PrivateKey(rawRepresentation: data("privateKeyB"))
+        let sessionID = required("sessionId")
+        let publicA = required("publicKeyA")
+        let publicB = required("publicKeyB")
+
+        let commitment = SessionSecurity.commitment(sessionID: sessionID, publicKey: publicA)
+        XCTAssertEqual(commitment, required("expectedCommitmentA"))
+        XCTAssertTrue(SessionSecurity.commitmentMatches(commitment, sessionID: sessionID, publicKey: publicA))
+        XCTAssertFalse(SessionSecurity.commitmentMatches(commitment, sessionID: sessionID, publicKey: publicB))
+        XCTAssertFalse(SessionSecurity.commitmentMatches(commitment, sessionID: sessionID + "x", publicKey: publicA))
+
+        // A is the initiator: both ends name A's key first.
+        let fromA = try pairingMaterial(privateKey: a, remoteKey: publicB, sessionID: sessionID, sasKeys: (publicA, publicB))
+        let fromB = try pairingMaterial(privateKey: b, remoteKey: publicA, sessionID: sessionID, sasKeys: (publicA, publicB))
+        XCTAssertEqual(fromA.code, required("expectedSasCodeV2"))
+        XCTAssertEqual(fromA.code, fromB.code)
+        XCTAssertEqual(fromA.key, data("expectedKey"))
+        XCTAssertNotEqual(fromA.code, required("expectedCode"))
+
+        let envelopeKey = SessionSecurity.envelopeKey(sessionKey: fromA.key)
+        XCTAssertEqual(envelopeKey, data("expectedEnvelopeKey"))
+        var message = PairingMessage(
+            kind: "clipboard.update",
+            sessionId: sessionID,
+            messageId: required("envelopeMessageId"),
+            nonce: required("aesNonce"),
+            ciphertext: required("aesCiphertext"),
+            sequence: Int64(required("envelopeSequence"))
+        )
+        let sender = required("deviceId")
+        let tag = SessionSecurity.tag(envelopeKey: envelopeKey, senderDeviceID: sender, message: message)
+        XCTAssertEqual(tag, required("expectedEnvelopeTag"))
+        XCTAssertFalse(SessionSecurity.tagMatches(envelopeKey: envelopeKey, senderDeviceID: sender, message: message))
+        message.tag = tag
+        XCTAssertTrue(SessionSecurity.tagMatches(envelopeKey: envelopeKey, senderDeviceID: sender, message: message))
+        // Replay under a new messageId, a relabelled kind, a reflection to its sender: all fail.
+        var replayed = message
+        replayed.messageId = "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5b"
+        XCTAssertFalse(SessionSecurity.tagMatches(envelopeKey: envelopeKey, senderDeviceID: sender, message: replayed))
+        let relabelled = PairingMessage(
+            kind: "clipboard.rich", sessionId: sessionID, messageId: message.messageId, nonce: message.nonce,
+            ciphertext: message.ciphertext, sequence: message.sequence, tag: tag
+        )
+        XCTAssertFalse(SessionSecurity.tagMatches(envelopeKey: envelopeKey, senderDeviceID: sender, message: relabelled))
+        XCTAssertFalse(SessionSecurity.tagMatches(envelopeKey: envelopeKey, senderDeviceID: "mac-fixture-device", message: message))
+        // The tag survives the wire: encode, strict decode, verify.
+        let decoded = try decodeProtocolMessage(JSONEncoder().encode(message))
+        XCTAssertTrue(SessionSecurity.tagMatches(envelopeKey: envelopeKey, senderDeviceID: sender, message: decoded))
+    }
+
     func testMacMatchesSharedProofAndAesGCMVector() throws {
         let key = data("expectedKey")
         let proof = confirmationProof(

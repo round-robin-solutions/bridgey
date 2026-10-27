@@ -44,7 +44,10 @@
     "ciphertext": { "type": "string", "required": false, "note": "base64 AES-GCM ciphertext plus 16-byte tag" },
     "transferId": { "type": "string", "required": false },
     "sequence": { "type": "integer", "required": false, "min": -9007199254740991, "max": 9007199254740991, "note": "an integral JSON number; each kind checks its own range" },
-    "targetDeviceId": { "type": "string", "required": false, "status": "edition-extension" }
+    "targetDeviceId": { "type": "string", "required": false, "status": "edition-extension" },
+    "commitment": { "type": "string", "required": false, "status": "edition-extension", "note": "protocol 2: base64 SHA-256 commitment to the first-pairing offer's ephemeral key, opened by pairing.reveal" },
+    "protocolVersion": { "type": "integer", "required": false, "status": "edition-extension", "note": "in pairing.offer and pairing.answer: the highest protocol the sender speaks; absent means 1" },
+    "tag": { "type": "string", "required": false, "status": "edition-extension", "note": "protocol 2: base64 HMAC-SHA-256 over the sender's device ID and every other envelope field, on every frame after pairing when both ends sent protocolVersion 2" }
   },
   "features": [
     { "key": "clipboard", "status": "upstream-v1", "requiredInMap": true, "missingMeans": "close (invalid feature state)" },
@@ -71,11 +74,15 @@
   ],
   "messages": [
     { "kind": "pairing.offer", "status": "upstream-v1", "direction": "either", "feature": null, "encrypted": false,
-      "outer": ["sessionId", "deviceId", "deviceName", "publicKey", "targetDeviceId?"],
-      "notes": "Sent by the side that dials. targetDeviceId (edition extension) names the trusted peer a reconnect is for; any other receiver closes quietly.",
+      "outer": ["sessionId", "deviceId", "deviceName", "publicKey?", "targetDeviceId?", "commitment?", "protocolVersion?"],
+      "notes": "Sent by the side that dials. targetDeviceId (edition extension) names the trusted peer a reconnect is for; any other receiver closes quietly. Protocol 2: a first pairing sends commitment instead of publicKey, and reveals the key in pairing.reveal after the answer.",
       "implemented": ["android", "macos"] },
     { "kind": "pairing.answer", "status": "upstream-v1", "direction": "either", "feature": null, "encrypted": false,
-      "outer": ["sessionId", "deviceId", "deviceName", "publicKey"],
+      "outer": ["sessionId", "deviceId", "deviceName", "publicKey", "protocolVersion?"],
+      "implemented": ["android", "macos"] },
+    { "kind": "pairing.reveal", "status": "edition-extension", "direction": "either", "feature": null, "encrypted": false,
+      "outer": ["sessionId", "publicKey"],
+      "notes": "Protocol 2 first pairing: the initiator's ephemeral key after the answer. The responder checks it against the offer's commitment and fails the pairing on a mismatch.",
       "implemented": ["android", "macos"] },
     { "kind": "pairing.confirm", "status": "upstream-v1", "direction": "either", "feature": null, "encrypted": false,
       "outer": ["sessionId", "deviceId", "identityKey", "proof", "signature"],

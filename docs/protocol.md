@@ -112,19 +112,48 @@ are optional booleans described in their own sections; a missing draft key means
 
 ## Pairing flow
 
-Pairing runs only after a user selects a discovered peer:
+Pairing runs only after a user selects a discovered peer. What the native clients
+do (protocol 2, v0.10):
 
-1. Both peers create ephemeral P-256 ECDH key pairs and exchange
-   `pairing.offer`/`pairing.answer` containing nonces and public keys.
-2. Each validates all fields and derives the same secret with platform crypto.
-3. HKDF-SHA-256 derives independent verification and session keys, binding the
-   ordered public keys, nonces, device IDs, and protocol version into `info`.
-4. A six-digit code derived from the verification key is displayed on both
-   devices. It is never sent over the network.
-5. Each user explicitly confirms; peers exchange authenticated
-   `pairing.confirm` records containing their long-term public keys.
-6. Trust is stored only after both confirmations verify. Any timeout, mismatch,
-   rejection, or disconnect erases ephemeral state.
+1. The initiator creates an ephemeral P-256 key pair and sends `pairing.offer`
+   with `protocolVersion: 2`. For a first pairing (the target is not already
+   trusted) the offer carries `commitment`, the base64 SHA-256 of
+   `"bridgey-commit-v2", sessionId, publicKey` (each field length-prefixed), and
+   no `publicKey`. A reconnect to a trusted device sends `publicKey` instead,
+   because that device's pinned identity signature authenticates it.
+2. The responder answers with its own ephemeral key and `protocolVersion: 2`
+   before it has seen the initiator's key.
+3. After a commitment, the initiator sends `pairing.reveal` with its `publicKey`.
+   The responder checks it against the commitment and fails the pairing on a
+   mismatch.
+4. Both derive the session key with ECDH and HKDF-SHA-256 (salt SHA-256 of the
+   session ID, info `bridgey-pairing-v1`). The six-digit code of a protocol 2
+   first pairing comes from its own label, `bridgey-sas-v2` over the initiator's
+   and the responder's ephemeral keys, not from session key bytes. It is never
+   sent over the network.
+5. Each user explicitly confirms; peers exchange `pairing.confirm` with an HMAC
+   proof and an identity signature over the session ID, device IDs and both
+   ephemeral keys. Trust is stored only after both confirmations verify.
+
+Because neither side can choose its ephemeral key after seeing the other's, an
+active attacker in the middle cannot search for keys that make the two codes
+match; each attempt is a one in a million guess that the user sees as a new
+prompt. Prompts started by another device are limited to three a minute.
+
+When both ends sent `protocolVersion: 2`, every frame after pairing carries
+`tag`: base64 HMAC-SHA-256, under HMAC(session key, `bridgey-envelope-v2`), of the
+sender's device ID and every envelope field (length-prefixed, an absent field
+written as length 0xFFFFFFFF). A frame with a missing or wrong tag is dropped, as
+is any non-pairing frame on a session that has not authenticated; 16 dropped
+frames close the connection. A device that once authenticated with protocol 2 is
+pinned to it, so a later session without tags is refused. Shared vectors are in
+`protocol/test-vectors/crypto-v1.properties` (from
+`protocol/tools/crypto_v2_vectors.py`).
+
+Compatibility: a protocol 1 client (0.9 and earlier) still reconnects to a
+trusted protocol 2 client until the pair has once connected on protocol 2. A
+protocol 2 client cannot start a first pairing with a protocol 1 client (the old
+client needs `publicKey` in the offer); update both apps to pair.
 
 Pairing offers expire after two minutes and cannot be silently retried. The
 short code is a human MITM check, not a password. Detailed primitive and storage

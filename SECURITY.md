@@ -31,8 +31,14 @@ application-layer AES-GCM for feature payloads. They do **not** currently use
 TLS or WebSockets. Ephemeral P-256 ECDH/HKDF establishes a session key; HMAC
 confirmation and signed transcripts bind the stored long-term peer identity.
 Routing headers and some acknowledgement/heartbeat messages are not encrypted.
-Replay caches are bounded and session-local. This is not a claim of independent
-cryptographic audit or a complete active-network-attacker defense.
+Since protocol 2 (0.10) a first pairing commits to the initiator's key before
+the answer, so the six-digit code cannot be forced to match by a man in the
+middle, and when both ends speak protocol 2 every frame after pairing carries an
+HMAC tag over its whole envelope and its sender, so headers can no longer be
+rewritten, replayed under a new message ID or reflected (see `docs/protocol.md`
+and `docs/security-review-0.10.md`). Replay caches are bounded and
+session-local. This is not a claim of independent cryptographic audit or a
+complete active-network-attacker defense.
 
 The following items describe the target security design; in particular TLS,
 persistent replay handling, authenticated key rotation, and comprehensive
@@ -79,8 +85,11 @@ all pairings.
 
 ## Privacy defaults
 
-There is no telemetry, advertising identifier, account, cloud relay, or remote
-analytics. LAN features communicate directly between paired devices. Sensitive
+There is no telemetry, advertising identifier, account, or remote analytics.
+LAN features communicate directly between paired devices. The one exception is
+opt-in: "Codes from messages" set to the cloud option on the Mac sends the
+message text (at most 600 characters) and its sender to a Round Robin Cloudflare
+Worker that asks Workers AI for the code; the worker keeps no logs. Sensitive
 OS access requires explicit permission. Global and per-device switches gate
 feature execution; permission-light features default on. Mac media control
 defaults off and requires a locally selected player and Automation consent. Bridgey
