@@ -200,7 +200,7 @@ enum UIFakeImages {
     static let phoneID = "22222222-2222-2222-2222-222222222222"
 
     /// A deterministic photo-like image: a soft two-colour gradient with a few shapes.
-    static func cgImage(width: Int, height: Int, seed: Int) -> CGImage {
+    static func cgImage(width: Int, height: Int, seed: Int, detail: Int = 0) -> CGImage {
         let space = CGColorSpaceCreateDeviceRGB()
         let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -223,13 +223,18 @@ enum UIFakeImages {
             let size = CGFloat(min(width, height)) * (0.2 + next() * 0.4)
             context.fillEllipse(in: CGRect(x: next() * CGFloat(width), y: next() * CGFloat(height), width: size, height: size))
         }
+        // Photo-like texture, so encoded sizes match real photos rather than flat gradients.
+        for _ in 0..<detail {
+            context.setFillColor(CGColor(red: next(), green: next(), blue: next(), alpha: 0.25))
+            context.fill(CGRect(x: next() * CGFloat(width), y: next() * CGFloat(height), width: 1 + next() * 6, height: 1 + next() * 6))
+        }
         return context.makeImage()!
     }
 
-    static func jpeg(width: Int, height: Int, seed: Int, quality: Double = 0.72) -> Data {
+    static func jpeg(width: Int, height: Int, seed: Int, quality: Double = 0.72, detail: Int = 0) -> Data {
         let data = NSMutableData()
         let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil)!
-        CGImageDestinationAddImage(destination, cgImage(width: width, height: height, seed: seed),
+        CGImageDestinationAddImage(destination, cgImage(width: width, height: height, seed: seed, detail: detail),
                                    [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
         CGImageDestinationFinalize(destination)
         return data as Data

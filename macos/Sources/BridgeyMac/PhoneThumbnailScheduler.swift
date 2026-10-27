@@ -245,6 +245,8 @@ final class PhoneHoverPrefetcher {
         var previewDone = false
         var rangeDone: Bool
         var rangeBytes: Int64 = 0
+        /// Someone opened the item: never cancelled by the pointer leaving.
+        var pinned = false
     }
 
     private let service: PhoneFilesService
@@ -252,6 +254,8 @@ final class PhoneHoverPrefetcher {
     private let clock: () -> Date
     private var pending: (entry: PhoneFileEntry, timer: DispatchWorkItem)?
     private var fetches: [String: Fetch] = [:]
+    /// Previews opened while their prefetch was still on the wire wait for it instead of asking again.
+    private var waiters: [String: [(PhoneDecodedImage?) -> Void]] = [:]
     private var order: [String] = []
     var phoneID: String?
     var route: PhoneRoute = .unknown
@@ -301,11 +305,14 @@ final class PhoneHoverPrefetcher {
         if needsPreview {
             fetch.preview = service.preview(phoneID: phoneID, entry: entry, size: Self.previewSize) { [weak self] result in
                 guard let self else { return }
-                if case let .success(image) = result {
-                    self.cache.store(key, kind: .preview, image: image, maxPixel: Self.previewSize) { _ in }
+                guard case let .success(image) = result else {
+                    self.previewReady(entry.id, nil)
+                    return
                 }
-                self.fetches[entry.id]?.previewDone = true
-                self.finishIfDone(entry.id)
+                // Done once it is in the cache, so an open right after finds it there.
+                self.cache.store(key, kind: .preview, image: image, maxPixel: Self.previewSize) { [weak self] decoded in
+                    self?.previewReady(entry.id, decoded)
+                }
             }
         }
         if needsRange {
@@ -323,6 +330,20 @@ final class PhoneHoverPrefetcher {
         order.append(entry.id)
     }
 
+    /// When a prefetch for `entry`'s preview is running, `handler` gets its result and this returns true.
+    func whenPreviewReady(_ entry: PhoneFileEntry, _ handler: @escaping (PhoneDecodedImage?) -> Void) -> Bool {
+        guard let fetch = fetches[entry.id], !fetch.previewDone else { return false }
+        waiters[entry.id, default: []].append(handler)
+        fetches[entry.id]?.pinned = true
+        return true
+    }
+
+    private func previewReady(_ id: String, _ decoded: PhoneDecodedImage?) {
+        waiters.removeValue(forKey: id)?.forEach { $0(decoded) }
+        fetches[id]?.previewDone = true
+        finishIfDone(id)
+    }
+
     func cancelAll() {
         pending?.timer.cancel()
         pending = nil
@@ -332,6 +353,7 @@ final class PhoneHoverPrefetcher {
     /// More than half has arrived: the range by its bytes, the preview by time (the contract reports no
     /// preview progress; at LAN speed a preview takes about 40 ms, so one past 60 ms is treated as half done).
     private func pastHalf(_ fetch: Fetch) -> Bool {
+        if fetch.pinned { return true }
         if !fetch.rangeDone {
             let expected = min(Self.videoHeadBytes, fetch.entry.size ?? Self.videoHeadBytes)
             return fetch.rangeBytes * 2 > expected
@@ -346,6 +368,7 @@ final class PhoneHoverPrefetcher {
         fetch.preview?.cancel()
         fetch.range?.cancel()
         cancelled += 1
+        waiters.removeValue(forKey: id)?.forEach { $0(nil) }
     }
 
     private func finishIfDone(_ id: String) {

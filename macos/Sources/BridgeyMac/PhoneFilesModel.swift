@@ -397,6 +397,15 @@ final class PhoneFilesModel: ObservableObject {
                 self.preview?.quality = .thumbnail
             }
         }
+        // A hover prefetch already on the wire: wait for it rather than asking twice.
+        if prefetch.whenPreviewReady(entry, { [weak self] decoded in
+            if decoded != nil { show(decoded) } else { self?.requestPreview(entry, key: key, phoneID: phoneID, show: show) }
+        }) { return }
+        requestPreview(entry, key: key, phoneID: phoneID, show: show)
+    }
+
+    private func requestPreview(_ entry: PhoneFileEntry, key: String, phoneID: String, show: @escaping (PhoneDecodedImage?) -> Void) {
+        guard preview?.entry.id == entry.id else { return }
         service.preview(phoneID: phoneID, entry: entry, size: PhoneHoverPrefetcher.previewSize) { [weak self] result in
             guard let self else { return }
             switch result {

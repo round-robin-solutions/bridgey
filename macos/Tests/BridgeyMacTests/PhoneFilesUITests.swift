@@ -235,7 +235,7 @@ final class PhoneFilesUITests: XCTestCase {
         XCTAssertEqual(fake.previewRequests, 1)
         XCTAssertEqual(fake.rangeRequests, 1)
         let key = video.cacheKey(phoneID: phone)
-        wait(until: { cache.contains(key, kind: .range) && cache.contains(key, kind: .preview) })
+        wait(until: { cache.contains(key, kind: .range) && cache.contains(key, kind: .preview) && prefetch.inFlight == 0 })
         XCTAssertEqual(cache.data(key, kind: .range)?.count, Int(PhoneHoverPrefetcher.videoHeadBytes))
         XCTAssertEqual(prefetch.inFlight, 0)
         prefetch.fire(video)
