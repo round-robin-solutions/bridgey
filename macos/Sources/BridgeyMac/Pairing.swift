@@ -4445,6 +4445,8 @@ struct PairingMessage: Codable {
     var protocolVersion: Int64? = nil
     /// Protocol 2: HMAC over the envelope, see SessionSecurity.tag.
     var tag: String? = nil
+    /// In pairing.cancel: why, one of PairingCancelReason (absent from older peers).
+    var reason: String? = nil
 }
 
 enum PairingError: Error { case invalidMessage, cancelled }

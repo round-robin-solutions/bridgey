@@ -207,8 +207,16 @@ func decodeProtocolMessage(_ data: Data) throws -> PairingMessage {
         targetDeviceId: try optional("targetDeviceId"),
         commitment: try optional("commitment"),
         protocolVersion: protocolVersion,
-        tag: try optional("tag")
+        tag: try optional("tag"),
+        reason: try boundedReason(optional("reason"))
     )
+}
+
+/// `reason` in pairing.cancel is at most 32 bytes; a longer one closes the session like any bad envelope field.
+private func boundedReason(_ value: String?) throws -> String? {
+    guard let value else { return nil }
+    guard value.utf8.count <= 32 else { throw PairingError.invalidMessage }
+    return value
 }
 
 /// Splits the byte stream of one connection into frames. A frame ends at LF; one CR before the LF is

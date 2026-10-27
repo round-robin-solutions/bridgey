@@ -228,7 +228,7 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
             ("identityKey", message.identityKey), ("proof", message.proof), ("signature", message.signature),
             ("messageId", message.messageId), ("nonce", message.nonce), ("ciphertext", message.ciphertext),
             ("transferId", message.transferId), ("targetDeviceId", message.targetDeviceId),
-            ("commitment", message.commitment), ("tag", message.tag),
+            ("commitment", message.commitment), ("tag", message.tag), ("reason", message.reason),
         ]
         for (key, value) in optional { if let value { fields[key] = value } }
         if let sequence = message.sequence { fields["sequence"] = sequence }

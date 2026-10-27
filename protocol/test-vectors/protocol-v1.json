@@ -209,6 +209,34 @@
    "expect": "reject"
   },
   {
+   "name": "pairing.cancel with a reason",
+   "line": "{\"kind\":\"pairing.cancel\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"reason\":\"mismatch\"}",
+   "expect": {
+    "kind": "pairing.cancel",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "reason": "mismatch"
+   }
+  },
+  {
+   "name": "reason of 32 bytes",
+   "line": "{\"kind\":\"pairing.cancel\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"reason\":\"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\"}",
+   "expect": {
+    "kind": "pairing.cancel",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "reason": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+   }
+  },
+  {
+   "name": "reason of 33 bytes",
+   "line": "{\"kind\":\"pairing.cancel\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"reason\":\"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "reason is a number",
+   "line": "{\"kind\":\"pairing.cancel\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"reason\":1}",
+   "expect": "reject"
+  },
+  {
    "name": "deviceName is an object",
    "line": "{\"kind\":\"pairing.offer\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"deviceName\":{\"a\":1}}",
    "expect": "reject"

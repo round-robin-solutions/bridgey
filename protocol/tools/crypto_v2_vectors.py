@@ -27,7 +27,7 @@ code = str(int.from_bytes(sas[:4], "big") % 1000000).zfill(6)
 ekey = hmac.new(key, b"bridgey-envelope-v2", hashlib.sha256).digest()
 # Sample frame: clipboard.update from deviceId (android-fixture-device), fields in Message order.
 msg = dict(kind="clipboard.update", sessionId=sid, messageId="0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a", nonce=props["aesNonce"], ciphertext=props["aesCiphertext"], sequence="7")
-order = ["kind","sessionId","deviceId","deviceName","publicKey","identityKey","proof","signature","messageId","nonce","ciphertext","transferId","sequence","targetDeviceId","commitment","protocolVersion"]
+order = ["kind","sessionId","deviceId","deviceName","publicKey","identityKey","proof","signature","messageId","nonce","ciphertext","transferId","sequence","targetDeviceId","commitment","protocolVersion","reason"]
 tag = base64.b64encode(hmac.new(ekey, lp(["bridgey-envelope-v2", props["deviceId"]] + [msg.get(k) or None for k in order]), hashlib.sha256).digest()).decode()
 print(f"expectedCommitmentA={commit}")
 print(f"expectedSasCodeV2={code}")

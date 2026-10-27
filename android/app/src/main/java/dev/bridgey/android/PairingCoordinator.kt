@@ -3931,6 +3931,8 @@ internal data class Message(
     val protocolVersion: Long? = null,
     /** Protocol 2: HMAC over the envelope, see [SessionSecurity.tag]. */
     val tag: String? = null,
+    /** In pairing.cancel: why, one of [PairingCancelReason] (absent from older peers). */
+    val reason: String? = null,
 ) {
     fun encode(): String = JSONObject().apply {
         put("kind", kind)
@@ -3950,6 +3952,7 @@ internal data class Message(
         commitment?.let { put("commitment", it) }
         protocolVersion?.let { put("protocolVersion", it) }
         tag?.let { put("tag", it) }
+        reason?.let { put("reason", it) }
     }.toString()
 
     companion object {

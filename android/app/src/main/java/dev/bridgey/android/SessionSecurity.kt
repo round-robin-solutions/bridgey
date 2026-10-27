@@ -66,7 +66,7 @@ internal object SessionSecurity {
             ENVELOPE_LABEL, senderDeviceId, message.kind, message.sessionId, message.deviceId, message.deviceName,
             message.publicKey, message.identityKey, message.proof, message.signature, message.messageId,
             message.nonce, message.ciphertext, message.transferId, message.sequence?.toString(), message.targetDeviceId,
-            message.commitment, message.protocolVersion?.toString(),
+            message.commitment, message.protocolVersion?.toString(), message.reason,
         ).map { it?.takeIf(String::isNotEmpty) },
     )
 

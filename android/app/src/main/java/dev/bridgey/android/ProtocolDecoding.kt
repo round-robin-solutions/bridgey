@@ -224,6 +224,9 @@ internal fun decodeProtocolMessage(line: String): Message {
         null, JSONObject.NULL -> null
         else -> jsonInteger(value) ?: throw JSONException("protocolVersion is not an integer")
     }
+    // pairing.cancel's reason is at most 32 bytes; a longer one closes the session like any bad envelope field.
+    val reason = optional("reason")
+    if (reason != null && reason.toByteArray(Charsets.UTF_8).size > 32) throw JSONException("reason over 32 bytes")
     return Message(
         kind = kind,
         sessionId = sessionId,
@@ -242,6 +245,7 @@ internal fun decodeProtocolMessage(line: String): Message {
         commitment = optional("commitment"),
         protocolVersion = protocolVersion,
         tag = optional("tag"),
+        reason = reason,
     )
 }
 

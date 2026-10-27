@@ -67,7 +67,7 @@ enum SessionSecurity {
             envelopeLabel, senderDeviceID, message.kind, message.sessionId, message.deviceId, message.deviceName,
             message.publicKey, message.identityKey, message.proof, message.signature, message.messageId,
             message.nonce, message.ciphertext, message.transferId, message.sequence.map { String($0) },
-            message.targetDeviceId, message.commitment, message.protocolVersion.map { String($0) },
+            message.targetDeviceId, message.commitment, message.protocolVersion.map { String($0) }, message.reason,
         ].map { $0?.isEmpty == true ? nil : $0 })
     }
 

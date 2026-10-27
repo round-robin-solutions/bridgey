@@ -162,6 +162,7 @@ the tables at the end of this page are generated from it with
 | `targetDeviceId` | string | no | edition-extension |
 | `commitment` | string | no | protocol 2: base64 SHA-256 commitment to the first-pairing offer's ephemeral key, opened by pairing.reveal; edition-extension |
 | `protocolVersion` | integer | no | in pairing.offer and pairing.answer: the highest protocol the sender speaks; absent means 1; edition-extension |
+| `reason` | string | no | maxBytes 32; in pairing.cancel: mismatch, cancelled, timeout, busy, rate_limited, not_armed, needs_protocol_2 or not_trusted; older peers send none; edition-extension |
 | `tag` | string | no | protocol 2: base64 HMAC-SHA-256 over the sender's device ID and every other envelope field, on every frame after pairing when both ends sent protocolVersion 2; edition-extension |
 
 ### Messages
@@ -176,7 +177,7 @@ the tables at the end of this page are generated from it with
 | `pairing.answer` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, deviceName, publicKey, protocolVersion? | android, macos |
 | `pairing.reveal` | edition-extension | either | none | no | none | frame | sessionId, publicKey | android, macos |
 | `pairing.confirm` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, identityKey, proof, signature | android, macos |
-| `pairing.cancel` | upstream-v1 | either | none | no | none | frame | sessionId | android, macos |
+| `pairing.cancel` | upstream-v1 | either | none | no | none | frame | sessionId, reason?, tag? | android, macos |
 
 `pairing.offer`
 
@@ -192,7 +193,7 @@ proof is an HMAC under the pairing key; signature is P-256 over the session tran
 
 `pairing.cancel`
 
-Ends only the session it arrives on.
+Ends only the session it arrives on. reason (edition extension) says why, for the other screen. Tagged when the sender has an envelope key; after authentication only a tagged cancel is taken.
 
 #### `heartbeat.*`
 

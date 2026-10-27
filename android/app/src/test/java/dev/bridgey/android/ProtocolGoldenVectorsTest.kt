@@ -192,7 +192,7 @@ class ProtocolGoldenVectorsTest {
         signature?.let { "signature" to it }, messageId?.let { "messageId" to it }, nonce?.let { "nonce" to it },
         ciphertext?.let { "ciphertext" to it }, transferId?.let { "transferId" to it }, sequence?.let { "sequence" to it },
         targetDeviceId?.let { "targetDeviceId" to it }, commitment?.let { "commitment" to it },
-        protocolVersion?.let { "protocolVersion" to it }, tag?.let { "tag" to it },
+        protocolVersion?.let { "protocolVersion" to it }, tag?.let { "tag" to it }, reason?.let { "reason" to it },
     ).toMap()
 
     private fun remoteInput(spec: JSONObject): RemoteInput {
