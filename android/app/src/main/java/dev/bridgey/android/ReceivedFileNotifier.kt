@@ -11,12 +11,26 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
+import android.webkit.MimeTypeMap
 import android.widget.Toast
+
+private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
+
+/**
+ * The type a received file opens with: from the stored name's extension, never the type the sender
+ * claimed. Null (open the folder only) for an unknown type or an Android package, so a tap never
+ * leads to the installer.
+ */
+internal fun receivedFileOpenType(name: String, typeForExtension: (String) -> String?): String? {
+    val extension = name.substringAfterLast('.', "").lowercase()
+    if (extension.isEmpty() || extension == "apk") return null
+    return typeForExtension(extension)?.takeIf { it.isNotBlank() && !it.equals(APK_MIME_TYPE, ignoreCase = true) }
+}
 
 object ReceivedFileNotifier {
     private const val CHANNEL_ID = "bridgey_received_files_v1"
 
-    fun show(context: Context, name: String, mimeType: String, uri: Uri) {
+    fun show(context: Context, name: String, uri: Uri) {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Received files", NotificationManager.IMPORTANCE_DEFAULT).apply {
@@ -26,7 +40,8 @@ object ReceivedFileNotifier {
         val intent = Intent()
             .setComponent(ComponentName(context, OpenReceivedFileActivity::class.java)).apply {
             data = uri
-            putExtra(OpenReceivedFileActivity.EXTRA_MIME_TYPE, mimeType)
+            receivedFileOpenType(name) { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) }
+                ?.let { putExtra(OpenReceivedFileActivity.EXTRA_MIME_TYPE, it) }
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
@@ -54,7 +69,7 @@ class OpenReceivedFileActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val fileUri = intent?.data
-        val mimeType = intent?.getStringExtra(EXTRA_MIME_TYPE) ?: "application/octet-stream"
+        val mimeType = intent?.getStringExtra(EXTRA_MIME_TYPE)?.takeIf { !it.equals(APK_MIME_TYPE, ignoreCase = true) }
         val folderUri = DocumentsContract.buildDocumentUri(
             "com.android.externalstorage.documents",
             "primary:Download/Bridgey",
@@ -67,11 +82,13 @@ class OpenReceivedFileActivity : Activity() {
         val openedFolder = folderIntent.resolveActivity(packageManager) != null &&
             runCatching { startActivity(folderIntent) }.isSuccess
         if (!openedFolder && fileUri != null) {
-            val fileIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(fileUri, mimeType)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            val fileIntent = mimeType?.let { type ->
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(fileUri, type)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
             }
-            if (runCatching { startActivity(fileIntent) }.isFailure) {
+            if (fileIntent == null || runCatching { startActivity(fileIntent) }.isFailure) {
                 Toast.makeText(this, "File saved to Download/Bridgey", Toast.LENGTH_LONG).show()
             }
         }

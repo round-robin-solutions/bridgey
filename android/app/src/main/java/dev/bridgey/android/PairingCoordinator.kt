@@ -3110,7 +3110,7 @@ class PairingCoordinator(
             return fail(current, "File verification failed")
         }
         updateFileTransfer(transferId, transfer.displayName, "${transfer.displayName} saved to Download/Bridgey", false, TransferEnd.RECEIVED)
-        ReceivedFileNotifier.show(appContext, transfer.displayName, transfer.mimeType, savedUri)
+        ReceivedFileNotifier.show(appContext, transfer.displayName, savedUri)
         current.send(Message(kind = "files.complete.ack", sessionId = current.id, transferId = transferId))
         BridgeyLogging.i(LogCategory.FILES, LogLines.file(BridgeyLogging.policy, "received", transferId, transfer.displayName))
     }
