@@ -291,6 +291,16 @@ internal fun SetupBackHandler(flow: SetupState, send: (SetupEvent) -> Unit, onEx
  * the predictive gesture) goes to the previous step through the nav host's page back; on the first
  * screen it leaves, asking first when something was chosen.
  */
+/** The Pair step's link to the coordinator's Allow pairing (see [dev.bridgey.android.PairingCoordinator.armPairing]). */
+internal class SetupPairing(
+    val request: dev.bridgey.android.PairingRequest? = null,
+    val armedSeconds: Int = 0,
+    val hold: (Boolean) -> Unit = {},
+    val allow: () -> Unit = {},
+    val dismiss: () -> Unit = {},
+    val stop: () -> Unit = {},
+)
+
 @Composable
 internal fun SetupRoute(
     hooks: SetupHooks,
@@ -299,6 +309,7 @@ internal fun SetupRoute(
     pairedNames: List<String>,
     nearby: List<SetupNearbyMac>,
     onPair: (SetupNearbyMac) -> Unit,
+    pairingReady: SetupPairing,
     onAddDevice: () -> Unit,
     onLookForDevices: () -> Unit,
     onOpenNotificationAccess: () -> Unit,
@@ -416,11 +427,18 @@ internal fun SetupRoute(
         onFinish(openSettings)
     }
     SetupScreen(
-        SetupUiState(flow, settings.copy(setup = settings.setup.copy(oem = hooks.oem)), pairedNames, nearby, hooks.oem, rerun, facts),
+        SetupUiState(
+            flow, settings.copy(setup = settings.setup.copy(oem = hooks.oem)), pairedNames, nearby, hooks.oem, rerun, facts,
+            pairingRequest = pairingReady.request, armedSeconds = pairingReady.armedSeconds,
+        ),
         SetupActions(
             event = ::send,
             settings = actions,
             pair = onPair,
+            holdPairing = pairingReady.hold,
+            allowPairing = pairingReady.allow,
+            dismissPairingRequest = pairingReady.dismiss,
+            stopPairing = pairingReady.stop,
             addDevice = onAddDevice,
             lookForDevices = onLookForDevices,
             // The quick step shows the explainer's why and without-it itself.

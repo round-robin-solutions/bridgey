@@ -55,15 +55,193 @@ class SessionSecurityTest {
     /** Attack: answer committed offers one after another and give up before each reveal, to try codes for free. */
     @Test
     fun answeredOffersThatNeverRevealStillUseUpPairingAttempts() {
-        val limiter = InboundPairingLimiter()
+        var now = 0L
+        val limiter = InboundPairingLimiter({ now })
         var answered = 0
         for (attempt in 0 until 10) {
-            if (PairingRules.chargesInboundAttempt(initiatedLocally = false, trusted = false) && limiter.tryAcquire(attempt * 1_000L)) answered++
+            now = attempt * 1_000L
+            if (PairingRules.chargesInboundAttempt(initiatedLocally = false, trusted = false, committedOffer = true) && limiter.tryAcquire()) answered++
         }
         assertEquals(3, answered)
-        // Trusted reconnects and this device's own dials do not count.
-        assertFalse(PairingRules.chargesInboundAttempt(initiatedLocally = false, trusted = true))
-        assertFalse(PairingRules.chargesInboundAttempt(initiatedLocally = true, trusted = false))
+        // Plain reconnects from trusted devices and this device's own dials do not count.
+        assertFalse(PairingRules.chargesInboundAttempt(initiatedLocally = false, trusted = true, committedOffer = false))
+        assertFalse(PairingRules.chargesInboundAttempt(initiatedLocally = true, trusted = false, committedOffer = true))
+    }
+
+    /** Attack (round 3, item 1): reuse a trusted device's ID with a commitment, to pair without a prompt or a limit. */
+    @Test
+    fun aCommittedPairingUnderATrustedDeviceIdPromptsAndIsCharged() {
+        // The committed offer from a trusted ID pays for its slot like any new pairing.
+        assertTrue(PairingRules.chargesInboundAttempt(initiatedLocally = false, trusted = true, committedOffer = true))
+        // Neither end confirms by itself: the dialled end holds the commitment, the dialler committed.
+        assertFalse(PairingRules.autoConfirms(dialled(holdsCommitment = true, hasKey = true), trusted = true))
+        assertFalse(PairingRules.autoConfirms(dialler(committed = true, hasKey = true), trusted = true))
+        // Only a plain reconnect (trusted, nobody committed) confirms without the code.
+        assertTrue(PairingRules.autoConfirms(dialled(holdsCommitment = false, hasKey = true), trusted = true))
+        assertTrue(PairingRules.autoConfirms(dialler(committed = false, hasKey = true), trusted = true))
+        assertFalse(PairingRules.autoConfirms(dialled(holdsCommitment = false, hasKey = true), trusted = false))
+    }
+
+    /** Attack (round 3, item 2): send committed offers to a phone nobody is pairing with, to get prompts on its screen. */
+    @Test
+    fun aCommittedOfferToAnUnarmedPhoneIsRefusedBeforeTheAnswer() {
+        assertEquals(OfferVerdict.NOT_ARMED, offer(commitment = "c", armed = false))
+        assertEquals(OfferVerdict.NOT_ARMED, offer(commitment = "c", armed = false, trusted = true))
+        assertEquals(OfferVerdict.ANSWER, offer(commitment = "c", armed = true))
+        // A plain reconnect from a trusted device needs no arming.
+        assertEquals(OfferVerdict.ANSWER, offer(publicKey = "k", armed = false, trusted = true))
+    }
+
+    /** Attack (round 3, item 2): keep pairing open by tapping once and coming back much later. */
+    @Test
+    fun allowPairingLastsTwoMinutesOnTheMonotonicClockAndScreensHoldIt() {
+        var now = 1_000_000L
+        val arming = PairingArming({ now })
+        assertFalse(arming.isArmed())
+        arming.arm()
+        assertTrue(arming.isArmed())
+        assertEquals(120, arming.remainingSeconds())
+        now += 119_001
+        assertEquals(1, arming.remainingSeconds())
+        // Each tap restarts the two minutes.
+        arming.arm()
+        now += 60_000
+        assertTrue(arming.isArmed())
+        assertEquals(60, arming.remainingSeconds())
+        now += 60_000
+        assertFalse(arming.isArmed())
+        assertEquals(0, arming.remainingSeconds())
+        // A pairing screen holds pairing on with no countdown; two screens nest.
+        arming.hold(true)
+        arming.hold(true)
+        arming.hold(false)
+        now += 3_600_000
+        assertTrue(arming.isArmed())
+        assertEquals(0, arming.remainingSeconds())
+        arming.hold(false)
+        arming.hold(false)
+        assertFalse(arming.isArmed())
+        arming.arm()
+        arming.disarm()
+        assertFalse(arming.isArmed())
+    }
+
+    /** Attack (round 3, item 2): cycle offers slowly, three a minute, all day. */
+    @Test
+    fun inboundPairingIsCappedAtTenAnHourOnTheMonotonicClock() {
+        var now = 0L
+        val limiter = InboundPairingLimiter({ now })
+        var answered = 0
+        // One attempt every 21 s: never more than 3 a minute, so only the hourly cap stops it.
+        repeat(60) {
+            if (limiter.tryAcquire()) answered++
+            now += 21_000
+        }
+        assertEquals(10, answered)
+        now = 3_600_000L
+        assertTrue(limiter.tryAcquire())
+    }
+
+    private fun offer(
+        deviceId: String? = "mac",
+        publicKey: String? = null,
+        commitment: String? = null,
+        protocolVersion: Long = 2,
+        trusted: Boolean = false,
+        armed: Boolean = true,
+    ) = PairingRules.offerVerdict(deviceId, publicKey, commitment, protocolVersion, trusted, armed)
+
+    /** Attack (round 3, item 6): an offer without a commitment from an unknown device, to skip the commitment. */
+    @Test
+    fun anUncommittedOfferFromAnUnknownDeviceIsRefusedWithAReason() {
+        assertEquals(OfferVerdict.NEEDS_PROTOCOL_2, offer(publicKey = "k", protocolVersion = 1))
+        assertEquals(OfferVerdict.NOT_TRUSTED, offer(publicKey = "k", protocolVersion = 2))
+        // Refused before arming matters: not armed still says why.
+        assertEquals(OfferVerdict.NEEDS_PROTOCOL_2, offer(publicKey = "k", protocolVersion = 1, armed = false))
+        // Trusted devices on protocol 1 still reconnect (the pin refuses a downgrade later).
+        assertEquals(OfferVerdict.ANSWER, offer(publicKey = "k", protocolVersion = 1, trusted = true))
+    }
+
+    /** Attack (round 3, item 6): hold reader threads with offers that can never pair. */
+    @Test
+    fun aMalformedOfferClosesTheConnection() {
+        assertEquals(OfferVerdict.MALFORMED, offer(deviceId = null, commitment = "c"))
+        assertEquals(OfferVerdict.MALFORMED, offer(deviceId = "", commitment = "c"))
+        assertEquals(OfferVerdict.MALFORMED, offer(publicKey = null, commitment = null))
+        assertEquals(OfferVerdict.MALFORMED, offer(commitment = "c", protocolVersion = 1))
+    }
+
+    /** Attack (round 3, item 3): a second pairing arrives while the first prompt is on screen, and the tap lands on it. */
+    @Test
+    fun theCodePromptIsClaimedOnceAndButtonsActOnlyOnTheirToken() {
+        data class Fake(val token: String, val closed: Boolean = false)
+        val slot = PairingSlot<Fake>()
+        val claims = java.util.concurrent.atomic.AtomicInteger()
+        val published = java.util.concurrent.atomic.AtomicInteger()
+        val start = java.util.concurrent.CountDownLatch(1)
+        val threads = List(32) { index ->
+            Thread {
+                start.await()
+                if (slot.claim(Fake("t$index"), busy = { !it.closed }) { published.incrementAndGet() }) claims.incrementAndGet()
+            }.also(Thread::start)
+        }
+        start.countDown()
+        threads.forEach(Thread::join)
+        assertEquals(1, claims.get())
+        assertEquals(1, published.get())
+        val owner = slot.current!!
+        // A button shown for another pairing does nothing.
+        assertEquals(null, slot.withToken("someone-else") { it.token })
+        assertEquals(null, slot.takeWithToken("someone-else") { it.token })
+        assertEquals(owner, slot.withToken(owner.token) { it.token })
+        assertEquals(owner, slot.takeWithToken(owner.token) { it.token })
+        assertEquals(null, slot.current)
+        // A finished (closed) pairing no longer blocks the next one.
+        val closed = Fake("old", closed = true)
+        slot.set(closed)
+        assertTrue(slot.claim(Fake("new"), busy = { !it.closed }) {})
+        assertFalse(slot.releaseIf(closed))
+    }
+
+    /** Attack (round 3, item 5): replay pairing frames into an authenticated session, or forge a cancel. */
+    @Test
+    fun pairingFramesAfterAuthenticationAreDroppedExceptATaggedCancel() {
+        fun verdict(kind: String, authenticated: Boolean = true, key: Boolean = true, tagged: Boolean = true, valid: Boolean = true, same: Boolean = true) =
+            PairingRules.admitFrame(kind, authenticated, same, key, tagged) { valid }
+        listOf("pairing.offer", "pairing.answer", "pairing.reveal", "pairing.confirm").forEach {
+            assertEquals(it, FrameVerdict.PAIRING_AFTER_AUTHENTICATION, verdict(it))
+        }
+        assertEquals(FrameVerdict.ADMIT, verdict("pairing.cancel"))
+        assertEquals(FrameVerdict.BAD_TAG, verdict("pairing.cancel", tagged = false, valid = false))
+        assertEquals(FrameVerdict.BAD_TAG, verdict("pairing.cancel", valid = false))
+        assertEquals(FrameVerdict.UNAUTHENTICATED, verdict("pairing.cancel", same = false))
+        // A protocol 1 session has no envelope key: its cancel is taken as before.
+        assertEquals(FrameVerdict.ADMIT, verdict("pairing.cancel", key = false, tagged = false, valid = false))
+        // Before authentication: pairing frames pass; a tagged cancel must verify once there is a key.
+        assertEquals(FrameVerdict.ADMIT, verdict("pairing.confirm", authenticated = false, tagged = false))
+        assertEquals(FrameVerdict.ADMIT, verdict("pairing.cancel", authenticated = false, tagged = false, valid = false))
+        assertEquals(FrameVerdict.BAD_TAG, verdict("pairing.cancel", authenticated = false, valid = false))
+        assertEquals(FrameVerdict.ADMIT, verdict("pairing.cancel", authenticated = false, key = false, valid = false))
+        // Everything else needs an authenticated session and a valid tag.
+        assertEquals(FrameVerdict.UNAUTHENTICATED, verdict("clipboard.update", authenticated = false))
+        assertEquals(FrameVerdict.BAD_TAG, verdict("clipboard.update", valid = false))
+        assertEquals(FrameVerdict.ADMIT, verdict("clipboard.update"))
+    }
+
+    @Test
+    fun cancelReasonsMapToWhatEachEndShows() {
+        assertEquals(PairingFailure.MISMATCH_REMOTE, PairingRules.cancelFailure("mismatch", false, false, prompted = true))
+        assertEquals(PairingFailure.CANCELLED_REMOTE, PairingRules.cancelFailure(null, false, false, prompted = true))
+        assertEquals(PairingFailure.CANCELLED_REMOTE, PairingRules.cancelFailure("something_new", false, false, prompted = true))
+        assertEquals(PairingFailure.TIMEOUT_REMOTE, PairingRules.cancelFailure("timeout", localConfirmed = true, remoteConfirmed = false, prompted = true))
+        assertEquals(PairingFailure.TIMEOUT_LOCAL, PairingRules.cancelFailure("timeout", localConfirmed = false, remoteConfirmed = true, prompted = true))
+        assertEquals(PairingFailure.TIMEOUT_NEITHER, PairingRules.cancelFailure("timeout", false, false, prompted = true))
+        assertEquals(PairingFailure.TIMEOUT, PairingRules.cancelFailure("timeout", false, false, prompted = false))
+        assertEquals(PairingFailure.BUSY, PairingRules.cancelFailure("busy", false, false, prompted = false))
+        assertEquals(PairingFailure.RATE_LIMITED, PairingRules.cancelFailure("rate_limited", false, false, prompted = false))
+        assertEquals(PairingFailure.OLD_VERSION, PairingRules.cancelFailure("needs_protocol_2", false, false, prompted = false))
+        assertEquals(null, PairingRules.cancelFailure("not_armed", false, false, prompted = false))
+        assertEquals("cancelled", PairingCancelReason.normalized("x".repeat(40)))
     }
 
     /** Attack: answer a reconnect dial under a trusted ID in different letter case, hoping for a code prompt. */
@@ -109,7 +287,7 @@ class SessionSecurityTest {
 
     @Test
     fun inboundPairingPromptsAreLimitedPerMinute() {
-        val limiter = InboundPairingLimiter(limit = 3, windowMillis = 60_000L)
+        val limiter = InboundPairingLimiter({ 0L })
         assertTrue(limiter.tryAcquire(0))
         assertTrue(limiter.tryAcquire(1_000))
         assertTrue(limiter.tryAcquire(2_000))

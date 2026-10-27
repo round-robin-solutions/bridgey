@@ -77,6 +77,7 @@ fun deviceRings(
     val connectedIds = connections.mapTo(HashSet()) { it.deviceId }
     val connectingName = when (pairing) {
         is PairingState.Connecting -> pairing.peerName
+        is PairingState.WaitingForAllow -> pairing.peerName
         is PairingState.Verification -> pairing.peerName
         else -> null
     }

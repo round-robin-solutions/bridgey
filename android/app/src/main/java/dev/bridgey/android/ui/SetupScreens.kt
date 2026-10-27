@@ -27,6 +27,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -78,6 +80,9 @@ data class SetupUiState(
     /** Screenshots: text already typed on the Intro, and bundles already picked. */
     val typedText: String = "",
     val pickedBundles: Set<String> = emptySet(),
+    /** A Mac that asked to pair, and Allow pairing's seconds left, for the Pair step's ready card. */
+    val pairingRequest: dev.bridgey.android.PairingRequest? = null,
+    val armedSeconds: Int = 0,
 ) {
     /** Whether a quick step's permission is granted (or a Mac is paired) right now. */
     fun stepDone(step: QuickStep): Boolean = when (step) {
@@ -92,6 +97,11 @@ class SetupActions(
     /** The real settings: what setup changes is applied at once. */
     val settings: SettingsActions = SettingsActions(),
     val pair: (SetupNearbyMac) -> Unit = {},
+    /** The Pair step is on show (true) or went away: this phone takes pairings from a Mac meanwhile. */
+    val holdPairing: (Boolean) -> Unit = {},
+    val allowPairing: () -> Unit = {},
+    val dismissPairingRequest: () -> Unit = {},
+    val stopPairing: () -> Unit = {},
     val addDevice: () -> Unit = {},
     val lookForDevices: () -> Unit = {},
     val allowNotificationAccess: () -> Unit = {},
@@ -313,6 +323,7 @@ private fun QuickStepPage(step: QuickStep, state: SetupUiState, actions: SetupAc
         QuickStep.NOTIFICATION_ACCESS -> actions.allowNotificationAccess
         QuickStep.BATTERY -> actions.allowBattery
     }
+    if (step == QuickStep.PAIR) HoldPairing(actions)
     SetupFrame(
         title = stringResource(R.string.setup_title),
         position = state.flow.position,
@@ -361,8 +372,35 @@ private fun StepCard(title: String, why: String, without: String, icon: ImageVec
     }
 }
 
+/** While a Pair step is on show, this phone answers a Mac that starts pairing from its side. */
+@Composable
+internal fun HoldPairing(actions: SetupActions) {
+    val hold by rememberUpdatedState(actions.holdPairing)
+    DisposableEffect(Unit) {
+        hold(true)
+        onDispose { hold(false) }
+    }
+}
+
+/** The Pair step's line or card: ready to pair, a Mac's request with Allow pairing, or the countdown. */
+@Composable
+internal fun SetupPairingReady(state: SetupUiState, actions: SetupActions, modifier: Modifier = Modifier) {
+    PairingReadyCard(
+        request = state.pairingRequest,
+        armedSeconds = state.armedSeconds,
+        onAllow = actions.allowPairing,
+        onNotNow = actions.dismissPairingRequest,
+        onStop = actions.stopPairing,
+        modifier = modifier,
+    )
+}
+
 /** The Pair step: paired Macs, or the Macs found on this network to pair with. */
 private fun LazyListScope.pairRows(state: SetupUiState, actions: SetupActions) {
+    // Once a Mac is paired the step is done; the ready line goes, unless another Mac is asking.
+    if (!state.stepDone(QuickStep.PAIR) || state.pairingRequest != null || state.armedSeconds > 0) {
+        item(key = "pair.ready") { SetupPairingReady(state, actions, Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) }
+    }
     item(key = "pair.label") { SectionLabel(stringResource(R.string.setup_pair_nearby), Modifier.padding(top = 24.dp, bottom = 8.dp)) }
     item(key = "pair.list") {
         val colors = BridgeyTheme.colors

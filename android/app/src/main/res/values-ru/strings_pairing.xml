@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pairing_check_title">Сверьте код</string>
+    <string name="pairing_check_body">Этот же код показан на %1$s</string>
+    <string name="pairing_codes_match">Коды совпадают</string>
+    <string name="pairing_codes_differ">Не совпадают</string>
+    <string name="pairing_waiting_title">Ждём %1$s…</string>
+    <string name="pairing_waiting_body">Нажмите «Коды совпадают» и там</string>
+    <string name="pairing_remote_confirmed_title">%1$s: код подтверждён</string>
+    <string name="pairing_remote_confirmed_body">Сверьте код и нажмите «Коды совпадают» здесь, чтобы закончить</string>
+    <string name="pairing_connecting_title">Подключение к %1$s…</string>
+    <string name="pairing_connecting_body">Не закрывайте Bridgey на обоих устройствах.</string>
+    <string name="pairing_allow_wait_title">Разрешите связь на %1$s</string>
+    <string name="pairing_allow_wait_body">Откройте Bridgey на %1$s и нажмите «Разрешить связь»</string>
+    <string name="pairing_paired_title">Связано: %1$s</string>
+    <string name="pairing_paired_body">Теперь устройства подключаются сами в одной сети Wi-Fi. Дальше выберите, чем делиться.</string>
+    <string name="pairing_done">Готово</string>
+    <string name="pairing_failed_title">Связь не установлена</string>
+    <string name="pairing_try_again">Попробовать снова</string>
+    <string name="pairing_code_label">Код</string>
+
+    <string name="pairing_failed_mismatch_remote">%1$s: коды не совпали. Ничего не связано. Попробуйте снова и проверьте, что на обоих экранах один код.</string>
+    <string name="pairing_failed_mismatch_local">Ничего не связано. Если коды правда разные, другое устройство может выдавать себя за %1$s. Попробуйте снова.</string>
+    <string name="pairing_failed_timeout_remote">%1$s: «Коды совпадают» не нажали вовремя.</string>
+    <string name="pairing_failed_timeout_local">Здесь не нажали «Коды совпадают» вовремя.</string>
+    <string name="pairing_failed_timeout_neither">Ни одно устройство не подтвердило код вовремя.</string>
+    <string name="pairing_failed_cancelled_remote">Связь отменили на %1$s.</string>
+    <string name="pairing_failed_old_version">На %1$s старая версия Bridgey. Обновите её до 0.10 или новее и свяжите снова.</string>
+    <string name="pairing_failed_no_answer">%1$s не ответил. Если там старая версия Bridgey, обновите её до 0.10 или новее и свяжите снова.</string>
+    <string name="pairing_failed_not_allowed">%1$s не разрешил связь вовремя. Откройте там Bridgey и попробуйте снова.</string>
+    <string name="pairing_failed_busy">%1$s сейчас связывается с другим устройством. Закончите или отмените это и попробуйте снова.</string>
+    <string name="pairing_failed_rate_limited">%1$s отклоняет связь на минуту после нескольких попыток. Попробуйте чуть позже.</string>
+    <string name="pairing_failed_connection_lost">Соединение с %1$s прервалось. Проверьте, что оба в одной сети Wi-Fi, и попробуйте снова.</string>
+    <string name="pairing_failed_could_not_connect">Не удалось связаться с %1$s. Проверьте, что оба в одной сети Wi-Fi и Bridgey там открыт.</string>
+    <string name="pairing_failed_timeout">%1$s слишком долго не отвечал. Попробуйте снова.</string>
+    <string name="pairing_failed_code_rejected">Устройства не смогли проверить друг друга. Убедитесь, что коды совпадают, и попробуйте снова.</string>
+    <string name="pairing_failed_identity_changed">У %1$s новый идентификатор. Забудьте его на обоих устройствах и свяжите снова.</string>
+    <string name="pairing_failed_invalid">%1$s прислал что-то неожиданное. Обновите Bridgey на обоих устройствах и попробуйте снова.</string>
+
+    <string name="pairing_request_title">%1$s хочет связаться</string>
+    <string name="pairing_request_body">Разрешите связь и сверьте код на обоих экранах.</string>
+    <string name="pairing_allow">Разрешить связь</string>
+    <string name="pairing_ready_title">Готов к связи · %1$s</string>
+    <string name="pairing_ready_body">Выберите этот телефон на Mac, чтобы связать.</string>
+    <string name="pairing_ready_held">Готов к связи, пока открыт этот экран</string>
+</resources>

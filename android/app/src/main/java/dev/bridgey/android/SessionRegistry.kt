@@ -31,16 +31,44 @@ data class DeviceConnection(
     val state: DeviceLinkState,
 )
 
-/** Why a pairing attempt ended; the UI shows [message]. */
-enum class PairingFailure(val message: String) {
-    COULD_NOT_CONNECT("Could not reach the device. Check that both are on the same Wi-Fi and Bridgey is open."),
-    TIMEOUT("Pairing timed out. Start again and confirm the code on both devices within two minutes."),
-    CANCELLED_REMOTE("Pairing was cancelled on the other device, or its code was rejected there."),
-    CODE_REJECTED("The devices could not verify each other. Check that the codes match and try again."),
-    IDENTITY_CHANGED("This device's identity changed. Forget it on both devices, then pair again."),
-    CONNECTION_LOST("The connection was lost before pairing finished. Try again."),
-    BUSY("Another pairing is waiting for confirmation. Finish or cancel it first."),
-    INVALID("The other device sent something unexpected. Update Bridgey on both devices and try again."),
+/**
+ * Why a pairing did not finish. The words are in strings_pairing.xml (pairing_failed_*), with the other device's
+ * name; the Mac shows the same ones.
+ */
+enum class PairingFailure {
+    COULD_NOT_CONNECT,
+
+    /** The handshake (before the code) took longer than 20 s. */
+    TIMEOUT,
+
+    /** The other end tapped Don't match. */
+    MISMATCH_REMOTE,
+
+    /** This end tapped Don't match. */
+    MISMATCH_LOCAL,
+
+    /** The code timer ran out: this end confirmed, the other did not. */
+    TIMEOUT_REMOTE,
+
+    /** The code timer ran out: the other end confirmed, this one did not. */
+    TIMEOUT_LOCAL,
+    TIMEOUT_NEITHER,
+    CANCELLED_REMOTE,
+
+    /** The other end runs a Bridgey without protocol 2 (0.9 or older). */
+    OLD_VERSION,
+
+    /** A committed offer got no answer: the other end closed or said nothing for 20 s (likely an older Bridgey). */
+    NO_ANSWER,
+
+    /** The other end did not tap Allow pairing within two minutes. */
+    NOT_ALLOWED,
+    CODE_REJECTED,
+    IDENTITY_CHANGED,
+    CONNECTION_LOST,
+    BUSY,
+    RATE_LIMITED,
+    INVALID,
 }
 
 /**
@@ -178,6 +206,7 @@ internal fun connectionStatus(connections: List<DeviceConnection>, pairing: Pair
     connections.size == 1 -> "Connected to ${connections.single().peerName}"
     connections.size > 1 -> connectedSummary(connections)
     pairing is PairingState.Connecting -> "Connecting to ${pairing.peerName}…"
+    pairing is PairingState.WaitingForAllow -> "Waiting for ${pairing.peerName} to allow pairing"
     pairing is PairingState.Failed -> "Not connected"
     else -> "Not connected · waiting for paired device"
 }
