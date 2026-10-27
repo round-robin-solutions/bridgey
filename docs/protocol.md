@@ -107,8 +107,8 @@ available only when both peers report the corresponding feature as enabled. Clie
 predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
-`sms_codes_draft1`) are optional booleans described in their own sections; a missing draft key
-means `false`.
+`sms_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`) are optional booleans described in
+their own sections; a missing draft key means `false`.
 
 ## Pairing flow
 
@@ -666,6 +666,98 @@ action tokens. Bridgey uses the platform telecom service and never starts a
 number the platform identifies as an emergency number. It does not request
 contacts or call-log access. Local feature policy is checked again immediately
 before any side effect. Number content is not logged.
+
+### Mac actions (`mac_actions_draft1`)
+
+Status: **Draft, edition only.** A paired phone asks the Mac to lock its screen, sleep, start the
+screen saver, change the volume, open an app or run a Shortcut. The phone never sends a command:
+it picks one entry from a list the Mac published for it, and the Mac maps that entry to a fixed,
+local operation. There is no shell, no argument and no free-form text on the wire.
+Design and macOS research: [automation.md](automation.md).
+
+**Negotiation.** `features.update` gains the boolean key `mac_actions_draft1`. The Mac sets it when
+Mac actions is on for this Mac **and** granted to that phone (off by default; a missing grant is
+`false`, like remote control). The phone sets it when its own Mac actions setting is on for that Mac.
+`actions.*` messages go only to a peer whose latest map shows `true`; a peer receiving them while
+its own key is `false` drops them (the Mac answers `actions.run` with `refused`/`not_allowed`).
+
+**Messages.** All are AES-GCM encrypted on the current session like `quick.request` (outer `kind`,
+`sessionId`, unique `messageId` in the replay window, `nonce`, `ciphertext`). The plaintext is UTF-8
+JSON with `version: 1`: at most 8 KiB for `actions.catalog`, 1 KiB for the others.
+
+| Message | Direction | Fields | Meaning |
+| --- | --- | --- | --- |
+| `actions.catalog` | Mac to phone | `actions` (array, at most 64), optional `volume` | what this phone may run now; sent after each `features.update` that shows the key on both sides and whenever the list, a switch, the grant or a permission changes. It replaces the previous list |
+| `actions.run` | phone to Mac | `requestId` (UUID), `action` (an `id` from the catalog), `sequence`; `value` only with `volume_set` | run one entry. Not retried automatically |
+| `actions.result` | Mac to phone | `requestId`, `action`, `status`: `done` or `refused`; `reason` when refused; optional `volume` | the outcome. One result per run |
+
+A catalog entry is `{ "id": ..., "title": ... }`, with optional `blocked: "permission_required"`
+when the Mac knows it cannot run the entry until the person allows something on the Mac
+(Accessibility for Lock). Identifiers:
+
+| `id` | Mac operation |
+| --- | --- |
+| `lock` | lock the screen (the system Lock Screen shortcut, Control-Command-Q, posted with Accessibility access) |
+| `sleep` | put the Mac to sleep (IOKit `IOPMSleepSystem`) |
+| `screensaver` | start the screen saver (open `ScreenSaverEngine.app`) |
+| `volume_up`, `volume_down` | default output volume up or down one step (1/16, like the volume keys) |
+| `volume_mute` | toggle mute on the default output |
+| `volume_set` | `value`: integer 0 to 100 |
+| `app:<bundle id>` | open that app with `NSWorkspace`; the bundle id must be on this Mac's list of apps for phones (`[A-Za-z0-9.-]`, at most 155 characters) |
+| `shortcut:<uuid>` | run that macOS Shortcut with `/usr/bin/shortcuts run <name>` and no input; the UUID is a local handle the Mac made when the person added it, so the phone never sends a Shortcut name |
+
+`title` is shown to the person: the app or Shortcut name (1 to 64 characters, no control
+characters). Phones show their own translated titles for the fixed identifiers. `volume`, present
+when volume is allowed and the default output has a settable volume, is `{ "level": 0..100,
+"muted": bool }`; a result for a volume action carries the new value.
+
+**Checks on the Mac, in order, before anything runs:** the session is the phone's current
+authenticated session; the payload decodes, its `sequence` is above the session's high-water mark
+for `actions` and `requestId` is a UUID; `mac_actions_draft1` is on and granted for that phone; the
+identifier is in the catalog this Mac would send that phone now (unknown identifiers, apps and
+Shortcuts that are no longer listed are `not_allowed`); `value` is present and valid only for
+`volume_set`; the rate limit allows it. The Mac then checks the operating system permission and
+runs the operation.
+
+| `reason` | Meaning |
+| --- | --- |
+| `not_allowed` | Mac actions is off, not granted to this phone, this action is switched off, or the identifier is not in the list |
+| `invalid` | a missing or out-of-range `value`, or a malformed request |
+| `rate_limited` | over the limit below |
+| `busy` | a Shortcut is still running (one at a time per Mac) |
+| `permission_required` | macOS has not allowed it (Accessibility for Lock) |
+| `unavailable` | the app is no longer installed, the Shortcut was deleted, or there is no output device with a volume |
+| `failed` | the operation ran and reported an error, or a Shortcut ran longer than 60 seconds and was stopped |
+
+**Rate limits** (per phone, token buckets, refused rather than queued): volume actions 10 at once,
+then 5 a second; every other action 3 at once, then one every 2 seconds. A phone waits 10 seconds
+for a result (70 seconds for a Shortcut), then reports "not confirmed".
+
+**Audit.** The Mac keeps a private, local log of every run and refusal: phone, time, the
+identifier and title, the outcome and reason. Never `value`. It is owner-only (`0600`), 30 days,
+at most 500 entries, shown and cleared in Settings, like the remote control session log.
+
+### Open links right away (`links_open_draft1`)
+
+Status: **Draft, edition only.** "Open on Mac" from the phone's share sheet. The Mac sets
+`links_open_draft1` in `features.update` when Web links is on for that phone; it means the Mac
+understands the `open` action. The phone then sends `quick.request` with `feature: "links"`,
+`action: "open"` and the link as `value` (same validation as `offer`); without the key it sends
+`offer`. If the Mac's own "Open links from phones right away" setting is on (off by default), it
+opens the link in the default browser and answers `quick.result` with `accepted: true` and
+`opened: true`, at most one link per phone every 3 seconds. Otherwise the link is queued exactly
+like `offer` (`opened: false`, declined while another link waits). Older phones ignore `opened`.
+
+### Connection health (no wire change)
+
+Both apps show, per paired device, how the connection is doing: the route class (same local
+network, private network such as Tailscale's 100.64.0.0/10, or another network), who dialled, the
+heartbeat round trip, when the link came up, the last disconnect reason, reconnect attempts since
+local midnight and whether discovery sees the device now; the phone adds whether battery
+optimisation is off. The round trip is measured from the existing `heartbeat.ping` and its
+`heartbeat.pong`, which echoes the ping's `messageId`, so nothing new goes on the wire. The view and
+its part of the diagnostics report hold no addresses, names or content: the first eight characters
+of the device ID, tokens and numbers only.
 
 ## Draft: folders, places and settings sync
 
