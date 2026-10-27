@@ -14,6 +14,29 @@ under the same [MIT licence](LICENSE).
 What differs from upstream, how releases and channels work, where the signing keys live and
 how to merge upstream changes: [docs/rr-edition.md](docs/rr-edition.md).
 
+## Install
+
+- **Mac, Homebrew:** `brew install --cask round-robin-solutions/tap/bridgey-rr`. The cask comes from
+  [round-robin-solutions/homebrew-tap](https://github.com/round-robin-solutions/homebrew-tap) and
+  installs the newest Stable release (until the first Stable release exists, the newest Beta). The app
+  is ad-hoc signed because Round Robin has no Apple Developer membership yet, so the cask clears the
+  quarantine flag on the installed app. The app then updates itself.
+- **Mac, DMG:** download `Bridgey-RR-<version>-macOS.dmg` from the
+  [releases page](https://github.com/round-robin-solutions/bridgey/releases), drag the app to
+  Applications and, the first time, right-click it and choose **Open**.
+- **Android, APK:** download `Bridgey-RR-<version>-Android.apk` from the same page and open it.
+  Android asks once to allow installs from your browser or Files.
+- **Android, Obtainium:** open one of the links below on the phone with
+  [Obtainium](https://obtainium.imranr.dev) installed. Obtainium then installs and updates the APK from
+  GitHub Releases. There is no Stable release yet, so use the Beta link for now.
+
+<!-- obtainium:start markdown -->
+[Stable](https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522in.roundrobin.bridgey%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fround-robin-solutions%252Fbridgey%2522%252C%2522author%2522%253A%2522Round%2520Robin%2522%252C%2522name%2522%253A%2522Bridgey%2520by%2520Round%2520Robin%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522includePrereleases%255C%2522%253Afalse%257D%2522%257D) | [Beta](https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522in.roundrobin.bridgey%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fround-robin-solutions%252Fbridgey%2522%252C%2522author%2522%253A%2522Round%2520Robin%2522%252C%2522name%2522%253A%2522Bridgey%2520by%2520Round%2520Robin%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522includePrereleases%255C%2522%253Atrue%252C%255C%2522filterReleaseTitlesByRegEx%255C%2522%253A%255C%2522-rr%255B.%255D%255B0-9%255D%252B%28-beta%255B.%255D%255B0-9%255D%252B%29%253F%2524%255C%2522%257D%2522%257D)
+<!-- obtainium:end -->
+
+The apps check for updates themselves on the channel you pick in Settings (Stable, Beta or Nightly).
+More in the [user guide](docs/user-guide.md#install).
+
 Edition milestones (upstream's own roadmap follows below, unchanged):
 
 - **v0.10 (stabilisation)**, in progress: a draft protocol contract

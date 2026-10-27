@@ -103,6 +103,14 @@ h3 { margin: 42px 0 10px; font-size: 1.35rem; letter-spacing: -.025em; }
 footer { min-height: 130px; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 30px; color: #7183a2; font-size: .82rem; }
 footer a { color: #bfeeff; }
 
+.install-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.install-grid article { padding: 26px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); }
+.install-grid span { color: var(--cyan); font: 700 .72rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.install-grid h3 { margin-top: 18px; }
+.install-grid p { margin: 0 0 16px; color: var(--muted); line-height: 1.6; font-size: .94rem; }
+.install-grid pre { margin: 0 0 14px; }
+.install-grid .text-link + .text-link { margin-left: 18px; }
+
 @media (max-width: 900px) {
   nav { display: none; }
   .site-header .button { margin-left: auto; }
@@ -128,7 +136,7 @@ footer a { color: #bfeeff; }
   .trust-strip { grid-template-columns: repeat(2, 1fr); }
   .trust-strip span:nth-child(2) { border-right: 0; }
   .section { padding: 86px 0; }
-  .feature-grid, .docs-grid, .roadmap-grid { grid-template-columns: 1fr; }
+  .feature-grid, .docs-grid, .roadmap-grid, .install-grid { grid-template-columns: 1fr; }
   .cta { grid-template-columns: 1fr; padding: 34px; }
   footer { grid-template-columns: 1fr; padding: 34px 0; gap: 12px; }
 }

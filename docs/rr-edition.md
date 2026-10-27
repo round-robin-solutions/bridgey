@@ -493,6 +493,32 @@ nightly goes out without the Android SBOM and a warning. Run one piece by hand w
    after the release assets exist,
 6. for Nightly, deletes all but the newest 10 nightly releases and their tags, and releases the lock.
 
+### Install channels: Homebrew cask and Obtainium
+
+Besides the DMG and APK on the release page, there are two install routes. Neither changes how
+releases are built.
+
+- **Homebrew cask** `bridgey-rr` in the public tap
+  [round-robin-solutions/homebrew-tap](https://github.com/round-robin-solutions/homebrew-tap)
+  (`Casks/bridgey-rr.rb`). It pins one release by `version` and `sha256` of that release's DMG, sets
+  `auto_updates true` (Sparkle updates the app) and clears the quarantine flag in `postflight_steps`
+  because the app is ad-hoc signed. `scripts/rr/bump-cask.py` rewrites `version` and `sha256`, then
+  clones the tap, commits and pushes (token from `GH_TOKEN`). `release.sh --publish` runs it after the
+  release is out: always for Stable, for Beta only with `--bump-cask` (or `BRIDGEY_RR_BUMP_CASK=1`),
+  never for Nightly. A failure prints a warning and leaves the release published; run it again with
+  `python3 scripts/rr/bump-cask.py --tag v<version> --push`. It refuses to move the cask to an older
+  version unless `--force` is given. Until the first Stable release, the cask points at the newest Beta.
+- **Obtainium** links, built by `scripts/rr/obtainium.py` as `obtainium://app/<URL-encoded JSON>` and,
+  for README and website, through the redirect page
+  `https://apps.obtainium.imranr.dev/redirect?r=...` (GitHub does not link custom schemes). The JSON is
+  `{"id","url","author","name","additionalSettings"}` with `additionalSettings` as a JSON string: Stable
+  `{"includePrereleases":false}`; Beta and Nightly `{"includePrereleases":true,"filterReleaseTitlesByRegEx":...}`
+  where the regex matches the end of our release titles (Beta: `-rr.N` or `-rr.N-beta.N`; Nightly adds
+  `-rr.N-nightly.N`), which keeps the `channels` and `models` releases out. The Android app builds the
+  same links and must match this builder. Regenerate the links in `README.md`, `docs/user-guide.md`
+  and `website/index.html` with `python3 scripts/rr/obtainium.py update README.md docs/user-guide.md website/index.html`;
+  a test fails when they are out of date.
+
 After a Stable release, bump `EDITION_NEXT_VERSION` (for example to `0.6.0-rr.2`) and commit.
 
 Checks:

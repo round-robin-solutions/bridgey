@@ -16,6 +16,10 @@ Both apps are on the
 `round-robin-solutions/bridgey`. Each release has an Android APK, a Mac DMG and ZIP, and a
 `SHA256SUMS` file.
 
+Quick ways in: on a Mac, `brew install --cask round-robin-solutions/tap/bridgey-rr`; on Android,
+[Obtainium](#android-with-obtainium) keeps the app updated from the same releases. The steps below
+use the files directly.
+
 ### Android
 
 1. On the phone, open the releases page and download the file ending in `-Android.apk` from the
@@ -30,7 +34,36 @@ installs updates from its own releases.
 
 Bridgey supports Android 8.0 and later.
 
+#### Android with Obtainium
+
+[Obtainium](https://obtainium.imranr.dev) installs and updates apps straight from GitHub releases.
+With it installed, open one of these links on the phone. It adds Bridgey with the right release
+filter for the channel, and Android still shows its own confirmation for every install. There is no
+Stable release yet, so use Beta for now.
+
+<!-- obtainium:start markdown -->
+[Stable](https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522in.roundrobin.bridgey%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fround-robin-solutions%252Fbridgey%2522%252C%2522author%2522%253A%2522Round%2520Robin%2522%252C%2522name%2522%253A%2522Bridgey%2520by%2520Round%2520Robin%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522includePrereleases%255C%2522%253Afalse%257D%2522%257D) | [Beta](https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522in.roundrobin.bridgey%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fround-robin-solutions%252Fbridgey%2522%252C%2522author%2522%253A%2522Round%2520Robin%2522%252C%2522name%2522%253A%2522Bridgey%2520by%2520Round%2520Robin%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522includePrereleases%255C%2522%253Atrue%252C%255C%2522filterReleaseTitlesByRegEx%255C%2522%253A%255C%2522-rr%255B.%255D%255B0-9%255D%252B%28-beta%255B.%255D%255B0-9%255D%252B%29%253F%2524%255C%2522%257D%2522%257D)
+<!-- obtainium:end -->
+
+Stable follows releases not marked "Pre-release". Beta follows Stable and Beta releases. Nightly
+(`python3 scripts/rr/obtainium.py links --channels nightly`) follows every build.
+
 ### Mac
+
+With Homebrew:
+
+```sh
+brew install --cask round-robin-solutions/tap/bridgey-rr
+```
+
+The cask comes from [round-robin-solutions/homebrew-tap](https://github.com/round-robin-solutions/homebrew-tap).
+It installs the newest Stable release (until there is one, the newest Beta) and removes the download
+quarantine flag from the app, because the app is ad-hoc signed and not notarised yet. Homebrew 6 and
+later asks you to trust a third-party tap; naming the full cask as above trusts just that cask. The
+app updates itself afterwards, so `brew upgrade` leaves it alone; `brew uninstall --cask --zap
+bridgey-rr` removes the app and its data.
+
+With the DMG:
 
 1. Download the file ending in `-macOS.dmg` and open it.
 2. Drag **Bridgey by Round Robin** to Applications.
@@ -39,8 +72,7 @@ Bridgey supports Android 8.0 and later.
    asks once.
 4. Allow **local network** access when macOS asks. Bridgey needs it to find and reach your phone.
 
-Bridgey needs macOS 13 or later. This repository does not contain a Homebrew tap or cask, so use the
-DMG. (If one is published later it will be named in the [README](../README.md).)
+Bridgey needs macOS 13 or later.
 
 The edition installs next to the original Bridgey. Both listen on the same port, so quit one
 before you run the other on a Mac.
