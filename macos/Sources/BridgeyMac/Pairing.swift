@@ -118,7 +118,7 @@ private struct NotificationActionCommandPayload: Codable {
     let replyText: String?
 }
 
-private struct FileOfferPayload: Codable {
+struct FileOfferPayload: Codable {
     let transferId: String
     let name: String
     let mimeType: String
@@ -1030,6 +1030,7 @@ final class PairingCoordinator: ObservableObject {
         clipboardCache.removePartials()
         clipboardCache.enforceLimits()
         clipboardInbox.progress = ClipboardPasteProgressPanel()
+        clipboardInbox.eagerLimit = { [weak self] in self?.settings.clipboardEagerLimit ?? 0 }
         clipboardInbox.protectedOfferIDs = { [weak self] in
             self?.clipboardOutbox.current.map { [$0.offer.offerId] } ?? []
         }
@@ -1198,7 +1199,8 @@ final class PairingCoordinator: ObservableObject {
               let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
               let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
               let payload = try? JSONDecoder().decode(ClipboardErrorPayload.self, from: plaintext),
-              payload.version == 1 else { return }
+              payload.version == 1,
+              clipboardInbox.isTransfer(payload.transferId, from: current.remoteDeviceID) else { return }
         clipboardInbox.handleError(payload)
     }
 
@@ -1216,7 +1218,8 @@ final class PairingCoordinator: ObservableObject {
             if let transferID = message.transferId { sendTransferControl(kind: "files.cancel", transferID: transferID, to: current) }
             return true
         }
-        guard clipboardOffersEnabledLocally(current) else {
+        // Only the phone whose clip is on this Mac's pasteboard sends its data.
+        guard clipboardOffersEnabledLocally(current), clipboardInbox.current?.deviceID == current.remoteDeviceID else {
             sendTransferControl(kind: "files.cancel", transferID: offer.transferId, to: current)
             return true
         }
@@ -1881,6 +1884,16 @@ final class PairingCoordinator: ObservableObject {
         fileTransferStatus = "Transfer cancelled"
     }
 
+    /// Frames of a single-file transfer count only from the phone it belongs to.
+    private func transferOwned(_ transferID: String, by current: Session) -> Bool {
+        transferBelongs(owner: transferDevices[transferID], to: current.remoteDeviceID)
+    }
+
+    /// Another phone's transfer. Unknown IDs (already finished) are not, so their answers stay idempotent.
+    private func transferIsForeign(_ transferID: String, to current: Session) -> Bool {
+        transferDevices[transferID].map { $0 != current.remoteDeviceID } ?? false
+    }
+
     /// files.cancel goes to the phone the transfer belongs to.
     private func sendFileCancel(_ transferID: String) {
         guard let current = transferDevices[transferID].flatMap({ registry.session(for: $0) }) ?? session else { return }
@@ -2407,7 +2420,9 @@ final class PairingCoordinator: ObservableObject {
                       Data(base64Encoded: offer.sha256)?.count == 32 else {
                     throw PairingError.invalidMessage
                 }
-                guard incomingFiles[offer.transferId] == nil else { throw PairingError.invalidMessage }
+                // A transfer ID already in use, or another phone's, is not taken over.
+                guard incomingFiles[offer.transferId] == nil, outgoingFiles[offer.transferId] == nil,
+                      transferDevices[offer.transferId].map({ $0 == current.remoteDeviceID }) ?? true else { throw PairingError.invalidMessage }
                 // A file inside a folder coming to this Mac (4.6): the folder session checks it against the manifest.
                 if (try? JSONDecoder().decode(FolderFileProbe.self, from: plaintext))?.folderTransferId != nil {
                     if !folderReceiver.fileOffer(plaintext, from: current.remoteDeviceID) {
@@ -2415,10 +2430,24 @@ final class PairingCoordinator: ObservableObject {
                     }
                     return
                 }
-                if let requestID = offer.cameraRequestId, camera.matches(requestID, from: current.remoteDeviceID) {
+                let phoneID = current.remoteDeviceID
+                let access = settings.receiveDirectoryAccess()
+                let admission = incomingFileAdmission(
+                    size: offer.size,
+                    phoneActive: incomingFiles.keys.filter { transferDevices[$0] == phoneID }.count,
+                    totalActive: incomingFiles.count,
+                    freeBytes: FolderReceiveSession.freeBytes(access.url) ?? FolderReceiveSession.freeBytes(access.url.deletingLastPathComponent()),
+                    reservedBytes: incomingFiles.values.reduce(0) { $0 + max(0, $1.expectedSize - $1.receivedSize) }
+                )
+                guard admission == .accept, let transfer = try? IncomingFileTransfer(offer: offer, directoryAccess: access) else {
+                    if admission == .noSpace { fileTransferStatus = "Not enough free space on this Mac" }
+                    current.send(PairingMessage(kind: "files.rejected", sessionId: current.id, transferId: offer.transferId))
+                    BridgeyLog.files.notice("file refused transfer=\(String(offer.transferId.prefix(8)), privacy: .public) reason=\(String(describing: admission), privacy: .public)")
+                    return
+                }
+                if let requestID = offer.cameraRequestId, camera.matches(requestID, from: phoneID) {
                     cameraTransfers[offer.transferId] = requestID
                 }
-                let transfer = try IncomingFileTransfer(offer: offer, directoryAccess: settings.receiveDirectoryAccess())
                 incomingFiles[offer.transferId] = transfer
                 transferDevices[offer.transferId] = current.remoteDeviceID
                 beginFileTransferUI()
@@ -2432,7 +2461,8 @@ final class PairingCoordinator: ObservableObject {
                 BridgeyLog.line(BridgeyLog.files, LogLines.file(BridgeyLog.policy, event: "accepted", transfer: offer.transferId, name: transfer.displayName, extra: "size=\(offer.size)"))
             case "files.chunk":
                 if clipboardInbox.owns(message.transferId) {
-                    guard registry.isActive(current), message.sessionId == current.id,
+                    guard clipboardInbox.isTransfer(message.transferId, from: current.remoteDeviceID),
+                          registry.isActive(current), message.sessionId == current.id,
                           let messageID = message.messageId, current.acceptMessageID(messageID),
                           let transferID = message.transferId, let sequence = message.sequence,
                           let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
@@ -2452,6 +2482,7 @@ final class PairingCoordinator: ObservableObject {
                 if let transferID = message.transferId,
                    incomingFiles[transferID] == nil,
                    cancelledTransferIDs.contains(transferID) { return }
+                if let transferID = message.transferId, incomingFiles[transferID] != nil, !transferOwned(transferID, by: current) { return }
                 guard registry.isActive(current),
                       message.sessionId == current.id,
                       let messageID = message.messageId,
@@ -2471,7 +2502,8 @@ final class PairingCoordinator: ObservableObject {
                 }
             case "files.complete":
                 if clipboardInbox.owns(message.transferId) {
-                    guard registry.isActive(current), message.sessionId == current.id,
+                    guard clipboardInbox.isTransfer(message.transferId, from: current.remoteDeviceID),
+                          registry.isActive(current), message.sessionId == current.id,
                           let messageID = message.messageId, current.acceptMessageID(messageID),
                           let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
                           let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
@@ -2491,6 +2523,7 @@ final class PairingCoordinator: ObservableObject {
                     throw PairingError.invalidMessage
                 }
                 if folderReceiver.fileComplete(completion.transferId, sha256: completion.sha256, from: current.remoteDeviceID) { return }
+                if incomingFiles[completion.transferId] != nil, !transferOwned(completion.transferId, by: current) { return }
                 guard let transfer = incomingFiles.removeValue(forKey: completion.transferId) else {
                     if cancelledTransferIDs.contains(completion.transferId) { return }
                     throw PairingError.invalidMessage
@@ -2525,13 +2558,14 @@ final class PairingCoordinator: ObservableObject {
                 }
             case "files.accept":
                 if clipboardOutbox.owns(message.transferId), let transferID = message.transferId {
-                    clipboardOutbox.handleAccept(transferID)
+                    if clipboardOutbox.serves(transferID, to: current.remoteDeviceID) { clipboardOutbox.handleAccept(transferID) }
                     return
                 }
                 if folders.receiveFile(kind: message.kind, transferID: message.transferId, sequence: nil, from: current.remoteDeviceID) { return }
                 if let transferID = message.transferId,
                    outgoingFiles[transferID] == nil,
                    cancelledTransferIDs.contains(transferID) { return }
+                if let transferID = message.transferId, outgoingFiles[transferID] != nil, !transferOwned(transferID, by: current) { return }
                 guard registry.isActive(current),
                       message.sessionId == current.id,
                       let transferID = message.transferId,
@@ -2575,11 +2609,11 @@ final class PairingCoordinator: ObservableObject {
                 )
             case "files.rejected":
                 if clipboardOutbox.owns(message.transferId), let transferID = message.transferId {
-                    clipboardOutbox.handleCancel(transferID)
+                    if clipboardOutbox.serves(transferID, to: current.remoteDeviceID) { clipboardOutbox.handleCancel(transferID) }
                     return
                 }
                 if folders.receiveFile(kind: message.kind, transferID: message.transferId, sequence: nil, from: current.remoteDeviceID) { return }
-                guard let transferID = message.transferId,
+                guard let transferID = message.transferId, transferOwned(transferID, by: current),
                       let transfer = outgoingFiles.removeValue(forKey: transferID) else { return }
                 transfer.cancel()
                 markTransferCancelled(transferID)
@@ -2589,11 +2623,11 @@ final class PairingCoordinator: ObservableObject {
                 finishQueuedFile(transferID)
             case "files.complete.ack":
                 if clipboardOutbox.owns(message.transferId), let transferID = message.transferId {
-                    clipboardOutbox.handleCompleteAck(transferID)
+                    if clipboardOutbox.serves(transferID, to: current.remoteDeviceID) { clipboardOutbox.handleCompleteAck(transferID) }
                     return
                 }
                 if folders.receiveFile(kind: message.kind, transferID: message.transferId, sequence: nil, from: current.remoteDeviceID) { return }
-                guard let transferID = message.transferId,
+                guard let transferID = message.transferId, transferOwned(transferID, by: current),
                       let transfer = outgoingFiles.removeValue(forKey: transferID) else { return }
                 let source = outgoingFileSources.removeValue(forKey: transferID)
                 recordFileHistory(transferID, direction: .sent, outcome: .completed, name: transfer.displayName, bytes: transfer.offer.size,
@@ -2608,13 +2642,14 @@ final class PairingCoordinator: ObservableObject {
             case "files.cancel":
                 guard let transferID = message.transferId else { return }
                 if clipboardInbox.owns(transferID) || clipboardOutbox.owns(transferID) {
-                    clipboardInbox.handleCancel(transferID: transferID)
-                    clipboardOutbox.handleCancel(transferID)
+                    if clipboardInbox.isTransfer(transferID, from: current.remoteDeviceID) { clipboardInbox.handleCancel(transferID: transferID) }
+                    if clipboardOutbox.serves(transferID, to: current.remoteDeviceID) { clipboardOutbox.handleCancel(transferID) }
                     current.send(PairingMessage(kind: "files.cancel.ack", sessionId: current.id, transferId: transferID))
                     return
                 }
                 if folders.receiveFile(kind: message.kind, transferID: transferID, sequence: nil, from: current.remoteDeviceID) { return }
                 if folderReceiver.fileCancelled(transferID, from: current.remoteDeviceID) { return }
+                guard !transferIsForeign(transferID, to: current) else { return }
                 if let incoming = incomingFiles[transferID] {
                     recordFileHistory(transferID, direction: .received, outcome: .cancelled, name: incoming.displayName, bytes: incoming.receivedSize,
                                       localURL: nil, phoneID: current.remoteDeviceID)
@@ -2632,14 +2667,14 @@ final class PairingCoordinator: ObservableObject {
                 finishQueuedFile(transferID)
             case "files.cancel.ack":
                 if clipboardInbox.owns(message.transferId) || clipboardOutbox.owns(message.transferId) { return }
-                if let transferID = message.transferId {
+                if let transferID = message.transferId, !transferIsForeign(transferID, to: current) {
                     markFileTransferFinished(id: transferID, status: "Transfer cancelled")
                 }
             case "files.chunk.ack":
                 if folders.receiveFile(kind: message.kind, transferID: message.transferId, sequence: message.sequence, from: current.remoteDeviceID) { return }
                 if let transferID = message.transferId, let sequence = message.sequence {
-                    outgoingFiles[transferID]?.acknowledge(sequence: sequence)
-                    clipboardOutbox.handleChunkAck(transferID, sequence: sequence)
+                    if transferOwned(transferID, by: current) { outgoingFiles[transferID]?.acknowledge(sequence: sequence) }
+                    if clipboardOutbox.serves(transferID, to: current.remoteDeviceID) { clipboardOutbox.handleChunkAck(transferID, sequence: sequence) }
                 }
             case let kind where BrowseKind.answerKinds.contains(kind):
                 try receiveBrowseMessage(message, in: current)
@@ -4388,6 +4423,72 @@ private final class MacTransferProgress {
     }
 }
 
+/// The longest name a received file gets, in UTF-8 bytes: 255 (APFS) less room for " 10000" and ".bridgey-part".
+let maximumReceivedNameBytes = 255 - " 10000".utf8.count - ".bridgey-part".utf8.count
+
+/// NUL and other control characters, and the marks and overrides that reorder text (a name that
+/// shows as "photo.exe.jpg" but ends in ".exe" in fact).
+private func isDroppedFromReceivedName(_ scalar: Unicode.Scalar) -> Bool {
+    if scalar.properties.generalCategory == .control { return true }
+    switch scalar.value {
+    case 0x061C, 0x200E, 0x200F, 0x202A...0x202E, 0x2066...0x2069: return true
+    default: return false
+    }
+}
+
+/// A name from the phone made safe to create in the receive folder: the last path component only,
+/// without the characters above, ":" as "_", never empty, "." or "..", and at most
+/// `maximumReceivedNameBytes` long with its extension kept.
+func receivedFileName(_ name: String) -> String {
+    let leaf = name.split(separator: "/", omittingEmptySubsequences: true).last.map(String.init) ?? ""
+    var scalars = String.UnicodeScalarView()
+    for scalar in leaf.unicodeScalars where !isDroppedFromReceivedName(scalar) {
+        scalars.append(scalar == ":" ? "_" : scalar)
+    }
+    let value = String(scalars).trimmingCharacters(in: .whitespaces)
+    guard !value.isEmpty, value != ".", value != ".." else { return "file" }
+    guard value.utf8.count > maximumReceivedNameBytes else { return value }
+    let pathExtension = (value as NSString).pathExtension
+    let suffix = pathExtension.isEmpty || pathExtension.utf8.count > 16 ? "" : "." + pathExtension
+    var stem = ""
+    for character in value.dropLast(suffix.isEmpty ? 0 : pathExtension.count + 1) {
+        guard stem.utf8.count + String(character).utf8.count + suffix.utf8.count <= maximumReceivedNameBytes else { break }
+        stem.append(character)
+    }
+    let trimmed = stem.trimmingCharacters(in: .whitespaces)
+    return (trimmed.isEmpty ? "file" : trimmed) + suffix
+}
+
+/// The file lands directly in `directory`, never beside or above it.
+func receivedFileIsContained(_ url: URL, in directory: URL) -> Bool {
+    url.standardizedFileURL.deletingLastPathComponent().path == directory.standardizedFileURL.path
+}
+
+/// A transfer's control and data frames are taken only from the phone it belongs to.
+func transferBelongs(owner: String?, to deviceID: String) -> Bool {
+    owner != nil && owner == deviceID
+}
+
+enum IncomingFileAdmission: Equatable {
+    case accept, busy, noSpace
+}
+
+enum IncomingFileLimits {
+    static let perPhone = 4
+    static let total = 8
+    /// Left free on the disk, as for folders.
+    static let spaceMargin: Int64 = 64 * 1024 * 1024
+}
+
+/// Whether a single file from a phone can start: at most 4 at once per phone and 8 in all, and room
+/// for it, for what the running ones still have to write and for the margin. Unknown free space
+/// does not block.
+func incomingFileAdmission(size: Int64, phoneActive: Int, totalActive: Int, freeBytes: Int64?, reservedBytes: Int64) -> IncomingFileAdmission {
+    guard phoneActive < IncomingFileLimits.perPhone, totalActive < IncomingFileLimits.total else { return .busy }
+    if let freeBytes, freeBytes - reservedBytes < size + IncomingFileLimits.spaceMargin { return .noSpace }
+    return .accept
+}
+
 /// Finder-style collision handling: "name.ext", then "name 2.ext", "name 3.ext", and so on.
 /// A name whose partial file is still being received counts as taken.
 func uniqueReceivedFileURL(_ requested: URL) -> URL {
@@ -4406,7 +4507,7 @@ func uniqueReceivedFileURL(_ requested: URL) -> URL {
     return requested.deletingLastPathComponent().appendingPathComponent(UUID().uuidString)
 }
 
-private final class IncomingFileTransfer {
+final class IncomingFileTransfer {
     let displayName: String
     let expectedSize: Int64
     private let expectedHash: String
@@ -4425,11 +4526,12 @@ private final class IncomingFileTransfer {
         expectedSize = offer.size
         expectedHash = offer.sha256
         self.directoryAccess = directoryAccess
-        let sanitized = Self.sanitize(offer.name)
+        let sanitized = receivedFileName(offer.name)
         displayName = sanitized
         let directory = directoryAccess.url
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         finalURL = uniqueReceivedFileURL(directory.appendingPathComponent(sanitized))
+        guard receivedFileIsContained(finalURL, in: directory) else { throw PairingError.invalidMessage }
         partialURL = finalURL.appendingPathExtension("bridgey-part")
         FileManager.default.createFile(atPath: partialURL.path, contents: nil)
         handle = try FileHandle(forWritingTo: partialURL)
@@ -4454,6 +4556,7 @@ private final class IncomingFileTransfer {
             try? FileManager.default.removeItem(at: partialURL)
             throw PairingError.invalidMessage
         }
+        FinderMetadata.quarantine(partialURL)
         try FileManager.default.moveItem(at: partialURL, to: finalURL)
         return finalURL
     }
@@ -4479,13 +4582,6 @@ private final class IncomingFileTransfer {
     func cancel() {
         try? handle.close()
         try? FileManager.default.removeItem(at: partialURL)
-    }
-
-    private static func sanitize(_ name: String) -> String {
-        let leaf = (name as NSString).lastPathComponent
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: ":", with: "_")
-        return String(leaf.prefix(255)).isEmpty ? "file" : String(leaf.prefix(255))
     }
 
     private static func formatBytes(_ bytes: Int64) -> String {
