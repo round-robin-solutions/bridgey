@@ -38,13 +38,14 @@ const DEFAULT_CONFIG: &str = "/etc/bridgey/bridgey-rendezvous.toml";
 /// `bridgey-rendezvous --health [config]`: exit 0 when `/health/ready` answers 200 (container health check).
 fn health(path: &str) -> ! {
     use std::io::{Read, Write};
-    let port = std::fs::read_to_string(path)
+    let listen = std::fs::read_to_string(path)
         .ok()
         .and_then(|t| Config::parse(&t).ok())
         .and_then(|c| c.server.listen.parse::<SocketAddr>().ok())
-        .map(|a| a.port())
-        .unwrap_or(8080);
-    let ok = std::net::TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), Duration::from_secs(2))
+        .unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], 8080)));
+    // A wildcard listener is checked on loopback, a specific one on its own address.
+    let target = if listen.ip().is_unspecified() { SocketAddr::from(([127, 0, 0, 1], listen.port())) } else { listen };
+    let ok = std::net::TcpStream::connect_timeout(&target, Duration::from_secs(2))
         .and_then(|mut stream| {
             stream.set_read_timeout(Some(Duration::from_secs(2)))?;
             stream.write_all(b"GET /health/ready HTTP/1.0\r\nHost: localhost\r\n\r\n")?;
