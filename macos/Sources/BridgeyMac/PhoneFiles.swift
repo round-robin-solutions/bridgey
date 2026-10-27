@@ -188,10 +188,11 @@ protocol PhoneFilesService: AnyObject {
                    completion: @escaping (Result<PhoneMediaPage, PhoneFilesError>) -> Void)
 
     /// Thumbnails in the order given (visible first), batched on the media lane. A new call with the same
-    /// `lane` replaces the previous one (what was not sent yet is cancelled on the phone). `deliver` runs once
-    /// per thumbnail as it arrives; `finished` once with the entries that have no thumbnail.
+    /// `lane` replaces the previous one (what was not sent yet is cancelled on the phone). `size` is the longest
+    /// edge to ask for, per entry (entries of one size share a request). `deliver` runs once per thumbnail as it
+    /// arrives; `finished` once with the entries that have no thumbnail.
     @discardableResult
-    func thumbnails(phoneID: String, entries: [PhoneFileEntry], size: Int, lane: String,
+    func thumbnails(phoneID: String, entries: [PhoneFileEntry], size: (PhoneFileEntry) -> Int, lane: String,
                     deliver: @escaping (PhoneFileEntry, PhoneImage) -> Void,
                     finished: @escaping (Result<[PhoneFileEntry], PhoneFilesError>) -> Void) -> PhoneFilesCancellable
 
@@ -222,6 +223,16 @@ protocol PhoneFilesService: AnyObject {
                 completion: @escaping (Result<Void, PhoneFilesError>) -> Void) -> PhoneFilesCancellable
 }
 
+extension PhoneFilesService {
+    /// Thumbnails all asked at one size.
+    @discardableResult
+    func thumbnails(phoneID: String, entries: [PhoneFileEntry], size: Int, lane: String,
+                    deliver: @escaping (PhoneFileEntry, PhoneImage) -> Void,
+                    finished: @escaping (Result<[PhoneFileEntry], PhoneFilesError>) -> Void) -> PhoneFilesCancellable {
+        thumbnails(phoneID: phoneID, entries: entries, size: { _ in size }, lane: lane, deliver: deliver, finished: finished)
+    }
+}
+
 /// Until the engine is wired: nothing is browsable.
 final class UnavailablePhoneFiles: PhoneFilesService {
     var phones: [BrowsablePhone] { [] }
@@ -241,7 +252,7 @@ final class UnavailablePhoneFiles: PhoneFilesService {
         completion(.failure(.notBrowsable))
     }
 
-    func thumbnails(phoneID: String, entries: [PhoneFileEntry], size: Int, lane: String,
+    func thumbnails(phoneID: String, entries: [PhoneFileEntry], size: (PhoneFileEntry) -> Int, lane: String,
                     deliver: @escaping (PhoneFileEntry, PhoneImage) -> Void,
                     finished: @escaping (Result<[PhoneFileEntry], PhoneFilesError>) -> Void) -> PhoneFilesCancellable {
         finished(.failure(.notBrowsable))

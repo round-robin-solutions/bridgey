@@ -35,6 +35,8 @@ final class UIFakePhoneFiles: PhoneFilesService {
     var uploadResult: Result<Void, PhoneFilesError> = .success(())
 
     private(set) var thumbnailRequests: [(lane: String, keys: [String])] = []
+    /// The size asked for each entry, by entry ID (the latest request wins).
+    private(set) var thumbnailSizes: [String: Int] = [:]
     private(set) var cancelledThumbnailRequests = 0
     private(set) var previewRequests = 0
     private(set) var cancelledPreviews = 0
@@ -99,13 +101,14 @@ final class UIFakePhoneFiles: PhoneFilesService {
         }
     }
 
-    func thumbnails(phoneID: String, entries: [PhoneFileEntry], size: Int, lane: String,
+    func thumbnails(phoneID: String, entries: [PhoneFileEntry], size: (PhoneFileEntry) -> Int, lane: String,
                     deliver: @escaping (PhoneFileEntry, PhoneImage) -> Void,
                     finished: @escaping (Result<[PhoneFileEntry], PhoneFilesError>) -> Void) -> PhoneFilesCancellable {
         let token = UUID()
         if lanes[lane] != nil { cancelledThumbnailRequests += 1 }
         lanes[lane] = token
         thumbnailRequests.append((lane, entries.map(\.id)))
+        for entry in entries { thumbnailSizes[entry.id] = size(entry) }
         let live = { [weak self] in self?.lanes[lane] == token }
         var clock = simulated?.rtt ?? 0
         let threads = Double(max(1, simulated?.phoneThreads ?? 1))
@@ -236,6 +239,44 @@ enum UIFakeImages {
         let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil)!
         CGImageDestinationAddImage(destination, cgImage(width: width, height: height, seed: seed, detail: detail),
                                    [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        CGImageDestinationFinalize(destination)
+        return data as Data
+    }
+
+    /// A phone screenshot: status bar, an app bar, a coloured card and lines of text on a light page.
+    static func screenshot(width: Int, height: Int, seed: Int) -> CGImage {
+        let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let w = CGFloat(width), h = CGFloat(height)
+        let dark = seed % 3 == 1
+        context.setFillColor(dark ? CGColor(red: 0.08, green: 0.09, blue: 0.11, alpha: 1) : CGColor(red: 0.97, green: 0.97, blue: 0.98, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        let accents: [(CGFloat, CGFloat, CGFloat)] = [(0.13, 0.45, 0.95), (0.10, 0.65, 0.45), (0.92, 0.42, 0.20), (0.55, 0.30, 0.85)]
+        let accent = accents[abs(seed) % accents.count]
+        // App bar (y is up in Core Graphics: the top of the screen is at h).
+        context.setFillColor(CGColor(red: accent.0, green: accent.1, blue: accent.2, alpha: 1))
+        context.fill(CGRect(x: 0, y: h - w * 0.28, width: w, height: w * 0.28))
+        // A card with a picture.
+        context.setFillColor(CGColor(red: accent.0 * 0.6, green: accent.1 * 0.6 + 0.2, blue: accent.2 * 0.5 + 0.3, alpha: 1))
+        context.fill(CGRect(x: w * 0.06, y: h - w * 0.95, width: w * 0.88, height: w * 0.55))
+        // Lines of text.
+        let ink = dark ? CGColor(red: 0.85, green: 0.86, blue: 0.88, alpha: 1) : CGColor(red: 0.15, green: 0.16, blue: 0.19, alpha: 1)
+        context.setFillColor(ink)
+        var y = h - w * 1.10
+        var line = seed
+        while y > w * 0.10 {
+            line = line &* 1_103_515_245 &+ 12_345
+            let length = 0.45 + CGFloat(abs(line >> 8) % 45) / 100
+            context.fill(CGRect(x: w * 0.06, y: y, width: w * 0.88 * length, height: w * 0.032))
+            y -= w * 0.075
+        }
+        return context.makeImage()!
+    }
+
+    static func png(_ image: CGImage) -> Data {
+        let data = NSMutableData()
+        let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(destination, image, nil)
         CGImageDestinationFinalize(destination)
         return data as Data
     }

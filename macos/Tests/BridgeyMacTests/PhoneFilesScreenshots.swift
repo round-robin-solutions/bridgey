@@ -55,6 +55,38 @@ final class PhoneFilesScreenshots: XCTestCase {
         try render(model, name: "mac-phonefiles-media")
     }
 
+    /// Tall phone screenshots (1080 x 2412), landscape and portrait photos and videos mixed, each thumbnail
+    /// made the way the phone makes it (scaled to the size the grid asks for) from a full-size PNG.
+    func testMediaGridMixedShapes() throws {
+        let shapes: [(name: String, mime: String, width: Int, height: Int, video: Bool)] = [
+            ("Screenshot", "image/png", 1080, 2412, false), ("Screenshot", "image/png", 1080, 2412, false),
+            ("IMG", "image/jpeg", 4000, 3000, false), ("Screenshot", "image/png", 1080, 2412, false),
+            ("VID", "video/mp4", 1920, 1080, true), ("Screenshot", "image/png", 1080, 2412, false),
+            ("IMG", "image/jpeg", 3000, 4000, false), ("Screenshot", "image/png", 1080, 2412, false),
+            ("VID", "video/mp4", 1080, 1920, true), ("IMG", "image/jpeg", 4000, 3000, false),
+            ("Screenshot", "image/png", 1080, 2412, false), ("IMG", "image/jpeg", 3000, 3000, false),
+            ("Screenshot", "image/png", 1080, 2412, false), ("VID", "video/mp4", 1920, 1080, true),
+            ("Screenshot", "image/png", 1080, 2412, false), ("IMG", "image/jpeg", 4000, 3000, false),
+            ("Screenshot", "image/png", 1080, 2412, false), ("Screenshot", "image/png", 1080, 2412, false),
+        ]
+        let entries = shapes.enumerated().map { index, shape in
+            PhoneFileEntry(ref: .media(id: String(30_000 + index)), name: "\(shape.name)_\(index).\(shape.video ? "mp4" : shape.mime == "image/png" ? "png" : "jpg")",
+                           isDirectory: false, size: Int64(900_000 + index * 7_919), modified: now.addingTimeInterval(-Double(index) * (index < 12 ? 900 : 9_000)),
+                           mimeType: shape.mime, hasThumbnail: true, width: shape.width, height: shape.height,
+                           durationMs: shape.video ? Int64(12_000 + index * 1_100) : nil, location: shape.name == "Screenshot" ? "Screenshots" : "Camera")
+        }
+        let model = model(section: .media, listing: PhoneListing(entries: entries, loaded: true), fill: false)
+        for (index, (entry, shape)) in zip(entries, shapes).enumerated() {
+            let source = shape.name == "Screenshot"
+                ? UIFakeImages.screenshot(width: shape.width, height: shape.height, seed: index)
+                : UIFakeImages.cgImage(width: shape.width / 2, height: shape.height / 2, seed: index, detail: 400)
+            let size = PhoneThumbnailScheduler.size(for: entry)
+            let decoded = try XCTUnwrap(PhoneThumbnailCache.decode(UIFakeImages.png(source), maxPixel: size))
+            model.thumbnails.box(for: entry).setForTesting(PhoneDecodedImage(image: decoded, tint: nil))
+        }
+        try render(model, name: "mac-phonefiles-media-mixed")
+    }
+
     func testFiles() throws {
         let model = model(section: .files, listing: PhoneListing(entries: UIFakeImages.documents(now: now), loaded: true))
         model.selection = [UIFakeImages.documents(now: now)[0].id]
