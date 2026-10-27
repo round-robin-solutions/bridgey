@@ -96,6 +96,10 @@ internal class ClipboardInbox(
         Thread(runnable, "bridgey-clipboard-inbox").apply { isDaemon = true }
     },
     startWatchdog: Boolean = true,
+    /** Settings > Clipboard > Send right away up to: unrequested pushes for one offer stay within it. */
+    private val eagerLimit: () -> Long = { ClipLimits.DEFAULT_EAGER_LIMIT },
+    /** Free bytes where the cache lives; null when unknown. */
+    private val freeBytes: () -> Long? = cache::freeBytes,
 ) : ClipProviderBackend {
     /** Set while connected to a peer that takes clipboard offers; null otherwise. */
     @Volatile var link: ClipboardLink? = null
@@ -113,6 +117,9 @@ internal class ClipboardInbox(
 
     private val lock = Any()
     private var current: ReceivedClipOffer? = null
+
+    /** Bytes of the current offer accepted as unrequested pushes. */
+    private var pushedBytes = 0L
     private val transfers = HashMap<String, Inbound>()
     private val byItem = HashMap<Pair<String, Int>, Inbound>()
     private val mutableProgress = MutableStateFlow<List<ClipFetchProgress>>(emptyList())
@@ -132,6 +139,7 @@ internal class ClipboardInbox(
         synchronized(lock) {
             supersedeLocked()
             current = received
+            pushedBytes = 0L
             cache.saveOffer(received)
             offer.items.forEach { item -> item.inline?.let { cache.writeComplete(offer.offerId, item.index, it) } }
         }
@@ -205,10 +213,11 @@ internal class ClipboardInbox(
                 received.deviceId == link.deviceId && item.size == offer.size && item.inline == null &&
                 !cache.isComplete(offer.offerId, offer.index) && byItem[offer.offerId to offer.index] == null &&
                 (offer.sha256 == null || item.sha256 == null || offer.sha256 == item.sha256)
-            if (!wanted) {
+            if (!wanted || !pushFitsLocked(offer.offerId, offer.size)) {
                 link.send("files.cancel", offer.transferId)
                 return
             }
+            pushedBytes += offer.size
             val inbound = register(offer.transferId, received!!, item!!, fetched = false)
             inbound.begin()
             link.send("files.accept", offer.transferId)
@@ -348,6 +357,19 @@ internal class ClipboardInbox(
 
     private fun failText(received: ReceivedClipOffer, code: String) {
         listener(ClipInboxEvent.PasteFailed(received.deviceId, received.peerName, code))
+    }
+
+    /**
+     * An unrequested push is taken only within this phone's own Send right away limit, with the space it
+     * and the transfers already running need plus a margin free, and while the cache cap still holds it.
+     * A declined item is fetched when an app pastes it.
+     */
+    private fun pushFitsLocked(offerId: String, size: Long): Boolean {
+        if (pushedBytes + size > eagerLimit()) return false
+        val running = transfers.values.sumOf { (it.item.size - it.receivedBytes).coerceAtLeast(0) }
+        val free = freeBytes()
+        if (free != null && free < size + running + ClipLimits.PUSH_FREE_SPACE_MARGIN) return false
+        return cache.canHold(size, (transfers.values.map { it.offerId } + offerId).toSet())
     }
 
     private fun startFetchLocked(received: ReceivedClipOffer, item: ClipOfferItem, fetched: Boolean): Inbound? {

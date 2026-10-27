@@ -314,7 +314,9 @@ class PairingCoordinator(
     private val clipboardCache = ClipboardCache(java.io.File(appContext.noBackupFilesDir, CLIPBOARD_CACHE_DIRECTORY))
 
     /** Clips from the Macs: offers, the cache and the content provider's backend. */
-    internal val clipboardInbox = ClipboardInbox(clipboardCache, AndroidClipWriter(appContext))
+    internal val clipboardInbox = ClipboardInbox(
+        clipboardCache, AndroidClipWriter(appContext), eagerLimit = { settings.state.value.clipboardEagerLimit },
+    )
     private val clipboardOutbox = ClipboardOutbox(scope, ContentClipSourceOpener(appContext.contentResolver))
     private val mutableRemoteClipboardFiles = MutableStateFlow(false)
 
