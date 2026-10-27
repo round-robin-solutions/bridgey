@@ -39,6 +39,8 @@ enum SetupSetting: String, CaseIterable {
     // Notifications
     case featureNotifications, macNotifications, codesEnabled, codesEngine, codesAutoCopy, codesModel, codesPhoneLink
     case notificationHistory, focusShare, focusFollow, focusShortcuts
+    // Notifications > Text messages (sms_draft1)
+    case featureMessages, smsKeepOnMac
     // Calls
     case featureCalls, phoneLinks, ringForCalls, pauseForCalls, shortcutCall
     // Files
@@ -62,7 +64,7 @@ enum SetupSetting: String, CaseIterable {
         switch self {
         case .featureClipboard, .autoClipboard, .clipboardFiles, .featureNotifications, .featureCalls, .ringForCalls,
              .featureFiles, .featureLinks, .featurePing, .featureFindDevice, .featureBattery, .showPreviews,
-             .loggingConnection, .updatesAutomatic:
+             .loggingConnection, .updatesAutomatic, .smsKeepOnMac:
             "true"
         case .codesEngine: "local"
         case .folderReceiveMode: "fixed"
@@ -147,6 +149,9 @@ enum SetupFeatures {
                      on: [.on(.featureClipboard)], off: [.off(.featureClipboard)], main: .featureClipboard, pane: .clipboard),
         SetupFeature(id: "notifications", title: SettingsPane.notifications.title, detail: BridgeyFeature.notifications.subtitle,
                      on: [.on(.featureNotifications)], off: [.off(.featureNotifications)], main: .featureNotifications, pane: .notifications),
+        SetupFeature(id: "messages", title: textMessagesTitle,
+                     detail: L10n.setup("setup.feature.messages.detail", fallback: "Your phone\u{2019}s texts in a Messages window, and Reply on text notifications"),
+                     on: [.on(.featureMessages)], off: [.off(.featureMessages)], main: .featureMessages, pane: .notifications),
         SetupFeature(id: "calls", title: SettingsPane.calls.title, detail: BridgeyFeature.calls.subtitle,
                      on: [.on(.featureCalls)], off: [.off(.featureCalls)], main: .featureCalls, pane: .calls),
         SetupFeature(id: "files", title: SettingsPane.files.title, detail: BridgeyFeature.files.subtitle,
@@ -170,6 +175,9 @@ enum SetupFeatures {
     ]
 
     static func feature(_ id: String) -> SetupFeature? { all.first { $0.id == id } }
+
+    /// Text messages is a card on the Notifications page; its switch, bundle and Settings card share this name.
+    static var textMessagesTitle: String { L10n.text("sms.title", fallback: "Text messages") }
 
     static func isOn(_ feature: SetupFeature, _ effective: SetupEffective) -> Bool { effective.on(feature.main) }
 }
@@ -271,6 +279,19 @@ enum SetupQuestions {
             pane: .notifications, covers: [.codesEnabled, .codesEngine]
         ),
         SetupQuestion(
+            id: "messages", section: .notifications, feature: "messages",
+            title: L10n.setup("setup.q.messages.title", fallback: "Keep your conversations on this Mac?"),
+            context: L10n.setup("setup.q.messages.context", fallback: "Your texts stay on the phone either way. Kept here, they open instantly and only your account can read them."),
+            summary: L10n.setup("setup.q.messages.summary", fallback: "Text messages"),
+            answers: [
+                SetupAnswer(key: SetupAnswerKey.yes, label: L10n.setup("setup.a.messages.yes", fallback: "Yes, so they open instantly"),
+                            changes: [.on(.featureMessages), .on(.smsKeepOnMac)]),
+                SetupAnswer(key: SetupAnswerKey.no, label: L10n.setup("setup.a.messages.no", fallback: "No, load them from the phone each time"),
+                            changes: [.on(.featureMessages), .off(.smsKeepOnMac)]),
+            ],
+            pane: .notifications, covers: [.featureMessages, .smsKeepOnMac]
+        ),
+        SetupQuestion(
             id: "calls_ring", section: .calls, feature: "calls",
             title: L10n.setup("setup.q.callsRing.title", fallback: "Ring on this Mac when your phone rings?"),
             context: L10n.setup("setup.q.callsRing.context", fallback: "A soft ring repeats until you answer, decline or hide the call."),
@@ -349,8 +370,8 @@ enum SetupQuestions {
     static let permissions: [SetupPermissionNeed] = [
         SetupPermissionNeed(permission: .localNetwork, features: [],
                             needed: { effective in SetupFeatures.all.contains { SetupFeatures.isOn($0, effective) } }),
-        SetupPermissionNeed(permission: .notifications, features: ["notifications", "calls"],
-                            needed: { $0.on(.featureNotifications) || $0.on(.featureCalls) },
+        SetupPermissionNeed(permission: .notifications, features: ["notifications", "messages", "calls"],
+                            needed: { $0.on(.featureNotifications) || $0.on(.featureMessages) || $0.on(.featureCalls) },
                             offWhenRefused: [.off(.featureNotifications)]),
         SetupPermissionNeed(permission: .accessibility, features: ["remote", "mac_actions"],
                             needed: { $0.on(.featureRemoteInput) || ($0.on(.featureMacActions) && $0[.macActionSwitches].split(separator: ",").contains("lock")) },
@@ -423,6 +444,7 @@ enum SetupTyped {
         Rule(id: "clipboard", answer: SetupAnswerKey.pick, stems: ["copy", "copi", "paste", "clipboard", "копир", "скопир", "встав", "буфер"]),
         Rule(id: "notifications", answer: SetupAnswerKey.pick, stems: ["notif", "alert", "whatsapp", "telegram", "уведомл", "оповещ"]),
         Rule(id: "codes", answer: SetupAnswerKey.onMac, stems: ["code", "otp", "код"]),
+        Rule(id: "messages", answer: SetupAnswerKey.pick, stems: ["sms", "texts", "texting", "смс", "эсэмэс"]),
         Rule(id: "calls", answer: SetupAnswerKey.pick, stems: ["call", "звон", "вызов"]),
         Rule(id: "files", answer: SetupAnswerKey.pick, stems: ["file", "photo", "picture", "folder", "файл", "фото", "папк", "снимк"]),
         Rule(id: "remote", answer: SetupAnswerKey.pick, stems: ["touchpad", "trackpad", "mouse", "slide", "presentation", "тачпад", "мыш", "слайд", "презентац", "пульт"]),
@@ -502,8 +524,10 @@ struct SetupBundle: Identifiable {
     let pane: SettingsPane
     let detail: String
     let answers: [(id: String, key: String)]
+    /// A bundle for a card on a page (Text messages) carries the card's name.
+    var named: String? = nil
 
-    var title: String { pane.title }
+    var title: String { named ?? pane.title }
 }
 
 enum SetupBundles {
@@ -514,6 +538,9 @@ enum SetupBundles {
         SetupBundle(id: "notifications", pane: .notifications,
                     detail: L10n.setup("setup.bundle.notifications", fallback: "Your phone\u{2019}s notifications on this Mac."),
                     answers: [("notifications", SetupAnswerKey.pick)]),
+        SetupBundle(id: "messages", pane: .notifications,
+                    detail: L10n.setup("setup.bundle.messages", fallback: "Read and answer your phone\u{2019}s texts here."),
+                    answers: [("messages", SetupAnswerKey.pick)], named: SetupFeatures.textMessagesTitle),
         SetupBundle(id: "calls", pane: .calls,
                     detail: L10n.setup("setup.bundle.calls", fallback: "See who\u{2019}s calling, and answer here."),
                     answers: [("calls", SetupAnswerKey.pick)]),
@@ -567,6 +594,8 @@ extension SetupFacts {
             .macNotifications: bool(model.notificationsAuthorized),
             .codesEnabled: bool(model.codesEnabled),
             .codesEngine: model.codesEngine.rawValue,
+            .featureMessages: bool(model.smsEnabled),
+            .smsKeepOnMac: bool(model.smsKeepOnMac),
             .notificationHistory: bool(model.historyEnabled),
             .focusShare: bool(model.focusSync.share),
             .focusFollow: bool(model.focusSync.follow),

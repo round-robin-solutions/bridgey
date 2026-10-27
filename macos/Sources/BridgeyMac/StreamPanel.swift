@@ -36,6 +36,8 @@ struct PanelModel {
     /// Folder cards drawn expanded (screenshots; in the app the card's disclosure decides).
     var expandedTransfers: Set<String> = []
     var hasTransferHistory = false
+    /// Text messages: unread texts on the target phone; nil when Text messages is not available.
+    var messagesUnread: Int?
     var receivedLink: String?
     var ringing: RingingState?
     var call: RemoteCallStatus?
@@ -122,6 +124,8 @@ struct PanelActions {
     /// a drop on one device's tile, and Show in Finder for a transfer row.
     var openPhoneFiles: (String?) -> Void = { _ in }
     var openTransferHistory: () -> Void = {}
+    /// Text messages: the Messages window.
+    var openMessages: () -> Void = {}
     var openTray: () -> Void = {}
     var dropFilesOnDevice: ([URL], String) -> Bool = { _, _ in false }
     var showInFinder: (URL) -> Void = { _ in }
@@ -202,6 +206,7 @@ struct StreamPanelView: View {
         }
         // Files 2.0 entries: Phone files and History (PhoneFilesWindow.swift), send sheet and Tray (SendSheet.swift).
         PhoneFilesPanelEntry(model: model, actions: actions)
+        MessagesPanelEntry(model: model, actions: actions)
         SendPanelEntry(model: model, actions: actions)
         SendBar(model: model, actions: actions)
             .padding(12)
@@ -1464,6 +1469,9 @@ struct BridgeyPanel: View {
         if case let .connected(deviceID, _) = pairing.state { model.targetDeviceID = deviceID }
         model.transfers = liveTransfers(pairing.fileTransfers)
         model.hasTransferHistory = !pairing.fileTransfers.isEmpty
+        if let target = model.targetDeviceID, pairing.textMessagesAvailable(for: target) {
+            model.messagesUnread = pairing.textMessages.data(target).cache.threads.reduce(0) { $0 + $1.unread }
+        }
         model.fileTransferActive = pairing.fileTransferActive
         if case let .connected(deviceID, _) = pairing.state {
             model.autoClipboard = pairing.isFeatureAvailable(.clipboard) && settings.isAutoClipboardEnabled(for: deviceID)
@@ -1552,6 +1560,7 @@ struct BridgeyPanel: View {
         actions.retryPairingStore = { pairing.retryPairingStore() }
         actions.openPhoneFiles = { PhoneFilesWindowController.show(pairing: pairing, phoneID: $0) }
         actions.openTransferHistory = { TransferHistoryWindowController.show(pairing: pairing) }
+        actions.openMessages = { MessagesWindowController.show(pairing: pairing, phoneID: model.targetDeviceID) }
         actions.openTray = { TrayController.show(pairing: pairing) }
         actions.dropFilesOnDevice = { pairing.sendDroppedFiles($0, to: $1) }
         actions.showInFinder = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }

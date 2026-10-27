@@ -152,6 +152,10 @@ struct SettingsModel {
     var focusSync = FocusSyncSettings()
     /// Files > Copy photos from the phone camera to the clipboard.
     var cameraCopyToClipboard = false
+    /// Notifications > Text messages (draft sms_draft1).
+    var smsEnabled = false
+    var smsKeepOnMac = true
+    var smsPhone: SmsPhoneDisplay = .noPhone
 
     var connectedDeviceID: String? {
         if case let .connected(id, _) = state { return id }
@@ -247,6 +251,12 @@ struct SettingsActions {
     var setBatteryAlerts: (String, BatteryAlertThresholds) -> Void = { _, _ in }
     var setFocusSync: ((inout FocusSyncSettings) -> Void) -> Void = { _ in }
     var setCameraCopyToClipboard: (Bool) -> Void = { _ in }
+    /// Notifications > Text messages.
+    var setSmsEnabled: (Bool) -> Void = { _ in }
+    var setSmsKeepOnMac: (Bool) -> Void = { _ in }
+    var deleteMessages: () -> Void = {}
+    /// The Messages window, on a phone and conversation when given (the history's Reply).
+    var openMessages: (String?, Int?) -> Void = { _, _ in }
 }
 
 enum SettingsLinks {
@@ -690,6 +700,7 @@ private struct NotificationsPane: View {
             NotificationPermissionRow(model: model, actions: actions)
         }
         CodesCard(model: model, actions: actions)
+        TextMessagesCard(model: model, actions: actions)
         FocusSyncCard(model: model, actions: actions)
         NotificationHistoryCard(model: model, actions: actions)
     }
@@ -1163,6 +1174,12 @@ struct NotificationHistoryCard: View {
                             }
                             if !item.title.isEmpty { Text(item.title).font(BrandFont.body(13, .medium)).foregroundStyle(c.on) }
                             if !item.text.isEmpty { Text(item.text).font(BrandFont.body(12)).foregroundStyle(c.on2).lineLimit(3) }
+                            // Text messages: Reply opens the conversation in the Messages window.
+                            if model.smsEnabled, item.opensConversation {
+                                Button(L10n.text("sms.reply", fallback: "Reply")) { actions.openMessages(item.deviceID, item.smsThreadID) }
+                                    .buttonStyle(PillButtonStyle(kind: .tonal, height: 24))
+                                    .padding(.top, 4)
+                            }
                         }
                         .textSelection(.enabled)
                         .padding(.vertical, 8)
@@ -1174,6 +1191,72 @@ struct NotificationHistoryCard: View {
                     }
                 }
             }
+        }
+    }
+}
+
+/// Notifications > Text messages: the switch, the phone's state, the cache and the Messages window.
+struct TextMessagesCard: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+    @State private var confirmDelete = false
+
+    var body: some View {
+        SettingsCard(title: L10n.text("sms.title", fallback: "Text messages")) {
+            SettingsToggle(title: L10n.text("sms.toggle", fallback: "Your phone\u{2019}s texts on this Mac"),
+                           subtitle: L10n.text("sms.toggle.detail", fallback: "Read and answer conversations in the Messages window, and reply from text notifications. Off by default. Messages travel only between your phone and this Mac, encrypted; Bridgey never becomes the phone\u{2019}s default SMS app."),
+                           divider: false, isOn: model.smsEnabled, set: actions.setSmsEnabled)
+            if model.smsEnabled {
+                SettingsRow(title: phoneTitle, subtitle: phoneDetail, subtitleIsWarning: phoneWarning, divider: true) {
+                    Button(L10n.text("sms.open", fallback: "Open Messages")) { actions.openMessages(nil, nil) }
+                        .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                }
+                SettingsToggle(title: L10n.text("sms.keep", fallback: "Keep conversations on this Mac"),
+                               subtitle: L10n.text("sms.keep.detail", fallback: "Up to 200 conversations, readable only by your account, so they open instantly. Off: they load from the phone each time. Images are never kept."),
+                               isOn: model.smsKeepOnMac, set: actions.setSmsKeepOnMac)
+                SettingsRow(title: L10n.text("sms.delete", fallback: "Delete messages on this Mac"),
+                            subtitle: L10n.text("sms.delete.detail", fallback: "Your phone keeps every message."), divider: true) {
+                    Button(L10n.text("sms.delete.button", fallback: "Delete")) { confirmDelete = true }
+                        .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
+                }
+            }
+        }
+        .confirmationDialog(L10n.text("sms.delete.confirm", fallback: "Delete messages on this Mac?"), isPresented: $confirmDelete) {
+            Button(L10n.text("sms.delete.button", fallback: "Delete"), role: .destructive, action: actions.deleteMessages)
+        } message: {
+            Text(L10n.text("sms.delete.detail", fallback: "Your phone keeps every message."))
+        }
+    }
+
+    private var phoneTitle: String {
+        switch model.smsPhone {
+        case .noPhone: L10n.text("sms.state.noPhone", fallback: "No phone connected")
+        case let .phoneOff(name), let .waiting(name), let .ready(name, _): name
+        }
+    }
+
+    private var phoneWarning: Bool {
+        switch model.smsPhone {
+        case .phoneOff: true
+        case let .ready(_, status): !status.read
+        default: false
+        }
+    }
+
+    private var phoneDetail: String {
+        switch model.smsPhone {
+        case .noPhone: return L10n.text("sms.state.noPhone.detail", fallback: "Conversations show while your phone is connected.")
+        case .phoneOff: return L10n.text("sms.state.phoneOff", fallback: "Off on the phone. Turn on Text messages in Bridgey there.")
+        case .waiting: return L10n.text("sms.state.waiting", fallback: "Waiting for the phone\u{2026}")
+        case let .ready(_, status):
+            guard status.read else { return L10n.text("sms.state.permission", fallback: "SMS is not allowed on the phone yet. Allow it on Bridgey\u{2019}s Permissions page there.") }
+            var lines = [status.send ? L10n.text("sms.state.ready", fallback: "Reading and sending allowed")
+                                     : L10n.text("sms.state.readOnly", fallback: "Reading allowed; sending is not allowed on the phone")]
+            if !status.contacts { lines.append(L10n.text("sms.state.noContacts", fallback: "Names hidden until Contacts is allowed on the phone")) }
+            if status.sims.count > 1 {
+                lines.append(String(format: L10n.text("sms.state.sims", fallback: "SIMs: %@"), status.sims.map(simTitle).joined(separator: ", ")))
+            }
+            return lines.joined(separator: ". ")
         }
     }
 }
@@ -1501,6 +1584,9 @@ struct LiveSettingsView: View {
         model.health = pairing.connectionHealth
         model.focusSync = focusSync.settings
         model.cameraCopyToClipboard = camera.copyToClipboard
+        model.smsEnabled = settings.smsEnabled
+        model.smsKeepOnMac = settings.smsKeepOnMac
+        model.smsPhone = pairing.textMessagesDisplay
         model.batteryAlerts = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, batteryAlerts.thresholds(for: $0.id)) })
         return model
     }
@@ -1546,6 +1632,10 @@ struct LiveSettingsView: View {
         actions.setOpenLinksRightAway = { settings.setOpenLinksRightAway($0) }
         actions.setBatteryAlerts = { id, thresholds in batteryAlerts.setThresholds(thresholds, for: id) }
         actions.setCameraCopyToClipboard = { camera.setCopyToClipboard($0) }
+        actions.setSmsEnabled = { pairing.setTextMessagesEnabled($0) }
+        actions.setSmsKeepOnMac = { pairing.setTextMessagesKeepOnMac($0) }
+        actions.deleteMessages = { pairing.deleteTextMessagesOnMac() }
+        actions.openMessages = { phoneID, threadID in MessagesWindowController.show(pairing: pairing, phoneID: phoneID, threadID: threadID) }
         actions.setFocusSync = { change in
             focusSync.update(change)
             if focusSync.settings.follow { loadShortcuts() }

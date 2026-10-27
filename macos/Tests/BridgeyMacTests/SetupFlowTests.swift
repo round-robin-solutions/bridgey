@@ -265,6 +265,10 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(changes("files_photos", SetupAnswerKey.yes), [.set(.sendImageMode, "optimize")])
         XCTAssertEqual(changes("media", SetupAnswerKey.music), [.on(.featureMedia), .set(.mediaPlayer, "music")])
         XCTAssertEqual(changes("links", SetupAnswerKey.wait), [.on(.featureLinks), .off(.openLinksRightAway)])
+        XCTAssertEqual(changes("messages", SetupAnswerKey.yes), [.on(.featureMessages), .on(.smsKeepOnMac)])
+        XCTAssertEqual(changes("messages", SetupAnswerKey.no), [.on(.featureMessages), .off(.smsKeepOnMac)])
+        XCTAssertEqual(SetupBundles.all.first { $0.id == "messages" }?.answers.map(\.id), ["messages"])
+        XCTAssertTrue(SetupQuestions.need(.notifications)?.features.contains("messages") == true)
         XCTAssertEqual(SetupFeatures.feature("mac_actions")?.on, [.on(.featureMacActions), .on(.macActionsGrant), .set(.macActionSwitches, "lock,sleep,volume")])
         XCTAssertEqual(SetupQuestions.typedOnly["updates"]?[SetupAnswerKey.newest], [.set(.updateChannel, "nightly")])
         XCTAssertEqual(SetupQuestions.need(.accessibility)?.offWhenRefused.first, .off(.featureRemoteInput))
@@ -277,11 +281,13 @@ final class SetupFlowTests: XCTestCase {
     }
 
     func testBundlesAndSwitchesUseTheSettingsNames() {
+        // Text messages is a card on the Notifications page: its bundle and switch carry the card's name.
+        let names = Set(SettingsPane.allCases.map(\.title) + BridgeyFeature.allCases.map(\.title) + [SetupFeatures.textMessagesTitle])
         for bundle in SetupBundles.all {
-            XCTAssertEqual(bundle.title, bundle.pane.title)
+            XCTAssertEqual(bundle.title, bundle.named ?? bundle.pane.title)
+            XCTAssertTrue(names.contains(bundle.title), bundle.title)
             for (id, key) in bundle.answers { XCTAssertNotNil(SetupFeatures.feature(id), "\(bundle.id): \(id)=\(key)") }
         }
-        let names = Set(SettingsPane.allCases.map(\.title) + BridgeyFeature.allCases.map(\.title))
         for feature in SetupFeatures.all { XCTAssertTrue(names.contains(feature.title), feature.title) }
     }
 
@@ -362,6 +368,8 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(match(""), [])
         // Mac only: codes read on this Mac; there is no camera switch here.
         XCTAssertEqual(match("codes from messages"), ["codes=on_mac"])
+        XCTAssertEqual(match("I want to answer SMS from my Mac"), ["messages=pick"])
+        XCTAssertEqual(match("Хочу отвечать на смс с Mac"), ["messages=pick"])
         XCTAssertEqual(match("no camera"), [])
     }
 

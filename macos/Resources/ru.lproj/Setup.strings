@@ -27,7 +27,7 @@
 "permission.localNetwork.why" = "Находит ваш телефон и связывается с ним в этой сети.";
 "permission.localNetwork.without" = "Mac не сможет найти телефон и подключиться к нему.";
 "permission.notifications" = "Уведомления";
-"permission.notifications.why" = "Показывает уведомления, звонки и коды с телефона на этом Mac.";
+"permission.notifications.why" = "Показывает уведомления, звонки, коды и ответы на SMS с телефона на этом Mac. Нужно для уведомлений, SMS и звонков.";
 "permission.notifications.without" = "Оповещения телефона, карточки звонков и коды не появятся.";
 "permission.state.allowed" = "Разрешено";
 "permission.state.notAllowed" = "Не разрешено";
@@ -49,7 +49,7 @@
 "reset.activity" = "Активность и журналы";
 "reset.activity.confirm" = "Удалить активность и журналы?";
 "reset.activity.done" = "Активность и журналы удалены";
-"reset.activity.summary" = "Активность, история уведомлений, диагностика, журналы удалённого управления и действий на Mac. Настройки и сопряжения остаются.";
+"reset.activity.summary" = "Активность, история уведомлений, SMS, сохранённые здесь, диагностика, журналы удалённого управления и действий на Mac. Настройки и сопряжения остаются.";
 "reset.caches" = "Загруженные модели и кэш";
 "reset.caches.confirm" = "Удалить загруженные модели и кэш?";
 "reset.caches.done" = "Модели и кэш удалены";
@@ -225,3 +225,11 @@
 "whatsNew.review.title" = "Проверьте настройку";
 "whatsNew.title" = "Что нового";
 "whatsNew.version" = "Bridgey %@";
+"setup.feature.messages.detail" = "SMS с телефона в окне «Сообщения» и ответ прямо из уведомлений";
+"setup.q.messages.title" = "Хранить переписку на этом Mac?";
+"setup.q.messages.context" = "Сообщения в любом случае остаются на телефоне. Если хранить их здесь, они открываются сразу и доступны только вашей учётной записи.";
+"setup.q.messages.summary" = "SMS";
+"setup.a.messages.yes" = "Да, чтобы открывались сразу";
+"setup.a.messages.no" = "Нет, каждый раз загружать с телефона";
+"setup.bundle.messages" = "Читайте SMS с телефона и отвечайте на них здесь.";
+"reset.item.textMessages" = "SMS, сохранённые на этом Mac (на телефоне они остаются)";
