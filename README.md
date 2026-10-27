@@ -13,6 +13,15 @@ under the same [MIT licence](LICENSE).
 What differs from upstream, how releases and channels work, where the signing keys live and
 how to merge upstream changes: [docs/rr-edition.md](docs/rr-edition.md).
 
+Guides:
+
+- [User guide](docs/user-guide.md): install, pair, send, notifications, calls, codes, remote
+  control, updates, permissions, reset, uninstall, troubleshooting.
+- [Compatibility](docs/compatibility.md): which phones and Macs have been tested, and how to
+  report a result.
+- [Diagnostics](docs/diagnostics.md): how to export, what is inside, what is never included.
+- [Developer guide](#developer-guide): checks to run, protocol contract, tests, releases.
+
 ### Why can't copying on the phone sync automatically like O+ Connect or Phone Link?
 
 Since Android 10, an app can read the clipboard only while it is on screen, or if it is the
@@ -363,7 +372,10 @@ app keeps the same stream under the same rules in its Application Support folder
 Settings can export a structured diagnostics JSON file. It contains bounded
 event metadata, application/platform versions, feature states, connection
 state, and transfer counts. It never includes clipboard text, notification
-content, file names, network addresses, or device/session/transfer identifiers.
+content, file names, network addresses, or full device/session/transfer
+identifiers (a device appears only as the first eight characters of its ID).
+See [docs/diagnostics.md](docs/diagnostics.md) for the export steps, the
+fields, and how to share a report safely.
 
 ## Development principles
 
@@ -378,6 +390,68 @@ content, file names, network addresses, or device/session/transfer identifiers.
 Suggested debug log categories are `DISCOVERY`, `PAIRING`, `TRANSPORT`, and
 `PLUGIN`. See [the architecture](docs/architecture.md), [wire protocol](docs/protocol.md),
 the [security model](SECURITY.md), and [security testing](docs/security-testing.md).
+
+## Developer guide
+
+Run these before opening a pull request. They are close to what RR CI runs (see
+[docs/rr-edition.md](docs/rr-edition.md#with-rr-ci)).
+
+```bash
+# Android: lint, unit tests and a debug build
+cd android && ./gradlew :app:lintDebug :core:discovery:lintDebug \
+  :app:testDebugUnitTest :core:discovery:testDebugUnitTest :app:assembleDebug
+
+# macOS: tests (warnings are errors) and the app bundle
+cd macos && swift test -Xswiftc -warnings-as-errors --skip MacTrustRegistryTests && ./build-app.sh
+
+# Release scripts
+python3 -m unittest discover -s scripts/rr/tests
+```
+
+Android needs JDK 17 and the Android SDK 36. The Mac needs Swift 5.10 or later. The Mac test run
+skips `MacTrustRegistryTests`.
+
+### Protocol changes
+
+- Document a change in [docs/protocol.md](docs/protocol.md) before you implement it. The
+  compatibility rules are in `docs/protocol-contract.md`.
+- `protocol/messages.json` is the list of every message kind. A new kind must be added there. A
+  test on each platform fails if a kind used in code is missing from the list.
+- `protocol/test-vectors/` holds golden vectors that both platforms must match (for example the
+  cryptographic vectors in `crypto-v1.properties`). Change a vector only with a protocol change,
+  and update both platforms in the same pull request.
+
+### Fuzz tests
+
+Parser and decoder fuzz tests run in normal test runs with a bounded number of iterations, so they
+stay fast. For a long run, set `BRIDGEY_FUZZ_ITERATIONS=100000` for both suites:
+
+```bash
+cd android && BRIDGEY_FUZZ_ITERATIONS=100000 ./gradlew :app:testDebugUnitTest -Pfuzz=100000
+cd macos && BRIDGEY_FUZZ_ITERATIONS=100000 swift test -Xswiftc -warnings-as-errors --skip MacTrustRegistryTests
+```
+
+On Android the `-Pfuzz=100000` Gradle property does the same as the environment variable, and the
+two can be used together.
+
+### Stored data and upgrades
+
+Every change to a file format on disk or a stored setting needs a migration, a fixture of the old
+format, and a test that loads the fixture. The rules are in `docs/upgrade-policy.md`.
+
+### Releases
+
+Releases are built by `scripts/rr/` (see [docs/rr-edition.md](docs/rr-edition.md#releasing) and
+[docs/releasing.md](docs/releasing.md)). Each release has the APK, the DMG and ZIP and
+`SHA256SUMS`. The SBOM and provenance assets, and how to verify them, are described in
+[docs/releasing.md](docs/releasing.md).
+
+### Other developer docs
+
+[Architecture](docs/architecture.md), [wire protocol](docs/protocol.md),
+[security model](SECURITY.md), [security testing](docs/security-testing.md),
+[reconnect reliability](docs/reconnect-reliability.md), [device test plans](docs/testing-0.6.md),
+and [Mac signing](docs/rr-mac-signing.md).
 
 ## Contributing
 
