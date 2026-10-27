@@ -49,7 +49,7 @@ final class ReconnectEngine {
         guard isTrusted(id) else { return }
         let now = clock.now
         if seenNow { addressBook.markSeen(id, at: now) }
-        schedule.disconnected(id, at: now, delay: delay)
+        schedule.disconnected(id, at: now, phaseStart: phaseStart(for: id, at: now), delay: delay)
         arm()
     }
 
@@ -102,11 +102,26 @@ final class ReconnectEngine {
         arm()
     }
 
-    /// A wake or network change: every listed device is tried now, with the fast delays again.
+    /// A launch, wake or network change: every listed device is tried now, with the fast delays
+    /// again, except a device that is away (see `ReconnectPolicy.awayAfter`), which is tried now
+    /// and then keeps to the slow delay.
     func resetAll(_ ids: [String]) {
         let now = clock.now
-        for id in ids where isTrusted(id) && !isConnected(id) { schedule.reset(id, at: now) }
+        for id in ids where isTrusted(id) && !isConnected(id) { schedule.reset(id, at: now, phaseStart: phaseStart(for: id, at: now)) }
         arm()
+    }
+
+    /// Not connected for longer than `ReconnectPolicy.awayAfter` (a device never connected is not away).
+    func isAway(_ id: String) -> Bool {
+        guard !isConnected(id), let last = addressBook.lastConnected(id) else { return false }
+        return clock.now.timeIntervalSince(last) >= ReconnectPolicy.awayAfter
+    }
+
+    /// Where a new episode starts: now, or for a device that is away, when it was last connected,
+    /// so the schedule is already past its fast phase.
+    private func phaseStart(for id: String, at now: Date) -> Date {
+        guard isAway(id), let last = addressBook.lastConnected(id) else { return now }
+        return last
     }
 
     /// "Retry now" and "Look for devices again": dial every known address at once. If two reach
@@ -127,13 +142,19 @@ final class ReconnectEngine {
     func display(for id: String) -> ReconnectDisplay? {
         guard isTrusted(id), !isConnected(id) else { return nil }
         let attempts = schedule.entry(id)?.attempts ?? 0
-        return ReconnectDisplay(lastSeen: addressBook.lastConnected(id), struggling: attempts >= ReconnectPolicy.strugglingAfterAttempts)
+        // Away and not in discovery: it is not on this network, whatever the attempt count says.
+        let away = isAway(id) && !livePeers.contains { $0.deviceIDHint == id }
+        return ReconnectDisplay(lastSeen: addressBook.lastConnected(id), struggling: away || attempts >= ReconnectPolicy.strugglingAfterAttempts,
+                                away: away)
     }
 
     // MARK: Schedule
 
     /// Where to try `id`: what discovery shows now, then the address book, newest first, keeping
-    /// only addresses on a network this device is on.
+    /// only addresses on a network this device is on. A remembered address that discovery now
+    /// shows for another device is skipped: the address moved on (DHCP gave it to another device,
+    /// or the device was reset and has a new identity), and dialling it only reaches a device
+    /// that closes the connection.
     func candidates(for id: String) -> [KnownAddress] {
         let now = clock.now
         var list: [KnownAddress] = []
@@ -146,7 +167,10 @@ final class ReconnectEngine {
         let networks = networks()
         var seen = Set<String>()
         let live = list.filter { seen.insert($0.host).inserted }
-        return live + addressBook.addresses(for: id).filter { seen.insert($0.host).inserted && isDialable($0.host, on: networks) }
+        let elsewhere = Set(livePeers.filter { $0.deviceIDHint != nil && $0.deviceIDHint != id }.flatMap { $0.addresses.compactMap(normalizedHost) })
+        return live + addressBook.addresses(for: id).filter {
+            seen.insert($0.host).inserted && !elsewhere.contains($0.host) && isDialable($0.host, on: networks)
+        }
     }
 
     /// One timer for every device: it fires at the earliest due attempt of a device that has no

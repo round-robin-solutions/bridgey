@@ -15,6 +15,12 @@ enum ReconnectPolicy {
     static let fastPhase: TimeInterval = 3_600
     /// After the fast phase the device has been away for a while: one attempt every 10 minutes.
     static let slowDelay: TimeInterval = 600
+    /// A trusted device last connected longer ago than this is away: a launch or a wake tries it
+    /// once and then keeps to the slow delay (a fresh fast phase would dial it every minute for an
+    /// hour each time), discovery restarts are not run for it, and the panel says it is not on
+    /// this network instead of "Reconnecting". Discovery seeing it or "Retry now" still starts a
+    /// fast phase.
+    static let awayAfter: TimeInterval = 3_600
     /// After this many failed attempts the device shows "Can't reach" rather than "Reconnecting".
     static let strugglingAfterAttempts = 4
     /// Discovery restarts (browse and re-announce) this often while a trusted device is away...
@@ -278,20 +284,24 @@ final class ReconnectSchedule {
     func entry(_ id: String) -> ReconnectEntry? { entries[id] }
 
     /// The device is not connected: start its episode unless one is running.
+    /// `phaseStart` earlier than `now` puts the episode that far into its phase (a device that
+    /// has been away for hours starts on the slow delay).
     func disconnected(
         _ id: String,
         at now: Date,
+        phaseStart: Date? = nil,
         delay: (Int, TimeInterval) -> TimeInterval = ReconnectPolicy.delay(afterAttempts:elapsed:)
     ) {
         guard entries[id] == nil else { return }
-        entries[id] = ReconnectEntry(attempts: 0, phaseStart: now, nextAt: now + delay(0, 0))
+        entries[id] = ReconnectEntry(attempts: 0, phaseStart: phaseStart ?? now, nextAt: now + delay(0, 0))
     }
 
     func connected(_ id: String) { entries.removeValue(forKey: id) }
 
-    /// Try `id` now, with the fast delays again.
-    func reset(_ id: String, at now: Date) {
-        entries[id] = ReconnectEntry(attempts: 0, phaseStart: now, nextAt: now)
+    /// Try `id` now, with the fast delays again (or, with an earlier `phaseStart`, that far into
+    /// the phase).
+    func reset(_ id: String, at now: Date, phaseStart: Date? = nil) {
+        entries[id] = ReconnectEntry(attempts: 0, phaseStart: phaseStart ?? now, nextAt: now)
     }
 
     func resetAll(at now: Date) {

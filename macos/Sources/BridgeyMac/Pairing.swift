@@ -3011,6 +3011,13 @@ final class PairingCoordinator: ObservableObject {
         trustedDeviceIDs.filter { registry.session(for: $0) == nil }.sorted()
     }
 
+    /// Disconnected trusted devices that are not away: the ones periodic discovery restarts are
+    /// for. A device gone for hours (an old identity, a phone left at home) does not keep
+    /// restarting discovery, which drops and re-finds every nearby device each time.
+    private var recentlyDroppedTrustedIDs: [String] {
+        disconnectedTrustedIDs.filter { !reconnect.isAway($0) }
+    }
+
     private func trustedName(_ id: String) -> String {
         lastPeers.first { $0.deviceIDHint == id }?.deviceNameHint
             ?? trustRegistry.devices.first { $0.id == id }?.name
@@ -3079,12 +3086,13 @@ final class PairingCoordinator: ObservableObject {
         restartDiscovery?(reason)
     }
 
-    /// Every five minutes while a trusted phone is away, for the first hour.
+    /// Every five minutes while a trusted phone that dropped within the last hour is missing, for
+    /// the first hour.
     private func armDiscoveryRestartTimer() {
         discoveryRestartTimer?.cancel()
         discoveryRestartTimer = nil
         let now = clock.now
-        guard !disconnectedTrustedIDs.isEmpty, let start = discoveryWindowStart,
+        guard !recentlyDroppedTrustedIDs.isEmpty, let start = discoveryWindowStart,
               now.timeIntervalSince(start) < ReconnectPolicy.discoveryRestartWindow else { return }
         // At most one restart per interval; after a drop, the first one waits 30 s so a quick
         // reconnect needs none.
@@ -3092,7 +3100,7 @@ final class PairingCoordinator: ObservableObject {
         discoveryRestartTimer = clock.schedule(after: next.timeIntervalSince(now)) { [weak self] in
             guard let self else { return }
             self.discoveryRestartTimer = nil
-            guard !self.disconnectedTrustedIDs.isEmpty, let start = self.discoveryWindowStart,
+            guard !self.recentlyDroppedTrustedIDs.isEmpty, let start = self.discoveryWindowStart,
                   self.clock.now.timeIntervalSince(start) < ReconnectPolicy.discoveryRestartWindow else { return }
             self.restartDiscoveryNow(reason: "periodic")
             self.armDiscoveryRestartTimer()
