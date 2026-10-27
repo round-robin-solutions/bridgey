@@ -1,5 +1,8 @@
 package dev.bridgey.android
 
+import dev.bridgey.android.browse.BrowseRef
+import dev.bridgey.android.browse.BrowseRefs
+import dev.bridgey.android.browse.requestIdOf
 import dev.bridgey.android.folders.FolderCancelPayload
 import dev.bridgey.android.folders.FolderCompletePayload
 import dev.bridgey.android.folders.FolderOfferPayload
@@ -138,6 +141,10 @@ class ProtocolFuzzTest {
             ManifestPagePayload.parse(json)
             FolderCompletePayload.parse(json)
             FolderCancelPayload.parse(json)
+            // Files 2.0 browse requests carry refs; a ref that parses is always one the phone can address.
+            (BrowseRefs.parse(json) as? BrowseRef.Media)?.let { assertTrue(it.mediaId >= 0) }
+            BrowseRefs.parse(json.optJSONObject("ref"))
+            requestIdOf(json)
         }
     }
 
@@ -275,7 +282,7 @@ class ProtocolFuzzTest {
     }
 
     private fun randomPayload(): ByteArray {
-        val samples = listOf("featuresUpdate", "batteryUpdate", "clipboardRich", "clipboardOffer", "remoteInput").flatMap { group ->
+        val samples = listOf("featuresUpdate", "batteryUpdate", "clipboardRich", "clipboardOffer", "remoteInput", "browseRef").flatMap { group ->
             vectors.getJSONArray(group).let { array -> (0 until array.length()).map { array.getJSONObject(it).let { v -> v.opt("plaintext")?.toString() ?: v.getString("plaintextString") } } }
         }
         return when (random.nextInt(4)) {
@@ -283,7 +290,8 @@ class ProtocolFuzzTest {
             1 -> mutate(samples.random(random).toByteArray())
             2 -> JSONObject().apply {
                 listOf("version", "features", "level", "isCharging", "text", "html", "offerId", "createdAt", "items", "inputSessionId", "sequence",
-                    "folderTransferId", "requestId", "places", "entries", "pageCount", "mode").filter { random.nextBoolean() }
+                    "folderTransferId", "requestId", "places", "entries", "pageCount", "mode",
+                    "ref", "mediaId", "placeId", "path", "name", "cursor", "sort", "limit", "replaces").filter { random.nextBoolean() }
                     .forEach { put(it, randomJson(0)) }
             }.toString().toByteArray()
             else -> samples.random(random).toByteArray()

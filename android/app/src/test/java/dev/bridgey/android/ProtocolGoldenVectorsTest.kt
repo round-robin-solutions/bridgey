@@ -1,5 +1,6 @@
 package dev.bridgey.android
 
+import dev.bridgey.android.browse.BrowseRefs
 import dev.bridgey.android.remote.PointerButton
 import dev.bridgey.android.remote.PresentAction
 import dev.bridgey.android.remote.RemoteInput
@@ -74,6 +75,12 @@ class ProtocolGoldenVectorsTest {
                 },
             )
         } ?: "reject"
+        result == normalize(vector.get("expect"))
+    }
+
+    /** Files 2.0 refs: the phone reads them from every browse request; the Mac reads the same ones from media.page. */
+    @Test fun browseRef() = each("browseRef") { vector ->
+        val result: Any = BrowseRefs.parse(strictJsonObject(plaintext(vector)))?.let { normalize(BrowseRefs.toJson(it)) } ?: "reject"
         result == normalize(vector.get("expect"))
     }
 

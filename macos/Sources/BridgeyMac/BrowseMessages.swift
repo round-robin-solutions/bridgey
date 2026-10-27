@@ -91,10 +91,12 @@ struct WireRef: Codable, Equatable, Hashable {
     }
 
     /// Nil when it is neither form, or a field breaks the rules (existing-path rules, one component name,
-    /// a decimal media ID of at most 20 digits).
+    /// a decimal media ID of at most 20 digits that fits a MediaStore `_ID`, a signed 64-bit integer, as on
+    /// Android; golden vectors `browseRef`).
     var ref: PhoneRef? {
         if let mediaId {
-            guard placeId == nil, !mediaId.isEmpty, mediaId.count <= 20, mediaId.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+            guard placeId == nil, !mediaId.isEmpty, mediaId.count <= 20, mediaId.allSatisfy({ $0.isASCII && $0.isNumber }),
+                  Int64(mediaId) != nil else { return nil }
             return .media(id: mediaId)
         }
         guard let placeId, FolderJSON.isPlaceID(placeId), let path, FolderPaths.isValidExistingPath(path),

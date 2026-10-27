@@ -1,7 +1,9 @@
 package dev.bridgey.android
 
 import dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY
+import dev.bridgey.android.folders.FILES_BROWSE_FEATURE_KEY
 import dev.bridgey.android.folders.FOLDERS_FEATURE_KEY
+import dev.bridgey.android.folders.FOLDERS_RECEIVE_FEATURE_KEY
 import dev.bridgey.android.folders.PLACES_FEATURE_KEY
 import org.json.JSONException
 import org.json.JSONObject
@@ -245,10 +247,13 @@ internal sealed interface FeatureStateDecoding {
     data class State(val features: Map<BridgeyFeature, Boolean>, val drafts: Map<String, Boolean>) : FeatureStateDecoding
 }
 
-/** Draft feature keys this client reads from features.update. */
+/**
+ * Draft feature keys this client reads from features.update. Files 2.0: the phone acts on folders_receive_draft1
+ * (the Mac accepts folders); files_browse_draft1 is read too, so both platforms decode the golden vectors alike.
+ */
 internal val KNOWN_DRAFT_FEATURE_KEYS = listOf(
     CLIPBOARD_FILES_FEATURE_KEY, FOLDERS_FEATURE_KEY, PLACES_FEATURE_KEY, SMS_CODES_FEATURE_KEY,
-    dev.bridgey.android.folders.FOLDERS_RECEIVE_FEATURE_KEY, dev.bridgey.android.folders.FILES_BROWSE_FEATURE_KEY,
+    FOLDERS_RECEIVE_FEATURE_KEY, FILES_BROWSE_FEATURE_KEY,
 )
 
 internal fun decodeFeatureState(plaintext: ByteArray): FeatureStateDecoding {

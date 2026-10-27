@@ -1223,8 +1223,9 @@ class PairingCoordinator(
             message.ciphertext ?: return fail(current, "Invalid encrypted browse message"),
         ) ?: return fail(current, "Invalid encrypted browse message")
         if (message.kind in dev.bridgey.android.browse.BrowseKinds.answers) return
+        // Strict JSON, as the Mac writes it (docs/protocol-contract.md): org.json alone also takes comments and quotes.
         val json = plaintext.takeIf { it.size <= dev.bridgey.android.browse.BrowseKinds.requestPlaintextLimit(message.kind) }
-            ?.let { runCatching { JSONObject(it.toString(Charsets.UTF_8)) }.getOrNull() } ?: return
+            ?.let(::strictJsonObject) ?: return
         browseServer(current).handle(message.kind, json)
     }
 

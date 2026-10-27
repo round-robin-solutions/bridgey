@@ -68,7 +68,7 @@ the tables at the end of this page are generated from it with
    the Stable channel and prefer the final key; then the draft key is retired by rule 6.
 8. **Malformed is not unknown.** Inside a known kind, a payload that is over its limit or fails
    validation is dropped (or answered with that feature's error message). A payload that fails
-   decryption closes the session for `upstream-v1` messages and for folders and places, as in
+   decryption closes the session for `upstream-v1` messages and for folders, places and browsing, as in
    upstream; clipboard offers, codes and remote input drop it and keep the session.
 9. **Replay.** Encrypted messages with a `messageId` go through one per-session window of the last
    256 accepted IDs (oldest evicted first); a repeated ID is not executed again. Quick actions and
@@ -90,7 +90,7 @@ the tables at the end of this page are generated from it with
 - Golden vectors in [`protocol/test-vectors/protocol-v1.json`](../protocol/test-vectors/protocol-v1.json)
   are decoded by both test suites with the same expected results: valid and invalid frames, and
   key payloads (`features.update`, `clipboard.rich`, `clipboard.offer`, `battery.update`,
-  `quick.request`, `codes.status`, remote input).
+  `quick.request`, `codes.status`, remote input, Files 2.0 browse refs).
 - Fuzz tests on both platforms feed random bytes, truncated and oversized frames, wrong types,
   unknown kinds, replayed IDs and huge counts to the frame decoder and the payload decoders, and
   check that nothing crashes, memory stays bounded and a valid message still works afterwards. The
@@ -127,6 +127,8 @@ the tables at the end of this page are generated from it with
 | `sms_codes_draft1` | edition-draft | no | false |
 | `folders_draft1` | edition-draft | no | false |
 | `places_draft1` | edition-draft | no | false |
+| `files_browse_draft1` | edition-draft | no | false |
+| `folders_receive_draft1` | edition-draft | no | false |
 | `settings_sync_draft1` | designed | no | false |
 
 ### Envelope fields
@@ -150,7 +152,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-80 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+93 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -424,6 +426,15 @@ Answered by `quick.result`.
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `media.state` | upstream-v1 | mac-to-phone | media | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `media.list` | edition-draft | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `media.page` | edition-draft | phone-to-mac | files_browse_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `media.thumbnails` | edition-draft | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `media.thumbnails_batch` | edition-draft | phone-to-mac | files_browse_draft1 | yes | messageId | 45,056 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `media.preview` | edition-draft | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `media.preview_part` | edition-draft | phone-to-mac | files_browse_draft1 | yes | messageId | 45,056 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `media.range` | edition-draft | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `media.range_part` | edition-draft | phone-to-mac | files_browse_draft1 | yes | messageId | 45,056 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `media.cancel` | edition-draft | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
 
 `media.state`
 
@@ -437,6 +448,108 @@ Answered by `quick.result`.
 - `volume`: integer, 0 to 100
 - `detail`: string, bounded
 - `artwork`: string, optional base64 JPEG, at most 16 KiB, at most 128x128
+
+`media.list`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `kind`: media (photos and videos, newest first) | files (recent documents in indexed places) | recent (both)
+- `cursor`: string or null, opaque
+- `limit`: integer, 1 to 200, default 100
+
+Answered by `media.page`, `places.error`.
+
+Browse lane.
+
+`media.page`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `kind`: string, echoes the request
+- `items`: array of {ref, name, size, modified (Unix ms), mimeType, width, height, durationMs (null when unknown), thumb (boolean), location (display path, at most 128 characters)}
+- `nextCursor`: string or null
+- `access`: full | partial | none (photo and video access; none returns no media items)
+- `indexing`: boolean, the document index is refreshing
+
+Askers cache by device ID, ref, modified and size: the same four always mean the same bytes.
+
+`media.thumbnails`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `items`: array of 1 to 64 {key (1 to 64 of [A-Za-z0-9_-], chosen by the asker), ref}
+- `size`: integer, longest edge 64 to 512, default 256
+- `replaces`: string, optional, requestId of an earlier media request it cancels
+
+Answered by `media.thumbnails_batch`, `places.error`.
+
+Media lane: 4 active and 60 per 10 s, else busy. Answers are low priority: sent only while no file chunk, acknowledgement or control message waits.
+
+`media.thumbnails_batch`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `thumbs`: array of {key, mimeType (image/webp from Android 11, else image/jpeg), width, height, tint (#rrggbb average colour), data (base64, at most 24 KiB decoded)}
+- `missing`: array of keys without a thumbnail
+- `done`: boolean, true on the last batch
+
+In the order asked; as many thumbnails as fit in each batch. 45,056 bytes of plaintext keep the frame under the 65,536-byte limit after AES-GCM and base64.
+
+`media.preview`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `ref`: ref
+- `size`: integer, longest edge 512 to 2048
+- `replaces`: string, optional
+
+Answered by `media.preview_part`, `places.error`.
+
+Media lane. Videos answer with the poster frame. Errors not_found, unsupported.
+
+`media.preview_part`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `index`: integer, from 0
+- `count`: integer, parts in all
+- `mimeType`: string
+- `width`: integer
+- `height`: integer
+- `tint`: string, #rrggbb
+- `data`: string, base64, at most 32 KiB decoded per part
+
+Consecutive parts; the whole preview is at most 1 MiB.
+
+`media.range`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `ref`: ref to a file, not a folder
+- `offset`: integer, >= 0
+- `length`: integer, 1 to 4 MiB
+- `replaces`: string, optional
+
+Answered by `media.range_part`, `places.error`.
+
+Media lane. Ranges are previews (hover prefetch, streamed playback) and carry no hash; a saved copy always goes through places.download.
+
+`media.range_part`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `offset`: integer, of this part
+- `fileSize`: integer, the whole file
+- `modified`: integer, Unix ms, the whole file
+- `data`: string, base64, at most 32 KiB decoded
+- `last`: boolean, end of the range or of the file
+
+`media.cancel`
+
+- `version`: integer, 1
+- `requestId`: string, the media request to cancel
+
+Not answered. Parts already on the wire may still arrive and are dropped by the asker.
 
 #### `battery.*`
 
@@ -623,18 +736,23 @@ A phone that receives it answers input.session.stop, reason unsupported.
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `places.list` | edition-draft | mac-to-phone | places_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `places.listed` | edition-draft | phone-to-mac | places_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `places.list` | edition-draft | mac-to-phone | places_draft1 \| files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `places.listed` | edition-draft | phone-to-mac | places_draft1 \| files_browse_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `places.browse` | edition-draft | mac-to-phone | places_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `places.children` | edition-draft | phone-to-mac | places_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `places.create_folder` | edition-draft | mac-to-phone | places_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `places.folder_created` | edition-draft | phone-to-mac | places_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `places.error` | edition-draft | phone-to-mac | places_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `places.error` | edition-draft | phone-to-mac | places_draft1 \| files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `places.files` | edition-draft | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `places.files_page` | edition-draft | phone-to-mac | files_browse_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `places.download` | edition-draft | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `places.download_started` | edition-draft | phone-to-mac | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
 
 `places.list`
 
 - `version`: integer, 1
 - `requestId`: string, UUID
+- `purpose`: optional "browse" (files_browse_draft1): every place whatever the destination mode, plus writable, media and documents in the answer
 
 Answered by `places.listed`, `places.error`.
 
@@ -645,6 +763,10 @@ Answered by `places.listed`, `places.error`.
 - `mode`: sender_picks | receiver_asks | fixed
 - `places`: array of at most 17 {placeId, label (64), available, freeBytes}
 - `fixedLabel`: string
+- `defaultFreeBytes`: integer or null, free bytes where a send would land by default (every answer)
+- `writable`: boolean, purpose browse only: "Allow other devices to change files here"
+- `media`: purpose browse only: full | partial | none (photo and video access)
+- `documents`: boolean, purpose browse only: at least one place is indexed for recent documents
 
 `places.browse`
 
@@ -689,24 +811,74 @@ Answered by `places.folder_created`, `places.error`.
 
 - `version`: integer, 1
 - `requestId`: string
-- `code`: error code, see docs/protocol.md
+- `code`: error code, see docs/protocol.md (browse adds read_only)
+
+Also the failure answer to every browse request (places.files, media.*, places.download). Browse requests from a Mac whose files_browse_draft1 the phone did not advertise answer unsupported; over a lane budget, busy.
+
+`places.files`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `placeId`: string, default or a granted place
+- `path`: string, existing path
+- `cursor`: string or null, opaque, from the previous page
+- `sort`: name (default) | modified | size | kind
+- `descending`: boolean
+
+Answered by `places.files_page`, `places.error`.
+
+Browse lane: 4 in flight and 40 per 10 s, else busy; answered within 8 s. Served in every folder destination mode. Errors not_found, place_unavailable, policy.
+
+`places.files_page`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `placeId`: string
+- `path`: string
+- `entries`: array of at most 200 {name (one existing component, 1 to 255 bytes), dir (boolean), size (integer, null for folders), modified (Unix ms or null), mimeType (null for folders), thumb (boolean)}
+- `folderCount`: integer
+- `fileCount`: integer
+- `nextCursor`: string or null
+- `writable`: boolean
+
+Folders first, then files, each in sort order (names case-insensitive, then exact). Hidden items and part files are neither listed nor counted.
+
+`places.download`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `items`: array of 1 to 100 refs ({placeId, path, name} or {mediaId}); a folder brings its subtree, hidden and system files skipped and counted
+
+Answered by `places.download_started`, `places.error`.
+
+Browse lane. The phone then sends folders.offer with into: true and downloadRequestId; the Mac accepts a download offer only when it asked for it. Errors not_found, place_unavailable, limit_exceeded, busy, policy.
+
+`places.download_started`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `folderTransferId`: string, UUID of the folders.offer that follows
+- `rootName`: string, portable name
+- `fileCount`: integer
+- `folderCount`: integer
+- `totalSize`: integer, bytes
 
 #### `folders.*`
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `folders.offer` | edition-draft | sender-to-receiver | folders_draft1 | yes | messageId | 8,192 B | sessionId, messageId, transferId, nonce, ciphertext | android, macos |
-| `folders.manifest` | edition-draft | sender-to-receiver | folders_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `folders.waiting` | edition-draft | receiver-to-sender | folders_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `folders.conflict` | edition-draft | receiver-to-sender | folders_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `folders.resolve` | edition-draft | sender-to-receiver | folders_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `folders.accept` | edition-draft | receiver-to-sender | folders_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `folders.rejected` | edition-draft | receiver-to-sender | folders_draft1 | yes | messageId | 8,192 B | sessionId, messageId, transferId, nonce?, ciphertext? | android, macos |
-| `folders.entry_failed` | edition-draft | receiver-to-sender | folders_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `folders.complete` | edition-draft | sender-to-receiver | folders_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `folders.result` | edition-draft | receiver-to-sender | folders_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `folders.cancel` | edition-draft | either | folders_draft1 | yes | messageId | 8,192 B | sessionId, messageId, transferId, nonce, ciphertext | android, macos |
-| `folders.cancel.ack` | edition-draft | either | folders_draft1 | no | none | frame | sessionId, transferId | android, macos |
+| `folders.offer` | edition-draft | sender-to-receiver | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, transferId, nonce, ciphertext | android, macos |
+| `folders.manifest` | edition-draft | sender-to-receiver | folders_draft1 \| folders_receive_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `folders.waiting` | edition-draft | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `folders.conflict` | edition-draft | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `folders.resolve` | edition-draft | sender-to-receiver | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `folders.accept` | edition-draft | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `folders.rejected` | edition-draft | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, transferId, nonce?, ciphertext? | android, macos |
+| `folders.entry_failed` | edition-draft | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `folders.complete` | edition-draft | sender-to-receiver | folders_draft1 \| folders_receive_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `folders.result` | edition-draft | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `folders.cancel` | edition-draft | either | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, transferId, nonce, ciphertext | android, macos |
+| `folders.cancel.ack` | edition-draft | either | folders_draft1 \| folders_receive_draft1 | no | none | frame | sessionId, transferId | android, macos |
 
 `folders.offer`
 
@@ -721,6 +893,10 @@ Answered by `places.folder_created`, `places.error`.
 - `destination`: optional {placeId, path}
 - `resume`: boolean
 - `skipped`: optional object of counters
+- `into`: boolean, optional, default false (files_browse_draft1): entries land directly in the destination, top-level clashes saved as copies, nothing merged, replaced or asked
+- `downloadRequestId`: string, UUID, optional (files_browse_draft1): the offer answers that places.download of the receiver
+
+The Mac checks folders_draft1 before sending to a phone, the phone folders_receive_draft1 before sending to a Mac (no destination: a Mac serves no places). Uploads are into with destination; a phone rejects them read_only while it does not allow changes, policy while browsing is off.
 
 `folders.manifest`
 
@@ -763,6 +939,7 @@ Answered by `folders.resolve`.
 - `destinationLabel`: string
 - `choice`: none | merge | replace | new_folder
 - `completedBitmap`: string, base64, bit i set when entry i is done
+- `freeBytes`: integer or null, free bytes at the chosen destination (files_browse_draft1)
 
 `folders.rejected`
 

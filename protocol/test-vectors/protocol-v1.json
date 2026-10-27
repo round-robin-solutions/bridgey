@@ -1,5 +1,5 @@
 {
- "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased.",
+ "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject.",
  "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
  "frames": [
   {
@@ -376,7 +376,9 @@
      "clipboard_files_draft1": true,
      "folders_draft1": true,
      "places_draft1": false,
-     "sms_codes_draft1": true
+     "sms_codes_draft1": true,
+     "folders_receive_draft1": true,
+     "files_browse_draft1": false
     }
    },
    "expect": {
@@ -396,7 +398,97 @@
      "clipboard_files_draft1": true,
      "folders_draft1": true,
      "places_draft1": false,
-     "sms_codes_draft1": true
+     "sms_codes_draft1": true,
+     "folders_receive_draft1": true,
+     "files_browse_draft1": false
+    }
+   }
+  },
+  {
+   "name": "edition phone serving Files 2.0 browsing",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "clipboard_files_draft1": true,
+     "folders_draft1": true,
+     "places_draft1": true,
+     "sms_codes_draft1": true,
+     "folders_receive_draft1": true,
+     "files_browse_draft1": true
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": true,
+     "folders_draft1": true,
+     "places_draft1": true,
+     "sms_codes_draft1": true,
+     "folders_receive_draft1": true,
+     "files_browse_draft1": true
+    }
+   }
+  },
+  {
+   "name": "first-slice Mac (folders_draft1 only, no Files 2.0 keys)",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "folders_draft1": true,
+     "places_draft1": false
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": true,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false
     }
    }
   },
@@ -429,7 +521,9 @@
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
-     "sms_codes_draft1": false
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false
     }
    }
   },
@@ -466,7 +560,9 @@
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
-     "sms_codes_draft1": false
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false
     }
    }
   },
@@ -500,7 +596,9 @@
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
-     "sms_codes_draft1": false
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false
     }
    }
   },
@@ -3899,6 +3997,333 @@
     "dx": 1,
     "dy": 1
    },
+   "expect": "reject"
+  }
+ ],
+ "browseRef": [
+  {
+   "name": "media ID",
+   "plaintext": {
+    "mediaId": "1234"
+   },
+   "expect": {
+    "mediaId": "1234"
+   }
+  },
+  {
+   "name": "media ID 0",
+   "plaintext": {
+    "mediaId": "0"
+   },
+   "expect": {
+    "mediaId": "0"
+   }
+  },
+  {
+   "name": "largest media ID (2^63-1)",
+   "plaintext": {
+    "mediaId": "9223372036854775807"
+   },
+   "expect": {
+    "mediaId": "9223372036854775807"
+   }
+  },
+  {
+   "name": "media ID over 2^63-1",
+   "plaintext": {
+    "mediaId": "9223372036854775808"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "media ID of 21 digits",
+   "plaintext": {
+    "mediaId": "111111111111111111111"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "media ID empty",
+   "plaintext": {
+    "mediaId": ""
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "media ID negative",
+   "plaintext": {
+    "mediaId": "-1"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "media ID with letters",
+   "plaintext": {
+    "mediaId": "12a"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "media ID with non-ASCII digits",
+   "plaintext": {
+    "mediaId": "١٢"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "media ID as a number",
+   "plaintext": {
+    "mediaId": 1234
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "media ID and a place together",
+   "plaintext": {
+    "mediaId": "5",
+    "placeId": "default",
+    "path": "",
+    "name": "a.jpg"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "unknown fields are ignored",
+   "plaintext": {
+    "mediaId": "5",
+    "future": true
+   },
+   "expect": {
+    "mediaId": "5"
+   }
+  },
+  {
+   "name": "default place, top level",
+   "plaintext": {
+    "placeId": "default",
+    "path": "",
+    "name": "a.jpg"
+   },
+   "expect": {
+    "placeId": "default",
+    "path": "",
+    "name": "a.jpg"
+   }
+  },
+  {
+   "name": "granted place, nested path",
+   "plaintext": {
+    "placeId": "AbCdEfGhIjKlMnOpQrStUv",
+    "path": "DCIM/Camera",
+    "name": "IMG_0001.jpg"
+   },
+   "expect": {
+    "placeId": "AbCdEfGhIjKlMnOpQrStUv",
+    "path": "DCIM/Camera",
+    "name": "IMG_0001.jpg"
+   }
+  },
+  {
+   "name": "unicode name",
+   "plaintext": {
+    "placeId": "AbCdEfGhIjKlMnOpQrStUv",
+    "path": "Документы",
+    "name": "Счёт №1.pdf"
+   },
+   "expect": {
+    "placeId": "AbCdEfGhIjKlMnOpQrStUv",
+    "path": "Документы",
+    "name": "Счёт №1.pdf"
+   }
+  },
+  {
+   "name": "hidden name parses",
+   "plaintext": {
+    "placeId": "default",
+    "path": "",
+    "name": ".nomedia"
+   },
+   "expect": {
+    "placeId": "default",
+    "path": "",
+    "name": ".nomedia"
+   }
+  },
+  {
+   "name": "name of 255 bytes",
+   "plaintext": {
+    "placeId": "default",
+    "path": "",
+    "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+   },
+   "expect": {
+    "placeId": "default",
+    "path": "",
+    "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+   }
+  },
+  {
+   "name": "name of 256 bytes",
+   "plaintext": {
+    "placeId": "default",
+    "path": "",
+    "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "place ID of 21 characters",
+   "plaintext": {
+    "placeId": "AbCdEfGhIjKlMnOpQrStU",
+    "path": "",
+    "name": "a"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "place ID with a slash",
+   "plaintext": {
+    "placeId": "AbCdEfGhIjKlMnOpQrStU/",
+    "path": "",
+    "name": "a"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "name missing",
+   "plaintext": {
+    "placeId": "default",
+    "path": ""
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "path missing",
+   "plaintext": {
+    "placeId": "default",
+    "name": "a"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "empty name",
+   "plaintext": {
+    "placeId": "default",
+    "path": "",
+    "name": ""
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "name with a slash",
+   "plaintext": {
+    "placeId": "default",
+    "path": "",
+    "name": "a/b"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "name ..",
+   "plaintext": {
+    "placeId": "default",
+    "path": "",
+    "name": ".."
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "name with a control character",
+   "plaintext": {
+    "placeId": "default",
+    "path": "",
+    "name": "a\u0007b"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "name with DEL",
+   "plaintext": {
+    "placeId": "default",
+    "path": "",
+    "name": "ab"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "path with ..",
+   "plaintext": {
+    "placeId": "default",
+    "path": "a/../b",
+    "name": "c"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "path with an empty component",
+   "plaintext": {
+    "placeId": "default",
+    "path": "a//b",
+    "name": "c"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "absolute path",
+   "plaintext": {
+    "placeId": "default",
+    "path": "/a",
+    "name": "c"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "path of 32 components",
+   "plaintext": {
+    "placeId": "default",
+    "path": "d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d",
+    "name": "c"
+   },
+   "expect": {
+    "placeId": "default",
+    "path": "d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d",
+    "name": "c"
+   }
+  },
+  {
+   "name": "path of 33 components",
+   "plaintext": {
+    "placeId": "default",
+    "path": "d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d",
+    "name": "c"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "path of 1,025 bytes",
+   "plaintext": {
+    "placeId": "default",
+    "path": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddd",
+    "name": "c"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "path as a number",
+   "plaintext": {
+    "placeId": "default",
+    "path": 5,
+    "name": "c"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "not an object",
+   "plaintext": [
+    "default",
+    "",
+    "a"
+   ],
    "expect": "reject"
   }
  ]

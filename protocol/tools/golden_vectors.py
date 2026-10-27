@@ -71,12 +71,16 @@ f("CRLF line ending", j({"kind":"ping.ack","sessionId":S}), {"kind":"ping.ack","
 f("frame of 65,536 bytes with CRLF", None, {"kind":"pairing.offer","sessionId":S,"deviceName":"@PAD@"}, padTo=65536, lineEnding="\r\n")
 
 features_all = {"clipboard":True,"files":True,"notifications":True,"battery":True,"find_device":True,"ping":True,"links":True,"media":True,"calls":True,"remote_input_draft1":False}
-drafts_none = {"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False}
+drafts_none = {"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False,"folders_receive_draft1":False,"files_browse_draft1":False}
 feat = []
 def fe(name, plaintext, expect, raw=False):
     feat.append({"name": name, ("plaintextString" if raw else "plaintext"): plaintext, "expect": expect})
-fe("edition Mac", {"version":1,"features":{**features_all,"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":False,"sms_codes_draft1":True}},
-   {"features":features_all,"drafts":{"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":False,"sms_codes_draft1":True}})
+fe("edition Mac", {"version":1,"features":{**features_all,"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":False,"sms_codes_draft1":True,"folders_receive_draft1":True,"files_browse_draft1":False}},
+   {"features":features_all,"drafts":{"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":False,"sms_codes_draft1":True,"folders_receive_draft1":True,"files_browse_draft1":False}})
+fe("edition phone serving Files 2.0 browsing", {"version":1,"features":{**features_all,"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":True,"sms_codes_draft1":True,"folders_receive_draft1":True,"files_browse_draft1":True}},
+   {"features":features_all,"drafts":{"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":True,"sms_codes_draft1":True,"folders_receive_draft1":True,"files_browse_draft1":True}})
+fe("first-slice Mac (folders_draft1 only, no Files 2.0 keys)", {"version":1,"features":{**features_all,"folders_draft1":True,"places_draft1":False}},
+   {"features":features_all,"drafts":{**drafts_none,"folders_draft1":True}})
 legacy = {"clipboard":True,"files":False,"notifications":True,"battery":True,"find_device":False}
 fe("upstream 0.5 peer (original keys only)", {"version":1,"features":legacy},
    {"features":{**legacy,"ping":False,"links":False,"media":False,"calls":False,"remote_input_draft1":False},"drafts":drafts_none})
@@ -203,8 +207,49 @@ i("sequence 0", "input.pointer", {"dx":1,"dy":1,"sequence":0}, "reject")
 i("session ID not a UUID", "input.pointer", {"dx":1,"dy":1,"inputSessionId":"x"}, "reject")
 i("version 2", "input.pointer", {"dx":1,"dy":1,"version":2}, "reject")
 
+# Files 2.0 browse refs (docs/protocol.md "References"): the Mac reads them from media.page and the phone from
+# every browse request, so both must accept exactly the same refs. Hidden names parse; resolution refuses them.
+PL = "AbCdEfGhIjKlMnOpQrStUv"
+refs = []
+def ref(name, p, expect, raw=False): refs.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+ref("media ID", {"mediaId":"1234"}, {"mediaId":"1234"})
+ref("media ID 0", {"mediaId":"0"}, {"mediaId":"0"})
+ref("largest media ID (2^63-1)", {"mediaId":"9223372036854775807"}, {"mediaId":"9223372036854775807"})
+ref("media ID over 2^63-1", {"mediaId":"9223372036854775808"}, "reject")
+ref("media ID of 21 digits", {"mediaId":"1"*21}, "reject")
+ref("media ID empty", {"mediaId":""}, "reject")
+ref("media ID negative", {"mediaId":"-1"}, "reject")
+ref("media ID with letters", {"mediaId":"12a"}, "reject")
+ref("media ID with non-ASCII digits", {"mediaId":"١٢"}, "reject")
+ref("media ID as a number", {"mediaId":1234}, "reject")
+ref("media ID and a place together", {"mediaId":"5","placeId":"default","path":"","name":"a.jpg"}, "reject")
+ref("unknown fields are ignored", {"mediaId":"5","future":True}, {"mediaId":"5"})
+ref("default place, top level", {"placeId":"default","path":"","name":"a.jpg"}, {"placeId":"default","path":"","name":"a.jpg"})
+ref("granted place, nested path", {"placeId":PL,"path":"DCIM/Camera","name":"IMG_0001.jpg"}, {"placeId":PL,"path":"DCIM/Camera","name":"IMG_0001.jpg"})
+ref("unicode name", {"placeId":PL,"path":"Документы","name":"Счёт №1.pdf"}, {"placeId":PL,"path":"Документы","name":"Счёт №1.pdf"})
+ref("hidden name parses", {"placeId":"default","path":"","name":".nomedia"}, {"placeId":"default","path":"","name":".nomedia"})
+ref("name of 255 bytes", {"placeId":"default","path":"","name":"n"*255}, {"placeId":"default","path":"","name":"n"*255})
+ref("name of 256 bytes", {"placeId":"default","path":"","name":"n"*256}, "reject")
+ref("place ID of 21 characters", {"placeId":PL[:21],"path":"","name":"a"}, "reject")
+ref("place ID with a slash", {"placeId":PL[:21]+"/","path":"","name":"a"}, "reject")
+ref("name missing", {"placeId":"default","path":""}, "reject")
+ref("path missing", {"placeId":"default","name":"a"}, "reject")
+ref("empty name", {"placeId":"default","path":"","name":""}, "reject")
+ref("name with a slash", {"placeId":"default","path":"","name":"a/b"}, "reject")
+ref("name ..", {"placeId":"default","path":"","name":".."}, "reject")
+ref("name with a control character", {"placeId":"default","path":"","name":"ab"}, "reject")
+ref("name with DEL", {"placeId":"default","path":"","name":"ab"}, "reject")
+ref("path with ..", {"placeId":"default","path":"a/../b","name":"c"}, "reject")
+ref("path with an empty component", {"placeId":"default","path":"a//b","name":"c"}, "reject")
+ref("absolute path", {"placeId":"default","path":"/a","name":"c"}, "reject")
+ref("path of 32 components", {"placeId":"default","path":"/".join(["d"]*32),"name":"c"}, {"placeId":"default","path":"/".join(["d"]*32),"name":"c"})
+ref("path of 33 components", {"placeId":"default","path":"/".join(["d"]*33),"name":"c"}, "reject")
+ref("path of 1,025 bytes", {"placeId":"default","path":"/".join(["d"*200]*5)+"/"+"d"*20,"name":"c"}, "reject")
+ref("path as a number", {"placeId":"default","path":5,"name":"c"}, "reject")
+ref("not an object", ["default","","a"], "reject")
+
 out = {
-  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased.",
+  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject.",
   "sessionId": S,
   "frames": frames,
   "featuresUpdate": feat,
@@ -212,6 +257,7 @@ out = {
   "clipboardRich": rich,
   "clipboardOffer": offers,
   "remoteInput": inp,
+  "browseRef": refs,
 }
 open(OUT,'w').write(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
-print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp))
+print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs))

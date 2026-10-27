@@ -86,6 +86,19 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
         }
     }
 
+    /// Files 2.0 refs: the Mac reads them from media.page; the phone reads the same ones from every browse request.
+    func testBrowseRef() throws {
+        try each("browseRef") { vector in
+            let result: Any = (try? JSONDecoder().decode(WireRef.self, from: plaintext(vector)))?.ref.map { ref -> [String: Any] in
+                switch ref {
+                case let .media(id): return ["mediaId": id]
+                case let .place(placeId, path, name): return ["placeId": placeId, "path": path, "name": name]
+                }
+            } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
     /// The Mac is the remote control host: it accepts exactly what the phone may send.
     func testRemoteInputAsTheHostReadsIt() throws {
         try each("remoteInput") { vector in

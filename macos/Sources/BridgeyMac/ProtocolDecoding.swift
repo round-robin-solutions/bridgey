@@ -268,7 +268,10 @@ enum FeatureStateDecoding: Equatable {
 }
 
 /// Draft feature keys this client reads from features.update.
-let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, placesFeatureKey, smsCodesFeatureKey]
+/// Files 2.0 (BrowseMessages.swift): the Mac reads files_browse_draft1 (the phone serves browsing); it reads
+/// folders_receive_draft1 too, so both platforms decode the golden vectors alike, though only phones act on it.
+let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, placesFeatureKey, smsCodesFeatureKey,
+                             foldersReceiveFeatureKey, filesBrowseFeatureKey]
 
 func decodeFeatureState(_ plaintext: Data) -> FeatureStateDecoding {
     guard isStrictJSONObject(plaintext),
