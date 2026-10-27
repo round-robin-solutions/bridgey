@@ -19,6 +19,8 @@ data class DeviceLinkState(
     val remoteLinksOpen: Boolean = false,
     /** The device advertised focus_sync_draft1: it understands focus.state. */
     val remoteFocusSync: Boolean = false,
+    /** The device advertised settings_sync_draft1: it syncs settings with this phone (both its switches on). */
+    val remoteSettingsSync: Boolean = false,
     val battery: RemoteBatteryStatus? = null,
     /** The device reported that it is ringing (Find device). */
     val ringing: Boolean = false,

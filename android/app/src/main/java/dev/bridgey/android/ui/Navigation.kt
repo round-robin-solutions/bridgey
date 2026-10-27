@@ -135,6 +135,10 @@ object SettingsDeepLink {
     const val EXTRA_SECTION = "dev.bridgey.android.extra.SETTINGS_SECTION"
 
     fun section(name: String?): SettingsSection? = SettingsSection.entries.firstOrNull { it.name == name }
+
+    /** Settings sync notifications: the Permissions page, or General (where sync lives). */
+    const val PERMISSIONS = "PERMISSIONS"
+    val GENERAL: String = SettingsSection.GENERAL.name
 }
 
 class BackStack(initial: List<Route>) {

@@ -196,6 +196,20 @@ class PairingCoordinator(
     /** Phone camera to Mac (draft `camera_draft1`): each Mac's open photo request. */
     val camera = dev.bridgey.android.camera.CameraRequests(System::currentTimeMillis)
 
+    /**
+     * Settings sync (draft `settings_sync_draft1`): settings and feature switches shared with each Mac whose
+     * switches allow it. The application attaches this phone's settings; [receiveSettingsMessage] feeds it.
+     */
+    val settingsSync = dev.bridgey.android.sync.SettingsSyncController(
+        appContext.getSharedPreferences(dev.bridgey.android.sync.SettingsSyncController.PREFERENCES, Context.MODE_PRIVATE),
+        localDeviceId,
+        scope,
+    )
+
+    /** One lane, in order, off the main thread: features.update before a snapshot, a snapshot before its updates. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val settingsLane = Dispatchers.IO.limitedParallelism(1)
+
     /** Set by the application: a Mac's photo request was accepted; show the camera or its notification. */
     @Volatile var cameraRequested: (dev.bridgey.android.camera.CameraRequest) -> Unit = {}
 
@@ -402,6 +416,16 @@ class PairingCoordinator(
             // Folders this phone was sending come back as interrupted rows and resume when their Mac connects.
             runCatching { folderSender.loadJournals() }
         }
+        settingsSync.transport = object : dev.bridgey.android.sync.SettingsSyncController.Transport {
+            override fun send(deviceId: String, kind: String, payload: JSONObject, messageId: String) = sendSettingsMessage(deviceId, kind, payload, messageId)
+            override fun peerName(deviceId: String): String? = registry.session(deviceId)?.peerName ?: trust.trustedDevices.value.firstOrNull { it.id == deviceId }?.name
+            override fun connected(): Collection<String> = registry.connectedIds()
+            override fun remoteOn(deviceId: String): Boolean = registry.state(deviceId)?.remoteSettingsSync == true
+        }
+        settingsSync.onSwitchesChanged = {
+            scope.launch(settingsLane) { registry.connectedIds().forEach { id -> registry.session(id)?.let(::sendFeatureState) } }
+        }
+        settingsSync.diagnostics = { event, outcome, deviceId -> diagnostics.record("settings_sync", event, outcome ?: "ok", device = deviceId) }
         scope.launch {
             settings.state.collect {
                 if (!clipboardOffersEnabledLocally()) clipboardOutbox.supersede(currentClipLink())
@@ -727,6 +751,7 @@ class PairingCoordinator(
         macActions.forget(deviceId)
         health.forget(deviceId)
         recordFocus(focusSync.forget(deviceId))
+        settingsSync.forget(deviceId)
         autoClipboardTracker.clear(deviceId)
         clearClipboardCache()
         disconnect(deviceId)
@@ -1581,6 +1606,29 @@ class PairingCoordinator(
         diagnostics.record("notifications", "focus_follow", outcome.name.lowercase(), device = deviceId)
     }
 
+    /**
+     * settings.* from a Mac (draft settings_sync_draft1): replay-checked and decrypted here; a payload that fails
+     * decryption closes the session, as for folders. Bounds, rate limits and the rules are in the controller.
+     */
+    private fun receiveSettingsMessage(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return)
+            ?: return fail(current, "Invalid encrypted settings message")
+        settingsSync.receive(current.remoteDeviceId, message.kind, id, data)
+    }
+
+    /** settings.* to one Mac, only while its latest map shows settings_sync_draft1. */
+    private fun sendSettingsMessage(deviceId: String, kind: String, payload: JSONObject, messageId: String): Boolean {
+        val current = registry.session(deviceId) ?: return false
+        if (current.pairingKey == null || registry.state(deviceId)?.remoteSettingsSync != true) return false
+        val data = payload.toString().toByteArray(Charsets.UTF_8)
+        scope.launch(settingsLane) { sendEncrypted(current, kind, data, messageId = messageId) }
+        return true
+    }
+
     /** camera.request from a Mac: decrypted, replay-checked, bounded, then one open request per Mac. */
     private fun receiveCameraMessage(current: Session, message: Message) {
         if (!registry.isActive(current) || message.sessionId != current.id) return
@@ -2359,6 +2407,7 @@ class PairingCoordinator(
         if (pendingPing?.first == deviceId) clearPingStatus()
         macActions.sessionEnded(deviceId)
         focusSync.sessionEnded(deviceId)
+        settingsSync.sessionEnded(deviceId)
         endCameraRequest(deviceId)
         health.disconnected(deviceId, reason, System.currentTimeMillis())
         // The power state at the moment of the drop: Doze, screen, saver, standby bucket, exemption.
@@ -2602,6 +2651,7 @@ class PairingCoordinator(
             "actions.catalog", "actions.result" -> receiveActionsMessage(current, message)
             "focus.state" -> receiveFocusMessage(current, message)
             "camera.request" -> receiveCameraMessage(current, message)
+            "settings.snapshot", "settings.update", "settings.ack", "settings.error" -> receiveSettingsMessage(current, message)
             "notifications.action" -> receiveNotificationAction(current, message)
             "calls.request" -> receiveCallRequest(current, message)
             "find.start" -> receiveFindCommand(current, message, start = true)
@@ -3271,6 +3321,8 @@ class PairingCoordinator(
         featureValues.put(dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY, settings.isEnabled(BridgeyFeature.NOTIFICATIONS, current.remoteDeviceId))
         // Draft, edition only: Focus and Do Not Disturb sync, while either direction is on.
         featureValues.put(dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY, focusSync.advertised())
+        // Draft, edition only: settings sync with this Mac, while both sync switches are on.
+        featureValues.put(dev.bridgey.android.sync.SETTINGS_SYNC_FEATURE_KEY, settingsSync.advertised(current.remoteDeviceId))
         val payload = JSONObject()
             .put("version", 1)
             .put("features", featureValues)
@@ -3307,6 +3359,7 @@ class PairingCoordinator(
                 remoteSmsCodes = drafts[dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY] == true,
                 remoteLinksOpen = drafts[dev.bridgey.android.actions.LINKS_OPEN_FEATURE_KEY] == true,
                 remoteFocusSync = drafts[dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY] == true,
+                remoteSettingsSync = drafts[dev.bridgey.android.sync.SETTINGS_SYNC_FEATURE_KEY] == true,
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
                 ringing = state.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
             )
@@ -3327,6 +3380,8 @@ class PairingCoordinator(
         // Focus sync: a Mac that understands it hears this phone's Do Not Disturb once per map.
         if (drafts[dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY] == true && focusSync.advertised()) focusSync.peerReady(deviceId)
         if (!isFeatureAvailable(BridgeyFeature.CAMERA, deviceId)) endCameraRequest(deviceId)
+        // Settings sync: the snapshot goes once both sides show the key; sync stops when either turns it off.
+        settingsSync.peerChanged(deviceId)
     }
 
     // MARK: Codes from messages (draft sms_codes_draft1)

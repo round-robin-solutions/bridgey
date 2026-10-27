@@ -209,6 +209,8 @@ fun ListRow(
     onClickLabel: String? = null,
     role: Role? = null,
     leading: (@Composable () -> Unit)? = null,
+    /** Settings sync: a small mark after the title says the setting is the same on paired devices. */
+    synced: Boolean = false,
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val colors = BridgeyTheme.colors
@@ -238,7 +240,14 @@ fun ListRow(
             }
         }
         Column(Modifier.weight(1f)) {
-            Text(title, style = if (compact) BridgeyType.itemTitle else BridgeyType.rowTitle, color = colors.onSurface)
+            if (synced) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, style = if (compact) BridgeyType.itemTitle else BridgeyType.rowTitle, color = colors.onSurface, modifier = Modifier.weight(1f, fill = false))
+                    SyncedMark()
+                }
+            } else {
+                Text(title, style = if (compact) BridgeyType.itemTitle else BridgeyType.rowTitle, color = colors.onSurface)
+            }
             if (detail != null) {
                 Text(
                     detail,
@@ -290,6 +299,7 @@ fun SwitchRow(
     enabled: Boolean = true,
     compact: Boolean = false,
     detailWarning: Boolean = false,
+    synced: Boolean = false,
 ) {
     ListRow(
         shape = shape,
@@ -299,6 +309,7 @@ fun SwitchRow(
         tint = tint,
         compact = compact,
         detailWarning = detailWarning,
+        synced = synced,
         modifier = Modifier.semantics(mergeDescendants = true) {},
         onClick = if (enabled) ({ onCheckedChange(!checked) }) else null,
         role = Role.Switch,

@@ -476,6 +476,8 @@ class MainActivity : ComponentActivity() {
         readLogsGranted = checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
         batteryExempt = PowerFacts.ignoringBatteryOptimizations(this)
         dndAccess = getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted
+        // Settings sync: a permission given just now ends "waiting for permission" on the Macs too.
+        (application as? BridgeyApplication)?.syncPermissionsChanged()
         if (
             ::bridgeySettings.isInitialized && bridgeySettings.state.value.directCallsEnabled &&
             !hasCallIntegrationPermissions()
@@ -672,6 +674,7 @@ private fun BridgeyApp(
     val codeAccessStatus by codes.access.status.collectAsStateWithLifecycle()
     val companionLink by codes.linker.state.collectAsStateWithLifecycle()
     val codeTestState by dev.bridgey.android.codes.CodeTestSession.state.collectAsStateWithLifecycle()
+    val syncUi by pairing.settingsSync.ui.collectAsStateWithLifecycle()
     var permissionPrompt by remember { mutableStateOf<PermissionPrompt?>(null) }
     var pairDialog by rememberSaveable { mutableStateOf(false) }
     var forgetting by remember { mutableStateOf<DeviceRing?>(null) }
@@ -819,8 +822,10 @@ private fun BridgeyApp(
 
     // A notification opens its Settings page, e.g. the update notification opens Updates.
     LaunchedEffect(settingsTarget) {
-        val section = SettingsDeepLink.section(settingsTarget ?: return@LaunchedEffect)
-        if (section != null) stack.openSettings(settingsRoute(section))
+        val target = settingsTarget ?: return@LaunchedEffect
+        val section = SettingsDeepLink.section(target)
+        if (target == SettingsDeepLink.PERMISSIONS) stack.openSettings(Route.Permissions)
+        else if (section != null) stack.openSettings(settingsRoute(section))
         onSettingsTargetHandled()
     }
 
@@ -918,6 +923,13 @@ private fun BridgeyApp(
                                 macActions = ring.deviceId?.takeIf { it in macLive && BridgeyFeature.MAC_ACTIONS in available }?.let { macCatalogs[it] },
                                 runningActions = macRunning.filter { it.first == ring.deviceId }.map { it.second }.toSet(),
                                 health = remember(healthTick, now, ring.deviceId, isConnected) { ring.deviceId?.let(pairing::healthOf) },
+                                sync = ring.deviceId?.let { id ->
+                                    dev.bridgey.android.ui.DeviceSyncState(
+                                        on = syncUi.switches.devices[id] != false,
+                                        globalOn = syncUi.switches.enabled,
+                                        offRemote = isConnected && id in syncUi.offOn,
+                                    )
+                                },
                             ),
                             actions = DeviceActions(
                                 back = { stack.pop() },
@@ -946,6 +958,7 @@ private fun BridgeyApp(
                                 sendText = { pairing.sendText(it, deviceId = ring.deviceId) },
                                 remoteControl = { ring.deviceId?.let { stack.push(Route.Remote(it)) } },
                                 runMacAction = { id, value -> ring.deviceId?.let { pairing.macActions.run(it, id, value) } },
+                                setSync = { on -> ring.deviceId?.let { pairing.settingsSync.setDeviceEnabled(it, on) } },
                                 live = liveActions,
                             ),
                             snackbar = snackbar,
@@ -1030,6 +1043,7 @@ private fun BridgeyApp(
                             ),
                             setup = dev.bridgey.android.ui.SetupSettingsState(oem = setup.oem),
                             focus = FocusSettingsState(settingsState.focusShare, settingsState.focusFollow, dndAccess),
+                            sync = syncUi,
                         )
                     val settingsUiActions =
                         SettingsActions(
@@ -1093,6 +1107,12 @@ private fun BridgeyApp(
                                 },
                                 openOemStep = { dev.bridgey.android.setup.OemBattery.open(context, it) },
                                 addToObtainium = { dev.bridgey.android.setup.Obtainium.open(context, updateState.channel) },
+                            ),
+                            sync = dev.bridgey.android.ui.SyncSettingsActions(
+                                setEnabled = pairing.settingsSync::setEnabled,
+                                setSyncs = pairing.settingsSync::setSyncs,
+                                applyToAll = pairing.settingsSync::applyToAll,
+                                allow = { stack.openSettings(Route.Permissions) },
                             ),
                             focus = FocusSettingsActions(
                                 setShare = settings::setFocusShare,

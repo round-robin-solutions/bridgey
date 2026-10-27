@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings sync (settings_sync_draft1): docs/folders-and-settings-sync.md section 8.4. -->
+<resources>
+    <string name="sync_name_folder_destination">Folders sent to this device</string>
+    <string name="sync_name_folder_conflict">When a folder already exists</string>
+    <string name="sync_name_previews">Activity previews</string>
+    <string name="sync_name_reduce_motion">Reduce motion</string>
+    <string name="sync_name_clipboard">Clipboard</string>
+    <string name="sync_name_files">File transfer</string>
+    <string name="sync_name_notifications">Notification forwarding</string>
+    <string name="sync_name_battery">Battery status</string>
+    <string name="sync_name_find_device">Find device</string>
+    <string name="sync_name_ping">Ping</string>
+    <string name="sync_name_links">Web links</string>
+    <string name="sync_name_media">Media controls</string>
+    <string name="sync_name_calls">Calls</string>
+    <string name="sync_name_remote_input">Remote control</string>
+    <string name="sync_name_mac_actions">Mac actions</string>
+    <string name="sync_name_camera">Photos for the Mac</string>
+    <string name="sync_name_auto_clipboard">Automatic clipboard</string>
+    <string name="sync_name_clipboard_files">Copy images and files</string>
+    <string name="sync_name_focus_share">Focus sharing</string>
+    <string name="sync_name_focus_follow">Focus following</string>
+    <string name="sync_name_codes">Codes from messages</string>
+    <string name="sync_turned_on">%1$s turned on</string>
+    <string name="sync_turned_off">%1$s turned off</string>
+    <string name="sync_folder_sender_picks">Folders: sending device chooses</string>
+    <string name="sync_folder_receiver_asks">Folders: ask where to save</string>
+    <string name="sync_folder_fixed">Folders: save to the default folder</string>
+    <string name="sync_conflict_ask">Existing folders: ask each time</string>
+    <string name="sync_conflict_merge">Existing folders: merge</string>
+    <string name="sync_conflict_replace">Existing folders: replace files</string>
+    <string name="sync_conflict_new_folder">Existing folders: save as new folder</string>
+    <string name="stream_settings_synced_title">Settings synced with %1$s</string>
+    <string name="stream_settings_synced_detail">Settings changed here</string>
+    <string name="sync_notification_channel">Settings from other devices</string>
+    <string name="sync_notification_channel_detail">When a paired device turns a feature on here</string>
+    <string name="sync_notification_title">%1$s turned on from %2$s</string>
+    <string name="sync_notification_waiting">Needs your permission on this phone. Tap Allow.</string>
+    <string name="sync_notification_ok">Turn it off in Settings if you did not expect it.</string>
+    <string name="settings_sync_title">Sync settings with paired devices</string>
+    <string name="settings_sync_detail">Keeps settings and features the same on your devices. Permissions, pairing and folders stay on each device.</string>
+    <string name="settings_sync_choose">Choose what syncs</string>
+    <string name="settings_sync_choose_detail">%1$d of %2$d settings sync</string>
+    <string name="settings_sync_choose_note">Unchecked settings stay on this phone only.</string>
+    <string name="settings_sync_choose_done">Done</string>
+    <string name="settings_sync_mark">Syncs with your devices</string>
+    <string name="settings_sync_waiting_here">On, waiting for permission</string>
+    <string name="settings_sync_allow">Allow</string>
+    <string name="settings_sync_different">Different on %1$s</string>
+    <string name="settings_sync_apply_all">Apply to all</string>
+    <string name="settings_sync_needs_permission_on">Turned on, needs permission on %1$s</string>
+    <string name="settings_sync_devices_more">%1$s +%2$d</string>
+    <string name="devices_sync_title">Sync settings with this device</string>
+    <string name="devices_sync_detail">Settings and features stay the same on both</string>
+</resources>

@@ -121,6 +121,7 @@ class BridgeyApplication : Application() {
         uiPreferences = UiPreferences(this)
         activityLog = ActivityLog(File(noBackupFilesDir, ActivityLog.FILE_NAME), Executors.newSingleThreadExecutor())
         activity = ActivityRecorder(activityLog, pairing, applicationScope) { uiPreferences.showPreviews.value }.also { it.start() }
+        startSettingsSync()
         backgroundClipboardSource = LogcatClipboardSource(
             this,
             packageName,
@@ -166,6 +167,32 @@ class BridgeyApplication : Application() {
         startCamera()
         registerForegroundClipboardWatcher()
         if (preferences.getBoolean(PREFERENCE_ENABLED, true)) enableBridgey()
+    }
+
+    /**
+     * Settings sync (settings_sync_draft1): this phone's settings and feature switches, kept the same as on the Macs
+     * that sync. Every change a Mac makes here is an activity item; a feature it turns on also posts a notification.
+     */
+    private fun startSettingsSync() {
+        val sync = pairing.settingsSync
+        sync.attach(dev.bridgey.android.sync.phoneSyncedSettings(settings, uiPreferences, dev.bridgey.android.sync.AndroidSyncPermissions(this)))
+        sync.onSynced = { deviceId, deviceName, changes ->
+            activityLog.record(
+                dev.bridgey.android.activity.ActivityKind.SETTINGS_SYNCED, deviceId, deviceName,
+                detail = dev.bridgey.android.sync.SyncDetail.encode(changes),
+            )
+        }
+        sync.onTurnedOn = { _, deviceName, key, waiting -> dev.bridgey.android.sync.SyncNotifier.turnedOn(this, deviceName, key, waiting) }
+        applicationScope.launch {
+            // Any synced setting changed here (Settings, setup, shortcuts, a Mac's change being applied): the
+            // controller stamps only what differs from its record, so applied changes are never sent back.
+            combine(settings.state, uiPreferences.reduceMotion, uiPreferences.showPreviews) { _, _, _ -> }.collect { sync.localChanged() }
+        }
+    }
+
+    /** The app came to the front: a permission may have changed, so the Macs hear the new waiting list. */
+    fun syncPermissionsChanged() {
+        if (::pairing.isInitialized) pairing.settingsSync.permissionsChanged()
     }
 
     private fun startRemoteInput() {

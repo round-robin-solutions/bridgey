@@ -94,9 +94,16 @@ enum class ResetItem(val key: String, val targets: List<ResetTarget>) {
     ),
     /**
      * Feature switches, per-device settings, logging switches, folder choices, this phone's name and (v0.9) the
-     * Focus switches. A Do Not Disturb that Follow turned on is handed back first.
+     * Focus switches. A Do Not Disturb that Follow turned on is handed back first. Settings sync (v0.10): its records,
+     * switches and choices, so this phone takes the other devices' chosen values when it next connects.
      */
-    FEATURE_SETTINGS("features", listOf(ResetTarget.Live(ResetHook.RELEASE_FOCUS), ResetTarget.Preferences("bridgey.settings"))),
+    FEATURE_SETTINGS(
+        "features",
+        listOf(
+            ResetTarget.Live(ResetHook.RELEASE_FOCUS), ResetTarget.Preferences("bridgey.settings"),
+            ResetTarget.Preferences(dev.bridgey.android.sync.SettingsSyncController.PREFERENCES),
+        ),
+    ),
     APP_PREFERENCES(
         "app",
         listOf(

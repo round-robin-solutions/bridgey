@@ -155,6 +155,52 @@ class ProtocolGoldenVectorsTest {
         assertEquals(dev.bridgey.android.camera.CameraStatus.entries.size, checked)
     }
 
+    /** Settings sync: both platforms read snapshot and update payloads alike (records kept, entries skipped). */
+    @Test fun settingsPayload() = each("settingsPayload") { vector ->
+        val result: Any = when (val decoded = dev.bridgey.android.sync.decodeSettingsPayload(plaintext(vector))) {
+            dev.bridgey.android.sync.SettingsPayloadDecoding.Invalid -> "invalid"
+            is dev.bridgey.android.sync.SettingsPayloadDecoding.UnsupportedSchema -> mapOf("unsupportedSchema" to decoded.schema)
+            is dev.bridgey.android.sync.SettingsPayloadDecoding.Records -> mapOf(
+                "records" to decoded.records.entries.associate { (key, record) -> key.key to normalize(record.toJson()) },
+                "waiting" to decoded.waiting.map { it.key },
+                "skipped" to decoded.skipped.toLong(),
+            )
+        }
+        result == normalize(vector.get("expect"))
+    }
+
+    /** Settings sync: which record wins when an update arrives. */
+    @Test fun settingsMerge() = each("settingsMerge") { vector ->
+        val local = syncRecord(vector.getJSONObject("local"))
+        val remote = syncRecord(vector.getJSONObject("remote"))
+        val order = dev.bridgey.android.sync.compareRecords(remote, local)
+        val result = when {
+            order > 0 -> "remote"
+            order < 0 -> "local"
+            else -> "equal"
+        }
+        result == vector.getString("expect")
+    }
+
+    /** Settings sync: what a snapshot record does (a chosen value is never overwritten). */
+    @Test fun settingsSnapshot() = each("settingsSnapshot") { vector ->
+        val outcome = dev.bridgey.android.sync.snapshotOutcome(syncRecord(vector.getJSONObject("local")), syncRecord(vector.getJSONObject("remote")))
+        outcome.name.lowercase() == vector.getString("expect")
+    }
+
+    /** Settings sync: a local edit or Apply to all stamps alike on both platforms. */
+    @Test fun settingsStamp() = each("settingsStamp") { vector ->
+        val current = syncRecord(vector.getJSONObject("current"))
+        val stamped = dev.bridgey.android.sync.stampLocal(current, "edit", vector.getLong("now"), vector.getString("device"))
+        val expect = vector.getJSONObject("expect")
+        stamped.changedAt == expect.getLong("changedAt") && stamped.version == expect.getLong("version") &&
+            stamped.changedBy == expect.getString("changedBy") && stamped.value == "edit"
+    }
+
+    private fun syncRecord(json: JSONObject) = dev.bridgey.android.sync.SyncRecord(
+        json.get("value"), json.getLong("changedAt"), json.getLong("version"), json.getString("changedBy"),
+    )
+
     /** The phone is the controller: what it would send must be exactly what the Mac host accepts. */
     @Test fun remoteInputAsTheControllerSendsIt() {
         var checked = 0
