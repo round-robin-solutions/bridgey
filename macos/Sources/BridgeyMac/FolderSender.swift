@@ -23,6 +23,8 @@ protocol FolderSenderHost: AnyObject {
     func recordFolderActivity(_ kind: ActivityKind, phoneID: String, name: String, fileCount: Int, bytes: Int64, destination: String?, detail: FolderActivityDetail)
     /// Files 2.0: the History window's record of a finished send.
     func recordHistory(_ entry: TransferHistoryEntry)
+    /// Files 2.0 quick win: free bytes the phone reported (places.listed, folders.accept).
+    func phoneReportedFreeSpace(_ phoneID: String, bytes: Int64)
     var folderReduceMotion: Bool { get }
     var folderScanDefaults: FolderScanOptions { get }
 }
@@ -292,6 +294,7 @@ final class FolderSender {
             guard let item = self.items[item.id], item.state == .preparing || item.state == .choosing else { return }
             switch result {
             case let .success(listed):
+                if let free = FreeSpaceReading.bytes(from: listed) { host.phoneReportedFreeSpace(item.phoneID, bytes: free) }
                 item.mode = listed.mode
                 switch listed.mode {
                 case .senderPicks:
@@ -748,6 +751,7 @@ final class FolderSender {
 
     fileprivate func sessionAccepted(_ id: String, _ accept: FolderAcceptPayload, session: FolderSendSession) {
         guard let item = items[id], item.session === session, let hashed = item.hashed, let host else { return }
+        if let free = FreeSpaceReading.bytes(from: accept) { host.phoneReportedFreeSpace(item.phoneID, bytes: free) }
         item.destinationLabel = accept.destinationLabel
         if var journal = item.journal {
             journal.destinationLabel = accept.destinationLabel

@@ -120,6 +120,7 @@ struct BrowsePlacesListedPayload: Codable, Equatable {
     let writable: Bool?
     let media: String?
     let documents: Bool?
+    var defaultFreeBytes: Int64? = nil
 
     var info: PhoneBrowseInfo {
         PhoneBrowseInfo(

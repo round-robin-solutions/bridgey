@@ -241,6 +241,8 @@ final class PairingCoordinator: ObservableObject {
     let transferHistory = TransferHistoryStore()
     /// Notifications for files and folders that arrive from a phone (Files 2.0 quick win).
     private let receivedNotifier = ReceivedNotifier()
+    private var freeSpaceThrottle = FreeSpaceThrottle()
+    private var freeSpaceTrailing: [String: DispatchWorkItem] = [:]
     /// Free space each connected phone reported for its default destination (FreeSpace.swift).
     @Published private(set) var phoneFreeSpace: [String: PhoneFreeSpace] = [:]
     /// Files 2.0: browsing, thumbnails, downloads and uploads for the Phone files window.
@@ -1600,8 +1602,45 @@ final class PairingCoordinator: ObservableObject {
     }
 
     /// Asks the phone for its free space (places.list), at most once per 20 s per phone. Send surfaces call it
-    /// when they open; the answer lands in `phoneFreeSpace`.
-    func refreshPhoneFreeSpace(_ phoneID: String) {}
+    /// when they open; the answer lands in `phoneFreeSpace`. A call inside the window asks once at its end.
+    func refreshPhoneFreeSpace(_ phoneID: String) {
+        // Only phones that serve places answer places.list (any destination mode).
+        guard folderSupport(for: phoneID)?.places == true else { return }
+        switch freeSpaceThrottle.request(phoneID, now: Date()) {
+        case .alreadyWaiting:
+            return
+        case let .later(delay):
+            freeSpaceTrailing[phoneID]?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.freeSpaceTrailing.removeValue(forKey: phoneID)
+                self.freeSpaceThrottle.trailingDone(phoneID)
+                self.refreshPhoneFreeSpace(phoneID)
+            }
+            freeSpaceTrailing[phoneID] = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        case .ask:
+            guard let wire = folderTransport(for: phoneID) else { return }
+            folders.places.list(phoneID: phoneID, send: { kind, payload in
+                wire.transport.send(kind: kind, payload: payload, transferID: nil, sequence: nil)
+            }) { [weak self] result in
+                guard let self, case let .success(listed) = result, let free = FreeSpaceReading.bytes(from: listed) else { return }
+                self.phoneReportedFreeSpace(phoneID, bytes: free)
+            }
+        }
+    }
+
+    func phoneReportedFreeSpace(_ phoneID: String, bytes: Int64) {
+        guard registry.session(for: phoneID) != nil else { return }
+        phoneFreeSpace[phoneID] = PhoneFreeSpace(bytes: bytes, checkedAt: Date())
+    }
+
+    /// Disconnect: the value is stale at once, and nothing is asked for that phone any more.
+    private func forgetPhoneFreeSpace(_ phoneID: String) {
+        phoneFreeSpace.removeValue(forKey: phoneID)
+        freeSpaceTrailing.removeValue(forKey: phoneID)?.cancel()
+        freeSpaceThrottle.forget(phoneID)
+    }
 
     /// A row in the transfer list for work before a send (Tray and send-sheet optimisation: "Optimising 3 of 12").
     func showPreparationRow(id: String, name: String, status: String, active: Bool) {
@@ -2115,6 +2154,7 @@ final class PairingCoordinator: ObservableObject {
                 refreshAutoClipboard()
                 // Folders interrupted for this phone resume now (within 24 hours of their last progress).
                 folders.phoneReady(phoneID)
+                refreshPhoneFreeSpace(phoneID)
             case "ping.request":
                 try receivePing(message, in: current)
             case "ping.ack":
@@ -2493,6 +2533,7 @@ final class PairingCoordinator: ObservableObject {
                 let source = outgoingFileSources.removeValue(forKey: transferID)
                 recordFileHistory(transferID, direction: .sent, outcome: .completed, name: transfer.displayName, bytes: transfer.offer.size,
                                   localURL: source, phoneID: current.remoteDeviceID)
+                refreshPhoneFreeSpace(current.remoteDeviceID)
                 fileTransferStatus = "\(transfer.displayName) saved on Android"
                 recordActivity(.fileSent, in: current, fileName: transfer.displayName)
                 updateFileTransfer(id: transferID, name: transfer.displayName, status: fileTransferStatus!, active: false)
@@ -2651,6 +2692,7 @@ final class PairingCoordinator: ObservableObject {
     private func cancelTransfers(for id: String) {
         folders.phoneDisconnected(id)
         folderReceiver.phoneDisconnected(id)
+        forgetPhoneFreeSpace(id)
         receivedNotifier.forget(id)
         phoneFilesController.phoneDisconnected(id)
         let ids = Set(transferDevices.filter { $0.value == id && !folders.owns($0.key) }.keys)
@@ -3702,6 +3744,7 @@ extension PairingCoordinator: FolderSenderHost {
     }
 
     func folderEnded(_ id: String) {
+        if let phoneID = transferDevices[id] { refreshPhoneFreeSpace(phoneID) }
         finishQueuedFile(id)
     }
 
@@ -3728,6 +3771,23 @@ extension PairingCoordinator: FolderReceiverHost {
     var tagsReceivedFiles: Bool { settings.tagReceivedFiles }
     func receiveDirectoryAccess() -> ReceiveDirectoryAccess { settings.receiveDirectoryAccess() }
     func recordHistory(_ entry: TransferHistoryEntry) { transferHistory.record(entry) }
+
+    func receivedItems(_ urls: [URL], phoneID: String, purpose: PhoneDownloadPurpose?) {
+        // Previews are private; a Finder drop is already where the user put it.
+        guard purpose != .preview, purpose != .dragOut, !urls.isEmpty else { return }
+        // Pushed folders fall back to revealing in Finder; downloads from the Phone files window keep their row.
+        announceReceived(urls.map { ReceivedItem(url: $0, isFolder: $0.hasDirectoryPath) }, phoneID: phoneID, revealIfSilent: purpose == nil)
+    }
+
+    /// A notification with Open and Show in Finder while macOS allows Bridgey's notifications; otherwise the
+    /// old behaviour, revealing the item in Finder.
+    func announceReceived(_ items: [ReceivedItem], phoneID: String, revealIfSilent: Bool) {
+        if notificationsAuthorized {
+            receivedNotifier.post(items, phoneID: phoneID, phoneName: phoneName(phoneID))
+        } else if revealIfSilent {
+            NSWorkspace.shared.activateFileViewerSelecting(items.map(\.url))
+        }
+    }
 }
 
 private struct FolderFileProbe: Decodable {
@@ -3768,23 +3828,6 @@ extension PairingCoordinator: PhoneFilesHost {
 /// Folder messages to one phone over the session they started on. Safe from any queue: it only encrypts
 /// and hands the frame to the connection.
 private final class SessionFolderTransport: SequencedFolderTransport {
-
-    func receivedItems(_ urls: [URL], phoneID: String, purpose: PhoneDownloadPurpose?) {
-        // Previews are private; a Finder drop is already where the user put it.
-        guard purpose != .preview, purpose != .dragOut, !urls.isEmpty else { return }
-        // Pushed folders fall back to revealing in Finder; downloads from the Phone files window keep their row.
-        announceReceived(urls.map { ReceivedItem(url: $0, isFolder: $0.hasDirectoryPath) }, phoneID: phoneID, revealIfSilent: purpose == nil)
-    }
-
-    /// A notification with Open and Show in Finder while macOS allows Bridgey's notifications; otherwise the
-    /// old behaviour, revealing the item in Finder.
-    func announceReceived(_ items: [ReceivedItem], phoneID: String, revealIfSilent: Bool) {
-        if notificationsAuthorized {
-            receivedNotifier.post(items, phoneID: phoneID, phoneName: phoneName(phoneID))
-        } else if revealIfSilent {
-            NSWorkspace.shared.activateFileViewerSelecting(items.map(\.url))
-        }
-    }
     private let session: Session
     private let key: Data
 
