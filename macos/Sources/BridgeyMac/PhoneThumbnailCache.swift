@@ -27,8 +27,9 @@ final class PhoneDecodedImage {
 }
 
 enum PhoneCacheKind: String, CaseIterable {
-    /// Grid thumbnails (about 256 px).
-    case thumbnail = "thumbs"
+    /// Grid thumbnails (288 to 512 px, sized so the short edge covers a square cell). The folder name changed
+    /// when the sizing did, so thumbnails made at the old 256 px are fetched again rather than stretched.
+    case thumbnail = "thumbs2"
     /// Preview-size images (about 1600 px), from hover prefetch or opening.
     case preview = "previews"
     /// The first bytes of a video (media.range), for an instant start.
@@ -58,8 +59,16 @@ final class PhoneThumbnailCache: @unchecked Sendable {
                                                          withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             }
             try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            queue.async {
+                for name in Self.retiredFolders {
+                    try? FileManager.default.removeItem(at: directory.appendingPathComponent(name, isDirectory: true))
+                }
+            }
         }
     }
+
+    /// Folders of earlier cache layouts, deleted on start.
+    static let retiredFolders = ["thumbs"]
 
     static func defaultDirectory() -> URL {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first

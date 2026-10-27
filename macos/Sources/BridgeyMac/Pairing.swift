@@ -789,6 +789,7 @@ final class PairingCoordinator: ObservableObject {
         remoteInput.disconnected(deviceID: id)
         macActions.disconnected(deviceID: id)
         camera.disconnected(id)
+        updatesPhoneDisconnected(id)
         phoneScreen.disconnected(id)
         var record = healthRecords[id] ?? DeviceHealthRecord()
         record.connectedSince = nil
@@ -2200,6 +2201,8 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteSmsCodes = draftKeys[smsCodesFeatureKey] == true
                     link.remoteFocusSync = draftKeys[focusSyncFeatureKey] == true
                     link.remoteCamera = draftKeys[cameraFeatureKey] == true
+                    link.remoteUpdates = draftKeys[updatesFeatureKey] == true
+                    if !link.remoteUpdates { link.updateStatus = nil }
                     link.remoteScreen = draftKeys[screenFeatureKey] == true
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
@@ -2232,6 +2235,8 @@ final class PairingCoordinator: ObservableObject {
                 if draftKeys[focusSyncFeatureKey] == true, let active = focusSync.stateForNewPhone {
                     _ = sendQuickPayload(kind: "focus.state", payload: focusStatePayload(active), to: current)
                 }
+                // Update all: a phone that understands it hears this Mac's version and update state.
+                if draftKeys[updatesFeatureKey] == true { updatesPeerReady(phoneID) }
             case "ping.request":
                 try receivePing(message, in: current)
             case "ping.ack":
@@ -2670,6 +2675,8 @@ final class PairingCoordinator: ObservableObject {
                 receiveFocusState(message, in: current)
             case "camera.status":
                 receiveCameraStatus(message, in: current)
+            case "updates.status", "updates.start", "updates.result":
+                receiveUpdatesMessage(message, in: current)
             case "screen.status":
                 receiveScreenStatus(message, in: current)
             case "screen.start":
@@ -2781,6 +2788,8 @@ final class PairingCoordinator: ObservableObject {
         features[focusSyncFeatureKey] = focusSync.advertised
         // Draft, edition only: this Mac can ask for photos; they arrive as files.
         features[cameraFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
+        // Draft, edition only: Update all. Always on; whether phones may start this Mac's update is in updates.status.
+        features[updatesFeatureKey] = true
         // Draft, edition only: this Mac shows phone screens (Show phone screens, off by default).
         features[screenFeatureKey] = phoneScreen.enabled
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
@@ -3353,6 +3362,63 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func quickActionsStatus(_ text: String) { quickActions.showStatus(text) }
+
+    // MARK: Update all (draft updates_draft1)
+
+    /// A phone's features.update showed `updates_draft1`: send it this Mac's status now.
+    var updatesPeerReady: (_ deviceID: String) -> Void = { _ in }
+    /// A phone's `updates.status` (also kept in its link state).
+    var updatesStatusReceived: (_ deviceID: String, _ status: PeerUpdateStatus) -> Void = { _, _ in }
+    /// A phone asks this Mac to update itself. Returns the answer this Mac sends.
+    var updatesStartReceived: (_ deviceID: String, _ request: UpdateStartRequest) -> UpdateStartResult = { _, request in
+        UpdateStartResult(requestID: request.requestID, refusal: .manual)
+    }
+    /// A phone answered this Mac's `updates.start`.
+    var updatesResultReceived: (_ deviceID: String, _ result: UpdateStartResult) -> Void = { _, _ in }
+    var updatesPhoneDisconnected: (_ deviceID: String) -> Void = { _ in }
+
+    /// The phone advertised `updates_draft1` in its latest map (this Mac always does).
+    func phoneSupportsUpdates(_ deviceID: String) -> Bool { registry.state(for: deviceID)?.remoteUpdates == true }
+
+    /// `updates.status` to one phone, only while its latest map shows the key.
+    @discardableResult
+    func sendUpdatesStatus(_ status: PeerUpdateStatus, to deviceID: String) -> Bool {
+        guard phoneSupportsUpdates(deviceID), let current = registry.session(for: deviceID) else { return false }
+        return sendQuickPayload(kind: "updates.status", payload: status.payload, to: current)
+    }
+
+    /// `updates.start` to one phone (Update all, or Retry for that phone).
+    @discardableResult
+    func sendUpdatesStart(_ request: UpdateStartRequest, to deviceID: String) -> Bool {
+        guard phoneSupportsUpdates(deviceID), let current = registry.session(for: deviceID) else { return false }
+        return sendQuickPayload(kind: "updates.start", payload: request.payload, to: current)
+    }
+
+    /// The Update all messages: decrypted, replay-checked and bounded; a malformed one is dropped and the
+    /// session stays. A start from a phone whose map does not show the key is dropped without an answer.
+    private func receiveUpdatesMessage(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return }
+        let phoneID = current.remoteDeviceID
+        guard phoneSupportsUpdates(phoneID) else { return }
+        switch message.kind {
+        case "updates.status":
+            guard let status = PeerUpdateStatus.decode(data) else { return }
+            registry.update(phoneID) { $0.updateStatus = status }
+            publish()
+            updatesStatusReceived(phoneID, status)
+        case "updates.start":
+            guard let request = UpdateStartRequest.decode(data) else { return }
+            let answer = updatesStartReceived(phoneID, request)
+            diagnostics.record(category: "updates", event: "start_received", outcome: answer.refusal?.rawValue ?? "accepted", device: phoneID)
+            _ = sendQuickPayload(kind: "updates.result", payload: answer.payload, to: current)
+        default:
+            guard let result = UpdateStartResult.decode(data) else { return }
+            updatesResultReceived(phoneID, result)
+        }
+    }
 
     /// focus.state from a phone: its Do Not Disturb, applied only when Follow is on here.
     private func receiveFocusState(_ message: PairingMessage, in current: Session) {

@@ -1,5 +1,5 @@
 {
- "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer.",
+ "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect, and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer.",
  "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
  "frames": [
   {
@@ -405,6 +405,7 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
      "screen_draft1": false
     }
    }
@@ -456,6 +457,7 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
      "screen_draft1": false
     }
    }
@@ -509,6 +511,7 @@
      "links_open_draft1": true,
      "focus_sync_draft1": true,
      "camera_draft1": true,
+     "updates_draft1": false,
      "screen_draft1": false
     }
    }
@@ -558,6 +561,7 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": true,
+     "updates_draft1": false,
      "screen_draft1": false
     }
    }
@@ -609,6 +613,102 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false
+    }
+   }
+  },
+  {
+   "name": "Update all: an edition phone with updates_draft1",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "files_browse_draft1": true,
+     "updates_draft1": true
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": true,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "updates_draft1": true,
+     "screen_draft1": false
+    }
+   }
+  },
+  {
+   "name": "updates_draft1 that is not a boolean counts as false",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "updates_draft1": "true"
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "updates_draft1": false,
      "screen_draft1": false
     }
    }
@@ -656,6 +756,7 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": true,
+     "updates_draft1": false,
      "screen_draft1": true
     }
    }
@@ -702,6 +803,7 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
      "screen_draft1": false
     }
    }
@@ -749,6 +851,7 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
      "screen_draft1": false
     }
    }
@@ -789,6 +892,7 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
      "screen_draft1": false
     }
    }
@@ -833,6 +937,7 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
      "screen_draft1": false
     }
    }
@@ -874,6 +979,7 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
      "screen_draft1": false
     }
    }
@@ -6953,6 +7059,1138 @@
   {
    "name": "lenient JSON",
    "plaintextString": "{version:1,requestId:'8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e',status:'opened'}",
+   "expect": "reject"
+  }
+ ],
+ "updatesStatus": [
+  {
+   "name": "up to date",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "checking, never checked before",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "checking",
+    "remoteStart": true,
+    "checkedAt": 0
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "checking",
+    "remoteStart": true,
+    "checkedAt": 0,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "available",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "available",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "available",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "progress": null,
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "downloading at 42%",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "downloading",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "progress": 42
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "downloading",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "progress": 42,
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "ready on a Mac",
+   "plaintext": {
+    "version": 1,
+    "platform": "macos",
+    "edition": "rr",
+    "app": "0.9.0-rr.2",
+    "build": 902000,
+    "channel": "stable",
+    "state": "ready",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3",
+    "targetBuild": 903000
+   },
+   "expect": {
+    "platform": "macos",
+    "edition": "rr",
+    "app": "0.9.0-rr.2",
+    "build": 902000,
+    "channel": "stable",
+    "state": "ready",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3",
+    "targetBuild": 903000,
+    "progress": null,
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "installing",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "installing",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "installing",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "progress": null,
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "needs the person to confirm",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "needs_user",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "reason": "confirm"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "needs_user",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "progress": null,
+    "reason": "confirm"
+   },
+   "write": true
+  },
+  {
+   "name": "needs Install unknown apps",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "needs_user",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "reason": "permission"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "needs_user",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "progress": null,
+    "reason": "permission"
+   },
+   "write": true
+  },
+  {
+   "name": "did not apply",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "failed",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "reason": "not_applied"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "failed",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "progress": null,
+    "reason": "not_applied"
+   },
+   "write": true
+  },
+  {
+   "name": "failed check without a target",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "failed",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "reason": "check"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "failed",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": "check"
+   },
+   "write": true
+  },
+  {
+   "name": "manual, remote start off",
+   "plaintext": {
+    "version": 1,
+    "platform": "macos",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "manual",
+    "remoteStart": false,
+    "checkedAt": 1793091600000
+   },
+   "expect": {
+    "platform": "macos",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "manual",
+    "remoteStart": false,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "an unknown reason reads as other",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "failed",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "reason": "disk_full"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "failed",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": "other"
+   }
+  },
+  {
+   "name": "unknown fields are ignored",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "since": 5,
+    "extra": {
+     "a": 1
+    }
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   }
+  },
+  {
+   "name": "version written as 1.0",
+   "plaintextString": "{\"version\":1.0,\"platform\":\"android\",\"edition\":\"rr\",\"app\":\"0.9.0-rr.3-beta.2\",\"build\":903002,\"channel\":\"beta\",\"state\":\"current\",\"remoteStart\":true,\"checkedAt\":1793091600000}",
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   }
+  },
+  {
+   "name": "null optionals count as absent",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   }
+  },
+  {
+   "name": "app of 64 bytes",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "9999999999999999999999999999999999999999999999999999999999999999",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "9999999999999999999999999999999999999999999999999999999999999999",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   }
+  },
+  {
+   "name": "app of 65 bytes",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "99999999999999999999999999999999999999999999999999999999999999999",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "app empty",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "edition of 33 bytes",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "multi-byte edition counts bytes",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "ééééééééééééééééé",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "build 0",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 0,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "build 2^53-1",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 9007199254740991,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 9007199254740991,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   }
+  },
+  {
+   "name": "build 2^53",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 9007199254740992,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "build as a string",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": "903002",
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "progress 101",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "downloading",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "progress": 101
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "progress -1",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "downloading",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "progress": -1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "targetBuild 0",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "available",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "x",
+    "targetBuild": 0
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "target of 65 bytes",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "available",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "99999999999999999999999999999999999999999999999999999999999999999"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "target as a number",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "available",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": 5
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "reason as a number",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "failed",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "reason": 3
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "unknown state",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "sleeping",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "unknown platform",
+   "plaintext": {
+    "version": 1,
+    "platform": "windows",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "unknown channel",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "canary",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "remoteStart missing",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "remoteStart as a string",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": "true",
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "checkedAt missing",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "checkedAt negative",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": -1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "exactly 1,024 bytes",
+   "plaintextString": "{\"version\":1,\"platform\":\"android\",\"edition\":\"rr\",\"app\":\"0.9.0-rr.3-beta.2\",\"build\":903002,\"channel\":\"beta\",\"state\":\"current\",\"remoteStart\":true,\"checkedAt\":1793091600000,\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   }
+  },
+  {
+   "name": "1,025 bytes",
+   "plaintextString": "{\"version\":1,\"platform\":\"android\",\"edition\":\"rr\",\"app\":\"0.9.0-rr.3-beta.2\",\"build\":903002,\"channel\":\"beta\",\"state\":\"current\",\"remoteStart\":true,\"checkedAt\":1793091600000,\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "not an object",
+   "plaintext": [
+    1,
+    2
+   ],
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,platform:'android'}",
+   "expect": "reject"
+  }
+ ],
+ "updatesStart": [
+  {
+   "name": "update now",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false
+   },
+   "write": true
+  },
+  {
+   "name": "retry after Retry was tapped",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": true
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": true
+   },
+   "write": true
+  },
+  {
+   "name": "retry false written out",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false
+   }
+  },
+  {
+   "name": "an uppercase request ID is read lowercased",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5B0C9E2A-7D41-4C3F-8E5A-1F2B3C4D5E6F"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false
+   }
+  },
+  {
+   "name": "unknown fields are ignored (a version or URL is never read)",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "url": "https://example.com/evil.apk",
+    "target": "9.9.9"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false
+   }
+  },
+  {
+   "name": "retry as a string",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": "true"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "update-1"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId missing",
+   "plaintext": {
+    "version": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 512 bytes",
+   "plaintextString": "{\"version\":1,\"requestId\":\"5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,requestId:'5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f'}",
+   "expect": "reject"
+  }
+ ],
+ "updatesResult": [
+  {
+   "name": "accepted",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "accepted"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "accepted",
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "refused disabled",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "disabled"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "disabled"
+   },
+   "write": true
+  },
+  {
+   "name": "refused rate_limited",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "rate_limited"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "rate_limited"
+   },
+   "write": true
+  },
+  {
+   "name": "refused manual",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "manual"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "manual"
+   },
+   "write": true
+  },
+  {
+   "name": "refused not_applied",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "not_applied"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "not_applied"
+   },
+   "write": true
+  },
+  {
+   "name": "refused busy",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "busy"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "busy"
+   },
+   "write": true
+  },
+  {
+   "name": "an unknown reason reads as other",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "tired"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "other"
+   }
+  },
+  {
+   "name": "refused without a reason reads as other",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "other"
+   }
+  },
+  {
+   "name": "a reason with accepted is ignored",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "accepted",
+    "reason": "busy"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "accepted",
+    "reason": null
+   }
+  },
+  {
+   "name": "unknown status",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "maybe"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "x",
+    "status": "accepted"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "accepted"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 512 bytes",
+   "plaintextString": "{\"version\":1,\"requestId\":\"5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f\",\"status\":\"accepted\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
    "expect": "reject"
   }
  ],

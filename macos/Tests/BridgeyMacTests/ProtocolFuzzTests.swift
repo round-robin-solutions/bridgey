@@ -29,6 +29,7 @@ final class ProtocolFuzzTests: XCTestCase {
             .map { $0.trimmingCharacters(in: .whitespaces) }
         for group in ["featuresUpdate", "batteryUpdate", "clipboardRich", "clipboardOffer", "remoteInput", "browseRef",
                       "focusState", "actionsCatalog", "actionsRun", "actionsResult", "cameraRequest", "cameraStatus",
+                      "updatesStatus", "updatesStart", "updatesResult",
                       "screenRequest", "screenStatus", "screenStream"] {
             for vector in vectors[group] as! [[String: Any]] {
                 if let raw = vector["plaintextString"] as? String { samples.append(Data(raw.utf8)) }
@@ -180,6 +181,18 @@ final class ProtocolFuzzTests: XCTestCase {
                 if let action = run.action, let id = MacActionID(wire: action) { XCTAssertEqual(id.wire, action) }
             }
             if decodeCameraStatus(payload) != nil { XCTAssertLessThanOrEqual(payload.count, 512) }
+            // Update all: what is accepted stays within the contract's limits.
+            if let status = PeerUpdateStatus.decode(payload) {
+                XCTAssertLessThanOrEqual(payload.count, UpdateLimits.statusBytes)
+                XCTAssertTrue((1...UpdateLimits.maximumInteger).contains(status.build))
+                XCTAssertTrue((1...64).contains(status.app.utf8.count))
+                if let progress = status.progress { XCTAssertTrue((0...100).contains(progress)) }
+            }
+            if let request = UpdateStartRequest.decode(payload) {
+                XCTAssertLessThanOrEqual(payload.count, UpdateLimits.startBytes)
+                XCTAssertNotNil(UUID(uuidString: request.requestID))
+            }
+            if UpdateStartResult.decode(payload) != nil { XCTAssertLessThanOrEqual(payload.count, UpdateLimits.resultBytes) }
             // Screen sharing (v0.9).
             if let status = decodeScreenStatus(payload) {
                 XCTAssertLessThanOrEqual(payload.count, 512)

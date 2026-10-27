@@ -39,8 +39,21 @@ final class ThumbnailBox: ObservableObject {
 
 @MainActor
 final class PhoneThumbnailScheduler {
-    /// Grid thumbnails: the longest edge the phone renders (256 px covers 128 pt cells on Retina).
-    static let size = 256
+    /// The widest grid cell in pixels on Retina: columns are 118 to 142 pt.
+    static let cellPixels = Int((PhoneMediaGrid.cell + 24) * 2)
+    /// The largest thumbnail the protocol allows (longest edge), and what the cache decodes up to.
+    static let maxSize = BrowseLimits.maxThumbnailSize
+    /// The sizes asked for, so one flush makes at most this many requests.
+    static let sizeSteps = [288, 384, maxSize]
+
+    /// The longest edge to ask for so the short edge still covers a square cell: the phone scales by the
+    /// longest edge and the grid crops to a square, so a 1080 x 2412 screenshot asked at 256 px would come back
+    /// 115 px wide and be stretched 2.5 times. Unknown dimensions get the largest size.
+    static func size(for entry: PhoneFileEntry) -> Int {
+        guard let width = entry.width, let height = entry.height, width > 0, height > 0 else { return maxSize }
+        let needed = Double(cellPixels) * Double(max(width, height)) / Double(min(width, height))
+        return sizeSteps.first { Double($0) >= needed.rounded(.up) } ?? maxSize
+    }
     /// How many items past the last visible one are prefetched.
     static let prefetchAhead = 48
     /// At most this many items per media.thumbnails request (protocol limit 64).
@@ -134,7 +147,7 @@ final class PhoneThumbnailScheduler {
             let box = self.box(for: entry)
             if box.image != nil { continue }
             if cache.contains(box.key, kind: .thumbnail) {
-                cache.load(box.key, maxPixel: Self.size) { [weak self, weak box] decoded in
+                cache.load(box.key, maxPixel: Self.maxSize) { [weak self, weak box] decoded in
                     guard let box else { return }
                     if let decoded {
                         box.set(decoded, animated: false)
@@ -180,12 +193,12 @@ final class PhoneThumbnailScheduler {
 
     private func request(_ entries: [PhoneFileEntry], phoneID: String) {
         requested = Set(entries.map { $0.cacheKey(phoneID: phoneID) })
-        current = service.thumbnails(phoneID: phoneID, entries: entries, size: Self.size, lane: "grid", deliver: { [weak self] entry, image in
+        current = service.thumbnails(phoneID: phoneID, entries: entries, size: Self.size(for:), lane: "grid", deliver: { [weak self] entry, image in
             guard let self, self.phoneID == phoneID else { return }
             let key = entry.cacheKey(phoneID: phoneID)
             let box = self.boxes[key]
             self.decoding.insert(key)
-            self.cache.store(key, image: image, maxPixel: Self.size) { [weak self, weak box] decoded in
+            self.cache.store(key, image: image, maxPixel: Self.maxSize) { [weak self, weak box] decoded in
                 self?.decoding.remove(key)
                 if let decoded {
                     box?.set(decoded, animated: true)

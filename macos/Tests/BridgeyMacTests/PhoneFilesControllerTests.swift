@@ -156,6 +156,19 @@ final class PhoneFilesControllerTests: XCTestCase {
         XCTAssertEqual(controller.activeMediaRequests, 0)
     }
 
+    func testThumbnailsAskOneRequestPerSizeVisibleFirst() {
+        phone.server = thumbnailServer(bytes: 100)
+        let entries = mediaEntries(5)
+        let sizes = [entries[0].id: 512, entries[1].id: 288, entries[2].id: 512, entries[3].id: 384, entries[4].id: 288]
+        var delivered: [String] = []
+        controller.thumbnails(phoneID: phone.phoneID, entries: entries, size: { sizes[$0.id] ?? 0 }, lane: "grid",
+                              deliver: { entry, _ in delivered.append(entry.name) }, finished: { _ in })
+        let requests = phone.requests(BrowseKind.mediaThumbnails).map { phone.decode(MediaThumbnailsPayload.self, $0) }
+        XCTAssertEqual(requests.map(\.size), [512, 288, 384], "in order of first appearance")
+        XCTAssertEqual(requests.map(\.items.count), [2, 2, 1])
+        XCTAssertEqual(Set(delivered), Set(entries.map(\.name)))
+    }
+
     func testOversizedThumbnailsAreDroppedAsMissing() {
         phone.server = thumbnailServer(bytes: 30_000)
         var delivered = 0

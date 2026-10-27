@@ -69,6 +69,8 @@ struct PanelModel {
     /// In-app update progress (Sparkle drives it; no system windows).
     var update: UpdateFlow = .idle
     var appVersion = ""
+    /// Update all: this Mac and the phones connected to it.
+    var updateAll = UpdateAllDisplay()
     /// The pairing file could not be loaded; phones wait until Try again succeeds.
     var pairingStoreIssue: PairingStoreIssue?
 
@@ -78,6 +80,19 @@ struct PanelModel {
     }
 
     var isConnected: Bool { connectedName != nil }
+
+    /// Sparkle's own card, unless Update all already covers this Mac's update.
+    var showsUpdateCard: Bool {
+        guard update.showsInPanel else { return false }
+        if updateAll.activeRun?.local != nil { return false }
+        if updateAll.showsPanelCard, updateAll.plan.includesLocal {
+            switch update {
+            case .available, .ready: return false
+            default: break
+            }
+        }
+        return true
+    }
 }
 
 struct PanelActions {
@@ -123,6 +138,7 @@ struct PanelActions {
     var retryDevice: (String) -> Void = { _ in }
     var lookForDevices: () -> Void = {}
     var update = UpdateFlowActions()
+    var updateAll = UpdateAllActions()
     var retryPairingStore: () -> Void = {}
     /// Files 2.0: the Phone files window (nil: the selected phone), the History window, the Tray,
     /// a drop on one device's tile, and Show in Finder for a transfer row.
@@ -214,7 +230,7 @@ struct StreamPanelView: View {
     }
 
     private var hasLiveCards: Bool {
-        !model.transfers.isEmpty || model.receivedLink != nil || model.ringing != nil || model.call != nil || model.code != nil || model.codeModel != nil || model.update.showsInPanel
+        !model.transfers.isEmpty || model.receivedLink != nil || model.ringing != nil || model.call != nil || model.code != nil || model.codeModel != nil || model.showsUpdateCard || model.updateAll.showsPanelCard
     }
 
     @ViewBuilder private var stateCard: some View {
@@ -778,7 +794,12 @@ private struct LiveCards: View {
                 }
                 .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
             }
-            if model.update.showsInPanel {
+            if model.updateAll.showsPanelCard {
+                UpdateAllPanelCard(display: model.updateAll, actions: actions.updateAll)
+                    .id("updateAll")
+                    .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
+            }
+            if model.showsUpdateCard {
                 let visual = updateFlowSymbol(model.update)
                 LiveCard(symbol: visual.symbol, tint: visual.tint,
                          title: UpdateFlowText.title(model.update, currentVersion: model.appVersion),
@@ -839,7 +860,8 @@ private struct LiveCards: View {
         if model.codeModel != nil { keys.append("codeModel") }
         if model.ringing != nil { keys.append("ringing") }
         if model.receivedLink != nil { keys.append("link") }
-        if model.update.showsInPanel { keys.append("update") }
+        if model.updateAll.showsPanelCard { keys.append("updateAll") }
+        if model.showsUpdateCard { keys.append("update") }
         keys += model.transfers.map { "transfer:\($0.id)" }
         return keys
     }
@@ -1425,6 +1447,7 @@ struct BridgeyPanel: View {
     @ObservedObject var updater: AppUpdater
     @ObservedObject var codeModel: CodeModelStore
     @ObservedObject var setupCenter = SetupCenter.shared
+    @ObservedObject var updateAll = UpdateAllCoordinator.shared
     @ObservedObject var browserTab: BrowserTabReader
     @ObservedObject var camera: PhoneCamera
     @ObservedObject var phoneScreen: PhoneScreen
@@ -1513,6 +1536,7 @@ struct BridgeyPanel: View {
         model.screenPhones = Set(pairing.connectedPhones.map(\.id).filter { pairing.screenAvailable(for: $0) })
         if case let .connected(deviceID, name) = pairing.state, model.screenPhones.contains(deviceID) { model.screenPhone = name }
         model.update = updater.flow
+        model.updateAll = updateAll.display(now: now)
         model.appVersion = updater.shortVersion
         model.pairingStoreIssue = pairing.pairingStoreIssue
         return model
@@ -1573,6 +1597,7 @@ struct BridgeyPanel: View {
         actions.retryDevice = { pairing.retryNow(deviceID: $0) }
         actions.lookForDevices = { pairing.lookForDevices() }
         actions.update = updater.flowActions
+        actions.updateAll = updateAll.actions
         actions.retryPairingStore = { pairing.retryPairingStore() }
         actions.openPhoneFiles = { PhoneFilesWindowController.show(pairing: pairing, phoneID: $0) }
         actions.openTransferHistory = { TransferHistoryWindowController.show(pairing: pairing) }

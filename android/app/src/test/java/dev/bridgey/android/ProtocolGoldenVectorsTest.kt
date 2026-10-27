@@ -275,6 +275,37 @@ class ProtocolGoldenVectorsTest {
         assertTrue(checked >= 20)
     }
 
+    /** Update all: both platforms read updates.status alike, and write the marked vectors exactly. */
+    @Test fun updatesStatus() = each("updatesStatus") { vector ->
+        val decoded = dev.bridgey.android.updates.decodeUpdateStatus(plaintext(vector))
+        val result: Any = decoded?.let(::statusMap) ?: "reject"
+        val written = !vector.optBoolean("write") ||
+            (decoded != null && normalize(dev.bridgey.android.updates.updateStatusPayload(decoded)) == normalize(vector.get("plaintext")))
+        written && result == normalize(vector.get("expect"))
+    }
+
+    @Test fun updatesStart() = each("updatesStart") { vector ->
+        val decoded = dev.bridgey.android.updates.decodeUpdateStart(plaintext(vector))
+        val result: Any = decoded?.let { mapOf("requestId" to it.requestId, "retry" to it.retry) } ?: "reject"
+        val written = !vector.optBoolean("write") ||
+            (decoded != null && normalize(dev.bridgey.android.updates.updateStartPayload(decoded)) == normalize(vector.get("plaintext")))
+        written && result == normalize(vector.get("expect"))
+    }
+
+    @Test fun updatesResult() = each("updatesResult") { vector ->
+        val decoded = dev.bridgey.android.updates.decodeUpdateResult(plaintext(vector))
+        val result: Any = decoded?.let { mapOf("requestId" to it.requestId, "status" to it.status.wire, "reason" to it.reason?.wire) } ?: "reject"
+        val written = !vector.optBoolean("write") ||
+            (decoded != null && normalize(dev.bridgey.android.updates.updateResultPayload(decoded)) == normalize(vector.get("plaintext")))
+        written && result == normalize(vector.get("expect"))
+    }
+
+    private fun statusMap(status: dev.bridgey.android.updates.UpdateStatus): Map<String, Any?> = mapOf(
+        "platform" to status.platform.wire, "edition" to status.edition, "app" to status.app, "build" to status.build,
+        "channel" to status.channel.wire, "state" to status.state.wire, "target" to status.target, "targetBuild" to status.targetBuild,
+        "progress" to status.progress?.toLong(), "reason" to status.reason?.wire, "remoteStart" to status.remoteStart, "checkedAt" to status.checkedAt,
+    )
+
     private fun each(group: String, check: (JSONObject) -> Boolean) {
         val array = vectors.getJSONArray(group)
         assertTrue(array.length() > 5)

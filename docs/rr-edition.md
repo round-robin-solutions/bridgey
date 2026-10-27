@@ -19,7 +19,7 @@ upstream clients.
 | macOS legacy import | reads the old `BridgeyMac` defaults suite | never reads it (it belongs to upstream) |
 | URL handler name, Services item | `dev.bridgey.mac.phone`, "Call with Bridgey" | `in.roundrobin.bridgey.phone`, "Call with Bridgey RR" |
 | Android clipboard task affinity | `dev.bridgey.android.clipboard_action` | `${applicationId}.clipboard_action` |
-| Updates | none (manual downloads) | Stable, Beta and Nightly channels, in-app updates |
+| Updates | none (manual downloads) | Stable, Beta and Nightly channels, in-app updates, and **Update all** for every connected device (draft `updates_draft1`, see [Update all](#update-all)) |
 | Releases | GitHub Actions on `v*` tags | `scripts/rr/release.sh` on our own machines; `release.yml` is manual-only |
 | Android design | Material defaults | Direction B "Stream": device rings, activity stream, send bar (Round Robin theme) |
 | Android activity stream | none | Local, private history of what moved between devices (see below) |
@@ -366,9 +366,13 @@ How channels combine:
   hides the dialog for that version for 24 hours; Settings still offers it.
 - Install downloads the APK over HTTPS into the app cache, checks size and SHA-256, checks the
   package name and version code, and checks that the APK is signed by exactly the same
-  certificate as the installed app. Then it hands the file to `PackageInstaller` with
-  "user action required", so Android always shows its confirmation screen. Nothing installs
-  silently.
+  certificate as the installed app. Then it hands the file to `PackageInstaller`. On Android 12
+  and later the session asks for "user action not required" and the app declares
+  `UPDATE_PACKAGES_WITHOUT_USER_ACTION`, so an update that someone started (Install, or Update
+  all on any paired device) finishes without a second tap where Android allows it. When Android
+  still wants a tap, Bridgey shows its confirmation screen, or a "Tap to finish updating Bridgey"
+  notification when the app is in the background. See [Update all](#update-all) for when
+  Android skips the tap.
 - Android asks once for "Install unknown apps" for Bridgey; the app explains this and opens the
   right settings page.
 - Settings → Updates: channel, Check now, last checked, current version and channel.
@@ -391,6 +395,10 @@ How channels combine:
   `@executable_path/../Frameworks` rpath, and signs Sparkle's XPC services, `Autoupdate`,
   `Updater.app` and the framework before the app (no `--deep`).
 
+- Update all and a request from a paired phone use the same driver: it downloads, then installs
+  and relaunches without asking when a phone asked, and after a 10-second countdown with
+  **Later** when you started it on this Mac.
+
 **Signing.** We have no Apple Developer ID yet. Builds are ad-hoc signed with the designated
 requirement `identifier "in.roundrobin.bridgey"`, or, with `release.sh --mac-sign`, signed with
 the self-signed "Bridgey by Round Robin Code Signing" identity (requirement pins that
@@ -403,6 +411,48 @@ real trust anchor. Losing the private key means users must reinstall by hand. Sp
 the quarantine flag from the update it installs, so Gatekeeper does not stop the updated app.
 The first install from the DMG still needs right-click → Open (or System Settings → Privacy &
 Security → Open Anyway).
+
+### Update all
+
+Each device tells the devices connected to it its version, channel and update state (draft
+`updates_draft1`, [protocol.md](protocol.md#update-all-updates_draft1)). When any of them, or the
+device you are using, has an update, **Update all** appears: on Android on the device home and in
+Settings > Updates, on the Mac in the menu-bar panel and in Settings > Updates. Macs are not paired
+to each other, so "all" means the devices connected to the one you use: from the phone, every
+connected Mac ("Updates this phone and 3 connected Macs"); from a Mac, every connected phone.
+
+- **Preview.** Before it runs it lists each device with its version now and after, its channel,
+  and every device it skips and why: not connected, "Update this one by hand" (upstream Bridgey,
+  an older edition build, or a development build), updates from other devices turned off there,
+  or a last update that did not apply. A device whose last check is more than an hour old shows
+  "Newest Beta, if newer": it checks its own feed when asked.
+- **Order.** Every connected device starts at once; the device you are using downloads meanwhile
+  and installs last, after a 10-second countdown with **Later**, because it restarts.
+- **Channels.** Each device stays on its own channel and reads its own feed. The request carries
+  no version, URL or file, so it can never downgrade a device. If the devices are on different
+  channels, the preview says so.
+- **Progress.** Each device shows its step (starting, checking, downloading, installing,
+  restarting). After 3 minutes on one device it says that device is taking longer than usual; a
+  device that failed gets **Retry**. A device that restarts reconnects through the usual
+  reconnect paths and reports its new version.
+- **Didn't apply.** If a device starts again on its old build, it reports "Update didn't apply".
+  Nothing installs that version again on its own, even when another device asks; Retry (a tap on
+  that row) or updating on the device itself tries again.
+- **Setting.** "Let paired devices start updates on this device" (Settings > Updates, on by
+  default). Off: the device refuses and shows as skipped. Why it is on by default is in
+  [SECURITY.md](../SECURITY.md#bridgey-by-round-robin-edition-update-all).
+
+**When Android installs without a tap** (AOSP `PackageInstallerSession`, Android 12 to 16): the
+session asks for `USER_ACTION_NOT_REQUIRED`, the app declares `UPDATE_PACKAGES_WITHOUT_USER_ACTION`,
+and the installer is the installer of record of the installed app or is updating itself. Bridgey
+updates itself, so this holds from the first in-app update, not only after Bridgey becomes the
+installer of record. The update must also target API 29 or higher on Android 12, 30 on 13, 31 on
+14 and 33 on 15 and later; Bridgey targets 36. Android still asks when: "Install unknown apps" is
+off for Bridgey (Bridgey shows a notification that opens the switch); on Android 14 and later
+another app is the update owner of Bridgey (for example a store that claimed it); the same app was
+updated silently less than 30 seconds earlier; or a phone maker adds its own install check
+(unverified on OnePlus). In those cases the phone shows "Tap to finish updating Bridgey" and
+reports "needs you", so the Mac shows "Waiting for you on OnePlus 11".
 
 ## Keys and secrets
 

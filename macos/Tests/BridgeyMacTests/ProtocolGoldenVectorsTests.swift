@@ -193,6 +193,60 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
         }
     }
 
+    /// Update all: both platforms read updates.status alike, and write the same plaintext for 'write' vectors.
+    func testUpdatesStatus() throws {
+        var written = 0
+        try each("updatesStatus") { vector in
+            let decoded = PeerUpdateStatus.decode(plaintext(vector))
+            guard Self.same(decoded.map(Self.describe) ?? "reject", vector["expect"]) else { return false }
+            guard vector["write"] as? Bool == true, let status = decoded else { return true }
+            written += 1
+            let plaintext = try XCTUnwrap(vector["plaintext"] as? [String: Any])
+            return NSDictionary(dictionary: status.payload).isEqual(to: plaintext)
+        }
+        XCTAssertGreaterThanOrEqual(written, 10)
+    }
+
+    func testUpdatesStart() throws {
+        var written = 0
+        try each("updatesStart") { vector in
+            let decoded = UpdateStartRequest.decode(plaintext(vector))
+            let result: Any = decoded.map { ["requestId": $0.requestID, "retry": $0.retry] as [String: Any] } ?? "reject"
+            guard Self.same(result, vector["expect"]) else { return false }
+            guard vector["write"] as? Bool == true, let request = decoded else { return true }
+            written += 1
+            let plaintext = try XCTUnwrap(vector["plaintext"] as? [String: Any])
+            return NSDictionary(dictionary: request.payload).isEqual(to: plaintext)
+        }
+        XCTAssertGreaterThanOrEqual(written, 2)
+    }
+
+    func testUpdatesResult() throws {
+        var written = 0
+        try each("updatesResult") { vector in
+            let decoded = UpdateStartResult.decode(plaintext(vector))
+            let result: Any = decoded.map { answer -> [String: Any] in
+                ["requestId": answer.requestID, "status": answer.refusal == nil ? "accepted" : "refused",
+                 "reason": answer.refusal?.rawValue ?? NSNull()]
+            } ?? "reject"
+            guard Self.same(result, vector["expect"]) else { return false }
+            guard vector["write"] as? Bool == true, let answer = decoded else { return true }
+            written += 1
+            let plaintext = try XCTUnwrap(vector["plaintext"] as? [String: Any])
+            return NSDictionary(dictionary: answer.payload).isEqual(to: plaintext)
+        }
+        XCTAssertGreaterThanOrEqual(written, 6)
+    }
+
+    private static func describe(_ status: PeerUpdateStatus) -> [String: Any] {
+        [
+            "platform": status.platform.rawValue, "edition": status.edition, "app": status.app, "build": status.build,
+            "channel": status.channel.rawValue, "state": status.state.rawValue, "target": status.target ?? NSNull(),
+            "targetBuild": status.targetBuild ?? NSNull(), "progress": status.progress ?? NSNull(),
+            "reason": status.reason?.rawValue ?? NSNull(), "remoteStart": status.remoteStart, "checkedAt": status.checkedAt,
+        ]
+    }
+
     // MARK: Screen sharing (v0.9)
 
     /// The request this Mac writes is the plaintext the phone reads.

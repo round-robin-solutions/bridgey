@@ -70,7 +70,7 @@ the tables at the end of this page are generated from it with
    validation is dropped (or answered with that feature's error message). A payload that fails
    decryption closes the session for `upstream-v1` messages and for folders, places and browsing, as in
    upstream; clipboard offers, codes, remote input, the automation drafts (Mac actions, Focus sync,
-   phone camera) and screen sharing drop it and keep the session.
+   phone camera), Update all and screen sharing drop it and keep the session.
 9. **Replay.** Encrypted messages with a `messageId` go through one per-session window of the last
    256 accepted IDs (oldest evicted first); a repeated ID is not executed again. Quick actions,
    remote input and screen sharing streams use a sequence high-water mark instead, so their volume cannot push other IDs out of
@@ -94,8 +94,10 @@ the tables at the end of this page are generated from it with
   `quick.request`, `codes.status`, remote input, Files 2.0 browse refs, and the automation drafts:
   `focus.state` on both, `actions.catalog`, `actions.result` and `camera.request` on the phone,
   `actions.run` and `camera.status` on the Mac, with each sending platform's own encoding checked
-  against the same plaintext; and screen sharing: `screen.request` and the Mac's stream messages on the
-  phone, `screen.status`, the phone's stream messages and the binary `screen.frame` header on the Mac). `mac_actions_draft1` and `camera_draft1` are switches in the apps but
+  against the same plaintext; Update all: `updates.status`, `updates.start` and `updates.result` on
+  both, which also write the same plaintext for the vectors marked `write`; and screen sharing:
+  `screen.request` and the Mac's stream messages on the phone, `screen.status`, the phone's stream
+  messages and the binary `screen.frame` header on the Mac). `mac_actions_draft1` and `camera_draft1` are switches in the apps but
   draft keys on the wire: the vectors pin them once, under the draft keys, and like every draft key
   they read `true` only for JSON `true`. (`remote_input_draft1` predates the shared draft list: a
   non-boolean value still closes the session.)
@@ -141,6 +143,7 @@ the tables at the end of this page are generated from it with
 | `links_open_draft1` | edition-draft | no | false |
 | `focus_sync_draft1` | edition-draft | no | false |
 | `camera_draft1` | edition-draft | no | false |
+| `updates_draft1` | edition-draft | no | false |
 | `screen_draft1` | edition-draft | no | false |
 | `settings_sync_draft1` | designed | no | false |
 
@@ -165,7 +168,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-107 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+110 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -829,6 +832,51 @@ One open request per Mac, at most one every 3 seconds; it expires after 2 minute
 - `status`: opened | locked | permission_required | cancelled | busy | disabled | sending | failed; the Mac drops an unknown status
 
 The photo itself arrives as a files.offer carrying cameraRequestId.
+
+#### `updates.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `updates.status` | edition-draft | either | updates_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `updates.start` | edition-draft | either | updates_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `updates.result` | edition-draft | either | updates_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+
+`updates.status`
+
+- `version`: integer, 1
+- `platform`: android | macos
+- `edition`: string, 1 to 32 UTF-8 bytes, rr for this edition
+- `app`: string, installed version name, 1 to 64 UTF-8 bytes
+- `build`: integer, installed build number, 1 to 2^53-1
+- `channel`: stable | beta | nightly
+- `state`: current | checking | available | downloading | ready | installing | needs_user | failed | manual
+- `target`: string, optional, the version on offer, 1 to 64 UTF-8 bytes (available, downloading, ready, installing, needs_user; failed when known)
+- `targetBuild`: integer, optional, with target, 1 to 2^53-1
+- `progress`: integer, optional, 0 to 100, with downloading
+- `reason`: optional: with needs_user confirm | permission; with failed check | download | safety | installer | cancelled | not_applied | other; unknown reads as other
+- `remoteStart`: boolean: Let paired devices start updates on this device is on and the updater can run
+- `checkedAt`: integer, Unix ms of the last successful check, 0 for never
+
+Sent once after each features.update that shows the key on both sides, then on every change of a field other than progress, and while downloading at most once a second. A receiver drops a status with an unknown state, platform or channel.
+
+`updates.start`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `retry`: boolean, optional, default false: the person tapped Retry for this device
+
+Answered by `updates.result`.
+
+Update yourself now from your own channel. It names no version, URL, file or channel: the receiver checks its own feed and installs only a newer build through its own checks (Android SHA-256 and signer, Mac Sparkle EdDSA), so it can never downgrade. Accepted only from a paired device whose map shows the key, while the receiver's Let paired devices start updates switch is on; at most one start every 30 seconds and five an hour per device. A start with a wrong version or a requestId that is not a UUID is dropped; anything else gets exactly one updates.result. Without retry, a device whose last attempt did not apply refuses not_applied.
+
+`updates.result`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the start
+- `status`: accepted | refused
+- `reason`: with refused: disabled | rate_limited | manual | not_applied | busy; senders read anything else as other
+
+accepted also when an update was already running. Progress follows as updates.status.
 
 #### `screen.*`
 

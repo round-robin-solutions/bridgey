@@ -325,7 +325,7 @@ final class PhoneFilesController: PhoneFilesService {
     private var thumbJobs: [String: ThumbJob] = [:]
 
     @discardableResult
-    func thumbnails(phoneID: String, entries: [PhoneFileEntry], size: Int, lane: String,
+    func thumbnails(phoneID: String, entries: [PhoneFileEntry], size: (PhoneFileEntry) -> Int, lane: String,
                     deliver: @escaping (PhoneFileEntry, PhoneImage) -> Void,
                     finished: @escaping (Result<[PhoneFileEntry], PhoneFilesError>) -> Void) -> PhoneFilesCancellable {
         let laneKey = "\(phoneID)\u{1F}\(lane)"
@@ -341,16 +341,27 @@ final class PhoneFilesController: PhoneFilesService {
             job.end(.success(job.missing))
             return .none
         }
-        let pixels = min(max(size, BrowseLimits.minThumbnailSize), BrowseLimits.maxThumbnailSize)
         thumbJobs[laneKey] = job
-        var chunks: [[PhoneFileEntry]] = []
-        var index = 0
-        while index < wanted.count {
-            chunks.append(Array(wanted[index..<min(index + BrowseLimits.maxThumbnailItems, wanted.count)]))
-            index += BrowseLimits.maxThumbnailItems
+        // One request per size (in order of first appearance, so visible items lead), at most 64 items each.
+        var groups: [(pixels: Int, entries: [PhoneFileEntry])] = []
+        for entry in wanted {
+            let pixels = min(max(size(entry), BrowseLimits.minThumbnailSize), BrowseLimits.maxThumbnailSize)
+            if let index = groups.firstIndex(where: { $0.pixels == pixels }) {
+                groups[index].entries.append(entry)
+            } else {
+                groups.append((pixels, [entry]))
+            }
+        }
+        var chunks: [(pixels: Int, entries: [PhoneFileEntry])] = []
+        for group in groups {
+            var index = 0
+            while index < group.entries.count {
+                chunks.append((group.pixels, Array(group.entries[index..<min(index + BrowseLimits.maxThumbnailItems, group.entries.count)])))
+                index += BrowseLimits.maxThumbnailItems
+            }
         }
         job.remaining = chunks.count
-        for chunk in chunks {
+        for (pixels, chunk) in chunks {
             let id = makeID()
             var byKey: [String: PhoneFileEntry] = [:]
             let items = chunk.enumerated().map { offset, entry -> ThumbnailItemPayload in

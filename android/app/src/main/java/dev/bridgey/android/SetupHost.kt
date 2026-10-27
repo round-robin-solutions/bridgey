@@ -465,7 +465,7 @@ internal fun permissionFacts(context: Context, settings: SettingsState): Permiss
         }
         // Files 2.0 needs photos and videos (attach sheet, Mac browsing); a fresh screenshot needs photos only.
         val photosGranted = if (settings.featureOn(BridgeyFeature.FILES)) {
-            dev.bridgey.android.browse.MediaAccessRules.access(Build.VERSION.SDK_INT, ::granted) == dev.bridgey.android.browse.MediaAccess.FULL
+            dev.bridgey.android.browse.MediaAccessRules.complete(Build.VERSION.SDK_INT, ::granted)
         } else {
             PhotoPermissions.access(context) == PhotoAccess.FULL
         }

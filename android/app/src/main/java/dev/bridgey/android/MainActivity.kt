@@ -238,6 +238,7 @@ class MainActivity : ComponentActivity() {
                     pairing = pairing,
                     settings = bridgey.settings,
                     updater = bridgey.updater,
+                    updateAll = bridgey.updateAll,
                     activityLog = bridgey.activityLog,
                     uiPreferences = bridgey.uiPreferences,
                     remoteInput = bridgey.remoteInput,
@@ -613,6 +614,7 @@ private fun BridgeyApp(
     pairing: PairingCoordinator,
     settings: BridgeySettings,
     updater: AppUpdater,
+    updateAll: dev.bridgey.android.updates.UpdateAllCoordinator,
     activityLog: ActivityLog,
     uiPreferences: UiPreferences,
     remoteInput: RemoteInputController,
@@ -666,6 +668,9 @@ private fun BridgeyApp(
     val healthTick by pairing.health.changes.collectAsStateWithLifecycle()
     val settingsState by settings.state.collectAsStateWithLifecycle()
     val updateState by updater.state.collectAsStateWithLifecycle()
+    val updateRun by updateAll.state.collectAsStateWithLifecycle()
+    val updateOverview by updateAll.overview.collectAsStateWithLifecycle()
+    var updateAllSheet by rememberSaveable { mutableStateOf(false) }
     val activity by activityLog.items.collectAsStateWithLifecycle()
     val reduceMotion by uiPreferences.reduceMotion.collectAsStateWithLifecycle()
     val showPreviews by uiPreferences.showPreviews.collectAsStateWithLifecycle()
@@ -762,7 +767,24 @@ private fun BridgeyApp(
             ?: item.deviceName.ifBlank { context.getString(R.string.stream_file_unnamed) }
     }
     val linksAvailable = BridgeyFeature.LINKS in availableWith(connected?.deviceId)
+    val updateAllState = dev.bridgey.android.ui.UpdateAllUiState(
+        plan = updateOverview.plan,
+        run = updateRun.run,
+        now = updateRun.now,
+        devices = updateOverview.devices,
+        remoteStart = settingsState.updatesRemoteStart,
+    )
+    val updateAllActions = dev.bridgey.android.ui.UpdateAllActions(
+        open = { updateAllSheet = true },
+        start = updateAll::runUpdateAll,
+        retry = updateAll::retry,
+        later = updateAll::later,
+        dismiss = updateAll::dismiss,
+        close = { updateAllSheet = false },
+        setRemoteStart = settings::setUpdatesRemoteStart,
+    )
     val homeLive = buildList {
+        if (updateAllState.offered) add(LiveCard.UpdateAll(updateAllState))
         reconnectCard(target)?.let(::add)
         if (phoneRinging && connected != null) add(LiveCard.Ringing(connected.peerName))
         receivedLink?.takeIf { linksAvailable && connected != null }?.let { add(LiveCard.Link(it, connected!!.peerName)) }
@@ -781,6 +803,7 @@ private fun BridgeyApp(
         media = { action, value -> pairing.quickActions.request(BridgeyFeature.MEDIA, action, value) },
         retryDevice = pairing::retryNow,
         answerFolder = folderUi.showQuestion,
+        updateAll = updateAllActions,
     )
     // Files 2.0: the in-app attach sheet is the main way to send; the system pickers are its Browse… fallback.
     val attach = rememberAttachUi(pairing, snackbar)
@@ -1038,6 +1061,7 @@ private fun BridgeyApp(
                             ),
                             setup = dev.bridgey.android.ui.SetupSettingsState(oem = setup.oem),
                             focus = FocusSettingsState(settingsState.focusShare, settingsState.focusFollow, dndAccess),
+                            updateAll = updateAllState,
                         )
                     val settingsUiActions =
                         SettingsActions(
@@ -1102,6 +1126,7 @@ private fun BridgeyApp(
                                 openOemStep = { dev.bridgey.android.setup.OemBattery.open(context, it) },
                                 addToObtainium = { dev.bridgey.android.setup.Obtainium.open(context, updateState.channel) },
                             ),
+                            updateAll = updateAllActions,
                             focus = FocusSettingsActions(
                                 setShare = settings::setFocusShare,
                                 setFollow = { on ->
@@ -1250,6 +1275,7 @@ private fun BridgeyApp(
     }
 
     UpdatePrompts(updater)
+    dev.bridgey.android.ui.UpdateAllSheetHost(updateAllSheet, updateAllState, updateAllActions)
     FolderQuestionHost(folderUi)
     AttachSheetHost(attach)
 

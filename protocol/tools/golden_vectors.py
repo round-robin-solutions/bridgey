@@ -73,7 +73,7 @@ f("frame of 65,536 bytes with CRLF", None, {"kind":"pairing.offer","sessionId":S
 features_all = {"clipboard":True,"files":True,"notifications":True,"battery":True,"find_device":True,"ping":True,"links":True,"media":True,"calls":True,"remote_input_draft1":False}
 drafts_none = {"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False,"folders_receive_draft1":False,"files_browse_draft1":False,
                "mac_actions_draft1":False,"links_open_draft1":False,"focus_sync_draft1":False,"camera_draft1":False,
-               "screen_draft1":False}
+               "updates_draft1":False,"screen_draft1":False}
 feat = []
 def fe(name, plaintext, expect, raw=False):
     feat.append({"name": name, ("plaintextString" if raw else "plaintext"): plaintext, "expect": expect})
@@ -88,6 +88,11 @@ fe("v0.9 Mac with Mac actions granted, links open, Focus and camera", {"version"
 fe("v0.9 phone (Mac actions and camera on, Focus off, no links open)", {"version":1,"features":{**features_all,"files_browse_draft1":True,"mac_actions_draft1":True,"focus_sync_draft1":False,"camera_draft1":True}},
    {"features":features_all,"drafts":{**drafts_none,"files_browse_draft1":True,"mac_actions_draft1":True,"camera_draft1":True}})
 fe("automation keys that are not booleans count as false", {"version":1,"features":{**features_all,"mac_actions_draft1":1,"links_open_draft1":"true","focus_sync_draft1":None,"camera_draft1":{"on":True}}},
+   {"features":features_all,"drafts":drafts_none})
+# Update all: updates_draft1 is advertised by every edition build that has it, whatever its remote start switch says.
+fe("Update all: an edition phone with updates_draft1", {"version":1,"features":{**features_all,"files_browse_draft1":True,"updates_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"files_browse_draft1":True,"updates_draft1":True}})
+fe("updates_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"updates_draft1":"true"}},
    {"features":features_all,"drafts":drafts_none})
 # Screen sharing (v0.9, docs/protocol.md "Phone screen to Mac"): a draft key, true only for JSON true.
 fe("v0.9 phone and Mac with screen sharing on", {"version":1,"features":{**features_all,"camera_draft1":True,"screen_draft1":True}},
@@ -563,8 +568,100 @@ sf("frame 0", header(4,0,2,0,1) + P_SLICE, "reject")
 sf("part 0 without a start code", header(4,0,2,1,1) + bytes.fromhex("419a2a"), "reject")
 sf("part 0 with a broken start code", header(4,0,2,1,1) + bytes.fromhex("00000201419a"), "reject")
 
+
+# Update all (docs/protocol.md "Update all"). Both platforms decode every group. 'write': true means both platforms' encoders
+# also write exactly that plaintext from the expected value (key order aside).
+R2 = "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f"
+st = []
+def us(name, p, expect, raw=False, write=False):
+    v = {"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect}
+    if write: v["write"] = True
+    st.append(v)
+base = {"version":1,"platform":"android","edition":"rr","app":"0.9.0-rr.3-beta.2","build":903002,"channel":"beta","state":"current","remoteStart":True,"checkedAt":1793091600000}
+def e(**kw):
+    d = {k:v for k,v in base.items() if k != "version"}
+    d.update({"target":None,"targetBuild":None,"progress":None,"reason":None})
+    d.update(kw)
+    return d
+us("up to date", base, e(), write=True)
+us("checking, never checked before", {**base,"state":"checking","checkedAt":0}, e(state="checking",checkedAt=0), write=True)
+us("available", {**base,"state":"available","target":"0.9.0-rr.3-beta.3","targetBuild":903003}, e(state="available",target="0.9.0-rr.3-beta.3",targetBuild=903003), write=True)
+us("downloading at 42%", {**base,"state":"downloading","target":"0.9.0-rr.3-beta.3","targetBuild":903003,"progress":42}, e(state="downloading",target="0.9.0-rr.3-beta.3",targetBuild=903003,progress=42), write=True)
+us("ready on a Mac", {**base,"platform":"macos","channel":"stable","app":"0.9.0-rr.2","build":902000,"state":"ready","target":"0.9.0-rr.3","targetBuild":903000},
+   e(platform="macos",channel="stable",app="0.9.0-rr.2",build=902000,state="ready",target="0.9.0-rr.3",targetBuild=903000), write=True)
+us("installing", {**base,"state":"installing","target":"0.9.0-rr.3-beta.3","targetBuild":903003}, e(state="installing",target="0.9.0-rr.3-beta.3",targetBuild=903003), write=True)
+us("needs the person to confirm", {**base,"state":"needs_user","target":"0.9.0-rr.3-beta.3","targetBuild":903003,"reason":"confirm"}, e(state="needs_user",target="0.9.0-rr.3-beta.3",targetBuild=903003,reason="confirm"), write=True)
+us("needs Install unknown apps", {**base,"state":"needs_user","target":"0.9.0-rr.3-beta.3","targetBuild":903003,"reason":"permission"}, e(state="needs_user",target="0.9.0-rr.3-beta.3",targetBuild=903003,reason="permission"), write=True)
+us("did not apply", {**base,"state":"failed","target":"0.9.0-rr.3-beta.3","targetBuild":903003,"reason":"not_applied"}, e(state="failed",target="0.9.0-rr.3-beta.3",targetBuild=903003,reason="not_applied"), write=True)
+us("failed check without a target", {**base,"state":"failed","reason":"check"}, e(state="failed",reason="check"), write=True)
+us("manual, remote start off", {**base,"platform":"macos","state":"manual","remoteStart":False}, e(platform="macos",state="manual",remoteStart=False), write=True)
+us("an unknown reason reads as other", {**base,"state":"failed","reason":"disk_full"}, e(state="failed",reason="other"))
+us("unknown fields are ignored", {**base,"since":5,"extra":{"a":1}}, e())
+us("version written as 1.0", '{"version":1.0,"platform":"android","edition":"rr","app":"0.9.0-rr.3-beta.2","build":903002,"channel":"beta","state":"current","remoteStart":true,"checkedAt":1793091600000}', e(), raw=True)
+us("null optionals count as absent", {**base,"target":None,"targetBuild":None,"progress":None,"reason":None}, e())
+us("app of 64 bytes", {**base,"app":"9"*64}, e(app="9"*64))
+us("app of 65 bytes", {**base,"app":"9"*65}, "reject")
+us("app empty", {**base,"app":""}, "reject")
+us("edition of 33 bytes", {**base,"edition":"r"*33}, "reject")
+us("multi-byte edition counts bytes", {**base,"edition":"é"*17}, "reject")
+us("build 0", {**base,"build":0}, "reject")
+us("build 2^53-1", {**base,"build":9007199254740991}, e(build=9007199254740991))
+us("build 2^53", {**base,"build":9007199254740992}, "reject")
+us("build as a string", {**base,"build":"903002"}, "reject")
+us("progress 101", {**base,"state":"downloading","progress":101}, "reject")
+us("progress -1", {**base,"state":"downloading","progress":-1}, "reject")
+us("targetBuild 0", {**base,"state":"available","target":"x","targetBuild":0}, "reject")
+us("target of 65 bytes", {**base,"state":"available","target":"9"*65}, "reject")
+us("target as a number", {**base,"state":"available","target":5}, "reject")
+us("reason as a number", {**base,"state":"failed","reason":3}, "reject")
+us("unknown state", {**base,"state":"sleeping"}, "reject")
+us("unknown platform", {**base,"platform":"windows"}, "reject")
+us("unknown channel", {**base,"channel":"canary"}, "reject")
+us("remoteStart missing", {k:v for k,v in base.items() if k != "remoteStart"}, "reject")
+us("remoteStart as a string", {**base,"remoteStart":"true"}, "reject")
+us("checkedAt missing", {k:v for k,v in base.items() if k != "checkedAt"}, "reject")
+us("checkedAt negative", {**base,"checkedAt":-1}, "reject")
+us("version 2", {**base,"version":2}, "reject")
+us("exactly 1,024 bytes", sized('{"version":1,"platform":"android","edition":"rr","app":"0.9.0-rr.3-beta.2","build":903002,"channel":"beta","state":"current","remoteStart":true,"checkedAt":1793091600000,"pad":"', 1024), e(), raw=True)
+us("1,025 bytes", sized('{"version":1,"platform":"android","edition":"rr","app":"0.9.0-rr.3-beta.2","build":903002,"channel":"beta","state":"current","remoteStart":true,"checkedAt":1793091600000,"pad":"', 1025), "reject", raw=True)
+us("not an object", [1, 2], "reject")
+us("lenient JSON", "{version:1,platform:'android'}", "reject", raw=True)
+
+ustart = []
+def ut(name, p, expect, raw=False, write=False):
+    v = {"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect}
+    if write: v["write"] = True
+    ustart.append(v)
+ut("update now", {"version":1,"requestId":R2}, {"requestId":R2,"retry":False}, write=True)
+ut("retry after Retry was tapped", {"version":1,"requestId":R2,"retry":True}, {"requestId":R2,"retry":True}, write=True)
+ut("retry false written out", {"version":1,"requestId":R2,"retry":False}, {"requestId":R2,"retry":False})
+ut("an uppercase request ID is read lowercased", {"version":1,"requestId":R2.upper()}, {"requestId":R2,"retry":False})
+ut("unknown fields are ignored (a version or URL is never read)", {"version":1,"requestId":R2,"url":"https://example.com/evil.apk","target":"9.9.9"}, {"requestId":R2,"retry":False})
+ut("retry as a string", {"version":1,"requestId":R2,"retry":"true"}, "reject")
+ut("requestId not a UUID", {"version":1,"requestId":"update-1"}, "reject")
+ut("requestId missing", {"version":1}, "reject")
+ut("version 2", {"version":2,"requestId":R2}, "reject")
+ut("over 512 bytes", sized('{"version":1,"requestId":"%s","pad":"' % R2, 513), "reject", raw=True)
+ut("lenient JSON", "{version:1,requestId:'%s'}" % R2, "reject", raw=True)
+
+uresult = []
+def ur(name, p, expect, raw=False, write=False):
+    v = {"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect}
+    if write: v["write"] = True
+    uresult.append(v)
+ur("accepted", {"version":1,"requestId":R2,"status":"accepted"}, {"requestId":R2,"status":"accepted","reason":None}, write=True)
+for reason in ["disabled","rate_limited","manual","not_applied","busy"]:
+    ur("refused " + reason, {"version":1,"requestId":R2,"status":"refused","reason":reason}, {"requestId":R2,"status":"refused","reason":reason}, write=True)
+ur("an unknown reason reads as other", {"version":1,"requestId":R2,"status":"refused","reason":"tired"}, {"requestId":R2,"status":"refused","reason":"other"})
+ur("refused without a reason reads as other", {"version":1,"requestId":R2,"status":"refused"}, {"requestId":R2,"status":"refused","reason":"other"})
+ur("a reason with accepted is ignored", {"version":1,"requestId":R2,"status":"accepted","reason":"busy"}, {"requestId":R2,"status":"accepted","reason":None})
+ur("unknown status", {"version":1,"requestId":R2,"status":"maybe"}, "reject")
+ur("requestId not a UUID", {"version":1,"requestId":"x","status":"accepted"}, "reject")
+ur("version 2", {"version":2,"requestId":R2,"status":"accepted"}, "reject")
+ur("over 512 bytes", sized('{"version":1,"requestId":"%s","status":"accepted","pad":"' % R2, 513), "reject", raw=True)
+
 out = {
-  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer.",
+  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect, and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer.",
   "sessionId": S,
   "frames": frames,
   "featuresUpdate": feat,
@@ -579,11 +676,14 @@ out = {
   "actionsResult": result,
   "cameraRequest": camreq,
   "cameraStatus": camstat,
+  "updatesStatus": st,
+  "updatesStart": ustart,
+  "updatesResult": uresult,
   "screenRequest": screq,
   "screenStatus": scstat,
   "screenStream": sstream,
   "screenFrame": sframe,
 }
 open(OUT,'w').write(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
-print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat),
+print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat), len(st), len(ustart), len(uresult),
       len(screq), len(scstat), len(sstream), len(sframe))

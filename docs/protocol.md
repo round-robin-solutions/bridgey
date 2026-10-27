@@ -107,7 +107,7 @@ available only when both peers report the corresponding feature as enabled. Clie
 predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
-`sms_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`,
+`sms_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`, `updates_draft1`,
 `screen_draft1`)
 are optional booleans described in their own sections; a missing draft key means `false`.
 
@@ -799,6 +799,81 @@ encrypted `files.offer` payload adds `cameraRequestId`, which the Mac matches to
 The Mac saves it in the received files folder like any file and, if its "Copy photos to the
 clipboard" setting is on (off by default), also puts the image on the clipboard. Older Macs ignore
 the field and simply receive a file.
+
+### Update all (`updates_draft1`)
+
+Status: **Draft, edition only.** Each device tells the devices connected to it which version it
+runs, on which channel, and where its own update stands; **Update all** on one device then asks each
+connected device to update itself, and updates the device you are using last. Macs are not paired
+to each other, so "all" means every device connected to the one you are using: from a phone that is
+every connected Mac, from a Mac every connected phone.
+
+**Negotiation.** `features.update` gains `updates_draft1`: the device sends `updates.status` and
+understands `updates.start`. Edition builds that have the feature always advertise it; whether this
+device lets others start its update is a field of the status, not the key. Upstream peers and older
+edition builds never advertise it, never receive these messages, and are listed as "Update this one
+by hand".
+
+**Messages.** Encrypted like `codes.*` (`messageId` in the replay window), `version: 1`. A malformed
+message is dropped and the session stays.
+
+| Message | Direction | Max plaintext | Fields |
+| --- | --- | --- | --- |
+| `updates.status` | either | 1,024 B | `platform` (`android` \| `macos`), `edition` (1 to 32 UTF-8 bytes, `rr` for this edition), `app` (installed version name, 1 to 64 UTF-8 bytes), `build` (installed build number, 1 to 2^53-1), `channel` (`stable` \| `beta` \| `nightly`), `state`, optional `target` (version on offer, 1 to 64 UTF-8 bytes) and `targetBuild` (1 to 2^53-1), optional `progress` (0 to 100, with `downloading`), optional `reason`, `remoteStart` (boolean), `checkedAt` (Unix ms of the last successful check, 0 for never) |
+| `updates.start` | either | 512 B | `requestId` (UUID), optional `retry` (boolean, default false) |
+| `updates.result` | either | 512 B | `requestId` (echoes the start), `status` (`accepted` \| `refused`), `reason` with `refused` |
+
+`state` is one of:
+
+| State | Meaning | `target` | `reason` |
+| --- | --- | --- | --- |
+| `current` | Nothing newer was found on its channel at `checkedAt` | no | no |
+| `checking` | Checking its channel feed now | no | no |
+| `available` | A newer build is on offer | yes | no |
+| `downloading` | Downloading it; `progress` when the size is known | yes | no |
+| `ready` | Downloaded and verified, waiting to install (a countdown, or Later) | yes | no |
+| `installing` | Handed to the installer; the app restarts next | yes | no |
+| `needs_user` | The system needs the person at that device | yes | `confirm` (Android's install confirmation) \| `permission` (Install unknown apps is off) |
+| `failed` | The last attempt stopped | when known | `check` \| `download` \| `safety` \| `installer` \| `cancelled` \| `not_applied` \| `other` |
+| `manual` | This build cannot update itself (a development build, or the updater did not start) | no | no |
+
+A receiver drops a status with an unknown `state`, `platform` or `channel`, and reads an unknown
+`reason` as `other`. `not_applied` means the device handed version `target` to its installer and
+started again on its old build.
+
+`remoteStart` is the device's own "Let paired devices start updates on this device" switch (on by
+default), and false when its updater cannot run.
+
+**When a status is sent.** Once after each `features.update` that shows the key on both sides, then
+whenever any field but `progress` changes, and while downloading at most once a second.
+
+**`updates.start`** asks the receiver to update itself now from its own channel. It names no version,
+URL, file or channel: the receiver checks its own feed, offers only a build newer than the installed
+one, and installs only through its own checks (Android: SHA-256, package name, version code and
+signing certificate; Mac: Sparkle's EdDSA signature). A downgrade is therefore impossible through
+this message. The receiver answers exactly one `updates.result`:
+
+- Dropped without an answer: wrong `version` or a `requestId` that is not a UUID, or a start from a
+  peer whose latest map does not show the key.
+- `refused` with `reason`: `disabled` (its switch is off), `rate_limited` (more than one start every
+  30 seconds or five an hour from that device), `manual` (its updater cannot run), `not_applied`
+  (the last version it tried did not apply and `retry` is not true), `busy` (its updater cannot
+  start a check right now). A sender reads an unknown reason as `other`.
+- `accepted`: it updates. If an update is already running it carries on, and still answers
+  `accepted`. Progress follows as `updates.status`.
+
+`retry: true` is set only when the person taps Retry for that device. Without it, a device whose
+last attempt did not apply refuses, so a version that failed is never installed again on its own,
+even when another device asks.
+
+**Order and results (the device running Update all).** It starts every connected peer that will
+update at once, downloads its own update meanwhile, and installs its own last, after each peer has
+finished, failed, or handed over to its installer (`installing`, or `needs_user`). Its own restart
+waits through a 10-second countdown with **Later**; a peer that was asked installs and restarts
+without asking. A peer that drops while `ready` or `installing` is restarting; when it reconnects,
+its first `updates.status` decides: `build` at or above the `targetBuild` it was installing means
+done, the same `build` as before means "Update didn't apply" (never retried on its own). A peer
+whose current step has run for 3 minutes is marked as taking longer than usual.
 
 ### Phone screen to Mac (`screen_draft1`)
 
