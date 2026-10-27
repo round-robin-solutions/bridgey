@@ -51,6 +51,18 @@ media and documents the way Telegram shows them, and media from the phone that f
   2,000), with search, filters (direction, device, result, folders) and Show in Finder. Show in
   Finder is also on every finished transfer row.
 
+- **Quick wins** (Rahul, 2026-10-27):
+  - **Share › Bridgey** (a share extension built by build-app.sh, sandboxed; new extensions start
+    off, so turn it on in System Settings › Extensions › Sharing) and **Services › Send to Phone
+    with Bridgey**. Both open a small "Send to" chooser with device tiles, Tray and the chip.
+  - **Received-file notifications** with Open and Show in Finder; clicking opens the item; items
+    from one phone less than 3 s apart update one notification ("12 files from OnePlus 11").
+    While notifications are authorized they replace the automatic Finder reveal.
+  - **Phone free space before big sends**: the send sheet, Tray, drop tiles and chooser show
+    "Needs 2.3 GB, OnePlus 11 has 1.1 GB free" and block a send that cannot fit (warn when under
+    1 GiB would remain). Phones report `defaultFreeBytes` in `places.listed` and `freeBytes` in
+    `folders.accept`; the Mac asks at most once per 20 s per phone.
+
 ### Android
 
 - **Attach sheet** (Send file, Send folder, the device page): tabs **Photos and videos** (recent
@@ -82,6 +94,9 @@ media and documents the way Telegram shows them, and media from the phone that f
 | B13 | WebP encoding on the Mac uses a bundled libwebp 1.4.0 (BSD), since macOS cannot encode WebP | Call |
 | B14 | History keeps names whatever the Logging switch says (it is user-facing), but only in an owner-only file on the Mac; logs and diagnostics never carry names | Rahul |
 | B15 | An offer never accepted may be re-offered after a reconnect with the same ID | Call (nothing was written) |
+| B16 | The Share extension shows no UI of its own: it hands the items to Bridgey (private pasteboard plus a URL) and Bridgey shows the chooser | Call (one chooser for Share, Services and drops) |
+| B17 | No Bridgey switch for local notifications exists; only macOS authorization governs them | Call |
+| B18 | Free space unknown never blocks; a value older than 5 minutes only warns | Call |
 
 ## 3. Performance
 
