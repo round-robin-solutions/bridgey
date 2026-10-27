@@ -706,3 +706,19 @@
 /* Files 2.0: Phone files and History windows (browse UI agent adds below) */
 
 /* Files 2.0: send sheet, Tray, menu-bar drops, send options (send UX agent adds below) */
+"sendsheet.window" = "Send to phone";
+"sendsheet.title" = "Send to";
+"sendsheet.noDevice" = "Connect a device to send. You can still pick files now.";
+"sendsheet.added" = "Added";
+"sendsheet.recent" = "Recent";
+"sendsheet.screenshots" = "Screenshots";
+"sendsheet.empty" = "Nothing recent yet. Drop files or folders anywhere on this window, or Browse.";
+"sendsheet.loading" = "Looking for recent files…";
+"sendsheet.browse" = "Browse…";
+"sendsheet.send" = "Send";
+"sendsheet.pick" = "Pick files, or drop them here";
+"sendsheet.summary.one" = "1 item, %@";
+"sendsheet.summary" = "%d items, %@";
+"sendsheet.add" = "Add";
+"sendsheet.failed" = "Could not send. Check the connection.";
+"chip.accessibility" = "Before sending: %@";

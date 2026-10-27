@@ -706,3 +706,19 @@
 /* Files 2.0: Phone files and History windows (browse UI agent adds below) */
 
 /* Files 2.0: send sheet, Tray, menu-bar drops, send options (send UX agent adds below) */
+"sendsheet.window" = "Отправить на телефон";
+"sendsheet.title" = "Отправить на";
+"sendsheet.noDevice" = "Подключите устройство, чтобы отправить. Файлы можно выбрать уже сейчас.";
+"sendsheet.added" = "Добавлено";
+"sendsheet.recent" = "Недавние";
+"sendsheet.screenshots" = "Снимки экрана";
+"sendsheet.empty" = "Пока ничего недавнего. Перетащите файлы или папки в это окно или нажмите «Обзор».";
+"sendsheet.loading" = "Ищем недавние файлы…";
+"sendsheet.browse" = "Обзор…";
+"sendsheet.send" = "Отправить";
+"sendsheet.pick" = "Выберите файлы или перетащите их сюда";
+"sendsheet.summary.one" = "1 объект, %@";
+"sendsheet.summary" = "Объектов: %d, %@";
+"sendsheet.add" = "Добавить";
+"sendsheet.failed" = "Не удалось отправить. Проверьте подключение.";
+"chip.accessibility" = "Перед отправкой: %@";
