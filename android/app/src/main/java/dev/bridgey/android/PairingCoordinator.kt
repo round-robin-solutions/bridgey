@@ -199,6 +199,9 @@ class PairingCoordinator(
     /** Set by the application: a Mac's photo request was accepted; show the camera or its notification. */
     @Volatile var cameraRequested: (dev.bridgey.android.camera.CameraRequest) -> Unit = {}
 
+    /** Update all (draft updates_draft1): set by the application, which owns the updater and the runs. */
+    @Volatile var updates: dev.bridgey.android.updates.UpdatesPeerHost? = null
+
     /** Set by the application: a request ended without a photo (expired, Mac gone, feature off). */
     @Volatile var cameraEnded: (dev.bridgey.android.camera.CameraRequest) -> Unit = {}
 
@@ -2360,6 +2363,7 @@ class PairingCoordinator(
         macActions.sessionEnded(deviceId)
         focusSync.sessionEnded(deviceId)
         endCameraRequest(deviceId)
+        updates?.disconnected(deviceId)
         health.disconnected(deviceId, reason, System.currentTimeMillis())
         // The power state at the moment of the drop: Doze, screen, saver, standby bucket, exemption.
         diagnostics.record("transport", "disconnected", reason, device = deviceId, detail = PowerFacts.summary(appContext))
@@ -2601,6 +2605,7 @@ class PairingCoordinator(
             "codes.advertise_result", "codes.link_request" -> receiveCodesMessage(current, message)
             "actions.catalog", "actions.result" -> receiveActionsMessage(current, message)
             "focus.state" -> receiveFocusMessage(current, message)
+            "updates.status", "updates.start", "updates.result" -> receiveUpdatesMessage(current, message)
             "camera.request" -> receiveCameraMessage(current, message)
             "notifications.action" -> receiveNotificationAction(current, message)
             "calls.request" -> receiveCallRequest(current, message)
@@ -3271,6 +3276,9 @@ class PairingCoordinator(
         featureValues.put(dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY, settings.isEnabled(BridgeyFeature.NOTIFICATIONS, current.remoteDeviceId))
         // Draft, edition only: Focus and Do Not Disturb sync, while either direction is on.
         featureValues.put(dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY, focusSync.advertised())
+        // Draft, edition only: Update all. Always advertised; whether paired devices may start this phone's
+        // update is the remoteStart field of updates.status.
+        featureValues.put(dev.bridgey.android.updates.UPDATES_FEATURE_KEY, true)
         val payload = JSONObject()
             .put("version", 1)
             .put("features", featureValues)
@@ -3307,6 +3315,8 @@ class PairingCoordinator(
                 remoteSmsCodes = drafts[dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY] == true,
                 remoteLinksOpen = drafts[dev.bridgey.android.actions.LINKS_OPEN_FEATURE_KEY] == true,
                 remoteFocusSync = drafts[dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY] == true,
+                remoteUpdates = drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true,
+                updateStatus = state.updateStatus.takeIf { drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true },
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
                 ringing = state.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
             )
@@ -3327,6 +3337,69 @@ class PairingCoordinator(
         // Focus sync: a Mac that understands it hears this phone's Do Not Disturb once per map.
         if (drafts[dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY] == true && focusSync.advertised()) focusSync.peerReady(deviceId)
         if (!isFeatureAvailable(BridgeyFeature.CAMERA, deviceId)) endCameraRequest(deviceId)
+        // Update all: a device that understands it hears this phone's version and update state once per map.
+        if (drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true) updates?.peerReady(deviceId)
+    }
+
+    // MARK: Update all (draft updates_draft1)
+
+    /** Connected devices whose latest map shows updates_draft1. */
+    fun updatePeers(): List<String> = registry.connectedIds().filter { registry.state(it)?.remoteUpdates == true }
+
+    /** updates.status to one device, only while its latest map shows updates_draft1. */
+    fun sendUpdateStatus(deviceId: String, status: dev.bridgey.android.updates.UpdateStatus): Boolean {
+        val current = registry.session(deviceId) ?: return false
+        if (current.pairingKey == null || registry.state(deviceId)?.remoteUpdates != true) return false
+        val data = dev.bridgey.android.updates.updateStatusPayload(status).toString().toByteArray(Charsets.UTF_8)
+        scope.launch { sendEncrypted(current, "updates.status", data) }
+        return true
+    }
+
+    /** updates.start: "update yourself now". It carries no version, URL or file. */
+    fun sendUpdateStart(deviceId: String, start: dev.bridgey.android.updates.UpdateStart): Boolean {
+        val current = registry.session(deviceId) ?: return false
+        if (current.pairingKey == null || registry.state(deviceId)?.remoteUpdates != true) return false
+        val data = dev.bridgey.android.updates.updateStartPayload(start).toString().toByteArray(Charsets.UTF_8)
+        scope.launch { sendEncrypted(current, "updates.start", data) }
+        return true
+    }
+
+    /** updates.status, updates.start and updates.result: decrypted, replay-checked, bounded; malformed is dropped, the session stays. */
+    private fun receiveUpdatesMessage(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        val deviceId = current.remoteDeviceId
+        // Only from a device whose latest map shows the key (docs/protocol.md "Update all").
+        if (registry.state(deviceId)?.remoteUpdates != true) return
+        val host = updates
+        when (message.kind) {
+            "updates.status" -> {
+                val status = dev.bridgey.android.updates.decodeUpdateStatus(data) ?: return
+                registry.update(deviceId) { it.copy(updateStatus = status) }
+                publish()
+                host?.statusReceived(deviceId, status)
+            }
+            "updates.start" -> {
+                val start = dev.bridgey.android.updates.decodeUpdateStart(data) ?: return
+                val refusal = if (host == null) dev.bridgey.android.updates.UpdateRefusal.MANUAL else host.startReceived(deviceId, start)
+                diagnostics.record("updates", "start_received", refusal?.wire ?: "accepted", device = deviceId)
+                val result = dev.bridgey.android.updates.UpdateResult(
+                    start.requestId,
+                    if (refusal == null) dev.bridgey.android.updates.UpdateResultStatus.ACCEPTED else dev.bridgey.android.updates.UpdateResultStatus.REFUSED,
+                    refusal,
+                )
+                val payload = dev.bridgey.android.updates.updateResultPayload(result).toString().toByteArray(Charsets.UTF_8)
+                scope.launch { sendEncrypted(current, "updates.result", payload) }
+                if (refusal == null) host?.startAccepted(deviceId, start)
+            }
+            "updates.result" -> {
+                val result = dev.bridgey.android.updates.decodeUpdateResult(data) ?: return
+                host?.resultReceived(deviceId, result)
+            }
+        }
     }
 
     // MARK: Codes from messages (draft sms_codes_draft1)

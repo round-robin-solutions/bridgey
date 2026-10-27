@@ -8,6 +8,7 @@ import dev.bridgey.android.folders.FILES_BROWSE_FEATURE_KEY
 import dev.bridgey.android.folders.FOLDERS_FEATURE_KEY
 import dev.bridgey.android.folders.FOLDERS_RECEIVE_FEATURE_KEY
 import dev.bridgey.android.folders.PLACES_FEATURE_KEY
+import dev.bridgey.android.updates.UPDATES_FEATURE_KEY
 import org.json.JSONException
 import org.json.JSONObject
 import kotlin.math.abs
@@ -253,13 +254,14 @@ internal sealed interface FeatureStateDecoding {
 /**
  * Draft feature keys this client reads from features.update. Files 2.0: the phone acts on folders_receive_draft1
  * (the Mac accepts folders); files_browse_draft1 is read too, so both platforms decode the golden vectors alike.
- * Automation (v0.9): mac_actions_draft1, links_open_draft1, focus_sync_draft1 and camera_draft1. Connection health
- * has no key (no wire change). The Mac has the same list in the same order.
+ * Automation (v0.9): mac_actions_draft1, links_open_draft1, focus_sync_draft1 and camera_draft1. Update all:
+ * updates_draft1. Connection health has no key (no wire change). The Mac has the same list in the same order.
  */
 internal val KNOWN_DRAFT_FEATURE_KEYS = listOf(
     CLIPBOARD_FILES_FEATURE_KEY, FOLDERS_FEATURE_KEY, PLACES_FEATURE_KEY, SMS_CODES_FEATURE_KEY,
     FOLDERS_RECEIVE_FEATURE_KEY, FILES_BROWSE_FEATURE_KEY,
     BridgeyFeature.MAC_ACTIONS.key, LINKS_OPEN_FEATURE_KEY, FOCUS_SYNC_FEATURE_KEY, CAMERA_FEATURE_KEY,
+    UPDATES_FEATURE_KEY,
 )
 
 internal fun decodeFeatureState(plaintext: ByteArray): FeatureStateDecoding {

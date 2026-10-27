@@ -135,6 +135,17 @@ class ProtocolFuzzTest {
         }
         // Automation (v0.9): what is accepted stays within the contract's limits.
         dev.bridgey.android.focus.decodeFocusState(payload)?.let { assertTrue(payload.size <= dev.bridgey.android.focus.FOCUS_STATE_MAX_BYTES) }
+        // Update all: accepted payloads stay within the contract's limits.
+        dev.bridgey.android.updates.decodeUpdateStatus(payload)?.let { status ->
+            assertTrue(payload.size <= dev.bridgey.android.updates.UPDATES_STATUS_MAX_BYTES)
+            assertTrue(status.build >= 1 && status.checkedAt >= 0)
+            status.progress?.let { assertTrue(it in 0..100) }
+        }
+        dev.bridgey.android.updates.decodeUpdateStart(payload)?.let { assertTrue(payload.size <= dev.bridgey.android.updates.UPDATES_START_MAX_BYTES && it.requestId.length == 36) }
+        dev.bridgey.android.updates.decodeUpdateResult(payload)?.let { result ->
+            assertTrue(payload.size <= dev.bridgey.android.updates.UPDATES_RESULT_MAX_BYTES)
+            assertTrue((result.status == dev.bridgey.android.updates.UpdateResultStatus.REFUSED) == (result.reason != null))
+        }
         dev.bridgey.android.actions.decodeMacActionCatalog(payload)?.let { catalog ->
             assertTrue(payload.size <= dev.bridgey.android.actions.MacActionsClient.MAX_CATALOG_BYTES)
             assertTrue(catalog.entries.size <= dev.bridgey.android.actions.MacActionCatalog.MAX_ENTRIES)
@@ -303,6 +314,7 @@ class ProtocolFuzzTest {
         val samples = listOf(
             "featuresUpdate", "batteryUpdate", "clipboardRich", "clipboardOffer", "remoteInput", "browseRef",
             "focusState", "actionsCatalog", "actionsRun", "actionsResult", "cameraRequest", "cameraStatus",
+            "updatesStatus", "updatesStart", "updatesResult",
         ).flatMap { group ->
             vectors.getJSONArray(group).let { array -> (0 until array.length()).map { array.getJSONObject(it).let { v -> v.opt("plaintext")?.toString() ?: v.getString("plaintextString") } } }
         }
@@ -313,7 +325,8 @@ class ProtocolFuzzTest {
                 listOf("version", "features", "level", "isCharging", "text", "html", "offerId", "createdAt", "items", "inputSessionId", "sequence",
                     "folderTransferId", "requestId", "places", "entries", "pageCount", "mode",
                     "ref", "mediaId", "placeId", "path", "name", "cursor", "sort", "limit", "replaces",
-                    "active", "actions", "action", "status", "reason", "volume", "value", "id", "title", "blocked").filter { random.nextBoolean() }
+                    "active", "actions", "action", "status", "reason", "volume", "value", "id", "title", "blocked",
+                    "platform", "edition", "app", "build", "channel", "state", "target", "targetBuild", "progress", "remoteStart", "checkedAt", "retry").filter { random.nextBoolean() }
                     .forEach { put(it, randomJson(0)) }
             }.toString().toByteArray()
             else -> samples.random(random).toByteArray()
