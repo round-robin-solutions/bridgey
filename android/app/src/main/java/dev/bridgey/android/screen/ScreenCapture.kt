@@ -192,42 +192,58 @@ class ScreenCapture(
     private fun createCodec(target: Pair<Int, Int>): Pair<MediaCodec, Surface>? = runCatching {
         val info = encoderInfo() ?: error("no encoder")
         val capabilities = info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
-        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, target.first, target.second).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, stream.currentBitrate.toInt())
-            if (capabilities.encoderCapabilities.isBitrateModeSupported(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)) {
-                setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
-            }
-            setInteger(MediaFormat.KEY_FRAME_RATE, ScreenRates.FPS)
-            // Key frames come on demand (a new Mac window, a drop); the regular interval is only a safety net.
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 10)
-            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L)
-            setInteger(MediaFormat.KEY_PRIORITY, 0)
-            setFloat("max-fps-to-encoder", ScreenRates.FPS.toFloat())
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
-                setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LATENCY, 1)
-        }
+        val vbr = capabilities.encoderCapabilities.isBitrateModeSupported(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
         val created = MediaCodec.createByCodecName(info.name)
-        try {
-            created.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        } catch (error: Exception) {
-            // Some encoders refuse an optional key; the plain format is enough.
-            created.reset()
-            created.configure(plainFormat(target), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        // Some encoders refuse an optional key and fail the whole configure. Each attempt drops only the keys that
+        // tend to be refused, so the frame rate cap and no B-frames survive the fallback.
+        val attempts = listOf(
+            encoderFormat(target, vbr, optional = true),
+            encoderFormat(target, vbr, optional = false),
+            plainFormat(target),
+        )
+        var configured = false
+        for ((index, format) in attempts.withIndex()) {
+            try {
+                created.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                configured = true
+                if (index > 0) BridgeyLogging.i(LogCategory.REMOTE_CONTROL, "SCREEN encoder configured with fallback $index")
+                break
+            } catch (error: Exception) {
+                created.reset()
+            }
+        }
+        if (!configured) {
+            created.release()
+            error("the encoder refused every format")
         }
         val input = created.createInputSurface()
         created.start()
         created to input
     }.onFailure { BridgeyLogging.w(LogCategory.REMOTE_CONTROL, "SCREEN encoder", it) }.getOrNull()
 
+    /**
+     * The format the stream wants. [optional] adds the keys some encoders refuse: real-time priority and low
+     * latency. The frame rate cap (applied by the input surface, not the codec) and no B-frames are always set.
+     * KEY_PREPEND_HEADER_TO_SYNC_FRAMES is never set: the emulator's encoder fails configure on it, and the drain
+     * loop puts the cached SPS and PPS before every key frame itself.
+     */
+    private fun encoderFormat(target: Pair<Int, Int>, vbr: Boolean, optional: Boolean): MediaFormat =
+        plainFormat(target).apply {
+            if (vbr) setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+            setFloat("max-fps-to-encoder", ScreenRates.FPS.toFloat())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+            if (optional) {
+                setInteger(MediaFormat.KEY_PRIORITY, 0)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LATENCY, 1)
+            }
+        }
+
     private fun plainFormat(target: Pair<Int, Int>): MediaFormat =
         MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, target.first, target.second).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, stream.currentBitrate.toInt())
             setInteger(MediaFormat.KEY_FRAME_RATE, ScreenRates.FPS)
+            // Key frames come on demand (a new Mac window, a drop); the regular interval is only a safety net.
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 10)
             setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L)
         }

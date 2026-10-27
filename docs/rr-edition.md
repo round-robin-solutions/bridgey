@@ -26,6 +26,7 @@ upstream clients.
 | macOS design | SwiftUI defaults | Direction B "Stream": 360 pt menu-bar panel with device chips, live cards, activity stream, quick actions and send bar; Settings window with a sidebar (Round Robin theme, bundled Space Grotesk and Inter) |
 | macOS activity stream | none | The same private, local history on the Mac (see below) |
 | Remote control | planned for 0.7 | Phone as touchpad, keyboard and presentation remote for the Mac, through the draft `remote_input_draft1` (see below) |
+| Phone screen on the Mac | planned for 0.9 | View-only prototype: the Mac shows the phone's screen in a window, H.264 from MediaProjection to VideoToolbox over the session, off by default on both sides (draft `screen_draft1`, see below and [screen-sharing.md](screen-sharing.md)) |
 | Files 2.0 | planned for 0.8 | Folders both ways; Mac "Phone files" window (photos and videos, recent documents, granted folders) with instant thumbnails, Quick Look, drag out and in; Android attach sheet; Mac send sheet, Tray, menu-bar drops and send optimisation; Finder metadata and transfer history (drafts `folders_draft1`, `places_draft1`, `files_browse_draft1`, `folders_receive_draft1`; see [files-browse.md](files-browse.md)) |
 | Codes from text messages | none | Opt-in: the Mac shows "Code 482913 from HDFC Bank" with Copy code, read on the Mac by a small downloaded model (default) or, if chosen, through Round Robin's relay to Cloudflare Workers AI; a companion link lets Android 15+ show Bridgey the codes (draft `sms_codes_draft1`, see below) |
 
@@ -182,6 +183,23 @@ sides until turned on, and only works between two edition devices.
   plan in `docs/testing-remote-input.md`). If it does not, sessions are refused with
   `permission_required`, the pane shows the grant as needed with Open System Settings, and
   Bridgey has to be switched off and on again in that list.
+
+### Phone screen on the Mac (draft protocol, prototype)
+
+The Mac can show the phone's screen in a window, view only, through the draft `screen_draft1`
+(protocol and security review in `docs/protocol.md`; transport, pacing and measurements in
+[screen-sharing.md](screen-sharing.md)). Off on both sides until turned on.
+
+- **Android:** Settings > Media and quick actions > Share screen with Macs (per Mac, like the other
+  features). Start from the Mac's device page (Share screen), the Share screen Quick Settings tile,
+  or the "MacBook Air wants to see your screen" notification with Share and Not now. Android's own
+  dialog asks every time. While it runs: "Your screen is being shared with MacBook Air" with Stop;
+  locking the phone stops it.
+- **Mac:** Settings > Remote control > Show phone screens. Phone Screen is in the panel's File menu
+  and the device menu. The window keeps the phone's shape, follows rotation, shows latency, Mb/s and
+  frames a second, and closing it stops the share. Nothing is recorded or saved.
+- **Control** from the Mac is not built; the options and the recommendation are in
+  [screen-control-decision.md](screen-control-decision.md).
 
 ### Codes from text messages (draft protocol)
 
