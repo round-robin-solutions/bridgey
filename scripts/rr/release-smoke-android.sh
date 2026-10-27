@@ -31,6 +31,8 @@ if [ ! -w /dev/kvm ]; then
   if [ -e /dev/kvm ] && command -v sudo >/dev/null 2>&1; then
     echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
     sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+    # The rule applies asynchronously; this makes it so for this job.
+    sudo chmod 666 /dev/kvm
   fi
   [ -w /dev/kvm ] || die "/dev/kvm is not available; the emulator needs hardware acceleration"
 fi
