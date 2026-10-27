@@ -17,7 +17,7 @@ Last updated: 2026-10-27.
 
 | Phone | Android | Phone skin | Mac | macOS | App version | Date |
 | --- | --- | --- | --- | --- | --- | --- |
-| OnePlus 11 | 16 (API 36) | OxygenOS | Apple silicon (M-series) | 27 | not recorded | 2026-10-27 (recorded here) |
+| OnePlus 11 | 16 (API 36) | OxygenOS | Apple silicon (M-series) | 27 | 0.6.0-rr.1-beta.13 and earlier betas | 2026-10-27 |
 
 Per-feature results are not recorded in this table. The older step-by-step checklists are
 [testing-0.6.md](testing-0.6.md) and [testing-remote-input.md](testing-remote-input.md), and some

@@ -8,10 +8,21 @@ under the same [MIT licence](LICENSE).
   Bridgey and pairs with upstream clients over the same protocol.
 - In-app updates with three channels, Stable, Beta and Nightly, chosen in Settings.
 - Downloads: [releases of round-robin-solutions/bridgey](https://github.com/round-robin-solutions/bridgey/releases).
-  Each release has the Android APK, a macOS DMG and ZIP, and `SHA256SUMS`.
+  Each release has the Android APK, a macOS DMG and ZIP, `SHA256SUMS`, an SBOM per platform and a
+  provenance file.
 
 What differs from upstream, how releases and channels work, where the signing keys live and
 how to merge upstream changes: [docs/rr-edition.md](docs/rr-edition.md).
+
+Edition milestones (upstream's own roadmap follows below, unchanged):
+
+- **v0.10 (stabilisation)**, in progress: a draft protocol contract
+  ([docs/protocol-contract.md](docs/protocol-contract.md), `protocol/messages.json`), fuzz and
+  cross-platform golden tests, upgrade and migration tests
+  ([docs/upgrade-policy.md](docs/upgrade-policy.md)), every optional permission explained with a
+  Permissions page, "Reset Bridgey on this device", SBOM and provenance with each release, and the
+  compatibility, diagnostics and user guides.
+- **v1.0**, later: freezes the protocol contract once v0.10 has been tested on more devices.
 
 Guides:
 

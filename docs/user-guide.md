@@ -194,7 +194,7 @@ What the optional permissions are for:
 
 On the Mac: Local network (always), Notifications (for phone alerts), Bluetooth (linking for
 codes), Accessibility (remote control) and Automation (Music or Spotify control). Bridgey does not
-ask for location, contacts, SMS, call history, camera, microphone or screen recording in the stable
+ask for location, contacts, SMS, call history, camera, microphone or screen recording in the normal
 build.
 
 ## Reset local data
