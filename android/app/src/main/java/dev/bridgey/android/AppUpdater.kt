@@ -10,6 +10,9 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.os.Build
+import dev.bridgey.android.updates.UpdateReason
+import dev.bridgey.android.updates.UpdateState
+import dev.bridgey.android.updates.UpdateStatus
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
@@ -43,13 +46,23 @@ data class UpdateUiState(
     /** The APK is with the Android installer, waiting for the user to confirm. */
     val awaitingConfirmation: Boolean = false,
     val error: UpdateError? = null,
+    /** The update is downloaded and verified, waiting to install (Update all's countdown, or Later). */
+    val readyToInstall: Boolean = false,
+    /** Handed to the Android installer; Bridgey restarts next. */
+    val installing: Boolean = false,
+    /** The version this phone installed and then started again without. Never tried again on its own. */
+    val notApplied: dev.bridgey.android.updates.NotApplied? = null,
+    /** Started by a paired device or by Update all: no Bridgey dialogs, high-priority notifications instead. */
+    val remoteRun: Boolean = false,
 )
 
 /**
  * Round Robin edition self-updater. Reads the channel feeds published on the
  * fork's GitHub release tag `channels`, downloads the APK only after the user
- * taps Install, verifies its SHA-256 and signing certificate, and hands it to
- * PackageInstaller, which always asks the user to confirm.
+ * taps Install (or Update all, here or on a paired device), verifies its SHA-256,
+ * package, version code and signing certificate, and hands it to PackageInstaller.
+ * On Android 12 and later it asks Android not to require a tap (see
+ * [commitInstallSession]); Android still shows its confirmation when it must.
  */
 class AppUpdater(
     private val context: Context,
@@ -58,6 +71,15 @@ class AppUpdater(
     private val preferences = context.getSharedPreferences("bridgey.updates", Context.MODE_PRIVATE)
     private val checkMutex = Mutex()
     private var installJob: Job? = null
+
+    /** The downloaded and verified APK waiting for [commitPrepared], with the update it is. */
+    @Volatile private var prepared: Pair<java.io.File, AndroidUpdate>? = null
+
+    /** Set by the application: a Bridgey screen is in front (then Android's own screens can open at once). */
+    @Volatile var isForeground: () -> Boolean = { false }
+
+    /** The updater can run: this build has an HTTPS channel feed. */
+    val canUpdate: Boolean = BuildConfig.UPDATE_FEED_BASE_URL.startsWith("https://")
     private val mutableState = MutableStateFlow(
         UpdateUiState(
             channel = UpdateChannel.fromKey(preferences.getString(KEY_CHANNEL, null)),
@@ -75,6 +97,22 @@ class AppUpdater(
 
     val installedVersionName: String = BuildConfig.VERSION_NAME
     val installedVersionCode: Long = BuildConfig.VERSION_CODE.toLong()
+
+    init {
+        // A version handed to the installer last time that is not what runs now did not apply.
+        val pending = preferences.getLong(KEY_PENDING_BUILD, 0L).takeIf { it > 0 }?.let {
+            dev.bridgey.android.updates.PendingInstall(it, preferences.getString(KEY_PENDING_VERSION, null).orEmpty(), preferences.getLong(KEY_PENDING_AT, 0L))
+        }
+        if (pending != null) {
+            dev.bridgey.android.updates.settlePendingInstall(pending, installedVersionCode, System.currentTimeMillis())?.let(::storeNotApplied)
+            preferences.edit().remove(KEY_PENDING_BUILD).remove(KEY_PENDING_VERSION).remove(KEY_PENDING_AT).apply()
+        }
+        val marker = preferences.getLong(KEY_NOT_APPLIED_BUILD, 0L).takeIf { it > installedVersionCode }?.let {
+            dev.bridgey.android.updates.NotApplied(it, preferences.getString(KEY_NOT_APPLIED_VERSION, null).orEmpty())
+        }
+        if (marker == null) clearNotAppliedPreference()
+        mutableState.update { it.copy(notApplied = marker) }
+    }
 
     fun setChannel(channel: UpdateChannel) {
         if (channel == mutableState.value.channel) return
@@ -133,36 +171,122 @@ class AppUpdater(
         mutableState.update { it.copy(needsInstallPermission = false) }
     }
 
+    /** Install, tapped here: a version that did not apply may be tried again, by the person. */
     fun install() {
-        val update = mutableState.value.available ?: return
+        clearNotApplied()
+        mutableState.update { it.copy(remoteRun = false) }
+        val ready = prepared
+        if (ready != null && ready.second == mutableState.value.available) commitPrepared() else runInstall(commit = true)
+    }
+
+    /** Update all on this phone: download and verify now; [commitPrepared] installs after the countdown. */
+    fun prepareForRun() {
+        // The person chose Update all here: a version that did not apply may go again.
+        clearNotApplied()
+        mutableState.update { it.copy(remoteRun = true) }
+        if (prepared?.second == mutableState.value.available && mutableState.value.readyToInstall) return
+        runInstall(commit = false)
+    }
+
+    /**
+     * A paired device asked this phone to update itself (updates.start, already accepted). Checks this
+     * phone's own channel feed, then downloads, verifies and installs a newer build without Bridgey's
+     * dialogs. [retry] is the person's Retry on that device: a version that did not apply may go again.
+     */
+    fun startFromPeer(retry: Boolean) {
+        if (retry) clearNotApplied()
+        mutableState.update { it.copy(remoteRun = true) }
+        if (installJob?.isActive == true || mutableState.value.installing || mutableState.value.awaitingConfirmation) return
+        if (mutableState.value.readyToInstall && prepared != null) {
+            commitPrepared()
+            return
+        }
+        scope.launch {
+            check(notify = false, userInitiated = true)
+            val state = mutableState.value
+            if (state.available != null && state.error == null && state.notApplied == null) runInstall(commit = true)
+        }
+    }
+
+    /** Installs the update [prepareForRun] verified. */
+    fun commitPrepared() {
+        val (apk, update) = prepared ?: return runInstall(commit = true)
         if (installJob?.isActive == true) return
         if (!context.packageManager.canRequestPackageInstalls()) {
-            mutableState.update { it.copy(needsInstallPermission = true, promptVisible = false) }
+            needInstallPermission()
             return
         }
         installJob = scope.launch {
+            mutableState.update { it.copy(readyToInstall = false, error = null) }
+            val result = withContext(Dispatchers.IO) { runCatching { commit(apk, update) } }
+            finishInstallStep(result, committed = true)
+        }
+    }
+
+    private fun runInstall(commit: Boolean) {
+        val update = mutableState.value.available ?: return
+        if (installJob?.isActive == true) return
+        if (!context.packageManager.canRequestPackageInstalls()) {
+            needInstallPermission()
+            return
+        }
+        cancelAttention()
+        installJob = scope.launch {
             mutableState.update {
-                it.copy(promptVisible = false, needsInstallPermission = false, deferred = false, downloadProgress = 0f, error = null)
+                it.copy(promptVisible = false, needsInstallPermission = false, deferred = false, downloadProgress = 0f, error = null, readyToInstall = false)
             }
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val apk = download(update)
                     verifyApk(apk, update)
-                    try {
-                        commitInstallSession(apk)
-                    } catch (error: Exception) {
-                        throw UpdateFeedException(error.message ?: "Installer failed", UpdateError.INSTALLER)
-                    }
+                    prepared = apk to update
+                    if (commit) commit(apk, update)
                 }
             }
-            mutableState.update {
-                it.copy(
-                    downloadProgress = null,
-                    awaitingConfirmation = result.isSuccess,
-                    error = result.exceptionOrNull()?.let { error -> (error as? UpdateFeedException)?.error ?: UpdateError.DOWNLOAD },
-                )
+            if (!commit && result.isSuccess) {
+                mutableState.update { it.copy(downloadProgress = null, readyToInstall = true) }
+            } else {
+                finishInstallStep(result, committed = commit)
             }
         }
+    }
+
+    private fun commit(apk: java.io.File, update: AndroidUpdate) {
+        try {
+            // Written before the session commits: if Bridgey starts again on its old build, it did not apply.
+            preferences.edit()
+                .putLong(KEY_PENDING_BUILD, update.versionCode)
+                .putString(KEY_PENDING_VERSION, update.versionName)
+                .putLong(KEY_PENDING_AT, System.currentTimeMillis())
+                .commit()
+            commitInstallSession(apk)
+        } catch (error: Exception) {
+            clearPending()
+            throw UpdateFeedException(error.message ?: "Installer failed", UpdateError.INSTALLER)
+        }
+    }
+
+    private fun finishInstallStep(result: Result<Unit>, committed: Boolean) {
+        mutableState.update {
+            it.copy(
+                downloadProgress = null,
+                installing = committed && result.isSuccess && !it.awaitingConfirmation,
+                readyToInstall = false,
+                error = result.exceptionOrNull()?.let { error -> (error as? UpdateFeedException)?.error ?: UpdateError.DOWNLOAD },
+            )
+        }
+        if (result.isFailure) prepared = null
+    }
+
+    private fun needInstallPermission() {
+        mutableState.update { it.copy(needsInstallPermission = true, promptVisible = false) }
+        // In front, the dialog asks; otherwise a notification does (Update all or a paired device started this).
+        if (mutableState.value.remoteRun && !isForeground()) notifyAttention(Attention.PERMISSION)
+    }
+
+    /** Later after Update all's countdown: the verified update waits for Install in Settings > Updates. */
+    fun laterAfterRun() {
+        mutableState.update { it.copy(remoteRun = false) }
     }
 
     fun onInstallNeedsConfirmation(intent: Intent?) {
@@ -170,16 +294,96 @@ class AppUpdater(
             onInstallFinished(UpdateError.INSTALLER)
         } else {
             mutableConfirmation.value = intent
+            mutableState.update { it.copy(installing = false, awaitingConfirmation = true) }
+            // Android needs a tap (first update from another installer, an update owner, or its 30-second limit).
+            // In front, the confirmation opens at once; otherwise a high-priority notification leads to it.
+            if (!isForeground()) notifyAttention(Attention.CONFIRM)
         }
     }
 
     fun confirmationLaunched() {
         mutableConfirmation.value = null
+        cancelAttention()
     }
 
     /** The installer's answer. Success replaces this process, so only failures stay on screen. */
     fun onInstallFinished(error: UpdateError?) {
-        mutableState.update { it.copy(awaitingConfirmation = false, error = error) }
+        if (error != null) {
+            clearPending()
+            prepared = null
+        }
+        cancelAttention()
+        mutableState.update { it.copy(awaitingConfirmation = false, installing = false, error = error) }
+    }
+
+    /** What this phone tells its paired devices (updates.status). */
+    fun wireStatus(remoteStart: Boolean): UpdateStatus =
+        localUpdateStatus(mutableState.value, installedVersionName, installedVersionCode, remoteStart, canUpdate)
+
+    private fun storeNotApplied(marker: dev.bridgey.android.updates.NotApplied) {
+        preferences.edit().putLong(KEY_NOT_APPLIED_BUILD, marker.build).putString(KEY_NOT_APPLIED_VERSION, marker.version).apply()
+    }
+
+    private fun clearNotAppliedPreference() {
+        preferences.edit().remove(KEY_NOT_APPLIED_BUILD).remove(KEY_NOT_APPLIED_VERSION).apply()
+    }
+
+    private fun clearNotApplied() {
+        if (mutableState.value.notApplied == null) return
+        clearNotAppliedPreference()
+        mutableState.update { it.copy(notApplied = null) }
+    }
+
+    private fun clearPending() {
+        preferences.edit().remove(KEY_PENDING_BUILD).remove(KEY_PENDING_VERSION).remove(KEY_PENDING_AT).apply()
+    }
+
+    private enum class Attention { CONFIRM, PERMISSION }
+
+    /** "Tap to finish updating Bridgey" or "Allow Bridgey to install updates", on a high-priority channel. */
+    private fun notifyAttention(kind: Attention) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(ATTENTION_CHANNEL_ID, context.getString(R.string.update_attention_channel), NotificationManager.IMPORTANCE_HIGH).apply {
+                description = context.getString(R.string.update_attention_channel_detail)
+            },
+        )
+        val version = mutableState.value.available?.versionName ?: prepared?.second?.versionName.orEmpty()
+        val (title, text, intent) = when (kind) {
+            Attention.CONFIRM -> Triple(
+                context.getString(R.string.update_attention_confirm_title),
+                context.getString(R.string.update_attention_confirm_text, version),
+                // Opens Bridgey, where the waiting confirmation launches Android's installer screen.
+                Intent(context, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .putExtra(dev.bridgey.android.ui.SettingsDeepLink.EXTRA_SECTION, dev.bridgey.android.ui.SettingsSection.UPDATES.name),
+            )
+            Attention.PERMISSION -> Triple(
+                context.getString(R.string.update_attention_permission_title),
+                context.getString(R.string.update_attention_permission_text),
+                Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:${context.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+        val open = PendingIntent.getActivity(context, ATTENTION_NOTIFICATION_ID, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        manager.notify(
+            ATTENTION_NOTIFICATION_ID,
+            android.app.Notification.Builder(context, ATTENTION_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_bridgey_notification)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setCategory(android.app.Notification.CATEGORY_STATUS)
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .build(),
+        )
+    }
+
+    private fun cancelAttention() {
+        context.getSystemService(NotificationManager::class.java).cancel(ATTENTION_NOTIFICATION_ID)
     }
 
     private fun lastCheckedAt(): Long = preferences.getLong(KEY_LAST_CHECKED, 0L)
@@ -196,6 +400,9 @@ class AppUpdater(
                 val newest = UpdateFeeds.selectUpdate(installedVersionCode, candidates, Build.VERSION.SDK_INT)
                 val update = UpdateFeeds.offer(newest, preferences.getLong(KEY_SKIPPED_CODE, 0L), userInitiated)
                 // A check from Settings shows the update in the Settings card, not in a dialog on top of it.
+                // A marker stays only while the feed offers that same build: a newer release clears it.
+                val stillNotApplied = dev.bridgey.android.updates.notAppliedStillMatches(mutableState.value.notApplied, update?.versionCode)
+                if (stillNotApplied == null && mutableState.value.notApplied != null) clearNotApplied()
                 val snoozed = update != null && !userInitiated &&
                     preferences.getLong(KEY_SNOOZED_CODE, 0L) == update.versionCode &&
                     now < preferences.getLong(KEY_SNOOZED_UNTIL, 0L)
@@ -334,8 +541,14 @@ class AppUpdater(
             setSize(apk.length())
             setInstallReason(PackageManager.INSTALL_REASON_USER)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // Never install silently, even where Android would allow it for the installer of record.
-                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
+                // Install without a tap where Android allows it: the person already chose Install or Update all
+                // (here or on a paired device with its switch on), and the APK passed the SHA-256, package,
+                // version code and signer checks above. Android (12 and later) honours it when Bridgey declares
+                // UPDATE_PACKAGES_WITHOUT_USER_ACTION and is updating itself or is the installer of record,
+                // and this app's target SDK is recent enough; otherwise it answers STATUS_PENDING_USER_ACTION
+                // and the person confirms (for example when another app owns updates on Android 14, or a
+                // silent update ran in the last 30 seconds).
+                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
             }
         }
         val sessionId = installer.createSession(params)
@@ -441,5 +654,71 @@ class AppUpdater(
         private const val PERIODIC_WAKE_MILLIS = 60L * 60 * 1000
         private const val NOTIFICATION_CHANNEL_ID = "bridgey.updates"
         private const val NOTIFICATION_ID = 42_470
+        private const val ATTENTION_CHANNEL_ID = "bridgey.updates.attention"
+        private const val ATTENTION_NOTIFICATION_ID = 42_471
+        private const val KEY_PENDING_BUILD = "pending_install_build"
+        private const val KEY_PENDING_VERSION = "pending_install_version"
+        private const val KEY_PENDING_AT = "pending_install_at"
+        private const val KEY_NOT_APPLIED_BUILD = "not_applied_build"
+        private const val KEY_NOT_APPLIED_VERSION = "not_applied_version"
+    }
+}
+
+/**
+ * This phone's updates.status from the updater's state (docs/protocol.md "Update all"). One state
+ * at a time, the step furthest along first. A version that did not apply stays reported until the
+ * person installs by hand, retries, or a newer build is offered.
+ */
+fun localUpdateStatus(
+    state: UpdateUiState,
+    installedVersionName: String,
+    installedVersionCode: Long,
+    remoteStart: Boolean,
+    canUpdate: Boolean,
+): UpdateStatus {
+    val update = state.available
+    val notApplied = state.notApplied
+    fun status(
+        value: UpdateState,
+        target: String? = update?.versionName,
+        targetBuild: Long? = update?.versionCode,
+        progress: Int? = null,
+        reason: UpdateReason? = null,
+    ) = UpdateStatus(
+        platform = dev.bridgey.android.updates.UpdatePlatform.ANDROID,
+        edition = dev.bridgey.android.updates.UPDATES_EDITION,
+        app = installedVersionName,
+        build = installedVersionCode,
+        channel = dev.bridgey.android.updates.WireChannel.fromWire(state.channel.key) ?: dev.bridgey.android.updates.WireChannel.STABLE,
+        state = value,
+        target = target,
+        targetBuild = target?.let { targetBuild },
+        progress = progress,
+        reason = reason,
+        remoteStart = remoteStart && canUpdate,
+        checkedAt = state.lastCheckedAt.coerceAtLeast(0),
+    )
+    return when {
+        !canUpdate -> status(UpdateState.MANUAL, target = null)
+        state.installing && update != null -> status(UpdateState.INSTALLING)
+        state.awaitingConfirmation && update != null -> status(UpdateState.NEEDS_USER, reason = UpdateReason.CONFIRM)
+        state.needsInstallPermission && update != null -> status(UpdateState.NEEDS_USER, reason = UpdateReason.PERMISSION)
+        state.downloadProgress != null && update != null ->
+            status(UpdateState.DOWNLOADING, progress = (state.downloadProgress.coerceIn(0f, 1f) * 100).toInt())
+        state.readyToInstall && update != null -> status(UpdateState.READY)
+        notApplied != null -> status(UpdateState.FAILED, notApplied.version.ifEmpty { null }, notApplied.build, reason = UpdateReason.NOT_APPLIED)
+        state.error != null -> status(
+            UpdateState.FAILED,
+            reason = when (state.error) {
+                UpdateError.CHECK -> UpdateReason.CHECK
+                UpdateError.DOWNLOAD -> UpdateReason.DOWNLOAD
+                UpdateError.SAFETY -> UpdateReason.SAFETY
+                UpdateError.INSTALLER -> UpdateReason.INSTALLER
+                UpdateError.CANCELLED -> UpdateReason.CANCELLED
+            },
+        )
+        state.checking -> status(UpdateState.CHECKING, target = null)
+        update != null -> status(UpdateState.AVAILABLE)
+        else -> status(UpdateState.CURRENT, target = null)
     }
 }

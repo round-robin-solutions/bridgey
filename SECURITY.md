@@ -121,3 +121,37 @@ The first launch after an update from a Keychain build reads the old items once
 old items with a marker and tries to delete them. If the read is denied,
 nothing changes, no new identity is created, and the app asks again on the next
 launch. Details and test results: `docs/rr-mac-signing.md`.
+
+## Bridgey by Round Robin edition: Update all
+
+Update all lets one device ask the devices connected to it to update themselves (draft
+`updates_draft1`, `docs/protocol.md`). The decisions and why:
+
+- **The request carries nothing to install.** `updates.start` has a request ID and an optional
+  `retry` flag, nothing else: no URL, file, version or channel. The receiver reads its own channel
+  feed, picks only a build newer than the installed one, and installs it through its own checks:
+  on Android HTTPS from the release repository, size, SHA-256, package name, version code and the
+  exact signing certificate of the installed app; on the Mac Sparkle's EdDSA signature against the
+  key in the installed app. A paired device can therefore only trigger the update the receiver
+  would have offered anyway; it cannot choose what runs, and it can never downgrade.
+- **Only paired devices, only when advertised.** The request is accepted only on an authenticated,
+  encrypted session with a trusted peer whose latest feature map shows the key, and goes through
+  the session's replay window. Upstream peers and older builds never advertise the key and never
+  receive these messages.
+- **Rate limited.** At most one start every 30 seconds and five an hour from each device; more are
+  refused.
+- **No retry loops.** A device that started again on its old build records it and refuses further
+  starts for that version unless a person tapped Retry for it (`retry: true`) or updates it there.
+- **On by default.** "Let paired devices start updates on this device" is on by default. Judgement
+  call: the worst a paired device can do with it is make this device install its own signed update
+  from its own channel sooner, which it would offer anyway; the cost is a restart of Bridgey (not of
+  the device) at a moment the person did not pick. A paired device already has far more reach
+  (clipboard, files, notifications). Turning the switch off refuses every request.
+- **Android installs without a second tap where Android allows it.** Sessions ask for
+  `USER_ACTION_NOT_REQUIRED` and the app declares `UPDATE_PACKAGES_WITHOUT_USER_ACTION`. Android
+  grants this only to an app updating itself or the installer of record, only for the same
+  package, and the APK still has to pass the checks above and Android's own signature check
+  against the installed app. When Android wants a tap, the phone asks with a notification and
+  reports "needs you"; nothing is bypassed.
+- **The device you are using keeps the say.** Its own restart waits through a countdown with Later;
+  a device that was asked by another restarts without asking, because the person asked from there.
