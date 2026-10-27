@@ -55,7 +55,7 @@ final class PhoneFilesPerfTests: XCTestCase {
         model.thumbnails.onVisibleFilled = { if filled == nil { filled = Date() } }
         model.start(preferred: phone)
         wait(until: { model.listing(.media).entries.count >= self.visibleCount })
-        model.currentEntries.prefix(visibleCount).forEach(model.thumbnails.appeared)
+        model.thumbnails.setVisible(Array(model.currentEntries.prefix(visibleCount)), ahead: Array(model.currentEntries.dropFirst(visibleCount).prefix(72)))
         wait(until: { filled != nil })
         return (filled ?? Date()).timeIntervalSince(start)
     }

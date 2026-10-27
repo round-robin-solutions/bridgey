@@ -74,8 +74,8 @@ final class PhoneThumbnailPipelineTests: XCTestCase {
         let requests = phone.requests(BrowseKind.mediaThumbnails).count
         let cancels = phone.requests(BrowseKind.mediaCancel).count
         XCTAssertEqual(filled(visible), visible.count)
-        // One flush asks up to three sizes; the second set of cells needs nothing new, so nothing is replaced.
-        XCTAssertLessThanOrEqual(requests, 3, "requests=\(requests)")
+        // Three small requests at a time, the rest as slots free; nothing that is still wanted is cancelled.
+        XCTAssertLessThanOrEqual(requests, 12, "requests=\(requests)")
         XCTAssertEqual(cancels, 0)
     }
 
@@ -94,8 +94,8 @@ final class PhoneThumbnailPipelineTests: XCTestCase {
         waitUntil(5) { self.filled(screen) == screen.count }
         pump(0.2)
         XCTAssertEqual(filled(screen), screen.count)
-        XCTAssertLessThanOrEqual(phone.requests(BrowseKind.mediaThumbnails).count, first + 3, "one replacement")
-        XCTAssertLessThanOrEqual(phone.requests(BrowseKind.mediaCancel).count, first)
+        XCTAssertLessThanOrEqual(phone.requests(BrowseKind.mediaThumbnails).count, first + 12, "no request storm")
+        XCTAssertLessThanOrEqual(phone.requests(BrowseKind.mediaCancel).count, first, "only the requests of the screen left behind")
     }
 
     /// A phone that answers `busy` is asked again after a pause, not on every turn of the run loop.
@@ -107,13 +107,37 @@ final class PhoneThumbnailPipelineTests: XCTestCase {
         }
         scheduler.setOrder(entries)
         entries.prefix(20).forEach(scheduler.appeared)
-        pump(1)
-        // The first flush's requests (one per size) end together with the first `busy`; no retry within the pause.
-        XCTAssertLessThanOrEqual(phone.requests(BrowseKind.mediaThumbnails).count, 3)
+        pump(0.8)
+        // The first requests end with `busy`; nothing more is asked during the pause.
+        XCTAssertLessThanOrEqual(phone.requests(BrowseKind.mediaThumbnails).count, PhoneThumbnailScheduler.maxInFlight)
         phone.server = androidLikeThumbnailServer(entries)
         let visible = Array(entries.prefix(20))
         waitUntil(5) { self.filled(visible) == visible.count }
         XCTAssertEqual(filled(visible), visible.count, "asked again after the pause")
+    }
+
+    /// A fast scroll through 2,000 items, then a stop: the screen where the scroll stops fills, requests for
+    /// screens flown past are cancelled rather than answered, and the client never exceeds the phone's budget.
+    func testAFastScrollFillsTheScreenWhereItStops() {
+        let entries = library(2_000)
+        phone.server = androidLikeThumbnailServer(entries, reuseImages: true)
+        scheduler.setOrder(entries)
+        var start = 0
+        while start < 1_800 {
+            let screen = Array(entries[start..<(start + 36)])
+            scheduler.setVisible(screen, ahead: Array(entries[(start + 36)..<(start + 108)]))
+            pump(0.016)
+            start += 48
+        }
+        let stop = Array(entries[1_800..<1_836])
+        scheduler.setVisible(stop, ahead: Array(entries[1_836..<1_908]))
+        waitUntil(5) { self.filled(stop) == stop.count }
+        XCTAssertEqual(filled(stop), stop.count)
+        let requests = phone.requests(BrowseKind.mediaThumbnails).count
+        let cancels = phone.requests(BrowseKind.mediaCancel).count
+        print("FASTSCROLL requests=\(requests) cancels=\(cancels) controller=\(controller.activeMediaRequests)")
+        XCTAssertLessThanOrEqual(cancels, requests)
+        XCTAssertLessThanOrEqual(controller.activeMediaRequests, BrowseLimits.mediaActive)
     }
 
     /// Replays what the real phone code sent (BrowseServer and AndroidThumbnails on an emulator's MediaStore,
@@ -179,11 +203,13 @@ final class PhoneThumbnailPipelineTests: XCTestCase {
 /// A phone that answers media.thumbnails like BrowseServer.thumbnails: each item scaled so its longest edge is
 /// the asked size, encoded as JPEG, packed into batches of at most 44 KiB of plaintext, `done` on the last.
 @MainActor
-func androidLikeThumbnailServer(_ entries: [PhoneFileEntry]) -> (String, Data) -> [(String, Data)] {
+func androidLikeThumbnailServer(_ entries: [PhoneFileEntry], reuseImages: Bool = false) -> (String, Data) -> [(String, Data)] {
     let byMediaID = Dictionary(entries.compactMap { entry -> (String, PhoneFileEntry)? in
         if case let .media(id) = entry.ref { return (id, entry) }
         return nil
     }, uniquingKeysWith: { first, _ in first })
+    // One JPEG per shape when reusing, so a long run does not spend its time encoding test images.
+    var made: [String: String] = [:]
     return { kind, payload in
         guard kind == BrowseKind.mediaThumbnails, let request = try? JSONDecoder().decode(MediaThumbnailsPayload.self, from: payload) else { return [] }
         let size = min(max(request.size, 64), 512)
@@ -205,7 +231,10 @@ func androidLikeThumbnailServer(_ entries: [PhoneFileEntry]) -> (String, Data) -
             }
             let scale = min(1, Double(size) / Double(max(width, height)))
             let w = max(1, Int((Double(width) * scale).rounded())), h = max(1, Int((Double(height) * scale).rounded()))
-            let data = testJPEG(width: w, height: h, seed: Int(id) ?? 0).base64EncodedString()
+            let shape = "\(w)x\(h)"
+            let data = reuseImages ? (made[shape] ?? testJPEG(width: w, height: h, seed: 1).base64EncodedString())
+                : testJPEG(width: w, height: h, seed: Int(id) ?? 0).base64EncodedString()
+            if reuseImages { made[shape] = data }
             let cost = data.count + data.filter { $0 == "/" }.count + 120
             if bytes + cost > BrowseKind.mediaPartPlaintext, !thumbs.isEmpty { flush(done: false) }
             thumbs.append(ThumbPayload(key: item.key, mimeType: "image/jpeg", width: w, height: h, tint: "#446688", data: data))

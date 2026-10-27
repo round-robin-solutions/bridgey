@@ -55,8 +55,14 @@ struct PhoneFileEntry: Identifiable, Equatable, Hashable {
     var durationMs: Int64? = nil
     /// Display path ("Camera", "Documents/Invoices"), from media.page.
     var location: String? = nil
+    /// When the photo or video was taken (else added): the phone sorts the gallery by it, so the grid's day
+    /// headers use it too. Older phones leave it out; then the modified date stands in.
+    var taken: Date? = nil
 
     var id: String { ref.identity }
+
+    /// The date that heads the item's day in the grid.
+    var dayDate: Date? { taken ?? modified }
 
     var isImage: Bool { mimeType?.hasPrefix("image/") == true }
     var isVideo: Bool { mimeType?.hasPrefix("video/") == true }
@@ -196,10 +202,15 @@ protocol PhoneFilesService: AnyObject {
                     deliver: @escaping (PhoneFileEntry, PhoneImage) -> Void,
                     finished: @escaping (Result<[PhoneFileEntry], PhoneFilesError>) -> Void) -> PhoneFilesCancellable
 
-    /// A preview-size image (videos: the poster frame), on the media lane.
+    /// A preview-size image (videos: the poster frame), on the media lane. `urgent` (someone is looking at it
+    /// now) goes ahead of thumbnails and prefetches still waiting for a slot.
     @discardableResult
-    func preview(phoneID: String, entry: PhoneFileEntry, size: Int,
+    func preview(phoneID: String, entry: PhoneFileEntry, size: Int, urgent: Bool,
                  completion: @escaping (Result<PhoneImage, PhoneFilesError>) -> Void) -> PhoneFilesCancellable
+
+    /// Media requests sent to the phone in its last 10-second window, queued ones included. The phone answers
+    /// `busy` past 60, so the grid and hover prefetch keep below it and leave room for the viewer.
+    func mediaRequestsInWindow(phoneID: String) -> Int
 
     /// Raw bytes of a file, unverified, for previews only (a video's first seconds, streamed playback).
     /// `progress` reports bytes received so far, so a caller can decide whether to keep a half-done prefetch.
@@ -224,6 +235,15 @@ protocol PhoneFilesService: AnyObject {
 }
 
 extension PhoneFilesService {
+    func mediaRequestsInWindow(phoneID: String) -> Int { 0 }
+
+    /// A preview that waits its turn (hover prefetch).
+    @discardableResult
+    func preview(phoneID: String, entry: PhoneFileEntry, size: Int,
+                 completion: @escaping (Result<PhoneImage, PhoneFilesError>) -> Void) -> PhoneFilesCancellable {
+        preview(phoneID: phoneID, entry: entry, size: size, urgent: false, completion: completion)
+    }
+
     /// Thumbnails all asked at one size.
     @discardableResult
     func thumbnails(phoneID: String, entries: [PhoneFileEntry], size: Int, lane: String,
@@ -259,7 +279,7 @@ final class UnavailablePhoneFiles: PhoneFilesService {
         return .none
     }
 
-    func preview(phoneID: String, entry: PhoneFileEntry, size: Int,
+    func preview(phoneID: String, entry: PhoneFileEntry, size: Int, urgent: Bool,
                  completion: @escaping (Result<PhoneImage, PhoneFilesError>) -> Void) -> PhoneFilesCancellable {
         completion(.failure(.notBrowsable))
         return .none
@@ -288,7 +308,18 @@ final class UnavailablePhoneFiles: PhoneFilesService {
 }
 
 enum PhoneFilesDigest {
+    private static let digits = Array("0123456789abcdef".utf8)
+
+    /// Lowercase hex SHA-256. Built from a table: `String(format:)` per byte made every grid flush spend
+    /// most of its time formatting (beta 6's CPU report on the work Mac, 2026-10-28).
     static func hex(_ text: String) -> String {
-        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+        var out = [UInt8](repeating: 0, count: 64)
+        var index = 0
+        for byte in SHA256.hash(data: Data(text.utf8)) {
+            out[index] = digits[Int(byte >> 4)]
+            out[index + 1] = digits[Int(byte & 0x0F)]
+            index += 2
+        }
+        return String(decoding: out, as: UTF8.self)
     }
 }

@@ -33,12 +33,15 @@ final class UIFakePhoneFiles: PhoneFilesService {
     var defaultThumbnail = UIFakeImages.jpeg(width: 256, height: 256, seed: 1)
     var previewImage = UIFakeImages.jpeg(width: 1600, height: 1200, seed: 2, quality: 0.6)
     var uploadResult: Result<Void, PhoneFilesError> = .success(())
+    /// Every thumbnail request ends with this (after the round trip) instead of answering.
+    var thumbnailFailure: PhoneFilesError?
 
     private(set) var thumbnailRequests: [(lane: String, keys: [String])] = []
     /// The size asked for each entry, by entry ID (the latest request wins).
     private(set) var thumbnailSizes: [String: Int] = [:]
     private(set) var cancelledThumbnailRequests = 0
     private(set) var previewRequests = 0
+    private(set) var urgentPreviews = 0
     private(set) var cancelledPreviews = 0
     private(set) var rangeRequests = 0
     private(set) var cancelledRanges = 0
@@ -110,6 +113,18 @@ final class UIFakePhoneFiles: PhoneFilesService {
         thumbnailRequests.append((lane, entries.map(\.id)))
         for entry in entries { thumbnailSizes[entry.id] = size(entry) }
         let live = { [weak self] in self?.lanes[lane] == token }
+        if let failure = thumbnailFailure {
+            after(simulated?.rtt ?? 0) { [weak self] in
+                guard live() else { return }
+                self?.lanes[lane] = nil
+                finished(.failure(failure))
+            }
+            return PhoneFilesCancellable { [weak self] in
+                guard let self, self.lanes[lane] == token else { return }
+                self.lanes[lane] = nil
+                self.cancelledThumbnailRequests += 1
+            }
+        }
         var clock = simulated?.rtt ?? 0
         let threads = Double(max(1, simulated?.phoneThreads ?? 1))
         var missing: [PhoneFileEntry] = []
@@ -136,9 +151,10 @@ final class UIFakePhoneFiles: PhoneFilesService {
         }
     }
 
-    func preview(phoneID: String, entry: PhoneFileEntry, size: Int,
+    func preview(phoneID: String, entry: PhoneFileEntry, size: Int, urgent: Bool,
                  completion: @escaping (Result<PhoneImage, PhoneFilesError>) -> Void) -> PhoneFilesCancellable {
         previewRequests += 1
+        if urgent { urgentPreviews += 1 }
         var cancelled = false
         let data = previewImage
         let delay = (simulated?.rtt ?? 0) + (simulated?.previewWork ?? 0) + wire(data.count)

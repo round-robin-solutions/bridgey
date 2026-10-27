@@ -119,37 +119,99 @@ final class PhoneFilesUITests: XCTestCase {
 
     // MARK: Scheduler
 
-    func testSchedulerAsksVisibleFirstThenPrefetchInOneRequest() {
-        let fake = UIFakePhoneFiles()
-        let entries = UIFakeImages.media(200)
-        let scheduler = PhoneThumbnailScheduler(service: fake, cache: PhoneThumbnailCache(directory: nil))
+    private func scheduler(_ fake: UIFakePhoneFiles, cache: PhoneThumbnailCache = PhoneThumbnailCache(directory: nil)) -> PhoneThumbnailScheduler {
+        let scheduler = PhoneThumbnailScheduler(service: fake, cache: cache)
         scheduler.setPhone(phone)
+        return scheduler
+    }
+
+    func testSchedulerAsksTheScreenFirstThenWhatComesNext() {
+        let fake = UIFakePhoneFiles()
+        fake.simulated = .init(rtt: 0.5)
+        let entries = UIFakeImages.media(200)
+        let scheduler = scheduler(fake)
         scheduler.setOrder(entries)
         for entry in entries[10..<30].reversed() { scheduler.appeared(entry) }
         spin(0.01)
-        XCTAssertEqual(fake.thumbnailRequests.count, 1, "one flush, one request")
-        let keys = fake.thumbnailRequests[0].keys
-        XCTAssertEqual(Array(keys.prefix(20)), entries[10..<30].map(\.id), "visible items first, in grid order")
-        XCTAssertEqual(keys.count, PhoneThumbnailScheduler.maxPerRequest)
-        XCTAssertEqual(keys[20], entries[30].id, "then the next screen")
-        XCTAssertEqual(fake.thumbnailRequests[0].lane, "grid")
+        let keys = fake.thumbnailRequests.map(\.keys)
+        XCTAssertEqual(keys.count, 2, "one request for the screen, one for the next screen")
+        XCTAssertEqual(keys.first, entries[10..<30].map(\.id), "the visible items, in grid order")
+        XCTAssertEqual(keys.last?.first, entries[30].id, "then the next screen")
+        XCTAssertEqual(keys.last?.count, PhoneThumbnailScheduler.prefetchAhead)
+        XCTAssertEqual(Set(fake.thumbnailRequests.map(\.lane)).count, keys.count, "no request replaces another")
+        XCTAssertEqual(fake.cancelledThumbnailRequests, 0)
     }
 
-    func testSchedulerReplacesTheLaneWhenScrolling() {
+    /// Items of different sizes go in different requests (one size per request), still at most three on the wire.
+    func testOneRequestPerSizeAndAtMostThreeOnTheWire() {
         let fake = UIFakePhoneFiles()
-        fake.simulated = .init(rtt: 0.2)
-        let entries = UIFakeImages.media(400)
-        let scheduler = PhoneThumbnailScheduler(service: fake, cache: PhoneThumbnailCache(directory: nil))
-        scheduler.setPhone(phone)
+        fake.simulated = .init(rtt: 0.5)
+        let scheduler = scheduler(fake)
+        let entries: [PhoneFileEntry] = (0..<300).map { (index: Int) -> PhoneFileEntry in
+            let tall = index % 2 == 0
+            return PhoneFileEntry(ref: .media(id: String(70_000 + index)), name: "M\(index)", isDirectory: false, size: 1, modified: nil,
+                                  mimeType: "image/jpeg", hasThumbnail: true, width: tall ? 1080 : 4000, height: tall ? 2412 : 3000)
+        }
         scheduler.setOrder(entries)
-        entries[0..<20].forEach(scheduler.appeared)
+        scheduler.setVisible(Array(entries[0..<20]), ahead: Array(entries[20..<200]))
         spin(0.01)
-        entries[0..<20].forEach(scheduler.disappeared)
-        entries[300..<320].forEach(scheduler.appeared)
+        XCTAssertEqual(scheduler.requestsInFlight, PhoneThumbnailScheduler.maxInFlight)
+        XCTAssertEqual(fake.thumbnailRequests.count, PhoneThumbnailScheduler.maxInFlight)
+        let sizes: [Set<Int>] = fake.thumbnailRequests.map { request in Set(request.keys.compactMap { fake.thumbnailSizes[$0] }) }
+        XCTAssertTrue(sizes.allSatisfy { $0.count == 1 }, "one size per request")
+        let first: [String] = fake.thumbnailRequests[0].keys + fake.thumbnailRequests[1].keys
+        let screen: [String] = entries[0..<20].map { $0.id }
+        XCTAssertEqual(Set(first), Set(screen), "the screen goes first")
+    }
+
+    /// Beta 5 and 6 replaced their own request on every turn of the run loop (2,403 cancels in 20 seconds live):
+    /// a request is now cancelled only when nothing in it is wanted any more.
+    func testScrollingKeepsRequestsThatAreStillWantedAndDropsTheRest() {
+        let fake = UIFakePhoneFiles()
+        fake.simulated = .init(rtt: 0.5)
+        let entries = UIFakeImages.media(400)
+        let scheduler = scheduler(fake)
+        scheduler.setOrder(entries)
+        scheduler.setVisible(Array(entries[0..<12]), ahead: [])
         spin(0.01)
-        XCTAssertEqual(fake.thumbnailRequests.count, 2)
-        XCTAssertEqual(fake.thumbnailRequests[1].keys.first, entries[300].id)
-        XCTAssertEqual(fake.cancelledThumbnailRequests, 1, "the first request was replaced")
+        XCTAssertEqual(fake.thumbnailRequests.count, 1)
+        // A small scroll: half of the first screen is still visible.
+        scheduler.setVisible(Array(entries[6..<18]), ahead: [])
+        spin(0.01)
+        XCTAssertEqual(fake.cancelledThumbnailRequests, 0, "the first request still carries visible items")
+        XCTAssertEqual(fake.thumbnailRequests.last?.keys, entries[12..<18].map(\.id), "only what is new is asked for")
+        // A jump far away: nothing of the earlier requests is wanted; new requests wait for the scroll to settle.
+        scheduler.setVisible(Array(entries[300..<312]), ahead: [])
+        spin(0.01)
+        XCTAssertEqual(fake.cancelledThumbnailRequests, 2, "both earlier requests gave their slot back")
+        XCTAssertEqual(fake.thumbnailRequests.count, 2, "nothing sent while the scroll flies past")
+        spin(PhoneThumbnailScheduler.settle + 0.05)
+        XCTAssertEqual(fake.thumbnailRequests.last?.keys, entries[300..<312].map(\.id))
+        XCTAssertEqual(scheduler.requestsInFlight, 1)
+        wait(until: { entries[300..<312].allSatisfy { scheduler.box(for: $0).image != nil } }, timeout: 3)
+        XCTAssertTrue(entries[300..<312].allSatisfy { scheduler.box(for: $0).image != nil })
+        XCTAssertEqual(scheduler.state(of: entries[0]), "idle", "cancelled items are asked again when they come back")
+    }
+
+    /// Visible items never wait behind items further ahead.
+    func testVisibleItemsPushOutARequestForItemsAhead() {
+        let fake = UIFakePhoneFiles()
+        fake.simulated = .init(rtt: 0.5)
+        let entries = UIFakeImages.media(400)
+        let scheduler = scheduler(fake)
+        scheduler.setOrder(entries)
+        // Three requests: the screen, then two of 64 coming items each.
+        scheduler.setVisible(Array(entries[0..<6]), ahead: Array(entries[6..<200]))
+        spin(0.01)
+        XCTAssertEqual(fake.thumbnailRequests.count, 3)
+        // Every request still carries wanted items (all of them are ahead now), but a new screen needs a slot:
+        // the newest request that carries nothing visible gives way.
+        scheduler.setVisible(Array(entries[300..<306]), ahead: Array(entries[0..<200]))
+        spin(PhoneThumbnailScheduler.settle + 0.05)
+        XCTAssertEqual(fake.cancelledThumbnailRequests, 1)
+        XCTAssertEqual(fake.thumbnailRequests.last?.keys, entries[300..<306].map(\.id))
+        XCTAssertEqual(scheduler.requestsInFlight, PhoneThumbnailScheduler.maxInFlight)
+        XCTAssertEqual(scheduler.state(of: entries[0]), "wire", "the first screen's request kept going")
     }
 
     func testSchedulerFillsFromMemoryAndDiskWithoutTheNetwork() {
@@ -164,36 +226,116 @@ final class PhoneFilesUITests: XCTestCase {
         }
         wait(until: { entries.allSatisfy { cache.contains($0.cacheKey(phoneID: self.phone), kind: .thumbnail) } })
         let fresh = PhoneThumbnailCache(directory: directory.appendingPathComponent("warm"))
-        let scheduler = PhoneThumbnailScheduler(service: fake, cache: fresh)
-        scheduler.setPhone(phone)
+        let scheduler = scheduler(fake, cache: fresh)
         scheduler.setOrder(entries)
         entries.forEach(scheduler.appeared)
         wait(until: { entries.allSatisfy { scheduler.box(for: $0).image != nil } })
         XCTAssertTrue(entries.allSatisfy { scheduler.box(for: $0).image != nil })
         XCTAssertTrue(fake.thumbnailRequests.isEmpty, "everything came from disk")
         XCTAssertFalse(scheduler.box(for: entries[0]).arrived, "disk hits draw without a fade")
-        // A second box for the same entry starts filled from memory.
-        let other = PhoneThumbnailScheduler(service: fake, cache: fresh)
-        other.setPhone(phone)
+        // A second scheduler for the same phone starts filled from memory.
+        let other = self.scheduler(fake, cache: fresh)
         XCTAssertNotNil(other.box(for: entries[0]).image)
     }
 
-    func testSchedulerDoesNotAskAgainForMissingThumbnails() {
+    func testMissingAndUndecodableThumbnailsShowTheFallbackAndAreNotAskedAgain() {
         let fake = UIFakePhoneFiles()
         let entries = UIFakeImages.media(3)
         fake.defaultThumbnail = Data()
         fake.thumbnailBytes = [entries[0].id: UIFakeImages.jpeg(width: 64, height: 64, seed: 1)]
-        let scheduler = PhoneThumbnailScheduler(service: fake, cache: PhoneThumbnailCache(directory: nil))
-        scheduler.setPhone(phone)
+        let scheduler = scheduler(fake)
         scheduler.setOrder(entries)
         entries.forEach(scheduler.appeared)
-        wait(until: { scheduler.box(for: entries[0]).image != nil })
+        wait(until: { scheduler.box(for: entries[0]).image != nil && scheduler.box(for: entries[1]).state == .unavailable })
+        XCTAssertEqual(scheduler.box(for: entries[1]).state, .unavailable, "bytes that do not decode: the fallback, not a placeholder")
         spin(0.05)
         let count = fake.thumbnailRequests.count
         entries.forEach(scheduler.disappeared)
         entries.forEach(scheduler.appeared)
         spin(0.05)
-        XCTAssertEqual(fake.thumbnailRequests.count, count, "a thumbnail that failed to decode or is missing is not asked for again")
+        XCTAssertEqual(fake.thumbnailRequests.count, count, "not asked for again")
+        scheduler.retryFailed()
+        spin(0.05)
+        XCTAssertGreaterThan(fake.thumbnailRequests.count, count, "Refresh asks again")
+    }
+
+    /// A request that fails is asked again after a pause, then the cell shows "Couldn't load", never a blank.
+    func testFailedThumbnailsAreRetriedThenShowAFallback() {
+        let fake = UIFakePhoneFiles()
+        fake.thumbnailFailure = .timeout
+        let entries = UIFakeImages.media(4)
+        let scheduler = scheduler(fake)
+        scheduler.retryDelays = [0.05, 0.05, 0.05]
+        scheduler.setOrder(entries)
+        entries.forEach(scheduler.appeared)
+        wait(until: { entries.allSatisfy { scheduler.box(for: $0).state == .failed } }, timeout: 3)
+        XCTAssertTrue(entries.allSatisfy { scheduler.box(for: $0).state == .failed })
+        XCTAssertEqual(fake.thumbnailRequests.count, 4, "the first try and three retries, one request each")
+        spin(0.2)
+        XCTAssertEqual(fake.thumbnailRequests.count, 4, "no loop once it gave up")
+        // Recovers on Refresh once the phone answers again.
+        fake.thumbnailFailure = nil
+        scheduler.retryFailed()
+        wait(until: { entries.allSatisfy { scheduler.box(for: $0).image != nil } }, timeout: 3)
+        XCTAssertTrue(entries.allSatisfy { scheduler.box(for: $0).image != nil })
+    }
+
+    func testBusyPausesWithoutCountingAsAFailure() {
+        let fake = UIFakePhoneFiles()
+        fake.thumbnailFailure = .code(FolderCode.busy)
+        let entries = UIFakeImages.media(4)
+        let scheduler = scheduler(fake)
+        scheduler.busyPause = 0.2
+        scheduler.setOrder(entries)
+        entries.forEach(scheduler.appeared)
+        spin(0.1)
+        XCTAssertEqual(fake.thumbnailRequests.count, 1, "no request while the phone asks for a pause")
+        fake.thumbnailFailure = nil
+        wait(until: { entries.allSatisfy { scheduler.box(for: $0).image != nil } }, timeout: 3)
+        XCTAssertTrue(entries.allSatisfy { scheduler.box(for: $0).image != nil }, "busy never ends in the fallback")
+    }
+
+    func testADisconnectPausesAndTheReconnectAsksAgain() {
+        let fake = UIFakePhoneFiles()
+        fake.thumbnailFailure = .notConnected
+        let entries = UIFakeImages.media(4)
+        let scheduler = scheduler(fake)
+        scheduler.setOrder(entries)
+        entries.forEach(scheduler.appeared)
+        spin(0.1)
+        XCTAssertEqual(fake.thumbnailRequests.count, 1)
+        XCTAssertTrue(entries.allSatisfy { scheduler.box(for: $0).state == .waiting }, "a dropped phone is not a failed thumbnail")
+        fake.thumbnailFailure = nil
+        scheduler.resume()
+        wait(until: { entries.allSatisfy { scheduler.box(for: $0).image != nil } }, timeout: 3)
+        XCTAssertTrue(entries.allSatisfy { scheduler.box(for: $0).image != nil })
+    }
+
+    /// Memory follows the screen: boxes far away let go of their images; they come back from the cache.
+    func testImagesFarFromTheScreenAreReleasedAndComeBack() {
+        let fake = UIFakePhoneFiles()
+        let entries = UIFakeImages.media(300)
+        let scheduler = scheduler(fake)
+        scheduler.imageBoxLimit = 40
+        scheduler.setOrder(entries)
+        for start in stride(from: 0, to: 240, by: 10) {
+            let screen = Array(entries[start..<(start + 20)])
+            scheduler.setVisible(screen, ahead: [])
+            wait(until: { screen.allSatisfy { scheduler.box(for: $0).image != nil } }, timeout: 3)
+        }
+        XCTAssertLessThanOrEqual(scheduler.boxesHoldingImages, 40 + 20, "images held follow the screen, not the scroll")
+        XCTAssertNil(scheduler.box(for: entries[0]).image, "the first screen let go")
+        let requests = fake.thumbnailRequests.count
+        let first = Array(entries[0..<20])
+        scheduler.setVisible(first, ahead: [])
+        wait(until: { first.allSatisfy { scheduler.box(for: $0).image != nil } }, timeout: 3)
+        XCTAssertTrue(first.allSatisfy { scheduler.box(for: $0).image != nil })
+        XCTAssertEqual(fake.thumbnailRequests.count, requests, "it came back from the cache, not the phone")
+    }
+
+    func testCacheKeyHexMatchesTheDigest() {
+        XCTAssertEqual(PhoneFilesDigest.hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        XCTAssertEqual(PhoneFilesDigest.hex(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
     }
 
     // MARK: Hover prefetch
@@ -317,7 +459,7 @@ final class PhoneFilesUITests: XCTestCase {
         wait(until: { model.listing(.media).loaded && !model.listing(.media).loading })
         for entry in model.currentEntries { model.thumbnails.appeared(entry) }
         wait(until: { fake.thumbnailSizes.count == shapes.count })
-        XCTAssertEqual(fake.media.map { fake.thumbnailSizes[$0.id] }, [512, 384, 288, 512])
+        XCTAssertEqual(fake.media.map { fake.thumbnailSizes[$0.id] }, [512, 384, 384, 512])
     }
 
     func testReopeningShowsTheLastListingAtOnce() {
