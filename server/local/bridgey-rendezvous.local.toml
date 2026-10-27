@@ -1,0 +1,13 @@
+# Local test settings only (server/local/live-test.sh): the control service on the tailnet,
+# one relay (coturn in a container on the same host). Never deployed.
+[server]
+listen = "100.121.85.33:18450"
+trust_proxy = false
+environment = "local"
+
+[[relays]]
+id = "sxb"
+kind = "coturn"
+urls = ["turn:100.121.85.33:3479?transport=udp"]
+secret_env = "TURN_SECRET_LOCAL"
+max_kbps = 50000
