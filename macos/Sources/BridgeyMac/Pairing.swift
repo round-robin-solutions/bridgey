@@ -2651,6 +2651,7 @@ final class PairingCoordinator: ObservableObject {
     private func cancelTransfers(for id: String) {
         folders.phoneDisconnected(id)
         folderReceiver.phoneDisconnected(id)
+        receivedNotifier.forget(id)
         phoneFilesController.phoneDisconnected(id)
         let ids = Set(transferDevices.filter { $0.value == id && !folders.owns($0.key) }.keys)
         let hadActiveTransfers = fileTransfers.values.contains(where: { $0.active && ids.contains($0.id) })
@@ -2690,7 +2691,6 @@ final class PairingCoordinator: ObservableObject {
             active: active,
             startedAt: previous?.startedAt ?? Date(),
             retryable: !active && outgoingFileSources[id] != nil,
-        receivedNotifier.forget(id)
             localURL: localURL ?? previous?.localURL ?? outgoingFileSources[id]
         )
         pruneTransferHistory()
