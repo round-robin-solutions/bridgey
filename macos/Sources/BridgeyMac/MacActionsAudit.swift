@@ -12,9 +12,21 @@ struct MacActionAuditEntry: Codable, Identifiable, Equatable {
     let title: String
     /// `done` or a refusal reason (`not_allowed`, `rate_limited`, ...).
     let outcome: String
+    /// The newest time it ran or was refused.
     let at: Date
+    /// Repeats of the same action from the same phone with the same outcome, merged into one entry
+    /// (nil means once). Missing in logs written before 0.10.
+    var count: Int?
+    /// When the first of the merged repeats happened; nil for a single entry.
+    var firstAt: Date?
 
     var accepted: Bool { outcome == "done" }
+    var times: Int { count ?? 1 }
+
+    /// The same action from the same phone with the same outcome, so the two can be one log entry.
+    func repeats(_ other: MacActionAuditEntry) -> Bool {
+        deviceID == other.deviceID && action == other.action && outcome == other.outcome
+    }
 }
 
 /// `mac-actions-audit.json` in Application Support: owner-only, 30 days, at most 500 entries.
@@ -22,6 +34,8 @@ final class MacActionsAuditStore {
     static let fileName = "mac-actions-audit.json"
     static let maximumAge: TimeInterval = 30 * 24 * 60 * 60
     static let maximumEntries = 500
+    /// Repeats closer together than this merge into one entry; a longer pause starts a new one.
+    static let mergeWindow: TimeInterval = 10 * 60
 
     let fileURL: URL
 
@@ -57,10 +71,26 @@ final class MacActionsAuditStore {
         try? FileManager.default.removeItem(at: fileURL)
     }
 
-    /// Newest first, nothing older than 30 days, at most 500 entries.
+    /// Newest first, nothing older than 30 days, back-to-back repeats merged, at most 500 entries.
     static func pruned(_ entries: [MacActionAuditEntry], now: Date) -> [MacActionAuditEntry] {
         let oldest = now.addingTimeInterval(-maximumAge)
-        return Array(entries.filter { $0.at >= oldest }.sorted { $0.at > $1.at }.prefix(maximumEntries))
+        return Array(merged(entries.filter { $0.at >= oldest }.sorted { $0.at > $1.at }).prefix(maximumEntries))
+    }
+
+    /// Merges runs of the same action (newest first) into one entry that keeps the newest ID and time.
+    static func merged(_ newestFirst: [MacActionAuditEntry]) -> [MacActionAuditEntry] {
+        var result: [MacActionAuditEntry] = []
+        for entry in newestFirst {
+            if var newer = result.last, newer.repeats(entry),
+               (newer.firstAt ?? newer.at).timeIntervalSince(entry.at) <= mergeWindow {
+                newer.count = newer.times + entry.times
+                newer.firstAt = entry.firstAt ?? entry.at
+                result[result.count - 1] = newer
+            } else {
+                result.append(entry)
+            }
+        }
+        return result
     }
 
     static func defaultFileURL() -> URL {

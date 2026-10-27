@@ -208,7 +208,9 @@ private struct MacActionAuditRow: View {
 
     private var detail: String {
         let title = entry.title.isEmpty ? L10n.text("actions.unknown", fallback: "Unknown action") : entry.title
-        return "\(title) \u{00B7} \(macActionOutcomeText(entry.outcome))"
+        let line = "\(title) \u{00B7} \(macActionOutcomeText(entry.outcome))"
+        guard entry.times > 1 else { return line }
+        return line + " \u{00B7} " + String(format: L10n.text("actions.log.times", fallback: "%d times"), entry.times)
     }
 }
 

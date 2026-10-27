@@ -955,6 +955,7 @@
 "actions.log.empty" = "No actions yet";
 "actions.outcome.busy" = "Refused: a Shortcut was still running";
 "actions.outcome.done" = "Done";
+"actions.log.times" = "%d times";
 "actions.outcome.failed" = "Failed";
 "actions.outcome.invalid" = "Refused: not a valid request";
 "actions.outcome.notAllowed" = "Refused: not allowed";

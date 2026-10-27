@@ -955,6 +955,7 @@
 "actions.log.empty" = "Действий пока не было";
 "actions.outcome.busy" = "Отклонено: быстрая команда ещё выполнялась";
 "actions.outcome.done" = "Выполнено";
+"actions.log.times" = "повторов: %d";
 "actions.outcome.failed" = "Не удалось";
 "actions.outcome.invalid" = "Отклонено: неверный запрос";
 "actions.outcome.notAllowed" = "Отклонено: не разрешено";

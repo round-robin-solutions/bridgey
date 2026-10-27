@@ -268,6 +268,39 @@ final class MacActionsTests: XCTestCase {
         XCTAssertEqual(Set(entries.map(\.action)), ["volume_set", "app:com.apple.Terminal"])
     }
 
+    func testRepeatsMergeIntoOneLogEntry() {
+        let log = MacActionsAuditLog(store: nil, clock: { [unowned self] in self.now })
+        func entry(_ id: String, _ action: String, _ seconds: TimeInterval, outcome: String = "done", device: String = "phone") -> MacActionAuditEntry {
+            MacActionAuditEntry(id: id, deviceID: device, deviceName: "OnePlus 11", action: action, title: action,
+                                outcome: outcome, at: now.addingTimeInterval(seconds))
+        }
+        for i in 0..<12 { log.record(entry("up\(i)", "volume_up", TimeInterval(i))) }
+        XCTAssertEqual(log.entries.count, 1)
+        XCTAssertEqual(log.entries[0].times, 12)
+        XCTAssertEqual(log.entries[0].id, "up11")
+        XCTAssertEqual(log.entries[0].firstAt, now)
+        XCTAssertEqual(log.entries[0].at, now.addingTimeInterval(11))
+
+        log.record(entry("down", "volume_down", 20))
+        log.record(entry("up-refused", "volume_up", 21, outcome: "rate_limited"))
+        log.record(entry("up-other", "volume_up", 22, device: "tablet"))
+        log.record(entry("up-later", "volume_up", 23 + MacActionsAuditStore.mergeWindow + 1, device: "tablet"))
+        XCTAssertEqual(log.entries.map(\.id), ["up-later", "up-other", "up-refused", "down", "up11"])
+        XCTAssertEqual(log.entries.map(\.times), [1, 1, 1, 1, 12])
+    }
+
+    func testOldLogsWithoutCountsDecodeAndMerge() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("audit-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let at = Int(now.timeIntervalSince1970 * 1000)
+        let old = (0..<3).map { #"{"action":"volume_up","at":\#(at - $0 * 1000),"deviceID":"phone","deviceName":"OnePlus 11","id":"\#($0)","outcome":"done","title":"Volume up"}"# }
+        try Data("[\(old.joined(separator: ","))]".utf8).write(to: url)
+        let entries = MacActionsAuditStore(fileURL: url).load(now: now)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].times, 3)
+        XCTAssertEqual(entries[0].id, "0")
+    }
+
     func testConfigSurvivesARestart() {
         let defaults = UserDefaults(suiteName: "bridgey.tests.macactions.\(UUID().uuidString)")!
         let store = MacActionsConfigStore(defaults: defaults)
