@@ -148,6 +148,37 @@ class SmsProtocolTest {
         assertNull("too old", matchNotificationThread("Bob", "Old message", t, candidates))
     }
 
+    /**
+     * Android 15 hides the sender and text from a listener that is not linked (seen on the API 35
+     * emulator with Google Messages, whose Notification.when is the provider's date even on re-posts).
+     */
+    @Test fun hiddenNotificationsMatchByTheirOwnTimestamp() {
+        val t = 1_000_000_000L
+        val hidden = "Sensitive notification content hidden"
+        val inbox = listOf(
+            InboxCandidate(1, "+15551234", "Can you bring the tickets?", t + 960_000),
+            InboxCandidate(2, "+15559876", "Your OTP is 482913", t + 3_000),
+            InboxCandidate(1, "+15551234", "Lunch at 1?", t),
+        )
+        // The older conversation's notification is re-posted when the newer message arrives: it keeps its own time.
+        assertEquals(2L, matchNotificationThread("", hidden, t + 960_200, inbox, messageTime = t + 3_000))
+        assertEquals(1L, matchNotificationThread("", hidden, t + 960_200, inbox, messageTime = t + 960_000))
+        assertEquals("an app that stamps the post time", 1L, matchNotificationThread("", hidden, t + 960_200, inbox, messageTime = t + 960_200))
+        assertNull("no timestamp", matchNotificationThread("", hidden, t + 960_200, inbox))
+        assertNull("nothing that close", matchNotificationThread("", hidden, t + 960_200, inbox, messageTime = t + 500_000))
+        val close = listOf(InboxCandidate(1, "+15551234", "A", t), InboxCandidate(2, "+15559876", "B", t + 1_000))
+        assertNull("two conversations within 1.5 seconds", matchNotificationThread("", hidden, t, close, messageTime = t))
+    }
+
+    @Test fun aRepostKeepsTheConversationFoundBefore() {
+        SmsNotificationTargets.clear()
+        SmsNotificationTargets.record(SmsNotificationTarget("n1", "", "hidden", 1, 7, null))
+        SmsNotificationTargets.record(SmsNotificationTarget("n1", "", "hidden", 2, null, null))
+        assertEquals(7L, SmsNotificationTargets.get("n1")?.threadId)
+        assertEquals(2L, SmsNotificationTargets.get("n1")?.postTime)
+        SmsNotificationTargets.clear()
+    }
+
     @Test fun sendStatusCarriesAReasonOnlyWhenItFailed() {
         val id = "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293"
         assertFalse(smsSendStatusPayload(id, SendState.SENT, SendReason.GROUP).has("reason"))

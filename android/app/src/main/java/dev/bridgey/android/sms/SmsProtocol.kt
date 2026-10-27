@@ -490,8 +490,17 @@ data class InboxCandidate(val threadId: Long, val address: String, val body: Str
  * The conversation an SMS notification belongs to: the newest inbox message from 10 minutes before
  * the notification to a minute after whose body is the notification's text (or begins with it when
  * the app cut it with an ellipsis), else whose number or contact name is the notification's title.
+ *
+ * [messageTime] is the notification's own timestamp (Notification.when). Android 15 hides the sender,
+ * the text and the reply action of an SMS notification from a listener that is not linked to a
+ * nearby device; such a notification (no title) belongs to the inbox message whose date is within 1.5
+ * seconds of that timestamp, but only when every message that close is in one conversation.
+ * Messaging apps set it to the message's time (Google Messages: exactly the provider's date, also
+ * when they re-post an older conversation's notification), so a re-post never moves it to the newest
+ * conversation. Without a usable timestamp it stays unmatched rather than risk a reply to the wrong
+ * person.
  */
-fun matchNotificationThread(title: String, text: String, postTime: Long, candidates: List<InboxCandidate>): Long? {
+fun matchNotificationThread(title: String, text: String, postTime: Long, candidates: List<InboxCandidate>, messageTime: Long = 0): Long? {
     val recent = candidates
         .filter { it.date in (postTime - MATCH_WINDOW_BEFORE_MILLIS)..(postTime + MATCH_WINDOW_AFTER_MILLIS) }
         .sortedByDescending { it.date }
@@ -502,7 +511,7 @@ fun matchNotificationThread(title: String, text: String, postTime: Long, candida
         if (prefix.length >= 8 && prefix != wanted) recent.firstOrNull { it.body.trim().startsWith(prefix) }?.let { return it.threadId }
     }
     val heading = title.trim()
-    if (heading.isEmpty()) return null
+    if (heading.isEmpty()) return byMessageTime(messageTime, candidates)
     val number = normalizeSmsAddress(heading)
     return recent.firstOrNull { candidate ->
         (number != null && sameNumber(normalizeSmsAddress(candidate.address), number)) ||
@@ -521,5 +530,13 @@ fun sameNumber(a: String?, b: String?): Boolean {
     return shorter >= 9 && x.takeLast(shorter) == y.takeLast(shorter)
 }
 
+/** Hidden notifications: the conversation of the messages within 1.5 seconds of the notification's timestamp, if only one. */
+private fun byMessageTime(messageTime: Long, candidates: List<InboxCandidate>): Long? {
+    if (messageTime <= 0) return null
+    val threads = candidates.filter { kotlin.math.abs(it.date - messageTime) <= HIDDEN_MATCH_TOLERANCE_MILLIS }.map { it.threadId }.toSet()
+    return threads.singleOrNull()
+}
+
+const val HIDDEN_MATCH_TOLERANCE_MILLIS = 1_500L
 const val MATCH_WINDOW_BEFORE_MILLIS = 600_000L
 const val MATCH_WINDOW_AFTER_MILLIS = 60_000L

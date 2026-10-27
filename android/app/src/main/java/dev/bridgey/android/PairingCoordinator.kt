@@ -3384,11 +3384,18 @@ class PairingCoordinator(
         val current = registry.session(deviceId) ?: return false
         if (current.pairingKey == null || registry.state(deviceId)?.remoteFeatures?.get(BridgeyFeature.SMS) != true) return false
         val data = payload.toString().toByteArray(Charsets.UTF_8)
-        return when (kind) {
+        fun write(): Boolean = when (kind) {
             dev.bridgey.android.sms.SmsKinds.THREADS_PAGE, dev.bridgey.android.sms.SmsKinds.MESSAGES_PAGE,
             dev.bridgey.android.sms.SmsKinds.SYNC_PAGE, dev.bridgey.android.sms.SmsKinds.ATTACHMENT_DATA -> sendEncryptedLow(current, kind, data)
             else -> sendEncrypted(current, kind, data)
         }
+        // Sent and delivered results arrive in a broadcast on the main thread, where a socket write
+        // throws NetworkOnMainThreadException (seen on the emulator): those go out from the IO scope.
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            scope.launch { write() }
+            return true
+        }
+        return write()
     }
 
     /** sms.* requests from a Mac: decrypted and replay-checked here; malformed or undecryptable ones are dropped. */

@@ -155,22 +155,28 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         // by SMS to the conversation it belongs to. Found here once; the text is matched, never logged.
         var smsReply = false
         var smsThreadId: Long? = null
-        if (smsDefaultApp && bridgey.settings.smsOn()) {
+        // A group summary ("2 new messages") stands for several conversations: no reply from the Mac.
+        val groupSummary = notification.flags and Notification.FLAG_GROUP_SUMMARY != 0
+        if (smsDefaultApp && !groupSummary && bridgey.settings.smsOn()) {
             val provider = dev.bridgey.android.sms.SmsProvider(this)
             val replyToken = actions.firstOrNull { it.allowsReply }?.token
             smsThreadId = if (provider.canRead) {
                 runCatching {
                     dev.bridgey.android.sms.matchNotificationThread(
                         title, text, sbn.postTime, provider.recentInbox(sbn.postTime - dev.bridgey.android.sms.MATCH_WINDOW_BEFORE_MILLIS),
+                        messageTime = notification.`when`,
                     )
                 }.getOrNull()
             } else {
                 null
-            }
+            } ?: dev.bridgey.android.sms.SmsNotificationTargets.get(notificationId)?.threadId
             dev.bridgey.android.sms.SmsNotificationTargets.record(
-                dev.bridgey.android.sms.SmsNotificationTarget(notificationId, title, text, sbn.postTime, smsThreadId, replyToken),
+                dev.bridgey.android.sms.SmsNotificationTarget(
+                    notificationId, title, text, sbn.postTime, smsThreadId, messageTime = notification.`when`, replyToken = replyToken,
+                ),
             )
-            smsReply = replyToken != null || (provider.canSend && provider.canRead)
+            // With the sender hidden and no conversation found, a reply could only fail: no Reply on the Mac.
+            smsReply = replyToken != null || (provider.canSend && provider.canRead && (smsThreadId != null || title.isNotBlank()))
         }
         val forward = Runnable {
             pendingCallPosts.remove(notificationId)

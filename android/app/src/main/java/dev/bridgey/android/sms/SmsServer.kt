@@ -24,6 +24,8 @@ data class SmsNotificationTarget(
     val threadId: Long?,
     /** The forwarded action token of the app's free-form reply (RemoteInput), if any. */
     val replyToken: String?,
+    /** Notification.when: the message's own time in messaging apps, used when Android hides the sender. */
+    val messageTime: Long = 0,
 )
 
 /** The SMS notifications active on the phone, newest kept, at most 256. */
@@ -32,9 +34,10 @@ object SmsNotificationTargets {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, SmsNotificationTarget>?): Boolean = size > 256
     }
 
+    /** A re-post that found no conversation keeps the one found before (Android may hide the sender later). */
     @Synchronized fun record(target: SmsNotificationTarget) {
-        targets.remove(target.notificationId)
-        targets[target.notificationId] = target
+        val previous = targets.remove(target.notificationId)
+        targets[target.notificationId] = if (target.threadId == null && previous?.threadId != null) target.copy(threadId = previous.threadId) else target
     }
 
     @Synchronized fun get(notificationId: String): SmsNotificationTarget? = targets[notificationId]
@@ -291,7 +294,7 @@ class SmsServer(
             return
         }
         val threadId = target.threadId ?: if (provider.canRead) {
-            matchNotificationThread(target.title, target.text, target.postTime, provider.recentInbox(target.postTime - MATCH_WINDOW_BEFORE_MILLIS))
+            matchNotificationThread(target.title, target.text, target.postTime, provider.recentInbox(target.postTime - MATCH_WINDOW_BEFORE_MILLIS), target.messageTime)
         } else {
             null
         }
