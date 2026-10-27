@@ -687,3 +687,22 @@
 "codes.panel.verifying" = "Проверяем модель для кодов";
 "codes.panel.failed" = "Загрузка модели для кодов остановлена";
 "codes.panel.ready.detail" = "Модель готова. Текст сообщений остаётся на этом Mac.";
+
+/* Files 2.0, second slice: receive settings (contract) */
+"settings.folders.receive.note" = "Папки с телефона сохраняют свою структуру. У полученных файлов в Finder есть строка «Источник».";
+"settings.folders.receive" = "Папки, отправленные на этот Mac";
+"settings.folders.receive.fixed" = "Всегда сохранять в «Полученные файлы»";
+"settings.folders.receive.ask" = "Каждый раз спрашивать на этом Mac";
+"settings.folders.conflict" = "Если папка уже существует";
+"settings.folders.conflict.ask" = "Каждый раз спрашивать";
+"settings.folders.conflict.merge" = "Объединить";
+"settings.folders.conflict.replace" = "Заменить файлы";
+"settings.folders.conflict.newFolder" = "Сохранить как новую папку";
+"settings.files.tag" = "Помечать полученные файлы в Finder";
+"settings.files.tag.detail" = "Добавляет тег Bridgey, чтобы Finder мог показать всё, что пришло с телефона.";
+
+/* Files 2.0: transfer engine (Mac engine agent adds below) */
+
+/* Files 2.0: Phone files and History windows (browse UI agent adds below) */
+
+/* Files 2.0: send sheet, Tray, menu-bar drops, send options (send UX agent adds below) */

@@ -133,6 +133,10 @@ data class FolderSnapshot(
     val rootUri: String? = null,
     /** The journal stays: the folder resumes when the device reconnects. */
     val resumable: Boolean = false,
+    /** This phone sends the folder (phone to Mac, or a download the Mac asked for); false when it receives. */
+    val outgoing: Boolean = false,
+    /** A download the Mac asked for from its Phone files window (outgoing only). */
+    val download: Boolean = false,
 ) {
     val active: Boolean get() = end == null
 }

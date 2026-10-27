@@ -60,8 +60,20 @@ data class BridgeySettingsState(
     val folderConflict: ConflictPolicy = ConflictPolicy.ASK,
     /** Files > Default folder: a place ID, `default` for Download/Bridgey. Never synced. */
     val folderDefaultPlace: String = DEFAULT_PLACE_ID,
-    /** Files > Allow other devices to replace files here: phone only, off by default (Rahul, 2026-10-25). */
+    /**
+     * Files > Allow other devices to change files here: phone only, off by default (Rahul, 2026-10-25; widened
+     * from "replace" in Files 2.0). Off: a Replace chosen on the other device asks here first, and uploads into
+     * places from the Mac's Phone files window are refused (`read_only`). Browsing and downloading need only
+     * [allowBrowseFromOtherDevices].
+     */
     val allowReplaceFromOtherDevices: Boolean = false,
+    /**
+     * Files > Let other devices browse this phone: paired devices with File transfer on can list granted
+     * places, recent documents and (with photo access) photos and videos, see thumbnails and download.
+     * On by default (Rahul, 2026-10-27: "browsing allowed, writing needs the switch"). Advertised as
+     * files_browse_draft1.
+     */
+    val allowBrowseFromOtherDevices: Boolean = true,
     /** The Save to… sheet's recent destinations, newest first. On this phone only. */
     val recentFolderDestinations: List<FolderDestination> = emptyList(),
     /** Privacy > Logging: what reaches Logcat and exported diagnostics. On this phone only. */
@@ -223,6 +235,11 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         mutableState.value = mutableState.value.copy(allowReplaceFromOtherDevices = enabled)
     }
 
+    fun setAllowBrowseFromOtherDevices(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_FILES_ALLOW_BROWSE, enabled).apply()
+        mutableState.value = mutableState.value.copy(allowBrowseFromOtherDevices = enabled)
+    }
+
     @Synchronized
     fun addRecentFolderDestination(destination: FolderDestination) {
         val list = recentDestinations(mutableState.value.recentFolderDestinations, destination)
@@ -299,6 +316,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
             folderConflict = ConflictPolicy.fromWire(preferences.getString(KEY_FOLDER_CONFLICT, null)) ?: ConflictPolicy.ASK,
             folderDefaultPlace = preferences.getString(KEY_FOLDER_DEFAULT_PLACE, null)?.takeIf(::isPlaceId) ?: DEFAULT_PLACE_ID,
             allowReplaceFromOtherDevices = preferences.getBoolean(KEY_FOLDER_ALLOW_REPLACE, false),
+            allowBrowseFromOtherDevices = preferences.getBoolean(KEY_FILES_ALLOW_BROWSE, true),
             recentFolderDestinations = decodeDestinations(preferences.getString(KEY_FOLDER_RECENT, null)),
             logging = loggingPolicyFrom { key, default -> preferences.getBoolean(key, default) },
         )
@@ -320,6 +338,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         private const val KEY_FOLDER_CONFLICT = "files.folder_conflict"
         private const val KEY_FOLDER_DEFAULT_PLACE = "files.folder_default_place"
         private const val KEY_FOLDER_ALLOW_REPLACE = "files.folder_allow_replace"
+        private const val KEY_FILES_ALLOW_BROWSE = "files.allow_browse"
         private const val KEY_FOLDER_RECENT = "files.folder_recent"
     }
 }

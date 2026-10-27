@@ -1548,6 +1548,21 @@ class PairingCoordinator(
     fun sendFile(uri: Uri, deviceId: String? = null) = sendFiles(listOf(uri), deviceId)
 
     /**
+     * Files 2.0: whether [deviceId] (null: the selected device) receives folders from this phone (it advertised
+     * folders_receive_draft1). The attach sheet's Folders tab and "Send folder" use it.
+     */
+    fun canSendFolders(deviceId: String? = null): Boolean = false
+
+    /** Files 2.0: sends a whole folder to [deviceId] (null: the selected device), phone to Mac. */
+    fun sendFolder(source: dev.bridgey.android.browse.FolderSource, deviceId: String? = null) {
+        mutableFileTransferStatus.value = "Folders can't be sent yet"
+    }
+
+    /** Files 2.0: the phone's photos and videos and its recent documents, for the attach sheet and the Mac. */
+    var mediaLibrary: dev.bridgey.android.browse.MediaLibrary = dev.bridgey.android.browse.EmptyMediaLibrary
+    var documentIndex: dev.bridgey.android.browse.DocumentIndex = dev.bridgey.android.browse.EmptyDocumentIndex
+
+    /**
      * Adds files to [deviceId]'s outgoing queue (null: the selected device). Files are offered one
      * after another, each as its own transfer, so a failure or cancellation affects only that file.
      */

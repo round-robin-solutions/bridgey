@@ -687,3 +687,22 @@
 "codes.panel.verifying" = "Checking the code model";
 "codes.panel.failed" = "Code model download stopped";
 "codes.panel.ready.detail" = "The model is ready. Message text stays on this Mac.";
+
+/* Files 2.0, second slice: receive settings (contract) */
+"settings.folders.receive.note" = "Folders from your phone keep their structure. Received files get a Where from line in Finder.";
+"settings.folders.receive" = "Folders sent to this Mac";
+"settings.folders.receive.fixed" = "Always save to Received files";
+"settings.folders.receive.ask" = "Ask on this Mac each time";
+"settings.folders.conflict" = "When a folder already exists";
+"settings.folders.conflict.ask" = "Ask each time";
+"settings.folders.conflict.merge" = "Merge";
+"settings.folders.conflict.replace" = "Replace files";
+"settings.folders.conflict.newFolder" = "Save as new folder";
+"settings.files.tag" = "Tag received files in Finder";
+"settings.files.tag.detail" = "Adds the Bridgey tag, so Finder can list everything that came from your phone.";
+
+/* Files 2.0: transfer engine (Mac engine agent adds below) */
+
+/* Files 2.0: Phone files and History windows (browse UI agent adds below) */
+
+/* Files 2.0: send sheet, Tray, menu-bar drops, send options (send UX agent adds below) */

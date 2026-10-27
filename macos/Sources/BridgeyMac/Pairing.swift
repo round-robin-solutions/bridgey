@@ -47,6 +47,8 @@ struct FileTransferRow: Identifiable, Equatable {
     let queued: Bool
     /// Set for a folder transfer (one row per folder): progress, destination, failures, last names.
     let folder: FolderRowSummary?
+    /// The item on this Mac, for "Show in Finder": what was received, or the source of a send. Nil when unknown.
+    let localURL: URL?
 
     init(
         id: String,
@@ -56,7 +58,8 @@ struct FileTransferRow: Identifiable, Equatable {
         startedAt: Date = Date(),
         retryable: Bool = false,
         queued: Bool = false,
-        folder: FolderRowSummary? = nil
+        folder: FolderRowSummary? = nil,
+        localURL: URL? = nil
     ) {
         self.id = id
         self.name = name
@@ -66,6 +69,7 @@ struct FileTransferRow: Identifiable, Equatable {
         self.retryable = retryable
         self.queued = queued
         self.folder = folder
+        self.localURL = localURL
     }
 }
 
@@ -227,6 +231,11 @@ final class PairingCoordinator: ObservableObject {
     let shortcuts = ShortcutSettings()
     /// Remote input (draft): a paired phone as touchpad, keyboard and presentation remote.
     let remoteInput: RemoteInputHost
+    /// Files 2.0: every finished transfer, for the History window and Show in Finder (owner-only, 30 days).
+    let transferHistory = TransferHistoryStore()
+    /// Files 2.0: browsing, thumbnails, downloads and uploads for the Phone files window. Replaced by the
+    /// engine in init; the placeholder browses nothing.
+    private(set) var phoneFiles: PhoneFilesService = UnavailablePhoneFiles()
 
     var trustedDevices: [TrustedDeviceInfo] {
         trustRegistry.devices.map { device in
@@ -1497,6 +1506,11 @@ final class PairingCoordinator: ObservableObject {
     @discardableResult
     private func sendItems(_ urls: [URL]) -> Bool {
         guard let targetID = session?.remoteDeviceID, case .connected = state else { return false }
+        return sendItems(urls, to: targetID)
+    }
+
+    @discardableResult
+    private func sendItems(_ urls: [URL], to targetID: String) -> Bool {
         var files: [URL] = []
         var directories: [URL] = []
         for url in urls where url.isFileURL {
@@ -1531,6 +1545,48 @@ final class PairingCoordinator: ObservableObject {
             return false
         }
         return sendItems(urls)
+    }
+
+    /// Sends files and folders to one phone (drop tiles, Tray, send sheet). Nil: the selected phone.
+    @discardableResult
+    func sendDroppedFiles(_ urls: [URL], to deviceID: String?) -> Bool {
+        guard let id = deviceID else { return sendDroppedFiles(urls) }
+        guard registry.session(for: id) != nil else {
+            fileTransferStatus = "Not connected, so the file was not sent"
+            return false
+        }
+        guard isFeatureAvailable(.files, for: id) else {
+            fileTransferStatus = "File transfer is turned off on one of your devices"
+            return false
+        }
+        return sendItems(urls, to: id)
+    }
+
+    /// Sends text as a clipboard update to one phone (Tray text and links). Nil: the selected phone.
+    @discardableResult
+    func sendText(_ text: String, to deviceID: String?) -> Bool {
+        let target = deviceID.flatMap { registry.session(for: $0) } ?? session
+        guard let current = target, registry.isActive(current), !text.isEmpty else { return false }
+        guard isFeatureAvailable(.clipboard, for: current.remoteDeviceID) else {
+            clipboardStatus = "Clipboard is turned off on one of your devices"
+            return false
+        }
+        guard clipboardTextFits(text) else {
+            clipboardStatus = "Clipboard exceeds 32 KiB. Send large text or diagnostics as a file."
+            return false
+        }
+        sendClipboardContent(text: text, html: nil, concealed: false, automatic: false, in: current)
+        return true
+    }
+
+    /// A row in the transfer list for work before a send (Tray and send-sheet optimisation: "Optimising 3 of 12").
+    func showPreparationRow(id: String, name: String, status: String, active: Bool) {
+        updateFileTransfer(id: id, name: name, status: status, active: active)
+    }
+
+    func removePreparationRow(id: String) {
+        fileTransfers.removeValue(forKey: id)
+        fileTransferActive = fileTransfers.values.contains(where: { $0.active })
     }
 
     /// Settings > Privacy > Logging > Clear logs: the diagnostics log on this Mac. The unified log

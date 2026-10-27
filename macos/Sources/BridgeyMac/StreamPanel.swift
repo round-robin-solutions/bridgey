@@ -108,6 +108,13 @@ struct PanelActions {
     var lookForDevices: () -> Void = {}
     var update = UpdateFlowActions()
     var retryPairingStore: () -> Void = {}
+    /// Files 2.0: the Phone files window (nil: the selected phone), the History window, the Tray,
+    /// a drop on one device's tile, and Show in Finder for a transfer row.
+    var openPhoneFiles: (String?) -> Void = { _ in }
+    var openTransferHistory: () -> Void = {}
+    var openTray: () -> Void = {}
+    var dropFilesOnDevice: ([URL], String) -> Bool = { _, _ in false }
+    var showInFinder: (URL) -> Void = { _ in }
 }
 
 struct StreamPanelView: View {
@@ -176,6 +183,9 @@ struct StreamPanelView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 10)
         }
+        // Files 2.0 entries: Phone files and History (PhoneFilesWindow.swift), send sheet and Tray (SendSheet.swift).
+        PhoneFilesPanelEntry(model: model, actions: actions)
+        SendPanelEntry(model: model, actions: actions)
         SendBar(model: model, actions: actions)
             .padding(12)
     }
@@ -1457,7 +1467,7 @@ struct BridgeyPanel: View {
         }
         actions.sendClipboard = { pairing.sendClipboard() }
         actions.dropFiles = { pairing.sendDroppedFiles($0) }
-        actions.chooseFile = { pairing.chooseAndSendFile() }
+        actions.chooseFile = { SendSheetController.show(pairing: pairing) }
         actions.openDropWindow = { pairing.showFileDropWindow() }
         actions.showTransfers = { pairing.showFileTransferWindow() }
         actions.sendLink = { quickActions.sendClipboardLink() }
@@ -1485,6 +1495,11 @@ struct BridgeyPanel: View {
         actions.lookForDevices = { pairing.lookForDevices() }
         actions.update = updater.flowActions
         actions.retryPairingStore = { pairing.retryPairingStore() }
+        actions.openPhoneFiles = { PhoneFilesWindowController.show(pairing: pairing, phoneID: $0) }
+        actions.openTransferHistory = { TransferHistoryWindowController.show(pairing: pairing) }
+        actions.openTray = { TrayController.show(pairing: pairing) }
+        actions.dropFilesOnDevice = { pairing.sendDroppedFiles($0, to: $1) }
+        actions.showInFinder = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
         return actions
     }
 }

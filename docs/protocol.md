@@ -833,6 +833,191 @@ answer `settings.ack` `{schema, ackOf, applied[], kept[]}` and send their newer
 records for `kept` keys unless already sent to that peer; unknown keys and invalid records are skipped one by
 one; an unsupported schema is answered `settings.error` `{schema, code, maxSchema}`.
 
+## Draft: phone files, media and folders both ways
+
+**Draft, edition only until accepted upstream** (Files 2.0, second slice). It builds
+on the folders and places draft above and changes none of its messages; it adds
+optional fields and new kinds that a peer sends only after the matching key below.
+Design, user experience and performance budgets: [files-browse.md](files-browse.md).
+
+### Negotiation
+
+Two more keys in the encrypted `features.update` map, false when missing and
+until the first map of a session arrives:
+
+- `files_browse_draft1`: this device serves the browse requests below
+  (`places.list` with `purpose: "browse"`, `places.files`, `media.*`,
+  `places.download`) and accepts upload offers (`folders.offer` with `into`).
+  On Android it is true when Files is on for the peer, the phone runs Android 10
+  or newer, and its local switch "Let other devices browse this phone" is on (on by
+  default). Macs advertise it false; they browse but serve nothing.
+- `folders_receive_draft1`: this device accepts `folders.offer` from the peer
+  (Files on for it). The first slice's Mac advertised `folders_draft1` while it
+  only sent folders, so phones look for this key before sending a folder to a Mac.
+  Phones advertise both keys; a Mac sending to a phone still checks `folders_draft1`.
+
+Receivers refuse every message below when they did not advertise the key that
+covers it (`places.error` `unsupported` for requests, `folders.rejected`
+`unsupported` for offers).
+
+### Common rules
+
+The rules of the folders draft apply: AES-GCM payloads in the current transport,
+connected session only, replay check, `version: 1`, unknown fields ignored, IDs are
+lowercase UUIDs that are never reused, a payload that decrypts but fails
+validation is answered and leaves the session up. Plaintext limits: requests
+8 KiB; `places.files_page` and `media.page` 32 KiB; `media.thumbnails_batch`,
+`media.preview_part` and `media.range_part` 44 KiB (45,056 bytes: after AES-GCM
+and base64 the frame stays under 61 KB, inside the 65,536-byte limit). Every
+request is answered within 8 seconds (the first part for streamed answers) or
+fails on the asking side with `timeout`. Failures answer `places.error`
+`{version, requestId, code}`.
+
+Two lanes per session, each with its own budget; going over answers `busy`:
+
+| Lane | Requests | Budget |
+| --- | --- | --- |
+| Browse | `places.list` (browse), `places.files`, `media.list`, `places.download` | 4 in flight, 40 per 10 s |
+| Media (low priority) | `media.thumbnails`, `media.preview`, `media.range` | 4 active, 60 per 10 s |
+
+Media lane answers are low priority: the serving device sends them only while no
+file chunk, acknowledgement or control message waits in its send queue, so
+thumbnails never slow a transfer. `replaces` (a `requestId` of the same session)
+cancels an earlier media request when the new one is accepted; `media.cancel`
+`{version, requestId}` cancels one without a new request and is not answered.
+Parts already on the wire may still arrive and are dropped by the asker.
+
+**Privacy.** Nothing here returns content URIs or file system paths. Names,
+sizes, dates and thumbnails stay inside the encrypted session; neither side logs
+them unless its own Privacy › Logging switch for file names allows it.
+
+### References
+
+A `ref` addresses one item on the serving device, in one of two forms:
+
+- `{"placeId", "path", "name"}`: an item in a place. `path` follows the existing-path
+  rules (5.3 of the folders design) and `name` is one existing component (1 to 255
+  bytes, no `/`, NUL or control characters, never `.` or `..`), resolved by exact
+  name. Hidden items (names starting with ".") and part files are never resolved.
+- `{"mediaId": "1234"}`: a photo or video from the phone's media library (the
+  decimal MediaStore `_ID`, at most 20 digits), only while the phone has photo
+  access. Never a URI.
+
+### Places for browsing
+
+`places.list` `{version, requestId, purpose: "browse"}` answers `places.listed`
+as before, plus: `places` lists every place whatever the folder destination mode
+(`default`, then granted places by label, with `available`), `writable` (bool: the
+phone's "Allow other devices to change files here" switch), `media` (`full`,
+`partial` or `none`: photo and video access) and `documents` (bool: at least one
+place is indexed for recent documents). Without `purpose` the request is unchanged.
+
+### Listing a folder
+
+`places.files` `{version, requestId, placeId, path, cursor, sort, descending}`:
+`sort` is `name` (default), `modified`, `size` or `kind`; `cursor` is the opaque
+string from the previous page. Answer `places.files_page`
+`{version, requestId, placeId, path, entries[], folderCount, fileCount,
+nextCursor, writable}`. An entry is `{name, dir, size, modified, mimeType, thumb}`:
+`size` is null for folders, `modified` Unix ms or null, `mimeType` null for
+folders, `thumb` true when `media.thumbnails` can make a thumbnail (images, videos,
+and documents whose provider supports thumbnails). Folders first, then files, each
+in sort order (names compare case-insensitively, then exactly). Hidden items and
+part files are neither listed nor counted. At most 200 entries per page and
+32 KiB. Served in every folder destination mode. Errors: `not_found`,
+`place_unavailable`, `policy`.
+
+### Media library and recent documents
+
+`media.list` `{version, requestId, kind, cursor, limit}`: `kind` is `media`
+(photos and videos, newest first by date taken, else date added), `files` (recent
+documents: files in indexed places that are not images or videos, newest first by
+modified) or `recent` (both, newest first). `limit` 1 to 200, default 100.
+
+Answer `media.page` `{version, requestId, kind, items[], nextCursor, access,
+indexing}`. An item is `{ref, name, size, modified, mimeType, width, height,
+durationMs, thumb, location}`; `width`, `height` and `durationMs` are null when
+unknown; `location` is a display path such as "Camera" or "Documents/Invoices" (at
+most 128 characters). `access` is the photo access (`full`, `partial`, `none`;
+with `none`, `kind: media` returns no items). `indexing` is true while the phone
+refreshes its document index; the asker may list again later. The document index
+covers granted places only (Android shared storage has no other way to see
+documents without broad permission).
+
+Askers cache by device ID, `ref`, `modified` and `size`: the same four always
+mean the same bytes.
+
+### Thumbnails
+
+`media.thumbnails` `{version, requestId, items[], size, replaces}`: 1 to 64 items
+`{key, ref}`, `key` 1 to 64 characters of `[A-Za-z0-9_-]` chosen by the asker;
+`size` is the longest edge in pixels, 64 to 512 (default 256). The phone answers
+in the order asked (the asker puts visible items first) with one or more
+`media.thumbnails_batch` `{version, requestId, thumbs[], missing[], done}`. A thumb is
+`{key, mimeType, width, height, tint, data}`: `data` is base64 image bytes, at most
+24 KiB per thumbnail (WebP from Android 11, JPEG before; quality drops until it
+fits), `tint` the average colour as `#rrggbb` for placeholders. `missing` lists
+keys without a thumbnail (not found, unsupported type, decoding failed). As many
+thumbnails as fit go into each batch; the last batch has `done: true`.
+
+### Previews and ranges
+
+`media.preview` `{version, requestId, ref, size, replaces}`: `size` 512 to 2048
+(longest edge). For videos the poster frame. Answer: consecutive
+`media.preview_part` `{version, requestId, index, count, mimeType, width, height,
+tint, data}`, each with at most 32 KiB of image data; the whole preview is at most
+1 MiB (quality drops until it fits). Errors: `not_found`, `unsupported`.
+
+`media.range` `{version, requestId, ref, offset, length, replaces}`: bytes of a
+file (not a folder), `length` 1 to 4 MiB. Answer: consecutive
+`media.range_part` `{version, requestId, offset, fileSize, modified, data, last}`
+from `offset`, each with at most 32 KiB; `last` is true on the final part (end of
+the range or of the file). `fileSize` and `modified` describe the whole file so
+the asker notices a change. Ranges are previews (a hover prefetch of a video's
+first seconds, streamed playback): they carry no hash, so a saved copy always goes
+through `places.download`.
+
+### Downloads
+
+`places.download` `{version, requestId, items[]}`: 1 to 100 refs (files and
+folders; a folder brings its subtree, hidden and system files skipped and
+counted). Answer within 8 seconds `places.download_started` `{version,
+requestId, folderTransferId, rootName, fileCount, folderCount, totalSize}`, or
+`places.error` (`not_found`, `place_unavailable`, `limit_exceeded`, `busy`,
+`policy`). The phone then sends a `folders.offer` with that `folderTransferId`,
+`into: true` and `downloadRequestId`, and the transfer runs as any folder
+transfer (manifest, verified files, journal, resume). Downloads wait their turn
+behind other folders in the same direction, in request order.
+
+### Folder offers: `into`, downloads and uploads
+
+`folders.offer` gains two optional fields:
+
+- `into` (bool, default false): the entries land directly in the destination
+  folder; no root folder is created. `rootName` is still a portable name, used for
+  display and the digest only (the first top-level item's name). A top-level entry
+  whose name clashes with an existing item (compared without case) is saved as a
+  copy, "Name (1)" or "name (1).ext"; nothing is merged, replaced or asked.
+  `folders.accept` answers `choice: none`.
+- `downloadRequestId` (UUID): the offer answers a `places.download` of the
+  receiver. The receiver lands it where that request said, without asking. From a
+  phone to a Mac, `into` is valid only with a pending (or journaled) download
+  request; anything else is rejected `policy`. A resumed download repeats it.
+
+Uploads (Mac to phone, from a browser): `into: true` with `destination` required.
+The phone rejects them with `read_only` while "Allow other devices to change files
+here" is off, and `policy` while browsing is off. Ordinary folders sent from the
+Mac's send sheet are unchanged (the phone's folder destination mode governs them).
+
+Folders from the phone to the Mac (no `into`): phones send no `destination` (a Mac
+serves no places). The Mac's own setting decides: "Always save to Received files"
+(`fixed`, the default) or "Ask on this Mac each time" (`receiver_asks`, a Save
+panel). "When a folder already exists" works as on the phone; the Mac asks its own
+user and answers `folders.waiting` meanwhile. Same timeouts, journal and resume.
+
+New error code: `read_only` (writing into the phone's places needs its "Allow
+other devices to change files here" switch).
+
 ## Compatibility
 
 Adding optional fields or message types is backward compatible. Changing field
