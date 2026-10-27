@@ -5,6 +5,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -17,6 +25,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.bridgey.android.R
 import dev.bridgey.android.codes.CodeAccessStatus
+import dev.bridgey.android.codes.CodeLinkMac
+import dev.bridgey.android.codes.CodeLinkTargets
 import dev.bridgey.android.codes.CompanionLinkState
 import dev.bridgey.android.codes.LinkFailure
 import dev.bridgey.android.ui.theme.BridgeyTheme
@@ -31,12 +41,20 @@ data class CodesSettingsState(
     /** A companion link exists (it may still not be honoured; then access says hidden). */
     val linked: Boolean = false,
     val adbCommand: String = "",
+    /** Connected Macs that read codes; two or more open the picker before linking. */
+    val linkTargets: List<CodeLinkMac> = emptyList(),
+    /** The Mac "Link to ..." uses now (the picked, else the selected, else the first). */
+    val linkTarget: CodeLinkMac? = null,
+    /** The Mac recorded when the last link succeeded. */
+    val linkedMac: CodeLinkMac? = null,
 ) {
     val showAdb: Boolean get() = linkApplies && access != CodeAccessStatus.ALLOWED
 }
 
 class CodesSettingsActions(
     val link: () -> Unit = {},
+    /** The picker's choice: link with this Mac. */
+    val linkTo: (String) -> Unit = {},
     val copyCommand: () -> Unit = {},
 )
 
@@ -81,16 +99,82 @@ internal fun GroupScope.codesRows(state: CodesSettingsState, actions: CodesSetti
         ) { if (ok) androidx.compose.material3.Icon(BridgeyIcons.Check, null, tint = BridgeyTheme.colors.onTintGreen) }
     }
     val busy = state.link == CompanionLinkState.AskingMac || state.link == CompanionLinkState.Searching
-    if (state.linkApplies && (!state.linked || state.access != CodeAccessStatus.ALLOWED || state.link != CompanionLinkState.Idle)) {
-        row { shape ->
-            ListRow(
-                shape, stringResource(R.string.codes_link), linkStateText(state.link),
-                BridgeyIcons.Link, Tint.BLUE,
-                detailWarning = state.link is CompanionLinkState.Failed,
-                onClick = if (busy) null else actions.link,
-            ) { if (!busy) Chevron() }
-        }
+    if (state.linkApplies) {
+        row { shape -> CodesLinkRow(shape, state, actions, busy) }
     }
+}
+
+/** "Link to Personal Mac": which Mac the phone is linked to, and a picker when two or more read codes. */
+@Composable
+private fun CodesLinkRow(shape: androidx.compose.ui.graphics.Shape, state: CodesSettingsState, actions: CodesSettingsActions, busy: Boolean) {
+    var picking by rememberSaveable { mutableStateOf(false) }
+    val detail = when {
+        state.link != CompanionLinkState.Idle -> linkStateText(state.link)
+        state.linked && state.linkedMac != null && state.linkedMac.name.isNotBlank() -> stringResource(R.string.codes_linked_to, state.linkedMac.name)
+        state.linked -> stringResource(R.string.codes_linked_unknown)
+        else -> stringResource(R.string.codes_not_linked_yet)
+    }
+    ListRow(
+        shape, state.linkTarget?.let { stringResource(R.string.codes_link_to, it.name) } ?: stringResource(R.string.codes_link), detail,
+        BridgeyIcons.Link, if (state.linked && state.link == CompanionLinkState.Idle) Tint.GREEN else Tint.BLUE,
+        detailWarning = state.link is CompanionLinkState.Failed,
+        onClick = when {
+            busy -> null
+            CodeLinkTargets.needsPicker(state.linkTargets) -> ({ picking = true })
+            else -> actions.link
+        },
+    ) { if (!busy) Chevron() }
+    if (picking) {
+        CodesLinkPicker(
+            state.linkTargets, state.linkTarget?.deviceId,
+            onDismiss = { picking = false },
+            onLink = { picking = false; actions.linkTo(it) },
+        )
+    }
+}
+
+/** A small radio list of the Macs that read codes, the current target preselected. */
+@Composable
+fun CodesLinkPicker(macs: List<CodeLinkMac>, current: String?, onDismiss: () -> Unit, onLink: (String) -> Unit) {
+    val colors = BridgeyTheme.colors
+    var selected by rememberSaveable { mutableStateOf(current ?: macs.firstOrNull()?.deviceId) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.surface2,
+        title = { Text(stringResource(R.string.codes_picker_title), style = BridgeyType.cardTitle, color = colors.onSurface) },
+        text = {
+            Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(stringResource(R.string.codes_picker_body), style = BridgeyType.itemBody, color = colors.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
+                macs.forEach { mac ->
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(16.dp))
+                            .selectable(selected = mac.deviceId == selected, role = Role.RadioButton) { selected = mac.deviceId }
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        androidx.compose.material3.RadioButton(
+                            selected = mac.deviceId == selected,
+                            onClick = null,
+                            colors = androidx.compose.material3.RadioButtonDefaults.colors(selectedColor = colors.primary, unselectedColor = colors.onSurfaceVariant),
+                        )
+                        DeviceGlyph(RingStyle.SAME_WIFI, BridgeyIcons.LaptopMac, 36.dp, iconSize = 16.dp)
+                        Text(mac.name, style = BridgeyType.itemTitle, color = colors.onSurface, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { selected?.let(onLink) }, enabled = selected != null) {
+                Text(stringResource(R.string.codes_picker_link), style = BridgeyType.label, color = colors.primary)
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel), style = BridgeyType.label, color = colors.onSurfaceVariant)
+            }
+        },
+    )
 }
 
 /** What the section means, and the one-time ADB command when linking is not enough. */

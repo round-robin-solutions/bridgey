@@ -6,9 +6,6 @@
     <string name="notification_forwarding_label">Bridgey notification forwarding</string>
     <string name="notification_send_copied_text">Send copied item</string>
     <string name="notification_turn_off">Turn off</string>
-    <string name="welcome_title">Welcome to Bridgey</string>
-    <string name="welcome_body">Keep your Mac and phone on the same local network. Choose the Mac, compare the pairing code, then confirm it on both devices. Optional permissions are requested only when you enable the related feature.</string>
-    <string name="welcome_continue">Get started</string>
 
     <!-- Design direction B "Stream" -->
     <string name="brand_name">Bridgey</string>

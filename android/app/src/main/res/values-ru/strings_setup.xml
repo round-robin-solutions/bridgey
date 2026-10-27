@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v0.10: настройка, разрешения, сброс, что нового, список производителя, Obtainium и выбор Mac для кодов. -->
+<resources>
+    <!-- Первая настройка -->
+    <string name="setup_title">Настройка</string>
+    <string name="setup_welcome_title">Добро пожаловать в Bridgey</string>
+    <string name="setup_welcome_body">Телефон и Mac работают вместе в вашей собственной сети: буфер обмена, файлы, уведомления, звонки и многое другое.</string>
+    <string name="setup_quick_title">Быстрый старт</string>
+    <string name="setup_quick_badge">Рекомендуем</string>
+    <string name="setup_quick_body">Разумные значения по умолчанию и только те разрешения, что нужны сейчас. Всё можно изменить позже в настройках.</string>
+    <string name="setup_advanced_title">Подробная настройка</string>
+    <string name="setup_advanced_body">Пройдите по всем функциям и выберите, как они работают. Значения по умолчанию уже выбраны.</string>
+    <string name="setup_step_of">%1$d из %2$d</string>
+    <string name="setup_skip">Пропустить</string>
+    <string name="setup_next">Далее</string>
+    <string name="setup_finish_now">Завершить</string>
+    <string name="setup_done_check">Готово</string>
+    <string name="setup_why">Зачем: %1$s</string>
+    <string name="setup_without">Без этого: %1$s</string>
+    <string name="setup_allow">Разрешить</string>
+    <string name="setup_pair_title">Связать Mac</string>
+    <string name="setup_pair_why">Свяжите один раз, и дальше телефон и Mac сами находят друг друга в этой сети.</string>
+    <string name="setup_pair_without">На Mac ничего не попадёт, пока вы его не свяжете.</string>
+    <string name="setup_pair_later">Связать позже</string>
+    <string name="setup_pair_searching">Ищем Mac в этой сети. Откройте Bridgey на Mac.</string>
+    <string name="setup_pair_nearby">Mac поблизости</string>
+    <string name="setup_pair_action">Связать</string>
+    <string name="setup_done_title">Всё готово</string>
+    <string name="setup_done_body">Bridgey готов к работе. Всё можно изменить позже в настройках.</string>
+    <string name="setup_done_skipped">Пока пропущено: %1$s. Их можно разрешить в разделе Настройки, Конфиденциальность, Разрешения.</string>
+    <string name="setup_open_settings">Открыть настройки</string>
+    <string name="setup_start">Начать</string>
+    <string name="setup_open_section">Открыть настройки: %1$s</string>
+    <string name="setup_run_again">Пройти настройку заново</string>
+    <string name="setup_run_again_detail">Настройка с самого начала. Связи с устройствами и настройки сохраняются.</string>
+    <string name="setup_paired_none">Mac пока не связан</string>
+    <string name="setup_paired">Связан</string>
+
+    <!-- Группы подробной настройки, в порядке настроек -->
+    <string name="setup_group_devices">Устройства</string>
+    <string name="setup_group_clipboard">Буфер обмена</string>
+    <string name="setup_group_notifications">Уведомления</string>
+    <string name="setup_group_calls">Звонки</string>
+    <string name="setup_group_files">Файлы</string>
+    <string name="setup_group_media">Медиа и действия</string>
+    <string name="setup_group_remote">Удалённое управление</string>
+    <string name="setup_group_privacy">Конфиденциальность и журналы</string>
+    <string name="setup_group_updates">Обновления</string>
+    <string name="setup_group_general">Основные</string>
+    <string name="setup_group_devices_intro">Mac, связанные с этим телефоном. Свяжите один сейчас или позже.</string>
+    <string name="setup_group_clipboard_intro">Копируйте на одном устройстве, вставляйте на другом.</string>
+    <string name="setup_group_notifications_intro">Уведомления телефона, звонки и коды из сообщений на вашем Mac.</string>
+    <string name="setup_group_calls_intro">Звонки видны на Mac, и с него можно отвечать и звонить.</string>
+    <string name="setup_group_files_intro">Отправляйте файлы и папки и выберите, куда попадают папки, присланные на этот телефон.</string>
+    <string name="setup_group_media_intro">Музыка на Mac, ссылки, пинг и поиск устройств, уровень заряда.</string>
+    <string name="setup_group_remote_intro">Телефон как тачпад, клавиатура и пульт для презентаций на Mac. По умолчанию выключено.</string>
+    <string name="setup_group_privacy_intro">Что показывает лента событий и что Bridgey записывает в журналы на этом телефоне.</string>
+    <string name="setup_group_updates_intro">Какие сборки получает этот телефон; проверка раз в день.</string>
+    <string name="setup_group_general_intro">Оставаться на связи, пока телефон спит, и как двигается интерфейс.</string>
+
+    <!-- Объяснение разрешения -->
+    <string name="perm_explainer_title">Разрешить: %1$s?</string>
+    <string name="perm_continue">Продолжить</string>
+    <string name="perm_notification_access_name">Доступ к уведомлениям</string>
+    <string name="perm_notification_access_why">Показывает уведомления и звонки телефона на вашем Mac.</string>
+    <string name="perm_notification_access_without">На Mac не будет уведомлений, звонков и кодов с телефона.</string>
+    <string name="perm_post_notifications_name">Уведомления</string>
+    <string name="perm_post_notifications_why">Bridgey показывает передачи, поиск телефона и запросы на звонок.</string>
+    <string name="perm_post_notifications_without">Вы не увидите ход передачи, запросы с Mac и кнопку «Стоп» для поиска устройства.</string>
+    <string name="perm_phone_calls_name">Телефон и звонки</string>
+    <string name="perm_phone_calls_why">Mac может отвечать, отклонять и совершать звонки через этот телефон.</string>
+    <string name="perm_phone_calls_without">Звонок с Mac открывает номеронабиратель для подтверждения; «Ответить» и «Отклонить» не работают.</string>
+    <string name="perm_photos_name">Фото</string>
+    <string name="perm_photos_why">Отправляет только что сделанный скриншот через «Отправить скопированное».</string>
+    <string name="perm_photos_without">«Отправлять свежий скриншот» остаётся выключенным.</string>
+    <string name="perm_companion_link_name">Связь по Bluetooth</string>
+    <string name="perm_companion_link_why">Android 15 и новее скрывает одноразовые коды от приложений, не связанных с устройством поблизости.</string>
+    <string name="perm_companion_link_without">Коды из сообщений на Mac показываются как «скрыто».</string>
+    <string name="perm_battery_name">Оптимизация батареи</string>
+    <string name="perm_battery_why">Bridgey остаётся на связи, пока телефон спит.</string>
+    <string name="perm_battery_without">В фоне соединение рвётся и восстанавливается с опозданием.</string>
+    <string name="perm_install_packages_name">Установка неизвестных приложений</string>
+    <string name="perm_install_packages_why">Устанавливает обновления самого Bridgey.</string>
+    <string name="perm_install_packages_without">Обновления скачиваются, но устанавливать их придётся вручную.</string>
+    <string name="perm_sms_name">SMS (только в тестовой сборке для проверки кодов)</string>
+    <string name="perm_sms_why">Читает тестовые сообщения для проверки распознавания кодов.</string>
+    <string name="perm_sms_without">Проверка распознавания кодов не запустится. Обычные сборки никогда не спрашивают.</string>
+    <string name="perm_logs_name">Журналы (один шаг через ADB)</string>
+    <string name="perm_logs_why">Фоновый буфер обмена (для опытных) читает буфер, пока Bridgey в фоне.</string>
+    <string name="perm_logs_without">Скопированное на телефоне отправляется, только пока Bridgey открыт, или одним касанием.</string>
+
+    <!-- Настройки, Конфиденциальность, Разрешения -->
+    <string name="perm_page_title">Разрешения</string>
+    <string name="perm_page_detail">Что может использовать Bridgey и зачем</string>
+    <string name="perm_page_intro">Bridgey просит разрешение, только когда оно нужно функции. «Настроить» открывает нужный экран Android.</string>
+    <string name="perm_state_allowed">Разрешено</string>
+    <string name="perm_state_not_allowed">Не разрешено</string>
+    <string name="perm_state_not_needed">Пока не нужно</string>
+    <string name="perm_state_not_on_device">Нет на этом устройстве</string>
+
+    <!-- Настройки, Конфиденциальность, Сброс -->
+    <string name="reset_title">Сбросить Bridgey на этом устройстве</string>
+    <string name="reset_detail">Удалить события, кэш, настройки или всё</string>
+    <string name="reset_intro">Выберите, что удалить. Для каждого варианта точно указано, что удаляется и что остаётся. Данные на ваших Mac не затрагиваются.</string>
+    <string name="reset_choice_activity">События и журналы</string>
+    <string name="reset_choice_activity_summary">События, история уведомлений, диагностика и история передач. Настройки и связи сохраняются.</string>
+    <string name="reset_choice_caches">Загруженные модели и кэш</string>
+    <string name="reset_choice_caches_summary">Загруженные обновления, кэш буфера обмена и журналы папок. Настройки, связи и история сохраняются.</string>
+    <string name="reset_choice_settings">Настройки</string>
+    <string name="reset_choice_settings_summary">Все настройки по умолчанию, и настройка запустится заново. Связи, история и кэш сохраняются.</string>
+    <string name="reset_choice_everything">Всё, включая связи</string>
+    <string name="reset_choice_everything_summary">Всё перечисленное, а также доверенные устройства и ключи этого телефона. Потом Mac придётся связать заново.</string>
+    <string name="reset_confirm_activity">Удалить события и журналы?</string>
+    <string name="reset_confirm_caches">Удалить загруженные модели и кэш?</string>
+    <string name="reset_confirm_settings">Сбросить все настройки?</string>
+    <string name="reset_confirm_everything">Полностью сбросить Bridgey?</string>
+    <string name="reset_deleted">Удаляется</string>
+    <string name="reset_kept">Остаётся</string>
+    <string name="reset_restart_note">После этого Bridgey перезапустится.</string>
+    <string name="reset_everything_note">Bridgey отключится, перезапустится и откроет первую настройку. Связанные устройства придётся связать заново.</string>
+    <string name="reset_delete">Удалить</string>
+    <string name="reset_bridgey">Сбросить Bridgey</string>
+    <string name="reset_done_activity">События и журналы удалены</string>
+    <string name="reset_done_caches">Загруженные модели и кэш удалены</string>
+    <string name="reset_done_settings">Настройки сброшены</string>
+    <string name="reset_done_everything">Bridgey сброшен</string>
+    <string name="reset_item_activity">Лента событий, включая историю уведомлений</string>
+    <string name="reset_item_diagnostics">События диагностики, включая журнал удалённого управления</string>
+    <string name="reset_item_transfers">История передач</string>
+    <string name="reset_item_logs">Экспортированная диагностика и файлы журналов</string>
+    <string name="reset_item_updates">Загруженные APK обновлений</string>
+    <string name="reset_item_clipboard">Кэш буфера обмена</string>
+    <string name="reset_item_folders">Журналы передачи папок (прерванные папки не продолжатся)</string>
+    <string name="reset_item_caches">Прочий кэш</string>
+    <string name="reset_item_features">Переключатели функций, настройки устройств, журналов и имя этого телефона</string>
+    <string name="reset_item_app">Предпросмотр, уменьшение движения, выбор для удалённого управления и скриншотов</string>
+    <string name="reset_item_channel">Канал обновлений</string>
+    <string name="reset_item_places">Папки назначения и места</string>
+    <string name="reset_item_setup">Выбор в настройке (она запустится заново)</string>
+    <string name="reset_item_trusted">Доверенные устройства</string>
+    <string name="reset_item_identity">Ключи этого телефона</string>
+    <string name="reset_item_reconnect">Адреса для переподключения</string>
+    <string name="reset_item_codes">Связь для кодов из сообщений</string>
+    <string name="reset_item_whats_new">История «Что нового»</string>
+    <string name="reset_keep_settings">Настройки</string>
+    <string name="reset_keep_pairings">Связи с устройствами</string>
+    <string name="reset_keep_history">События и история</string>
+    <string name="reset_keep_caches">Кэш</string>
+    <string name="reset_keep_app">Само приложение Bridgey</string>
+
+    <!-- Что нового -->
+    <string name="whats_new_title">Что нового в Bridgey</string>
+    <string name="whats_new_version">Версия %1$s</string>
+    <string name="whats_new_got_it">Понятно</string>
+    <string name="whats_new_review">Пройти настройку</string>
+    <string name="whats_new_review_note">Настройка появилась в этой версии. Пройдите её, чтобы увидеть все функции и выбрать, как они работают; ваши настройки не изменятся.</string>
+    <string name="whats_new_no_notes">Bridgey обновлён. Все изменения перечислены в примечаниях к выпуску.</string>
+    <string name="whats_new_release_notes">Примечания к выпуску</string>
+    <string name="whats_new_banner_title">Узнайте, что нового, и проверьте настройку</string>
+    <string name="whats_new_banner_body">В настройках появились новая настройка, страница разрешений и сброс.</string>
+    <string name="whats_new_bundled">- Новая первая настройка: быстрый старт с разумными значениями или подробный проход по всем функциям.\n- Настройки, Конфиденциальность, Разрешения: каждое разрешение, зачем оно Bridgey и что без него не работает.\n- Настройки, Конфиденциальность, Сбросить Bridgey на этом устройстве: удаляет события, кэш, настройки или всё.\n- Коды из сообщений показывают, с каким Mac связан телефон, и позволяют его выбрать.\n- Для телефонов, которые закрывают фоновые приложения, есть свой список шагов для батареи.\n- В разделе Настройки, О приложении можно добавить Bridgey в Obtainium.</string>
+
+    <!-- Шаги производителя (по dontkillmyapp.com) -->
+    <string name="oem_title">Чтобы Bridgey работал на %1$s</string>
+    <string name="oem_intro">Этот телефон закрывает фоновые приложения сверх обычных настроек батареи Android. Измените это один раз.</string>
+    <string name="oem_source">Шаги по dontkillmyapp.com</string>
+    <string name="oem_vendor_oneplus">OnePlus</string>
+    <string name="oem_vendor_coloros">Oppo и Realme (ColorOS)</string>
+    <string name="oem_vendor_xiaomi">Xiaomi, Redmi и Poco (HyperOS и MIUI)</string>
+    <string name="oem_vendor_samsung">Samsung (One UI)</string>
+    <string name="oem_vendor_vivo">Vivo и iQOO</string>
+    <string name="oem_step_auto_start">Автозапуск</string>
+    <string name="oem_step_background">Работа в фоне</string>
+    <string name="oem_step_battery">Оптимизация батареи</string>
+    <string name="oem_step_never_sleeping">Приложения, которые не усыпляются</string>
+    <string name="oem_oneplus_auto_start">Настройки, Приложения, Автозапуск: включите Bridgey.</string>
+    <string name="oem_oneplus_background">О приложении, Батарея: разрешите работу в фоне.</string>
+    <string name="oem_oneplus_battery">Батарея, Оптимизация батареи: для Bridgey выберите «Не оптимизировать».</string>
+    <string name="oem_coloros_auto_start">Настройки, Управление приложениями, Автозапуск: включите Bridgey.</string>
+    <string name="oem_coloros_background">О приложении, Батарея: разрешите работу в фоне.</string>
+    <string name="oem_coloros_battery">Батарея, Другие настройки, Оптимизация расхода: для Bridgey выберите «Не оптимизировать».</string>
+    <string name="oem_xiaomi_auto_start">Безопасность, Автозапуск: включите Bridgey.</string>
+    <string name="oem_xiaomi_background">О приложении, Контроль активности: выберите «Нет ограничений».</string>
+    <string name="oem_xiaomi_battery">Оптимизация батареи: выберите «Не оптимизировать». И закрепите Bridgey в недавних приложениях.</string>
+    <string name="oem_samsung_background">О приложении, Батарея: выберите «Без ограничений».</string>
+    <string name="oem_samsung_battery">Батарея, Ограничения в фоне: выключите «Переводить в спящий режим».</string>
+    <string name="oem_samsung_never_sleeping">Батарея, Ограничения в фоне, Приложения, которые не усыпляются: добавьте Bridgey.</string>
+    <string name="oem_vivo_auto_start">i Manager, Диспетчер приложений, Автозапуск: включите Bridgey.</string>
+    <string name="oem_vivo_background">Батарея, Энергопотребление в фоне: разрешите Bridgey.</string>
+    <string name="oem_vivo_battery">О приложении, Батарея: выберите «Не ограничивать работу в фоне».</string>
+
+    <!-- Настройки, О приложении -->
+    <string name="obtainium_title">Добавить в Obtainium</string>
+    <string name="obtainium_detail">Получать обновления канала «%1$s» через Obtainium</string>
+
+    <!-- Коды из сообщений: связь и её Mac -->
+    <string name="codes_link_to">Связать с %1$s</string>
+    <string name="codes_linked_to">Связан с %1$s</string>
+    <string name="codes_linked_unknown">Связан с Mac</string>
+    <string name="codes_not_linked_yet">Пока не связан</string>
+    <string name="codes_picker_title">С каким Mac связать телефон?</string>
+    <string name="codes_picker_body">Android связывает телефон с одним Mac поблизости. Коды затем приходят на каждый Mac, который их читает.</string>
+    <string name="codes_picker_link">Связать</string>
+</resources>

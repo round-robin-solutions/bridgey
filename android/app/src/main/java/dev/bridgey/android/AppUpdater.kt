@@ -68,6 +68,11 @@ class AppUpdater(
     private val mutableConfirmation = MutableStateFlow<Intent?>(null)
     val pendingConfirmation: StateFlow<Intent?> = mutableConfirmation.asStateFlow()
 
+    private val mutableInstalledNotes = MutableStateFlow<String?>(null)
+
+    /** What's new: the feed's notes for the installed build, once a check has seen them. */
+    val installedNotes: StateFlow<String?> = mutableInstalledNotes.asStateFlow()
+
     val installedVersionName: String = BuildConfig.VERSION_NAME
     val installedVersionCode: Long = BuildConfig.VERSION_CODE.toLong()
 
@@ -187,6 +192,7 @@ class AppUpdater(
         result.fold(
             onSuccess = { candidates ->
                 preferences.edit().putLong(KEY_LAST_CHECKED, now).apply()
+                candidates.firstOrNull { it.versionCode == installedVersionCode && it.notes.isNotBlank() }?.let { mutableInstalledNotes.value = it.notes }
                 val newest = UpdateFeeds.selectUpdate(installedVersionCode, candidates, Build.VERSION.SDK_INT)
                 val update = UpdateFeeds.offer(newest, preferences.getLong(KEY_SKIPPED_CODE, 0L), userInitiated)
                 // A check from Settings shows the update in the Settings card, not in a dialog on top of it.
