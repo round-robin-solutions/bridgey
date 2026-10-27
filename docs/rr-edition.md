@@ -459,9 +459,25 @@ Other options: `--skip-macos` / `--skip-android` (that platform's feed entry sta
 A release directory `dist/<tag>/` holds:
 
 - `release/`: `Bridgey-RR-<version>-Android.apk`, `Bridgey-RR-<version>-macOS.dmg`,
-  `Bridgey-RR-<version>-macOS.zip`, `SHA256SUMS`
+  `Bridgey-RR-<version>-macOS.zip`, `Bridgey-RR-<version>-Android.sbom.cdx.json`,
+  `Bridgey-RR-<version>-macOS.sbom.cdx.json`, `Bridgey-RR-<version>-provenance.json`, `SHA256SUMS`
+  (which lists every file above)
 - `channels/`: `<channel>.json` and `appcast.xml`, merged with what is already published
 - `release.env`, `notes.md`
+
+The SBOMs are CycloneDX 1.5 JSON. Android is parsed from Gradle's own
+`:app:dependencies --configuration releaseRuntimeClasspath` report (`scripts/rr/android-deps.sh`, run by
+`release.sh`; no build file changes, no plugin), plus the vendored BLAKE3 code. macOS is parsed from
+`macos/Package.resolved`, the binary targets in `macos/Package.swift` (llama.cpp, with its SHA-256) and
+the vendored BLAKE3 code, so it needs no Mac. The provenance file is an unsigned in-toto statement
+(SLSA v1 shaped): git commit, describe and dirty flag, channel, version, build number and tag, the
+builders and toolchains (Java, Gradle, Android Gradle Plugin, Kotlin; Swift and Xcode from the Mac), build
+time, and the SHA-256 of every file above except itself and `SHA256SUMS`. `build-android.sh` and
+`build-macos.sh` leave a `build-info` note (host, OS, tools) next to their output for it; where that note
+does not travel (the hosted nightly uploads only the APK, DMG and ZIP) the provenance names the assembling
+host and says so (`hostSource`). A failed Android dependency listing stops a beta or stable release; a
+nightly goes out without the Android SBOM and a warning. Run one piece by hand with
+`python3 scripts/rr/supplychain.py macos --version X --out sbom.json`.
 
 `publish.sh` then:
 

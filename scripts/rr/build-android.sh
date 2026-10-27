@@ -49,4 +49,10 @@ echo "$BADGING" | grep -q "versionName='$BRIDGEY_VERSION_NAME'" || die "unexpect
 
 mkdir -p "$(dirname -- "$OUTPUT")"
 cp "$APK" "$OUTPUT"
+# Where and with what this was built, for the release provenance (rrrelease.py reads it next to the APK).
+{
+  echo "host=$(hostname)"
+  echo "os=$(uname -sr)"
+  echo "java=$("${JAVA_HOME:+$JAVA_HOME/bin/}java" -version 2>&1 | head -n 1)"
+} > "$OUTPUT.build-info" || true
 echo "Android: $OUTPUT ($BADGING)"

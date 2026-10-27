@@ -54,5 +54,12 @@ if [ -n "${RR_SIGNING_IDENTITY:-}" ]; then
   LEAF=$(printf '%s' "$RR_SIGNING_IDENTITY" | tr 'A-F' 'a-f')
   codesign -d -r - "$APP" 2>&1 | grep -q "certificate leaf = H\"$LEAF\"" || die "designated requirement does not pin the signing certificate"
 fi
+# Where and with what this was built, for the release provenance (rrrelease.py reads it with the DMG and ZIP).
+{
+  echo "host=$(hostname)"
+  echo "os=$(sw_vers -productName) $(sw_vers -productVersion)"
+  echo "swift=$(swift --version 2>&1 | head -n 1)"
+  echo "xcode=$(xcodebuild -version 2>&1 | head -n 1)"
+} > "$OUTPUT/mac.build-info" || true
 echo "macOS: $OUTPUT"
 ls -l "$OUTPUT"

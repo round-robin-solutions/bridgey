@@ -14,12 +14,14 @@
 #                        nightly passes one value to its Android, macOS and publish jobs)
 #   --publish            create the GitHub release and update the channel feeds (default: dry run into dist/)
 #
-# Runs on rr-dev-1 (Android build, Sparkle signing key) and drives the Mac over ssh. See docs/rr-edition.md.
+# Each release also carries a CycloneDX SBOM per platform and a provenance file (supplychain.py); all of
+# them are listed in SHA256SUMS. Runs on rr-dev-1 (Android build, Sparkle signing key) and drives the Mac
+# over ssh. See docs/rr-edition.md.
 set -eu
 . "$(dirname -- "$0")/common.sh"
 
 CHANNEL=${1:-}
-case "$CHANNEL" in stable|beta|nightly) shift ;; *) sed -n '2,17p' "$0"; exit 2 ;; esac
+case "$CHANNEL" in stable|beta|nightly) shift ;; *) sed -n '2,19p' "$0"; exit 2 ;; esac
 VERSION="" NOTES_FILE="" MAC_HOST="" MAC_ARTIFACTS="" SKIP_MAC=0 SKIP_ANDROID=0 APK_IN="" PUBLISH=0 NOW=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -56,10 +58,20 @@ set --
 if [ $SKIP_ANDROID = 0 ]; then
   if [ -n "$APK_IN" ]; then
     cp "$APK_IN" "$WORK/app-release.apk"
+    [ ! -f "$APK_IN.build-info" ] || cp "$APK_IN.build-info" "$WORK/app-release.apk.build-info"
   else
     sh "$RR_ROOT/scripts/rr/build-android.sh" "$WORK/app-release.apk"
   fi
   set -- "$@" --apk "$WORK/app-release.apk"
+  [ ! -f "$WORK/app-release.apk.build-info" ] || set -- "$@" --android-build-info "$WORK/app-release.apk.build-info"
+  # SBOM input. A listing that fails stops beta and stable; a nightly ships without the Android SBOM.
+  if sh "$RR_ROOT/scripts/rr/android-deps.sh" "$WORK/android-dependencies.txt"; then
+    set -- "$@" --android-deps "$WORK/android-dependencies.txt"
+  elif [ "$CHANNEL" = nightly ]; then
+    echo "warning: no Android SBOM in this nightly (the dependency listing failed)" >&2
+  else
+    die "the Android dependency listing for the SBOM failed"
+  fi
 fi
 if [ $SKIP_MAC = 0 ]; then
   PREFIX=$(edition_value EDITION_ASSET_PREFIX)
@@ -68,6 +80,7 @@ if [ $SKIP_MAC = 0 ]; then
     MAC_ARTIFACTS="$WORK/macos"
   fi
   set -- "$@" --dmg "$MAC_ARTIFACTS/$PREFIX-macOS.dmg" --zip "$MAC_ARTIFACTS/$PREFIX-macOS.zip" --ed-key "$ED_KEY"
+  [ ! -f "$MAC_ARTIFACTS/mac.build-info" ] || set -- "$@" --mac-build-info "$MAC_ARTIFACTS/mac.build-info"
 fi
 [ -n "$NOTES_FILE" ] && set -- "$@" --notes-file "$NOTES_FILE"
 

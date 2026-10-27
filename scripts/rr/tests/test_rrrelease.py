@@ -102,7 +102,7 @@ class AssembleTests(unittest.TestCase):
         self.assertTrue(feed["android"]["url"].endswith("/v0.6.0-rr.1-beta.1/Bridgey-RR-0.6.0-rr.1-beta.1-Android.apk"))
         self.assertEqual(feed["macos"]["zip"]["sha256"], rrrelease.sha256_file(self.fixture.zip))
         sums = (dist / "release" / "SHA256SUMS").read_text().splitlines()
-        self.assertEqual(len(sums), 3)
+        self.assertEqual(len(sums), 5)  # APK, DMG, ZIP, the macOS SBOM and the provenance file
         items = rrrelease.parse_appcast((dist / "channels" / "appcast.xml").read_bytes())
         self.assertEqual([(i["channel"], i["version"]) for i in items], [("beta", "262981315")])
         self.assertIn("&lt;tags&gt;", items[0]["description"])
