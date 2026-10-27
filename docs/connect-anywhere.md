@@ -1,9 +1,55 @@
 # Connect anywhere
 
-Status: draft architecture spec for Bridgey by Round Robin, 2026-10-25. Spec and research only:
-nothing here is built, deployed or configured yet. The protocol parts are edition-only until
-upstream accepts them (draft section in [protocol.md](protocol.md#draft-connect-anywhere-edition-only)).
+Status: architecture spec for Bridgey by Round Robin, 2026-10-25. **Phase 1 is built (2026-10-27,
+branch `rr/connect-anywhere`) and not deployed**: see [Phase 1 as built](#phase-1-as-built-2026-10-27)
+and the [deploy runbook](connect-anywhere-deploy.md). The protocol parts are edition-only until
+upstream accepts them (draft section in [protocol.md](protocol.md#draft-connect-anywhere-connect_draft1)).
 The agent command is specified separately in [agent-cli.md](agent-cli.md).
+
+## Phase 1 as built (2026-10-27)
+
+Rahul approved phase 1 on 2026-10-27: routes, the QUIC tunnel, the control service and the relay,
+behind an opt-in switch. The transfer engine (section 8) is not part of it.
+
+| Part | Built | Where |
+| --- | --- | --- |
+| Rust core `bridgey-connect` | One UDP socket shared by STUN, TURN and QUIC (RFC 9443); TURN client over UDP (Allocate, Refresh, ChannelBind, shared per relay); ICE agent with host, server-reflexive and relay candidates, nomination with a 300 ms window, keep-alive checks every 5 s, failover after 3 missed checks and upgrades after 3 good ones; QUIC (quinn 0.11, rustls ring, TLS 1.3, Ed25519 certificates both ways, pins, exporter); the route race (learned LAN and VPN addresses 2 at a time 150 ms apart, ICE through the control service in parallel); upgrades every minute, on network change and on foreground; the rendezvous client with keystore-signed node auth and adaptive keep-alive; a loopback bridge that hands each tunnel's stream 0 to the app with a one-time token | `rust/core` |
+| Control service `bridgey-rendezvous` | Node auth (P-256, optional proof of work), presence, sealed signal forwarding, relay grants with TURN REST credentials (one relay per session for both sides), rate limits, health endpoints, one TOML settings file | `rust/rendezvous`, `server/rendezvous` |
+| Relay | coturn 4.18.0 pinned by digest, the section 9.7 settings rendered from the environment into a tmpfs, compose stack | `server/relay` |
+| Android and Mac | "Connect away from home" (off until chosen) in setup (question and bundle) and Settings; tunnel sessions run the unchanged session with `bridgey-auth-v2`; `connect.setup` and `connect.addresses`; pair secrets per device; route on the device page; a 3 s ping probe after network changes for quick failover | `android/.../connect`, `macos/.../Connect*.swift` |
+| Protocol | Draft key `connect_draft1` (instead of the `capabilities` array, per the contract's draft rule), `connect.setup`, `connect.setup.ack`, `connect.addresses`; in-band ICE and `connect.route` listed as designed | `protocol/messages.json`, `docs/protocol.md` |
+| Vectors | `connect-v1.json` from the Rust core (pair secret, pair check, rendezvous IDs, signal key, sealing, node auth, TURN credentials, transcript), checked by Rust, Python, Android and the Mac; `connectSetup` and `connectAddresses` in `protocol-v1.json` | `protocol/test-vectors` |
+
+Calls made while building (for review):
+
+- **No UniFFI yet.** The apps talk to the core through five C functions (Mac, `dlopen`) and four JNI
+  functions (Android) carrying JSON commands and events. It keeps JNA and generated bindings out of
+  both apps; UniFFI can replace it when v2 moves plugins into Rust.
+- **Own STUN and TURN code instead of `rice-proto` and `turn-client-proto`.** About 700 lines, tested
+  against the RFC 5769 vector and coturn. The spike that would have picked a crate was folded into
+  phase 1.
+- **The app session runs over a loopback TCP bridge** (127.0.0.1, a 32-byte one-time token per
+  tunnel) so the existing session code needed no new transport.
+- **QUIC sees one stable virtual address per ICE session**, so a move between ICE pairs keeps the
+  connection without QUIC migration. A move between a learned-address tunnel and an ICE tunnel is a
+  new tunnel that replaces the old session under the existing duplicate rule.
+- **LAN sessions stay on today's TCP** when Bonjour finds the device; QUIC on the LAN is used for
+  learned addresses only. Moving LAN TCP sessions to QUIC (section 4.4) is not done.
+- **Tunnels carry paired devices only.** A device that is not already paired gets no prompt over a
+  tunnel; remote pairing by invite (section 6.6) is a later phase.
+- **The control service keeps no database in phase 1** (presence and limits in memory; SQLite comes
+  with the ops view).
+- **Path MTU discovery is off** (QUIC packets stay at 1,200 bytes) so relayed and tailnet paths never
+  black-hole.
+- **The Mac keeps the node key and pair secrets in a 0600 file** next to its pairing file, not the
+  Keychain, because ad-hoc signed builds get a new Keychain partition on every update. Android wraps
+  the pair secrets with a Keystore key and keeps the node key in the Keystore.
+
+Not built in phase 1: in-band ICE and ICE restarts (the session is re-raced instead), TURN over TCP
+and TLS on 443, Cloudflare TURN, the relay agent with allowance caps, the ops dashboard and alerts,
+the network check, port mapping, network tags in `connect.addresses`, remote pairing, the anonymous
+connection stats, and the mobile data question for large transfers (it belongs to the transfer
+engine).
 
 ## 1. Summary
 

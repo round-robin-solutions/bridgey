@@ -89,7 +89,7 @@ pub fn command(id: u64, json_text: &str) -> String {
                 json!({"ok": true}).to_string()
             }
             "foreground" => {
-                node.network_changed("foreground");
+                node.foreground();
                 json!({"ok": true}).to_string()
             }
             "sign.result" => {

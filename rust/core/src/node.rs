@@ -375,8 +375,8 @@ impl Node {
                 }
                 let previous = peers.remove(&cfg.id);
                 let (next_attempt, failures) = match &previous {
-                    // A peer that just dropped is raced straight away; LAN TCP gets 3 s first.
-                    Some(p) if p.cfg.connected && !cfg.connected => (Instant::now() + Duration::from_secs(3), 0),
+                    // A peer that just dropped is raced after 1.5 s, so a LAN TCP reconnect can win first.
+                    Some(p) if p.cfg.connected && !cfg.connected => (Instant::now() + Duration::from_millis(1_500), 0),
                     Some(p) => (p.next_attempt, p.failures),
                     None => (Instant::now() + Duration::from_secs(3), 0),
                 };
@@ -387,7 +387,7 @@ impl Node {
         self.register();
         let node = self.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(3_100)).await;
+            tokio::time::sleep(Duration::from_millis(1_600)).await;
             node.connect_waiting("disconnected");
         });
         Ok(())
@@ -1049,6 +1049,18 @@ impl Node {
         self.restart_rdv();
         self.upgrade_all(reason);
         self.connect_waiting(reason);
+    }
+
+    /// The app came to the foreground: try better routes and waiting peers, keep the presence socket.
+    pub fn foreground(self: &Arc<Self>) {
+        {
+            let mut peers = self.peers.lock().unwrap();
+            for p in peers.values_mut() {
+                p.next_attempt = p.next_attempt.min(Instant::now());
+            }
+        }
+        self.upgrade_all("foreground");
+        self.connect_waiting("foreground");
     }
 
     pub fn set_relay_only(self: &Arc<Self>, on: bool) {

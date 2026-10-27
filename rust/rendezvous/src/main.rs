@@ -33,9 +33,40 @@ struct App {
     environment: String,
 }
 
+const DEFAULT_CONFIG: &str = "/etc/bridgey/bridgey-rendezvous.toml";
+
+/// `bridgey-rendezvous --health [config]`: exit 0 when `/health/ready` answers 200 (container health check).
+fn health(path: &str) -> ! {
+    use std::io::{Read, Write};
+    let port = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|t| Config::parse(&t).ok())
+        .and_then(|c| c.server.listen.parse::<SocketAddr>().ok())
+        .map(|a| a.port())
+        .unwrap_or(8080);
+    let ok = std::net::TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), Duration::from_secs(2))
+        .and_then(|mut stream| {
+            stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+            stream.write_all(b"GET /health/ready HTTP/1.0\r\nHost: localhost\r\n\r\n")?;
+            let mut head = [0u8; 12];
+            stream.read_exact(&mut head)?;
+            Ok(head.ends_with(b" 200"))
+        })
+        .unwrap_or(false);
+    std::process::exit(if ok { 0 } else { 1 })
+}
+
 #[tokio::main]
 async fn main() {
-    let path = std::env::args().nth(1).or_else(|| std::env::var("BRIDGEY_RENDEZVOUS_CONFIG").ok()).unwrap_or_else(|| "/etc/bridgey/bridgey-rendezvous.toml".into());
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let health_check = args.first().map(|a| a == "--health").unwrap_or(false);
+    if health_check {
+        args.remove(0);
+    }
+    let path = args.first().cloned().or_else(|| std::env::var("BRIDGEY_RENDEZVOUS_CONFIG").ok()).unwrap_or_else(|| DEFAULT_CONFIG.into());
+    if health_check {
+        health(&path);
+    }
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| fail(&format!("cannot read {path}: {e}")));
     let config = Config::parse(&text).unwrap_or_else(|e| fail(&format!("invalid {path}: {e}")));
     let secrets = config.secrets(|name| std::env::var(name).ok());
