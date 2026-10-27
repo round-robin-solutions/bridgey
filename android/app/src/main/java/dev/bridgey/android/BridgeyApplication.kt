@@ -47,6 +47,10 @@ class BridgeyApplication : Application() {
         private set
     lateinit var updater: AppUpdater
         private set
+
+    /** Update all (draft updates_draft1): this phone's status to the Macs, their requests, and runs from here. */
+    lateinit var updateAll: dev.bridgey.android.updates.UpdateAllCoordinator
+        private set
     lateinit var activityLog: ActivityLog
         private set
     lateinit var activity: ActivityRecorder
@@ -163,6 +167,7 @@ class BridgeyApplication : Application() {
         }
         startRemoteInput()
         startCodeAccess()
+        startUpdateAll()
         startCamera()
         registerForegroundClipboardWatcher()
         if (preferences.getBoolean(PREFERENCE_ENABLED, true)) enableBridgey()
@@ -222,6 +227,13 @@ class BridgeyApplication : Application() {
             }
         }
         pairing.cameraEnded = { request -> dev.bridgey.android.camera.CameraNotifier.dismiss(this, request.deviceId) }
+    }
+
+    private fun startUpdateAll() {
+        updater.isForeground = { startedActivityCount > 0 }
+        updateAll = dev.bridgey.android.updates.UpdateAllCoordinator(this, applicationScope, pairing, updater, settings)
+        pairing.updates = updateAll
+        updateAll.start()
     }
 
     private fun startCodeAccess() {
