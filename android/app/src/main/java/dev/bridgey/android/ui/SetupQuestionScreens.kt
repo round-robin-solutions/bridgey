@@ -64,7 +64,7 @@ import androidx.compose.ui.unit.dp
 import dev.bridgey.android.R
 import dev.bridgey.android.setup.Answers
 import dev.bridgey.android.setup.PermissionKind
-import dev.bridgey.android.setup.SetupAnswer
+import dev.bridgey.android.setup.SetupFeatures
 import dev.bridgey.android.setup.SetupBundles
 import dev.bridgey.android.setup.SetupEvent
 import dev.bridgey.android.setup.SetupFlow
@@ -88,13 +88,7 @@ import dev.bridgey.android.ui.theme.ScreenBackdrop
  */
 
 /** Where a screen sits in the path, so a change knows whether it moves forward or back. */
-private fun SetupScreen.depth(trail: Int): Float = when (this) {
-    SetupScreen.Intro -> 0f
-    is SetupScreen.Question -> trail.toFloat()
-    is SetupScreen.Permission -> trail + 0.5f
-    SetupScreen.Summary -> 1_000f
-    else -> -1f
-}
+private fun SetupScreen.depth(trail: Int): Float = if (this == SetupScreen.Intro) 0f else trail.toFloat()
 
 /** Remembers the last depth, to tell forward from back (plain state, read during composition). */
 private class CardDirection(private var last: Float) {
@@ -145,7 +139,8 @@ internal fun QuestionPath(state: SetupUiState, actions: SetupActions) {
             when (screen) {
                 SetupScreen.Intro -> IntroPage(state, actions)
                 is SetupScreen.Question -> SetupQuestions.question(screen.id)?.let { QuestionPage(it, state, actions) }
-                is SetupScreen.Permission -> PermissionPage(screen.id, screen.kind, state, actions)
+                SetupScreen.Switches -> SwitchesPage(state, actions)
+                SetupScreen.Permissions -> PermissionsPage(state, actions)
                 SetupScreen.Summary -> SummaryPage(state, actions)
                 else -> Unit
             }
@@ -247,21 +242,6 @@ private fun LazyListScope.questionHeading(@StringRes eyebrowRes: Int, @StringRes
     }
 }
 
-/** One line in the warning colour, for a permission that was just refused. */
-@Composable
-private fun NoticeLine(text: String) {
-    val colors = BridgeyTheme.colors
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(colors.surface1).padding(horizontal = 14.dp, vertical = 10.dp)
-            .semantics { liveRegion = LiveRegionMode.Polite },
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(BridgeyIcons.Info, null, tint = colors.warn, modifier = Modifier.size(18.dp))
-        Text(text, style = BridgeyType.itemBody, color = colors.onSurface)
-    }
-}
-
 /** A big answer: the label, an optional line under it, and a check when it is the answer given. */
 @Composable
 private fun AnswerButton(label: String, detail: String?, selected: Boolean, current: Boolean, onClick: () -> Unit) {
@@ -311,16 +291,8 @@ private fun QuestionFooter(moreOptions: (() -> Unit)?, notNow: () -> Unit, notNo
 @Composable
 private fun QuestionPage(question: SetupQuestion, state: SetupUiState, actions: SetupActions) {
     val flow = state.flow
-    val given = flow.answers[question.id] ?: flow.typed[question.id]
+    val given = flow.answers[question.id]
     val effective = SetupFlow.effective(flow, state.facts)
-    val noticeQuestion = flow.notice?.let(SetupQuestions::question)
-    val noticeKind = flow.notice?.let { flow.denied[it] }
-    val notice = if (noticeQuestion != null && noticeKind != null) {
-        stringResource(R.string.setup_denied, permissionName(noticeKind), stringResource(noticeQuestion.summary))
-    } else {
-        null
-    }
-    val typedNote = question.id in flow.typed && question.id !in flow.answers
     QuestionFrame(
         state, actions,
         footer = {
@@ -331,9 +303,7 @@ private fun QuestionPage(question: SetupQuestion, state: SetupUiState, actions: 
             )
         },
     ) {
-        if (notice != null) item(key = "notice") { NoticeLine(notice) }
         questionHeading(question.section.title, question.title, question.context)
-        if (typedNote) item(key = "typed") { Note(stringResource(R.string.setup_typed_note), Modifier.padding(horizontal = 8.dp)) }
         when {
             question.id == "pair" -> pairQuestion(state, actions)
             question.multiPick -> item(key = "pick") { AppPicker(question, state, actions, given) }
@@ -347,11 +317,6 @@ private fun QuestionPage(question: SetupQuestion, state: SetupUiState, actions: 
                         onClick = { actions.event(SetupEvent.Answer(question.id, answer.key)) },
                     )
                 }
-            }
-        }
-        if (question.id == "background") {
-            state.oem?.let { checklist ->
-                item(key = "oem") { OemChecklistCard(checklist, actions.openOemStep, actions.settings.openUrl, Modifier.padding(top = 6.dp)) }
             }
         }
     }
@@ -428,37 +393,115 @@ private fun AppPicker(question: SetupQuestion, state: SetupUiState, actions: Set
     }
 }
 
-/** The permission an answer needs, with its usual why and without-it lines. */
+/** Every feature that was not picked: one plain switch each, off until turned on. */
 @Composable
-private fun PermissionPage(id: String, kind: PermissionKind, state: SetupUiState, actions: SetupActions) {
+private fun SwitchesPage(state: SetupUiState, actions: SetupActions) {
     val colors = BridgeyTheme.colors
-    val question = SetupQuestions.question(id) ?: return
+    val effective = SetupFlow.effective(state.flow, state.facts)
+    val features = SetupFeatures.all.filter { it.id !in state.flow.picked }
     QuestionFrame(
         state, actions,
         footer = {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                OutlinePillButton(stringResource(R.string.setup_not_now), null, { actions.event(SetupEvent.NotNow) })
+                Text(
+                    stringResource(R.string.setup_switches_details),
+                    style = BridgeyType.label,
+                    color = colors.primary,
+                    modifier = Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).clickable(role = Role.Button) { actions.openPage("GENERAL") }
+                        .padding(horizontal = 12.dp, vertical = 14.dp),
+                )
                 Spacer(Modifier.weight(1f))
-                GradientButton(stringResource(R.string.setup_allow), null, { actions.allowPermission(kind) }, height = 48.dp, textStyle = BridgeyType.label)
+                GradientButton(stringResource(R.string.setup_continue), null, { actions.event(SetupEvent.Continue) }, height = 48.dp, textStyle = BridgeyType.label)
             }
         },
     ) {
-        item(key = "permission") {
-            val (icon, tint) = permissionIcon(kind)
-            Column(
-                Modifier.fillMaxWidth().padding(top = 16.dp).clip(RoundedCornerShape(28.dp)).background(colors.surface1).padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Text(stringResource(question.section.title).uppercase(), style = BridgeyType.section, color = colors.primary)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    IconTile(icon, tint, size = 52.dp, corner = 18.dp, iconSize = 28.dp)
-                    Text(
-                        stringResource(R.string.setup_permission_title, permissionName(kind)),
-                        style = BridgeyType.cardTitle, color = colors.onSurface, modifier = Modifier.weight(1f).semantics { heading() },
+        questionHeading(R.string.setup_advanced_title, R.string.setup_switches_title, R.string.setup_switches_context)
+        item(key = "switches") {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                features.forEachIndexed { index, feature ->
+                    val on = SetupFeatures.isOn(feature, effective)
+                    SwitchRow(
+                        groupShape(index, features.size), stringResource(feature.title), stringResource(feature.detail), null,
+                        if (on) Tint.BLUE else Tint.NEUTRAL, on, { actions.event(SetupEvent.Switch(feature.id, it)) }, compact = true,
                     )
                 }
-                Text(stringResource(R.string.setup_why, permissionWhy(kind)), style = BridgeyType.bodyText, color = colors.onSurface, modifier = Modifier.padding(top = 4.dp))
-                Text(stringResource(R.string.setup_without, permissionWithout(kind)), style = BridgeyType.bodyText, color = colors.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+/** How a permission row stands right now. */
+private enum class PermissionStatus { ALLOWED, NOT_YET, REFUSED }
+
+/** Every permission the chosen features need, on one page: why, for what, and its status. */
+@Composable
+private fun PermissionsPage(state: SetupUiState, actions: SetupActions) {
+    val colors = BridgeyTheme.colors
+    val needed = SetupFlow.neededPermissions(state.flow, state.facts)
+    fun status(kind: PermissionKind) = when {
+        kind in state.facts.granted -> PermissionStatus.ALLOWED
+        kind in state.flow.asked -> PermissionStatus.REFUSED
+        else -> PermissionStatus.NOT_YET
+    }
+    val open = needed.filter { status(it.kind) != PermissionStatus.ALLOWED }
+    QuestionFrame(
+        state, actions,
+        footer = {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinePillButton(stringResource(R.string.setup_continue), null, { actions.event(SetupEvent.Continue) })
+                Spacer(Modifier.weight(1f))
+                if (open.isNotEmpty()) {
+                    GradientButton(stringResource(R.string.setup_allow_all), null, actions.allowAll, height = 48.dp, textStyle = BridgeyType.label)
+                }
+            }
+        },
+    ) {
+        questionHeading(R.string.setup_advanced_title, R.string.setup_permissions_title, R.string.setup_permissions_context)
+        needed.forEach { permission ->
+            item(key = "perm.${permission.kind.name}") {
+                val (icon, tint) = permissionIcon(permission.kind)
+                val current = status(permission.kind)
+                // Battery optimisation is for every feature that is on.
+                val onNow = SetupFlow.effective(state.flow.copy(refused = emptySet()), state.facts)
+                val featureNames = (permission.features.mapNotNull(SetupFeatures::feature).ifEmpty { SetupFeatures.all })
+                    .filter { SetupFeatures.isOn(it, onNow) }
+                    .map { stringResource(it.title) }
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(colors.surface1).padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        IconTile(icon, tint, size = 40.dp, corner = 14.dp, iconSize = 22.dp)
+                        Text(permissionName(permission.kind), style = BridgeyType.rowTitle, color = colors.onSurface, modifier = Modifier.weight(1f))
+                        StatusPill(
+                            stringResource(
+                                when (current) {
+                                    PermissionStatus.ALLOWED -> R.string.setup_status_allowed
+                                    PermissionStatus.NOT_YET -> R.string.setup_status_not_yet
+                                    PermissionStatus.REFUSED -> R.string.setup_status_refused
+                                },
+                            ),
+                            if (current == PermissionStatus.ALLOWED) BridgeyIcons.Check else null,
+                            when (current) {
+                                PermissionStatus.ALLOWED -> Tint.GREEN
+                                PermissionStatus.NOT_YET -> Tint.NEUTRAL
+                                PermissionStatus.REFUSED -> Tint.PURPLE
+                            },
+                        )
+                    }
+                    Text(permissionWhy(permission.kind), style = BridgeyType.itemBody, color = colors.onSurface)
+                    Text(
+                        if (featureNames.isEmpty()) stringResource(R.string.setup_permissions_needed_connection)
+                        else stringResource(R.string.setup_permissions_needed_for, featureNames.joinToString(", ")),
+                        style = BridgeyType.itemBody, color = colors.onSurfaceVariant,
+                    )
+                    if (current != PermissionStatus.ALLOWED) {
+                        Row(Modifier.fillMaxWidth()) {
+                            Spacer(Modifier.weight(1f))
+                            TonalPillButton(stringResource(R.string.setup_allow), { actions.allowPermission(permission.kind) })
+                        }
+                    }
+                }
             }
         }
     }
@@ -472,8 +515,7 @@ private fun IntroPage(state: SetupUiState, actions: SetupActions) {
     var text by rememberSaveable { mutableStateOf(state.typedText) }
     var picked by rememberSaveable { mutableStateOf(state.pickedBundles.joinToString(",")) }
     val pickedSet = picked.split(',').filter { it.isNotEmpty() }.toSet()
-    val available = SetupQuestions.all.map { it.id }
-    val typed = SetupTyped.match(text, available)
+    val typed = SetupTyped.match(text)
     val chosen = SetupBundles.answers(pickedSet, typed)
     QuestionFrame(
         state, actions,
@@ -543,12 +585,11 @@ private fun IntroPage(state: SetupUiState, actions: SetupActions) {
                 ) {
                     Text(stringResource(R.string.setup_intro_matched), style = BridgeyType.smallStrong, color = colors.onSurfaceVariant)
                     chosen.forEach { (id, key) ->
-                        val question = SetupQuestions.question(id) ?: return@forEach
-                        val answer = SetupQuestions.answer(question, key) ?: return@forEach
+                        val (title, value) = chosenLine(id, key) ?: return@forEach
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(BridgeyIcons.Check, null, tint = colors.onTintGreen, modifier = Modifier.size(16.dp))
-                            Text(stringResource(question.summary), style = BridgeyType.itemTitle, color = colors.onSurface, modifier = Modifier.weight(1f))
-                            Text(stringResource(answer.label), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
+                            Icon(if (key == Answers.NO) BridgeyIcons.Close else BridgeyIcons.Check, null, tint = if (key == Answers.NO) colors.onSurfaceVariant else colors.onTintGreen, modifier = Modifier.size(16.dp))
+                            Text(stringResource(title), style = BridgeyType.itemTitle, color = colors.onSurface, modifier = Modifier.weight(1f))
+                            Text(stringResource(value), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
                         }
                     }
                 }
@@ -559,11 +600,32 @@ private fun IntroPage(state: SetupUiState, actions: SetupActions) {
     }
 }
 
-/** What was turned on (each with a switch and Change in Settings), the choices, and what was not allowed. */
+/** A line in the start's preview: the feature or question, and what it will be. */
+private fun chosenLine(id: String, key: String): Pair<Int, Int>? {
+    SetupQuestions.question(id)?.let { question ->
+        val answer = SetupQuestions.answer(question, key)
+        if (answer != null && question.feature != id) return question.summary to answer.label
+    }
+    SetupFeatures.feature(id)?.let { feature ->
+        val answer = SetupQuestions.question(id)?.let { SetupQuestions.answer(it, key) }
+        return feature.title to (answer?.label ?: if (key == Answers.NO) R.string.setup_intro_off else R.string.setup_intro_on)
+    }
+    return when (id) {
+        "focus" -> R.string.setup_q_focus_summary to R.string.setup_a_focus_both
+        "updates" -> R.string.setup_q_updates_summary to when (key) {
+            Answers.NEWEST -> R.string.setup_a_updates_newest
+            Answers.EARLY -> R.string.setup_a_updates_early
+            else -> R.string.setup_a_updates_steady
+        }
+        else -> null
+    }
+}
+
+/** What is on (each with a switch and Change in Settings), the choices, and what was not allowed. */
 @Composable
 private fun SummaryPage(state: SetupUiState, actions: SetupActions) {
     val colors = BridgeyTheme.colors
-    val items = SetupSummary.items(state.flow)
+    val items = SetupSummary.items(state.flow, state.facts)
     QuestionFrame(
         state, actions,
         progress = false,
@@ -585,29 +647,34 @@ private fun SummaryPage(state: SetupUiState, actions: SetupActions) {
                 )
             }
         }
-        val on = items.filterIsInstance<SummaryItem.TurnedOn>()
+        val on = items.filterIsInstance<SummaryItem.FeatureOn>()
         val chosen = items.filterIsInstance<SummaryItem.Chosen>()
         val refused = items.filterIsInstance<SummaryItem.NotAllowed>()
         if (on.isNotEmpty()) {
             item(key = "on.label") { SummaryLabel(stringResource(R.string.setup_summary_on)) }
-            on.forEach { item -> item(key = "on.${item.question.id}") { TurnedOnRow(item, actions) } }
+            on.forEach { item -> item(key = "on.${item.feature.id}") { FeatureOnRow(item, actions) } }
         }
         if (chosen.isNotEmpty()) {
             item(key = "chosen.label") { SummaryLabel(stringResource(R.string.setup_summary_choices)) }
             chosen.forEach { item ->
-                item(key = "chosen.${item.question.id}") {
-                    SummaryRow(stringResource(item.question.summary), chosenText(item.question, item.answer, state), null, item.question.settingsPage, actions)
+                item(key = "chosen.${item.title}") {
+                    val value = item.value?.let { stringResource(it) }
+                        ?: state.facts.duplicateApps.filter { it.first in item.packages }.joinToString(", ") { it.second }.ifEmpty { item.packages.joinToString(", ") }
+                    SummaryRow(stringResource(item.title), value, item.page, actions)
                 }
             }
         }
         if (refused.isNotEmpty()) {
             item(key = "refused.label") { SummaryLabel(stringResource(R.string.setup_summary_not_allowed)) }
             refused.forEach { item ->
-                item(key = "refused.${item.question.id}") {
+                item(key = "refused.${item.permission.kind.name}") {
+                    // What stayed off because of it; a permission that turns nothing off says what is missing.
+                    val off = item.permission.offWhenRefused.map { it.setting }.toSet()
+                    val names = SetupFeatures.all.filter { feature -> feature.settings.any { it in off } }.map { stringResource(it.title) }
                     SummaryRow(
-                        stringResource(item.question.summary),
-                        stringResource(R.string.setup_summary_denied_line, permissionName(item.kind)),
-                        null, item.question.settingsPage ?: "PRIVACY", actions, warning = true,
+                        permissionName(item.permission.kind),
+                        if (names.isEmpty()) permissionWithout(item.permission.kind) else stringResource(R.string.setup_summary_turned_off, names.joinToString(", ")),
+                        "PRIVACY", actions, warning = true,
                     )
                 }
             }
@@ -616,48 +683,36 @@ private fun SummaryPage(state: SetupUiState, actions: SetupActions) {
 }
 
 @Composable
-private fun chosenText(question: SetupQuestion, answer: SetupAnswer, state: SetupUiState): String =
-    if (question.multiPick) {
-        val packages = answer.key.removePrefix(Answers.PICKED).split(',').toSet()
-        state.facts.duplicateApps.filter { it.first in packages }.joinToString(", ") { it.second }
-    } else {
-        stringResource(answer.label)
-    }
-
-@Composable
 private fun SummaryLabel(text: String) {
     Text(text.uppercase(), style = BridgeyType.section, color = BridgeyTheme.colors.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp, top = 14.dp).semantics { heading() })
 }
 
-/** A feature that was turned on: its switch, and Change in Settings under it. */
+/** A feature that is on: its switch, and Change in Settings under it. */
 @Composable
-private fun TurnedOnRow(item: SummaryItem.TurnedOn, actions: SetupActions) {
+private fun FeatureOnRow(item: SummaryItem.FeatureOn, actions: SetupActions) {
     val colors = BridgeyTheme.colors
-    val title = stringResource(item.question.summary)
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(colors.surface1)) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 64.dp)
-                .toggleable(value = item.on, role = Role.Switch) { actions.event(SetupEvent.SummarySwitch(item.question.id, it)) }
+                .toggleable(value = item.on, role = Role.Switch) { actions.event(SetupEvent.SummarySwitch(item.feature.id, it)) }
                 .padding(start = 18.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, style = BridgeyType.rowTitle, color = colors.onSurface)
-                Text(stringResource(item.answer.label), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
+                Text(stringResource(item.feature.title), style = BridgeyType.rowTitle, color = colors.onSurface)
+                Text(stringResource(item.detail ?: item.feature.detail), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
             }
             BridgeySwitch(checked = item.on, onCheckedChange = null)
         }
-        item.question.settingsPage?.let { page ->
-            TextButton(onClick = { actions.openPage(page) }, modifier = Modifier.padding(start = 6.dp, bottom = 4.dp)) {
-                Text(stringResource(R.string.setup_summary_change), style = BridgeyType.label, color = colors.primary)
-            }
+        TextButton(onClick = { actions.openPage(item.feature.page) }, modifier = Modifier.padding(start = 6.dp, bottom = 4.dp)) {
+            Text(stringResource(R.string.setup_summary_change), style = BridgeyType.label, color = colors.primary)
         }
     }
 }
 
 /** A choice or a refused permission: the text, and Change in Settings. */
 @Composable
-private fun SummaryRow(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector?, page: String?, actions: SetupActions, warning: Boolean = false) {
+private fun SummaryRow(title: String, detail: String, page: String?, actions: SetupActions, warning: Boolean = false) {
     val colors = BridgeyTheme.colors
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(colors.surface1)) {
         Column(Modifier.fillMaxWidth().padding(start = 18.dp, end = 16.dp, top = 12.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {

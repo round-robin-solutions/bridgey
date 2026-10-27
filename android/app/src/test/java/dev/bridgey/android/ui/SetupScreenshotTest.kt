@@ -151,92 +151,82 @@ class SetupScreenshotTest {
 
     private val paired = listOf("Personal Mac", "Work MacBook")
 
-    private fun facts(flowSettings: SettingsState = settings, granted: Set<PermissionKind> = emptySet()) = SetupFacts(
+    /** A fresh install: every feature off until chosen. */
+    private fun facts(granted: Set<PermissionKind> = setOf(PermissionKind.POST_NOTIFICATIONS)) = SetupFacts(
         paired = true,
-        current = mapOf(dev.bridgey.android.setup.SetupSetting.FEATURE_REMOTE_INPUT to "false"),
+        current = dev.bridgey.android.setup.SetupFeatures.all.flatMap { it.settings }.associateWith { "false" },
         granted = granted,
         duplicateApps = listOf("com.whatsapp" to "WhatsApp", "org.telegram.messenger" to "Telegram", "com.Slack" to "Slack", "com.microsoft.teams" to "Microsoft Teams"),
         codesLinkApplies = true,
     )
 
-    private fun questions(name: String, flow: SetupState, typedText: String = "", picked: Set<String> = emptySet(), dialog: Boolean = false) =
+    private fun questions(name: String, flow: SetupState, typedText: String = "", picked: Set<String> = emptySet(), dialog: Boolean = false, facts: SetupFacts = facts()) =
         capture(name, dialog) {
             SetupScreen(
-                SetupUiState(flow, settings.copy(batteryExempt = false), paired, emptyList(), oem, facts = facts(), typedText = typedText, pickedBundles = picked),
+                SetupUiState(flow, settings.copy(batteryExempt = false), paired, emptyList(), oem, facts = facts, typedText = typedText, pickedBundles = picked),
                 SetupActions(),
             )
         }
 
-    /** The flow at question [id], having said Not now to the ones before it. */
-    private fun at(id: String, answers: Map<String, String> = emptyMap()): SetupState {
-        var state = SetupFlow.reduce(SetupFlow.reduce(SetupState(), SetupEvent.ChooseAdvanced), SetupEvent.StartQuestions(), facts())
-        while ((state.screen as? dev.bridgey.android.setup.SetupScreen.Question)?.id != id) {
-            val current = (state.screen as dev.bridgey.android.setup.SetupScreen.Question).id
-            state = answers[current]?.let { SetupFlow.reduce(state, SetupEvent.Answer(current, it), facts(granted = PermissionKind.entries.toSet())) }
-                ?: SetupFlow.reduce(state, SetupEvent.NotNow, facts())
-        }
-        return state
-    }
+    private fun go(state: SetupState, vararg events: SetupEvent, facts: SetupFacts = facts()) = events.fold(state) { s, e -> SetupFlow.reduce(s, e, facts) }
 
-    private fun intro() = questions("setup-intro-typed", flow(SetupEvent.ChooseAdvanced), typedText = "I mainly want my WhatsApp notifications and to send photos to my Mac", picked = setOf("clipboard"))
+    private val started: SetupState
+        get() = go(
+            SetupFlow.reduce(SetupState(), SetupEvent.ChooseAdvanced),
+            SetupEvent.StartQuestions(dev.bridgey.android.setup.SetupBundles.answers(setOf("notifications", "calls"), mapOf("clipboard" to "tap"))),
+        )
+
+    private fun intro() = questions("setup-intro", flow(SetupEvent.ChooseAdvanced), typedText = "copy paste and calls but no music", picked = setOf("notifications"))
 
     @Test fun introLight() = intro()
 
     @Test @Config(qualifiers = "+night") fun introDark() = intro()
 
-    private fun clipboardQuestion() = questions("setup-question-clipboard", at("clipboard"))
-
-    @Test fun clipboardQuestionLight() = clipboardQuestion()
-
-    @Test @Config(qualifiers = "+night") fun clipboardQuestionDark() = clipboardQuestion()
-
-    private fun appsQuestion() = questions("setup-question-apps", at("notification_apps"))
+    /** The first follow-up for Notifications: apps that have a Mac app. */
+    private fun appsQuestion() = questions("setup-question-apps", started)
 
     @Test fun appsQuestionLight() = appsQuestion()
 
     @Test @Config(qualifiers = "+night") fun appsQuestionDark() = appsQuestion()
 
-    private fun updatesQuestion() = questions("setup-question-updates", at("updates").copy(answers = mapOf("updates" to "early")))
+    private fun callsQuestion() = questions("setup-question-calls", go(started, SetupEvent.NotNow, SetupEvent.NotNow))
 
-    @Test fun updatesQuestionLight() = updatesQuestion()
+    @Test fun callsQuestionLight() = callsQuestion()
 
-    @Test @Config(qualifiers = "+night") fun updatesQuestionDark() = updatesQuestion()
+    @Test @Config(qualifiers = "+night") fun callsQuestionDark() = callsQuestion()
 
-    /** Calls: Yes needs Phone and calls, asked right after the answer. */
-    private fun permission() = questions(
-        "setup-question-permission",
-        SetupFlow.reduce(at("calls"), SetupEvent.Answer("calls", "yes"), facts()),
+    private val atSwitches: SetupState get() = go(started, SetupEvent.NotNow, SetupEvent.NotNow, SetupEvent.Answer("calls", "yes"), SetupEvent.Switch("battery", true))
+
+    private fun switches() = questions("setup-switches", atSwitches)
+
+    @Test fun switchesLight() = switches()
+
+    @Test @Config(qualifiers = "+night") fun switchesDark() = switches()
+
+    /** One page: Notification access allowed, Phone and calls refused, the others not yet. */
+    private fun setupPermissions() = questions(
+        "setup-permissions",
+        go(atSwitches, SetupEvent.Continue, SetupEvent.Asked(setOf(PermissionKind.PHONE_CALLS))),
+        facts = facts(granted = setOf(PermissionKind.NOTIFICATION_ACCESS)),
     )
 
-    @Test fun permissionLight() = permission()
+    @Test fun setupPermissionsLight() = setupPermissions()
 
-    @Test @Config(qualifiers = "+night") fun permissionDark() = permission()
+    @Test @Config(qualifiers = "+night") fun setupPermissionsDark() = setupPermissions()
 
-    /** Not allowed: the next card says so in one line. */
-    private fun deniedNote() = questions(
-        "setup-question-denied-note",
-        SetupFlow.reduce(SetupFlow.reduce(at("calls"), SetupEvent.Answer("calls", "yes"), facts()), SetupEvent.PermissionResult(false), facts()),
+    private fun summary() = questions(
+        "setup-summary",
+        go(atSwitches, SetupEvent.Continue, SetupEvent.Asked(setOf(PermissionKind.PHONE_CALLS)), SetupEvent.Continue, facts = facts(granted = setOf(PermissionKind.NOTIFICATION_ACCESS, PermissionKind.BATTERY))),
+        facts = facts(granted = setOf(PermissionKind.NOTIFICATION_ACCESS, PermissionKind.BATTERY)).let { f ->
+            f.copy(current = f.current + mapOf(dev.bridgey.android.setup.SetupSetting.FEATURE_NOTIFICATIONS to "true", dev.bridgey.android.setup.SetupSetting.FEATURE_CALLS to "true", dev.bridgey.android.setup.SetupSetting.FEATURE_CLIPBOARD to "true", dev.bridgey.android.setup.SetupSetting.FEATURE_BATTERY to "true"))
+        },
     )
-
-    @Test fun deniedNoteLight() = deniedNote()
-
-    @Test @Config(qualifiers = "+night") fun deniedNoteDark() = deniedNote()
-
-    private fun summaryState(): SetupState {
-        var state = at("updates", mapOf("clipboard" to "auto", "notifications" to "yes", "notification_apps" to "picked:com.whatsapp,org.telegram.messenger", "files" to "yes"))
-        state = SetupFlow.reduce(state, SetupEvent.Answer("updates", "early"), facts())
-        state = state.copy(answers = state.answers + ("calls" to "yes"), denied = mapOf("calls" to PermissionKind.PHONE_CALLS), summaryOff = setOf("files"))
-        while (state.screen != dev.bridgey.android.setup.SetupScreen.Summary) state = SetupFlow.reduce(state, SetupEvent.NotNow, facts())
-        return state
-    }
-
-    private fun summary() = questions("setup-summary", summaryState())
 
     @Test fun summaryLight() = summary()
 
     @Test @Config(qualifiers = "+night") fun summaryDark() = summary()
 
-    private fun leave() = questions("setup-leave", at("files", mapOf("clipboard" to "auto")).copy(confirmLeave = true), dialog = true)
+    private fun leave() = questions("setup-leave", atSwitches.copy(confirmLeave = true), dialog = true)
 
     @Test fun leaveLight() = leave()
 

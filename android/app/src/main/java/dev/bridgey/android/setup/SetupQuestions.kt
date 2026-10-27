@@ -4,14 +4,15 @@ import androidx.annotation.StringRes
 import dev.bridgey.android.R
 
 /*
- * Advanced setup as questions. One question per card, in plain words; each answer
- * turns on or configures the settings behind it, and later questions adapt to earlier answers.
- * Pure data and rules (no Android types beyond string ids), so the state machine, the coverage
- * table and the answers-to-settings mapping are tested in plain JUnit. The Mac has the same
- * question ids, order and keywords (macos/Sources/BridgeyMac/SetupQuestions.swift).
+ * Advanced setup, the short path: the start (what brought you here, or type it), a follow-up only
+ * for the features picked or typed, one page of plain switches for every other feature, one page
+ * for the permissions the chosen features need, then the summary. Pure data and rules (no Android
+ * types beyond string ids), so the state machine, the coverage table and the answers-to-settings
+ * mapping are tested in plain JUnit. The Mac has the same feature ids, question ids, answer keys
+ * and keywords (macos/Sources/BridgeyMac/SetupQuestions.swift).
  */
 
-/** The sections, in the agreed order. Mac control questions need a paired Mac. */
+/** The sections, in the agreed order. */
 enum class SetupSection(@StringRes val title: Int) {
     DEVICES(R.string.setup_group_devices),
     CLIPBOARD(R.string.setup_group_clipboard),
@@ -28,8 +29,9 @@ enum class SetupSection(@StringRes val title: Int) {
 
 /**
  * Every setting the 0.10 beta 1 Advanced setup showed on this phone (its ten pages). The coverage
- * test fails when one of these is not reachable through a question, a follow-up or a question's
- * More options. Values are strings: "true"/"false", or an enum name.
+ * test fails when one of these is not reachable through a follow-up, the feature switches page,
+ * the permissions page or a Settings page (More options). Values are strings: "true"/"false", or
+ * an enum name. [default] is the value on an install from before the off-until-chosen defaults.
  */
 enum class SetupSetting(val default: String) {
     PAIRING("false"),
@@ -67,7 +69,7 @@ enum class SetupSetting(val default: String) {
     FEATURE_PING("true"),
     FEATURE_BATTERY("true"),
     SHOW_PREVIEWS("true"),
-    /** Privacy > Logging > Connection: the connection stats question. */
+    /** Privacy > Logging > Connection. */
     LOGGING_CONNECTION("true"),
     /** The other Logging switches (calls, numbers, notification text, clipboard, file names, remote). */
     LOGGING_DETAIL(""),
@@ -78,7 +80,7 @@ enum class SetupSetting(val default: String) {
     REDUCE_MOTION("false"),
 }
 
-/** One setting set to a value by an answer. */
+/** One setting set to a value by an answer or a switch. */
 data class SettingChange(val setting: SetupSetting, val value: String) {
     companion object {
         fun on(setting: SetupSetting) = SettingChange(setting, "true")
@@ -86,23 +88,21 @@ data class SettingChange(val setting: SetupSetting, val value: String) {
     }
 }
 
-/** One answer button. [turnsOn]: the summary lists it under what was turned on. */
+/** One answer button on a follow-up. */
 data class SetupAnswer(
     val key: String,
     @StringRes val label: Int,
     @StringRes val detail: Int? = null,
     val changes: List<SettingChange> = emptyList(),
-    /** Asked right after this answer, with the permission's own explanation. */
-    val permission: PermissionKind? = null,
-    /** What goes back off when [permission] is not allowed. */
-    val onDenied: List<SettingChange> = emptyList(),
-    val turnsOn: Boolean = false,
 )
 
-/** How a question covers a setting: its answers set it, or its More options page holds it. */
-enum class Coverage { ANSWER, MORE_OPTIONS }
+/**
+ * How a setting is reached: a follow-up's answers, the feature switches page, the permissions
+ * page, or its Settings page (More options on the card, Change details in Settings).
+ */
+enum class Coverage { ANSWER, SWITCH, PERMISSION, MORE_OPTIONS }
 
-/** What the questions depend on besides earlier answers. [current]: the settings now. */
+/** What the path depends on besides the answers. [current]: the settings now. */
 data class SetupFacts(
     val paired: Boolean = false,
     val current: Map<SetupSetting, String> = emptyMap(),
@@ -120,27 +120,65 @@ data class SetupFacts(
     fun value(setting: SetupSetting): String = current[setting] ?: setting.default
 }
 
-/** The settings as they are after the answers so far (answers are applied as they are given). */
+/** The settings as they are after the answers and switches so far (they are applied as given). */
 class Effective(val facts: SetupFacts, private val overlay: Map<SetupSetting, String> = emptyMap()) {
     operator fun get(setting: SetupSetting): String = overlay[setting] ?: facts.value(setting)
     fun on(setting: SetupSetting): Boolean = get(setting) == "true"
     val paired: Boolean get() = facts.paired
 }
 
-/** A question card. [asks] decides whether it is shown; false means its answer is implied. */
+/**
+ * A feature with an on/off switch. [title] is exactly the name Settings uses for it (its page
+ * title, or its switch on the Media and quick actions page).
+ */
+data class SetupFeature(
+    val id: String,
+    @StringRes val title: Int,
+    @StringRes val detail: Int,
+    val settings: List<SetupSetting>,
+    /** The Settings page with its details. */
+    val page: String,
+) {
+    val on: List<SettingChange> get() = settings.map(SettingChange::on)
+    val off: List<SettingChange> get() = settings.map(SettingChange::off)
+}
+
+object SetupFeatures {
+    val all: List<SetupFeature> = listOf(
+        SetupFeature("clipboard", R.string.feature_clipboard, R.string.feature_clipboard_detail, listOf(SetupSetting.FEATURE_CLIPBOARD), "CLIPBOARD"),
+        SetupFeature("notifications", R.string.settings_notifications, R.string.settings_notifications_detail, listOf(SetupSetting.FEATURE_NOTIFICATIONS), "NOTIFICATIONS"),
+        SetupFeature("calls", R.string.feature_calls, R.string.settings_calls_detail, listOf(SetupSetting.FEATURE_CALLS), "CALLS"),
+        SetupFeature("files", R.string.feature_files, R.string.feature_files_detail, listOf(SetupSetting.FEATURE_FILES), "FILES"),
+        SetupFeature("remote", R.string.settings_remote_control, R.string.settings_remote_detail, listOf(SetupSetting.FEATURE_REMOTE_INPUT), "REMOTE_CONTROL"),
+        SetupFeature("media", R.string.feature_media, R.string.settings_media_detail, listOf(SetupSetting.FEATURE_MEDIA), "MEDIA"),
+        SetupFeature("mac_actions", R.string.feature_mac_actions, R.string.settings_mac_actions_detail, listOf(SetupSetting.FEATURE_MAC_ACTIONS), "MEDIA"),
+        SetupFeature("camera", R.string.feature_camera, R.string.settings_camera_detail, listOf(SetupSetting.FEATURE_CAMERA), "MEDIA"),
+        SetupFeature("links", R.string.feature_links, R.string.feature_links_detail, listOf(SetupSetting.FEATURE_LINKS), "MEDIA"),
+        SetupFeature("find", R.string.feature_find, R.string.settings_find_detail, listOf(SetupSetting.FEATURE_FIND_DEVICE), "MEDIA"),
+        SetupFeature("ping", R.string.feature_ping, R.string.settings_ping_detail, listOf(SetupSetting.FEATURE_PING), "MEDIA"),
+        SetupFeature("battery", R.string.feature_battery, R.string.settings_battery_detail, listOf(SetupSetting.FEATURE_BATTERY), "MEDIA"),
+    )
+
+    private val byId = all.associateBy { it.id }
+
+    fun feature(id: String): SetupFeature? = byId[id]
+
+    fun isOn(feature: SetupFeature, effective: Effective): Boolean = feature.settings.all(effective::on)
+}
+
+/** A follow-up card: asked only when its [feature] was picked or typed (the pairing card: no feature). */
 data class SetupQuestion(
     val id: String,
     val section: SetupSection,
+    /** The feature this follows up; null for the pairing card. */
+    val feature: String?,
     @StringRes val title: Int,
     @StringRes val context: Int,
-    /** The plain words in the summary ("Copy and paste between devices"). */
     @StringRes val summary: Int,
     val answers: List<SetupAnswer>,
-    /** The answer that turns this off, for the summary's switch. */
-    val offKey: String? = "no",
-    /** Settings > this page: More options on the card, Change in Settings in the summary. */
+    /** Settings > this page: More options on the card. */
     val settingsPage: String? = null,
-    val covers: Map<SetupSetting, Coverage> = emptyMap(),
+    val covers: Set<SetupSetting> = emptySet(),
     /** Several answers at once (the duplicate apps question). */
     val multiPick: Boolean = false,
     val asks: (Effective) -> Boolean = { true },
@@ -152,18 +190,14 @@ data class SetupQuestion(
 object Answers {
     const val YES = "yes"
     const val NO = "no"
+    /** A feature picked (a bundle, or typed) without answering its follow-up. */
+    const val PICK = "pick"
     const val AUTO = "auto"
     const val TAP = "tap"
-    const val TEXT = "text"
     const val SEE = "see"
     const val BROWSE = "browse"
     const val CHANGE = "change"
-    const val SENDER = "sender"
-    const val ASK = "ask"
-    const val FIXED = "fixed"
     const val BOTH = "both"
-    const val FOLLOW = "follow"
-    const val SHARE = "share"
     const val STEADY = "steady"
     const val EARLY = "early"
     const val NEWEST = "newest"
@@ -172,312 +206,149 @@ object Answers {
     const val PICKED = "picked:"
 }
 
+/** The permission a chosen feature needs; refused or skipped, [offWhenRefused] goes back off. */
+data class SetupPermission(
+    val kind: PermissionKind,
+    /** The features that need it, for the "Needed for" line. */
+    val features: List<String>,
+    val needed: (Effective) -> Boolean,
+    val offWhenRefused: List<SettingChange> = emptyList(),
+    /** A runtime permission (one system dialog for all of them); otherwise a system screen of its own. */
+    val runtime: Boolean,
+)
+
 object SetupQuestions {
-    private fun yes(@StringRes label: Int, vararg changes: SettingChange, @StringRes detail: Int? = null, permission: PermissionKind? = null, onDenied: List<SettingChange> = emptyList()) =
-        SetupAnswer(Answers.YES, label, detail, changes.toList(), permission, onDenied, turnsOn = true)
-
-    private fun no(@StringRes label: Int, vararg changes: SettingChange) = SetupAnswer(Answers.NO, label, changes = changes.toList())
-
     private val on = SettingChange.Companion::on
     private val off = SettingChange.Companion::off
 
-    /** The Android questions, in order. The pairing card is first and is not an answer card. */
+    /** The follow-ups, in order. The pairing card is first and is not tied to a feature. */
     val all: List<SetupQuestion> = listOf(
         SetupQuestion(
-            id = "pair", section = SetupSection.DEVICES,
+            id = "pair", section = SetupSection.DEVICES, feature = null,
             title = R.string.setup_q_pair_title, context = R.string.setup_q_pair_context, summary = R.string.setup_q_pair_summary,
-            answers = emptyList(), offKey = null,
-            covers = mapOf(SetupSetting.PAIRING to Coverage.ANSWER),
+            answers = emptyList(), covers = setOf(SetupSetting.PAIRING),
             asks = { !it.paired },
         ),
-        // Clipboard
         SetupQuestion(
-            id = "clipboard", section = SetupSection.CLIPBOARD,
+            id = "clipboard", section = SetupSection.CLIPBOARD, feature = "clipboard",
             title = R.string.setup_q_clipboard_title, context = R.string.setup_q_clipboard_context, summary = R.string.setup_q_clipboard_summary,
             answers = listOf(
-                SetupAnswer(Answers.AUTO, R.string.setup_a_clipboard_auto, R.string.setup_a_clipboard_auto_detail,
-                    listOf(on(SetupSetting.FEATURE_CLIPBOARD), on(SetupSetting.AUTO_CLIPBOARD)), turnsOn = true),
-                SetupAnswer(Answers.TAP, R.string.setup_a_clipboard_tap, R.string.setup_a_clipboard_tap_detail,
-                    listOf(on(SetupSetting.FEATURE_CLIPBOARD), off(SetupSetting.AUTO_CLIPBOARD)), turnsOn = true),
-                no(R.string.setup_a_no, off(SetupSetting.FEATURE_CLIPBOARD)),
+                SetupAnswer(Answers.AUTO, R.string.setup_a_clipboard_auto, R.string.setup_a_clipboard_auto_detail, listOf(on(SetupSetting.FEATURE_CLIPBOARD), on(SetupSetting.AUTO_CLIPBOARD))),
+                SetupAnswer(Answers.TAP, R.string.setup_a_clipboard_tap, R.string.setup_a_clipboard_tap_detail, listOf(on(SetupSetting.FEATURE_CLIPBOARD), off(SetupSetting.AUTO_CLIPBOARD))),
             ),
-            settingsPage = "CLIPBOARD",
-            covers = mapOf(
-                SetupSetting.FEATURE_CLIPBOARD to Coverage.ANSWER,
-                SetupSetting.AUTO_CLIPBOARD to Coverage.ANSWER,
-                SetupSetting.BACKGROUND_CLIPBOARD to Coverage.MORE_OPTIONS,
-            ),
+            settingsPage = "CLIPBOARD", covers = setOf(SetupSetting.FEATURE_CLIPBOARD, SetupSetting.AUTO_CLIPBOARD),
         ),
         SetupQuestion(
-            id = "clipboard_files", section = SetupSection.CLIPBOARD,
-            title = R.string.setup_q_clipboard_files_title, context = R.string.setup_q_clipboard_files_context, summary = R.string.setup_q_clipboard_files_summary,
-            answers = listOf(
-                yes(R.string.setup_a_clipboard_files_yes, on(SetupSetting.CLIPBOARD_FILES)),
-                SetupAnswer(Answers.TEXT, R.string.setup_a_clipboard_files_text, changes = listOf(off(SetupSetting.CLIPBOARD_FILES))),
-            ),
-            offKey = Answers.TEXT,
-            settingsPage = "CLIPBOARD",
-            covers = mapOf(SetupSetting.CLIPBOARD_FILES to Coverage.ANSWER, SetupSetting.CLIPBOARD_EAGER_LIMIT to Coverage.MORE_OPTIONS),
-            asks = { it.on(SetupSetting.FEATURE_CLIPBOARD) },
-        ),
-        SetupQuestion(
-            id = "clipboard_screenshot", section = SetupSection.CLIPBOARD,
-            title = R.string.setup_q_clipboard_screenshot_title, context = R.string.setup_q_clipboard_screenshot_context, summary = R.string.setup_q_clipboard_screenshot_summary,
-            answers = listOf(
-                yes(R.string.setup_a_yes, on(SetupSetting.SCREENSHOT_SEND), permission = PermissionKind.PHOTOS, onDenied = listOf(off(SetupSetting.SCREENSHOT_SEND))),
-                no(R.string.setup_a_no, off(SetupSetting.SCREENSHOT_SEND)),
-            ),
-            settingsPage = "CLIPBOARD",
-            covers = mapOf(SetupSetting.SCREENSHOT_SEND to Coverage.ANSWER),
-            asks = { it.on(SetupSetting.FEATURE_CLIPBOARD) && it.on(SetupSetting.CLIPBOARD_FILES) },
-        ),
-        // Notifications
-        SetupQuestion(
-            id = "notifications", section = SetupSection.NOTIFICATIONS,
-            title = R.string.setup_q_notifications_title, context = R.string.setup_q_notifications_context, summary = R.string.setup_q_notifications_summary,
-            answers = listOf(
-                yes(R.string.setup_a_yes, on(SetupSetting.FEATURE_NOTIFICATIONS), permission = PermissionKind.NOTIFICATION_ACCESS,
-                    onDenied = listOf(off(SetupSetting.FEATURE_NOTIFICATIONS))),
-                no(R.string.setup_a_no, off(SetupSetting.FEATURE_NOTIFICATIONS)),
-            ),
-            settingsPage = "NOTIFICATIONS",
-            covers = mapOf(SetupSetting.FEATURE_NOTIFICATIONS to Coverage.ANSWER, SetupSetting.NOTIFICATION_ACCESS to Coverage.ANSWER),
-        ),
-        SetupQuestion(
-            id = "notification_apps", section = SetupSection.NOTIFICATIONS,
+            id = "notification_apps", section = SetupSection.NOTIFICATIONS, feature = "notifications",
             title = R.string.setup_q_notification_apps_title, context = R.string.setup_q_notification_apps_context, summary = R.string.setup_q_notification_apps_summary,
             answers = listOf(SetupAnswer(Answers.NONE, R.string.setup_a_notification_apps_none, changes = listOf(SettingChange(SetupSetting.HIDDEN_NOTIFICATION_APPS, "")))),
-            offKey = null, multiPick = true,
-            settingsPage = "NOTIFICATIONS",
-            covers = mapOf(SetupSetting.HIDDEN_NOTIFICATION_APPS to Coverage.ANSWER),
-            asks = { it.on(SetupSetting.FEATURE_NOTIFICATIONS) && it.facts.duplicateApps.isNotEmpty() },
+            multiPick = true, settingsPage = "NOTIFICATIONS", covers = setOf(SetupSetting.HIDDEN_NOTIFICATION_APPS),
+            asks = { it.facts.duplicateApps.isNotEmpty() },
         ),
         SetupQuestion(
-            id = "codes", section = SetupSection.NOTIFICATIONS,
+            id = "codes", section = SetupSection.NOTIFICATIONS, feature = "notifications",
             title = R.string.setup_q_codes_title, context = R.string.setup_q_codes_context, summary = R.string.setup_q_codes_summary,
             answers = listOf(
-                yes(R.string.setup_a_codes_yes, on(SetupSetting.CODES_LINK), permission = PermissionKind.COMPANION_LINK,
-                    onDenied = listOf(off(SetupSetting.CODES_LINK))),
-                no(R.string.setup_a_no),
+                SetupAnswer(Answers.YES, R.string.setup_a_codes_yes, changes = listOf(on(SetupSetting.CODES_LINK))),
+                SetupAnswer(Answers.NO, R.string.setup_a_no, changes = listOf(off(SetupSetting.CODES_LINK))),
             ),
-            offKey = null,
-            settingsPage = "NOTIFICATIONS",
-            covers = mapOf(SetupSetting.CODES_LINK to Coverage.ANSWER),
-            asks = { it.on(SetupSetting.FEATURE_NOTIFICATIONS) && it.paired && it.facts.codesLinkApplies && !it.on(SetupSetting.CODES_LINK) },
+            settingsPage = "NOTIFICATIONS", covers = setOf(SetupSetting.CODES_LINK),
+            asks = { it.paired && it.facts.codesLinkApplies && !it.facts.granted.contains(PermissionKind.COMPANION_LINK) },
         ),
         SetupQuestion(
-            id = "app_notifications", section = SetupSection.NOTIFICATIONS,
-            title = R.string.setup_q_app_notifications_title, context = R.string.setup_q_app_notifications_context, summary = R.string.setup_q_app_notifications_summary,
-            answers = listOf(
-                yes(R.string.setup_a_yes, on(SetupSetting.APP_NOTIFICATIONS), permission = PermissionKind.POST_NOTIFICATIONS,
-                    onDenied = listOf(off(SetupSetting.APP_NOTIFICATIONS))),
-                no(R.string.setup_a_no),
-            ),
-            offKey = null,
-            covers = mapOf(SetupSetting.APP_NOTIFICATIONS to Coverage.ANSWER),
-            asks = { it.facts.sdkInt >= 33 && !it.on(SetupSetting.APP_NOTIFICATIONS) },
-        ),
-        // Calls
-        SetupQuestion(
-            id = "calls", section = SetupSection.CALLS,
+            id = "calls", section = SetupSection.CALLS, feature = "calls",
             title = R.string.setup_q_calls_title, context = R.string.setup_q_calls_context, summary = R.string.setup_q_calls_summary,
             answers = listOf(
-                SetupAnswer(Answers.YES, R.string.setup_a_calls_yes, R.string.setup_a_calls_yes_detail,
-                    listOf(on(SetupSetting.FEATURE_CALLS), on(SetupSetting.DIRECT_CALLS)), PermissionKind.PHONE_CALLS,
-                    listOf(off(SetupSetting.DIRECT_CALLS)), turnsOn = true),
-                SetupAnswer(Answers.SEE, R.string.setup_a_calls_see, R.string.setup_a_calls_see_detail,
-                    listOf(on(SetupSetting.FEATURE_CALLS), off(SetupSetting.DIRECT_CALLS)), turnsOn = true),
-                no(R.string.setup_a_no, off(SetupSetting.FEATURE_CALLS), off(SetupSetting.DIRECT_CALLS)),
+                SetupAnswer(Answers.YES, R.string.setup_a_calls_yes, R.string.setup_a_calls_yes_detail, listOf(on(SetupSetting.FEATURE_CALLS), on(SetupSetting.DIRECT_CALLS))),
+                SetupAnswer(Answers.SEE, R.string.setup_a_calls_see, R.string.setup_a_calls_see_detail, listOf(on(SetupSetting.FEATURE_CALLS), off(SetupSetting.DIRECT_CALLS))),
             ),
-            settingsPage = "CALLS",
-            covers = mapOf(SetupSetting.FEATURE_CALLS to Coverage.ANSWER, SetupSetting.DIRECT_CALLS to Coverage.ANSWER),
-        ),
-        // Files
-        SetupQuestion(
-            id = "files", section = SetupSection.FILES,
-            title = R.string.setup_q_files_title, context = R.string.setup_q_files_context, summary = R.string.setup_q_files_summary,
-            answers = listOf(yes(R.string.setup_a_yes, on(SetupSetting.FEATURE_FILES)), no(R.string.setup_a_no, off(SetupSetting.FEATURE_FILES))),
-            settingsPage = "FILES",
-            covers = mapOf(SetupSetting.FEATURE_FILES to Coverage.ANSWER, SetupSetting.PLACES to Coverage.MORE_OPTIONS),
+            settingsPage = "CALLS", covers = setOf(SetupSetting.FEATURE_CALLS, SetupSetting.DIRECT_CALLS),
         ),
         SetupQuestion(
-            id = "files_browse", section = SetupSection.FILES,
+            id = "files_browse", section = SetupSection.FILES, feature = "files",
             title = R.string.setup_q_files_browse_title, context = R.string.setup_q_files_browse_context, summary = R.string.setup_q_files_browse_summary,
             answers = listOf(
-                SetupAnswer(Answers.BROWSE, R.string.setup_a_files_browse_look, R.string.setup_a_files_browse_look_detail,
-                    listOf(on(SetupSetting.ALLOW_BROWSE), off(SetupSetting.ALLOW_REPLACE)), PermissionKind.PHOTOS, turnsOn = true),
-                SetupAnswer(Answers.CHANGE, R.string.setup_a_files_browse_change, R.string.setup_a_files_browse_change_detail,
-                    listOf(on(SetupSetting.ALLOW_BROWSE), on(SetupSetting.ALLOW_REPLACE)), PermissionKind.PHOTOS, turnsOn = true),
-                no(R.string.setup_a_no, off(SetupSetting.ALLOW_BROWSE), off(SetupSetting.ALLOW_REPLACE)),
+                SetupAnswer(Answers.BROWSE, R.string.setup_a_files_browse_look, R.string.setup_a_files_browse_look_detail, listOf(on(SetupSetting.ALLOW_BROWSE), off(SetupSetting.ALLOW_REPLACE))),
+                SetupAnswer(Answers.CHANGE, R.string.setup_a_files_browse_change, R.string.setup_a_files_browse_change_detail, listOf(on(SetupSetting.ALLOW_BROWSE), on(SetupSetting.ALLOW_REPLACE))),
+                SetupAnswer(Answers.NO, R.string.setup_a_no, changes = listOf(off(SetupSetting.ALLOW_BROWSE), off(SetupSetting.ALLOW_REPLACE))),
             ),
-            settingsPage = "FILES",
-            covers = mapOf(SetupSetting.ALLOW_BROWSE to Coverage.ANSWER, SetupSetting.ALLOW_REPLACE to Coverage.ANSWER),
-            asks = { it.on(SetupSetting.FEATURE_FILES) },
+            settingsPage = "FILES", covers = setOf(SetupSetting.ALLOW_BROWSE, SetupSetting.ALLOW_REPLACE),
         ),
         SetupQuestion(
-            id = "files_folder", section = SetupSection.FILES,
-            title = R.string.setup_q_files_folder_title, context = R.string.setup_q_files_folder_context, summary = R.string.setup_q_files_folder_summary,
-            answers = listOf(
-                SetupAnswer(Answers.SENDER, R.string.setup_a_files_folder_sender, changes = listOf(SettingChange(SetupSetting.FOLDER_MODE, "SENDER_PICKS"))),
-                SetupAnswer(Answers.ASK, R.string.setup_a_files_folder_ask, changes = listOf(SettingChange(SetupSetting.FOLDER_MODE, "RECEIVER_ASKS"))),
-                SetupAnswer(Answers.FIXED, R.string.setup_a_files_folder_fixed, changes = listOf(SettingChange(SetupSetting.FOLDER_MODE, "FIXED"))),
-            ),
-            offKey = null,
-            settingsPage = "FILES",
-            covers = mapOf(
-                SetupSetting.FOLDER_MODE to Coverage.ANSWER,
-                SetupSetting.FOLDER_DEFAULT_PLACE to Coverage.MORE_OPTIONS,
-                SetupSetting.FOLDER_CONFLICT to Coverage.MORE_OPTIONS,
-            ),
-            asks = { it.on(SetupSetting.FEATURE_FILES) && it.facts.foldersSupported },
-        ),
-        // Mac control: only with a Mac paired.
-        SetupQuestion(
-            id = "remote", section = SetupSection.MAC_CONTROL,
-            title = R.string.setup_q_remote_title, context = R.string.setup_q_remote_context, summary = R.string.setup_q_remote_summary,
-            answers = listOf(yes(R.string.setup_a_yes, on(SetupSetting.FEATURE_REMOTE_INPUT)), no(R.string.setup_a_no, off(SetupSetting.FEATURE_REMOTE_INPUT))),
-            settingsPage = "REMOTE_CONTROL",
-            covers = mapOf(SetupSetting.FEATURE_REMOTE_INPUT to Coverage.ANSWER, SetupSetting.REMOTE_POINTER_SPEED to Coverage.MORE_OPTIONS),
-            asks = { it.paired },
-        ),
-        SetupQuestion(
-            id = "remote_volume_keys", section = SetupSection.MAC_CONTROL,
+            id = "remote_volume_keys", section = SetupSection.MAC_CONTROL, feature = "remote",
             title = R.string.setup_q_remote_volume_keys_title, context = R.string.setup_q_remote_volume_keys_context, summary = R.string.setup_q_remote_volume_keys_summary,
-            answers = listOf(yes(R.string.setup_a_yes, on(SetupSetting.REMOTE_VOLUME_KEYS)), no(R.string.setup_a_no, off(SetupSetting.REMOTE_VOLUME_KEYS))),
-            settingsPage = "REMOTE_CONTROL",
-            covers = mapOf(SetupSetting.REMOTE_VOLUME_KEYS to Coverage.ANSWER),
-            asks = { it.paired && it.on(SetupSetting.FEATURE_REMOTE_INPUT) },
-        ),
-        SetupQuestion(
-            id = "mac_actions", section = SetupSection.MAC_CONTROL,
-            title = R.string.setup_q_mac_actions_title, context = R.string.setup_q_mac_actions_context, summary = R.string.setup_q_mac_actions_summary,
-            answers = listOf(yes(R.string.setup_a_yes, on(SetupSetting.FEATURE_MAC_ACTIONS)), no(R.string.setup_a_no, off(SetupSetting.FEATURE_MAC_ACTIONS))),
-            settingsPage = "MEDIA",
-            covers = mapOf(SetupSetting.FEATURE_MAC_ACTIONS to Coverage.ANSWER),
-            asks = { it.paired },
-        ),
-        SetupQuestion(
-            id = "media", section = SetupSection.MAC_CONTROL,
-            title = R.string.setup_q_media_title, context = R.string.setup_q_media_context, summary = R.string.setup_q_media_summary,
-            answers = listOf(yes(R.string.setup_a_yes, on(SetupSetting.FEATURE_MEDIA)), no(R.string.setup_a_no, off(SetupSetting.FEATURE_MEDIA))),
-            settingsPage = "MEDIA",
-            covers = mapOf(SetupSetting.FEATURE_MEDIA to Coverage.ANSWER),
-            asks = { it.paired },
-        ),
-        // Phone camera and Focus
-        SetupQuestion(
-            id = "camera", section = SetupSection.CAMERA_FOCUS,
-            title = R.string.setup_q_camera_title, context = R.string.setup_q_camera_context, summary = R.string.setup_q_camera_summary,
             answers = listOf(
-                yes(R.string.setup_a_yes, on(SetupSetting.FEATURE_CAMERA), permission = PermissionKind.CAMERA, onDenied = listOf(off(SetupSetting.FEATURE_CAMERA))),
-                no(R.string.setup_a_no, off(SetupSetting.FEATURE_CAMERA)),
+                SetupAnswer(Answers.YES, R.string.setup_a_yes, changes = listOf(on(SetupSetting.REMOTE_VOLUME_KEYS))),
+                SetupAnswer(Answers.NO, R.string.setup_a_no, changes = listOf(off(SetupSetting.REMOTE_VOLUME_KEYS))),
             ),
-            settingsPage = "MEDIA",
-            covers = mapOf(SetupSetting.FEATURE_CAMERA to Coverage.ANSWER),
+            settingsPage = "REMOTE_CONTROL", covers = setOf(SetupSetting.REMOTE_VOLUME_KEYS),
         ),
-        SetupQuestion(
-            id = "focus", section = SetupSection.CAMERA_FOCUS,
-            title = R.string.setup_q_focus_title, context = R.string.setup_q_focus_context, summary = R.string.setup_q_focus_summary,
-            answers = listOf(
-                SetupAnswer(Answers.BOTH, R.string.setup_a_focus_both, changes = listOf(on(SetupSetting.FOCUS_SHARE), on(SetupSetting.FOCUS_FOLLOW)),
-                    permission = PermissionKind.DO_NOT_DISTURB, onDenied = listOf(off(SetupSetting.FOCUS_FOLLOW)), turnsOn = true),
-                SetupAnswer(Answers.FOLLOW, R.string.setup_a_focus_follow, changes = listOf(off(SetupSetting.FOCUS_SHARE), on(SetupSetting.FOCUS_FOLLOW)),
-                    permission = PermissionKind.DO_NOT_DISTURB, onDenied = listOf(off(SetupSetting.FOCUS_FOLLOW)), turnsOn = true),
-                SetupAnswer(Answers.SHARE, R.string.setup_a_focus_share, changes = listOf(on(SetupSetting.FOCUS_SHARE), off(SetupSetting.FOCUS_FOLLOW)), turnsOn = true),
-                no(R.string.setup_a_no, off(SetupSetting.FOCUS_SHARE), off(SetupSetting.FOCUS_FOLLOW)),
-            ),
-            settingsPage = "NOTIFICATIONS",
-            covers = mapOf(SetupSetting.FOCUS_SHARE to Coverage.ANSWER, SetupSetting.FOCUS_FOLLOW to Coverage.ANSWER),
+    )
+
+    /**
+     * Answers only typing gives (no card): Do Not Disturb in step, and the update channel. Their
+     * settings are on their Settings pages too.
+     */
+    val typedOnly: Map<String, Map<String, List<SettingChange>>> = mapOf(
+        "focus" to mapOf(Answers.BOTH to listOf(on(SetupSetting.FOCUS_SHARE), on(SetupSetting.FOCUS_FOLLOW)), Answers.NO to listOf(off(SetupSetting.FOCUS_SHARE), off(SetupSetting.FOCUS_FOLLOW))),
+        "updates" to mapOf(
+            Answers.STEADY to listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "STABLE")),
+            Answers.EARLY to listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "BETA")),
+            Answers.NEWEST to listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "NIGHTLY")),
         ),
-        // Quick actions
-        SetupQuestion(
-            id = "links", section = SetupSection.QUICK_ACTIONS,
-            title = R.string.setup_q_links_title, context = R.string.setup_q_links_context, summary = R.string.setup_q_links_summary,
-            answers = listOf(yes(R.string.setup_a_yes, on(SetupSetting.FEATURE_LINKS)), no(R.string.setup_a_no, off(SetupSetting.FEATURE_LINKS))),
-            settingsPage = "MEDIA",
-            covers = mapOf(SetupSetting.FEATURE_LINKS to Coverage.ANSWER),
-        ),
-        SetupQuestion(
-            id = "find", section = SetupSection.QUICK_ACTIONS,
-            title = R.string.setup_q_find_title, context = R.string.setup_q_find_context, summary = R.string.setup_q_find_summary,
-            answers = listOf(
-                yes(R.string.setup_a_yes, on(SetupSetting.FEATURE_FIND_DEVICE), on(SetupSetting.FEATURE_PING)),
-                no(R.string.setup_a_no, off(SetupSetting.FEATURE_FIND_DEVICE), off(SetupSetting.FEATURE_PING)),
-            ),
-            settingsPage = "MEDIA",
-            covers = mapOf(SetupSetting.FEATURE_FIND_DEVICE to Coverage.ANSWER, SetupSetting.FEATURE_PING to Coverage.ANSWER),
-        ),
-        SetupQuestion(
-            id = "battery", section = SetupSection.QUICK_ACTIONS,
-            title = R.string.setup_q_battery_title, context = R.string.setup_q_battery_context, summary = R.string.setup_q_battery_summary,
-            answers = listOf(yes(R.string.setup_a_yes, on(SetupSetting.FEATURE_BATTERY)), no(R.string.setup_a_no, off(SetupSetting.FEATURE_BATTERY))),
-            settingsPage = "MEDIA",
-            covers = mapOf(SetupSetting.FEATURE_BATTERY to Coverage.ANSWER),
-        ),
-        // Privacy
-        SetupQuestion(
-            id = "stats", section = SetupSection.PRIVACY,
-            title = R.string.setup_q_stats_title, context = R.string.setup_q_stats_context, summary = R.string.setup_q_stats_summary,
-            answers = listOf(yes(R.string.setup_a_yes, on(SetupSetting.LOGGING_CONNECTION)), no(R.string.setup_a_no, off(SetupSetting.LOGGING_CONNECTION))),
-            settingsPage = "PRIVACY",
-            covers = mapOf(SetupSetting.LOGGING_CONNECTION to Coverage.ANSWER, SetupSetting.LOGGING_DETAIL to Coverage.MORE_OPTIONS),
-        ),
-        SetupQuestion(
-            id = "previews", section = SetupSection.PRIVACY,
-            title = R.string.setup_q_previews_title, context = R.string.setup_q_previews_context, summary = R.string.setup_q_previews_summary,
-            answers = listOf(yes(R.string.setup_a_yes, on(SetupSetting.SHOW_PREVIEWS)), no(R.string.setup_a_no, off(SetupSetting.SHOW_PREVIEWS))),
-            settingsPage = "PRIVACY",
-            covers = mapOf(SetupSetting.SHOW_PREVIEWS to Coverage.ANSWER),
-        ),
-        // Updates
-        SetupQuestion(
-            id = "updates", section = SetupSection.UPDATES,
-            title = R.string.setup_q_updates_title, context = R.string.setup_q_updates_context, summary = R.string.setup_q_updates_summary,
-            answers = listOf(
-                SetupAnswer(Answers.STEADY, R.string.setup_a_updates_steady, R.string.setup_a_updates_steady_detail, listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "STABLE"))),
-                SetupAnswer(Answers.EARLY, R.string.setup_a_updates_early, R.string.setup_a_updates_early_detail, listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "BETA"))),
-                SetupAnswer(Answers.NEWEST, R.string.setup_a_updates_newest, R.string.setup_a_updates_newest_detail, listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "NIGHTLY"))),
-            ),
-            offKey = null,
-            settingsPage = "UPDATES",
-            covers = mapOf(SetupSetting.UPDATE_CHANNEL to Coverage.ANSWER),
-        ),
-        // General
-        SetupQuestion(
-            id = "background", section = SetupSection.GENERAL,
-            title = R.string.setup_q_background_title, context = R.string.setup_q_background_context, summary = R.string.setup_q_background_summary,
-            answers = listOf(
-                yes(R.string.setup_a_yes, on(SetupSetting.BATTERY_EXEMPTION), permission = PermissionKind.BATTERY, onDenied = listOf(off(SetupSetting.BATTERY_EXEMPTION))),
-                no(R.string.setup_a_no),
-            ),
-            offKey = null,
-            settingsPage = "GENERAL",
-            covers = mapOf(SetupSetting.BATTERY_EXEMPTION to Coverage.ANSWER, SetupSetting.OEM_CHECKLIST to Coverage.ANSWER),
-            asks = { !it.on(SetupSetting.BATTERY_EXEMPTION) },
-        ),
-        SetupQuestion(
-            id = "wifi_awake", section = SetupSection.GENERAL,
-            title = R.string.setup_q_wifi_awake_title, context = R.string.setup_q_wifi_awake_context, summary = R.string.setup_q_wifi_awake_summary,
-            answers = listOf(yes(R.string.setup_a_yes, on(SetupSetting.KEEP_WIFI_AWAKE)), no(R.string.setup_a_no, off(SetupSetting.KEEP_WIFI_AWAKE))),
-            settingsPage = "GENERAL",
-            covers = mapOf(SetupSetting.KEEP_WIFI_AWAKE to Coverage.ANSWER),
-            asks = { it.facts.wifiAwakeSupported },
-        ),
-        SetupQuestion(
-            id = "motion", section = SetupSection.GENERAL,
-            title = R.string.setup_q_motion_title, context = R.string.setup_q_motion_context, summary = R.string.setup_q_motion_summary,
-            answers = listOf(
-                yes(R.string.setup_a_motion_yes, on(SetupSetting.REDUCE_MOTION)),
-                no(R.string.setup_a_motion_no, off(SetupSetting.REDUCE_MOTION)),
-            ),
-            settingsPage = "GENERAL",
-            covers = mapOf(SetupSetting.REDUCE_MOTION to Coverage.ANSWER),
-        ),
+    )
+
+    /** The permissions page: what the chosen features need, in the Permissions order. */
+    val permissions: List<SetupPermission> = listOf(
+        SetupPermission(PermissionKind.NOTIFICATION_ACCESS, listOf("notifications"), { it.on(SetupSetting.FEATURE_NOTIFICATIONS) },
+            listOf(off(SetupSetting.FEATURE_NOTIFICATIONS)), runtime = false),
+        SetupPermission(PermissionKind.POST_NOTIFICATIONS, listOf("files", "calls", "find"),
+            { e -> e.facts.sdkInt >= 33 && listOf(SetupSetting.FEATURE_FILES, SetupSetting.FEATURE_CALLS, SetupSetting.FEATURE_FIND_DEVICE).any(e::on) }, runtime = true),
+        SetupPermission(PermissionKind.PHONE_CALLS, listOf("calls"), { it.on(SetupSetting.FEATURE_CALLS) && it.on(SetupSetting.DIRECT_CALLS) },
+            listOf(off(SetupSetting.DIRECT_CALLS)), runtime = true),
+        SetupPermission(PermissionKind.PHOTOS, listOf("files"), { it.on(SetupSetting.FEATURE_FILES) && it.on(SetupSetting.ALLOW_BROWSE) }, runtime = true),
+        SetupPermission(PermissionKind.CAMERA, listOf("camera"), { it.on(SetupSetting.FEATURE_CAMERA) }, listOf(off(SetupSetting.FEATURE_CAMERA)), runtime = true),
+        SetupPermission(PermissionKind.COMPANION_LINK, listOf("notifications"), { it.on(SetupSetting.FEATURE_NOTIFICATIONS) && it.on(SetupSetting.CODES_LINK) },
+            listOf(off(SetupSetting.CODES_LINK)), runtime = false),
+        SetupPermission(PermissionKind.DO_NOT_DISTURB, listOf("notifications"), { it.on(SetupSetting.FOCUS_FOLLOW) }, listOf(off(SetupSetting.FOCUS_FOLLOW)), runtime = false),
+        SetupPermission(PermissionKind.BATTERY, emptyList(), { e -> SetupFeatures.all.any { SetupFeatures.isOn(it, e) } },
+            runtime = false),
+    )
+
+    /** Settings that left the path: reached from their Settings page (More options, Change details in Settings). */
+    val moreOptions: Map<SetupSetting, String> = mapOf(
+        SetupSetting.CLIPBOARD_FILES to "CLIPBOARD",
+        SetupSetting.SCREENSHOT_SEND to "CLIPBOARD",
+        SetupSetting.CLIPBOARD_EAGER_LIMIT to "CLIPBOARD",
+        SetupSetting.BACKGROUND_CLIPBOARD to "CLIPBOARD",
+        SetupSetting.FOCUS_SHARE to "NOTIFICATIONS",
+        SetupSetting.FOCUS_FOLLOW to "NOTIFICATIONS",
+        SetupSetting.FOLDER_MODE to "FILES",
+        SetupSetting.FOLDER_DEFAULT_PLACE to "FILES",
+        SetupSetting.FOLDER_CONFLICT to "FILES",
+        SetupSetting.PLACES to "FILES",
+        SetupSetting.REMOTE_POINTER_SPEED to "REMOTE_CONTROL",
+        SetupSetting.SHOW_PREVIEWS to "PRIVACY",
+        SetupSetting.LOGGING_CONNECTION to "PRIVACY",
+        SetupSetting.LOGGING_DETAIL to "PRIVACY",
+        SetupSetting.UPDATE_CHANNEL to "UPDATES",
+        SetupSetting.OEM_CHECKLIST to "GENERAL",
+        SetupSetting.KEEP_WIFI_AWAKE to "GENERAL",
+        SetupSetting.REDUCE_MOTION to "GENERAL",
+    )
+
+    /** Settings the permissions page turns on by asking. */
+    private val byPermission: Map<SetupSetting, PermissionKind> = mapOf(
+        SetupSetting.NOTIFICATION_ACCESS to PermissionKind.NOTIFICATION_ACCESS,
+        SetupSetting.APP_NOTIFICATIONS to PermissionKind.POST_NOTIFICATIONS,
+        SetupSetting.BATTERY_EXEMPTION to PermissionKind.BATTERY,
     )
 
     private val byId = all.associateBy { it.id }
 
     fun question(id: String): SetupQuestion? = byId[id]
+
+    fun permission(kind: PermissionKind): SetupPermission? = permissions.firstOrNull { it.kind == kind }
 
     /** The setting changes an answer key stands for (the duplicates question builds its own). */
     fun changes(question: SetupQuestion, key: String): List<SettingChange> = when {
@@ -487,39 +358,54 @@ object SetupQuestions {
     }
 
     fun answer(question: SetupQuestion, key: String): SetupAnswer? = when {
-        question.multiPick && key.startsWith(Answers.PICKED) ->
-            SetupAnswer(key, R.string.setup_a_done, changes = changes(question, key), turnsOn = key.length > Answers.PICKED.length)
+        question.multiPick && key.startsWith(Answers.PICKED) -> SetupAnswer(key, R.string.setup_a_done, changes = changes(question, key))
         else -> question.answer(key)
     }
 
-    /** Which question covers each setting, and how. */
+    /** How every setting is reached, and from where (a question, the switches, the permissions, or a Settings page). */
     val coverage: Map<SetupSetting, Pair<String, Coverage>>
         get() = buildMap {
-            all.forEach { question -> question.covers.forEach { (setting, how) -> putIfAbsent(setting, question.id to how) } }
+            all.forEach { question -> question.covers.forEach { putIfAbsent(it, question.id to Coverage.ANSWER) } }
+            SetupFeatures.all.forEach { feature -> feature.settings.forEach { putIfAbsent(it, "switches" to Coverage.SWITCH) } }
+            byPermission.forEach { (setting, kind) -> putIfAbsent(setting, kind.name to Coverage.PERMISSION) }
+            moreOptions.forEach { (setting, page) -> putIfAbsent(setting, page to Coverage.MORE_OPTIONS) }
         }
 }
 
 /**
- * "What brought you here?": one tap picks a bundle of answers. Each is named exactly as its
- * Settings page, so setup and Settings use the same words; the Mac has the same five.
+ * "What brought you here?": one tap picks a bundle. Each is named exactly as its Settings page, so
+ * setup and Settings use the same words; the Mac has the same five. [answers] are keyed by feature
+ * or follow-up id; [Answers.PICK] picks a feature and still asks its follow-up.
  */
 data class SetupBundle(val id: String, @StringRes val title: Int, @StringRes val detail: Int, val answers: Map<String, String>)
 
 object SetupBundles {
     val all: List<SetupBundle> = listOf(
-        SetupBundle("clipboard", R.string.feature_clipboard, R.string.setup_bundle_clipboard, mapOf("clipboard" to Answers.AUTO, "clipboard_files" to Answers.YES)),
-        SetupBundle("notifications", R.string.settings_notifications, R.string.setup_bundle_notifications, mapOf("notifications" to Answers.YES)),
-        SetupBundle("calls", R.string.feature_calls, R.string.setup_bundle_calls, mapOf("calls" to Answers.YES)),
-        SetupBundle("files", R.string.feature_files, R.string.setup_bundle_files, mapOf("files" to Answers.YES)),
-        SetupBundle("remote", R.string.settings_remote_control, R.string.setup_bundle_remote, mapOf("remote" to Answers.YES, "mac_actions" to Answers.YES)),
+        SetupBundle("clipboard", R.string.feature_clipboard, R.string.setup_bundle_clipboard, mapOf("clipboard" to Answers.PICK)),
+        SetupBundle("notifications", R.string.settings_notifications, R.string.setup_bundle_notifications, mapOf("notifications" to Answers.PICK)),
+        SetupBundle("calls", R.string.feature_calls, R.string.setup_bundle_calls, mapOf("calls" to Answers.PICK)),
+        SetupBundle("files", R.string.feature_files, R.string.setup_bundle_files, mapOf("files" to Answers.PICK)),
+        SetupBundle("remote", R.string.settings_remote_control, R.string.setup_bundle_remote, mapOf("remote" to Answers.PICK, "mac_actions" to Answers.PICK)),
     )
 
-    /** The picked bundles' answers, then the typed ones (typing wins where both answer), in question order. */
+    /**
+     * "Get started quickly": pair, then clipboard when you tap Send, and phone notifications. Only
+     * features that are off are changed, so running it again keeps a clipboard set to automatic.
+     */
+    val essentials: List<Pair<SetupFeature, List<SettingChange>>> = listOf(
+        SetupFeatures.feature("clipboard")!! to listOf(SettingChange.on(SetupSetting.FEATURE_CLIPBOARD), SettingChange.off(SetupSetting.AUTO_CLIPBOARD)),
+        SetupFeatures.feature("notifications")!! to listOf(SettingChange.on(SetupSetting.FEATURE_NOTIFICATIONS)),
+    )
+
+    fun essentialChanges(effective: Effective): List<SettingChange> =
+        essentials.filterNot { (feature, _) -> SetupFeatures.isOn(feature, effective) }.flatMap { it.second }
+
+    /** The picked bundles' answers, then the typed ones (typing wins where both answer). */
     fun answers(picked: Set<String>, typed: Map<String, String>): Map<String, String> {
-        val merged = HashMap<String, String>()
+        val merged = LinkedHashMap<String, String>()
         all.filter { it.id in picked }.forEach { merged.putAll(it.answers) }
         merged.putAll(typed)
-        return SetupQuestions.all.mapNotNull { question -> merged[question.id]?.let { question.id to it } }.toMap()
+        return merged
     }
 }
 

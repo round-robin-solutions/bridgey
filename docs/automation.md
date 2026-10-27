@@ -171,16 +171,24 @@ Google Play services, which this edition does not depend on.
 
 ## Setup, Permissions and Reset (v0.10)
 
-- **Advanced setup** asks plain questions, one per card, in the Settings order. Each
-  answer turns on or configures the settings behind it; later questions adapt (no Mac control
-  questions without a paired device, no codes question when notifications were declined). An
-  answer that needs a permission asks for it right after, with the usual explanation; refused, the
-  feature stays off and the next card says so in one line. Every card has Not now (keeps what is
-  set) and More options (the Settings page). The start offers one-tap bundles named like their
-  Settings pages and an optional "Type what you want" box (keyword rules on the device, shown for
-  confirmation first). The summary lists what was turned on, each with a switch and Change in
-  Settings. Back goes to the previous step; leaving part way asks once. Questions, coverage table
-  and keywords: `android/.../setup/SetupQuestions.kt`, `SetupTyped.kt` and
+- **Off until chosen.** Fresh installs start with every optional feature off; setup, a bundle or
+  Settings turns them on. Each install records a defaults generation once (Android
+  `bridgey.install/defaults_generation`, Mac `install.defaultsGeneration`): 1 for an install that
+  ran before (its device ID already existed), keeping the old on-by-default values; 2 for a fresh
+  install. Stored values always win and Reset > Settings keeps the generation, so updates never
+  switch anything off. An off feature is sent as false in `features.update`, as when a person
+  switches it off.
+- **Get started quickly** turns on Essentials: pairing, the clipboard when you tap Send and phone
+  notifications (only features that are off change), and says so on its card and on Done.
+- **Advanced setup** is short: the start (five bundles named like their Settings pages, and an
+  optional "Type what you want" box with keyword rules on the device), a follow-up only for the
+  features picked or typed, one page of plain switches for every other feature ("Change details in
+  Settings"), one Permissions page for what the chosen features need (runtime permissions in one
+  system dialog, special access rows each with Allow, Allow all walking through them; anything not
+  allowed leaves its feature off and setup goes on), then the summary. Typically 5 to 8 steps; the
+  steps-left count comes from the actual path. Back goes to the previous step; leaving part way asks
+  once. Settings that lost their question are under their Settings page (the coverage tests list
+  them). Catalogue: `android/.../setup/SetupQuestions.kt`, `SetupTyped.kt`,
   `macos/Sources/BridgeyMac/SetupQuestions.swift`.
 - **Permissions.** Phone: Camera (needed while Take photos for the Mac is on) and Do Not Disturb
   access (needed while Follow the Mac's Focus is on). Mac: Accessibility is needed for remote

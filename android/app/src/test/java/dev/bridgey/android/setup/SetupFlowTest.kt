@@ -10,46 +10,57 @@ class SetupFlowTest {
     private fun run(vararg events: SetupEvent, from: SetupState = SetupState(), facts: SetupFacts = SetupFacts()): SetupState =
         events.fold(from) { state, event -> SetupFlow.reduce(state, event, facts) }
 
-    /** Like the app: an answer's settings are applied as it is given, so the facts follow the answers. */
+    /** A fresh install: every feature off until chosen. */
+    private val allOff: Map<SetupSetting, String> = SetupFeatures.all.flatMap { it.settings }.associateWith { "false" }
+
+    private fun fresh(paired: Boolean = true, granted: Set<PermissionKind> = emptySet(), codes: Boolean = false, apps: Boolean = false) = SetupFacts(
+        paired = paired, current = allOff, granted = granted, codesLinkApplies = codes,
+        duplicateApps = if (apps) listOf("com.whatsapp" to "WhatsApp") else emptyList(),
+    )
+
+    /** Like the app: answers and switches are applied as they are given, so the facts follow them. */
     private class Walk(var facts: SetupFacts, var state: SetupState = SetupState()) {
+        val seen = mutableListOf<SetupScreen>()
+
         fun send(event: SetupEvent): Walk {
             val before = state
-            when (event) {
-                is SetupEvent.Answer -> SetupQuestions.question(event.id)?.let { apply(SetupQuestions.changes(it, event.key)) }
-                is SetupEvent.StartQuestions -> SetupFlow.readyTyped(event.typed, facts).forEach { (id, key) ->
-                    apply(SetupQuestions.changes(SetupQuestions.question(id)!!, key))
+            val changes = when (event) {
+                is SetupEvent.StartQuestions -> SetupFlow.startChanges(event.chosen)
+                is SetupEvent.Answer -> SetupQuestions.question(event.id)?.let { SetupQuestions.changes(it, event.key) }.orEmpty()
+                is SetupEvent.Switch -> SetupFeatures.feature(event.feature)!!.let { if (event.on) it.on else it.off }
+                SetupEvent.Continue -> if (before.screen == SetupScreen.Permissions) {
+                    SetupFlow.neededPermissions(before, facts).filter { it.kind !in facts.granted }.flatMap { it.offWhenRefused }
+                } else {
+                    emptyList()
                 }
-                is SetupEvent.PermissionResult, SetupEvent.NotNow -> (before.screen as? SetupScreen.Permission)?.let { screen ->
-                    val question = SetupQuestions.question(screen.id)!!
-                    if ((event as? SetupEvent.PermissionResult)?.granted == true) facts = facts.copy(granted = facts.granted + screen.kind)
-                    else apply(SetupQuestions.answer(question, before.answers.getValue(screen.id))!!.onDenied)
-                }
-                else -> Unit
+                else -> emptyList()
             }
             state = SetupFlow.reduce(before, event, facts)
+            facts = facts.copy(current = facts.current + changes.associate { it.setting to it.value })
+            if (state.screen != before.screen) seen += state.screen
             return this
         }
 
-        private fun apply(changes: List<SettingChange>) {
-            facts = facts.copy(current = facts.current + changes.associate { it.setting to it.value })
-        }
+        val screen: SetupScreen get() = state.screen
 
-        val question: String? get() = (state.screen as? SetupScreen.Question)?.id
-
-        /** Not now on every card until the summary; the questions seen, in order. */
-        fun notNowToTheEnd(): List<String> {
-            val seen = mutableListOf<String>()
+        /** Not now / Continue to the summary; the screens on the way. */
+        fun toTheEnd(): Walk {
             while (state.screen != SetupScreen.Summary) {
-                question?.let(seen::add)
-                send(SetupEvent.NotNow)
+                send(if (state.screen is SetupScreen.Question) SetupEvent.NotNow else SetupEvent.Continue)
             }
-            return seen
+            return this
         }
+
+        /** The whole path, the start and the summary counted. */
+        val steps: List<SetupScreen> get() = seen
     }
 
-    private val macControl = listOf("remote", "remote_volume_keys", "mac_actions", "media")
+    private fun start(facts: SetupFacts, chosen: Map<String, String>): Walk =
+        Walk(facts).send(SetupEvent.ChooseAdvanced).send(SetupEvent.StartQuestions(chosen))
 
-    // Quick path (unchanged apart from back)
+    private fun q(id: String) = SetupScreen.Question(id)
+
+    // Quick path
 
     @Test
     fun quickPathGoesThroughEveryStepThenDone() {
@@ -62,28 +73,7 @@ class SetupFlowTest {
             seen += state.screen
         }
         assertEquals(QuickStep.entries.map { SetupScreen.Quick(it) } + SetupScreen.Done(SetupPath.QUICK), seen)
-        assertTrue(state.outcomes.values.all { it == StepOutcome.DONE })
         assertTrue(state.finished)
-    }
-
-    @Test
-    fun skippingAPermissionStepRecordsItAsSkippedNotGranted() {
-        val state = run(SetupEvent.ChooseQuick, SetupEvent.Skip, SetupEvent.Skip)
-        assertEquals(SetupScreen.Quick(QuickStep.BATTERY), state.screen)
-        assertEquals(StepOutcome.SKIPPED, state.outcomes[QuickStep.NOTIFICATION_ACCESS])
-        assertEquals(setOf(QuickStep.PAIR, QuickStep.NOTIFICATION_ACCESS), state.skipped)
-        val kind = PermissionCatalog.forStep(QuickStep.NOTIFICATION_ACCESS)!!
-        val entry = PermissionCatalog.entries(PermissionFacts(sdkInt = 35, labBuild = false, granted = emptySet())).single { it.kind == kind }
-        assertEquals(PermissionState.NOT_ALLOWED, entry.state)
-        assertTrue(entry.offersRequest)
-    }
-
-    @Test
-    fun aDoneStepStaysDoneWhenSkippedOrFinished() {
-        val state = run(SetupEvent.ChooseQuick, SetupEvent.StepDone(QuickStep.PAIR), SetupEvent.Skip, SetupEvent.Finish)
-        assertEquals(StepOutcome.DONE, state.outcomes[QuickStep.PAIR])
-        assertEquals(StepOutcome.SKIPPED, state.outcomes[QuickStep.NOTIFICATION_ACCESS])
-        assertEquals(SetupScreen.Done(SetupPath.QUICK), state.screen)
     }
 
     @Test
@@ -91,177 +81,164 @@ class SetupFlowTest {
         assertEquals(SetupScreen.Welcome, run(SetupEvent.ChooseQuick, SetupEvent.Back).screen)
         assertEquals(SetupScreen.Quick(QuickStep.PAIR), run(SetupEvent.ChooseQuick, SetupEvent.Next, SetupEvent.Back).screen)
         assertEquals(SetupScreen.Quick(QuickStep.BATTERY), run(SetupEvent.ChooseQuick, SetupEvent.Finish, SetupEvent.Back).screen)
-        assertEquals(SetupScreen.Welcome, run(SetupEvent.Back).screen)
-    }
-
-    // The question path
-
-    @Test
-    fun advancedStartsAtTheIntroAndBackReturnsToWelcome() {
-        val intro = run(SetupEvent.ChooseAdvanced)
-        assertEquals(SetupScreen.Intro, intro.screen)
-        assertEquals(SetupPath.ADVANCED, intro.path)
-        assertEquals(SetupScreen.Welcome, run(SetupEvent.Back, from = intro).screen)
     }
 
     @Test
-    fun withoutAMacTheQuestionsSkipMacControlAndCodes() {
-        val facts = SetupFacts(paired = false, codesLinkApplies = true, duplicateApps = listOf("com.whatsapp" to "WhatsApp"))
-        val walk = Walk(facts).send(SetupEvent.ChooseAdvanced).send(SetupEvent.StartQuestions())
-        assertEquals("pair", walk.question)
-        val seen = walk.notNowToTheEnd()
-        assertTrue(seen.none { it in macControl })
-        assertFalse("codes needs a paired Mac to link", "codes" in seen)
-        assertTrue("notification_apps" in seen)
-        // The agreed order: the catalogue order, with nothing out of place.
-        assertEquals(SetupQuestions.all.map { it.id }.filter { it in seen }, seen)
-        assertEquals(seen, walk.state.trail)
+    fun essentialsTurnOnClipboardOnSendAndNotificationsOnly() {
+        val changes = SetupBundles.essentialChanges(Effective(fresh()))
+        assertEquals(
+            mapOf(SetupSetting.FEATURE_CLIPBOARD to "true", SetupSetting.AUTO_CLIPBOARD to "false", SetupSetting.FEATURE_NOTIFICATIONS to "true"),
+            changes.associate { it.setting to it.value },
+        )
+        // Run again on a phone with an automatic clipboard: it is left as it is.
+        val upgraded = Effective(SetupFacts(current = mapOf(SetupSetting.FEATURE_CLIPBOARD to "true", SetupSetting.AUTO_CLIPBOARD to "true", SetupSetting.FEATURE_NOTIFICATIONS to "false")))
+        assertEquals(listOf(SettingChange.on(SetupSetting.FEATURE_NOTIFICATIONS)), SetupBundles.essentialChanges(upgraded))
+    }
+
+    // The short path: typical picks and their length
+
+    @Test
+    fun clipboardOnly() {
+        val walk = start(fresh(), SetupBundles.answers(setOf("clipboard"), emptyMap()))
+        assertEquals(q("clipboard"), walk.screen)
+        // After this card: the switches and the permissions pages (the summary is not counted).
+        assertEquals(2, SetupFlow.stepsLeft(walk.state, walk.facts))
+        walk.send(SetupEvent.Answer("clipboard", Answers.TAP))
+        assertEquals(SetupScreen.Switches, walk.screen)
+        walk.toTheEnd()
+        assertEquals(listOf(SetupScreen.Intro, q("clipboard"), SetupScreen.Switches, SetupScreen.Permissions, SetupScreen.Summary), walk.steps)
+        assertEquals("false", walk.facts.value(SetupSetting.AUTO_CLIPBOARD))
     }
 
     @Test
-    fun withAMacPairingIsImpliedAndMacControlIsAsked() {
-        val walk = Walk(SetupFacts(paired = true)).send(SetupEvent.ChooseAdvanced).send(SetupEvent.StartQuestions())
-        assertEquals("clipboard", walk.question)
-        val seen = walk.notNowToTheEnd()
-        assertFalse("pair" in seen)
-        assertTrue(listOf("remote", "mac_actions", "media").all { it in seen })
-        // Remote control is off by default, so its follow-up is not asked.
-        assertFalse("remote_volume_keys" in seen)
+    fun notificationsAndFilesWithAMacOnAndroid15() {
+        val walk = start(fresh(codes = true, apps = true), SetupBundles.answers(setOf("notifications", "files"), emptyMap())).toTheEnd()
+        assertEquals(
+            listOf(SetupScreen.Intro, q("notification_apps"), q("codes"), q("files_browse"), SetupScreen.Switches, SetupScreen.Permissions, SetupScreen.Summary),
+            walk.steps,
+        )
     }
 
     @Test
-    fun decliningNotificationsSkipsTheirFollowUps() {
-        val facts = SetupFacts(paired = true, codesLinkApplies = true, duplicateApps = listOf("com.whatsapp" to "WhatsApp"), sdkInt = 35)
-        val walk = Walk(facts).send(SetupEvent.ChooseAdvanced).send(SetupEvent.StartQuestions())
-        while (walk.question != "notifications") walk.send(SetupEvent.NotNow)
-        walk.send(SetupEvent.Answer("notifications", Answers.NO))
-        // No apps question, no codes question; Bridgey's own notifications are a different thing.
-        assertEquals("app_notifications", walk.question)
+    fun typedWithoutAMacStartsWithPairing() {
+        val chosen = SetupTyped.match("I mainly want my WhatsApp notifications and to send photos to my Mac")
+        val walk = start(fresh(paired = false, codes = true, apps = true), chosen).toTheEnd()
+        assertEquals(
+            listOf(SetupScreen.Intro, q("pair"), q("notification_apps"), q("files_browse"), SetupScreen.Switches, SetupScreen.Permissions, SetupScreen.Summary),
+            walk.steps,
+        )
     }
 
     @Test
-    fun clipboardNoSkipsItsFollowUpsAndTheCountAdapts() {
-        val walk = Walk(SetupFacts(paired = true)).send(SetupEvent.ChooseAdvanced).send(SetupEvent.StartQuestions())
-        assertEquals("clipboard", walk.question)
-        val before = SetupFlow.stepsLeft(walk.state, walk.facts)
-        val upcoming = SetupFlow.upcoming(walk.state, walk.facts, "clipboard")
-        assertTrue(upcoming.containsAll(listOf("clipboard_files", "clipboard_screenshot")))
-        // Answering No removes the two follow-ups from the count shown on the next card.
-        walk.send(SetupEvent.Answer("clipboard", Answers.NO))
-        assertEquals("notifications", walk.question)
-        assertEquals(before - 3, SetupFlow.stepsLeft(walk.state, walk.facts))
+    fun callsAndRemoteControl() {
+        val walk = start(fresh(), SetupBundles.answers(setOf("calls", "remote"), emptyMap())).toTheEnd()
+        assertEquals(listOf(SetupScreen.Intro, q("calls"), q("remote_volume_keys"), SetupScreen.Switches, SetupScreen.Permissions, SetupScreen.Summary), walk.steps)
+        assertEquals("true", walk.facts.value(SetupSetting.FEATURE_MAC_ACTIONS))
     }
 
     @Test
-    fun anAnswerThatNeedsAPermissionAsksRightAfterIt() {
-        val walk = Walk(SetupFacts(paired = true)).send(SetupEvent.ChooseAdvanced).send(SetupEvent.StartQuestions())
-        while (walk.question != "calls") walk.send(SetupEvent.NotNow)
-        walk.send(SetupEvent.Answer("calls", Answers.YES))
-        assertEquals(SetupScreen.Permission("calls", PermissionKind.PHONE_CALLS), walk.state.screen)
-        // Back from the permission returns to its question, with the answer kept.
-        walk.send(SetupEvent.Back)
-        assertEquals("calls", walk.question)
-        assertEquals(Answers.YES, walk.state.answers["calls"])
-        walk.send(SetupEvent.Answer("calls", Answers.YES)).send(SetupEvent.PermissionResult(granted = true))
-        assertEquals("files", walk.question)
-        assertNull(walk.state.notice)
-        assertTrue("calls" !in walk.state.denied)
+    fun pickingNothingIsJustTheSwitches() {
+        val walk = start(fresh(), emptyMap()).toTheEnd()
+        // Nothing is on, so nothing needs a permission.
+        assertEquals(listOf(SetupScreen.Intro, SetupScreen.Switches, SetupScreen.Summary), walk.steps)
+        assertTrue(SetupSummary.items(walk.state, walk.facts).isEmpty())
     }
 
     @Test
-    fun aRefusedPermissionLeavesTheFeatureOffAndSaysSo() {
-        val walk = Walk(SetupFacts(paired = true)).send(SetupEvent.ChooseAdvanced).send(SetupEvent.StartQuestions())
-        while (walk.question != "calls") walk.send(SetupEvent.NotNow)
-        walk.send(SetupEvent.Answer("calls", Answers.YES)).send(SetupEvent.PermissionResult(granted = false))
-        assertEquals("files", walk.question)
-        assertEquals("calls", walk.state.notice)
-        assertEquals(PermissionKind.PHONE_CALLS, walk.state.denied["calls"])
+    fun theStartNeverCountsEveryQuestion() {
+        val intro = Walk(fresh(paired = false, codes = true, apps = true)).send(SetupEvent.ChooseAdvanced).state
+        assertTrue(SetupFlow.stepsLeft(intro, fresh(paired = false)) <= 2)
+        SetupBundles.all.forEach { bundle ->
+            val walk = start(fresh(paired = false, codes = true, apps = true), bundle.answers).toTheEnd()
+            assertTrue("${bundle.id}: ${walk.steps}", walk.steps.size in 4..8)
+        }
+        val everything = start(fresh(paired = false, codes = true, apps = true), SetupBundles.answers(SetupBundles.all.map { it.id }.toSet(), emptyMap())).toTheEnd()
+        assertTrue(everything.steps.toString(), everything.steps.size <= 10)
+    }
+
+    @Test
+    fun typedAnswersSkipTheirFollowUps() {
+        val walk = start(fresh(), mapOf("clipboard" to Answers.AUTO, "codes" to Answers.YES, "updates" to Answers.EARLY, "media" to Answers.NO))
+        assertEquals(setOf("clipboard", "notifications"), walk.state.picked)
+        assertEquals("BETA", walk.facts.value(SetupSetting.UPDATE_CHANNEL))
+        assertEquals("true", walk.facts.value(SetupSetting.AUTO_CLIPBOARD))
+        walk.toTheEnd()
+        assertFalse(q("clipboard") in walk.steps)
+        assertFalse(q("codes") in walk.steps)
+        assertEquals(false, walk.state.switches["media"])
+    }
+
+    @Test
+    fun theSwitchesListEveryFeatureNotPickedAndTurnThemOn() {
+        val walk = start(fresh(), SetupBundles.answers(setOf("files"), emptyMap()))
+        walk.send(SetupEvent.Answer("files_browse", Answers.NO))
+        assertEquals(SetupScreen.Switches, walk.screen)
+        walk.send(SetupEvent.Switch("camera", true)).send(SetupEvent.Switch("links", true)).send(SetupEvent.Switch("links", false))
+        assertEquals("true", walk.facts.value(SetupSetting.FEATURE_CAMERA))
+        assertEquals("false", walk.facts.value(SetupSetting.FEATURE_LINKS))
+        walk.send(SetupEvent.Continue)
+        assertEquals(SetupScreen.Permissions, walk.screen)
+        val needed = SetupFlow.neededPermissions(walk.state, walk.facts).map { it.kind }
+        assertEquals(listOf(PermissionKind.POST_NOTIFICATIONS, PermissionKind.CAMERA, PermissionKind.BATTERY), needed)
+    }
+
+    @Test
+    fun permissionsNotAllowedLeaveTheirFeaturesOffAndSetupGoesOn() {
+        val walk = start(fresh(granted = setOf(PermissionKind.BATTERY)), SetupBundles.answers(setOf("notifications", "calls"), emptyMap()))
+        walk.send(SetupEvent.Answer("calls", Answers.YES)).send(SetupEvent.Continue)
+        assertEquals(SetupScreen.Permissions, walk.screen)
+        walk.send(SetupEvent.Asked(setOf(PermissionKind.PHONE_CALLS)))
+        walk.facts = walk.facts.copy(granted = walk.facts.granted + PermissionKind.NOTIFICATION_ACCESS)
+        walk.send(SetupEvent.Continue)
+        assertEquals(SetupScreen.Summary, walk.screen)
+        assertEquals(setOf(PermissionKind.PHONE_CALLS, PermissionKind.POST_NOTIFICATIONS), walk.state.refused)
         assertEquals("false", walk.facts.value(SetupSetting.DIRECT_CALLS))
-        assertEquals("false", SetupFlow.effective(walk.state, SetupFacts())[SetupSetting.DIRECT_CALLS])
-        // The notice shows once, on the next card only.
-        walk.send(SetupEvent.NotNow)
-        assertNull(walk.state.notice)
-        val item = SetupSummary.items(walk.state).single { it.question.id == "calls" }
-        assertEquals(SummaryItem.NotAllowed(SetupQuestions.question("calls")!!, PermissionKind.PHONE_CALLS), item)
+        assertEquals("true", walk.facts.value(SetupSetting.FEATURE_NOTIFICATIONS))
+        val items = SetupSummary.items(walk.state, walk.facts)
+        assertTrue(items.any { it is SummaryItem.NotAllowed && it.permission.kind == PermissionKind.PHONE_CALLS })
+        assertTrue(items.any { it is SummaryItem.FeatureOn && it.feature.id == "calls" })
     }
 
     @Test
-    fun aGrantedPermissionIsNotAskedAgain() {
-        val walk = Walk(SetupFacts(paired = true, granted = setOf(PermissionKind.PHONE_CALLS))).send(SetupEvent.ChooseAdvanced).send(SetupEvent.StartQuestions())
-        while (walk.question != "calls") walk.send(SetupEvent.NotNow)
-        walk.send(SetupEvent.Answer("calls", Answers.YES))
-        assertEquals("files", walk.question)
+    fun aPermissionsPageWithEverythingAllowedIsSkipped() {
+        val walk = start(fresh(granted = PermissionKind.entries.toSet()), SetupBundles.answers(setOf("notifications"), emptyMap())).toTheEnd()
+        assertFalse(SetupScreen.Permissions in walk.steps)
     }
 
     @Test
-    fun notNowOnAPermissionCountsAsNotAllowed() {
-        val walk = Walk(SetupFacts(paired = true)).send(SetupEvent.ChooseAdvanced).send(SetupEvent.StartQuestions())
-        while (walk.question != "camera") walk.send(SetupEvent.NotNow)
-        walk.send(SetupEvent.Answer("camera", Answers.YES)).send(SetupEvent.NotNow)
-        assertEquals("focus", walk.question)
-        assertEquals("false", walk.facts.value(SetupSetting.FEATURE_CAMERA))
-    }
-
-    @Test
-    fun backWalksTheQuestionsShownInOrder() {
-        val walk = Walk(SetupFacts(paired = true)).send(SetupEvent.ChooseAdvanced).send(SetupEvent.StartQuestions())
-        walk.send(SetupEvent.Answer("clipboard", Answers.NO)) // skips clipboard_files and clipboard_screenshot
-        walk.send(SetupEvent.NotNow) // notifications
-        val third = walk.question
-        assertEquals(listOf("clipboard", "notifications", third), walk.state.trail)
+    fun backWalksThePathAndPermissionsGoesBackToTheSwitches() {
+        val walk = start(fresh(), SetupBundles.answers(setOf("clipboard", "calls"), emptyMap()))
+        walk.send(SetupEvent.Answer("clipboard", Answers.AUTO)).send(SetupEvent.Answer("calls", Answers.SEE)).send(SetupEvent.Continue)
+        assertEquals(SetupScreen.Permissions, walk.screen)
         walk.send(SetupEvent.Back)
-        assertEquals("notifications", walk.question)
+        assertEquals(SetupScreen.Switches, walk.screen)
         walk.send(SetupEvent.Back)
-        assertEquals("clipboard", walk.question)
-        assertEquals(Answers.NO, walk.state.answers["clipboard"])
+        assertEquals(q("calls"), walk.screen)
+        assertEquals(Answers.SEE, walk.state.answers["calls"])
         walk.send(SetupEvent.Back)
-        assertEquals(SetupScreen.Intro, walk.state.screen)
+        assertEquals(q("clipboard"), walk.screen)
         walk.send(SetupEvent.Back)
-        assertEquals(SetupScreen.Welcome, walk.state.screen)
-        // Back on Welcome is not a step: SetupBack decides to ask before leaving.
+        assertEquals(SetupScreen.Intro, walk.screen)
+        walk.send(SetupEvent.Back)
+        assertEquals(SetupScreen.Welcome, walk.screen)
         assertEquals(BackAction.ASK_LEAVE, SetupBack.decide(walk.state))
     }
 
     @Test
-    fun backFromTheSummaryReturnsToTheLastQuestion() {
-        val walk = Walk(SetupFacts(paired = true)).send(SetupEvent.ChooseAdvanced).send(SetupEvent.StartQuestions())
-        val seen = walk.notNowToTheEnd()
-        walk.send(SetupEvent.Back)
-        assertEquals(seen.last(), walk.question)
-        walk.send(SetupEvent.NotNow)
-        assertEquals(SetupScreen.Summary, walk.state.screen)
-        assertEquals(SetupScreen.Done(SetupPath.ADVANCED), run(SetupEvent.Finish, from = walk.state).screen)
-    }
-
-    @Test
-    fun typedAnswersSkipTheirQuestionsUnlessTheyNeedAPermission() {
-        val walk = Walk(SetupFacts(paired = true)).send(SetupEvent.ChooseAdvanced)
-        walk.send(SetupEvent.StartQuestions(mapOf("notifications" to Answers.YES, "files" to Answers.YES, "clipboard" to Answers.AUTO)))
-        assertEquals(Answers.YES, walk.state.answers["files"])
-        assertFalse("notifications needs its permission first", "notifications" in walk.state.answers)
-        val seen = walk.notNowToTheEnd()
-        assertFalse("clipboard" in seen)
-        assertFalse("files" in seen)
-        assertTrue("notifications" in seen)
-        assertEquals("true", walk.facts.value(SetupSetting.AUTO_CLIPBOARD))
-    }
-
-    @Test
-    fun theStateSurvivesProcessDeath() {
-        val walk = Walk(SetupFacts(paired = true)).send(SetupEvent.ChooseAdvanced)
-            .send(SetupEvent.StartQuestions(mapOf("files" to Answers.YES)))
-        while (walk.question != "calls") walk.send(SetupEvent.NotNow)
-        walk.send(SetupEvent.Answer("calls", Answers.YES))
-        val atPermission = walk.state.copy(summaryOff = setOf("files"), confirmLeave = true, outcomes = mapOf(QuickStep.PAIR to StepOutcome.SKIPPED))
-        assertEquals(atPermission, SetupState.decode(atPermission.encode()))
-        walk.send(SetupEvent.PermissionResult(false))
-        assertEquals(walk.state, SetupState.decode(walk.state.encode()))
-        val review = SetupState.review()
-        assertEquals(review, SetupState.decode(review.encode()))
+    fun theStateSurvivesProcessDeathOnThePermissionsPage() {
+        val walk = start(fresh(), SetupBundles.answers(setOf("calls"), mapOf("updates" to Answers.EARLY)))
+        walk.send(SetupEvent.Answer("calls", Answers.YES)).send(SetupEvent.Switch("camera", true)).send(SetupEvent.Continue)
+            .send(SetupEvent.Asked(setOf(PermissionKind.PHONE_CALLS)))
+        assertEquals(SetupScreen.Permissions, walk.screen)
+        val saved = walk.state.copy(confirmLeave = true, summaryOff = setOf("camera"), outcomes = mapOf(QuickStep.PAIR to StepOutcome.SKIPPED))
+        val restored = SetupState.decode(saved.encode())
+        assertEquals(saved, restored)
+        // Back after the restore still goes to the switches.
+        assertEquals(SetupScreen.Switches, run(SetupEvent.Back, from = restored!!).screen)
+        assertEquals(SetupState.review(), SetupState.decode(SetupState.review().encode()))
         assertEquals(SetupState(), SetupState.decode(SetupState().encode()))
         assertNull(SetupState.decode("not json"))
         assertNull(SetupState.decode(SetupState(screen = SetupScreen.Question("gone")).encode()))
-        assertFalse(SetupState().finished)
     }
 
     @Test
@@ -270,34 +247,26 @@ class SetupFlowTest {
         assertFalse(SetupBack.intercepts(SetupState()))
         assertEquals(BackAction.STEP, SetupBack.decide(run(SetupEvent.ChooseQuick)))
         assertEquals(BackAction.STEP, SetupBack.decide(run(SetupEvent.ChooseAdvanced)))
-        assertEquals(BackAction.ASK_LEAVE, SetupBack.decide(SetupState(answers = mapOf("clipboard" to Answers.NO))))
+        assertEquals(BackAction.ASK_LEAVE, SetupBack.decide(SetupState(picked = setOf("clipboard"))))
         assertEquals(BackAction.ASK_LEAVE, SetupBack.decide(SetupState(outcomes = mapOf(QuickStep.PAIR to StepOutcome.DONE))))
-        // Review setup starts on the questions: that is its first screen.
         assertEquals(BackAction.LEAVE, SetupBack.decide(SetupState.review()))
-        assertEquals(SetupScreen.Intro, run(SetupEvent.Back, from = SetupState.review()).screen)
-        // The leave dialog: shown, and Keep going closes it.
-        val asking = run(SetupEvent.AskLeave, from = SetupState(answers = mapOf("clipboard" to Answers.NO)))
+        val asking = run(SetupEvent.AskLeave, from = SetupState(picked = setOf("clipboard")))
         assertTrue(asking.confirmLeave)
         assertFalse(run(SetupEvent.KeepGoing, from = asking).confirmLeave)
     }
 
     @Test
-    fun theSummaryListsWhatWasTurnedOn() {
-        val walk = Walk(SetupFacts(paired = true, granted = PermissionKind.entries.toSet())).send(SetupEvent.ChooseAdvanced).send(SetupEvent.StartQuestions())
-        walk.send(SetupEvent.Answer("clipboard", Answers.AUTO))
-        walk.send(SetupEvent.Answer("clipboard_files", Answers.TEXT))
-        while (walk.question != "updates") walk.send(SetupEvent.NotNow)
-        walk.send(SetupEvent.Answer("updates", Answers.EARLY))
-        val items = SetupSummary.items(walk.state)
-        assertEquals(listOf("clipboard", "updates"), items.map { it.question.id })
-        assertTrue((items[0] as SummaryItem.TurnedOn).on)
-        assertTrue(items[1] is SummaryItem.Chosen)
-        val off = run(SetupEvent.SummarySwitch("clipboard", on = false), from = walk.state)
-        assertFalse((SetupSummary.items(off)[0] as SummaryItem.TurnedOn).on)
-        assertEquals("false", SetupFlow.effective(off, SetupFacts())[SetupSetting.FEATURE_CLIPBOARD])
-        // The settings sync hook hears the switch too.
-        assertEquals("false", off.choices.choices.single { it.key == SetupSetting.FEATURE_CLIPBOARD.name }.value)
-        assertEquals("BETA", off.choices.choices.single { it.key == SetupSetting.UPDATE_CHANNEL.name }.value)
+    fun theSummaryShowsWhatIsOnWithSwitches() {
+        val walk = start(fresh(granted = PermissionKind.entries.toSet()), SetupBundles.answers(setOf("clipboard"), mapOf("updates" to Answers.NEWEST)))
+        walk.send(SetupEvent.Answer("clipboard", Answers.AUTO)).send(SetupEvent.Switch("battery", true)).toTheEnd()
+        val items = SetupSummary.items(walk.state, walk.facts)
+        val on = items.filterIsInstance<SummaryItem.FeatureOn>()
+        assertEquals(listOf("clipboard", "battery"), on.map { it.feature.id })
+        assertTrue(on.all { it.on })
+        assertTrue(items.any { it is SummaryItem.Chosen })
+        val off = run(SetupEvent.SummarySwitch("battery", on = false), from = walk.state)
+        assertFalse(SetupSummary.items(off, walk.facts).filterIsInstance<SummaryItem.FeatureOn>().single { it.feature.id == "battery" }.on)
+        assertEquals("false", off.choices.choices.single { it.key == SetupSetting.FEATURE_BATTERY.name }.value)
     }
 
     @Test

@@ -98,11 +98,13 @@ class BridgeyApplication : Application() {
         isPrimaryUser = getSystemService(UserManager::class.java).isSystemUser
         if (!isPrimaryUser) return
         val preferences = getSharedPreferences("bridgey", MODE_PRIVATE)
+        // Before the device ID is written: an install that ran before keeps its feature defaults.
+        val defaultsGeneration = dev.bridgey.android.setup.DefaultsGeneration.settle(this, priorInstall = preferences.contains("device_id"))
         val deviceId = preferences.getString("device_id", null) ?: UUID.randomUUID().toString().also {
             preferences.edit().putString("device_id", it).apply()
         }
         val systemDeviceName = Settings.Global.getString(contentResolver, "device_name") ?: "Android device"
-        settings = BridgeySettings(this, systemDeviceName)
+        settings = BridgeySettings(this, systemDeviceName, defaultsGeneration)
         updater = AppUpdater(this, applicationScope)
         val deviceName = settings.state.value.deviceName
         pairing = PairingCoordinator(this, deviceId, deviceName, settings = settings)

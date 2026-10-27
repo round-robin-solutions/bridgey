@@ -7,9 +7,9 @@
     <string name="setup_welcome_body">Телефон и Mac работают вместе в вашей собственной сети: буфер обмена, файлы, уведомления, звонки и многое другое.</string>
     <string name="setup_quick_title">Быстрый старт</string>
     <string name="setup_quick_badge">Рекомендуем</string>
-    <string name="setup_quick_body">Разумные значения по умолчанию и только те разрешения, что нужны сейчас. Всё можно изменить позже в настройках.</string>
+    <string name="setup_quick_body">Включает самое нужное: связь с Mac, буфер обмена по кнопке «Отправить» и уведомления телефона на Mac. Остальное можно включить в настройках в любой момент.</string>
     <string name="setup_advanced_title">Подробная настройка</string>
-    <string name="setup_advanced_body">Пройдите по всем функциям и выберите, как они работают. Значения по умолчанию уже выбраны.</string>
+    <string name="setup_advanced_body">Выберите, что вам нужно, ответьте на несколько коротких вопросов и включите остальное в одном списке.</string>
     <string name="setup_step_of">%1$d из %2$d</string>
     <string name="setup_skip">Пропустить</string>
     <string name="setup_next">Далее</string>
