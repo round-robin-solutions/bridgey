@@ -21,3 +21,11 @@ struct SendPanelEntry: View {
 
     var body: some View { EmptyView() }
 }
+
+/// Drop tiles over the panel while a drag hovers the menu-bar icon: one per connected device, plus Tray.
+struct DropTilesOverlay: View {
+    let model: PanelModel
+    let actions: PanelActions
+
+    var body: some View { EmptyView() }
+}

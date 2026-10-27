@@ -140,6 +140,8 @@ struct StreamPanelView: View {
         }
         .frame(width: Self.width)
         .background(c.panel)
+        // Menu-bar drops: device and Tray tiles while a drag hovers (SendSheet.swift).
+        .overlay { DropTilesOverlay(model: model, actions: actions) }
     }
 
     @ViewBuilder private var main: some View {

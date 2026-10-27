@@ -80,8 +80,8 @@ struct TransferHistoryFilter: Equatable {
 
 @MainActor
 final class TransferHistoryStore: ObservableObject {
-    static let maximumEntries = 2_000
-    static let retention: TimeInterval = 30 * 24 * 60 * 60
+    nonisolated static let maximumEntries = 2_000
+    nonisolated static let retention: TimeInterval = 30 * 24 * 60 * 60
 
     @Published private(set) var entries: [TransferHistoryEntry]
 
