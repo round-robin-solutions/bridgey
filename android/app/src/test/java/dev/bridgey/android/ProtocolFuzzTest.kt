@@ -158,6 +158,16 @@ class ProtocolFuzzTest {
             assertTrue(result.done == (result.reason == null))
             result.reason?.let { assertTrue(it in dev.bridgey.android.actions.MacActionReasons) }
         }
+        dev.bridgey.android.screen.decodeScreenRequest(payload)?.let { assertTrue(payload.size <= 512 && it.length == 36) }
+        for (kind in listOf("screen.started", "screen.ack", "screen.stop", "screen.start")) {
+            dev.bridgey.android.screen.decodeScreenMacMessage(kind, payload)?.let { message ->
+                assertTrue(payload.size <= 512 && message.sequence >= 1 && message.streamId.length == 36)
+                if (message is dev.bridgey.android.screen.ScreenMacMessage.Ack) assertTrue(message.frame in 1..4_294_967_295L && message.decodeMs in 0..60_000)
+            }
+        }
+        dev.bridgey.android.screen.ScreenFrameCodec.decode(payload)?.let { (header, body) ->
+            assertTrue(body.isNotEmpty() && body.size <= 32_768 && header.part in 0..63 && header.frame >= 1)
+        }
         dev.bridgey.android.camera.decodeCameraRequest(payload)?.let { json ->
             assertTrue(payload.size <= dev.bridgey.android.camera.CAMERA_MESSAGE_MAX_BYTES)
             assertTrue(dev.bridgey.android.camera.parseCameraRequest(json)!!.length == 36)
@@ -315,6 +325,7 @@ class ProtocolFuzzTest {
             "featuresUpdate", "batteryUpdate", "clipboardRich", "clipboardOffer", "remoteInput", "browseRef",
             "focusState", "actionsCatalog", "actionsRun", "actionsResult", "cameraRequest", "cameraStatus",
             "updatesStatus", "updatesStart", "updatesResult",
+            "screenRequest", "screenStatus", "screenStream",
         ).flatMap { group ->
             vectors.getJSONArray(group).let { array -> (0 until array.length()).map { array.getJSONObject(it).let { v -> v.opt("plaintext")?.toString() ?: v.getString("plaintextString") } } }
         }
@@ -326,7 +337,8 @@ class ProtocolFuzzTest {
                     "folderTransferId", "requestId", "places", "entries", "pageCount", "mode",
                     "ref", "mediaId", "placeId", "path", "name", "cursor", "sort", "limit", "replaces",
                     "active", "actions", "action", "status", "reason", "volume", "value", "id", "title", "blocked",
-                    "platform", "edition", "app", "build", "channel", "state", "target", "targetBuild", "progress", "remoteStart", "checkedAt", "retry").filter { random.nextBoolean() }
+                    "platform", "edition", "app", "build", "channel", "state", "target", "targetBuild", "progress", "remoteStart", "checkedAt", "retry",
+                    "streamId", "frame", "decodeMs", "keyframe").filter { random.nextBoolean() }
                     .forEach { put(it, randomJson(0)) }
             }.toString().toByteArray()
             else -> samples.random(random).toByteArray()

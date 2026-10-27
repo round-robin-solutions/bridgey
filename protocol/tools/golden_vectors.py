@@ -73,7 +73,7 @@ f("frame of 65,536 bytes with CRLF", None, {"kind":"pairing.offer","sessionId":S
 features_all = {"clipboard":True,"files":True,"notifications":True,"battery":True,"find_device":True,"ping":True,"links":True,"media":True,"calls":True,"remote_input_draft1":False}
 drafts_none = {"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False,"folders_receive_draft1":False,"files_browse_draft1":False,
                "mac_actions_draft1":False,"links_open_draft1":False,"focus_sync_draft1":False,"camera_draft1":False,
-               "updates_draft1":False}
+               "updates_draft1":False,"screen_draft1":False}
 feat = []
 def fe(name, plaintext, expect, raw=False):
     feat.append({"name": name, ("plaintextString" if raw else "plaintext"): plaintext, "expect": expect})
@@ -93,6 +93,11 @@ fe("automation keys that are not booleans count as false", {"version":1,"feature
 fe("Update all: an edition phone with updates_draft1", {"version":1,"features":{**features_all,"files_browse_draft1":True,"updates_draft1":True}},
    {"features":features_all,"drafts":{**drafts_none,"files_browse_draft1":True,"updates_draft1":True}})
 fe("updates_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"updates_draft1":"true"}},
+   {"features":features_all,"drafts":drafts_none})
+# Screen sharing (v0.9, docs/protocol.md "Phone screen to Mac"): a draft key, true only for JSON true.
+fe("v0.9 phone and Mac with screen sharing on", {"version":1,"features":{**features_all,"camera_draft1":True,"screen_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"camera_draft1":True,"screen_draft1":True}})
+fe("screen_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"screen_draft1":"true"}},
    {"features":features_all,"drafts":drafts_none})
 fe("first-slice Mac (folders_draft1 only, no Files 2.0 keys)", {"version":1,"features":{**features_all,"folders_draft1":True,"places_draft1":False}},
    {"features":features_all,"drafts":{**drafts_none,"folders_draft1":True}})
@@ -418,6 +423,152 @@ cs("version 2", {"version":2,"requestId":R1,"status":"opened"}, "reject")
 cs("over 512 bytes", sized('{"version":1,"requestId":"%s","status":"opened","pad":"' % R1, 513), "reject", raw=True)
 cs("lenient JSON", "{version:1,requestId:'%s',status:'opened'}" % R1, "reject", raw=True)
 
+# Screen sharing (v0.9, docs/protocol.md "Phone screen to Mac"). screenRequest is decoded by the phone, screenStatus by the
+# Mac. screenStream holds the JSON stream messages, each with "kind" and "decoder" ("mac", "android" or "both").
+# screenFrame is the binary frame plaintext, decoded by the Mac; vectors with "android": true are what the phone writes.
+ST = "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60"
+screq = []
+def sq(name, p, expect, raw=False, mac=False):
+    v = {"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect}
+    if mac: v["mac"] = True
+    screq.append(v)
+sq("ask to see the screen", {"version":1,"requestId":R1}, {"requestId":R1}, mac=True)
+sq("an uppercase request ID is read lowercased", {"version":1,"requestId":R1.upper()}, {"requestId":R1})
+sq("unknown fields are ignored", {"version":1,"requestId":R1,"control":True}, {"requestId":R1})
+sq("requestId not a UUID", {"version":1,"requestId":"screen-1"}, "reject")
+sq("requestId missing", {"version":1}, "reject")
+sq("requestId as a number", {"version":1,"requestId":5}, "reject")
+sq("version 2", {"version":2,"requestId":R1}, "reject")
+sq("version missing", {"requestId":R1}, "reject")
+sq("exactly 512 bytes", sized('{"version":1,"requestId":"%s","pad":"' % R1, 512), {"requestId":R1}, raw=True)
+sq("over 512 bytes", sized('{"version":1,"requestId":"%s","pad":"' % R1, 513), "reject", raw=True)
+sq("lenient JSON", "{version:1,requestId:'%s'}" % R1, "reject", raw=True)
+
+scstat = []
+def ss(name, p, expect, raw=False, android=None):
+    v = {"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect}
+    if android: v["android"] = android
+    scstat.append(v)
+for status in ["waiting","declined","busy","disabled","failed"]:
+    ss(status, {"version":1,"requestId":R1,"status":status}, {"requestId":R1,"status":status}, android=status)
+ss("unknown status", {"version":1,"requestId":R1,"status":"opened"}, "reject")
+ss("status missing", {"version":1,"requestId":R1}, "reject")
+ss("requestId not a UUID", {"version":1,"requestId":"x","status":"waiting"}, "reject")
+ss("version 2", {"version":2,"requestId":R1,"status":"waiting"}, "reject")
+ss("over 512 bytes", sized('{"version":1,"requestId":"%s","status":"busy","pad":"' % R1, 513), "reject", raw=True)
+ss("lenient JSON", "{version:1,requestId:'%s',status:'busy'}" % R1, "reject", raw=True)
+
+sstream = []
+def sm(name, kind, fields, expect, decoder, android=False, mac=False, raw=None, base=True):
+    p = {"version":1,"streamId":ST,"sequence":3} if base else {}
+    p.update(fields or {})
+    v = {"name":name, "kind":kind, "decoder":decoder}
+    if raw is not None: v["plaintextString"] = raw
+    else: v["plaintext"] = p
+    v["expect"] = expect
+    if android: v["android"] = True
+    if mac: v["mac"] = True
+    sstream.append(v)
+start = {"codec":"h264","width":720,"height":1600,"fps":30,"bitrate":4000000}
+def sx(**kw):
+    e = {"streamId":ST,"sequence":3,"requestId":None,"codec":"h264","width":720,"height":1600,"fps":30,"bitrate":4000000}
+    e.update(kw); return e
+sm("start", "screen.start", {**start, "sequence":1}, sx(sequence=1), "mac", android=True, base=True)
+sm("start answering a request", "screen.start", {**start, "requestId":R1}, sx(requestId=R1), "mac", android=True)
+sm("start with an uppercase stream ID reads lowercased", "screen.start", {**start, "streamId":ST.upper()}, sx(), "mac")
+sm("start at the smallest size and rate", "screen.start", {**start, "width":16,"height":16,"fps":1,"bitrate":100000}, sx(width=16,height=16,fps=1,bitrate=100000), "mac")
+sm("start at the largest size and rate", "screen.start", {**start, "width":4096,"height":4096,"fps":60,"bitrate":50000000}, sx(width=4096,height=4096,fps=60,bitrate=50000000), "mac")
+sm("start with unknown fields", "screen.start", {**start, "hdr":True}, sx(), "mac")
+sm("start with codec h265", "screen.start", {**start, "codec":"h265"}, "reject", "mac")
+sm("start with an odd width", "screen.start", {**start, "width":721}, "reject", "mac")
+sm("start with width 4098", "screen.start", {**start, "width":4098}, "reject", "mac")
+sm("start with height 14", "screen.start", {**start, "height":14}, "reject", "mac")
+sm("start at 61 fps", "screen.start", {**start, "fps":61}, "reject", "mac")
+sm("start at 0 fps", "screen.start", {**start, "fps":0}, "reject", "mac")
+sm("start with a bit rate under 100 kb/s", "screen.start", {**start, "bitrate":99999}, "reject", "mac")
+sm("start with width as a string", "screen.start", {**start, "width":"720"}, "reject", "mac")
+sm("start with width written as 720.0", "screen.start", None, sx(), "mac",
+   raw='{"version":1,"streamId":"%s","sequence":3,"codec":"h264","width":720.0,"height":1600,"fps":30,"bitrate":4000000}' % ST)
+sm("start with a requestId that is not a UUID", "screen.start", {**start, "requestId":"r1"}, "reject", "mac")
+sm("start without codec", "screen.start", {k:v for k,v in start.items() if k != "codec"}, "reject", "mac")
+sm("start over 1 KiB", "screen.start", None, "reject", "mac",
+   raw=sized('{"version":1,"streamId":"%s","sequence":3,"codec":"h264","width":720,"height":1600,"fps":30,"bitrate":4000000,"pad":"' % ST, 1025))
+sm("start of exactly 1 KiB", "screen.start", None, sx(), "mac",
+   raw=sized('{"version":1,"streamId":"%s","sequence":3,"codec":"h264","width":720,"height":1600,"fps":30,"bitrate":4000000,"pad":"' % ST, 1024))
+sm("started", "screen.started", {}, {"streamId":ST,"sequence":3}, "android", mac=True)
+sm("started with a stream ID that is not a UUID", "screen.started", {"streamId":"s1"}, "reject", "android")
+sm("started with sequence 0", "screen.started", {"sequence":0}, "reject", "android")
+sm("started with sequence 2^53", "screen.started", {"sequence":9007199254740992}, "reject", "android")
+sm("started with the largest sequence", "screen.started", {"sequence":9007199254740991}, {"streamId":ST,"sequence":9007199254740991}, "android")
+sm("started without sequence", "screen.started", None, "reject", "android", raw='{"version":1,"streamId":"%s"}' % ST)
+sm("started version 2", "screen.started", {"version":2}, "reject", "android")
+sm("ack", "screen.ack", {"frame":42,"decodeMs":3}, {"streamId":ST,"sequence":3,"frame":42,"decodeMs":3,"keyframe":False}, "android", mac=True)
+sm("ack asking for a key frame", "screen.ack", {"frame":42,"decodeMs":0,"keyframe":True}, {"streamId":ST,"sequence":3,"frame":42,"decodeMs":0,"keyframe":True}, "android", mac=True)
+sm("ack with keyframe false", "screen.ack", {"frame":1,"decodeMs":0,"keyframe":False}, {"streamId":ST,"sequence":3,"frame":1,"decodeMs":0,"keyframe":False}, "android")
+sm("ack of the largest frame number", "screen.ack", {"frame":4294967295,"decodeMs":60000}, {"streamId":ST,"sequence":3,"frame":4294967295,"decodeMs":60000,"keyframe":False}, "android")
+sm("ack of frame 0", "screen.ack", {"frame":0,"decodeMs":1}, "reject", "android")
+sm("ack of frame 2^32", "screen.ack", {"frame":4294967296,"decodeMs":1}, "reject", "android")
+sm("ack with decodeMs 60001", "screen.ack", {"frame":1,"decodeMs":60001}, "reject", "android")
+sm("ack with a negative decodeMs", "screen.ack", {"frame":1,"decodeMs":-1}, "reject", "android")
+sm("ack with keyframe as a string", "screen.ack", {"frame":1,"decodeMs":1,"keyframe":"true"}, "reject", "android")
+sm("ack without frame", "screen.ack", {"decodeMs":1}, "reject", "android")
+stats = {"latencyMs":48,"rttMs":6,"bitrate":4000000,"sentBitrate":2100000,"fps":30,"dropped":0}
+sm("stats", "screen.stats", stats, {"streamId":ST,"sequence":3,**stats}, "mac", android=True)
+sm("stats at the limits", "screen.stats", {"latencyMs":60000,"rttMs":60000,"bitrate":50000000,"sentBitrate":50000000,"fps":120,"dropped":1000},
+   {"streamId":ST,"sequence":3,"latencyMs":60000,"rttMs":60000,"bitrate":50000000,"sentBitrate":50000000,"fps":120,"dropped":1000}, "mac")
+sm("stats with fps 121", "screen.stats", {**stats, "fps":121}, "reject", "mac")
+sm("stats with a negative latency", "screen.stats", {**stats, "latencyMs":-5}, "reject", "mac")
+sm("stats without dropped", "screen.stats", {k:v for k,v in stats.items() if k != "dropped"}, "reject", "mac")
+for reason in ["user","ended","screen_off","disabled","timeout","failed"]:
+    sm("stop by the phone, " + reason, "screen.stop", {"reason":reason}, {"streamId":ST,"sequence":3,"reason":reason}, "both", android=True)
+for reason in ["closed","disabled","invalid","timeout","failed"]:
+    sm("stop by the Mac, " + reason, "screen.stop", {"reason":reason}, {"streamId":ST,"sequence":3,"reason":reason}, "both", mac=True)
+sm("stop with an unknown reason reads as failed", "screen.stop", {"reason":"bored"}, {"streamId":ST,"sequence":3,"reason":"failed"}, "both")
+sm("stop without a reason reads as failed", "screen.stop", {}, {"streamId":ST,"sequence":3,"reason":"failed"}, "both")
+sm("stop over 512 bytes", "screen.stop", None, "reject", "both",
+   raw=sized('{"version":1,"streamId":"%s","sequence":3,"reason":"user","pad":"' % ST, 513))
+sm("stop with a stream ID that is not a UUID", "screen.stop", {"streamId":"x","reason":"user"}, "reject", "both")
+sm("stop lenient JSON", "screen.stop", None, "reject", "both", raw="{version:1,streamId:'%s',sequence:3,reason:'user'}" % ST)
+
+import uuid as _uuid
+sframe = []
+def header(flags, part, seq, frame, capture, version=1, stream=ST):
+    return (bytes([version, flags]) + part.to_bytes(2, "big") + _uuid.UUID(stream).bytes + seq.to_bytes(8, "big")
+            + frame.to_bytes(4, "big") + capture.to_bytes(8, "big"))
+SPS_PPS_IDR = bytes.fromhex("0000000167640028acd940780227e5c044000003000400000300c83c60c658") + bytes.fromhex("0000000168ebe3cb22c0") + bytes.fromhex("0000000165888400")
+P_SLICE = bytes.fromhex("00000001419a2a")
+def sf(name, plaintext, expect, android=False, pad_to=None):
+    v = {"name":name, "plaintextHex": plaintext.hex()}
+    if pad_to: v["padTo"] = pad_to
+    v["expect"] = expect
+    if android: v["android"] = True
+    sframe.append(v)
+def fx(flags, part, seq, frame, capture, payload):
+    return {"streamId":ST,"sequence":seq,"frame":frame,"part":part,"key":bool(flags & 1),"parameterSets":bool(flags & 2),"last":bool(flags & 4),
+            "captureMicros":capture,"payloadHex":payload.hex()}
+sf("key frame with SPS and PPS in one part", header(7,0,2,1,1000000) + SPS_PPS_IDR, fx(7,0,2,1,1000000,SPS_PPS_IDR), android=True)
+sf("P frame in one part", header(4,0,5,4,1100000) + P_SLICE, fx(4,0,5,4,1100000,P_SLICE), android=True)
+sf("first part of a split frame", header(3,0,6,5,1133333) + SPS_PPS_IDR[:20], fx(3,0,6,5,1133333,SPS_PPS_IDR[:20]), android=True)
+sf("middle part needs no start code", header(3,1,7,5,1133333) + bytes.fromhex("aabbcc"), fx(3,1,7,5,1133333,bytes.fromhex("aabbcc")), android=True)
+sf("three-byte start code", header(4,0,8,6,1166666) + bytes.fromhex("000001419a"), fx(4,0,8,6,1166666,bytes.fromhex("000001419a")))
+sf("reserved flag bits are ignored", header(0xF4,0,9,7,1) + P_SLICE, fx(4,0,9,7,1,P_SLICE))
+sf("largest sequence, frame, part and capture time", header(0,63,9007199254740991,4294967295,9223372036854775807) + b"\x01",
+   fx(0,63,9007199254740991,4294967295,9223372036854775807,b"\x01"))
+sf("capture time 2^63", header(4,0,2,1,9223372036854775808) + P_SLICE, "reject")
+sf("payload of 32,768 bytes", header(0,1,10,8,1) + b"\x00", {"streamId":ST,"sequence":10,"frame":8,"part":1,"key":False,"parameterSets":False,"last":False,"captureMicros":1,"payloadLength":32768}, pad_to=40+32768)
+sf("payload of 32,769 bytes", header(0,1,10,8,1) + b"\x00", "reject", pad_to=40+32769)
+sf("header only, no payload", header(4,0,2,1,1), "reject")
+sf("shorter than the header", header(4,0,2,1,1)[:39], "reject")
+sf("version 2", header(4,0,2,1,1,version=2) + P_SLICE, "reject")
+sf("version 0", header(4,0,2,1,1,version=0) + P_SLICE, "reject")
+sf("part 64", header(4,64,2,1,1) + b"\x01", "reject")
+sf("sequence 0", header(4,0,0,1,1) + P_SLICE, "reject")
+sf("sequence 2^53", header(4,0,9007199254740992,1,1) + P_SLICE, "reject")
+sf("frame 0", header(4,0,2,0,1) + P_SLICE, "reject")
+sf("part 0 without a start code", header(4,0,2,1,1) + bytes.fromhex("419a2a"), "reject")
+sf("part 0 with a broken start code", header(4,0,2,1,1) + bytes.fromhex("00000201419a"), "reject")
+
+
 # Update all (docs/protocol.md "Update all"). Both platforms decode every group. 'write': true means both platforms' encoders
 # also write exactly that plaintext from the expected value (key order aside).
 R2 = "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f"
@@ -510,7 +661,7 @@ ur("version 2", {"version":2,"requestId":R2,"status":"accepted"}, "reject")
 ur("over 512 bytes", sized('{"version":1,"requestId":"%s","status":"accepted","pad":"' % R2, 513), "reject", raw=True)
 
 out = {
-  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect, and 'write': true means both platforms also write exactly that plaintext from the expected value. In actionsRun, value null is absent and 'other' is present but not an integer.",
+  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect, and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer.",
   "sessionId": S,
   "frames": frames,
   "featuresUpdate": feat,
@@ -528,6 +679,11 @@ out = {
   "updatesStatus": st,
   "updatesStart": ustart,
   "updatesResult": uresult,
+  "screenRequest": screq,
+  "screenStatus": scstat,
+  "screenStream": sstream,
+  "screenFrame": sframe,
 }
 open(OUT,'w').write(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
-print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat), len(st), len(ustart), len(uresult))
+print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat), len(st), len(ustart), len(uresult),
+      len(screq), len(scstat), len(sstream), len(sframe))

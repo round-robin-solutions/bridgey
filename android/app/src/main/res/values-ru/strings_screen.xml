@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Показ экрана на Mac (черновик screen_draft1, прототип v0.9, только просмотр). -->
+<resources>
+    <string name="feature_screen">Показ экрана на Mac</string>
+    <string name="feature_screen_detail">%1$s может попросить показать экран; вы каждый раз подтверждаете</string>
+    <string name="settings_screen_detail">Mac может попросить показать этот экран. Вы каждый раз подтверждаете на телефоне</string>
+    <string name="setup_bundle_remote_screen">Телефон как тачпад и пульт для слайдов, а его экран на Mac.</string>
+    <string name="setup_q_screen_title">Показывать этот экран на Mac?</string>
+    <string name="setup_q_screen_context">Mac показывает экран телефона в окне. Он только смотрит: нажимать и печатать он не может. Android каждый раз просит подтверждения, а уведомление с кнопкой «Стоп» видно всё время показа.</string>
+    <string name="setup_q_screen_summary">Mac может попросить показать экран</string>
+    <string name="setup_a_screen_yes">Да, после подтверждения</string>
+    <string name="setup_a_screen_yes_detail">Показ начинается только после «Начать» в окне Android.</string>
+    <string name="screen_entry_title">Показать экран</string>
+    <string name="screen_entry_detail">%1$s увидит этот экран после подтверждения</string>
+    <string name="screen_entry_stop">Остановить показ</string>
+    <string name="screen_entry_sharing">Экран показывается на %1$s</string>
+    <string name="screen_entry_starting">Запуск показа на %1$s</string>
+    <string name="screen_entry_stats">%1$d мс · %2$s · %3$d кадр/с</string>
+    <string name="screen_ask_channel">Запросы показа экрана</string>
+    <string name="screen_ask_channel_detail">Mac просит показать этот экран</string>
+    <string name="screen_ask_title">%1$s хочет увидеть ваш экран</string>
+    <string name="screen_ask_text">Нажмите «Показать» и подтвердите в окне Android.</string>
+    <string name="screen_ask_share">Показать</string>
+    <string name="screen_ask_not_now">Не сейчас</string>
+    <string name="screen_sharing_channel">Показ экрана</string>
+    <string name="screen_sharing_channel_detail">Видно всё время, пока Mac видит этот экран</string>
+    <string name="screen_sharing_title">Экран показывается на %1$s</string>
+    <string name="screen_sharing_text">Нажмите «Стоп», чтобы закончить. Блокировка телефона тоже заканчивает показ.</string>
+    <string name="screen_sharing_starting">Ждём, пока Mac откроет окно…</string>
+    <string name="screen_stop">Стоп</string>
+    <string name="tile_screen_label">Показать экран</string>
+    <string name="tile_screen_unavailable">Нет Mac</string>
+</resources>

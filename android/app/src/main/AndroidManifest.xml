@@ -40,6 +40,9 @@
     <!-- Take photos for the Mac (on by default, asked for on the camera screen the first time):
          the camera a Mac asked for, opened only by a tap on the phone. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Share screen with Macs (off by default): the screen sharing service runs as a mediaProjection
+         foreground service, after the person confirms in Android's own dialog, every time. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <!-- The widget's Glance library brings WorkManager, which asks to start at boot. Bridgey's widget
          redraws when the app starts, so that permission is removed from the merged manifest. -->
@@ -131,6 +134,24 @@
             android:excludeFromRecents="true"
             android:exported="false"
             android:taskAffinity="${applicationId}.camera" />
+        <!-- Share screen with Macs: opens Android's capture dialog; a fresh consent every time. -->
+        <activity
+            android:name=".screen.ScreenConsentActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="false"
+            android:taskAffinity="${applicationId}.screen"
+            android:theme="@style/Theme.Bridgey.Transparent" />
+        <service
+            android:name=".screen.ScreenShareService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+        <receiver android:name=".screen.ScreenActionReceiver" android:exported="false" />
+        <service android:name=".screen.ScreenShareTileService" android:exported="true"
+            android:label="@string/tile_screen_label" android:icon="@drawable/ic_action_screen"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
+        </service>
         <activity android:name=".ConfirmCallActivity" android:exported="false"
             android:excludeFromRecents="true" android:noHistory="true" android:taskAffinity="" />
         <service

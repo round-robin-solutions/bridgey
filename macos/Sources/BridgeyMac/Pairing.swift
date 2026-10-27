@@ -257,6 +257,9 @@ final class PairingCoordinator: ObservableObject {
     let camera = PhoneCamera()
     /// Incoming transfers that are camera photos, by transfer ID, with their request ID.
     private var cameraTransfers: [String: String] = [:]
+    /// "Show Phone Screen" (draft screen_draft1): view only, off by default.
+    let phoneScreen = PhoneScreen()
+    private let phoneScreenWindows = PhoneScreenWindows()
     /// Connection health per paired phone (no addresses, names or content).
     @Published private(set) var connectionHealth: [String: ConnectionHealthSnapshot] = [:]
     private var healthRecords: [String: DeviceHealthRecord] = [:]
@@ -455,6 +458,16 @@ final class PairingCoordinator: ObservableObject {
         camera.send = { [weak self] id, payload in
             guard let self, let current = self.registry.session(for: id) else { return false }
             return self.sendQuickPayload(kind: "camera.request", payload: payload, to: current)
+        }
+        phoneScreen.presenter = phoneScreenWindows
+        phoneScreenWindows.reduceMotion = { [weak self] in self?.settings.reduceMotion == true }
+        phoneScreen.send = { [weak self] id, kind, payload in
+            guard let self, let current = self.registry.session(for: id) else { return false }
+            return self.sendQuickPayload(kind: kind, payload: payload, to: current)
+        }
+        phoneScreen.onSettingsChange = { [weak self] in
+            self?.sendFeatureState()
+            self?.publish()
         }
         remoteInput.isAllowed = { [weak self] id in self?.isFeatureAvailable(.remoteInput, for: id) == true }
         remoteInput.send = { [weak self] id, kind, payload in
@@ -777,6 +790,7 @@ final class PairingCoordinator: ObservableObject {
         macActions.disconnected(deviceID: id)
         camera.disconnected(id)
         updatesPhoneDisconnected(id)
+        phoneScreen.disconnected(id)
         var record = healthRecords[id] ?? DeviceHealthRecord()
         record.connectedSince = nil
         record.lastDropReason = healthToken(reason)
@@ -2189,6 +2203,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteCamera = draftKeys[cameraFeatureKey] == true
                     link.remoteUpdates = draftKeys[updatesFeatureKey] == true
                     if !link.remoteUpdates { link.updateStatus = nil }
+                    link.remoteScreen = draftKeys[screenFeatureKey] == true
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
                 }
@@ -2662,6 +2677,12 @@ final class PairingCoordinator: ObservableObject {
                 receiveCameraStatus(message, in: current)
             case "updates.status", "updates.start", "updates.result":
                 receiveUpdatesMessage(message, in: current)
+            case "screen.status":
+                receiveScreenStatus(message, in: current)
+            case "screen.start":
+                receiveScreenStart(message, in: current)
+            case "screen.frame", "screen.stats", "screen.stop":
+                receiveScreenStream(message, in: current)
             default:
                 break
             }
@@ -2769,6 +2790,8 @@ final class PairingCoordinator: ObservableObject {
         features[cameraFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
         // Draft, edition only: Update all. Always on; whether phones may start this Mac's update is in updates.status.
         features[updatesFeatureKey] = true
+        // Draft, edition only: this Mac shows phone screens (Show phone screens, off by default).
+        features[screenFeatureKey] = phoneScreen.enabled
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
               let encrypted = try? encrypt(payload, key: key) else { return }
         current.send(PairingMessage(
@@ -3415,6 +3438,44 @@ final class PairingCoordinator: ObservableObject {
               let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
               let decoded = decodeCameraStatus(data) else { return }
         camera.received(status: decoded.status.rawValue, requestID: decoded.requestID, from: current.remoteDeviceID, phoneName: current.peerName)
+    }
+
+    /// screen.status from a phone, for this Mac's open request (the shared message ID window).
+    private func receiveScreenStatus(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
+              let decoded = decodeScreenStatus(data) else { return }
+        phoneScreen.received(status: decoded.status, requestID: decoded.requestID, from: current.remoteDeviceID, phoneName: current.peerName)
+    }
+
+    /// screen.start: outside the message ID window (the stream's own sequence guards it). A payload that
+    /// does not decrypt is dropped and the session stays.
+    private func receiveScreenStart(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id, let key = current.pairingKey,
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return }
+        phoneScreen.receiveStart(data, from: current.remoteDeviceID, phoneName: current.peerName, key: key)
+    }
+
+    /// Frames, stats and the phone's stop: handed to the stream's queue still encrypted.
+    private func receiveScreenStream(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let nonce = message.nonce, let ciphertext = message.ciphertext else { return }
+        phoneScreen.receiveStream(kind: message.kind, nonce: nonce, ciphertext: ciphertext, from: current.remoteDeviceID)
+    }
+
+    /// The phone shares its screen with Macs and Show phone screens is on here.
+    func screenAvailable(for id: String) -> Bool {
+        phoneScreen.enabled && registry.state(for: id)?.remoteScreen == true
+    }
+
+    /// Panel > Show Phone Screen, or the device menu: the request ID, if one was sent.
+    @discardableResult
+    func showPhoneScreen(with id: String? = nil) -> String? {
+        guard let target = id ?? registry.target(selected: selectedDeviceID), screenAvailable(for: target) else { return nil }
+        return phoneScreen.request(from: target, phoneName: intentName(target))
     }
 
     /// The phone takes photos for this Mac and Files is on for it.

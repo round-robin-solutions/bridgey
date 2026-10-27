@@ -247,6 +247,112 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
         ]
     }
 
+    // MARK: Screen sharing (v0.9)
+
+    /// The request this Mac writes is the plaintext the phone reads.
+    func testScreenRequestAsTheMacWritesIt() throws {
+        var checked = 0
+        try each("screenRequest") { vector in
+            guard vector["mac"] as? Bool == true else { return true }
+            checked += 1
+            let plaintext = try XCTUnwrap(vector["plaintext"] as? [String: Any])
+            return NSDictionary(dictionary: screenRequestPayload(plaintext["requestId"] as! String)).isEqual(to: plaintext)
+        }
+        XCTAssertGreaterThanOrEqual(checked, 1)
+    }
+
+    func testScreenStatus() throws {
+        try each("screenStatus") { vector in
+            let result: Any = decodeScreenStatus(plaintext(vector)).map { ["requestId": $0.requestID, "status": $0.status.rawValue] } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// The phone's stream messages (and either side's stop) as this Mac reads them.
+    func testScreenStreamAsTheMacReadsIt() throws {
+        var checked = 0
+        try each("screenStream") { vector in
+            guard ["mac", "both"].contains(vector["decoder"] as? String) else { return true }
+            checked += 1
+            let data = plaintext(vector)
+            let result: Any
+            switch vector["kind"] as? String {
+            case "screen.start":
+                result = ScreenStart.decode(data).map { start -> [String: Any] in
+                    ["streamId": start.streamID, "sequence": start.sequence, "requestId": start.requestID ?? NSNull(), "codec": start.codec,
+                     "width": start.width, "height": start.height, "fps": start.fps, "bitrate": start.bitrate]
+                } ?? "reject"
+            case "screen.stats":
+                result = ScreenStats.decode(data).map { stats -> [String: Any] in
+                    ["streamId": stats.streamID, "sequence": stats.sequence, "latencyMs": stats.latencyMs, "rttMs": stats.rttMs,
+                     "bitrate": stats.bitrate, "sentBitrate": stats.sentBitrate, "fps": stats.fps, "dropped": stats.dropped]
+                } ?? "reject"
+            case "screen.stop":
+                result = ScreenStop.decode(data).map { ["streamId": $0.streamID, "sequence": $0.sequence, "reason": $0.reason.rawValue] as [String: Any] } ?? "reject"
+            default:
+                return false
+            }
+            return Self.same(result, vector["expect"])
+        }
+        XCTAssertGreaterThanOrEqual(checked, 30)
+    }
+
+    /// What this Mac writes on a stream (started, ack, stop) is exactly the plaintext the phone reads.
+    func testScreenStreamAsTheMacWritesIt() throws {
+        var checked = 0
+        try each("screenStream") { vector in
+            guard vector["mac"] as? Bool == true else { return true }
+            checked += 1
+            let p = try XCTUnwrap(vector["plaintext"] as? [String: Any])
+            let stream = p["streamId"] as! String, sequence = p["sequence"] as! Int
+            let written: [String: Any]
+            switch vector["kind"] as? String {
+            case "screen.started": written = screenStartedPayload(streamID: stream, sequence: sequence)
+            case "screen.ack":
+                written = screenAckPayload(streamID: stream, sequence: sequence, frame: UInt32(p["frame"] as! Int),
+                                           decodeMs: p["decodeMs"] as! Int, keyframe: p["keyframe"] as? Bool ?? false)
+            case "screen.stop":
+                written = screenStopPayload(streamID: stream, sequence: sequence, reason: ScreenStopReason(rawValue: p["reason"] as! String)!)
+            default: return false
+            }
+            return NSDictionary(dictionary: written).isEqual(to: p)
+        }
+        XCTAssertGreaterThanOrEqual(checked, 8)
+    }
+
+    /// The binary frame header.
+    func testScreenFrame() throws {
+        try each("screenFrame") { vector in
+            var data = try XCTUnwrap(Self.hex(vector["plaintextHex"] as? String ?? ""))
+            if let total = vector["padTo"] as? Int { data.append(Data(count: total - data.count)) }
+            let result: Any = ScreenFramePart.decode(data).map { part -> [String: Any] in
+                var fields: [String: Any] = ["streamId": part.streamID, "sequence": part.sequence, "frame": Int(part.frame), "part": part.part,
+                                             "key": part.key, "parameterSets": part.parameterSets, "last": part.last,
+                                             "captureMicros": part.captureMicros]
+                if vector["padTo"] != nil { fields["payloadLength"] = part.payload.count } else { fields["payloadHex"] = Self.hexString(part.payload) }
+                return fields
+            } ?? "reject"
+            guard Self.same(result, vector["expect"]) else { return false }
+            // What the phone writes (vectors marked android) is exactly what the header encoder produces too.
+            if vector["android"] as? Bool == true, let part = ScreenFramePart.decode(data) { return part.encoded() == data }
+            return true
+        }
+    }
+
+    private static func hex(_ text: String) -> Data? {
+        var data = Data(capacity: text.count / 2)
+        var index = text.startIndex
+        while index < text.endIndex {
+            let next = text.index(index, offsetBy: 2, limitedBy: text.endIndex) ?? text.endIndex
+            guard let byte = UInt8(text[index..<next], radix: 16) else { return nil }
+            data.append(byte)
+            index = next
+        }
+        return data
+    }
+
+    private static func hexString(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
+
     /// The Mac is the remote control host: it accepts exactly what the phone may send.
     func testRemoteInputAsTheHostReadsIt() throws {
         try each("remoteInput") { vector in

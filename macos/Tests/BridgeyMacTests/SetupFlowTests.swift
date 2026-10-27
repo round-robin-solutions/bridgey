@@ -281,7 +281,8 @@ final class SetupFlowTests: XCTestCase {
             XCTAssertEqual(bundle.title, bundle.pane.title)
             for (id, key) in bundle.answers { XCTAssertNotNil(SetupFeatures.feature(id), "\(bundle.id): \(id)=\(key)") }
         }
-        let names = Set(SettingsPane.allCases.map(\.title) + BridgeyFeature.allCases.map(\.title))
+        // Show phone screens is a switch on the Remote control page, not a feature of its own.
+        let names = Set(SettingsPane.allCases.map(\.title) + BridgeyFeature.allCases.map(\.title) + [PhoneScreenSettings.switchTitle])
         for feature in SetupFeatures.all { XCTAssertTrue(names.contains(feature.title), feature.title) }
     }
 
@@ -363,6 +364,22 @@ final class SetupFlowTests: XCTestCase {
         // Mac only: codes read on this Mac; there is no camera switch here.
         XCTAssertEqual(match("codes from messages"), ["codes=on_mac"])
         XCTAssertEqual(match("no camera"), [])
+        // Phone screen (v0.9): sharing words, not "screen" alone (screen saver, lock screen).
+        XCTAssertEqual(match("I want to see my phone screen on the Mac"), ["screen=pick"])
+        XCTAssertEqual(match("screen sharing but no music"), ["media=no", "screen=pick"])
+        XCTAssertEqual(match("показывать экран телефона"), ["screen=pick"])
+        XCTAssertEqual(match("lock the screen"), ["mac_actions=pick"])
+    }
+
+    func testTheRemoteControlBundleAsksAboutThePhoneScreen() {
+        let bundle = SetupBundles.all.first { $0.id == "remote" }
+        XCTAssertTrue(bundle?.answers.contains { $0.id == "screen" && $0.key == SetupAnswerKey.pick } == true)
+        let (screens, flow) = walk(paired, chosen: ["screen": SetupAnswerKey.pick])
+        XCTAssertEqual(screens, [.question("screen"), .switches])
+        XCTAssertTrue(flow.effective(paired).on(.featureScreen), "picked: on")
+        XCTAssertEqual(SetupQuestions.changes(SetupQuestions.question("screen")!, SetupAnswerKey.no), [.off(.featureScreen)])
+        XCTAssertEqual(SetupSetting.featureScreen.defaultValue, "false", "off even on installs from before")
+        XCTAssertEqual(SetupQuestions.coverage[.featureScreen]?.how, .answer)
     }
 
     func testTypedAnswersPickTheirFeatureAndSkipTheirFollowUp() {

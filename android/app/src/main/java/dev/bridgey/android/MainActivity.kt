@@ -602,6 +602,7 @@ private val PermissionOrder = listOf(
     listOf(BridgeyFeature.REMOTE_INPUT),
     listOf(BridgeyFeature.MAC_ACTIONS),
     listOf(BridgeyFeature.CAMERA),
+    listOf(BridgeyFeature.SCREEN),
     listOf(BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING),
     listOf(BridgeyFeature.LINKS),
     listOf(BridgeyFeature.BATTERY),
@@ -659,6 +660,10 @@ private fun BridgeyApp(
     val media by pairing.quickActions.media.collectAsStateWithLifecycle()
     val macCatalogs by pairing.macActions.catalogs.collectAsStateWithLifecycle()
     val macLive by pairing.macActions.live.collectAsStateWithLifecycle()
+    // Share screen with Macs: the hub lives in the application (absent in previews and tests).
+    val screenHub = (LocalContext.current.applicationContext as? BridgeyApplication)?.takeIf { it.isPrimaryUser }?.screenShare
+    val screenState by (screenHub?.state ?: remember { kotlinx.coroutines.flow.MutableStateFlow(dev.bridgey.android.screen.ScreenShareState()) })
+        .collectAsStateWithLifecycle()
     val macRunning by pairing.macActions.running.collectAsStateWithLifecycle()
     val healthTick by pairing.health.changes.collectAsStateWithLifecycle()
     val settingsState by settings.state.collectAsStateWithLifecycle()
@@ -941,6 +946,7 @@ private fun BridgeyApp(
                                 macActions = ring.deviceId?.takeIf { it in macLive && BridgeyFeature.MAC_ACTIONS in available }?.let { macCatalogs[it] },
                                 runningActions = macRunning.filter { it.first == ring.deviceId }.map { it.second }.toSet(),
                                 health = remember(healthTick, now, ring.deviceId, isConnected) { ring.deviceId?.let(pairing::healthOf) },
+                                screen = screenState.takeIf { it.deviceId == ring.deviceId },
                             ),
                             actions = DeviceActions(
                                 back = { stack.pop() },
@@ -968,6 +974,8 @@ private fun BridgeyApp(
                                 },
                                 sendText = { pairing.sendText(it, deviceId = ring.deviceId) },
                                 remoteControl = { ring.deviceId?.let { stack.push(Route.Remote(it)) } },
+                                shareScreen = { ring.deviceId?.let { id -> screenHub?.ask(context, id, ring.name, null) } },
+                                stopScreen = { screenHub?.stop(dev.bridgey.android.screen.ScreenStopReason.USER) },
                                 runMacAction = { id, value -> ring.deviceId?.let { pairing.macActions.run(it, id, value) } },
                                 live = liveActions,
                             ),
