@@ -42,6 +42,8 @@ object FolderNotifier {
     }
 
     fun finished(context: Context, folder: FolderSnapshot) {
+        // Sent folders and downloads show in the Stream; the other device tells its own user where they landed.
+        if (folder.outgoing) return
         val title = when (folder.end) {
             FolderEnd.COMPLETE -> context.resources.getQuantityString(
                 R.plurals.notification_folder_saved, folder.filesDone, folder.rootName, folder.destinationLabel.orEmpty(), folder.filesDone,

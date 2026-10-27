@@ -702,8 +702,8 @@
     <string name="conflict_policy_merge">Merge</string>
     <string name="conflict_policy_replace">Replace files</string>
     <string name="conflict_policy_new_folder">Save as new folder</string>
-    <string name="settings_allow_replace">Allow other devices to replace files here</string>
-    <string name="settings_allow_replace_detail">While off, a Replace chosen on the Mac asks on this phone first</string>
+    <string name="settings_allow_replace">Allow other devices to change files here</string>
+    <string name="settings_allow_replace_detail">Lets the Mac upload into your places. While off, uploads are refused and a Replace chosen on the Mac asks on this phone first</string>
     <string name="settings_places">Places</string>
     <plurals name="settings_places_detail">
         <item quantity="one">Download/Bridgey and %1$d folder you added</item>

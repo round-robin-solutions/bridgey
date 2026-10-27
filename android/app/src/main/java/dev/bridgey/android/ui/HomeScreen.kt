@@ -87,6 +87,8 @@ data class HomeState(
     val now: Long,
     /** "Look for devices again" is running. */
     val rediscovering: Boolean = false,
+    /** Files can go to the target: the attach button opens the attach sheet. */
+    val canAttach: Boolean = false,
 )
 
 class HomeActions(
@@ -97,6 +99,8 @@ class HomeActions(
     val addDevice: () -> Unit = {},
     val pickTarget: (String) -> Unit = {},
     val sendClipboard: () -> Unit = {},
+    /** Opens the attach sheet (photos, documents, folders) for the target. */
+    val attach: () -> Unit = {},
     /** Restarts discovery, announces this phone again and retries every paired device now. */
     val lookForDevices: () -> Unit = {},
     val live: LiveActions = LiveActions(),
@@ -336,6 +340,7 @@ private fun HomeComposer(state: HomeState, actions: HomeActions) {
     var picking by remember { mutableStateOf(false) }
     val target = state.target
     ComposerSurface {
+        BarIconButton(BridgeyIcons.AttachFile, stringResource(R.string.composer_attach), actions.attach, size = 48.dp, enabled = state.canAttach)
         Box(Modifier.weight(1f)) {
             Row(
                 Modifier

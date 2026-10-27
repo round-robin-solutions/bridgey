@@ -160,6 +160,7 @@ fun rememberFolderUi(
             defaultPlaceId = state.folderDefaultPlace,
             places = sheetPlaces.ifEmpty { FolderSettingsState().places },
             allowReplace = state.allowReplaceFromOtherDevices,
+            allowBrowse = state.allowBrowseFromOtherDevices,
             supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q,
             defaultLabelOverride = defaultLabel,
         )
@@ -171,9 +172,10 @@ fun rememberFolderUi(
             setPolicy = settings::setFolderConflict,
             setDefaultPlace = settings::setFolderDefaultPlace,
             setAllowReplace = settings::setAllowReplaceFromOtherDevices,
+            setAllowBrowse = settings::setAllowBrowseFromOtherDevices,
             openPlaces = openPlaces,
         ),
-        placesState = PlacesScreenState(placeRows, defaultFullAccess),
+        placesState = PlacesScreenState(placeRows, defaultFullAccess, browsable = settingsState.allowBrowseFromOtherDevices),
         placesActions = PlacesScreenActions(
             add = {
                 purpose = TreePurpose.AddPlace

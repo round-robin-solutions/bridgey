@@ -1,4 +1,67 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Files 2.0, second slice. -->
+<!-- Files 2.0, second slice: the attach sheet, browse settings and outgoing folder cards. -->
 <resources>
+    <string name="attach_title">Отправить</string>
+    <string name="attach_title_to">Отправить на %1$s</string>
+    <string name="attach_browse">Обзор…</string>
+    <string name="attach_browse_files">Файлы…</string>
+    <string name="attach_browse_folder">Папка…</string>
+    <string name="attach_tab_media">Фото и видео</string>
+    <string name="attach_tab_files">Файлы</string>
+    <string name="attach_tab_folders">Папки</string>
+    <string name="attach_media_empty">Фото и видео пока нет</string>
+    <string name="attach_photo_description">Фото, %1$s</string>
+    <string name="attach_video_description">Видео, %1$s</string>
+    <string name="attach_media_access_title">Ваши фото и видео здесь</string>
+    <string name="attach_media_access_body">Выбирайте недавние фото и видео прямо здесь, без системного окна выбора. Android спросит один раз.</string>
+    <string name="attach_media_access_mac">Связанные Mac тоже смогут их просматривать, пока включено «Настройки › Файлы › Разрешить другим устройствам просматривать телефон».</string>
+    <string name="attach_media_allow">Разрешить доступ</string>
+    <string name="attach_media_open_settings">Открыть настройки</string>
+    <string name="attach_media_partial">Bridgey видит только выбранные вами фото и видео.</string>
+    <string name="attach_media_select_more">Выбрать ещё</string>
+    <string name="attach_media_allow_all">Разрешить все</string>
+    <string name="attach_files_indexing">Ищем недавние документы…</string>
+    <string name="attach_files_empty">В ваших папках пока нет недавних документов</string>
+    <string name="attach_files_add_folder">Добавить другую папку</string>
+    <string name="attach_files_add_folder_detail">Её документы появятся здесь, и связанные Mac смогут её просматривать</string>
+    <string name="attach_folders_add_detail">Выберите папку один раз, и она останется в этом списке</string>
+    <string name="attach_documents_title">Покажите Bridgey ваши документы</string>
+    <string name="attach_documents_body">Выберите папку «Документы» один раз, и её файлы будут здесь при каждой отправке. Больше ничего на телефоне не читается.</string>
+    <string name="attach_documents_download_note">Android не даёт приложениям видеть всю папку «Загрузки». Папки внутри неё, например Download/WhatsApp, можно добавить через «Добавить другую папку».</string>
+    <string name="attach_documents_later">Не сейчас</string>
+    <string name="attach_documents_choose">Выбрать «Документы»</string>
+    <string name="attach_documents_not_usable">Android не разрешил эту папку. Попробуйте папку внутри неё.</string>
+    <string name="attach_folders_unsupported">%1$s пока не принимает папки. Обновите там Bridgey, чтобы отправлять папки.</string>
+    <string name="attach_this_device">Это устройство</string>
+    <string name="attach_send_none">Отправить</string>
+    <plurals name="attach_send_count">
+        <item quantity="one">Отправить %1$d</item>
+        <item quantity="few">Отправить %1$d</item>
+        <item quantity="many">Отправить %1$d</item>
+        <item quantity="other">Отправить %1$d</item>
+    </plurals>
+    <plurals name="attach_send_count_size">
+        <item quantity="one">Отправить %1$d · %2$s</item>
+        <item quantity="few">Отправить %1$d · %2$s</item>
+        <item quantity="many">Отправить %1$d · %2$s</item>
+        <item quantity="other">Отправить %1$d · %2$s</item>
+    </plurals>
+
+    <string name="settings_allow_browse">Разрешить другим устройствам просматривать телефон</string>
+    <string name="settings_allow_browse_detail">Связанные устройства с включённой передачей файлов видят ваши папки, недавние документы и разрешённые фото и видео и могут их скачивать. Изменить они ничего не могут</string>
+    <string name="settings_folders_note_browse">Для папок нужен Android 10 или новее. Когда просмотр включён, связанные устройства видят и могут скачивать содержимое ваших папок; менять файлы они могут только с вашего разрешения.</string>
+    <string name="places_intro_browse">Папки, в которые Bridgey может сохранять. Связанные устройства могут просматривать и скачивать их содержимое; чтобы менять файлы, нужно «Разрешить другим устройствам менять файлы здесь».</string>
+
+    <string name="live_send_folder_title">Отправка %1$s на %2$s › %3$s</string>
+    <string name="live_send_folder_title_plain">Отправка %1$s на %2$s</string>
+    <string name="live_download_title_one">%1$s скачивает %2$s</string>
+    <plurals name="live_download_title">
+        <item quantity="one">%1$s скачивает %2$d файл</item>
+        <item quantity="few">%1$s скачивает %2$d файла</item>
+        <item quantity="many">%1$s скачивает %2$d файлов</item>
+        <item quantity="other">%1$s скачивает %2$d файла</item>
+    </plurals>
+    <string name="live_send_preparing">Читаем файлы…</string>
+    <string name="live_send_waiting_destination">Ждём, пока %1$s выберет место сохранения (%2$s)</string>
+    <string name="live_send_waiting_conflict">Ждём ответа %1$s (%2$s)</string>
 </resources>

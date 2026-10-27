@@ -49,6 +49,8 @@ data class FolderSettingsState(
     /** Places the default folder can be: Download/Bridgey first. */
     val places: List<SheetPlace> = listOf(SheetPlace(dev.bridgey.android.folders.DEFAULT_PLACE_ID, "Download/Bridgey", true, isDefault = true)),
     val allowReplace: Boolean = false,
+    /** "Let other devices browse this phone": on by default. */
+    val allowBrowse: Boolean = true,
     /** Android 10 or newer (receiving folders, like files, needs scoped storage). */
     val supported: Boolean = true,
     /** The default folder's label, or "Not available" when its place was removed. */
@@ -63,6 +65,7 @@ class FolderSettingsActions(
     val setPolicy: (ConflictPolicy) -> Unit = {},
     val setDefaultPlace: (String) -> Unit = {},
     val setAllowReplace: (Boolean) -> Unit = {},
+    val setAllowBrowse: (Boolean) -> Unit = {},
     val openPlaces: () -> Unit = {},
 )
 
@@ -96,6 +99,12 @@ internal fun GroupScope.folderRows(state: FolderSettingsState, actions: FolderSe
         ChoiceRow(
             shape, stringResource(R.string.settings_folder_conflict), conflictPolicyLabel(state.policy), BridgeyIcons.SwapHoriz,
             ConflictPolicy.entries.map { it to conflictPolicyLabel(it) }, state.policy, actions.setPolicy,
+        )
+    }
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.settings_allow_browse), stringResource(R.string.settings_allow_browse_detail),
+            BridgeyIcons.Devices, if (state.allowBrowse) Tint.BLUE else Tint.NEUTRAL, state.allowBrowse, actions.setAllowBrowse,
         )
     }
     row { shape ->
@@ -197,6 +206,8 @@ data class PlacesScreenState(
     /** Download/Bridgey has full access (a tree grant). */
     val defaultFullAccess: Boolean,
     val canAdd: Boolean = places.size < dev.bridgey.android.folders.FolderLimits.MAX_PLACES,
+    /** "Let other devices browse this phone" is on: paired devices see what is inside these folders. */
+    val browsable: Boolean = true,
 )
 
 class PlacesScreenActions(
@@ -217,7 +228,7 @@ fun PlacesScreen(state: PlacesScreenState, actions: PlacesScreenActions) {
     var renaming by rememberSaveable { mutableStateOf<String?>(null) }
     var menuFor by remember { mutableStateOf<String?>(null) }
     SettingsPage(stringResource(R.string.settings_places), actions.back) {
-        item(key = "intro") { Note(stringResource(R.string.places_intro), Modifier.padding(start = 32.dp, end = 32.dp, top = 20.dp)) }
+        item(key = "intro") { Note(stringResource(if (state.browsable) R.string.places_intro_browse else R.string.places_intro), Modifier.padding(start = 32.dp, end = 32.dp, top = 20.dp)) }
         item(key = "default") {
             RowGroup(Modifier.padding(top = 16.dp)) {
                 row { shape ->

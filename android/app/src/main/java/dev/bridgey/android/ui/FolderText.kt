@@ -30,14 +30,35 @@ object FolderText {
     fun countdown(deadlineMillis: Long?, now: Long): String =
         FolderPolicy.countdown(if (deadlineMillis == null) 0 else ((deadlineMillis - now + 999) / 1000).toInt().coerceAtLeast(0))
 
-    /** "Photos from MacBook Pro › Pictures/Trip". */
-    fun cardTitle(context: Context, folder: FolderSnapshot): String = folder.destinationLabel?.let {
-        context.getString(R.string.live_folder_title, folder.rootName, folder.deviceName, it)
-    } ?: context.getString(R.string.live_folder_title_plain, folder.rootName, folder.deviceName)
+    /**
+     * "Photos from MacBook Pro › Pictures/Trip"; for folders this phone sends, "Sending Photos to MacBook Pro"
+     * or, for a download the Mac asked for, "MacBook Pro is downloading 3 files".
+     */
+    fun cardTitle(context: Context, folder: FolderSnapshot): String = when {
+        folder.outgoing && folder.download -> if (folder.filesTotal == 1) {
+            context.getString(R.string.live_download_title_one, folder.deviceName, folder.rootName)
+        } else {
+            context.resources.getQuantityString(R.plurals.live_download_title, folder.filesTotal, folder.deviceName, folder.filesTotal)
+        }
+        folder.outgoing -> folder.destinationLabel?.let {
+            context.getString(R.string.live_send_folder_title, folder.rootName, folder.deviceName, it)
+        } ?: context.getString(R.string.live_send_folder_title_plain, folder.rootName, folder.deviceName)
+        else -> folder.destinationLabel?.let {
+            context.getString(R.string.live_folder_title, folder.rootName, folder.deviceName, it)
+        } ?: context.getString(R.string.live_folder_title_plain, folder.rootName, folder.deviceName)
+    }
 
     /** "37 of 124 files · 812 MB of 2.3 GB · 12 MB/s · 2 min left", or the waiting line. */
     fun statusLine(context: Context, folder: FolderSnapshot, now: Long): String {
         if (folder.end == FolderEnd.INTERRUPTED) return context.getString(R.string.live_folder_interrupted, folder.deviceName)
+        // Sending: the questions show on the other device; this phone only waits for its answer.
+        if (folder.outgoing) when (folder.waiting) {
+            FolderWaiting.MANIFEST -> return context.getString(R.string.live_send_preparing)
+            FolderWaiting.DESTINATION -> return context.getString(R.string.live_send_waiting_destination, folder.deviceName, countdown(folder.deadlineMillis, now))
+            FolderWaiting.CONFLICT_HERE, FolderWaiting.CONFLICT_ON_SENDER ->
+                return context.getString(R.string.live_send_waiting_conflict, folder.deviceName, countdown(folder.deadlineMillis, now))
+            null -> Unit
+        }
         when (folder.waiting) {
             FolderWaiting.MANIFEST -> return context.getString(R.string.live_folder_checking)
             FolderWaiting.DESTINATION -> return context.getString(R.string.live_folder_waiting_destination, countdown(folder.deadlineMillis, now))
