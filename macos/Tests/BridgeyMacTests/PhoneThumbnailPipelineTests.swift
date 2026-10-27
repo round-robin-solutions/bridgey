@@ -115,6 +115,65 @@ final class PhoneThumbnailPipelineTests: XCTestCase {
         waitUntil(5) { self.filled(visible) == visible.count }
         XCTAssertEqual(filled(visible), visible.count, "asked again after the pause")
     }
+
+    /// Replays what the real phone code sent (BrowseServer and AndroidThumbnails on an emulator's MediaStore,
+    /// recorded as JSON: items, then per size the request and its batches) through the grid. Off unless
+    /// BRIDGEY_REAL_THUMBS points at a recording, since it is about 700 KB of WebP.
+    func testRecordedPhoneAnswersFillTheGrid() throws {
+        guard let path = ProcessInfo.processInfo.environment["BRIDGEY_REAL_THUMBS"] else { throw XCTSkip("Set BRIDGEY_REAL_THUMBS to a recording") }
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path))) as? [String: Any])
+        let items = try XCTUnwrap(root["items"] as? [[String: Any]])
+        let entries = items.map { item in
+            PhoneFileEntry(ref: .media(id: item["mediaId"] as! String), name: item["name"] as! String, isDirectory: false,
+                           size: (item["size"] as! NSNumber).int64Value, modified: Date(timeIntervalSince1970: (item["modified"] as! NSNumber).doubleValue / 1000),
+                           mimeType: item["mimeType"] as? String, hasThumbnail: true, width: item["width"] as? Int, height: item["height"] as? Int)
+        }
+        // Per size, the phone's thumbnail for each media ID, as it went on the wire.
+        var recorded: [Int: [String: ThumbPayload]] = [:]
+        for answer in try XCTUnwrap(root["answers"] as? [[String: Any]]) {
+            let request = answer["request"] as! [String: Any]
+            let keys = (request["items"] as! [[String: Any]]).map { ($0["key"] as! String, ($0["ref"] as! [String: Any])["mediaId"] as! String) }
+            let byKey = Dictionary(uniqueKeysWithValues: keys)
+            for batch in answer["batches"] as! [[String: Any]] {
+                let decoded = try JSONDecoder().decode(MediaThumbnailsBatchPayload.self, from: JSONSerialization.data(withJSONObject: batch))
+                for thumb in decoded.thumbs { recorded[request["size"] as! Int, default: [:]][byKey[thumb.key]!] = thumb }
+            }
+        }
+        var asked: [Int] = []
+        phone.server = { kind, payload in
+            guard kind == BrowseKind.mediaThumbnails, let request = try? JSONDecoder().decode(MediaThumbnailsPayload.self, from: payload) else { return [] }
+            asked.append(request.size)
+            var batches: [(String, Data)] = []
+            var thumbs: [ThumbPayload] = []
+            var bytes = 160
+            for item in request.items {
+                guard let thumb = recorded[request.size]?[item.ref.mediaId ?? ""] else { continue }
+                let cost = thumb.data.count + thumb.data.filter { $0 == "/" }.count + 120
+                if bytes + cost > BrowseKind.mediaPartPlaintext, !thumbs.isEmpty {
+                    batches.append((BrowseKind.mediaThumbnailsBatch, try! FolderJSON.encoder.encode(MediaThumbnailsBatchPayload(requestId: request.requestId, thumbs: thumbs, missing: [], done: false))))
+                    thumbs = []
+                    bytes = 160
+                }
+                thumbs.append(ThumbPayload(key: item.key, mimeType: thumb.mimeType, width: thumb.width, height: thumb.height, tint: thumb.tint, data: thumb.data))
+                bytes += cost
+            }
+            batches.append((BrowseKind.mediaThumbnailsBatch, try! FolderJSON.encoder.encode(MediaThumbnailsBatchPayload(requestId: request.requestId, thumbs: thumbs, missing: [], done: true))))
+            for (_, data) in batches { XCTAssertLessThanOrEqual(data.count, BrowseKind.mediaPartPlaintext) }
+            return batches
+        }
+        scheduler.setOrder(entries)
+        // The way the grid lays out: the first rows, then the rest of the screen a moment later.
+        entries.prefix(7).forEach(scheduler.appeared)
+        pump(0.005)
+        entries.dropFirst(7).forEach(scheduler.appeared)
+        waitUntil(5) { self.filled(entries) == entries.count }
+        for entry in entries {
+            let image = scheduler.box(for: entry).image
+            print("REPLAY \(entry.name) asked \(PhoneThumbnailScheduler.size(for: entry)) got \(image.map { "\($0.pixelWidth)x\($0.pixelHeight)" } ?? "nothing")")
+        }
+        print("REPLAY requests \(asked) cancels \(phone.requests(BrowseKind.mediaCancel).count)")
+        XCTAssertEqual(filled(entries), entries.count)
+    }
 }
 
 /// A phone that answers media.thumbnails like BrowseServer.thumbnails: each item scaled so its longest edge is
