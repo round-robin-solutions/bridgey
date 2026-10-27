@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 
 class BridgeyApplication : Application() {
@@ -129,6 +130,17 @@ class BridgeyApplication : Application() {
             pairing.connections.map { list -> list.map { it.state.remoteFeatures[BridgeyFeature.BATTERY] } }.distinctUntilChanged().collect {
                 lastBatteryIntent?.let(::publishBattery)
             }
+        }
+        applicationScope.launch {
+            // Home-screen widgets redraw when a Mac connects, drops or sends its list (at most twice a second).
+            @OptIn(kotlinx.coroutines.FlowPreview::class)
+            dev.bridgey.android.controls.controlChanges(this@BridgeyApplication)
+                .debounce(500)
+                .collect {
+                    if (dev.bridgey.android.widget.hasWidgets(this@BridgeyApplication)) {
+                        runCatching { dev.bridgey.android.widget.MacWidget.refresh(this@BridgeyApplication) }
+                    }
+                }
         }
         startRemoteInput()
         startCodeAccess()

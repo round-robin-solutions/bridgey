@@ -868,7 +868,6 @@
     <string name="mac_volume_muted">Звук выключен</string>
     <string name="mac_actions_blocked">Для действия «%1$s» сначала нужно разрешение на %2$s</string>
     <string name="mac_actions_empty">Пока ничего не разрешено. На %1$s откройте настройки Bridgey, раздел «Медиа и действия».</string>
-    <string name="mac_action_running">Выполняется: %1$s</string>
     <string name="mac_action_done_app">%1$s: открыто на %2$s</string>
     <string name="mac_action_done_shortcut">Команда «%1$s» выполнена на %2$s</string>
     <string name="mac_action_refused_not_allowed">%1$s больше не разрешает это. Проверьте «Медиа и действия» на Mac.</string>

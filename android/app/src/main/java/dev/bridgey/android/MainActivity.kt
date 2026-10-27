@@ -618,6 +618,10 @@ private fun BridgeyApp(
     val trustedDevices by pairing.trustedDevices.collectAsStateWithLifecycle()
     val receivedLink by pairing.quickActions.receivedLink.collectAsStateWithLifecycle()
     val media by pairing.quickActions.media.collectAsStateWithLifecycle()
+    val macCatalogs by pairing.macActions.catalogs.collectAsStateWithLifecycle()
+    val macLive by pairing.macActions.live.collectAsStateWithLifecycle()
+    val macRunning by pairing.macActions.running.collectAsStateWithLifecycle()
+    val healthTick by pairing.health.changes.collectAsStateWithLifecycle()
     val settingsState by settings.state.collectAsStateWithLifecycle()
     val updateState by updater.state.collectAsStateWithLifecycle()
     val activity by activityLog.items.collectAsStateWithLifecycle()
@@ -662,6 +666,18 @@ private fun BridgeyApp(
                     snackbar.showSnackbar(status)
                 }
             }
+    }
+
+    // Mac actions: refusals, timeouts and finished apps or Shortcuts show once as a snackbar.
+    LaunchedEffect(pairing) {
+        pairing.macActions.status.drop(1).filterNotNull().collect { status ->
+            val catalog = pairing.macActions.catalogs.value[status.deviceId]
+            val name = pairing.trustedDevices.value.firstOrNull { it.id == status.deviceId }?.name ?: "Mac"
+            macActionMessage(context, status, catalog?.entry(status.actionId)?.title, name)?.let { message ->
+                snackbar.currentSnackbarData?.dismiss()
+                snackbar.showSnackbar(message)
+            }
+        }
     }
 
     val connected = pairingState as? PairingState.Connected
@@ -860,6 +876,9 @@ private fun BridgeyApp(
                                 activity = activity,
                                 live = deviceLive,
                                 now = now,
+                                macActions = ring.deviceId?.takeIf { it in macLive && BridgeyFeature.MAC_ACTIONS in available }?.let { macCatalogs[it] },
+                                runningActions = macRunning.filter { it.first == ring.deviceId }.map { it.second }.toSet(),
+                                health = remember(healthTick, now, ring.deviceId, isConnected) { ring.deviceId?.let(pairing::healthOf) },
                             ),
                             actions = DeviceActions(
                                 back = { stack.pop() },
@@ -890,6 +909,7 @@ private fun BridgeyApp(
                                 },
                                 sendText = { pairing.sendText(it, deviceId = ring.deviceId) },
                                 remoteControl = { ring.deviceId?.let { stack.push(Route.Remote(it)) } },
+                                runMacAction = { id, value -> ring.deviceId?.let { pairing.macActions.run(it, id, value) } },
                                 live = liveActions,
                             ),
                             snackbar = snackbar,
@@ -1371,5 +1391,34 @@ private fun rediscoverMessage(context: android.content.Context, result: Rediscov
         result.found.isNotEmpty() -> context.getString(R.string.rediscover_found, names(result.found))
         result.stillMissing.isNotEmpty() -> context.getString(R.string.rediscover_missing, names(result.stillMissing))
         else -> context.getString(R.string.rediscover_none)
+    }
+}
+
+/** The snackbar line for a Mac action status, or null when the screen already shows it. */
+internal fun macActionMessage(
+    context: android.content.Context,
+    status: dev.bridgey.android.actions.MacActionStatus,
+    title: String?,
+    macName: String,
+): String? {
+    val kind = dev.bridgey.android.actions.MacActionIds.kind(status.actionId)
+    return when (status.outcome) {
+        dev.bridgey.android.actions.MacActionOutcome.RUNNING -> null
+        dev.bridgey.android.actions.MacActionOutcome.DONE -> when (kind) {
+            dev.bridgey.android.actions.MacActionKind.APP -> context.getString(R.string.mac_action_done_app, title ?: "", macName)
+            dev.bridgey.android.actions.MacActionKind.SHORTCUT -> context.getString(R.string.mac_action_done_shortcut, title ?: "", macName)
+            else -> null
+        }
+        dev.bridgey.android.actions.MacActionOutcome.NOT_CONFIRMED -> context.getString(R.string.mac_action_not_confirmed, macName)
+        dev.bridgey.android.actions.MacActionOutcome.NOT_SENT -> context.getString(R.string.mac_action_not_sent, macName)
+        dev.bridgey.android.actions.MacActionOutcome.REFUSED -> when (status.reason) {
+            "not_allowed" -> context.getString(R.string.mac_action_refused_not_allowed, macName)
+            "invalid" -> context.getString(R.string.mac_action_refused_invalid, macName)
+            "rate_limited" -> context.getString(R.string.mac_action_refused_rate_limited)
+            "busy" -> context.getString(R.string.mac_action_refused_busy, macName)
+            "permission_required" -> context.getString(R.string.mac_action_refused_permission, macName)
+            "unavailable" -> context.getString(R.string.mac_action_refused_unavailable, macName)
+            else -> context.getString(R.string.mac_action_refused_failed, macName)
+        }
     }
 }

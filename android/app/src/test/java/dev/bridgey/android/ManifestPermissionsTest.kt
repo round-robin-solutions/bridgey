@@ -37,6 +37,15 @@ class ManifestPermissionsTest {
         )
     }
 
+    /** Glance's WorkManager would add RECEIVE_BOOT_COMPLETED to the APK; the main manifest removes it. */
+    @Test
+    fun widgetLibraryDoesNotAddBootPermission() {
+        val manifest = File("src/main/AndroidManifest.xml").readText()
+        org.junit.Assert.assertTrue(
+            manifest.contains("""<uses-permission tools:node="remove" android:name="android.permission.RECEIVE_BOOT_COMPLETED" />"""),
+        )
+    }
+
     /** READ_SMS is in lab builds only (beta, nightly, local), for the Code reader test; stable never has it. */
     @Test
     fun labManifestAddsOnlyReadSmsAndOnlyOutsideStable() {

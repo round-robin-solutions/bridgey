@@ -812,7 +812,6 @@
     <string name="mac_volume_muted">Muted</string>
     <string name="mac_actions_blocked">%1$s needs a permission on %2$s first</string>
     <string name="mac_actions_empty">Nothing is allowed yet. On %1$s, open Bridgey Settings, Media and actions.</string>
-    <string name="mac_action_running">Running %1$s</string>
     <string name="mac_action_done_app">Opened %1$s on %2$s</string>
     <string name="mac_action_done_shortcut">Ran %1$s on %2$s</string>
     <string name="mac_action_refused_not_allowed">%1$s does not allow this any more. Check Media and actions on the Mac.</string>

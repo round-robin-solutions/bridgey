@@ -94,6 +94,12 @@ data class DeviceState(
     val activity: List<ActivityItem>,
     val live: List<LiveCard>,
     val now: Long,
+    /** What this Mac lets the phone run, while Mac actions is available with it; null hides the card. */
+    val macActions: dev.bridgey.android.actions.MacActionCatalog? = null,
+    /** Mac action identifiers waiting for the Mac's answer. */
+    val runningActions: Set<String> = emptySet(),
+    /** The Connection tab. */
+    val health: dev.bridgey.android.health.DeviceHealth? = null,
 )
 
 class DeviceActions(
@@ -111,17 +117,20 @@ class DeviceActions(
     val sendText: (String) -> Unit = {},
     /** Opens the touchpad and presentation remote for this Mac. */
     val remoteControl: () -> Unit = {},
+    /** Runs one Mac action; the value only for volume_set. */
+    val runMacAction: (String, Int?) -> Unit = { _, _ -> },
     val live: LiveActions = LiveActions(),
 )
 
 /** Light mode band: status bar + 56 dp bar + 88 dp header + 16 dp. */
 private val DeviceBand = 160.dp
 
-enum class DeviceTab { ACTIVITY, PERMISSIONS }
+enum class DeviceTab { ACTIVITY, PERMISSIONS, CONNECTION }
 
 /**
- * Device: who it is and how it is connected, four quick actions as one button group, then its
- * Activity (this device's part of the stream) and Permissions. The send bar stays, aimed here.
+ * Device: who it is and how it is connected, four quick actions as one button group, the Mac's
+ * actions when it allows them, then its Activity (this device's part of the stream), Permissions
+ * and Connection (health). The send bar stays, aimed here.
  */
 @Composable
 fun DeviceScreen(
@@ -147,6 +156,10 @@ fun DeviceScreen(
             // Only while both devices allow it: this Mac granted this phone, and it is on here.
             if (BridgeyFeature.REMOTE_INPUT in state.available) {
                 RemoteControlEntry(actions.remoteControl, Modifier.padding(top = 8.dp))
+            }
+            // Only while this Mac allows the phone and sent its list in this session.
+            state.macActions?.takeIf { BridgeyFeature.MAC_ACTIONS in state.available }?.let { catalog ->
+                MacActionsCard(catalog, state.ring.name, state.runningActions, actions.runMacAction, Modifier.padding(top = 8.dp))
             }
             DeviceTabs(tab, onTab = { tab = it }, modifier = Modifier.padding(top = 16.dp))
             AnimatedContent(
@@ -174,6 +187,7 @@ fun DeviceScreen(
                         )
                     }
                     DeviceTab.PERMISSIONS -> PermissionsList(state, actions, PaddingValues(bottom = bottom))
+                    DeviceTab.CONNECTION -> state.health?.let { ConnectionHealthList(it, state.ring.name, PaddingValues(bottom = bottom)) }
                 }
             }
         }
@@ -326,7 +340,13 @@ private fun DeviceTabs(tab: DeviceTab, onTab: (DeviceTab) -> Unit, modifier: Mod
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        stringResource(if (entry == DeviceTab.ACTIVITY) R.string.device_tab_activity else R.string.device_tab_permissions),
+                        stringResource(
+                            when (entry) {
+                                DeviceTab.ACTIVITY -> R.string.device_tab_activity
+                                DeviceTab.PERMISSIONS -> R.string.device_tab_permissions
+                                DeviceTab.CONNECTION -> R.string.device_tab_connection
+                            },
+                        ),
                         style = BridgeyType.label,
                         color = if (selected) colors.onSurface else colors.onSurfaceVariant,
                     )
