@@ -63,5 +63,85 @@
 			<string>%1$d уведомления</string>
 		</dict>
 	</dict>
+	<key>updateAll.title</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Обновления для %#@devices@</string>
+		<key>devices</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d устройства</string>
+			<key>few</key>
+			<string>%d устройств</string>
+			<key>many</key>
+			<string>%d устройств</string>
+			<key>other</key>
+			<string>%d устройств</string>
+		</dict>
+	</dict>
+	<key>updateAll.summary.phonesAndMac</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Обновит %#@phones@ и этот Mac</string>
+		<key>phones</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d подключённый телефон</string>
+			<key>few</key>
+			<string>%d подключённых телефона</string>
+			<key>many</key>
+			<string>%d подключённых телефонов</string>
+			<key>other</key>
+			<string>%d подключённых телефона</string>
+		</dict>
+	</dict>
+	<key>updateAll.summary.phones</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Обновит %#@phones@</string>
+		<key>phones</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d подключённый телефон</string>
+			<key>few</key>
+			<string>%d подключённых телефона</string>
+			<key>many</key>
+			<string>%d подключённых телефонов</string>
+			<key>other</key>
+			<string>%d подключённых телефона</string>
+		</dict>
+	</dict>
+	<key>updateAll.failedMany</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@devices@</string>
+		<key>devices</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d устройство не обновилось</string>
+			<key>few</key>
+			<string>%d устройства не обновились</string>
+			<key>many</key>
+			<string>%d устройств не обновились</string>
+			<key>other</key>
+			<string>%d устройства не обновились</string>
+		</dict>
+	</dict>
 </dict>
 </plist>

@@ -118,7 +118,7 @@
 "setup.bundle.clipboard" = "Copy on one device, paste on the other.";
 "setup.bundle.files" = "Send files and photos both ways.";
 "setup.bundle.notifications" = "Your phone’s notifications on this Mac.";
-"setup.bundle.remote" = "Your phone as a touchpad and slide clicker.";
+"setup.bundle.remote" = "Your phone as a touchpad and slide clicker, and its screen on this Mac.";
 "setup.done.body" = "The Essentials are on: clipboard when you click Send, and your phone’s notifications. Everything else stays off until you turn it on in Settings.";
 "setup.done.openSettings" = "Open Settings";
 "setup.done.skipped" = "Skipped: %@. Allow it any time in Settings > Privacy > Permissions.";
@@ -225,6 +225,12 @@
 "whatsNew.review.title" = "Review your setup";
 "whatsNew.title" = "What’s new";
 "whatsNew.version" = "Bridgey %@";
+
+/* Phone screen */
+"setup.q.screen.title" = "See your phone’s screen on this Mac?";
+"setup.q.screen.context" = "View only, in a window. Your phone asks you every time and shows a notification while it shares.";
+"setup.q.screen.summary" = "Phone screen on this Mac";
+"setup.a.screen.yes" = "Yes, when I ask for it";
 "setup.feature.messages.detail" = "Your phone’s texts in a Messages window, and Reply on text notifications";
 "setup.q.messages.title" = "Keep your conversations on this Mac?";
 "setup.q.messages.context" = "Your texts stay on the phone either way. Kept here, they open instantly and only your account can read them.";

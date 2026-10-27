@@ -391,7 +391,7 @@ final class PhoneFilesModel: ObservableObject {
             return
         }
         if previewImage == nil, cache.contains(key, kind: .thumbnail) {
-            cache.load(key, maxPixel: PhoneThumbnailScheduler.size) { [weak self] decoded in
+            cache.load(key, maxPixel: PhoneThumbnailScheduler.maxSize) { [weak self] decoded in
                 guard let self, let decoded, self.preview?.entry.id == entry.id, self.previewImage == nil else { return }
                 self.previewImage = decoded
                 self.preview?.quality = .thumbnail

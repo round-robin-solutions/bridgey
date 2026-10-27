@@ -51,3 +51,11 @@ with Hardened Runtime and a secure timestamp, submits the DMG through
 
 Release notes should retain the acknowledgement: “Built with the assistance of
 OpenAI Codex.”
+
+## Bridgey by Round Robin: Update all
+
+The edition releases with `scripts/rr/release.sh` (see [rr-edition.md](rr-edition.md#releasing)).
+Update all on a device starts each connected device's own updater, so a release reaches it only
+once its channel feed is published. Build numbers (Android `versionCode`, macOS
+`CFBundleVersion`) must grow with every release on every channel: a device compares the build it
+was installing with the build it restarts on, and reports "Update didn't apply" when they match.

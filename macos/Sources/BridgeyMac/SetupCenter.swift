@@ -288,6 +288,7 @@ final class SetupCenter: ObservableObject {
         case .remoteGrant:
             for device in pairing.trustedDevices { settings.setForDevice(device.id, feature: .remoteInput, enabled: on) }
             pairing.remoteInput.policyChanged()
+        case .featureScreen: pairing.phoneScreen.setEnabled(on)
         case .featureMacActions: settings.setGlobal(.macActions, enabled: on)
         case .macActionsGrant:
             for device in pairing.trustedDevices { settings.setForDevice(device.id, feature: .macActions, enabled: on) }

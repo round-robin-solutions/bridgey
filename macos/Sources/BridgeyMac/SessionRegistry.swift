@@ -20,6 +20,11 @@ struct PhoneLinkState: Equatable {
     var remoteFocusSync = false
     /// The phone advertised `camera_draft1`: it takes photos for this Mac.
     var remoteCamera = false
+    /// The phone advertised `updates_draft1` (Update all), and its latest `updates.status`.
+    var remoteUpdates = false
+    var updateStatus: PeerUpdateStatus?
+    /// The phone advertised `screen_draft1`: it shares its screen with this Mac.
+    var remoteScreen = false
     /// The phone advertised `sms_draft1`: Text messages is on there for this Mac.
     var remoteSms = false
     /// The phone's last `codes.status`: whether Android shows Bridgey the text of code messages.

@@ -63,11 +63,22 @@ final class PhoneFilesUITests: XCTestCase {
         XCTAssertNotNil(loaded)
         XCTAssertLessThanOrEqual(max(loaded!.pixelWidth, loaded!.pixelHeight), 128, "decoded downsampled")
         XCTAssertEqual(loaded?.tint, 0x112233)
-        let file = folder.appendingPathComponent("thumbs").appendingPathComponent(key)
+        let file = folder.appendingPathComponent(PhoneCacheKind.thumbnail.rawValue).appendingPathComponent(key)
         let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
-        let folderAttributes = try FileManager.default.attributesOfItem(atPath: folder.appendingPathComponent("thumbs").path)
+        let folderAttributes = try FileManager.default.attributesOfItem(atPath: folder.appendingPathComponent(PhoneCacheKind.thumbnail.rawValue).path)
         XCTAssertEqual((folderAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+    }
+
+    func testCacheDeletesThumbnailsOfTheOldSizing() throws {
+        let folder = directory.appendingPathComponent("retired")
+        let old = folder.appendingPathComponent("thumbs", isDirectory: true)
+        try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: old.appendingPathComponent(String(repeating: "a", count: 64)))
+        _ = PhoneThumbnailCache(directory: folder)
+        wait(until: { !FileManager.default.fileExists(atPath: old.path) })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.appendingPathComponent(PhoneCacheKind.thumbnail.rawValue).path))
     }
 
     func testCacheRejectsKeysThatAreNotDigests() {
@@ -260,6 +271,53 @@ final class PhoneFilesUITests: XCTestCase {
         XCTAssertEqual(model.listing(.media).entries.count, 300)
         XCTAssertFalse(model.listing(.media).canLoadMore)
         XCTAssertEqual(Set(model.listing(.media).entries.map(\.id)).count, 300)
+    }
+
+    func testPartialPhotosBannerClearsOnRefreshAndReconnect() {
+        let fake = UIFakePhoneFiles()
+        fake.media = UIFakeImages.media(10)
+        fake.info.media = .partial
+        let model = makeModel(fake)
+        model.start(preferred: phone)
+        wait(until: { model.listing(.media).loaded && !model.listing(.media).loading })
+        XCTAssertEqual(model.listing(.media).access, .partial)
+        // Allow all on the phone, then Refresh.
+        fake.info.media = .full
+        model.refresh()
+        wait(until: { !model.listing(.media).loading && model.listing(.media).access == .full })
+        XCTAssertEqual(model.listing(.media).access, .full)
+        // Back to the chosen photos, then the phone drops and reconnects.
+        fake.info.media = .partial
+        let phones = fake.phones
+        fake.phones = []
+        fake.onPhonesChanged?()
+        fake.phones = phones
+        fake.onPhonesChanged?()
+        wait(until: { model.listing(.media).loaded && !model.listing(.media).loading && model.listing(.media).access == .partial })
+        XCTAssertEqual(model.listing(.media).access, .partial)
+        fake.info.media = .full
+        fake.phones = []
+        fake.onPhonesChanged?()
+        fake.phones = phones
+        fake.onPhonesChanged?()
+        wait(until: { model.listing(.media).loaded && !model.listing(.media).loading && model.listing(.media).access == .full })
+        XCTAssertEqual(model.listing(.media).access, .full)
+    }
+
+    func testGridAsksForThumbnailsThatCoverASquareCell() {
+        let fake = UIFakePhoneFiles()
+        let shapes = [(1080, 2412), (4000, 3000), (3000, 3000), (1920, 1080)]
+        fake.media = shapes.enumerated().map { index, shape in
+            PhoneFileEntry(ref: .media(id: String(40_000 + index)), name: "M\(index)", isDirectory: false, size: 1_000,
+                           modified: UIFakeImages.base.addingTimeInterval(-Double(index)), mimeType: "image/png", hasThumbnail: true,
+                           width: shape.0, height: shape.1)
+        }
+        let model = makeModel(fake)
+        model.start(preferred: phone)
+        wait(until: { model.listing(.media).loaded && !model.listing(.media).loading })
+        for entry in model.currentEntries { model.thumbnails.appeared(entry) }
+        wait(until: { fake.thumbnailSizes.count == shapes.count })
+        XCTAssertEqual(fake.media.map { fake.thumbnailSizes[$0.id] }, [512, 384, 288, 512])
     }
 
     func testReopeningShowsTheLastListingAtOnce() {

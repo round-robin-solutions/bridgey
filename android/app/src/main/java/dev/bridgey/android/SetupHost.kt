@@ -162,6 +162,7 @@ internal fun setupFacts(context: Context, settings: SettingsState, paired: Boole
             SetupSetting.FEATURE_CALLS to BridgeyFeature.CALLS, SetupSetting.FEATURE_FILES to BridgeyFeature.FILES,
             SetupSetting.FEATURE_REMOTE_INPUT to BridgeyFeature.REMOTE_INPUT, SetupSetting.FEATURE_MAC_ACTIONS to BridgeyFeature.MAC_ACTIONS,
             SetupSetting.FEATURE_MEDIA to BridgeyFeature.MEDIA, SetupSetting.FEATURE_CAMERA to BridgeyFeature.CAMERA,
+            SetupSetting.FEATURE_SCREEN to BridgeyFeature.SCREEN,
             SetupSetting.FEATURE_LINKS to BridgeyFeature.LINKS, SetupSetting.FEATURE_FIND_DEVICE to BridgeyFeature.FIND_DEVICE,
             SetupSetting.FEATURE_PING to BridgeyFeature.PING, SetupSetting.FEATURE_BATTERY to BridgeyFeature.BATTERY,
             SetupSetting.FEATURE_SMS to BridgeyFeature.SMS,
@@ -230,6 +231,7 @@ internal fun applySetupChange(
         SetupSetting.FEATURE_MAC_ACTIONS -> setGlobal(BridgeyFeature.MAC_ACTIONS, on)
         SetupSetting.FEATURE_MEDIA -> setGlobal(BridgeyFeature.MEDIA, on)
         SetupSetting.FEATURE_CAMERA -> setGlobal(BridgeyFeature.CAMERA, on)
+        SetupSetting.FEATURE_SCREEN -> setGlobal(BridgeyFeature.SCREEN, on)
         SetupSetting.FEATURE_LINKS -> setGlobal(BridgeyFeature.LINKS, on)
         SetupSetting.FEATURE_FIND_DEVICE -> setGlobal(BridgeyFeature.FIND_DEVICE, on)
         SetupSetting.FEATURE_PING -> setGlobal(BridgeyFeature.PING, on)
@@ -471,7 +473,7 @@ internal fun permissionFacts(context: Context, settings: SettingsState): Permiss
         }
         // Files 2.0 needs photos and videos (attach sheet, Mac browsing); a fresh screenshot needs photos only.
         val photosGranted = if (settings.featureOn(BridgeyFeature.FILES)) {
-            dev.bridgey.android.browse.MediaAccessRules.access(Build.VERSION.SDK_INT, ::granted) == dev.bridgey.android.browse.MediaAccess.FULL
+            dev.bridgey.android.browse.MediaAccessRules.complete(Build.VERSION.SDK_INT, ::granted)
         } else {
             PhotoPermissions.access(context) == PhotoAccess.FULL
         }

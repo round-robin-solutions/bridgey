@@ -214,11 +214,33 @@ Bridgey updates itself. Open **Settings > Updates** on either device.
 | **Nightly** | Built from every change. Expect rough edges. |
 
 Switching to a steadier channel never downgrades; it waits for that channel's next newer build.
-The apps check daily, and **Check now** checks at once. Nothing installs silently: Android always shows its own
-confirmation screen, and the Mac shows each step with **Install**, **Later** and **Skip**.
+The apps check daily, and **Check now** checks at once. Nothing updates unless someone asked: you tap
+**Install** (the Mac shows each step with **Install**, **Later** and **Skip**), or **Update all** on a
+paired device. On Android 12 and later an update you started usually finishes without a second tap;
+when Android still wants one, Bridgey shows "Tap to finish updating Bridgey".
 On Android the download must match its published checksum and be signed with the same certificate as the
 installed app. On the Mac the update must carry a valid EdDSA signature. Details are in
 [the edition notes](rr-edition.md#channels-and-feeds).
+
+### Update all
+
+When one of your devices has an update, **Update all** appears on the phone's home screen and in the
+Mac's menu-bar panel, and in **Settings > Updates** on both. It updates every device connected to the
+one you are using: on the phone, all connected Macs and the phone; on a Mac, its connected phones and
+that Mac. Macs are not paired to each other, so to update two Macs at once, start it from the phone.
+
+1. Tap **Update all**. The preview lists each device with its version now and after, and its channel.
+   Devices it skips are listed with the reason, for example not connected, or "Update this one by
+   hand" for a device without this feature.
+2. Confirm. The other devices update and restart on their own. The device you are using goes last,
+   after a 10-second countdown; choose **Later** to restart it when you are ready.
+3. Watch each device's progress. A device that fails shows **Retry**. "Waiting for you on OnePlus 11"
+   means the phone wants a tap: open the notification on the phone.
+
+Each device stays on its own channel and only installs its own signed update. If a device starts again
+on its old version, Bridgey says "Update didn't apply" and does not try that version again by itself.
+To stop other devices from starting updates on one device, turn off **Let paired devices start updates
+on this device** in its Settings > Updates.
 
 ## Permissions
 

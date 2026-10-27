@@ -1,5 +1,5 @@
 {
- "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page) and smsSendStatus by the Mac; requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units.",
+ "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect, and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page) and smsSendStatus by the Mac; requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units.",
  "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
  "frames": [
   {
@@ -405,6 +405,8 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
      "sms_draft1": false
     }
    }
@@ -456,6 +458,8 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
      "sms_draft1": false
     }
    }
@@ -509,6 +513,8 @@
      "links_open_draft1": true,
      "focus_sync_draft1": true,
      "camera_draft1": true,
+     "updates_draft1": false,
+     "screen_draft1": false,
      "sms_draft1": false
     }
    }
@@ -558,6 +564,8 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": true,
+     "updates_draft1": false,
+     "screen_draft1": false,
      "sms_draft1": false
     }
    }
@@ -609,6 +617,202 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
+     "sms_draft1": false
+    }
+   }
+  },
+  {
+   "name": "Update all: an edition phone with updates_draft1",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "files_browse_draft1": true,
+     "updates_draft1": true
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": true,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "updates_draft1": true,
+     "screen_draft1": false,
+     "sms_draft1": false
+    }
+   }
+  },
+  {
+   "name": "updates_draft1 that is not a boolean counts as false",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "updates_draft1": "true"
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
+     "sms_draft1": false
+    }
+   }
+  },
+  {
+   "name": "v0.9 phone and Mac with screen sharing on",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "camera_draft1": true,
+     "screen_draft1": true
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": true,
+     "updates_draft1": false,
+     "screen_draft1": true,
+     "sms_draft1": false
+    }
+   }
+  },
+  {
+   "name": "screen_draft1 that is not a boolean counts as false",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "screen_draft1": "true"
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
      "sms_draft1": false
     }
    }
@@ -656,6 +860,8 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
      "sms_draft1": true
     }
    }
@@ -702,6 +908,8 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
      "sms_draft1": false
     }
    }
@@ -749,6 +957,8 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
      "sms_draft1": false
     }
    }
@@ -789,6 +999,8 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
      "sms_draft1": false
     }
    }
@@ -833,6 +1045,8 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
      "sms_draft1": false
     }
    }
@@ -874,6 +1088,8 @@
      "links_open_draft1": false,
      "focus_sync_draft1": false,
      "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
      "sms_draft1": false
     }
    }
@@ -6953,6 +7169,2467 @@
   {
    "name": "lenient JSON",
    "plaintextString": "{version:1,requestId:'8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e',status:'opened'}",
+   "expect": "reject"
+  }
+ ],
+ "updatesStatus": [
+  {
+   "name": "up to date",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "checking, never checked before",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "checking",
+    "remoteStart": true,
+    "checkedAt": 0
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "checking",
+    "remoteStart": true,
+    "checkedAt": 0,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "available",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "available",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "available",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "progress": null,
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "downloading at 42%",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "downloading",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "progress": 42
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "downloading",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "progress": 42,
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "ready on a Mac",
+   "plaintext": {
+    "version": 1,
+    "platform": "macos",
+    "edition": "rr",
+    "app": "0.9.0-rr.2",
+    "build": 902000,
+    "channel": "stable",
+    "state": "ready",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3",
+    "targetBuild": 903000
+   },
+   "expect": {
+    "platform": "macos",
+    "edition": "rr",
+    "app": "0.9.0-rr.2",
+    "build": 902000,
+    "channel": "stable",
+    "state": "ready",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3",
+    "targetBuild": 903000,
+    "progress": null,
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "installing",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "installing",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "installing",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "progress": null,
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "needs the person to confirm",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "needs_user",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "reason": "confirm"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "needs_user",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "progress": null,
+    "reason": "confirm"
+   },
+   "write": true
+  },
+  {
+   "name": "needs Install unknown apps",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "needs_user",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "reason": "permission"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "needs_user",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "progress": null,
+    "reason": "permission"
+   },
+   "write": true
+  },
+  {
+   "name": "did not apply",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "failed",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "reason": "not_applied"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "failed",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "0.9.0-rr.3-beta.3",
+    "targetBuild": 903003,
+    "progress": null,
+    "reason": "not_applied"
+   },
+   "write": true
+  },
+  {
+   "name": "failed check without a target",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "failed",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "reason": "check"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "failed",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": "check"
+   },
+   "write": true
+  },
+  {
+   "name": "manual, remote start off",
+   "plaintext": {
+    "version": 1,
+    "platform": "macos",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "manual",
+    "remoteStart": false,
+    "checkedAt": 1793091600000
+   },
+   "expect": {
+    "platform": "macos",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "manual",
+    "remoteStart": false,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "an unknown reason reads as other",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "failed",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "reason": "disk_full"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "failed",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": "other"
+   }
+  },
+  {
+   "name": "unknown fields are ignored",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "since": 5,
+    "extra": {
+     "a": 1
+    }
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   }
+  },
+  {
+   "name": "version written as 1.0",
+   "plaintextString": "{\"version\":1.0,\"platform\":\"android\",\"edition\":\"rr\",\"app\":\"0.9.0-rr.3-beta.2\",\"build\":903002,\"channel\":\"beta\",\"state\":\"current\",\"remoteStart\":true,\"checkedAt\":1793091600000}",
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   }
+  },
+  {
+   "name": "null optionals count as absent",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   }
+  },
+  {
+   "name": "app of 64 bytes",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "9999999999999999999999999999999999999999999999999999999999999999",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "9999999999999999999999999999999999999999999999999999999999999999",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   }
+  },
+  {
+   "name": "app of 65 bytes",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "99999999999999999999999999999999999999999999999999999999999999999",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "app empty",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "edition of 33 bytes",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "multi-byte edition counts bytes",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "ééééééééééééééééé",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "build 0",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 0,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "build 2^53-1",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 9007199254740991,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 9007199254740991,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   }
+  },
+  {
+   "name": "build 2^53",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 9007199254740992,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "build as a string",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": "903002",
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "progress 101",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "downloading",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "progress": 101
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "progress -1",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "downloading",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "progress": -1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "targetBuild 0",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "available",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "x",
+    "targetBuild": 0
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "target of 65 bytes",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "available",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": "99999999999999999999999999999999999999999999999999999999999999999"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "target as a number",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "available",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": 5
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "reason as a number",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "failed",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "reason": 3
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "unknown state",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "sleeping",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "unknown platform",
+   "plaintext": {
+    "version": 1,
+    "platform": "windows",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "unknown channel",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "canary",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "remoteStart missing",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "remoteStart as a string",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": "true",
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "checkedAt missing",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "checkedAt negative",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": -1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "exactly 1,024 bytes",
+   "plaintextString": "{\"version\":1,\"platform\":\"android\",\"edition\":\"rr\",\"app\":\"0.9.0-rr.3-beta.2\",\"build\":903002,\"channel\":\"beta\",\"state\":\"current\",\"remoteStart\":true,\"checkedAt\":1793091600000,\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null
+   }
+  },
+  {
+   "name": "1,025 bytes",
+   "plaintextString": "{\"version\":1,\"platform\":\"android\",\"edition\":\"rr\",\"app\":\"0.9.0-rr.3-beta.2\",\"build\":903002,\"channel\":\"beta\",\"state\":\"current\",\"remoteStart\":true,\"checkedAt\":1793091600000,\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "not an object",
+   "plaintext": [
+    1,
+    2
+   ],
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,platform:'android'}",
+   "expect": "reject"
+  }
+ ],
+ "updatesStart": [
+  {
+   "name": "update now",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false
+   },
+   "write": true
+  },
+  {
+   "name": "retry after Retry was tapped",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": true
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": true
+   },
+   "write": true
+  },
+  {
+   "name": "retry false written out",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false
+   }
+  },
+  {
+   "name": "an uppercase request ID is read lowercased",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5B0C9E2A-7D41-4C3F-8E5A-1F2B3C4D5E6F"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false
+   }
+  },
+  {
+   "name": "unknown fields are ignored (a version or URL is never read)",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "url": "https://example.com/evil.apk",
+    "target": "9.9.9"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false
+   }
+  },
+  {
+   "name": "retry as a string",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": "true"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "update-1"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId missing",
+   "plaintext": {
+    "version": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 512 bytes",
+   "plaintextString": "{\"version\":1,\"requestId\":\"5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,requestId:'5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f'}",
+   "expect": "reject"
+  }
+ ],
+ "updatesResult": [
+  {
+   "name": "accepted",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "accepted"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "accepted",
+    "reason": null
+   },
+   "write": true
+  },
+  {
+   "name": "refused disabled",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "disabled"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "disabled"
+   },
+   "write": true
+  },
+  {
+   "name": "refused rate_limited",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "rate_limited"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "rate_limited"
+   },
+   "write": true
+  },
+  {
+   "name": "refused manual",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "manual"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "manual"
+   },
+   "write": true
+  },
+  {
+   "name": "refused not_applied",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "not_applied"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "not_applied"
+   },
+   "write": true
+  },
+  {
+   "name": "refused busy",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "busy"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "busy"
+   },
+   "write": true
+  },
+  {
+   "name": "an unknown reason reads as other",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "tired"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "other"
+   }
+  },
+  {
+   "name": "refused without a reason reads as other",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "refused",
+    "reason": "other"
+   }
+  },
+  {
+   "name": "a reason with accepted is ignored",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "accepted",
+    "reason": "busy"
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "accepted",
+    "reason": null
+   }
+  },
+  {
+   "name": "unknown status",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "maybe"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "x",
+    "status": "accepted"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "status": "accepted"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 512 bytes",
+   "plaintextString": "{\"version\":1,\"requestId\":\"5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f\",\"status\":\"accepted\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  }
+ ],
+ "screenRequest": [
+  {
+   "name": "ask to see the screen",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+   },
+   "mac": true
+  },
+  {
+   "name": "an uppercase request ID is read lowercased",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8A5D9C3E-2B47-4F1A-9E60-7C1D2B3A4F5E"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+   }
+  },
+  {
+   "name": "unknown fields are ignored",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "control": true
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+   }
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "screen-1"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId missing",
+   "plaintext": {
+    "version": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId as a number",
+   "plaintext": {
+    "version": 1,
+    "requestId": 5
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version missing",
+   "plaintext": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "exactly 512 bytes",
+   "plaintextString": "{\"version\":1,\"requestId\":\"8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+   }
+  },
+  {
+   "name": "over 512 bytes",
+   "plaintextString": "{\"version\":1,\"requestId\":\"8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,requestId:'8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e'}",
+   "expect": "reject"
+  }
+ ],
+ "screenStatus": [
+  {
+   "name": "waiting",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "waiting"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "waiting"
+   },
+   "android": "waiting"
+  },
+  {
+   "name": "declined",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "declined"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "declined"
+   },
+   "android": "declined"
+  },
+  {
+   "name": "busy",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "busy"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "busy"
+   },
+   "android": "busy"
+  },
+  {
+   "name": "disabled",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "disabled"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "disabled"
+   },
+   "android": "disabled"
+  },
+  {
+   "name": "failed",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "failed"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "failed"
+   },
+   "android": "failed"
+  },
+  {
+   "name": "unknown status",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "opened"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "status missing",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "x",
+    "status": "waiting"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "waiting"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 512 bytes",
+   "plaintextString": "{\"version\":1,\"requestId\":\"8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e\",\"status\":\"busy\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,requestId:'8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e',status:'busy'}",
+   "expect": "reject"
+  }
+ ],
+ "screenStream": [
+  {
+   "name": "start",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 1,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 1,
+    "requestId": null,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   },
+   "android": true
+  },
+  {
+   "name": "start answering a request",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   },
+   "android": true
+  },
+  {
+   "name": "start with an uppercase stream ID reads lowercased",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6C2E9A14-3B5D-4E7F-8A90-1B2C3D4E5F60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "requestId": null,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   }
+  },
+  {
+   "name": "start at the smallest size and rate",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 16,
+    "height": 16,
+    "fps": 1,
+    "bitrate": 100000
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "requestId": null,
+    "codec": "h264",
+    "width": 16,
+    "height": 16,
+    "fps": 1,
+    "bitrate": 100000
+   }
+  },
+  {
+   "name": "start at the largest size and rate",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 4096,
+    "height": 4096,
+    "fps": 60,
+    "bitrate": 50000000
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "requestId": null,
+    "codec": "h264",
+    "width": 4096,
+    "height": 4096,
+    "fps": 60,
+    "bitrate": 50000000
+   }
+  },
+  {
+   "name": "start with unknown fields",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "hdr": true
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "requestId": null,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   }
+  },
+  {
+   "name": "start with codec h265",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h265",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start with an odd width",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 721,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start with width 4098",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 4098,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start with height 14",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 720,
+    "height": 14,
+    "fps": 30,
+    "bitrate": 4000000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start at 61 fps",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 61,
+    "bitrate": 4000000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start at 0 fps",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 0,
+    "bitrate": 4000000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start with a bit rate under 100 kb/s",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 99999
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start with width as a string",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": "720",
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start with width written as 720.0",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintextString": "{\"version\":1,\"streamId\":\"6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60\",\"sequence\":3,\"codec\":\"h264\",\"width\":720.0,\"height\":1600,\"fps\":30,\"bitrate\":4000000}",
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "requestId": null,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   }
+  },
+  {
+   "name": "start with a requestId that is not a UUID",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "requestId": "r1"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start without codec",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start over 1 KiB",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintextString": "{\"version\":1,\"streamId\":\"6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60\",\"sequence\":3,\"codec\":\"h264\",\"width\":720,\"height\":1600,\"fps\":30,\"bitrate\":4000000,\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "start of exactly 1 KiB",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintextString": "{\"version\":1,\"streamId\":\"6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60\",\"sequence\":3,\"codec\":\"h264\",\"width\":720,\"height\":1600,\"fps\":30,\"bitrate\":4000000,\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "requestId": null,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   }
+  },
+  {
+   "name": "started",
+   "kind": "screen.started",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3
+   },
+   "mac": true
+  },
+  {
+   "name": "started with a stream ID that is not a UUID",
+   "kind": "screen.started",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "s1",
+    "sequence": 3
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "started with sequence 0",
+   "kind": "screen.started",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 0
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "started with sequence 2^53",
+   "kind": "screen.started",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 9007199254740992
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "started with the largest sequence",
+   "kind": "screen.started",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 9007199254740991
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 9007199254740991
+   }
+  },
+  {
+   "name": "started without sequence",
+   "kind": "screen.started",
+   "decoder": "android",
+   "plaintextString": "{\"version\":1,\"streamId\":\"6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "started version 2",
+   "kind": "screen.started",
+   "decoder": "android",
+   "plaintext": {
+    "version": 2,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "ack",
+   "kind": "screen.ack",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "frame": 42,
+    "decodeMs": 3
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "frame": 42,
+    "decodeMs": 3,
+    "keyframe": false
+   },
+   "mac": true
+  },
+  {
+   "name": "ack asking for a key frame",
+   "kind": "screen.ack",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "frame": 42,
+    "decodeMs": 0,
+    "keyframe": true
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "frame": 42,
+    "decodeMs": 0,
+    "keyframe": true
+   },
+   "mac": true
+  },
+  {
+   "name": "ack with keyframe false",
+   "kind": "screen.ack",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "frame": 1,
+    "decodeMs": 0,
+    "keyframe": false
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "frame": 1,
+    "decodeMs": 0,
+    "keyframe": false
+   }
+  },
+  {
+   "name": "ack of the largest frame number",
+   "kind": "screen.ack",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "frame": 4294967295,
+    "decodeMs": 60000
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "frame": 4294967295,
+    "decodeMs": 60000,
+    "keyframe": false
+   }
+  },
+  {
+   "name": "ack of frame 0",
+   "kind": "screen.ack",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "frame": 0,
+    "decodeMs": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "ack of frame 2^32",
+   "kind": "screen.ack",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "frame": 4294967296,
+    "decodeMs": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "ack with decodeMs 60001",
+   "kind": "screen.ack",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "frame": 1,
+    "decodeMs": 60001
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "ack with a negative decodeMs",
+   "kind": "screen.ack",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "frame": 1,
+    "decodeMs": -1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "ack with keyframe as a string",
+   "kind": "screen.ack",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "frame": 1,
+    "decodeMs": 1,
+    "keyframe": "true"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "ack without frame",
+   "kind": "screen.ack",
+   "decoder": "android",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "decodeMs": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "stats",
+   "kind": "screen.stats",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "latencyMs": 48,
+    "rttMs": 6,
+    "bitrate": 4000000,
+    "sentBitrate": 2100000,
+    "fps": 30,
+    "dropped": 0
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "latencyMs": 48,
+    "rttMs": 6,
+    "bitrate": 4000000,
+    "sentBitrate": 2100000,
+    "fps": 30,
+    "dropped": 0
+   },
+   "android": true
+  },
+  {
+   "name": "stats at the limits",
+   "kind": "screen.stats",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "latencyMs": 60000,
+    "rttMs": 60000,
+    "bitrate": 50000000,
+    "sentBitrate": 50000000,
+    "fps": 120,
+    "dropped": 1000
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "latencyMs": 60000,
+    "rttMs": 60000,
+    "bitrate": 50000000,
+    "sentBitrate": 50000000,
+    "fps": 120,
+    "dropped": 1000
+   }
+  },
+  {
+   "name": "stats with fps 121",
+   "kind": "screen.stats",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "latencyMs": 48,
+    "rttMs": 6,
+    "bitrate": 4000000,
+    "sentBitrate": 2100000,
+    "fps": 121,
+    "dropped": 0
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "stats with a negative latency",
+   "kind": "screen.stats",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "latencyMs": -5,
+    "rttMs": 6,
+    "bitrate": 4000000,
+    "sentBitrate": 2100000,
+    "fps": 30,
+    "dropped": 0
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "stats without dropped",
+   "kind": "screen.stats",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "latencyMs": 48,
+    "rttMs": 6,
+    "bitrate": 4000000,
+    "sentBitrate": 2100000,
+    "fps": 30
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "stop by the phone, user",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "user"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "user"
+   },
+   "android": true
+  },
+  {
+   "name": "stop by the phone, ended",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "ended"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "ended"
+   },
+   "android": true
+  },
+  {
+   "name": "stop by the phone, screen_off",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "screen_off"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "screen_off"
+   },
+   "android": true
+  },
+  {
+   "name": "stop by the phone, disabled",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "disabled"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "disabled"
+   },
+   "android": true
+  },
+  {
+   "name": "stop by the phone, timeout",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "timeout"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "timeout"
+   },
+   "android": true
+  },
+  {
+   "name": "stop by the phone, failed",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "failed"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "failed"
+   },
+   "android": true
+  },
+  {
+   "name": "stop by the Mac, closed",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "closed"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "closed"
+   },
+   "mac": true
+  },
+  {
+   "name": "stop by the Mac, disabled",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "disabled"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "disabled"
+   },
+   "mac": true
+  },
+  {
+   "name": "stop by the Mac, invalid",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "invalid"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "invalid"
+   },
+   "mac": true
+  },
+  {
+   "name": "stop by the Mac, timeout",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "timeout"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "timeout"
+   },
+   "mac": true
+  },
+  {
+   "name": "stop by the Mac, failed",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "failed"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "failed"
+   },
+   "mac": true
+  },
+  {
+   "name": "stop with an unknown reason reads as failed",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "bored"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "failed"
+   }
+  },
+  {
+   "name": "stop without a reason reads as failed",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "reason": "failed"
+   }
+  },
+  {
+   "name": "stop over 512 bytes",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintextString": "{\"version\":1,\"streamId\":\"6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60\",\"sequence\":3,\"reason\":\"user\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "stop with a stream ID that is not a UUID",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintext": {
+    "version": 1,
+    "streamId": "x",
+    "sequence": 3,
+    "reason": "user"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "stop lenient JSON",
+   "kind": "screen.stop",
+   "decoder": "both",
+   "plaintextString": "{version:1,streamId:'6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60',sequence:3,reason:'user'}",
+   "expect": "reject"
+  }
+ ],
+ "screenFrame": [
+  {
+   "name": "key frame with SPS and PPS in one part",
+   "plaintextHex": "010700006c2e9a143b5d4e7f8a901b2c3d4e5f6000000000000000020000000100000000000f42400000000167640028acd940780227e5c044000003000400000300c83c60c6580000000168ebe3cb22c00000000165888400",
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 2,
+    "frame": 1,
+    "part": 0,
+    "key": true,
+    "parameterSets": true,
+    "last": true,
+    "captureMicros": 1000000,
+    "payloadHex": "0000000167640028acd940780227e5c044000003000400000300c83c60c6580000000168ebe3cb22c00000000165888400"
+   },
+   "android": true
+  },
+  {
+   "name": "P frame in one part",
+   "plaintextHex": "010400006c2e9a143b5d4e7f8a901b2c3d4e5f60000000000000000500000004000000000010c8e000000001419a2a",
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 5,
+    "frame": 4,
+    "part": 0,
+    "key": false,
+    "parameterSets": false,
+    "last": true,
+    "captureMicros": 1100000,
+    "payloadHex": "00000001419a2a"
+   },
+   "android": true
+  },
+  {
+   "name": "first part of a split frame",
+   "plaintextHex": "010300006c2e9a143b5d4e7f8a901b2c3d4e5f600000000000000006000000050000000000114b150000000167640028acd940780227e5c044000003",
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 6,
+    "frame": 5,
+    "part": 0,
+    "key": true,
+    "parameterSets": true,
+    "last": false,
+    "captureMicros": 1133333,
+    "payloadHex": "0000000167640028acd940780227e5c044000003"
+   },
+   "android": true
+  },
+  {
+   "name": "middle part needs no start code",
+   "plaintextHex": "010300016c2e9a143b5d4e7f8a901b2c3d4e5f600000000000000007000000050000000000114b15aabbcc",
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 7,
+    "frame": 5,
+    "part": 1,
+    "key": true,
+    "parameterSets": true,
+    "last": false,
+    "captureMicros": 1133333,
+    "payloadHex": "aabbcc"
+   },
+   "android": true
+  },
+  {
+   "name": "three-byte start code",
+   "plaintextHex": "010400006c2e9a143b5d4e7f8a901b2c3d4e5f60000000000000000800000006000000000011cd4a000001419a",
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 8,
+    "frame": 6,
+    "part": 0,
+    "key": false,
+    "parameterSets": false,
+    "last": true,
+    "captureMicros": 1166666,
+    "payloadHex": "000001419a"
+   }
+  },
+  {
+   "name": "reserved flag bits are ignored",
+   "plaintextHex": "01f400006c2e9a143b5d4e7f8a901b2c3d4e5f60000000000000000900000007000000000000000100000001419a2a",
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 9,
+    "frame": 7,
+    "part": 0,
+    "key": false,
+    "parameterSets": false,
+    "last": true,
+    "captureMicros": 1,
+    "payloadHex": "00000001419a2a"
+   }
+  },
+  {
+   "name": "largest sequence, frame, part and capture time",
+   "plaintextHex": "0100003f6c2e9a143b5d4e7f8a901b2c3d4e5f60001fffffffffffffffffffff7fffffffffffffff01",
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 9007199254740991,
+    "frame": 4294967295,
+    "part": 63,
+    "key": false,
+    "parameterSets": false,
+    "last": false,
+    "captureMicros": 9223372036854775807,
+    "payloadHex": "01"
+   }
+  },
+  {
+   "name": "capture time 2^63",
+   "plaintextHex": "010400006c2e9a143b5d4e7f8a901b2c3d4e5f60000000000000000200000001800000000000000000000001419a2a",
+   "expect": "reject"
+  },
+  {
+   "name": "payload of 32,768 bytes",
+   "plaintextHex": "010000016c2e9a143b5d4e7f8a901b2c3d4e5f60000000000000000a00000008000000000000000100",
+   "padTo": 32808,
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 10,
+    "frame": 8,
+    "part": 1,
+    "key": false,
+    "parameterSets": false,
+    "last": false,
+    "captureMicros": 1,
+    "payloadLength": 32768
+   }
+  },
+  {
+   "name": "payload of 32,769 bytes",
+   "plaintextHex": "010000016c2e9a143b5d4e7f8a901b2c3d4e5f60000000000000000a00000008000000000000000100",
+   "padTo": 32809,
+   "expect": "reject"
+  },
+  {
+   "name": "header only, no payload",
+   "plaintextHex": "010400006c2e9a143b5d4e7f8a901b2c3d4e5f600000000000000002000000010000000000000001",
+   "expect": "reject"
+  },
+  {
+   "name": "shorter than the header",
+   "plaintextHex": "010400006c2e9a143b5d4e7f8a901b2c3d4e5f6000000000000000020000000100000000000000",
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintextHex": "020400006c2e9a143b5d4e7f8a901b2c3d4e5f60000000000000000200000001000000000000000100000001419a2a",
+   "expect": "reject"
+  },
+  {
+   "name": "version 0",
+   "plaintextHex": "000400006c2e9a143b5d4e7f8a901b2c3d4e5f60000000000000000200000001000000000000000100000001419a2a",
+   "expect": "reject"
+  },
+  {
+   "name": "part 64",
+   "plaintextHex": "010400406c2e9a143b5d4e7f8a901b2c3d4e5f60000000000000000200000001000000000000000101",
+   "expect": "reject"
+  },
+  {
+   "name": "sequence 0",
+   "plaintextHex": "010400006c2e9a143b5d4e7f8a901b2c3d4e5f60000000000000000000000001000000000000000100000001419a2a",
+   "expect": "reject"
+  },
+  {
+   "name": "sequence 2^53",
+   "plaintextHex": "010400006c2e9a143b5d4e7f8a901b2c3d4e5f60002000000000000000000001000000000000000100000001419a2a",
+   "expect": "reject"
+  },
+  {
+   "name": "frame 0",
+   "plaintextHex": "010400006c2e9a143b5d4e7f8a901b2c3d4e5f60000000000000000200000000000000000000000100000001419a2a",
+   "expect": "reject"
+  },
+  {
+   "name": "part 0 without a start code",
+   "plaintextHex": "010400006c2e9a143b5d4e7f8a901b2c3d4e5f600000000000000002000000010000000000000001419a2a",
+   "expect": "reject"
+  },
+  {
+   "name": "part 0 with a broken start code",
+   "plaintextHex": "010400006c2e9a143b5d4e7f8a901b2c3d4e5f60000000000000000200000001000000000000000100000201419a",
    "expect": "reject"
   }
  ],

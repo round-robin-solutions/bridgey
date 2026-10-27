@@ -17,6 +17,9 @@
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
     <!-- Round Robin edition: self-update through PackageInstaller after the user taps Install. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Android 12+: lets an update the person chose (Install, or Update all here or on a paired device)
+         install without a second tap when Bridgey updates itself. Android still asks when it must. -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <!-- Optional background clipboard (off by default). Granted only by a one-time ADB command;
          an app installed from a download cannot hold READ_LOGS otherwise. SYSTEM_ALERT_WINDOW lets
          the read activity start from the background once that same command allows it. -->
@@ -37,6 +40,9 @@
     <!-- Take photos for the Mac (on by default, asked for on the camera screen the first time):
          the camera a Mac asked for, opened only by a tap on the phone. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Share screen with Macs (off by default): the screen sharing service runs as a mediaProjection
+         foreground service, after the person confirms in Android's own dialog, every time. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <!-- Text messages (off by default, asked for only when it is turned on): reads conversations for the
          Mac, sends the texts written there, and shows names. Bridgey never becomes the default SMS app:
          it declares no SMS_DELIVER, WAP_PUSH_DELIVER or RESPOND_VIA_MESSAGE handler. The hidden Code
@@ -135,6 +141,24 @@
             android:excludeFromRecents="true"
             android:exported="false"
             android:taskAffinity="${applicationId}.camera" />
+        <!-- Share screen with Macs: opens Android's capture dialog; a fresh consent every time. -->
+        <activity
+            android:name=".screen.ScreenConsentActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="false"
+            android:taskAffinity="${applicationId}.screen"
+            android:theme="@style/Theme.Bridgey.Transparent" />
+        <service
+            android:name=".screen.ScreenShareService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+        <receiver android:name=".screen.ScreenActionReceiver" android:exported="false" />
+        <service android:name=".screen.ScreenShareTileService" android:exported="true"
+            android:label="@string/tile_screen_label" android:icon="@drawable/ic_action_screen"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
+        </service>
         <activity android:name=".ConfirmCallActivity" android:exported="false"
             android:excludeFromRecents="true" android:noHistory="true" android:taskAffinity="" />
         <!-- Text messages: sent and delivered results of Bridgey's own SMS (its PendingIntents only). -->

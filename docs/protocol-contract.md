@@ -70,10 +70,10 @@ the tables at the end of this page are generated from it with
    validation is dropped (or answered with that feature's error message). A payload that fails
    decryption closes the session for `upstream-v1` messages and for folders, places and browsing, as in
    upstream; clipboard offers, codes, remote input, the automation drafts (Mac actions, Focus sync,
-   phone camera) and text messages drop it and keep the session.
+   phone camera), Update all, screen sharing and text messages drop it and keep the session.
 9. **Replay.** Encrypted messages with a `messageId` go through one per-session window of the last
-   256 accepted IDs (oldest evicted first); a repeated ID is not executed again. Quick actions and
-   remote input use a sequence high-water mark instead, so their volume cannot push other IDs out of
+   256 accepted IDs (oldest evicted first); a repeated ID is not executed again. Quick actions,
+   remote input and screen sharing streams use a sequence high-water mark instead, so their volume cannot push other IDs out of
    the window; `actions.run` passes the window and then its own per-session sequence. Nothing is replayable across sessions because every session has its own key.
 10. **Major versions.** Anything that changes framing, authentication or required behaviour for all
     peers is a new protocol version, negotiated before use (the future `core.hello` design in
@@ -94,8 +94,12 @@ the tables at the end of this page are generated from it with
   `quick.request`, `codes.status`, remote input, Files 2.0 browse refs, and the automation drafts:
   `focus.state` on both, `actions.catalog`, `actions.result` and `camera.request` on the phone,
   `actions.run` and `camera.status` on the Mac, with each sending platform's own encoding checked
-  against the same plaintext; and Text messages: the `sms.*` requests and `sms.send` on the phone,
-  `sms.status`, a page's message object and `sms.send_status` on the Mac). `mac_actions_draft1` and `camera_draft1` are switches in the apps but
+  against the same plaintext; Update all: `updates.status`, `updates.start` and `updates.result` on
+  both, which also write the same plaintext for the vectors marked `write`; screen sharing:
+  `screen.request` and the Mac's stream messages on the phone, `screen.status`, the phone's stream
+  messages and the binary `screen.frame` header on the Mac; and Text messages: the `sms.*` requests
+  and `sms.send` on the phone, `sms.status`, a page's message object and `sms.send_status` on the
+  Mac). `mac_actions_draft1` and `camera_draft1` are switches in the apps but
   draft keys on the wire: the vectors pin them once, under the draft keys, and like every draft key
   they read `true` only for JSON `true`. (`remote_input_draft1` predates the shared draft list: a
   non-boolean value still closes the session.)
@@ -141,6 +145,8 @@ the tables at the end of this page are generated from it with
 | `links_open_draft1` | edition-draft | no | false |
 | `focus_sync_draft1` | edition-draft | no | false |
 | `camera_draft1` | edition-draft | no | false |
+| `updates_draft1` | edition-draft | no | false |
+| `screen_draft1` | edition-draft | no | false |
 | `sms_draft1` | edition-draft | no | false |
 | `settings_sync_draft1` | designed | no | false |
 
@@ -165,7 +171,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-113 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+124 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -831,6 +837,143 @@ One open request per Mac, at most one every 3 seconds; it expires after 2 minute
 - `status`: opened | locked | permission_required | cancelled | busy | disabled | sending | failed; the Mac drops an unknown status
 
 The photo itself arrives as a files.offer carrying cameraRequestId.
+
+#### `updates.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `updates.status` | edition-draft | either | updates_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `updates.start` | edition-draft | either | updates_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `updates.result` | edition-draft | either | updates_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+
+`updates.status`
+
+- `version`: integer, 1
+- `platform`: android | macos
+- `edition`: string, 1 to 32 UTF-8 bytes, rr for this edition
+- `app`: string, installed version name, 1 to 64 UTF-8 bytes
+- `build`: integer, installed build number, 1 to 2^53-1
+- `channel`: stable | beta | nightly
+- `state`: current | checking | available | downloading | ready | installing | needs_user | failed | manual
+- `target`: string, optional, the version on offer, 1 to 64 UTF-8 bytes (available, downloading, ready, installing, needs_user; failed when known)
+- `targetBuild`: integer, optional, with target, 1 to 2^53-1
+- `progress`: integer, optional, 0 to 100, with downloading
+- `reason`: optional: with needs_user confirm | permission; with failed check | download | safety | installer | cancelled | not_applied | other; unknown reads as other
+- `remoteStart`: boolean: Let paired devices start updates on this device is on and the updater can run
+- `checkedAt`: integer, Unix ms of the last successful check, 0 for never
+
+Sent once after each features.update that shows the key on both sides, then on every change of a field other than progress, and while downloading at most once a second. A receiver drops a status with an unknown state, platform or channel.
+
+`updates.start`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `retry`: boolean, optional, default false: the person tapped Retry for this device
+
+Answered by `updates.result`.
+
+Update yourself now from your own channel. It names no version, URL, file or channel: the receiver checks its own feed and installs only a newer build through its own checks (Android SHA-256 and signer, Mac Sparkle EdDSA), so it can never downgrade. Accepted only from a paired device whose map shows the key, while the receiver's Let paired devices start updates switch is on; at most one start every 30 seconds and five an hour per device. A start with a wrong version or a requestId that is not a UUID is dropped; anything else gets exactly one updates.result. Without retry, a device whose last attempt did not apply refuses not_applied.
+
+`updates.result`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the start
+- `status`: accepted | refused
+- `reason`: with refused: disabled | rate_limited | manual | not_applied | busy; senders read anything else as other
+
+accepted also when an update was already running. Progress follows as updates.status.
+
+#### `screen.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `screen.request` | edition-draft | mac-to-phone | screen_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.status` | edition-draft | phone-to-mac | screen_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.start` | edition-draft | phone-to-mac | screen_draft1 | yes | sequence | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.started` | edition-draft | mac-to-phone | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.frame` | edition-draft | phone-to-mac | screen_draft1 | yes | sequence | 32,808 B | sessionId, nonce, ciphertext | android, macos |
+| `screen.ack` | edition-draft | mac-to-phone | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.stats` | edition-draft | phone-to-mac | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.stop` | edition-draft | either | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+
+`screen.request`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+
+Answered by `screen.status`, `screen.start`.
+
+Phone screen on the Mac. One open request per phone, at most one every 3 seconds; it expires after 2 minutes. The phone always needs a tap and Android's consent; it answers screen.status and, once the person confirms, screen.start with the requestId. A malformed request is dropped without an answer.
+
+`screen.status`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `status`: waiting | declined | busy | disabled | failed; the Mac drops an unknown status
+
+`screen.start`
+
+- `version`: integer, 1
+- `streamId`: string, UUID chosen by the phone, used once
+- `sequence`: integer, 1 to 2^53-1, the phone's stream sequence (1 here)
+- `requestId`: optional string, UUID of the Mac's screen.request this answers
+- `codec`: h264
+- `width`: integer, even, 16 to 4096
+- `height`: integer, even, 16 to 4096
+- `fps`: integer, 1 to 60
+- `bitrate`: integer, bits a second, 100000 to 50000000
+
+Answered by `screen.started`, `screen.stop`.
+
+The Mac refuses with screen.stop (disabled, invalid). It ignores a start whose streamId is one of the last 16 that ended.
+
+`screen.started`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer, the Mac's stream sequence
+
+The phone sends frames only after it and stops with timeout after 5 seconds without it.
+
+`screen.frame`
+
+- `(raw)`: 40-byte big-endian header (version 1, flags: bit 0 key frame, bit 1 starts with SPS and PPS, bit 2 last part; part 0 to 63; 16-byte stream ID; sequence 1 to 2^53-1; frame 1 to 2^32-1; capture time 0 to 2^63-1 microseconds) then 1 to 32768 bytes of H.264 Annex B
+
+One part of one access unit; parts in order, part 0 starts with a start code, at most 64 parts. Not in the messageId window: the header sequence is the replay guard. An undecryptable or malformed frame is dropped and the session stays.
+
+`screen.ack`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer
+- `frame`: integer, 1 to 2^32-1, newest frame received completely and decoded
+- `decodeMs`: integer, 0 to 60000
+- `keyframe`: optional boolean, true asks for a key frame (at most one a second)
+
+Paces the phone: at most 6 frames and max(64 KiB, 250 ms at the bit rate) unacknowledged.
+
+`screen.stats`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer
+- `latencyMs`: integer, 0 to 60000
+- `rttMs`: integer, 0 to 60000
+- `bitrate`: integer, 0 to 50000000
+- `sentBitrate`: integer, 0 to 50000000
+- `fps`: integer, 0 to 120
+- `dropped`: integer, 0 to 1000
+
+Once a second while streaming; shown in the Mac window.
+
+`screen.stop`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer
+- `reason`: user | closed | ended | screen_off | disabled | invalid | timeout | failed; an unknown reason reads as failed
+
+Either side ends the stream. A Mac refusing a start sends it with the start's streamId and its own sequence 1.
 
 #### `sms.*`
 

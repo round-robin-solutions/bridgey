@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Share screen with Macs (draft screen_draft1, v0.9 prototype, view only). -->
+<resources>
+    <string name="feature_screen">Share screen with Macs</string>
+    <string name="feature_screen_detail">%1$s can ask to see this screen; you confirm each time</string>
+    <string name="settings_screen_detail">A Mac can ask to see this screen. You confirm on the phone each time</string>
+    <string name="setup_bundle_remote_screen">Your phone as a touchpad and slide clicker, and its screen on the Mac.</string>
+    <string name="setup_q_screen_title">Let your Mac see this screen?</string>
+    <string name="setup_q_screen_context">The Mac shows this phone\'s screen in a window. It only looks: it cannot tap or type. Android asks you to confirm every time, and a notification with Stop stays while it is shared.</string>
+    <string name="setup_q_screen_summary">Macs can ask to see this screen</string>
+    <string name="setup_a_screen_yes">Yes, when I confirm</string>
+    <string name="setup_a_screen_yes_detail">Each share starts only after you tap Start in Android\'s dialog.</string>
+    <string name="screen_entry_title">Share screen</string>
+    <string name="screen_entry_detail">%1$s sees this screen after you confirm</string>
+    <string name="screen_entry_stop">Stop sharing</string>
+    <string name="screen_entry_sharing">Your screen is being shared with %1$s</string>
+    <string name="screen_entry_starting">Starting the share with %1$s</string>
+    <string name="screen_entry_stats">%1$d ms · %2$s · %3$d fps</string>
+    <string name="screen_ask_channel">Screen sharing requests</string>
+    <string name="screen_ask_channel_detail">A Mac asks to see this screen</string>
+    <string name="screen_ask_title">%1$s wants to see your screen</string>
+    <string name="screen_ask_text">Tap Share, then confirm in Android\'s dialog.</string>
+    <string name="screen_ask_share">Share</string>
+    <string name="screen_ask_not_now">Not now</string>
+    <string name="screen_sharing_channel">Screen sharing</string>
+    <string name="screen_sharing_channel_detail">Shown for as long as a Mac sees this screen</string>
+    <string name="screen_sharing_title">Your screen is being shared with %1$s</string>
+    <string name="screen_sharing_text">Tap Stop to end it. Locking the phone ends it too.</string>
+    <string name="screen_sharing_starting">Waiting for the Mac to open its window…</string>
+    <string name="screen_stop">Stop</string>
+    <string name="tile_screen_label">Share screen</string>
+    <string name="tile_screen_unavailable">No Mac</string>
+</resources>

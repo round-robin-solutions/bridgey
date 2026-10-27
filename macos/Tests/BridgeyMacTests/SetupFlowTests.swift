@@ -287,7 +287,8 @@ final class SetupFlowTests: XCTestCase {
 
     func testBundlesAndSwitchesUseTheSettingsNames() {
         // Text messages has its own page, as on the phone: its bundle, switch and page share one name.
-        let names = Set(SettingsPane.allCases.map(\.title) + BridgeyFeature.allCases.map(\.title))
+        // Show phone screens is a switch on the Remote control page, not a feature of its own.
+        let names = Set(SettingsPane.allCases.map(\.title) + BridgeyFeature.allCases.map(\.title) + [PhoneScreenSettings.switchTitle])
         XCTAssertEqual(SetupFeatures.textMessagesTitle, SettingsPane.messages.title)
         XCTAssertEqual(SetupFeatures.feature("messages")?.pane, .messages)
         XCTAssertEqual(SetupQuestions.question("messages")?.pane, .messages)
@@ -380,6 +381,22 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(match("I want to answer SMS from my Mac"), ["messages=pick"])
         XCTAssertEqual(match("Хочу отвечать на смс с Mac"), ["messages=pick"])
         XCTAssertEqual(match("no camera"), [])
+        // Phone screen (v0.9): sharing words, not "screen" alone (screen saver, lock screen).
+        XCTAssertEqual(match("I want to see my phone screen on the Mac"), ["screen=pick"])
+        XCTAssertEqual(match("screen sharing but no music"), ["media=no", "screen=pick"])
+        XCTAssertEqual(match("показывать экран телефона"), ["screen=pick"])
+        XCTAssertEqual(match("lock the screen"), ["mac_actions=pick"])
+    }
+
+    func testTheRemoteControlBundleAsksAboutThePhoneScreen() {
+        let bundle = SetupBundles.all.first { $0.id == "remote" }
+        XCTAssertTrue(bundle?.answers.contains { $0.id == "screen" && $0.key == SetupAnswerKey.pick } == true)
+        let (screens, flow) = walk(paired, chosen: ["screen": SetupAnswerKey.pick])
+        XCTAssertEqual(screens, [.question("screen"), .switches])
+        XCTAssertTrue(flow.effective(paired).on(.featureScreen), "picked: on")
+        XCTAssertEqual(SetupQuestions.changes(SetupQuestions.question("screen")!, SetupAnswerKey.no), [.off(.featureScreen)])
+        XCTAssertEqual(SetupSetting.featureScreen.defaultValue, "false", "off even on installs from before")
+        XCTAssertEqual(SetupQuestions.coverage[.featureScreen]?.how, .answer)
     }
 
     func testTypedAnswersPickTheirFeatureAndSkipTheirFollowUp() {

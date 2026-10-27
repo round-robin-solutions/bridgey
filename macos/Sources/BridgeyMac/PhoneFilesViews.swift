@@ -535,9 +535,9 @@ private struct MediaCell: View {
 
     var body: some View {
         let selected = model.selection.contains(entry.id)
+        // A square as wide as the column; the thumbnail is cropped into it whatever its shape.
         PhoneThumbnailView(box: model.thumbnails.box(for: entry), symbol: PhoneFilesText.symbol(entry), corner: 6)
-            .aspectRatio(1, contentMode: .fill)
-            .frame(minWidth: 0, maxWidth: .infinity)
+            .aspectRatio(1, contentMode: .fit)
             .overlay(alignment: .bottomTrailing) {
                 if let duration = PhoneFilesText.duration(entry.durationMs) {
                     HStack(spacing: 3) {
@@ -585,7 +585,9 @@ private struct MediaCell: View {
     }
 }
 
-/// A thumbnail: the tint (or a neutral surface) first, then the image fading in by opacity.
+/// A thumbnail: the tint (or a neutral surface) first, then the image fading in by opacity. It takes the size
+/// it is offered: the image fills that frame and is cropped to it, so a tall screenshot or a wide video never
+/// sizes or overflows its cell.
 struct PhoneThumbnailView: View {
     @ObservedObject var box: ThumbnailBox
     let symbol: String
@@ -594,19 +596,19 @@ struct PhoneThumbnailView: View {
     @Environment(\.brandReduceMotion) private var reduce
 
     var body: some View {
-        ZStack {
-            placeholder
-            if let image = box.image {
-                Image(decorative: image.image, scale: 1)
-                    .resizable()
-                    .interpolation(.medium)
-                    .scaledToFill()
-                    .transition(.opacity)
+        placeholder
+            .overlay {
+                if let image = box.image {
+                    Image(decorative: image.image, scale: 1)
+                        .resizable()
+                        .interpolation(.medium)
+                        .scaledToFill()
+                        .transition(.opacity)
+                }
             }
-        }
-        .animation(box.arrived && !reduce ? BrandMotion.effects : nil, value: box.image != nil)
-        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-        .contentShape(Rectangle())
+            .animation(box.arrived && !reduce ? BrandMotion.effects : nil, value: box.image != nil)
+            .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+            .contentShape(Rectangle())
     }
 
     @ViewBuilder private var placeholder: some View {

@@ -274,6 +274,9 @@ final class PairingCoordinator: ObservableObject {
     let camera = PhoneCamera()
     /// Incoming transfers that are camera photos, by transfer ID, with their request ID.
     private var cameraTransfers: [String: String] = [:]
+    /// "Show Phone Screen" (draft screen_draft1): view only, off by default.
+    let phoneScreen = PhoneScreen()
+    private let phoneScreenWindows = PhoneScreenWindows()
     /// Text messages (draft sms_draft1): each phone's conversations, synced and cached here.
     let textMessages = TextMessages()
     /// Connection health per paired phone (no addresses, names or content).
@@ -483,6 +486,16 @@ final class PairingCoordinator: ObservableObject {
         camera.send = { [weak self] id, payload in
             guard let self, let current = self.registry.session(for: id) else { return false }
             return self.sendQuickPayload(kind: "camera.request", payload: payload, to: current)
+        }
+        phoneScreen.presenter = phoneScreenWindows
+        phoneScreenWindows.reduceMotion = { [weak self] in self?.settings.reduceMotion == true }
+        phoneScreen.send = { [weak self] id, kind, payload in
+            guard let self, let current = self.registry.session(for: id) else { return false }
+            return self.sendQuickPayload(kind: kind, payload: payload, to: current)
+        }
+        phoneScreen.onSettingsChange = { [weak self] in
+            self?.sendFeatureState()
+            self?.publish()
         }
         textMessages.send = { [weak self] id, kind, payload in
             guard let self, let current = self.registry.session(for: id) else { return false }
@@ -812,6 +825,8 @@ final class PairingCoordinator: ObservableObject {
         remoteInput.disconnected(deviceID: id)
         macActions.disconnected(deviceID: id)
         camera.disconnected(id)
+        updatesPhoneDisconnected(id)
+        phoneScreen.disconnected(id)
         textMessages.disconnected(id)
         var record = healthRecords[id] ?? DeviceHealthRecord()
         record.connectedSince = nil
@@ -2223,6 +2238,9 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteSmsCodes = draftKeys[smsCodesFeatureKey] == true
                     link.remoteFocusSync = draftKeys[focusSyncFeatureKey] == true
                     link.remoteCamera = draftKeys[cameraFeatureKey] == true
+                    link.remoteUpdates = draftKeys[updatesFeatureKey] == true
+                    if !link.remoteUpdates { link.updateStatus = nil }
+                    link.remoteScreen = draftKeys[screenFeatureKey] == true
                     link.remoteSms = draftKeys[smsFeatureKey] == true
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
@@ -2255,6 +2273,8 @@ final class PairingCoordinator: ObservableObject {
                 if draftKeys[focusSyncFeatureKey] == true, let active = focusSync.stateForNewPhone {
                     _ = sendQuickPayload(kind: "focus.state", payload: focusStatePayload(active), to: current)
                 }
+                // Update all: a phone that understands it hears this Mac's version and update state.
+                if draftKeys[updatesFeatureKey] == true { updatesPeerReady(phoneID) }
                 // Text messages: the phone's sms.status starts the sync. A phone that turned it off
                 // takes its conversations with it: this Mac deletes what it kept.
                 if draftKeys[smsFeatureKey] == true {
@@ -2700,6 +2720,14 @@ final class PairingCoordinator: ObservableObject {
                 receiveFocusState(message, in: current)
             case "camera.status":
                 receiveCameraStatus(message, in: current)
+            case "updates.status", "updates.start", "updates.result":
+                receiveUpdatesMessage(message, in: current)
+            case "screen.status":
+                receiveScreenStatus(message, in: current)
+            case "screen.start":
+                receiveScreenStart(message, in: current)
+            case "screen.frame", "screen.stats", "screen.stop":
+                receiveScreenStream(message, in: current)
             case let kind where kind.hasPrefix("sms."):
                 receiveTextMessage(message, in: current)
             default:
@@ -2807,6 +2835,10 @@ final class PairingCoordinator: ObservableObject {
         features[focusSyncFeatureKey] = focusSync.advertised
         // Draft, edition only: this Mac can ask for photos; they arrive as files.
         features[cameraFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
+        // Draft, edition only: Update all. Always on; whether phones may start this Mac's update is in updates.status.
+        features[updatesFeatureKey] = true
+        // Draft, edition only: this Mac shows phone screens (Show phone screens, off by default).
+        features[screenFeatureKey] = phoneScreen.enabled
         // Draft, edition only: Text messages, while its switch is on here (off by default).
         features[smsFeatureKey] = settings.smsEnabled
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
@@ -3380,6 +3412,63 @@ final class PairingCoordinator: ObservableObject {
 
     private func quickActionsStatus(_ text: String) { quickActions.showStatus(text) }
 
+    // MARK: Update all (draft updates_draft1)
+
+    /// A phone's features.update showed `updates_draft1`: send it this Mac's status now.
+    var updatesPeerReady: (_ deviceID: String) -> Void = { _ in }
+    /// A phone's `updates.status` (also kept in its link state).
+    var updatesStatusReceived: (_ deviceID: String, _ status: PeerUpdateStatus) -> Void = { _, _ in }
+    /// A phone asks this Mac to update itself. Returns the answer this Mac sends.
+    var updatesStartReceived: (_ deviceID: String, _ request: UpdateStartRequest) -> UpdateStartResult = { _, request in
+        UpdateStartResult(requestID: request.requestID, refusal: .manual)
+    }
+    /// A phone answered this Mac's `updates.start`.
+    var updatesResultReceived: (_ deviceID: String, _ result: UpdateStartResult) -> Void = { _, _ in }
+    var updatesPhoneDisconnected: (_ deviceID: String) -> Void = { _ in }
+
+    /// The phone advertised `updates_draft1` in its latest map (this Mac always does).
+    func phoneSupportsUpdates(_ deviceID: String) -> Bool { registry.state(for: deviceID)?.remoteUpdates == true }
+
+    /// `updates.status` to one phone, only while its latest map shows the key.
+    @discardableResult
+    func sendUpdatesStatus(_ status: PeerUpdateStatus, to deviceID: String) -> Bool {
+        guard phoneSupportsUpdates(deviceID), let current = registry.session(for: deviceID) else { return false }
+        return sendQuickPayload(kind: "updates.status", payload: status.payload, to: current)
+    }
+
+    /// `updates.start` to one phone (Update all, or Retry for that phone).
+    @discardableResult
+    func sendUpdatesStart(_ request: UpdateStartRequest, to deviceID: String) -> Bool {
+        guard phoneSupportsUpdates(deviceID), let current = registry.session(for: deviceID) else { return false }
+        return sendQuickPayload(kind: "updates.start", payload: request.payload, to: current)
+    }
+
+    /// The Update all messages: decrypted, replay-checked and bounded; a malformed one is dropped and the
+    /// session stays. A start from a phone whose map does not show the key is dropped without an answer.
+    private func receiveUpdatesMessage(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return }
+        let phoneID = current.remoteDeviceID
+        guard phoneSupportsUpdates(phoneID) else { return }
+        switch message.kind {
+        case "updates.status":
+            guard let status = PeerUpdateStatus.decode(data) else { return }
+            registry.update(phoneID) { $0.updateStatus = status }
+            publish()
+            updatesStatusReceived(phoneID, status)
+        case "updates.start":
+            guard let request = UpdateStartRequest.decode(data) else { return }
+            let answer = updatesStartReceived(phoneID, request)
+            diagnostics.record(category: "updates", event: "start_received", outcome: answer.refusal?.rawValue ?? "accepted", device: phoneID)
+            _ = sendQuickPayload(kind: "updates.result", payload: answer.payload, to: current)
+        default:
+            guard let result = UpdateStartResult.decode(data) else { return }
+            updatesResultReceived(phoneID, result)
+        }
+    }
+
     /// focus.state from a phone: its Do Not Disturb, applied only when Follow is on here.
     private func receiveFocusState(_ message: PairingMessage, in current: Session) {
         guard registry.isActive(current), message.sessionId == current.id,
@@ -3398,6 +3487,44 @@ final class PairingCoordinator: ObservableObject {
               let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
               let decoded = decodeCameraStatus(data) else { return }
         camera.received(status: decoded.status.rawValue, requestID: decoded.requestID, from: current.remoteDeviceID, phoneName: current.peerName)
+    }
+
+    /// screen.status from a phone, for this Mac's open request (the shared message ID window).
+    private func receiveScreenStatus(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
+              let decoded = decodeScreenStatus(data) else { return }
+        phoneScreen.received(status: decoded.status, requestID: decoded.requestID, from: current.remoteDeviceID, phoneName: current.peerName)
+    }
+
+    /// screen.start: outside the message ID window (the stream's own sequence guards it). A payload that
+    /// does not decrypt is dropped and the session stays.
+    private func receiveScreenStart(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id, let key = current.pairingKey,
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return }
+        phoneScreen.receiveStart(data, from: current.remoteDeviceID, phoneName: current.peerName, key: key)
+    }
+
+    /// Frames, stats and the phone's stop: handed to the stream's queue still encrypted.
+    private func receiveScreenStream(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let nonce = message.nonce, let ciphertext = message.ciphertext else { return }
+        phoneScreen.receiveStream(kind: message.kind, nonce: nonce, ciphertext: ciphertext, from: current.remoteDeviceID)
+    }
+
+    /// The phone shares its screen with Macs and Show phone screens is on here.
+    func screenAvailable(for id: String) -> Bool {
+        phoneScreen.enabled && registry.state(for: id)?.remoteScreen == true
+    }
+
+    /// Panel > Show Phone Screen, or the device menu: the request ID, if one was sent.
+    @discardableResult
+    func showPhoneScreen(with id: String? = nil) -> String? {
+        guard let target = id ?? registry.target(selected: selectedDeviceID), screenAvailable(for: target) else { return nil }
+        return phoneScreen.request(from: target, phoneName: intentName(target))
     }
 
     /// The phone takes photos for this Mac and Files is on for it.

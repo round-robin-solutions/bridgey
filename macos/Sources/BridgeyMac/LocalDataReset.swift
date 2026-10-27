@@ -213,7 +213,8 @@ struct LocalDataReset {
     /// `focusSync` and `camera.copyToClipboard`. Battery alert state is in memory and goes with the restart.
     static let settingsPrefixes = ["settings.", "media.", "shortcuts.", "folders.lastDestination.", "setup.", "send.", "phoneFiles."]
     static let settingsKeys = [UpdateChannel.defaultsKey, "SUEnableAutomaticChecks", "SUAutomaticallyUpdate",
-                               "SUScheduledCheckInterval", "SUSkippedVersion", "SUSkippedMajorVersion"]
+                               "SUScheduledCheckInterval", "SUSkippedVersion", "SUSkippedMajorVersion",
+                               UpdateAllCoordinator.remoteStartKey]
     /// Not settings: the relay's random install ID (identity) and the record of accepted model terms.
     static let notSettingsKeys = ["settings.codes.installId", "settings.codes.model.acceptance"]
     static let identityKeys = ["deviceID", "settings.codes.installId"]
@@ -221,7 +222,9 @@ struct LocalDataReset {
     static let trustKeys = ["trustedDeviceIDs"]
     static let trustPrefixes = ["trusted."]
     static let addressPrefixes = ["reconnect."]
-    static let recordKeys = ["settings.codes.model.acceptance", "legacyPreferencesMigrated", pendingKey]
+    /// Update all keeps its last run and the version that did not apply (UpdateAllProtocol.swift) as records.
+    static let recordKeys = ["settings.codes.model.acceptance", "legacyPreferencesMigrated", pendingKey,
+                             UpdateAllCoordinator.runKey, UpdateAttemptStore.pendingKey, UpdateAttemptStore.notAppliedKey]
     static let recordPrefixes = ["whatsNew.", "SU"]
 
     func keys(_ item: ResetItem) -> [String] {

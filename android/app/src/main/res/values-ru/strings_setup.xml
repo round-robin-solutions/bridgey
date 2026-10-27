@@ -49,8 +49,8 @@
     <string name="perm_notification_access_why">Показывает уведомления и звонки телефона на вашем Mac.</string>
     <string name="perm_notification_access_without">На Mac не будет уведомлений, звонков и кодов с телефона.</string>
     <string name="perm_post_notifications_name">Уведомления</string>
-    <string name="perm_post_notifications_why">Bridgey показывает передачи, поиск телефона и запросы на звонок.</string>
-    <string name="perm_post_notifications_without">Вы не увидите ход передачи, запросы с Mac и кнопку «Стоп» для поиска устройства.</string>
+    <string name="perm_post_notifications_why">Bridgey показывает передачи, поиск телефона, запросы на звонок и показ экрана.</string>
+    <string name="perm_post_notifications_without">Вы не увидите ход передачи, запросы с Mac и кнопку «Стоп» для поиска устройства и показа экрана.</string>
     <string name="perm_phone_calls_name">Телефон и звонки</string>
     <string name="perm_phone_calls_why">Mac может отвечать, отклонять и совершать звонки через этот телефон. Для SMS на телефоне с двумя SIM-картами показывает список SIM-карт.</string>
     <string name="perm_phone_calls_without">Звонок с Mac открывает номеронабиратель для подтверждения; «Ответить» и «Отклонить» не работают.</string>
