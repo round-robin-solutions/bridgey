@@ -31,6 +31,10 @@
     <!-- Focus sync > Follow the Mac's Focus (off by default): Do Not Disturb access, granted by the
          person in Android's settings, lets Bridgey turn Do Not Disturb on and back off. -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- Take photos for the Mac (on by default, asked for on the camera screen the first time):
+         the camera a Mac asked for, opened only by a tap on the phone. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <!-- The widget's Glance library brings WorkManager, which asks to start at boot. Bridgey's widget
          redraws when the app starts, so that permission is removed from the merged manifest. -->
     <uses-permission tools:node="remove" android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -104,6 +108,12 @@
             android:exported="false"
             android:noHistory="true"
             android:taskAffinity="" />
+        <!-- Phone camera to Mac: opened from Bridgey's own notification or while Bridgey is in front. -->
+        <activity
+            android:name=".camera.CameraActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity="${applicationId}.camera" />
         <activity android:name=".ConfirmCallActivity" android:exported="false"
             android:excludeFromRecents="true" android:noHistory="true" android:taskAffinity="" />
         <service

@@ -945,4 +945,29 @@
     <string name="focus_access_on">Разрешён. Bridgey выключает только тот режим «Не беспокоить», который включил сам.</string>
     <string name="focus_access_off">Нужен, чтобы следовать за Mac. Включите Bridgey by Round Robin в доступе к режиму «Не беспокоить».</string>
     <string name="focus_note">Каждое направление включается отдельно, а на Mac нужен такой же переключатель в настройках. Если вы включили «Не беспокоить» сами, окончание фокусирования на Mac его не выключит.</string>
+    <!-- Phone camera to Mac (camera_draft1) -->
+    <string name="feature_camera">Снимки для Mac</string>
+    <string name="feature_camera_detail">%1$s может попросить снимок, а вы снимаете здесь</string>
+    <string name="settings_camera_detail">Mac может попросить снимок, а вы снимаете на этом телефоне</string>
+    <string name="camera_title">Снимок для %1$s</string>
+    <string name="camera_hint">Снимок уйдёт на Mac сразу после съёмки</string>
+    <string name="camera_shutter">Сделать снимок</string>
+    <string name="camera_take_photo">Сделать снимок</string>
+    <string name="camera_sending">Снимок отправляется на %1$s</string>
+    <string name="camera_ended">Запрос завершён. Попросите снимок с Mac ещё раз.</string>
+    <string name="camera_failed">Не удалось отправить снимок.</string>
+    <string name="camera_unavailable">Камера сейчас недоступна. Закройте другие приложения камеры и попросите снимок с Mac ещё раз.</string>
+    <string name="camera_capture_failed">Не удалось сохранить снимок. Попробуйте ещё раз.</string>
+    <string name="camera_send_failed">Не удалось отправить снимок на %1$s. Проверьте подключение и что передача файлов включена.</string>
+    <string name="camera_permission_title">Разрешите доступ к камере</string>
+    <string name="camera_permission_body">%1$s просит снимок. Bridgey использует камеру только пока открыт этот экран и только для вашего снимка.</string>
+    <string name="camera_permission_denied">Камера для Bridgey выключена. Чтобы отправить снимок на %1$s, разрешите камеру в настройках приложения.</string>
+    <string name="camera_allow">Разрешить камеру</string>
+    <string name="camera_open_settings">Открыть настройки приложения</string>
+    <string name="camera_channel">Снимки для Mac</string>
+    <string name="camera_channel_detail">Когда Mac просит у телефона снимок</string>
+    <string name="camera_unlock_title">Разблокируйте телефон, чтобы сделать снимок</string>
+    <string name="camera_unlock_text">%1$s просит снимок</string>
+    <string name="camera_ask_title">%1$s просит снимок</string>
+    <string name="camera_ask_text">Нажмите, чтобы открыть камеру</string>
 </resources>

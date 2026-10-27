@@ -6,7 +6,12 @@ import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
@@ -26,7 +31,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * Focus sync rows on Settings > Notifications, light and dark, at the design's phone size.
+ * Focus sync rows on Settings > Notifications and the camera screen's chrome (a plain surface
+ * stands in for the live preview), light and dark, at the design's phone size.
  * Always rendered; PNGs only with -Pscreenshots=<dir>.
  */
 @RunWith(AndroidJUnit4::class)
@@ -83,4 +89,20 @@ class FocusCameraScreenshotTest {
     @Test fun focusSettingsLight() = focusSettings()
 
     @Test @Config(qualifiers = "+night") fun focusSettingsDark() = focusSettings()
+
+    private fun camera(name: String, state: CameraUiState) = capture(name) {
+        CameraScreen(state, CameraUiActions()) {
+            // Stands in for the live preview: a dim scene.
+            Box(Modifier.fillMaxSize().background(Color(0xFF3B4250)))
+        }
+    }
+
+    @Test fun cameraLight() = camera("camera-ready", CameraUiState("Work MacBook", CameraPhase.READY))
+
+    @Test @Config(qualifiers = "+night") fun cameraDark() = camera("camera-ready", CameraUiState("Work MacBook", CameraPhase.READY))
+
+    @Test fun cameraPermissionLight() = camera("camera-permission", CameraUiState("Work MacBook", CameraPhase.NEEDS_PERMISSION))
+
+    @Test @Config(qualifiers = "+night") fun cameraPermissionDark() =
+        camera("camera-permission", CameraUiState("Work MacBook", CameraPhase.NEEDS_PERMISSION, permanentlyDenied = true))
 }

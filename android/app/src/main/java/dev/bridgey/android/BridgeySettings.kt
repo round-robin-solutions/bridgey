@@ -31,12 +31,15 @@ enum class BridgeyFeature(val key: String, val title: String) {
      * Shortcuts). On by default here; the Mac is the gate (off by default and granted per phone).
      */
     MAC_ACTIONS("mac_actions_draft1", "Mac actions"),
+
+    /** Draft, edition only: a Mac may ask this phone for a photo; the person takes it. On by default. */
+    CAMERA("camera_draft1", "Take photos for the Mac"),
 }
 
 internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
     feature !in setOf(
         BridgeyFeature.CALLS, BridgeyFeature.PING, BridgeyFeature.LINKS, BridgeyFeature.MEDIA,
-        BridgeyFeature.REMOTE_INPUT, BridgeyFeature.MAC_ACTIONS,
+        BridgeyFeature.REMOTE_INPUT, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA,
     )
 
 /** Features that start off until the person turns them on. */

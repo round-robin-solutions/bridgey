@@ -33,6 +33,7 @@ class ManifestPermissionsTest {
                 "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
                 "android.permission.READ_EXTERNAL_STORAGE",
                 "android.permission.ACCESS_NOTIFICATION_POLICY",
+                "android.permission.CAMERA",
             ),
             declared,
         )

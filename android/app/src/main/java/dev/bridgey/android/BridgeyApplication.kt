@@ -152,6 +152,7 @@ class BridgeyApplication : Application() {
         }
         startRemoteInput()
         startCodeAccess()
+        startCamera()
         registerForegroundClipboardWatcher()
         if (preferences.getBoolean(PREFERENCE_ENABLED, true)) enableBridgey()
     }
@@ -188,6 +189,28 @@ class BridgeyApplication : Application() {
                 shortcuts.publish(remoteShortcutTargets(connections) { settings.isEnabled(BridgeyFeature.REMOTE_INPUT, it) })
             }
         }
+    }
+
+    /**
+     * Phone camera to Mac: a locked phone says "Unlock your phone to take the photo"; with Bridgey
+     * in front the camera opens at once; otherwise a notification waits for a tap (Android does not
+     * let an app open a screen from the background, and a person must take the photo anyway).
+     */
+    private fun startCamera() {
+        pairing.cameraRequested = { request ->
+            val locked = getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
+            when (dev.bridgey.android.camera.cameraRoute(locked, startedActivityCount > 0)) {
+                dev.bridgey.android.camera.CameraRoute.LOCKED_NOTIFICATION -> {
+                    pairing.sendCameraStatus(request.deviceId, request.requestId, dev.bridgey.android.camera.CameraStatus.LOCKED)
+                    dev.bridgey.android.camera.CameraNotifier.showLocked(this, request)
+                }
+                dev.bridgey.android.camera.CameraRoute.OPEN_NOW ->
+                    runCatching { startActivity(dev.bridgey.android.camera.CameraActivity.intent(this, request)) }
+                        .onFailure { dev.bridgey.android.camera.CameraNotifier.showAsk(this, request) }
+                dev.bridgey.android.camera.CameraRoute.NOTIFICATION -> dev.bridgey.android.camera.CameraNotifier.showAsk(this, request)
+            }
+        }
+        pairing.cameraEnded = { request -> dev.bridgey.android.camera.CameraNotifier.dismiss(this, request.deviceId) }
     }
 
     private fun startCodeAccess() {

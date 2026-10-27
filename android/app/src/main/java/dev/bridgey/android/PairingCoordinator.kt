@@ -193,6 +193,19 @@ class PairingCoordinator(
         peers = { registry.connectedIds().filter { registry.state(it)?.remoteFocusSync == true } },
         send = ::sendFocusState,
     )
+    /** Phone camera to Mac (draft `camera_draft1`): each Mac's open photo request. */
+    val camera = dev.bridgey.android.camera.CameraRequests(System::currentTimeMillis)
+
+    /** Set by the application: a Mac's photo request was accepted; show the camera or its notification. */
+    @Volatile var cameraRequested: (dev.bridgey.android.camera.CameraRequest) -> Unit = {}
+
+    /** Set by the application: a request ended without a photo (expired, Mac gone, feature off). */
+    @Volatile var cameraEnded: (dev.bridgey.android.camera.CameraRequest) -> Unit = {}
+
+    /** Camera photos being sent: transfer ID to request ID, and what to do when the transfer ends. */
+    private val cameraTransfers = ConcurrentHashMap<String, String>()
+    private val cameraTransferDone = ConcurrentHashMap<String, (Boolean) -> Unit>()
+    private val cameraTransferSent = ConcurrentHashMap.newKeySet<String>()
     private var lastFocusShare = settings.state.value.focusShare
     private var lastFocusFollow = settings.state.value.focusFollow
 
@@ -374,6 +387,7 @@ class PairingCoordinator(
                 trust.trustedDeviceIds.value.filter { !settings.isEnabled(BridgeyFeature.MAC_ACTIONS, it) }.forEach(macActions::revoked)
                 registry.connectedIds().forEach { id -> registry.session(id)?.let(::sendFeatureState) }
                 focusSettingsChanged(it.focusShare, it.focusFollow)
+                registry.connectedIds().filter { id -> !isFeatureAvailable(BridgeyFeature.CAMERA, id) }.forEach(::endCameraRequest)
             }
         }
     }
@@ -1424,6 +1438,69 @@ class PairingCoordinator(
         diagnostics.record("notifications", "focus_follow", outcome.name.lowercase(), device = deviceId)
     }
 
+    /** camera.request from a Mac: decrypted, replay-checked, bounded, then one open request per Mac. */
+    private fun receiveCameraMessage(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        if (data.size > dev.bridgey.android.camera.CAMERA_MESSAGE_MAX_BYTES) return
+        val payload = runCatching { JSONObject(data.toString(Charsets.UTF_8)) }.getOrNull() ?: return
+        val deviceId = current.remoteDeviceId
+        when (val decision = camera.receive(deviceId, current.peerName, payload, isFeatureAvailable(BridgeyFeature.CAMERA, deviceId))) {
+            dev.bridgey.android.camera.CameraDecision.Drop -> Unit
+            is dev.bridgey.android.camera.CameraDecision.Refuse -> sendCameraStatus(deviceId, decision.requestId, decision.status)
+            is dev.bridgey.android.camera.CameraDecision.Accept -> {
+                val request = decision.request
+                diagnostics.record("transfer", "camera_request", device = deviceId)
+                scope.launch {
+                    delay(dev.bridgey.android.camera.CAMERA_REQUEST_LIFETIME_MILLIS)
+                    if (camera.finish(deviceId, request.requestId)) {
+                        sendCameraStatus(deviceId, request.requestId, dev.bridgey.android.camera.CameraStatus.CANCELLED)
+                        cameraEnded(request)
+                    }
+                }
+                cameraRequested(request)
+            }
+        }
+    }
+
+    /** camera.status to the Mac that asked. */
+    fun sendCameraStatus(deviceId: String, requestId: String, status: dev.bridgey.android.camera.CameraStatus): Boolean {
+        val current = registry.session(deviceId) ?: return false
+        if (current.pairingKey == null) return false
+        val data = dev.bridgey.android.camera.cameraStatusPayload(requestId, status).toString().toByteArray(Charsets.UTF_8)
+        scope.launch { sendEncrypted(current, "camera.status", data) }
+        return true
+    }
+
+    /** The Mac's request ends without a photo (it disconnected, or the feature went off). */
+    private fun endCameraRequest(deviceId: String) {
+        camera.ended(deviceId)?.let { cameraEnded(it) }
+    }
+
+    /**
+     * Sends the photo for an open request as an ordinary file, marked with `cameraRequestId`.
+     * [onDone] runs once the transfer ends (true when the Mac saved it). False if nothing was queued.
+     */
+    fun sendCameraPhoto(request: dev.bridgey.android.camera.CameraRequest, uri: Uri, onDone: (Boolean) -> Unit): Boolean {
+        if (camera.current(request.deviceId, request.requestId) == null) return false
+        val transferId = queueFiles(listOf(uri), request.deviceId) { id ->
+            cameraTransfers[id] = request.requestId
+            cameraTransferDone[id] = onDone
+        } ?: return false
+        camera.finish(request.deviceId, request.requestId)
+        return transferId.isNotEmpty()
+    }
+
+    /** A camera transfer ended: its callback runs once. */
+    private fun cameraTransferEnded(transferId: String) {
+        cameraTransfers.remove(transferId)
+        val sent = cameraTransferSent.remove(transferId)
+        cameraTransferDone.remove(transferId)?.invoke(sent)
+    }
+
     /** actions.run to one Mac, only while its latest map shows mac_actions_draft1. */
     private fun sendActionsPayload(deviceId: String, kind: String, payload: JSONObject): Boolean {
         val current = registry.session(deviceId) ?: return false
@@ -1669,16 +1746,21 @@ class PairingCoordinator(
      * after another, each as its own transfer, so a failure or cancellation affects only that file.
      */
     fun sendFiles(uris: List<Uri>, deviceId: String? = null) {
-        if (uris.isEmpty()) return
+        queueFiles(uris, deviceId)
+    }
+
+    /** Queues [uris]; [beforeStart] sees the first transfer ID before it can start. Returns that ID, or null. */
+    private fun queueFiles(uris: List<Uri>, deviceId: String?, beforeStart: ((String) -> Unit)? = null): String? {
+        if (uris.isEmpty()) return null
         val connectedSession = sessionFor(deviceId)
         if (connectedSession == null) {
             mutableFileTransferStatus.value = "Not connected — file was not sent"
-            return
+            return null
         }
         val target = connectedSession.remoteDeviceId
         if (!isFeatureAvailable(BridgeyFeature.FILES, target)) {
             mutableFileTransferStatus.value = "File transfer is turned off on one of your devices"
-            return
+            return null
         }
         val queuedAt = System.currentTimeMillis()
         val status = appContext.getString(R.string.file_queued)
@@ -1699,6 +1781,7 @@ class PairingCoordinator(
             ) to uri
         }
         mutableFileTransfers.update { transfers -> transfers + queued.associate { (transfer, _) -> transfer.id to transfer } }
+        queued.firstOrNull()?.let { (transfer, _) -> beforeStart?.invoke(transfer.id) }
         val queue = fileSendQueues.getOrPut(target) { FileSendQueue() }
         queued.forEach { (transfer, uri) -> queue.enqueue(transfer.id, uri) }
         pruneTransferHistory()
@@ -1713,6 +1796,7 @@ class PairingCoordinator(
             }
         }
         startNextQueuedFile(target)
+        return queued.firstOrNull()?.first?.id
     }
 
     private fun displayName(uri: Uri): String? =
@@ -1800,12 +1884,7 @@ class PairingCoordinator(
                 return@launch
             }
 
-            val offerPayload = JSONObject()
-                .put("transferId", transferId)
-                .put("name", metadata.first)
-                .put("mimeType", metadata.second)
-                .put("size", metadata.third)
-                .put("sha256", hash)
+            val offerPayload = fileOfferPayload(transferId, metadata.first, metadata.second, metadata.third, hash, cameraTransfers[transferId])
                 .toString().toByteArray()
             val offer = Crypto.encrypt(connectedSession.pairingKey!!, offerPayload)
             val accepted = CompletableDeferred<Boolean>()
@@ -1880,6 +1959,7 @@ class PairingCoordinator(
             }
             if (withTimeoutOrNull(15_000) { completed.await() } == true) {
                 outgoingFileSources.remove(transferId)
+                if (cameraTransfers.containsKey(transferId)) cameraTransferSent.add(transferId)
                 updateFileTransfer(transferId, metadata.first, "${metadata.first} saved on $peer", false, TransferEnd.SENT)
                 diagnostics.record("transfer", "send_completed")
             } else {
@@ -1891,6 +1971,7 @@ class PairingCoordinator(
         outgoingFileJobs[transferId] = job
         job.invokeOnCompletion {
             outgoingFileJobs.remove(transferId, job)
+            cameraTransferEnded(transferId)
             finishQueuedFile(transferId)
         }
     }
@@ -2057,6 +2138,7 @@ class PairingCoordinator(
         if (pendingPing?.first == deviceId) clearPingStatus()
         macActions.sessionEnded(deviceId)
         focusSync.sessionEnded(deviceId)
+        endCameraRequest(deviceId)
         health.disconnected(deviceId, reason, System.currentTimeMillis())
         // The power state at the moment of the drop: Doze, screen, saver, standby bucket, exemption.
         diagnostics.record("transport", "disconnected", reason, device = deviceId, detail = PowerFacts.summary(appContext))
@@ -2298,6 +2380,7 @@ class PairingCoordinator(
             "codes.advertise_result", "codes.link_request" -> receiveCodesMessage(current, message)
             "actions.catalog", "actions.result" -> receiveActionsMessage(current, message)
             "focus.state" -> receiveFocusMessage(current, message)
+            "camera.request" -> receiveCameraMessage(current, message)
             "notifications.action" -> receiveNotificationAction(current, message)
             "calls.request" -> receiveCallRequest(current, message)
             "find.start" -> receiveFindCommand(current, message, start = true)
@@ -2777,6 +2860,8 @@ class PairingCoordinator(
     }
 
     private fun removeFileTransfer(id: String, status: String, outcome: TransferEnd = TransferEnd.CANCELLED) {
+        // A camera photo that never started (queue stopped, disconnected): its request learns now.
+        if (outgoingFileJobs[id] == null) cameraTransferEnded(id)
         mutableFileTransfers.value[id]?.let { previous ->
             mutableFileTransfers.value = mutableFileTransfers.value.toMutableMap().apply {
                 put(id, previous.copy(
@@ -2977,6 +3062,7 @@ class PairingCoordinator(
         if (values.opt(dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY) == true) sendCodeStatus(current)
         // Focus sync: a Mac that understands it hears this phone's Do Not Disturb once per map.
         if (values.opt(dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY) == true && focusSync.advertised()) focusSync.peerReady(deviceId)
+        if (!isFeatureAvailable(BridgeyFeature.CAMERA, deviceId)) endCameraRequest(deviceId)
     }
 
     // MARK: Codes from messages (draft sms_codes_draft1)
@@ -3573,3 +3659,13 @@ private class AndroidTrustRegistry(context: Context) {
         TrustedDevice(id, preferences.getString("peer.$id.name", null) ?: "Unknown device")
     }.sortedBy { it.name.lowercase() }
 }
+
+/** The encrypted files.offer payload; a camera photo adds `cameraRequestId` (draft camera_draft1). */
+internal fun fileOfferPayload(transferId: String, name: String, mimeType: String, size: Long, sha256: String, cameraRequestId: String? = null): JSONObject =
+    JSONObject()
+        .put("transferId", transferId)
+        .put("name", name)
+        .put("mimeType", mimeType)
+        .put("size", size)
+        .put("sha256", sha256)
+        .apply { cameraRequestId?.let { put("cameraRequestId", it) } }

@@ -889,4 +889,29 @@
     <string name="focus_access_on">Allowed. Bridgey only turns off the Do Not Disturb it turned on.</string>
     <string name="focus_access_off">Needed to follow the Mac. Turn on Bridgey by Round Robin in Do Not Disturb access.</string>
     <string name="focus_note">Each direction is its own switch, and the Mac needs the matching one in its Settings. If you turned Do Not Disturb on yourself, a Mac\'s Focus ending leaves it on.</string>
+    <!-- Phone camera to Mac (camera_draft1) -->
+    <string name="feature_camera">Take photos for the Mac</string>
+    <string name="feature_camera_detail">%1$s can ask for a photo; you take it here</string>
+    <string name="settings_camera_detail">A Mac can ask for a photo, and you take it on this phone</string>
+    <string name="camera_title">Photo for %1$s</string>
+    <string name="camera_hint">The photo goes to the Mac as soon as you take it</string>
+    <string name="camera_shutter">Take photo</string>
+    <string name="camera_take_photo">Take photo</string>
+    <string name="camera_sending">Sending the photo to %1$s</string>
+    <string name="camera_ended">This request has ended. Ask again from the Mac.</string>
+    <string name="camera_failed">The photo could not be sent.</string>
+    <string name="camera_unavailable">The camera is not available right now. Close other camera apps and ask again from the Mac.</string>
+    <string name="camera_capture_failed">The photo could not be saved. Try again.</string>
+    <string name="camera_send_failed">The photo could not be sent to %1$s. Check that it is connected and Files is on.</string>
+    <string name="camera_permission_title">Allow the camera</string>
+    <string name="camera_permission_body">%1$s asked for a photo. Bridgey uses the camera only while this screen is open, and only for the photo you take.</string>
+    <string name="camera_permission_denied">The camera is off for Bridgey. To send %1$s a photo, allow Camera in app settings.</string>
+    <string name="camera_allow">Allow camera</string>
+    <string name="camera_open_settings">Open app settings</string>
+    <string name="camera_channel">Photos for the Mac</string>
+    <string name="camera_channel_detail">When a Mac asks this phone for a photo</string>
+    <string name="camera_unlock_title">Unlock your phone to take the photo</string>
+    <string name="camera_unlock_text">%1$s asked for a photo</string>
+    <string name="camera_ask_title">%1$s wants a photo</string>
+    <string name="camera_ask_text">Tap to open the camera</string>
 </resources>

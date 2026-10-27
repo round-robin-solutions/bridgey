@@ -98,6 +98,22 @@ object BridgeyIcons {
     val Lan: ImageVector by lazy { icon24("lan", MacActionPaths.ROUTE) }
     val Timer: ImageVector by lazy { icon24("timer", MacActionPaths.TIMER) }
 
+    /** A camera outline with its lens, drawn here (even-odd) in the 24 unit grid. */
+    val PhotoCamera: ImageVector by lazy {
+        ImageVector.Builder(name = "photo_camera", defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
+            .addPath(
+                pathData = addPathNodes(
+                    "M4.5,6.5H7.6L9.1,4.5H14.9L16.4,6.5H19.5Q21,6.5 21,8V18Q21,19.5 19.5,19.5H4.5Q3,19.5 3,18V8Q3,6.5 4.5,6.5Z" +
+                        "M4.5,8V18H19.5V8H15.65L14.15,6H9.85L8.35,8Z" +
+                        "M7.75,13.25A4.25,4.25 0 1 0 16.25,13.25A4.25,4.25 0 1 0 7.75,13.25Z" +
+                        "M9.25,13.25A2.75,2.75 0 1 0 14.75,13.25A2.75,2.75 0 1 0 9.25,13.25Z",
+                ),
+                fill = SolidColor(androidx.compose.ui.graphics.Color.Black),
+                pathFillType = androidx.compose.ui.graphics.PathFillType.EvenOdd,
+            )
+            .build()
+    }
+
     private fun icon24(name: String, pathData: String): ImageVector =
         ImageVector.Builder(name = name, defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
             .addPath(pathData = addPathNodes(pathData), fill = SolidColor(androidx.compose.ui.graphics.Color.Black))
