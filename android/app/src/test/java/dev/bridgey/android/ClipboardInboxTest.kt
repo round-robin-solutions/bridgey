@@ -41,8 +41,15 @@ class ClipboardInboxTest {
     private val cacheDir by lazy { File(folder.root, "clipboard-cache") }
     private val cache by lazy { ClipboardCache(cacheDir, { now }) }
 
-    private fun inbox(link: FakeLink? = FakeLink()): Pair<ClipboardInbox, FakeLink?> {
-        val inbox = ClipboardInbox(cache, { written += it; true }, { now }, startWatchdog = false)
+    private fun inbox(
+        link: FakeLink? = FakeLink(),
+        eagerLimit: Long = ClipLimits.DEFAULT_EAGER_LIMIT,
+        freeBytes: Long? = null,
+    ): Pair<ClipboardInbox, FakeLink?> {
+        val inbox = ClipboardInbox(
+            cache, { written += it; true }, { now }, startWatchdog = false,
+            eagerLimit = { eagerLimit }, freeBytes = { freeBytes },
+        )
         inbox.link = link
         inbox.listener = { events += it }
         return inbox to link
@@ -173,6 +180,63 @@ class ClipboardInboxTest {
         val other = UUID.randomUUID().toString()
         inbox.onTransferOffer(link, ClipTransferOffer(other, inbox.currentOfferId!!, 0, 11, null))
         assertEquals("files.cancel", link.sent.last().kind)
+    }
+
+    @Test
+    fun unrequestedPushesStayWithinThisPhonesOwnEagerLimit() {
+        val (inbox, link) = inbox(eagerLimit = 100)
+        val offer = fileOffer(60, 60)
+        inbox.accept(offer, link!!)
+        val first = UUID.randomUUID().toString()
+        inbox.onTransferOffer(link, ClipTransferOffer(first, offer.offerId, 0, 60, null))
+        assertEquals("files.accept", link.sent.last { it.transferId == first }.kind)
+        val second = UUID.randomUUID().toString()
+        inbox.onTransferOffer(link, ClipTransferOffer(second, offer.offerId, 1, 60, null))
+        assertEquals("over the limit together", "files.cancel", link.sent.last { it.transferId == second }.kind)
+        assertFalse(inbox.handles(second))
+
+        // "Always ask when pasting" takes no pushes at all; a paste still fetches.
+        val (asking, askingLink) = inbox(eagerLimit = 0)
+        val small = fileOffer(10)
+        asking.accept(small, askingLink!!)
+        val push = UUID.randomUUID().toString()
+        asking.onTransferOffer(askingLink, ClipTransferOffer(push, small.offerId, 0, 10, null))
+        assertEquals("files.cancel", askingLink.sent.last().kind)
+        assertTrue(asking.open(small.offerId, 0, allowFetch = true) is ClipOpen.Streaming)
+        assertEquals("clipboard.fetch", askingLink.sent.last().kind)
+    }
+
+    @Test
+    fun anUnrequestedPushNeedsFreeSpaceWithAMargin() {
+        val offer = fileOffer(1_000)
+        val (tight, tightLink) = inbox(freeBytes = ClipLimits.PUSH_FREE_SPACE_MARGIN + 999)
+        tight.accept(offer, tightLink!!)
+        val refused = UUID.randomUUID().toString()
+        tight.onTransferOffer(tightLink, ClipTransferOffer(refused, offer.offerId, 0, 1_000, null))
+        assertEquals("files.cancel", tightLink.sent.last().kind)
+        assertFalse(tight.handles(refused))
+
+        val roomy = fileOffer(1_000)
+        val (enough, enoughLink) = inbox(freeBytes = ClipLimits.PUSH_FREE_SPACE_MARGIN + 1_000)
+        enough.accept(roomy, enoughLink!!)
+        val accepted = UUID.randomUUID().toString()
+        enough.onTransferOffer(enoughLink, ClipTransferOffer(accepted, roomy.offerId, 0, 1_000, null))
+        assertEquals("files.accept", enoughLink.sent.last().kind)
+    }
+
+    @Test
+    fun anUnrequestedPushThatWouldOverfillTheCacheIsDeclined() {
+        // The offer description takes a few hundred bytes; one item fits, two do not.
+        val small = ClipboardCache(File(folder.root, "small-cache"), { now }, maxBytes = 2_000)
+        val link = FakeLink()
+        val inbox = ClipboardInbox(small, { true }, { now }, startWatchdog = false, freeBytes = { null }).apply { this.link = link }
+        val offer = fileOffer(1_000, 1_000)
+        inbox.accept(offer, link)
+        deliver(inbox, link, offer, 0, UUID.randomUUID().toString(), ByteArray(1_000))
+        val over = UUID.randomUUID().toString()
+        inbox.onTransferOffer(link, ClipTransferOffer(over, offer.offerId, 1, 1_000, null))
+        assertEquals("the current offer counts toward the cap", "files.cancel", link.sent.last().kind)
+        assertFalse(inbox.handles(over))
     }
 
     @Test

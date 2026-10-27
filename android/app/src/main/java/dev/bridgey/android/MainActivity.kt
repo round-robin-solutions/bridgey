@@ -445,10 +445,11 @@ class MainActivity : ComponentActivity() {
     private fun Intent.toSharedContent(): SharedContent? {
         if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return null
 
+        // Only another app's content URIs: never file:// paths or Bridgey's own providers (its keys, its cache).
         val streams = when (action) {
             Intent.ACTION_SEND_MULTIPLE -> streamUris()
             else -> listOfNotNull(streamUri())
-        }.distinct()
+        }.distinct().filter { isShareableStream(it.scheme, it.authority, packageName) }
         val sharedText = getCharSequenceExtra(Intent.EXTRA_TEXT)
             ?.toString()
             ?.takeIf { it.isNotBlank() && streams.isEmpty() }
@@ -1479,6 +1480,14 @@ private fun rediscoverMessage(context: android.content.Context, result: Rediscov
 }
 
 /** The snackbar line for a Mac action status, or null when the screen already shows it. */
+/** A shared stream Bridgey may read: a content URI from another app, not a file path or one of Bridgey's own providers. */
+internal fun isShareableStream(scheme: String?, authority: String?, applicationId: String): Boolean {
+    if (!scheme.equals(android.content.ContentResolver.SCHEME_CONTENT, ignoreCase = true) || authority.isNullOrEmpty()) return false
+    val owner = authority.substringAfterLast('@').lowercase()
+    val id = applicationId.lowercase()
+    return owner != id && !owner.startsWith("$id.")
+}
+
 internal fun macActionMessage(
     context: android.content.Context,
     status: dev.bridgey.android.actions.MacActionStatus,

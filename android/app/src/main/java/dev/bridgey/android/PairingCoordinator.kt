@@ -170,7 +170,10 @@ class PairingCoordinator(
 ) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    val quickActions = QuickActions(appContext, scope, { isFeatureAvailable(it) }, ::sendQuickPayload, ::linksOpenSupported)
+    val quickActions = QuickActions(
+        appContext, scope, { isFeatureAvailable(it) }, ::sendQuickPayload, ::linksOpenSupported,
+        availableFor = { feature, deviceId -> isFeatureAvailable(feature, deviceId) },
+    )
     private val registry = SessionRegistry<Session>(localDeviceId)
 
     /** Mac actions (draft `mac_actions_draft1`): each Mac's list, runs and results. */
@@ -310,12 +313,18 @@ class PairingCoordinator(
     private var findRingtone: Ringtone? = null
     /** Kept on disk, so the night's drops and retries are still in a report exported next morning. */
     private val diagnostics = BridgeyDiagnostics(limit = 1_000, file = java.io.File(appContext.noBackupFilesDir, "diagnostics.json"))
+
+    /** A ping plays a sound and a link request posts a notification: one per Mac every 2 s, extras dropped. */
+    private val pingAlerts = DeviceRateLimit(ALERT_INTERVAL_MILLIS)
+    private val codeLinkRequests = DeviceRateLimit(ALERT_INTERVAL_MILLIS)
     private val remoteCallRequest = RemoteCallRequest(appContext)
     private var lastRemoteCallRequestAt = 0L
     private val clipboardCache = ClipboardCache(java.io.File(appContext.noBackupFilesDir, CLIPBOARD_CACHE_DIRECTORY))
 
     /** Clips from the Macs: offers, the cache and the content provider's backend. */
-    internal val clipboardInbox = ClipboardInbox(clipboardCache, AndroidClipWriter(appContext))
+    internal val clipboardInbox = ClipboardInbox(
+        clipboardCache, AndroidClipWriter(appContext), eagerLimit = { settings.state.value.clipboardEagerLimit },
+    )
     private val clipboardOutbox = ClipboardOutbox(scope, ContentClipSourceOpener(appContext.contentResolver))
     private val mutableRemoteClipboardFiles = MutableStateFlow(false)
 
@@ -1491,6 +1500,11 @@ class PairingCoordinator(
         if (runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)).getInt("version") }.getOrNull() != 1) {
             return fail(current, "Invalid ping")
         }
+        if (!pingAlerts.allow(current.remoteDeviceId)) {
+            // Acknowledged, so the Mac does not report a lost ping, but no second sound within 2 s.
+            current.send(Message(kind = "ping.ack", sessionId = current.id, messageId = messageId))
+            return
+        }
         Handler(Looper.getMainLooper()).post {
             android.widget.Toast.makeText(appContext, "Ping from ${current.peerName}", android.widget.Toast.LENGTH_SHORT).show()
             RingtoneManager.getRingtone(appContext, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))?.play()
@@ -1674,9 +1688,11 @@ class PairingCoordinator(
     }
 
     /** Quick actions (links, media) go to the selected device. */
-    private fun sendQuickPayload(kind: String, payload: JSONObject): Boolean {
-        val current = sessionFor(null) ?: return false
-        if (current.pairingKey == null) return false
+    private fun sendQuickPayload(kind: String, payload: JSONObject): Boolean = sendQuickPayloadTo(sessionFor(null), kind, payload)
+
+    /** A quick payload to [current]; answers go back on the session the request came in on. */
+    private fun sendQuickPayloadTo(current: Session?, kind: String, payload: JSONObject): Boolean {
+        if (current == null || current.pairingKey == null) return false
         val data = payload.toString().toByteArray(Charsets.UTF_8)
         scope.launch { sendEncrypted(current, kind, data) }
         return true
@@ -1701,7 +1717,7 @@ class PairingCoordinator(
             current.media = payload
             if (registry.target(selectedDeviceId) != current.remoteDeviceId) return
         }
-        quickActions.receive(message.kind, payload)
+        quickActions.receive(message.kind, payload, current.remoteDeviceId) { kind, reply -> sendQuickPayloadTo(current, kind, reply) }
     }
 
     /**
@@ -1723,7 +1739,8 @@ class PairingCoordinator(
     ): List<DeviceConnection> {
         val targets = broadcastTargets(BridgeyFeature.NOTIFICATIONS)
         if (targets.isEmpty()) return emptyList()
-        val payload = JSONObject()
+        // A Mac with Calls off still sees the call, but gets no Answer, Decline or Hang Up.
+        fun payload(callsEnabled: Boolean) = JSONObject()
             .put("packageName", packageName.take(256))
             .put("applicationName", applicationName.take(128))
             .put("notificationId", notificationId.take(512))
@@ -1742,7 +1759,7 @@ class PairingCoordinator(
                 if (smsDefaultApp && redacted != null) put("redacted", redacted)
             }
             .put("actions", JSONArray().apply {
-                actions.take(4).forEach { action ->
+                forwardedActionsFor(actions, callType != null, callsEnabled).take(4).forEach { action ->
                     put(JSONObject()
                         .put("actionToken", action.token)
                         .put("title", action.title.take(64))
@@ -1751,9 +1768,12 @@ class PairingCoordinator(
             })
             .toString()
             .toByteArray()
+        val withCalls by lazy { payload(callsEnabled = true) }
+        val withoutCalls by lazy { payload(callsEnabled = false) }
         scope.launch {
             targets.forEach { current ->
-                if (sendEncrypted(current, "notifications.post", payload)) {
+                val callsEnabled = callType == null || settings.isEnabled(BridgeyFeature.CALLS, current.remoteDeviceId)
+                if (sendEncrypted(current, "notifications.post", if (callsEnabled) withCalls else withoutCalls)) {
                     // Text messages can carry codes: their content never reaches the log, whatever Logging says.
                     BridgeyLogging.line(
                         LogLines.notification(
@@ -2864,7 +2884,10 @@ class PairingCoordinator(
         if (notificationId.isBlank() || notificationId.length > 512 ||
             !actionToken.matches(Regex("[0-9a-f]{64}")) ||
             (replyText?.length ?: 0) > 4_096) return fail(current, "Invalid notification action")
-        BridgeyNotificationListenerService.perform(notificationId, actionToken, replyText)
+        BridgeyNotificationListenerService.perform(
+            notificationId, actionToken, replyText,
+            callsEnabled = settings.isEnabled(BridgeyFeature.CALLS, current.remoteDeviceId),
+        )
         diagnostics.record("notification", if (replyText == null) "action_requested" else "reply_requested")
     }
 
@@ -3062,29 +3085,50 @@ class PairingCoordinator(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             return fail(current, "Receiving files requires Android 10 or newer")
         }
-        // Single files land in Download/Bridgey through MediaStore: refuse up front when the file plus 64 MiB does
-        // not fit, instead of failing when the disk fills mid-way. The answer is the existing outer files.cancel
+        // Single files land in Download/Bridgey through MediaStore: refuse up front when the file, what the files
+        // already arriving still need, plus 64 MiB do not fit, instead of failing when the disk fills mid-way; and
+        // refuse with busy past 4 files from one Mac or 8 in all. The answer is the existing outer files.cancel
         // (the Mac ends the file and moves on), with an encrypted {transferId, code, neededBytes, freeBytes} a newer
         // Mac can read; older Macs ignore it.
         val free = runCatching { dev.bridgey.android.folders.MediaStoreTreeStore(appContext.contentResolver).freeBytes() }.getOrNull()
-        val needed = size + dev.bridgey.android.folders.FolderLimits.SPACE_MARGIN
-        if (free != null && free < needed) {
-            val detail = JSONObject().put("version", 1).put("transferId", transferId)
-                .put("code", dev.bridgey.android.folders.FolderCodes.INSUFFICIENT_SPACE).put("neededBytes", needed).put("freeBytes", free)
+        val deviceId = current.remoteDeviceId
+        val (admission, transfer) = synchronized(incomingFiles) {
+            val inFlight = incomingFiles.entries.toList()
+            val admission = incomingFileAdmission(
+                size = size,
+                deviceInFlight = inFlight.count { transferDevices[it.key] == deviceId },
+                totalInFlight = inFlight.size,
+                reservedBytes = inFlight.sumOf { it.value.expectedSize - it.value.receivedSize },
+                freeBytes = free,
+            )
+            val created = if (admission == IncomingFileAdmission.Accept) {
+                runCatching { IncomingFileTransfer(appContext, transferId, name, mimeType, size, hash) }.getOrNull()?.also {
+                    incomingFiles[transferId] = it
+                    transferDevices[transferId] = deviceId
+                }
+            } else {
+                null
+            }
+            admission to created
+        }
+        if (admission != IncomingFileAdmission.Accept) {
+            val code = if (admission is IncomingFileAdmission.NoSpace) {
+                dev.bridgey.android.folders.FolderCodes.INSUFFICIENT_SPACE
+            } else {
+                dev.bridgey.android.folders.FolderCodes.BUSY
+            }
+            val detail = JSONObject().put("version", 1).put("transferId", transferId).put("code", code)
+            if (admission is IncomingFileAdmission.NoSpace) detail.put("neededBytes", admission.neededBytes).put("freeBytes", admission.freeBytes)
             val encrypted = Crypto.encrypt(current.pairingKey!!, detail.toString().toByteArray(Charsets.UTF_8))
             current.send(Message(kind = "files.cancel", sessionId = current.id, messageId = UUID.randomUUID().toString(), transferId = transferId,
                 nonce = encrypted.nonce, ciphertext = encrypted.ciphertext))
             markTransferCancelled(transferId)
-            mutableFileTransferStatus.value = appContext.getString(R.string.file_receive_no_space)
-            diagnostics.record("transfer", "receive_refused", "insufficient_space")
-            BridgeyLogging.i(LogCategory.FILES, "FILE refused code=insufficient_space transfer=${transferId.take(8)}")
+            if (admission is IncomingFileAdmission.NoSpace) mutableFileTransferStatus.value = appContext.getString(R.string.file_receive_no_space)
+            diagnostics.record("transfer", "receive_refused", code)
+            BridgeyLogging.i(LogCategory.FILES, "FILE refused code=$code transfer=${transferId.take(8)}")
             return
         }
-        val transfer = runCatching {
-            IncomingFileTransfer(appContext, transferId, name, mimeType, size, hash)
-        }.getOrElse { return fail(current, "Could not create file in Downloads") }
-        incomingFiles[transferId] = transfer
-        transferDevices[transferId] = current.remoteDeviceId
+        if (transfer == null) return fail(current, "Could not create file in Downloads")
         updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: ${transfer.progress.status(0, force = true)}", true)
         current.send(Message(kind = "files.accept", sessionId = current.id, transferId = transferId))
         BridgeyLogging.i(LogCategory.FILES, LogLines.file(BridgeyLogging.policy, "accepted", transferId, transfer.displayName, "size=$size"))
@@ -3147,7 +3191,7 @@ class PairingCoordinator(
             return fail(current, "File verification failed")
         }
         updateFileTransfer(transferId, transfer.displayName, "${transfer.displayName} saved to Download/Bridgey", false, TransferEnd.RECEIVED)
-        ReceivedFileNotifier.show(appContext, transfer.displayName, transfer.mimeType, savedUri)
+        ReceivedFileNotifier.show(appContext, transfer.displayName, savedUri)
         current.send(Message(kind = "files.complete.ack", sessionId = current.id, transferId = transferId))
         BridgeyLogging.i(LogCategory.FILES, LogLines.file(BridgeyLogging.policy, "received", transferId, transfer.displayName))
     }
@@ -3497,6 +3541,7 @@ class PairingCoordinator(
             }
             "codes.link_request" -> {
                 if (!settings.isEnabled(BridgeyFeature.NOTIFICATIONS, current.remoteDeviceId)) return
+                if (!codeLinkRequests.allow(current.remoteDeviceId)) return
                 val deviceId = current.remoteDeviceId
                 val name = current.peerName
                 mainHandler.post { codeLinkRequested(deviceId, name) }

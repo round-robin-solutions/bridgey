@@ -43,6 +43,9 @@ internal object ClipLimits {
     const val CACHE_MAX_AGE_MILLIS = 24L * 60 * 60 * 1000
     const val CACHE_MAX_BYTES = 2_000_000_000L
 
+    /** An unrequested push leaves at least this much free on the phone. */
+    const val PUSH_FREE_SPACE_MARGIN = 64L * 1024 * 1024
+
     /** Settings > Clipboard > Send right away up to. 0 is "Always ask when pasting". */
     val EAGER_LIMIT_CHOICES = listOf(5_000_000L, 25_000_000L, 100_000_000L, 0L)
     const val DEFAULT_EAGER_LIMIT = 25_000_000L
