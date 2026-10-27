@@ -28,7 +28,8 @@ final class ProtocolFuzzTests: XCTestCase {
             .compactMap { $0["line"] as? String }
             .map { $0.trimmingCharacters(in: .whitespaces) }
         for group in ["featuresUpdate", "batteryUpdate", "clipboardRich", "clipboardOffer", "remoteInput", "browseRef",
-                      "focusState", "actionsCatalog", "actionsRun", "actionsResult", "cameraRequest", "cameraStatus"] {
+                      "focusState", "actionsCatalog", "actionsRun", "actionsResult", "cameraRequest", "cameraStatus",
+                      "updatesStatus", "updatesStart", "updatesResult"] {
             for vector in vectors[group] as! [[String: Any]] {
                 if let raw = vector["plaintextString"] as? String { samples.append(Data(raw.utf8)) }
                 else if let object = vector["plaintext"], let data = try? JSONSerialization.data(withJSONObject: object, options: .fragmentsAllowed) { samples.append(data) }
@@ -179,6 +180,18 @@ final class ProtocolFuzzTests: XCTestCase {
                 if let action = run.action, let id = MacActionID(wire: action) { XCTAssertEqual(id.wire, action) }
             }
             if decodeCameraStatus(payload) != nil { XCTAssertLessThanOrEqual(payload.count, 512) }
+            // Update all: what is accepted stays within the contract's limits.
+            if let status = PeerUpdateStatus.decode(payload) {
+                XCTAssertLessThanOrEqual(payload.count, UpdateLimits.statusBytes)
+                XCTAssertTrue((1...UpdateLimits.maximumInteger).contains(status.build))
+                XCTAssertTrue((1...64).contains(status.app.utf8.count))
+                if let progress = status.progress { XCTAssertTrue((0...100).contains(progress)) }
+            }
+            if let request = UpdateStartRequest.decode(payload) {
+                XCTAssertLessThanOrEqual(payload.count, UpdateLimits.startBytes)
+                XCTAssertNotNil(UUID(uuidString: request.requestID))
+            }
+            if UpdateStartResult.decode(payload) != nil { XCTAssertLessThanOrEqual(payload.count, UpdateLimits.resultBytes) }
         }
     }
 
