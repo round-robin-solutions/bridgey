@@ -30,6 +30,7 @@ class ManifestPermissionsTest {
                 "android.permission.READ_LOGS",
                 "android.permission.SYSTEM_ALERT_WINDOW",
                 "android.permission.READ_MEDIA_IMAGES",
+                "android.permission.READ_MEDIA_VIDEO",
                 "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
                 "android.permission.READ_EXTERNAL_STORAGE",
             ),

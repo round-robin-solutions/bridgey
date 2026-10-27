@@ -25,6 +25,9 @@
          taken in the last minute. Selected photos only (Android 14+) is declared so it can be told
          apart from full access; it cannot see new screenshots. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- Files 2.0: the attach sheet's Photos and videos tab (asked once, inline) and, with
+         "Let other devices browse this phone", the Mac's Media section. Never MANAGE_EXTERNAL_STORAGE. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
