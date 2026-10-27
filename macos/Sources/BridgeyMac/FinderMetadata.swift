@@ -1,3 +1,4 @@
+import CoreServices
 import Darwin
 import Foundation
 
@@ -8,6 +9,7 @@ import Foundation
 
 enum FinderMetadata {
     static let whereFromsAttribute = "com.apple.metadata:kMDItemWhereFroms"
+    static let quarantineAttribute = "com.apple.quarantine"
     static let tag = "Bridgey"
 
     /// "Bridgey: OnePlus 11".
@@ -29,6 +31,23 @@ enum FinderMetadata {
         let read = data.withUnsafeMutableBytes { getxattr(url.path, whereFromsAttribute, $0.baseAddress, size, 0, XATTR_NOFOLLOW) }
         guard read == size else { return nil }
         return (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String]
+    }
+
+    /// Marks a received file or folder as downloaded (com.apple.quarantine), as browsers do, so
+    /// macOS checks it before it first opens. Set before the item is moved into place.
+    @discardableResult
+    static func quarantine(_ url: URL) -> Bool {
+        var values = URLResourceValues()
+        values.quarantineProperties = [
+            kLSQuarantineAgentNameKey as String: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Bridgey",
+            kLSQuarantineTypeKey as String: kLSQuarantineTypeOtherDownload as String,
+        ]
+        var target = url
+        return (try? target.setResourceValues(values)) != nil
+    }
+
+    static func isQuarantined(_ url: URL) -> Bool {
+        getxattr(url.path, quarantineAttribute, nil, 0, 0, XATTR_NOFOLLOW) > 0
     }
 
     /// Adds the Bridgey Finder tag, keeping the item's other tags.

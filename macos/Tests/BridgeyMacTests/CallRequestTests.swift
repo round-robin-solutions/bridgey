@@ -16,6 +16,15 @@ final class CallRequestTests: XCTestCase {
         XCTAssertNil(normalizedPhoneNumber("١٢٣٤٥"))
     }
 
+    func testOnlyCallsFromOtherAppsAreConfirmed() {
+        XCTAssertFalse(CallRequestSource.bridgey.needsConfirmation)
+        XCTAssertTrue(CallRequestSource.link.needsConfirmation)
+        XCTAssertTrue(CallRequestSource.service.needsConfirmation)
+        XCTAssertEqual(callConfirmationTitle(number: "+12345", phoneName: "OnePlus 11"), "Call +12345 from OnePlus 11?")
+        XCTAssertEqual(callConfirmationTitle(number: "12345", phoneName: nil), "Call 12345 from your phone?")
+        XCTAssertEqual(callConfirmationTitle(number: "12345", phoneName: ""), "Call 12345 from your phone?")
+    }
+
     func testColdLaunchCallWaitsForConnectionAndFeatureNegotiation() {
         XCTAssertFalse(pendingPhoneCallCanDispatch(isConnected: false, featureStateReceived: false))
         XCTAssertFalse(pendingPhoneCallCanDispatch(isConnected: true, featureStateReceived: false))
