@@ -16,6 +16,61 @@ final class SessionSecurityTests: XCTestCase {
         }
     }
 
+    private func dialler(committed: Bool = true, hasKey: Bool = false) -> PairingPosition {
+        PairingPosition(initiatedLocally: true, committed: committed, holdsRemoteCommitment: false, hasSessionKey: hasKey)
+    }
+
+    private func dialled(holdsCommitment: Bool = false, hasKey: Bool = false) -> PairingPosition {
+        PairingPosition(initiatedLocally: false, committed: false, holdsRemoteCommitment: holdsCommitment, hasSessionKey: hasKey)
+    }
+
+    /// Attack: commit in the offer, then send an answer with a key chosen after seeing the responder's.
+    func testAnAnswerSentToTheDialledEndInsteadOfARevealIsRefused() {
+        let afterCommittedOffer = dialled(holdsCommitment: true)
+        XCTAssertFalse(PairingRules.acceptsAnswer(afterCommittedOffer))
+        XCTAssertTrue(PairingRules.acceptsReveal(afterCommittedOffer))
+        XCTAssertFalse(PairingRules.acceptsOffer(afterCommittedOffer))
+        XCTAssertFalse(PairingRules.acceptsAnswer(dialled()))
+        XCTAssertFalse(PairingRules.acceptsAnswer(dialled(hasKey: true)))
+        let afterReveal = dialled(holdsCommitment: true, hasKey: true)
+        XCTAssertFalse(PairingRules.acceptsReveal(afterReveal))
+        XCTAssertFalse(PairingRules.acceptsAnswer(afterReveal))
+    }
+
+    func testTheDiallerTakesOnlyOneAnswerAndNeverAnOfferOrReveal() {
+        XCTAssertTrue(PairingRules.acceptsAnswer(dialler()))
+        XCTAssertFalse(PairingRules.acceptsAnswer(dialler(hasKey: true)))
+        XCTAssertFalse(PairingRules.acceptsReveal(dialler()))
+        XCTAssertFalse(PairingRules.acceptsOffer(dialler()))
+        XCTAssertTrue(PairingRules.acceptsOffer(dialled()))
+        XCTAssertFalse(PairingRules.acceptsOffer(dialled(hasKey: true)))
+    }
+
+    /// Attack: answer committed offers one after another and give up before each reveal, to try codes for free.
+    func testAnsweredOffersThatNeverRevealStillUseUpPairingAttempts() {
+        var limiter = InboundPairingLimiter()
+        let start = Date(timeIntervalSince1970: 1_000)
+        var answered = 0
+        for attempt in 0..<10 where PairingRules.chargesInboundAttempt(initiatedLocally: false, trusted: false) {
+            if limiter.tryAcquire(now: start + Double(attempt)) { answered += 1 }
+        }
+        XCTAssertEqual(answered, 3)
+        XCTAssertFalse(PairingRules.chargesInboundAttempt(initiatedLocally: false, trusted: true))
+        XCTAssertFalse(PairingRules.chargesInboundAttempt(initiatedLocally: true, trusted: false))
+    }
+
+    /// Attack: answer a reconnect dial under a trusted ID in different letter case, hoping for a code prompt.
+    func testAReconnectDialThatDidNotCommitNeverPrompts() {
+        XCTAssertFalse(PairingRules.mayPromptUntrusted(dialler(committed: false, hasKey: true)))
+        XCTAssertTrue(PairingRules.mayPromptUntrusted(dialler(committed: true, hasKey: true)))
+        XCTAssertTrue(PairingRules.mayPromptUntrusted(dialled(holdsCommitment: true, hasKey: true)))
+    }
+
+    /// Attack: relay a 0.9-style offer (key, no commitment) to this end and grind the other leg to the same code.
+    func testAFirstPairingFromAnOfferWithoutCommitmentNeverPrompts() {
+        XCTAssertFalse(PairingRules.mayPromptUntrusted(dialled(holdsCommitment: false, hasKey: true)))
+    }
+
     func testPendingConnectionsAreCappedInAllAndPerAddress() {
         XCTAssertTrue(admitsPendingConnection(pendingHosts: [], host: "10.0.0.2"))
         XCTAssertTrue(admitsPendingConnection(pendingHosts: ["10.0.0.2", "10.0.0.2"], host: "10.0.0.2"))

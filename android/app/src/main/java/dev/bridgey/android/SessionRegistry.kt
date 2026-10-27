@@ -76,6 +76,13 @@ internal class SessionRegistry<S : Any>(private val localDeviceId: String) {
         pending[session] = Entry(session, initiatedLocally)
     }
 
+    /** Adds [session] as pending only when [admit], given the pending sessions, agrees; check and add are one step. */
+    fun addPendingIf(session: S, initiatedLocally: Boolean, admit: (List<S>) -> Boolean): Boolean = synchronized(lock) {
+        if (!admit(pending.keys.toList())) return@synchronized false
+        pending[session] = Entry(session, initiatedLocally)
+        true
+    }
+
     fun pendingSessions(): List<S> = synchronized(lock) { pending.keys.toList() }
 
     fun isPending(session: S): Boolean = synchronized(lock) { session in pending }

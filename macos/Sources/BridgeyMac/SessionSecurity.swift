@@ -108,6 +108,38 @@ struct ProtocolPins {
     func remove(_ deviceID: String) { defaults.removeObject(forKey: key(deviceID)) }
 }
 
+/// Where one end of a pairing stands, for `PairingRules`: who dialled, whether this end committed to its key,
+/// whether it holds the other end's commitment, and whether the session key exists yet.
+struct PairingPosition: Equatable {
+    var initiatedLocally: Bool
+    var committed: Bool
+    var holdsRemoteCommitment: Bool
+    var hasSessionKey: Bool
+}
+
+/// Which pairing frames each end may act on. The order is what keeps the code honest: the end that answers fixes
+/// its key before the dialler's key is revealed, and the dialler committed to its key before it saw the answer.
+enum PairingRules {
+    /// Only the end that was dialled takes an offer, once.
+    static func acceptsOffer(_ p: PairingPosition) -> Bool { !p.initiatedLocally && !p.hasSessionKey && !p.holdsRemoteCommitment }
+
+    /// Only the dialler takes an answer. An answer sent to the dialled end would replace the reveal.
+    static func acceptsAnswer(_ p: PairingPosition) -> Bool { p.initiatedLocally && !p.holdsRemoteCommitment && !p.hasSessionKey }
+
+    /// Only the dialled end takes a reveal, and only after a committed offer.
+    static func acceptsReveal(_ p: PairingPosition) -> Bool { !p.initiatedLocally && p.holdsRemoteCommitment && !p.hasSessionKey }
+
+    /// Whether an untrusted device may get the code prompt: only when the dialler committed to its key. A dialler that
+    /// did not commit (a reconnect to what it thought was a trusted device) never prompts, and neither does the dialled
+    /// end after a plain protocol 1 offer: a man in the middle could answer that offer's sender with a key ground to
+    /// match the code it already saw from this end.
+    static func mayPromptUntrusted(_ p: PairingPosition) -> Bool { p.initiatedLocally ? p.committed : p.holdsRemoteCommitment }
+
+    /// An offer from a device that is not trusted costs one `InboundPairingLimiter` slot when it is answered, whether
+    /// or not it ever reaches the code, so an attacker cannot try codes faster by giving up before the reveal.
+    static func chargesInboundAttempt(initiatedLocally: Bool, trusted: Bool) -> Bool { !initiatedLocally && !trusted }
+}
+
 /// A peer-supplied device name made safe to show: no control or bidi characters, at most 64 characters.
 func sanitizedPeerName(_ name: String?, fallback: String) -> String {
     let bidi: Set<Unicode.Scalar> = [

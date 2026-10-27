@@ -2411,8 +2411,10 @@ class PairingCoordinator(
         if (!initiatedLocally) {
             BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT inbound connection address=${current.remoteHost?.let(::addressTag) ?: "unknown"}")
             // Connections that have not authenticated yet are capped, in all and per address.
-            val pendingHosts = registry.pendingSessions().filterNot { it.initiatedLocally }.map { it.remoteHost }
-            if (!admitsPendingConnection(pendingHosts, current.remoteHost)) {
+            val admitted = registry.addPendingIf(current, initiatedLocally = false) { pendingSessions ->
+                admitsPendingConnection(pendingSessions.filterNot { it.initiatedLocally }.map { it.remoteHost }, current.remoteHost)
+            }
+            if (!admitted) {
                 BridgeyLogging.w(LogCategory.CONNECTION, "TRANSPORT inbound connection refused: too many unauthenticated connections")
                 diagnostics.record("transport", "inbound_refused", "pending_limit")
                 current.close()
@@ -2420,7 +2422,7 @@ class PairingCoordinator(
             }
         }
         current.tagSender = localDeviceId
-        registry.addPending(current, initiatedLocally)
+        if (initiatedLocally) registry.addPending(current, initiatedLocally)
         if (manual) pairingSession = current
         if (initiatedLocally) {
             current.peerName = peerHint ?: "Mac"
@@ -2574,7 +2576,7 @@ class PairingCoordinator(
                 }
             }
             "pairing.offer" -> {
-                if (current.initiatedLocally || current.pairingKey != null) return
+                if (!PairingRules.acceptsOffer(current.position())) return
                 // A reconnect meant for another device (it dialled an address that is now ours):
                 // close without a pairing prompt.
                 if (message.targetDeviceId != null && !message.targetDeviceId.equals(localDeviceId, ignoreCase = true)) {
@@ -2582,13 +2584,24 @@ class PairingCoordinator(
                     current.close()
                     return
                 }
-                if (current.remoteCommitment != null) return
                 current.id = message.sessionId
                 current.peerName = sanitizedPeerName(message.deviceName, "Android device")
                 current.remoteDeviceId = message.deviceId ?: return
                 current.remoteProtocol = message.protocolVersion ?: 1L
                 val revealed = message.publicKey
                 if (revealed == null && (message.commitment == null || current.remoteProtocol < SessionSecurity.PROTOCOL_VERSION)) return
+                // Every answered offer from an untrusted device costs a slot, even one that never reveals.
+                val trusted = trust.identityKey(current.remoteDeviceId) != null
+                if (PairingRules.chargesInboundAttempt(current.initiatedLocally, trusted) &&
+                    !inboundPairingLimiter.tryAcquire(SystemClock.elapsedRealtime())
+                ) {
+                    BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING rejected: too many pairing attempts")
+                    diagnostics.record("pairing", "inbound_refused", "rate_limited")
+                    current.failure = PairingFailure.BUSY
+                    current.send(Message(kind = "pairing.cancel", sessionId = current.id))
+                    current.close()
+                    return
+                }
                 current.keyPair = Crypto.generateKeyPair()
                 current.localEphemeralKey = Crypto.encodePublicKey(current.keyPair!!)
                 val answer = Message(
@@ -2611,8 +2624,8 @@ class PairingCoordinator(
                 authenticateOrPrompt(current)
             }
             "pairing.reveal" -> {
+                if (!PairingRules.acceptsReveal(current.position()) || message.sessionId != current.id) return
                 val commitment = current.remoteCommitment ?: return
-                if (message.sessionId != current.id || current.pairingKey != null) return
                 val revealed = message.publicKey
                 if (revealed == null || !SessionSecurity.commitmentMatches(commitment, current.id, revealed)) {
                     return failHandshake(current, PairingFailure.CODE_REJECTED, "Pairing commitment did not match")
@@ -2625,7 +2638,12 @@ class PairingCoordinator(
                 authenticateOrPrompt(current)
             }
             "pairing.answer" -> {
-                if (message.sessionId != current.id || current.pairingKey != null) return
+                if (message.sessionId != current.id) return
+                if (!PairingRules.acceptsAnswer(current.position())) {
+                    // An answer to the dialled end would stand in for the reveal with a key chosen afterwards.
+                    if (!current.initiatedLocally) failHandshake(current, PairingFailure.INVALID, "Unexpected pairing answer")
+                    return
+                }
                 // A reconnect reached some other device at the old address: never prompt to pair it.
                 val expected = current.dialDeviceId
                 if (expected != null && !expected.equals(message.deviceId, ignoreCase = true)) {
@@ -3287,11 +3305,17 @@ class PairingCoordinator(
             confirm(current)
             return
         }
+        // A first pairing needs the dialler's commitment (protocol 2 on both ends); without it the code proves nothing.
+        if (!PairingRules.mayPromptUntrusted(current.position())) {
+            current.dropReason = if (current.initiatedLocally) "wrong_device" else "pairing_needs_protocol_2"
+            current.send(Message(kind = "pairing.cancel", sessionId = current.id))
+            return failHandshake(current, PairingFailure.INVALID, "Pairing without a key commitment refused")
+        }
         // A new device: it needs the code prompt, which belongs to one pairing at a time. A pairing this phone
-        // started keeps the prompt even before its code is ready, and other devices may start only a few a minute.
+        // started keeps the prompt even before its code is ready. Other devices were rate limited at the offer.
         val existing = pairingSession
         val busy = existing != null && existing !== current && !existing.closed && (existing.code != null || existing.initiatedLocally)
-        if (busy || (!current.initiatedLocally && !inboundPairingLimiter.tryAcquire(SystemClock.elapsedRealtime()))) {
+        if (busy) {
             BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING rejected: another pairing is waiting for confirmation")
             current.failure = PairingFailure.BUSY
             current.send(Message(kind = "pairing.cancel", sessionId = current.id))
@@ -3683,6 +3707,8 @@ class PairingCoordinator(
 
         /** Frames dropped for arriving before authentication or with a bad tag; the session closes at 16. */
         var droppedFrames = 0
+
+        fun position() = PairingPosition(initiatedLocally, committed, remoteCommitment != null, pairingKey != null)
         @Volatile var localConfirmed = false
         @Volatile var remoteConfirmed = false
 

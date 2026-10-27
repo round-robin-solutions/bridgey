@@ -20,6 +20,83 @@ class SessionSecurityTest {
         ).forEach { assertFalse(it, SessionSecurity.allowedBeforeAuthentication(it)) }
     }
 
+    private fun dialler(committed: Boolean = true, hasKey: Boolean = false) =
+        PairingPosition(initiatedLocally = true, committed = committed, holdsRemoteCommitment = false, hasSessionKey = hasKey)
+
+    private fun dialled(holdsCommitment: Boolean = false, hasKey: Boolean = false) =
+        PairingPosition(initiatedLocally = false, committed = false, holdsRemoteCommitment = holdsCommitment, hasSessionKey = hasKey)
+
+    /** Attack: commit in the offer, then send an answer with a key chosen after seeing the responder's. */
+    @Test
+    fun anAnswerSentToTheDialledEndInsteadOfARevealIsRefused() {
+        val afterCommittedOffer = dialled(holdsCommitment = true)
+        assertFalse(PairingRules.acceptsAnswer(afterCommittedOffer))
+        assertTrue(PairingRules.acceptsReveal(afterCommittedOffer))
+        assertFalse(PairingRules.acceptsOffer(afterCommittedOffer))
+        // Before any offer, and after a plain offer, the dialled end takes no answer either.
+        assertFalse(PairingRules.acceptsAnswer(dialled()))
+        assertFalse(PairingRules.acceptsAnswer(dialled(hasKey = true)))
+        // Once the reveal set the key, nothing else replaces it.
+        val afterReveal = dialled(holdsCommitment = true, hasKey = true)
+        assertFalse(PairingRules.acceptsReveal(afterReveal))
+        assertFalse(PairingRules.acceptsAnswer(afterReveal))
+    }
+
+    @Test
+    fun theDiallerTakesOnlyOneAnswerAndNeverAnOfferOrReveal() {
+        assertTrue(PairingRules.acceptsAnswer(dialler()))
+        assertFalse(PairingRules.acceptsAnswer(dialler(hasKey = true)))
+        assertFalse(PairingRules.acceptsReveal(dialler()))
+        assertFalse(PairingRules.acceptsOffer(dialler()))
+        assertTrue(PairingRules.acceptsOffer(dialled()))
+        assertFalse(PairingRules.acceptsOffer(dialled(hasKey = true)))
+    }
+
+    /** Attack: answer committed offers one after another and give up before each reveal, to try codes for free. */
+    @Test
+    fun answeredOffersThatNeverRevealStillUseUpPairingAttempts() {
+        val limiter = InboundPairingLimiter()
+        var answered = 0
+        for (attempt in 0 until 10) {
+            if (PairingRules.chargesInboundAttempt(initiatedLocally = false, trusted = false) && limiter.tryAcquire(attempt * 1_000L)) answered++
+        }
+        assertEquals(3, answered)
+        // Trusted reconnects and this device's own dials do not count.
+        assertFalse(PairingRules.chargesInboundAttempt(initiatedLocally = false, trusted = true))
+        assertFalse(PairingRules.chargesInboundAttempt(initiatedLocally = true, trusted = false))
+    }
+
+    /** Attack: answer a reconnect dial under a trusted ID in different letter case, hoping for a code prompt. */
+    @Test
+    fun aReconnectDialThatDidNotCommitNeverPrompts() {
+        assertFalse(PairingRules.mayPromptUntrusted(dialler(committed = false, hasKey = true)))
+        assertTrue(PairingRules.mayPromptUntrusted(dialler(committed = true, hasKey = true)))
+        assertTrue(PairingRules.mayPromptUntrusted(dialled(holdsCommitment = true, hasKey = true)))
+    }
+
+    /** Attack: relay a 0.9-style offer (key, no commitment) to this end and grind the other leg to the same code. */
+    @Test
+    fun aFirstPairingFromAnOfferWithoutCommitmentNeverPrompts() {
+        assertFalse(PairingRules.mayPromptUntrusted(dialled(holdsCommitment = false, hasKey = true)))
+    }
+
+    @Test
+    fun pendingAdmissionChecksAndAddsInOneStep() {
+        val registry = SessionRegistry<Any>("local")
+        val admitted = java.util.concurrent.atomic.AtomicInteger()
+        val start = java.util.concurrent.CountDownLatch(1)
+        val threads = List(64) {
+            Thread {
+                start.await()
+                if (registry.addPendingIf(Any(), initiatedLocally = false) { it.size < 8 }) admitted.incrementAndGet()
+            }.also(Thread::start)
+        }
+        start.countDown()
+        threads.forEach(Thread::join)
+        assertEquals(8, admitted.get())
+        assertEquals(8, registry.pendingSessions().size)
+    }
+
     @Test
     fun pendingConnectionsAreCappedInAllAndPerAddress() {
         assertTrue(admitsPendingConnection(emptyList(), "10.0.0.2"))

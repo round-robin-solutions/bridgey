@@ -37,7 +37,11 @@ middle, and when both ends speak protocol 2 every frame after pairing carries an
 HMAC tag over its whole envelope and its sender, so headers can no longer be
 rewritten, replayed under a new message ID or reflected (see `docs/protocol.md`
 and `docs/security-review-0.10.md`). Replay caches are bounded and
-session-local. This is not a claim of independent cryptographic audit or a
+session-local. `protocolVersion` is not part of the signed transcript, so an
+attacker who is on the path every time two devices paired under 0.9 connect can
+keep that pair on protocol 1 (no envelope tags) until one session gets through
+on protocol 2, after which the pair is pinned. Pairing again under 0.10 avoids
+this. This is not a claim of independent cryptographic audit or a
 complete active-network-attacker defense.
 
 The following items describe the target security design; in particular TLS,

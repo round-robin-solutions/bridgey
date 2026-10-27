@@ -138,7 +138,9 @@ do (protocol 2, v0.10):
 Because neither side can choose its ephemeral key after seeing the other's, an
 active attacker in the middle cannot search for keys that make the two codes
 match; each attempt is a one in a million guess that the user sees as a new
-prompt. Prompts started by another device are limited to three a minute.
+prompt. Pairing frames are only taken in order (the dialled end takes the offer
+and the reveal, the dialler the answer), so an answer cannot stand in for the
+reveal. Offers from other devices are limited to three a minute.
 
 When both ends sent `protocolVersion: 2`, every frame after pairing carries
 `tag`: base64 HMAC-SHA-256, under HMAC(session key, `bridgey-envelope-v2`), of the
@@ -150,10 +152,14 @@ pinned to it, so a later session without tags is refused. Shared vectors are in
 `protocol/test-vectors/crypto-v1.properties` (from
 `protocol/tools/crypto_v2_vectors.py`).
 
-Compatibility: a protocol 1 client (0.9 and earlier) still reconnects to a
-trusted protocol 2 client until the pair has once connected on protocol 2. A
-protocol 2 client cannot start a first pairing with a protocol 1 client (the old
-client needs `publicKey` in the offer); update both apps to pair.
+Compatibility: a protocol 1 client (0.9 and earlier, and upstream Bridgey)
+still reconnects to a trusted protocol 2 client until the pair has once
+connected on protocol 2. A first pairing needs protocol 2 on both ends, in both
+directions: a protocol 2 client neither sends nor accepts an offer without a
+commitment from a device it does not trust, because a man in the middle could
+grind the protocol 1 leg to the code it saw on the other. Update both apps to
+pair. Each answered offer from an untrusted device counts toward the three a
+minute, whether or not it reveals.
 
 Pairing offers expire after two minutes and cannot be silently retried. The
 short code is a human MITM check, not a password. Detailed primitive and storage

@@ -2136,7 +2136,7 @@ final class PairingCoordinator: ObservableObject {
                     publishHealth()
                 }
             case "pairing.offer":
-                guard !current.initiatedLocally, current.pairingKey == nil else { return }
+                guard PairingRules.acceptsOffer(current.position) else { return }
                 // A reconnect meant for another device (it dialled an address that is now ours):
                 // close without a pairing prompt.
                 if let target = message.targetDeviceId, target.lowercased() != deviceID.lowercased() {
@@ -2144,7 +2144,6 @@ final class PairingCoordinator: ObservableObject {
                     current.close()
                     return
                 }
-                guard current.remoteCommitment == nil else { return }
                 let remoteProtocol = message.protocolVersion ?? 1
                 let revealed = message.publicKey
                 guard revealed != nil || (message.commitment != nil && remoteProtocol >= SessionSecurity.protocolVersion) else {
@@ -2155,6 +2154,15 @@ final class PairingCoordinator: ObservableObject {
                 guard let remoteDeviceID = message.deviceId else { throw PairingError.invalidMessage }
                 current.remoteDeviceID = remoteDeviceID
                 current.remoteProtocol = remoteProtocol
+                // Every answered offer from an untrusted phone costs a slot, even one that never reveals.
+                if PairingRules.chargesInboundAttempt(initiatedLocally: false, trusted: trustedIdentityKey(remoteDeviceID) != nil),
+                   !inboundPairingLimiter.tryAcquire() {
+                    BridgeyLog.pairing.notice("rejected: too many pairing attempts")
+                    diagnostics.record(category: "pairing", event: "inbound_refused", outcome: "rate_limited")
+                    current.send(PairingMessage(kind: "pairing.cancel", sessionId: current.id))
+                    current.close()
+                    return
+                }
                 let key = P256.KeyAgreement.PrivateKey()
                 current.privateKey = key
                 current.localEphemeralKey = key.publicKey.x963Representation.base64EncodedString()
@@ -2177,8 +2185,8 @@ final class PairingCoordinator: ObservableObject {
                 current.send(answer)
                 authenticateOrPrompt(current)
             case "pairing.reveal":
-                guard let commitment = current.remoteCommitment else { return }
-                guard message.sessionId == current.id, current.pairingKey == nil, let key = current.privateKey else { return }
+                guard PairingRules.acceptsReveal(current.position), let commitment = current.remoteCommitment else { return }
+                guard message.sessionId == current.id, let key = current.privateKey else { return }
                 guard let publicKey = message.publicKey,
                       SessionSecurity.commitmentMatches(commitment, sessionID: current.id, publicKey: publicKey) else {
                     current.failure = .codeRejected
@@ -2196,7 +2204,11 @@ final class PairingCoordinator: ObservableObject {
                 )
                 authenticateOrPrompt(current)
             case "pairing.answer":
-                guard current.pairingKey == nil else { return }
+                guard PairingRules.acceptsAnswer(current.position) else {
+                    // An answer to the phone-dialled side would stand in for the reveal with a key chosen afterwards.
+                    if !current.initiatedLocally { throw PairingError.invalidMessage }
+                    return
+                }
                 // A reconnect reached some other device at the old address: never prompt to pair it.
                 if let expected = current.dialDeviceID, expected.lowercased() != message.deviceId?.lowercased() {
                     current.dropReason = "wrong_device"
@@ -3019,10 +3031,19 @@ final class PairingCoordinator: ObservableObject {
             confirm(current)
             return
         }
+        // A first pairing needs the dialler's commitment (protocol 2 on both ends); without it the code proves nothing.
+        guard PairingRules.mayPromptUntrusted(current.position) else {
+            BridgeyLog.pairing.error("pairing without a key commitment refused")
+            current.failure = .invalid
+            current.dropReason = current.initiatedLocally ? "wrong_device" : "pairing_needs_protocol_2"
+            current.send(PairingMessage(kind: "pairing.cancel", sessionId: current.id))
+            current.close()
+            return
+        }
         // A new phone needs the code prompt, which belongs to one pairing at a time. A pairing this Mac started
-        // keeps the prompt even before its code is ready, and phones may start only a few a minute.
+        // keeps the prompt even before its code is ready. Other phones were rate limited at the offer.
         let busy = pairingSession.map { $0 !== current && !$0.ended && ($0.code != nil || $0.initiatedLocally) } ?? false
-        if busy || (!current.initiatedLocally && !inboundPairingLimiter.tryAcquire()) {
+        if busy {
             BridgeyLog.pairing.notice("rejected: another pairing is waiting for confirmation")
             current.send(PairingMessage(kind: "pairing.cancel", sessionId: current.id))
             current.close()
@@ -4292,6 +4313,14 @@ private final class Session {
     var tagSender = ""
     /// Frames dropped for arriving before authentication or with a bad tag; the session closes at 16.
     var droppedFrames = 0
+    var position: PairingPosition {
+        PairingPosition(
+            initiatedLocally: initiatedLocally,
+            committed: committed,
+            holdsRemoteCommitment: remoteCommitment != nil,
+            hasSessionKey: pairingKey != nil
+        )
+    }
     var localConfirmed = false
     var remoteConfirmed = false
     /// Authenticated and registered as its phone's session.
