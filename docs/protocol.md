@@ -107,8 +107,8 @@ available only when both peers report the corresponding feature as enabled. Clie
 predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
-`sms_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`)
-are optional booleans described in their own sections; a missing draft key means `false`.
+`sms_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`,
+`connect_draft1`) are optional booleans described in their own sections; a missing draft key means `false`.
 
 ## Pairing flow
 
@@ -1164,6 +1164,102 @@ folder sent now would land by default. `folders.accept` carries `freeBytes`
 send writes and block it when it would not fit with the receiver's 64 MiB margin,
 or warn when less than 1 GiB would remain. Values are best effort; the receiver
 still checks and answers `insufficient_space`.
+
+## Draft: Connect anywhere (`connect_draft1`)
+
+Status: **draft, edition-only, phase 1 built** (Bridgey by Round Robin). Design, numbers and the
+phases: [connect-anywhere.md](connect-anywhere.md). Every wire string is unbranded so the protocol can
+be offered upstream. Peers that do not both advertise the key keep today's transport unchanged.
+
+### Negotiation
+
+`features.update` gains the draft key `connect_draft1`. A device sets it for every peer while
+"Connect away from home" is on and its Connect anywhere core loaded. It is read like every draft key:
+`true` only for JSON `true`. (The spec's `capabilities` array is replaced by this key, following the
+contract's rule for drafts.)
+
+### The tunnel
+
+New routes (a learned LAN or private-network address, ICE through the control service, a relay)
+carry QUIC, never plain TCP:
+
+- UDP, port 42458 when free. ALPN `bridgey/1`, TLS 1.3 only, a self-signed Ed25519 certificate on
+  both sides (new at each start and every 24 hours). When signalling supplied the peer's `certSha256`
+  (SHA-256 of the DER, base64url), the certificate must match it; a direct dial to a learned address
+  has no pin and relies on the signatures below.
+- STUN, TURN and QUIC share one socket, told apart by the first byte (RFC 9443), so QUIC does not
+  grease the fixed bit.
+- Stream 0, the first client-initiated bidirectional stream, carries the newline JSON session of this
+  document unchanged, with its 65,536-byte frame limit. The QUIC client sends `pairing.offer`.
+- **Channel binding.** On a tunnel, `pairing.confirm` signs this transcript instead of
+  `bridgey-auth-v1` (NUL-separated, initiator = the side that sent `pairing.offer`):
+
+  ```text
+  "bridgey-auth-v2" \0 sessionId \0 initiatorDeviceId \0 responderDeviceId
+    \0 initiatorEphemeralKey \0 responderEphemeralKey \0 base64(exporter)
+  exporter = TLS-Exporter("EXPORTER-bridgey-tunnel-v1", "", 32)
+  ```
+
+  A relay or a man in the middle that terminates QUIC on both sides sees two different exporters,
+  so the signatures fail. `bridgey-auth-v1` stays the transcript on TCP.
+- Tunnels carry trusted devices only: a `pairing.offer` or `pairing.answer` from a device that is not
+  already paired closes the tunnel without a prompt. Pairing stays on the local network (remote
+  pairing by invite is a later phase).
+- Duplicates follow the existing rule: both sides keep the session dialled by the lower device ID,
+  the newer one if that side dialled both. The QUIC client of an ICE tunnel is always the lower
+  device ID.
+
+### In-session messages
+
+Encrypted payloads in the current session format (`kind`, `sessionId`, `messageId`, `nonce`,
+`ciphertext`), sent only when both peers advertise `connect_draft1`. A malformed payload is dropped
+and the session stays.
+
+| Message | Payload |
+| --- | --- |
+| `connect.setup` | `version` 1, `contribution` (base64 of 32 random bytes), optional `rotate` (boolean). A side that receives a contribution first answers with its own. Both then hold `pairSecret = HKDF-SHA256(cLow ‖ cHigh, salt "bridgey-pair-secret-v1", info idLow \0 idHigh, 32)`, where `cLow` is the lower device ID's contribution, and send `connect.setup.ack` `{version}`. |
+| `connect.addresses` | `version` 1, `port` (the sender's UDP port), `addrs` (at most 16 `{a, kind, vpn?}`; `kind` is `lan`, `vpn` or `public6`, `vpn` is `tailscale` or `other`), optional `pairCheck` = base64url(HMAC-SHA256(pairSecret, "bridgey-pair-check-v1")[0..8]). Sent after every `features.update` that shows the key on both sides and when addresses change. Entries with an unknown kind or an unusable address are skipped. When the two pair checks differ (or one side has none), the lower device ID starts `connect.setup`. |
+
+`connect.offer`, `connect.answer`, `connect.candidates`, `connect.restart`, `connect.bye` (in-band
+ICE) and `connect.route` are specified in connect-anywhere.md and listed as `designed`: phase 1
+signals ICE through the control service only.
+
+### Rendezvous (Bridgey Rendezvous v1)
+
+The edition's control service is `wss://connect.roundrobin.in/v1/ws` (`CONNECT_CONTROL_URL` in
+`rr-edition.properties`); anyone can run one (`server/`). WebSocket text frames, one JSON object of at
+most 16 KiB, the type in `t`:
+
+| Message | Fields |
+| --- | --- |
+| `hello` | `v` 1, `node` (P-256 SEC1 public key, base64url), `app`, `keepalive` (60 to 270 s) |
+| `challenge` | `nonce` (base64url, 32 bytes), `pow` (leading zero bits, 0 = off) |
+| `auth` | `sig`: DER ECDSA-P256-SHA256 over `"bridgey-rdv-auth-v1\0" ‖ nonce ‖ node`, base64url; `pow` when asked: a solution with `SHA-256("bridgey-pow-v1" ‖ nonce ‖ node ‖ solution)` starting with that many zero bits |
+| `welcome` | `nodeId` (base64url of SHA-256(node)[0..16]), `now`, `limits` |
+| `register` / `registered` | `ids`: the rendezvous IDs (at most 64, replaces the set) / `online`: those whose other side is connected |
+| `presence` | `rdv`, `online` |
+| `signal` | `rdv`, `side` (0 for the lower device ID), `sid` (base64url, 16 bytes), `body` (sealed, at most 6 KiB) |
+| `undeliverable` | `rdv`, `sid` |
+| `relay.request` / `relay.claim` | `rdv`, `sid`, `side` (`rtts`, `need`, `estBytes`, `exclude` optional on the request). The claim gets the same relay, with its own credentials. |
+| `relay.grant` | `sid`, `relay`: `id`, `kind`, `urls`, `username`, `credential`, `expiresAt`, `maxKbps` |
+| `relay.denied`, `error` | `code`, `retryAfterMs` |
+
+Derivations and sealing:
+
+```text
+rdvId(d) = base64url(HMAC-SHA256(pairSecret, "bridgey-rdv-v1" ‖ d)[0..16]), d = UTC "YYYY-MM-DD"
+sigKey   = HKDF-SHA256(pairSecret, salt "", info "bridgey-signal-v1", 32)
+body     = base64url(0x01 ‖ nonce(12) ‖ AES-256-GCM(sigKey, nonce, plaintext,
+                     aad = "bridgey-signal-v1" \0 rdvId \0 side \0 sid))      side as "0" or "1"
+```
+
+Devices register today's and yesterday's IDs, and tomorrow's from 23:00 UTC. The sealed plaintext is
+JSON with `t` `offer`, `answer`, `cand`, `restart` or `bye`; offers and answers carry `sid`, `v`,
+`ufrag` (8 characters), `pwd` (24), `cands` (at most 24 of `{k, a, p, net?, pri, relay?}`), `cert`,
+`ts` and `seq`. Receivers drop bodies more than 5 minutes off or with a `seq` not above the last
+one for that session. Relay credentials are TURN REST style:
+`username = "<expiry>:<sid prefix 8>.<side>"`, `credential = base64(HMAC-SHA1(secret, username))`,
+valid 2 hours. Vectors for all of this: `protocol/test-vectors/connect-v1.json`.
 
 ## Compatibility
 

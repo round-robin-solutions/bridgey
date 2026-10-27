@@ -72,7 +72,8 @@ f("frame of 65,536 bytes with CRLF", None, {"kind":"pairing.offer","sessionId":S
 
 features_all = {"clipboard":True,"files":True,"notifications":True,"battery":True,"find_device":True,"ping":True,"links":True,"media":True,"calls":True,"remote_input_draft1":False}
 drafts_none = {"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False,"folders_receive_draft1":False,"files_browse_draft1":False,
-               "mac_actions_draft1":False,"links_open_draft1":False,"focus_sync_draft1":False,"camera_draft1":False}
+               "mac_actions_draft1":False,"links_open_draft1":False,"focus_sync_draft1":False,"camera_draft1":False,
+               "connect_draft1":False}
 feat = []
 def fe(name, plaintext, expect, raw=False):
     feat.append({"name": name, ("plaintextString" if raw else "plaintext"): plaintext, "expect": expect})
@@ -87,6 +88,11 @@ fe("v0.9 Mac with Mac actions granted, links open, Focus and camera", {"version"
 fe("v0.9 phone (Mac actions and camera on, Focus off, no links open)", {"version":1,"features":{**features_all,"files_browse_draft1":True,"mac_actions_draft1":True,"focus_sync_draft1":False,"camera_draft1":True}},
    {"features":features_all,"drafts":{**drafts_none,"files_browse_draft1":True,"mac_actions_draft1":True,"camera_draft1":True}})
 fe("automation keys that are not booleans count as false", {"version":1,"features":{**features_all,"mac_actions_draft1":1,"links_open_draft1":"true","focus_sync_draft1":None,"camera_draft1":{"on":True}}},
+   {"features":features_all,"drafts":drafts_none})
+# Connect anywhere (connect_draft1): a draft key like the others, true only for JSON true.
+fe("Connect anywhere on", {"version":1,"features":{**features_all,"connect_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"connect_draft1":True}})
+fe("Connect anywhere key that is not a boolean counts as false", {"version":1,"features":{**features_all,"connect_draft1":"true"}},
    {"features":features_all,"drafts":drafts_none})
 fe("first-slice Mac (folders_draft1 only, no Files 2.0 keys)", {"version":1,"features":{**features_all,"folders_draft1":True,"places_draft1":False}},
    {"features":features_all,"drafts":{**drafts_none,"folders_draft1":True}})
@@ -412,8 +418,49 @@ cs("version 2", {"version":2,"requestId":R1,"status":"opened"}, "reject")
 cs("over 512 bytes", sized('{"version":1,"requestId":"%s","status":"opened","pad":"' % R1, 513), "reject", raw=True)
 cs("lenient JSON", "{version:1,requestId:'%s',status:'opened'}" % R1, "reject", raw=True)
 
+# Connect anywhere (connect_draft1), decoded by both platforms. connect.setup: version 1, contribution
+# base64 of exactly 32 bytes, rotate an optional boolean (missing means false). connect.addresses:
+# version 1, port 1 to 65535, addrs an array of at most 16; entries with an unknown kind or an address
+# that is not a usable IP literal (loopback, unspecified, multicast) are skipped; vpn is tailscale,
+# other or null; pairCheck an optional base64url string of 8 bytes.
+C32 = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
+setup = []
+def cu(name, p, expect, raw=False): setup.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+cu("first exchange", {"version":1,"contribution":C32,"rotate":False}, {"contribution":C32,"rotate":False})
+cu("rotate", {"version":1,"contribution":C32,"rotate":True}, {"contribution":C32,"rotate":True})
+cu("rotate missing means false", {"version":1,"contribution":C32}, {"contribution":C32,"rotate":False})
+cu("unknown fields are ignored", {"version":1,"contribution":C32,"future":[1,2]}, {"contribution":C32,"rotate":False})
+cu("31 bytes", {"version":1,"contribution":"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHw=="}, "reject")
+cu("33 bytes", {"version":1,"contribution":"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAh"}, "reject")
+cu("not base64", {"version":1,"contribution":"!!!!"}, "reject")
+cu("contribution missing", {"version":1}, "reject")
+cu("rotate as a string", {"version":1,"contribution":C32,"rotate":"yes"}, "reject")
+cu("version 2", {"version":2,"contribution":C32}, "reject")
+cu("over 256 bytes", sized('{"version":1,"contribution":"%s","pad":"' % C32, 257), "reject", raw=True)
+cu("lenient JSON", "{version:1,contribution:'%s'}" % C32, "reject", raw=True)
+
+addresses = []
+def ad(name, p, expect, raw=False): addresses.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+def ae(a, kind, vpn=None): return {"a":a,"kind":kind,"vpn":vpn}
+PC = "r_IQgYZ46wg"
+ad("home Mac with Tailscale", {"version":1,"port":42458,"addrs":[{"a":"192.168.1.20","kind":"lan"},{"a":"100.101.1.2","kind":"vpn","vpn":"tailscale"},{"a":"2409:4040:1:2::20","kind":"public6"}],"pairCheck":PC},
+   {"port":42458,"addrs":[ae("192.168.1.20","lan"),ae("100.101.1.2","vpn","tailscale"),ae("2409:4040:1:2::20","public6")],"pairCheck":PC})
+ad("no pair secret yet", {"version":1,"port":42458,"addrs":[]}, {"port":42458,"addrs":[],"pairCheck":None})
+ad("unusable entries are skipped", {"version":1,"port":50000,"addrs":[{"a":"127.0.0.1","kind":"lan"},{"a":"::1","kind":"lan"},{"a":"0.0.0.0","kind":"lan"},{"a":"224.0.0.1","kind":"lan"},
+   {"a":"example.com","kind":"lan"},{"a":"300.1.1.1","kind":"lan"},{"a":"10.0.0.2","kind":"satellite"},{"a":"10.0.0.3"},5,{"a":"10.0.0.4","kind":"lan"}]},
+   {"port":50000,"addrs":[ae("10.0.0.4","lan")],"pairCheck":None})
+ad("unknown vpn names read as none", {"version":1,"port":42458,"addrs":[{"a":"10.8.0.2","kind":"vpn","vpn":"wireguard"}]}, {"port":42458,"addrs":[ae("10.8.0.2","vpn")],"pairCheck":None})
+ad("17 entries", {"version":1,"port":42458,"addrs":[{"a":"10.0.0.%d" % n,"kind":"lan"} for n in range(1,18)]}, "reject")
+ad("port 0", {"version":1,"port":0,"addrs":[]}, "reject")
+ad("port 65536", {"version":1,"port":65536,"addrs":[]}, "reject")
+ad("addrs missing", {"version":1,"port":42458}, "reject")
+ad("pairCheck as a number", {"version":1,"port":42458,"addrs":[],"pairCheck":5}, "reject")
+ad("pairCheck of the wrong length", {"version":1,"port":42458,"addrs":[],"pairCheck":"abc"}, "reject")
+ad("version 2", {"version":2,"port":42458,"addrs":[]}, "reject")
+ad("over 2048 bytes", sized('{"version":1,"port":42458,"addrs":[],"pad":"', 2049), "reject", raw=True)
+
 out = {
-  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer.",
+  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer. Connect anywhere (connect_draft1): connectSetup and connectAddresses are decoded by both platforms; addresses keep their order and vpn null means absent.",
   "sessionId": S,
   "frames": frames,
   "featuresUpdate": feat,
@@ -428,6 +475,8 @@ out = {
   "actionsResult": result,
   "cameraRequest": camreq,
   "cameraStatus": camstat,
+  "connectSetup": setup,
+  "connectAddresses": addresses,
 }
 open(OUT,'w').write(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
-print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat))
+print(len(setup), len(addresses), len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat))

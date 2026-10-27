@@ -140,6 +140,7 @@ the tables at the end of this page are generated from it with
 | `links_open_draft1` | edition-draft | no | false |
 | `focus_sync_draft1` | edition-draft | no | false |
 | `camera_draft1` | edition-draft | no | false |
+| `connect_draft1` | edition-draft | no | false |
 | `settings_sync_draft1` | designed | no | false |
 
 ### Envelope fields
@@ -163,7 +164,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-99 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+108 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -827,6 +828,92 @@ One open request per Mac, at most one every 3 seconds; it expires after 2 minute
 - `status`: opened | locked | permission_required | cancelled | busy | disabled | sending | failed; the Mac drops an unknown status
 
 The photo itself arrives as a files.offer carrying cameraRequestId.
+
+#### `connect.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `connect.setup` | edition-draft | either | connect_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `connect.setup.ack` | edition-draft | either | connect_draft1 | yes | messageId | 64 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `connect.addresses` | edition-draft | either | connect_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `connect.offer` | designed | either | connect_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | not yet |
+| `connect.answer` | designed | either | connect_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | not yet |
+| `connect.candidates` | designed | either | connect_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | not yet |
+| `connect.restart` | designed | either | connect_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | not yet |
+| `connect.bye` | designed | either | connect_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | not yet |
+| `connect.route` | designed | either | connect_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | not yet |
+
+`connect.setup`
+
+- `version`: integer, 1
+- `contribution`: string, base64 of 32 random bytes
+- `rotate`: optional boolean (Reset away-from-home identity); missing means false
+
+Answered by `connect.setup`, `connect.setup.ack`.
+
+Creates the pair secret: each side sends its contribution once per exchange (a side that receives one first answers with its own), then pairSecret = HKDF-SHA256(cLow || cHigh, salt bridgey-pair-secret-v1, info idLow 0x00 idHigh, 32). Started by the lower device ID when its pair check differs from the peer's connect.addresses. A malformed payload is dropped and the session stays.
+
+`connect.setup.ack`
+
+- `version`: integer, 1
+
+Informational: the sender holds the new pair secret.
+
+`connect.addresses`
+
+- `version`: integer, 1
+- `port`: integer 1 to 65535, the sender's UDP port
+- `addrs`: array of at most 16 {a: IP address string, kind: lan | vpn | public6, vpn?: tailscale | other}; entries with an unknown kind or an unusable address are skipped
+- `pairCheck`: optional string, base64url of HMAC-SHA256(pairSecret, bridgey-pair-check-v1)[0..8]; absent without a pair secret
+
+Sent after every features.update that shows the key on both sides and whenever the sender's addresses change. The receiver keeps at most 16 per peer (30 days) and dials them over QUIC when the peer is away. The pair check never reveals the secret.
+
+`connect.offer`
+
+- `version`: integer, 1
+- `sid`: string, base64url 16 bytes
+- `ufrag`: 8 characters
+- `pwd`: 24 characters
+- `cands`: at most 24 candidates
+- `cert`: certSha256
+
+In-band ICE (spec 4.4). Phase 1 signals ICE through the control service only.
+
+`connect.answer`
+
+- `version`: integer, 1
+- `sid`: as connect.offer
+- `ufrag`: 8 characters
+- `pwd`: 24 characters
+- `cands`: at most 24 candidates
+- `cert`: certSha256
+
+`connect.candidates`
+
+- `sid`: string
+- `cands`: at most 24 candidates
+- `done`: boolean
+
+`connect.restart`
+
+- `sid`: string
+- `ufrag`: 8 characters
+- `pwd`: 24 characters
+- `reason`: network_change | path_failed | relay_switch
+
+`connect.bye`
+
+- `sid`: string
+- `reason`: string
+
+`connect.route`
+
+- `version`: integer, 1
+- `route`: lan | vpn | direct | relay
+- `relay`: optional relay ID
+- `rttMs`: integer
+
+Informational. Phase 1 shows each side's own route from its core instead.
 
 #### `places.*`
 

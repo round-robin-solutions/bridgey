@@ -1,5 +1,5 @@
 {
- "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer.",
+ "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. In actionsRun, value null is absent and 'other' is present but not an integer. Connect anywhere (connect_draft1): connectSetup and connectAddresses are decoded by both platforms; addresses keep their order and vpn null means absent.",
  "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
  "frames": [
   {
@@ -404,7 +404,8 @@
      "mac_actions_draft1": false,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": false
+     "camera_draft1": false,
+     "connect_draft1": false
     }
    }
   },
@@ -454,7 +455,8 @@
      "mac_actions_draft1": false,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": false
+     "camera_draft1": false,
+     "connect_draft1": false
     }
    }
   },
@@ -506,7 +508,8 @@
      "mac_actions_draft1": true,
      "links_open_draft1": true,
      "focus_sync_draft1": true,
-     "camera_draft1": true
+     "camera_draft1": true,
+     "connect_draft1": false
     }
    }
   },
@@ -554,7 +557,8 @@
      "mac_actions_draft1": true,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": true
+     "camera_draft1": true,
+     "connect_draft1": false
     }
    }
   },
@@ -604,7 +608,100 @@
      "mac_actions_draft1": false,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": false
+     "camera_draft1": false,
+     "connect_draft1": false
+    }
+   }
+  },
+  {
+   "name": "Connect anywhere on",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "connect_draft1": true
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "connect_draft1": true
+    }
+   }
+  },
+  {
+   "name": "Connect anywhere key that is not a boolean counts as false",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "connect_draft1": "true"
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "connect_draft1": false
     }
    }
   },
@@ -650,7 +747,8 @@
      "mac_actions_draft1": false,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": false
+     "camera_draft1": false,
+     "connect_draft1": false
     }
    }
   },
@@ -689,7 +787,8 @@
      "mac_actions_draft1": false,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": false
+     "camera_draft1": false,
+     "connect_draft1": false
     }
    }
   },
@@ -732,7 +831,8 @@
      "mac_actions_draft1": false,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": false
+     "camera_draft1": false,
+     "connect_draft1": false
     }
    }
   },
@@ -772,7 +872,8 @@
      "mac_actions_draft1": false,
      "links_open_draft1": false,
      "focus_sync_draft1": false,
-     "camera_draft1": false
+     "camera_draft1": false,
+     "connect_draft1": false
     }
    }
   },
@@ -6851,6 +6952,394 @@
   {
    "name": "lenient JSON",
    "plaintextString": "{version:1,requestId:'8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e',status:'opened'}",
+   "expect": "reject"
+  }
+ ],
+ "connectSetup": [
+  {
+   "name": "first exchange",
+   "plaintext": {
+    "version": 1,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "rotate": false
+   },
+   "expect": {
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "rotate": false
+   }
+  },
+  {
+   "name": "rotate",
+   "plaintext": {
+    "version": 1,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "rotate": true
+   },
+   "expect": {
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "rotate": true
+   }
+  },
+  {
+   "name": "rotate missing means false",
+   "plaintext": {
+    "version": 1,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
+   },
+   "expect": {
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "rotate": false
+   }
+  },
+  {
+   "name": "unknown fields are ignored",
+   "plaintext": {
+    "version": 1,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "future": [
+     1,
+     2
+    ]
+   },
+   "expect": {
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "rotate": false
+   }
+  },
+  {
+   "name": "31 bytes",
+   "plaintext": {
+    "version": 1,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHw=="
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "33 bytes",
+   "plaintext": {
+    "version": 1,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAh"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "not base64",
+   "plaintext": {
+    "version": 1,
+    "contribution": "!!!!"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "contribution missing",
+   "plaintext": {
+    "version": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "rotate as a string",
+   "plaintext": {
+    "version": 1,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "rotate": "yes"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 256 bytes",
+   "plaintextString": "{\"version\":1,\"contribution\":\"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,contribution:'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA='}",
+   "expect": "reject"
+  }
+ ],
+ "connectAddresses": [
+  {
+   "name": "home Mac with Tailscale",
+   "plaintext": {
+    "version": 1,
+    "port": 42458,
+    "addrs": [
+     {
+      "a": "192.168.1.20",
+      "kind": "lan"
+     },
+     {
+      "a": "100.101.1.2",
+      "kind": "vpn",
+      "vpn": "tailscale"
+     },
+     {
+      "a": "2409:4040:1:2::20",
+      "kind": "public6"
+     }
+    ],
+    "pairCheck": "r_IQgYZ46wg"
+   },
+   "expect": {
+    "port": 42458,
+    "addrs": [
+     {
+      "a": "192.168.1.20",
+      "kind": "lan",
+      "vpn": null
+     },
+     {
+      "a": "100.101.1.2",
+      "kind": "vpn",
+      "vpn": "tailscale"
+     },
+     {
+      "a": "2409:4040:1:2::20",
+      "kind": "public6",
+      "vpn": null
+     }
+    ],
+    "pairCheck": "r_IQgYZ46wg"
+   }
+  },
+  {
+   "name": "no pair secret yet",
+   "plaintext": {
+    "version": 1,
+    "port": 42458,
+    "addrs": []
+   },
+   "expect": {
+    "port": 42458,
+    "addrs": [],
+    "pairCheck": null
+   }
+  },
+  {
+   "name": "unusable entries are skipped",
+   "plaintext": {
+    "version": 1,
+    "port": 50000,
+    "addrs": [
+     {
+      "a": "127.0.0.1",
+      "kind": "lan"
+     },
+     {
+      "a": "::1",
+      "kind": "lan"
+     },
+     {
+      "a": "0.0.0.0",
+      "kind": "lan"
+     },
+     {
+      "a": "224.0.0.1",
+      "kind": "lan"
+     },
+     {
+      "a": "example.com",
+      "kind": "lan"
+     },
+     {
+      "a": "300.1.1.1",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.2",
+      "kind": "satellite"
+     },
+     {
+      "a": "10.0.0.3"
+     },
+     5,
+     {
+      "a": "10.0.0.4",
+      "kind": "lan"
+     }
+    ]
+   },
+   "expect": {
+    "port": 50000,
+    "addrs": [
+     {
+      "a": "10.0.0.4",
+      "kind": "lan",
+      "vpn": null
+     }
+    ],
+    "pairCheck": null
+   }
+  },
+  {
+   "name": "unknown vpn names read as none",
+   "plaintext": {
+    "version": 1,
+    "port": 42458,
+    "addrs": [
+     {
+      "a": "10.8.0.2",
+      "kind": "vpn",
+      "vpn": "wireguard"
+     }
+    ]
+   },
+   "expect": {
+    "port": 42458,
+    "addrs": [
+     {
+      "a": "10.8.0.2",
+      "kind": "vpn",
+      "vpn": null
+     }
+    ],
+    "pairCheck": null
+   }
+  },
+  {
+   "name": "17 entries",
+   "plaintext": {
+    "version": 1,
+    "port": 42458,
+    "addrs": [
+     {
+      "a": "10.0.0.1",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.2",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.3",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.4",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.5",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.6",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.7",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.8",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.9",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.10",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.11",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.12",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.13",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.14",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.15",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.16",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.17",
+      "kind": "lan"
+     }
+    ]
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "port 0",
+   "plaintext": {
+    "version": 1,
+    "port": 0,
+    "addrs": []
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "port 65536",
+   "plaintext": {
+    "version": 1,
+    "port": 65536,
+    "addrs": []
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "addrs missing",
+   "plaintext": {
+    "version": 1,
+    "port": 42458
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "pairCheck as a number",
+   "plaintext": {
+    "version": 1,
+    "port": 42458,
+    "addrs": [],
+    "pairCheck": 5
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "pairCheck of the wrong length",
+   "plaintext": {
+    "version": 1,
+    "port": 42458,
+    "addrs": [],
+    "pairCheck": "abc"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "port": 42458,
+    "addrs": []
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 2048 bytes",
+   "plaintextString": "{\"version\":1,\"port\":42458,\"addrs\":[],\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
    "expect": "reject"
   }
  ]
