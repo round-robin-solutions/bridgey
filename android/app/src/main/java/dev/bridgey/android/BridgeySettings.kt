@@ -25,10 +25,22 @@ enum class BridgeyFeature(val key: String, val title: String) {
 
     /** Draft, edition only until accepted upstream: this phone may control the Mac. Off by default. */
     REMOTE_INPUT("remote_input_draft1", "Remote control"),
+
+    /**
+     * Draft, edition only: this phone may run the actions a Mac allows it (lock, sleep, volume, apps,
+     * Shortcuts). On by default here; the Mac is the gate (off by default and granted per phone).
+     */
+    MAC_ACTIONS("mac_actions_draft1", "Mac actions"),
+
+    /** Draft, edition only: a Mac may ask this phone for a photo; the person takes it. On by default. */
+    CAMERA("camera_draft1", "Take photos for the Mac"),
 }
 
 internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
-    feature !in setOf(BridgeyFeature.CALLS, BridgeyFeature.PING, BridgeyFeature.LINKS, BridgeyFeature.MEDIA, BridgeyFeature.REMOTE_INPUT)
+    feature !in setOf(
+        BridgeyFeature.CALLS, BridgeyFeature.PING, BridgeyFeature.LINKS, BridgeyFeature.MEDIA,
+        BridgeyFeature.REMOTE_INPUT, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA,
+    )
 
 /** Features that start off until the person turns them on. */
 internal fun featureOnByDefault(feature: BridgeyFeature): Boolean = feature != BridgeyFeature.REMOTE_INPUT
@@ -78,6 +90,10 @@ data class BridgeySettingsState(
     val recentFolderDestinations: List<FolderDestination> = emptyList(),
     /** Privacy > Logging: what reaches Logcat and exported diagnostics. On this phone only. */
     val logging: LoggingPolicy = LoggingPolicy(),
+    /** Notifications > Share Do Not Disturb with Macs (focus_sync_draft1). Off by default. */
+    val focusShare: Boolean = false,
+    /** Notifications > Follow the Mac's Focus: Do Not Disturb follows the Macs. Off by default. */
+    val focusFollow: Boolean = false,
 ) {
     /** What a folder transfer to this phone reads when it decides. */
     val folderReceiveSettings: FolderReceiveSettings
@@ -214,6 +230,16 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         mutableState.value = mutableState.value.copy(keepWifiAwake = enabled)
     }
 
+    fun setFocusShare(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_FOCUS_SHARE, enabled).apply()
+        mutableState.value = mutableState.value.copy(focusShare = enabled)
+    }
+
+    fun setFocusFollow(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_FOCUS_FOLLOW, enabled).apply()
+        mutableState.value = mutableState.value.copy(focusFollow = enabled)
+    }
+
     fun setFolderMode(mode: DestinationMode) {
         preferences.edit().putString(KEY_FOLDER_MODE, mode.wire).apply()
         mutableState.value = mutableState.value.copy(folderMode = mode)
@@ -319,6 +345,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
             allowBrowseFromOtherDevices = preferences.getBoolean(KEY_FILES_ALLOW_BROWSE, true),
             recentFolderDestinations = decodeDestinations(preferences.getString(KEY_FOLDER_RECENT, null)),
             logging = loggingPolicyFrom { key, default -> preferences.getBoolean(key, default) },
+            focusShare = preferences.getBoolean(KEY_FOCUS_SHARE, false),
+            focusFollow = preferences.getBoolean(KEY_FOCUS_FOLLOW, false),
         )
     }
 
@@ -340,6 +368,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         private const val KEY_FOLDER_ALLOW_REPLACE = "files.folder_allow_replace"
         private const val KEY_FILES_ALLOW_BROWSE = "files.allow_browse"
         private const val KEY_FOLDER_RECENT = "files.folder_recent"
+        private const val KEY_FOCUS_SHARE = "focus.share"
+        private const val KEY_FOCUS_FOLLOW = "focus.follow"
     }
 }
 

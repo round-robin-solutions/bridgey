@@ -21,6 +21,7 @@ struct BridgeyApp: App {
         _discovery = StateObject(wrappedValue: discovery)
         let pairing = PairingCoordinator(deviceID: discovery.localDeviceID, deviceName: discovery.localDeviceName, settings: settings)
         pairing.observe(discovery)
+        IntentHost.pairing = pairing
         _pairing = StateObject(wrappedValue: pairing)
         let callServiceProvider = CallServiceProvider { [weak pairing] number in pairing?.sendCallWhenConnected(number) }
         // Services: Call with Bridgey RR and Send to Phone with Bridgey (ShareAndServices.swift).

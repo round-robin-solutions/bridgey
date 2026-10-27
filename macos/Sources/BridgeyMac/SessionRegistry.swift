@@ -16,6 +16,10 @@ struct PhoneLinkState: Equatable {
     var remoteBrowse = false
     /// The phone advertised `sms_codes_draft1`: it marks SMS notifications and can make a companion link.
     var remoteSmsCodes = false
+    /// The phone advertised `focus_sync_draft1`: it understands focus.state.
+    var remoteFocusSync = false
+    /// The phone advertised `camera_draft1`: it takes photos for this Mac.
+    var remoteCamera = false
     /// The phone's last `codes.status`: whether Android shows Bridgey the text of code messages.
     var codeAccess: CodeAccessStatus?
     var battery: RemoteBatteryStatus?

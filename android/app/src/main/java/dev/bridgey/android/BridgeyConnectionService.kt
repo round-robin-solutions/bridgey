@@ -421,6 +421,9 @@ class ClipboardCaptureActivity : Activity() {
     companion object {
         /** Set by the optional background clipboard source to auto-send silently (no toasts). */
         const val EXTRA_AUTOMATIC = "dev.bridgey.android.extra.AUTOMATIC"
+
+        /** Device Controls and widgets: send to this Mac instead of the selected one. */
+        const val EXTRA_DEVICE_ID = "dev.bridgey.android.extra.DEVICE_ID"
         private const val REQUEST_PHOTOS = 7_301
     }
 
@@ -487,7 +490,8 @@ class ClipboardCaptureActivity : Activity() {
         val pairing = (application as BridgeyApplication).pairing
         val appContext = applicationContext
         val main = Handler(Looper.getMainLooper())
-        pairing.sendCopiedItem(timestamp, deviceId = null, sendClipboard = { sendClipboard(appContext, pairing, clip) }) { result, peerName ->
+        val deviceId = intent?.getStringExtra(EXTRA_DEVICE_ID)?.takeIf { it.isNotBlank() }
+        pairing.sendCopiedItem(timestamp, deviceId = deviceId, sendClipboard = { sendClipboard(appContext, pairing, clip, deviceId) }) { result, peerName ->
             main.post {
                 val message = if (result == ClipboardSendResult.DELIVERED) {
                     appContext.getString(R.string.screenshot_sent, peerName)
@@ -500,7 +504,7 @@ class ClipboardCaptureActivity : Activity() {
         close()
     }
 
-    private fun sendClipboard(appContext: android.content.Context, pairing: PairingCoordinator, clip: LocalClip?) {
+    private fun sendClipboard(appContext: android.content.Context, pairing: PairingCoordinator, clip: LocalClip?, deviceId: String?) {
         if (clip == null || clip == LocalClip.Own) {
             Toast.makeText(
                 appContext,
@@ -509,7 +513,7 @@ class ClipboardCaptureActivity : Activity() {
             ).show()
             return
         }
-        pairing.sendClip(clip) { result ->
+        pairing.sendClip(clip, deviceId) { result ->
             Handler(Looper.getMainLooper()).post {
                 Toast.makeText(appContext, sendResultMessage(result), Toast.LENGTH_SHORT).show()
             }

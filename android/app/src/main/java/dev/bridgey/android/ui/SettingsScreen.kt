@@ -118,6 +118,8 @@ data class SettingsState(
     val codes: CodesSettingsState = CodesSettingsState(),
     /** v0.10: OEM checklist (General). */
     val setup: SetupSettingsState = SetupSettingsState(),
+    /** Notifications > Focus sync with the Macs. */
+    val focus: FocusSettingsState = FocusSettingsState(),
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean = globalFeatures[feature] != false
 }
@@ -165,6 +167,7 @@ class SettingsActions(
     val codes: CodesSettingsActions = CodesSettingsActions(),
     /** v0.10: Permissions, Reset, Run setup again, OEM steps, Obtainium. */
     val setup: SetupSettingsActions = SetupSettingsActions(),
+    val focus: FocusSettingsActions = FocusSettingsActions(),
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
@@ -404,6 +407,13 @@ private fun NotificationsPage(state: SettingsState, actions: SettingsActions, li
         if (notificationsOn) {
             item(key = "notifications.codes") { CodesFootnote(state.codes, actions.codes) }
         }
+        item(key = "notifications.focus.label") { SectionLabel(stringResource(R.string.focus_section), Modifier.padding(top = 20.dp)) }
+        item(key = "notifications.focus") {
+            RowGroup { focusRows(state.focus, actions.focus) }
+        }
+        item(key = "notifications.focus.note") {
+            Note(stringResource(R.string.focus_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp))
+        }
     }
 }
 
@@ -453,10 +463,7 @@ private fun MediaPage(state: SettingsState, actions: SettingsActions, listState:
     SectionPage(SettingsSection.MEDIA, actions, listState) {
         item(key = "media") {
             RowGroup(Modifier.padding(top = 8.dp)) {
-                listOf(
-                    BridgeyFeature.MEDIA, BridgeyFeature.LINKS, BridgeyFeature.PING,
-                    BridgeyFeature.FIND_DEVICE, BridgeyFeature.BATTERY,
-                ).forEach { feature ->
+                MediaSectionFeatures.forEach { feature ->
                     row { shape -> FeatureSwitch(shape, feature, state, actions) }
                 }
             }
@@ -708,7 +715,7 @@ private fun sectionVisual(section: SettingsSection, state: SettingsState): Pair<
 
 /** The features on the Media and quick actions page, in its order. */
 private val MediaSectionFeatures = listOf(
-    BridgeyFeature.MEDIA, BridgeyFeature.LINKS, BridgeyFeature.PING,
+    BridgeyFeature.MEDIA, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA, BridgeyFeature.LINKS, BridgeyFeature.PING,
     BridgeyFeature.FIND_DEVICE, BridgeyFeature.BATTERY,
 )
 
@@ -949,6 +956,8 @@ private fun globalFeatureDetail(feature: BridgeyFeature): String = stringResourc
         BridgeyFeature.LINKS -> R.string.feature_links_detail
         BridgeyFeature.BATTERY -> R.string.settings_battery_detail
         BridgeyFeature.REMOTE_INPUT -> R.string.settings_remote_detail
+        BridgeyFeature.MAC_ACTIONS -> R.string.settings_mac_actions_detail
+        BridgeyFeature.CAMERA -> R.string.settings_camera_detail
     },
 )
 

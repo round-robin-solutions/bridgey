@@ -89,6 +89,8 @@ import dev.bridgey.android.ui.CodeTestActions
 import dev.bridgey.android.ui.CodeTestScreen
 import dev.bridgey.android.ui.CodesSettingsActions
 import dev.bridgey.android.ui.CodesSettingsState
+import dev.bridgey.android.ui.FocusSettingsActions
+import dev.bridgey.android.ui.FocusSettingsState
 import dev.bridgey.android.ui.PerfTestActions
 import dev.bridgey.android.ui.PerfTestScreen
 import dev.bridgey.android.bench.AndroidBenchProbe
@@ -162,6 +164,8 @@ class MainActivity : ComponentActivity() {
     /** A folder question notification was tapped: show that question's sheet. */
     private var folderQuestion by mutableStateOf<String?>(null)
     private var batteryExempt by mutableStateOf(true)
+    /** Focus sync: Android lets Bridgey change Do Not Disturb. */
+    private var dndAccess by mutableStateOf(false)
     private var sharedContent by mutableStateOf<SharedContent?>(null)
     /** The launcher's Remote control quick action asked for this Mac. */
     private var remoteTarget by mutableStateOf<String?>(null)
@@ -249,6 +253,8 @@ class MainActivity : ComponentActivity() {
                     notificationAccessEnabled = notificationAccessEnabled,
                     readLogsGranted = readLogsGranted,
                     batteryExempt = batteryExempt,
+                    dndAccess = dndAccess,
+                    onOpenDndAccess = ::openDndAccessSettings,
                     onRequestBatteryExemption = ::requestBatteryExemption,
                     onOpenBatterySettings = ::openBatterySettings,
                     onTurnOff = {
@@ -404,6 +410,12 @@ class MainActivity : ComponentActivity() {
         Runtime.getRuntime().exit(0)
     }
 
+    /** Focus sync > Follow: Android's Do Not Disturb access page, where Bridgey RR is switched on. */
+    private fun openDndAccessSettings() {
+        runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)) }
+            .onFailure { openAppDetails() }
+    }
+
     private fun openAppDetails() {
         startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
     }
@@ -463,6 +475,7 @@ class MainActivity : ComponentActivity() {
         notificationAccessEnabled = NotificationAccess.isEnabled(this)
         readLogsGranted = checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
         batteryExempt = PowerFacts.ignoringBatteryOptimizations(this)
+        dndAccess = getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted
         if (
             ::bridgeySettings.isInitialized && bridgeySettings.state.value.directCallsEnabled &&
             !hasCallIntegrationPermissions()
@@ -586,6 +599,8 @@ private val PermissionOrder = listOf(
     listOf(BridgeyFeature.CALLS),
     listOf(BridgeyFeature.MEDIA),
     listOf(BridgeyFeature.REMOTE_INPUT),
+    listOf(BridgeyFeature.MAC_ACTIONS),
+    listOf(BridgeyFeature.CAMERA),
     listOf(BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING),
     listOf(BridgeyFeature.LINKS),
     listOf(BridgeyFeature.BATTERY),
@@ -612,6 +627,8 @@ private fun BridgeyApp(
     notificationAccessEnabled: Boolean,
     readLogsGranted: Boolean,
     batteryExempt: Boolean,
+    dndAccess: Boolean,
+    onOpenDndAccess: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     onOpenBatterySettings: () -> Unit,
     onTurnOff: () -> Unit,
@@ -638,6 +655,10 @@ private fun BridgeyApp(
     val trustedDevices by pairing.trustedDevices.collectAsStateWithLifecycle()
     val receivedLink by pairing.quickActions.receivedLink.collectAsStateWithLifecycle()
     val media by pairing.quickActions.media.collectAsStateWithLifecycle()
+    val macCatalogs by pairing.macActions.catalogs.collectAsStateWithLifecycle()
+    val macLive by pairing.macActions.live.collectAsStateWithLifecycle()
+    val macRunning by pairing.macActions.running.collectAsStateWithLifecycle()
+    val healthTick by pairing.health.changes.collectAsStateWithLifecycle()
     val settingsState by settings.state.collectAsStateWithLifecycle()
     val updateState by updater.state.collectAsStateWithLifecycle()
     val activity by activityLog.items.collectAsStateWithLifecycle()
@@ -681,6 +702,18 @@ private fun BridgeyApp(
                     snackbar.showSnackbar(status)
                 }
             }
+    }
+
+    // Mac actions: refusals, timeouts and finished apps or Shortcuts show once as a snackbar.
+    LaunchedEffect(pairing) {
+        pairing.macActions.status.drop(1).filterNotNull().collect { status ->
+            val catalog = pairing.macActions.catalogs.value[status.deviceId]
+            val name = pairing.trustedDevices.value.firstOrNull { it.id == status.deviceId }?.name ?: "Mac"
+            macActionMessage(context, status, catalog?.entry(status.actionId)?.title, name)?.let { message ->
+                snackbar.currentSnackbarData?.dismiss()
+                snackbar.showSnackbar(message)
+            }
+        }
     }
 
     val connected = pairingState as? PairingState.Connected
@@ -882,6 +915,9 @@ private fun BridgeyApp(
                                 activity = activity,
                                 live = deviceLive,
                                 now = now,
+                                macActions = ring.deviceId?.takeIf { it in macLive && BridgeyFeature.MAC_ACTIONS in available }?.let { macCatalogs[it] },
+                                runningActions = macRunning.filter { it.first == ring.deviceId }.map { it.second }.toSet(),
+                                health = remember(healthTick, now, ring.deviceId, isConnected) { ring.deviceId?.let(pairing::healthOf) },
                             ),
                             actions = DeviceActions(
                                 back = { stack.pop() },
@@ -909,6 +945,7 @@ private fun BridgeyApp(
                                 },
                                 sendText = { pairing.sendText(it, deviceId = ring.deviceId) },
                                 remoteControl = { ring.deviceId?.let { stack.push(Route.Remote(it)) } },
+                                runMacAction = { id, value -> ring.deviceId?.let { pairing.macActions.run(it, id, value) } },
                                 live = liveActions,
                             ),
                             snackbar = snackbar,
@@ -992,6 +1029,7 @@ private fun BridgeyApp(
                                 linkedMac = remember(companionLink) { codes.linkRecord.linked() },
                             ),
                             setup = dev.bridgey.android.ui.SetupSettingsState(oem = setup.oem),
+                            focus = FocusSettingsState(settingsState.focusShare, settingsState.focusFollow, dndAccess),
                         )
                     val settingsUiActions =
                         SettingsActions(
@@ -1055,6 +1093,15 @@ private fun BridgeyApp(
                                 },
                                 openOemStep = { dev.bridgey.android.setup.OemBattery.open(context, it) },
                                 addToObtainium = { dev.bridgey.android.setup.Obtainium.open(context, updateState.channel) },
+                            ),
+                            focus = FocusSettingsActions(
+                                setShare = settings::setFocusShare,
+                                setFollow = { on ->
+                                    settings.setFocusFollow(on)
+                                    // Asked only now, when the person turns Follow on.
+                                    if (on && !dndAccess) onOpenDndAccess()
+                                },
+                                openAccess = onOpenDndAccess,
                             ),
                             codes = CodesSettingsActions(
                                 link = codes.linker::start,
@@ -1427,5 +1474,34 @@ private fun rediscoverMessage(context: android.content.Context, result: Rediscov
         result.found.isNotEmpty() -> context.getString(R.string.rediscover_found, names(result.found))
         result.stillMissing.isNotEmpty() -> context.getString(R.string.rediscover_missing, names(result.stillMissing))
         else -> context.getString(R.string.rediscover_none)
+    }
+}
+
+/** The snackbar line for a Mac action status, or null when the screen already shows it. */
+internal fun macActionMessage(
+    context: android.content.Context,
+    status: dev.bridgey.android.actions.MacActionStatus,
+    title: String?,
+    macName: String,
+): String? {
+    val kind = dev.bridgey.android.actions.MacActionIds.kind(status.actionId)
+    return when (status.outcome) {
+        dev.bridgey.android.actions.MacActionOutcome.RUNNING -> null
+        dev.bridgey.android.actions.MacActionOutcome.DONE -> when (kind) {
+            dev.bridgey.android.actions.MacActionKind.APP -> context.getString(R.string.mac_action_done_app, title ?: "", macName)
+            dev.bridgey.android.actions.MacActionKind.SHORTCUT -> context.getString(R.string.mac_action_done_shortcut, title ?: "", macName)
+            else -> null
+        }
+        dev.bridgey.android.actions.MacActionOutcome.NOT_CONFIRMED -> context.getString(R.string.mac_action_not_confirmed, macName)
+        dev.bridgey.android.actions.MacActionOutcome.NOT_SENT -> context.getString(R.string.mac_action_not_sent, macName)
+        dev.bridgey.android.actions.MacActionOutcome.REFUSED -> when (status.reason) {
+            "not_allowed" -> context.getString(R.string.mac_action_refused_not_allowed, macName)
+            "invalid" -> context.getString(R.string.mac_action_refused_invalid, macName)
+            "rate_limited" -> context.getString(R.string.mac_action_refused_rate_limited)
+            "busy" -> context.getString(R.string.mac_action_refused_busy, macName)
+            "permission_required" -> context.getString(R.string.mac_action_refused_permission, macName)
+            "unavailable" -> context.getString(R.string.mac_action_refused_unavailable, macName)
+            else -> context.getString(R.string.mac_action_refused_failed, macName)
+        }
     }
 }

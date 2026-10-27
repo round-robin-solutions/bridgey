@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Reconnect when Wi-Fi returns, and dial known addresses only on the network they belong to. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -30,6 +31,16 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- Focus sync > Follow the Mac's Focus (off by default): Do Not Disturb access, granted by the
+         person in Android's settings, lets Bridgey turn Do Not Disturb on and back off. -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- Take photos for the Mac (on by default, asked for on the camera screen the first time):
+         the camera a Mac asked for, opened only by a tap on the phone. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!-- The widget's Glance library brings WorkManager, which asks to start at boot. Bridgey's widget
+         redraws when the app starts, so that permission is removed from the merged manifest. -->
+    <uses-permission tools:node="remove" android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
     <!-- Codes from messages: a companion link to the Mac (Companion Device Manager) makes Android 15+
          show Bridgey the text of code messages. Optional: phones without it use the ADB command. -->
@@ -100,6 +111,12 @@
             android:exported="false"
             android:noHistory="true"
             android:taskAffinity="" />
+        <!-- Phone camera to Mac: opened from Bridgey's own notification or while Bridgey is in front. -->
+        <activity
+            android:name=".camera.CameraActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity="${applicationId}.camera" />
         <activity android:name=".ConfirmCallActivity" android:exported="false"
             android:excludeFromRecents="true" android:noHistory="true" android:taskAffinity="" />
         <service
@@ -115,6 +132,42 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
         </service>
+        <!-- Mac actions (draft mac_actions_draft1): Quick Settings tile, Device Controls, widget. -->
+        <service android:name=".LockMacTileService" android:exported="true"
+            android:label="@string/tile_lock_label" android:icon="@drawable/ic_action_lock"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
+        </service>
+        <service android:name=".controls.MacControlsService" android:exported="true" tools:targetApi="30"
+            android:label="@string/feature_mac_actions"
+            android:permission="android.permission.BIND_CONTROLS">
+            <intent-filter><action android:name="android.service.controls.ControlsProviderService" /></intent-filter>
+        </service>
+        <receiver android:name=".widget.MacWidgetReceiver" android:exported="true"
+            android:label="@string/widget_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/mac_widget_info" />
+        </receiver>
+        <activity android:name=".widget.MacWidgetConfigureActivity" android:exported="true"
+            android:excludeFromRecents="true" android:taskAffinity="">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" /></intent-filter>
+        </activity>
+        <!-- Open on Mac (draft links_open_draft1): shows the host and waits for a tap before sending. -->
+        <activity
+            android:name=".OpenOnMacActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/open_on_mac_label"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Bridgey.Sheet">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
         <receiver
             android:name=".UpdateInstallReceiver"
             android:exported="false" />

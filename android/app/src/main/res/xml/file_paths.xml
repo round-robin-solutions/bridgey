@@ -3,4 +3,8 @@
     <cache-path
         name="diagnostics"
         path="diagnostics/" />
+    <!-- Photos for the Mac (phone camera to Mac), sent and then deleted. -->
+    <cache-path
+        name="camera"
+        path="camera/" />
 </paths>

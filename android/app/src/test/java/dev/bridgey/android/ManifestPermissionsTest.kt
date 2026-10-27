@@ -33,8 +33,19 @@ class ManifestPermissionsTest {
                 "android.permission.READ_MEDIA_VIDEO",
                 "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
                 "android.permission.READ_EXTERNAL_STORAGE",
+                "android.permission.ACCESS_NOTIFICATION_POLICY",
+                "android.permission.CAMERA",
             ),
             declared,
+        )
+    }
+
+    /** Glance's WorkManager would add RECEIVE_BOOT_COMPLETED to the APK; the main manifest removes it. */
+    @Test
+    fun widgetLibraryDoesNotAddBootPermission() {
+        val manifest = File("src/main/AndroidManifest.xml").readText()
+        org.junit.Assert.assertTrue(
+            manifest.contains("""<uses-permission tools:node="remove" android:name="android.permission.RECEIVE_BOOT_COMPLETED" />"""),
         )
     }
 

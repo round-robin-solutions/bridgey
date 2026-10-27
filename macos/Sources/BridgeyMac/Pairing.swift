@@ -124,6 +124,8 @@ private struct FileOfferPayload: Codable {
     let mimeType: String
     let size: Int64
     let sha256: String
+    /// Edition (camera_draft1): the photo answers this Mac's camera.request.
+    var cameraRequestId: String? = nil
 }
 
 private struct FileCompletePayload: Codable {
@@ -243,6 +245,23 @@ final class PairingCoordinator: ObservableObject {
     /// Files 2.0: browsing, thumbnails, downloads and uploads for the Phone files window.
     var phoneFiles: PhoneFilesService { phoneFilesController }
     private(set) lazy var phoneFilesController = PhoneFilesController(host: self)
+    /// Mac actions (draft): lock, sleep, screen saver, volume, listed apps and Shortcuts for phones you allow.
+    let macActions: MacActionsHost
+    /// Send the current Safari or Chrome tab to the phone.
+    let browserTab = BrowserTabReader()
+    /// "OnePlus 11 at 15%" and "OnePlus 11 fully charged", per phone thresholds.
+    let batteryAlerts = BatteryAlerts()
+    /// Focus and Do Not Disturb sync with phones (draft focus_sync_draft1), off by default.
+    let focusSync = FocusSync()
+    /// "Take Photo with OnePlus 11" (draft camera_draft1).
+    let camera = PhoneCamera()
+    /// Incoming transfers that are camera photos, by transfer ID, with their request ID.
+    private var cameraTransfers: [String: String] = [:]
+    /// Connection health per paired phone (no addresses, names or content).
+    @Published private(set) var connectionHealth: [String: ConnectionHealthSnapshot] = [:]
+    private var healthRecords: [String: DeviceHealthRecord] = [:]
+    /// Bonjour's state, for the health view.
+    var discoveryHealth: () -> DiscoveryHealth = { .browsing }
 
     var trustedDevices: [TrustedDeviceInfo] {
         trustRegistry.devices.map { device in
@@ -349,6 +368,8 @@ final class PairingCoordinator: ObservableObject {
     private var pendingClipboardActivity: (preview: String?, sensitive: Bool, automatic: Bool)?
     private let autoClipboard = AutoClipboardWatcher()
     private var autoClipboardCancellable: AnyCancellable?
+    /// Accessibility allowed or removed: Lock's "needs permission" mark changes in the catalogs.
+    private var accessibilityCancellable: AnyCancellable?
     private var alertedNotificationIdentifiers = AlertedNotificationIdentifiers()
     private var cancelledTransferIDs = Set<String>()
     private var findDeviceSound: NSSound?
@@ -365,6 +386,7 @@ final class PairingCoordinator: ObservableObject {
         self.notificationHistoryStore = notificationHistoryStore
         activity = ActivityLog(store: ActivityStore())
         remoteInput = RemoteInputHost.live()
+        macActions = MacActionsHost.live()
         codeModel = CodeModelStore.live()
         if settings.notificationHistoryEnabled {
             notificationHistory = notificationHistoryStore.load()
@@ -416,6 +438,24 @@ final class PairingCoordinator: ObservableObject {
         quickActions.available = { [weak self] in self?.isFeatureAvailable($0) == true }
         quickActions.send = { [weak self] in self?.sendQuickPayload(kind: $0, payload: $1) == true }
         quickActions.onActivity = { [weak self] kind in self?.recordConnectedActivity(kind) }
+        quickActions.openRightAway = { [weak self] in self?.settings.openLinksRightAway == true }
+        macActions.isAllowed = { [weak self] id in self?.isFeatureAvailable(.macActions, for: id) == true }
+        macActions.send = { [weak self] id, kind, payload in
+            guard let self, let current = self.registry.session(for: id) else { return false }
+            return self.sendQuickPayload(kind: kind, payload: payload, to: current)
+        }
+        macActions.onCatalogChange = { [weak self] in self?.sendActionsCatalogs() }
+        focusSync.broadcast = { [weak self] active in
+            guard let self else { return }
+            for (_, current) in self.registry.broadcastTargets({ _, link in link.remoteFocusSync }) {
+                _ = self.sendQuickPayload(kind: "focus.state", payload: ["version": 1, "active": active], to: current)
+            }
+        }
+        focusSync.onSettingsChange = { [weak self] in self?.sendFeatureState() }
+        camera.send = { [weak self] id, payload in
+            guard let self, let current = self.registry.session(for: id) else { return false }
+            return self.sendQuickPayload(kind: "camera.request", payload: payload, to: current)
+        }
         remoteInput.isAllowed = { [weak self] id in self?.isFeatureAvailable(.remoteInput, for: id) == true }
         remoteInput.send = { [weak self] id, kind, payload in
             guard let self, let current = self.registry.session(for: id) else { return false }
@@ -449,6 +489,8 @@ final class PairingCoordinator: ObservableObject {
             .sink { [weak self] _ in
                 DispatchQueue.main.async { self?.sendFeatureState() }
             }
+        accessibilityCancellable = remoteInput.$accessibilityTrusted.removeDuplicates().dropFirst()
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.sendActionsCatalogs() } }
         autoClipboardCancellable = Publishers.CombineLatest(settings.$autoClipboardEnabled, settings.$autoClipboardDevices)
             .dropFirst()
             .sink { [weak self] _ in
@@ -484,6 +526,7 @@ final class PairingCoordinator: ObservableObject {
                         self.clearNotificationHistory()
                     }
                     self.sendFeatureState()
+                    self.sendActionsCatalogs()
                     self.mediaController.refresh()
                     self.publishLocalBattery(force: true)
                     self.refreshAutoClipboard()
@@ -537,6 +580,7 @@ final class PairingCoordinator: ObservableObject {
 
     func observe(_ discovery: BonjourDiscovery) {
         restartDiscovery = { [weak discovery] reason in discovery?.restart(reason: reason) }
+        discoveryHealth = { [weak discovery] in discovery?.health ?? .stopped }
         discoveryCancellable = discovery.$peers.sink { [weak self] peers in
             self?.connectTrustedPeerIfNeeded(peers)
         }
@@ -695,6 +739,8 @@ final class PairingCoordinator: ObservableObject {
         trustRegistry.remove(deviceID: deviceID)
         trustedDeviceIDs.remove(deviceID)
         settings.removeDevice(deviceID)
+        batteryAlerts.forget(deviceID)
+        focusSync.forget(deviceID)
         reconnect.forget(deviceID)
         disconnect(deviceID: deviceID)
         BridgeyLog.pairing.notice("pairing revoked peer=\(shortDeviceID(deviceID), privacy: .public)")
@@ -703,6 +749,7 @@ final class PairingCoordinator: ObservableObject {
     /// Recomputes the per-phone list and the selected phone's mirrors (state, features, battery).
     private func publish() {
         defer { phoneFilesController.phonesChanged() }
+        publishHealth()
         let phones = registry.connections
         if connectedPhones != phones { connectedPhones = phones }
         let targetID = registry.target(selected: selectedDeviceID)
@@ -727,6 +774,14 @@ final class PairingCoordinator: ObservableObject {
     private func deviceDisconnected(_ id: String, reason: String) {
         cancelTransfers(for: id)
         remoteInput.disconnected(deviceID: id)
+        macActions.disconnected(deviceID: id)
+        camera.disconnected(id)
+        var record = healthRecords[id] ?? DeviceHealthRecord()
+        record.connectedSince = nil
+        record.lastDropReason = healthToken(reason)
+        record.lastDropAt = Date()
+        record.roundTrips = HeartbeatRoundTrips()
+        healthRecords[id] = record
         if clipboardInbox.current?.deviceID == id || clipboardOutbox.current?.deviceID == id {
             clipboardConnectionLost()
         }
@@ -1373,7 +1428,7 @@ final class PairingCoordinator: ObservableObject {
             // A link from any phone shows; QuickActions answers it through sendQuickPayload,
             // which goes back to the phone that asked.
             quickReplyTarget = current
-            quickActions.receive(message.kind, payload: payload)
+            quickActions.receive(message.kind, payload: payload, from: current.remoteDeviceID)
             quickReplyTarget = nil
         }
     }
@@ -2018,6 +2073,9 @@ final class PairingCoordinator: ObservableObject {
             case "heartbeat.pong":
                 guard message.sessionId == current.id, registry.isActive(current) else { return }
                 current.heartbeatSupported = true
+                if healthRecords[current.remoteDeviceID]?.roundTrips.received(message.messageId, at: Date()) != nil {
+                    publishHealth()
+                }
             case "pairing.offer":
                 guard !current.initiatedLocally, current.pairingKey == nil else { return }
                 // A reconnect meant for another device (it dialled an address that is now ours):
@@ -2126,6 +2184,8 @@ final class PairingCoordinator: ObservableObject {
                     link.remotePlaces = draftKeys[placesFeatureKey] == true
                     link.remoteBrowse = draftKeys[filesBrowseFeatureKey] == true
                     link.remoteSmsCodes = draftKeys[smsCodesFeatureKey] == true
+                    link.remoteFocusSync = draftKeys[focusSyncFeatureKey] == true
+                    link.remoteCamera = draftKeys[cameraFeatureKey] == true
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
                 }
@@ -2153,6 +2213,10 @@ final class PairingCoordinator: ObservableObject {
                 // Folders interrupted for this phone resume now (within 24 hours of their last progress).
                 folders.phoneReady(phoneID)
                 refreshPhoneFreeSpace(phoneID)
+                sendActionsCatalog(to: current)
+                if draftKeys[focusSyncFeatureKey] == true, let active = focusSync.stateForNewPhone {
+                    _ = sendQuickPayload(kind: "focus.state", payload: ["version": 1, "active": active], to: current)
+                }
             case "ping.request":
                 try receivePing(message, in: current)
             case "ping.ack":
@@ -2270,6 +2334,7 @@ final class PairingCoordinator: ObservableObject {
                 }
                 registry.update(current.remoteDeviceID) { $0.battery = payload }
                 publish()
+                batteryAlerts.received(level: payload.level, charging: payload.isCharging, deviceID: current.remoteDeviceID, phone: current.peerName)
                 BridgeyLog.plugin.debug("battery received level=\(payload.level, privacy: .public) charging=\(payload.isCharging, privacy: .public)")
             case "notifications.post":
                 guard featureEnabled(.notifications, current: current) else { return }
@@ -2349,6 +2414,9 @@ final class PairingCoordinator: ObservableObject {
                         current.send(PairingMessage(kind: "files.cancel", sessionId: current.id, transferId: offer.transferId))
                     }
                     return
+                }
+                if let requestID = offer.cameraRequestId, camera.matches(requestID, from: current.remoteDeviceID) {
+                    cameraTransfers[offer.transferId] = requestID
                 }
                 let transfer = try IncomingFileTransfer(offer: offer, directoryAccess: settings.receiveDirectoryAccess())
                 incomingFiles[offer.transferId] = transfer
@@ -2442,6 +2510,9 @@ final class PairingCoordinator: ObservableObject {
                         transferId: completion.transferId
                     ))
                     recordActivity(.fileReceived, in: current, fileName: transfer.displayName)
+                    if let requestID = cameraTransfers.removeValue(forKey: completion.transferId) {
+                        camera.photoArrived(destination, requestID: requestID, from: current.remoteDeviceID, phoneName: current.peerName)
+                    }
                     announceReceived([ReceivedItem(url: destination, isFolder: false)], phoneID: current.remoteDeviceID, revealIfSilent: true)
                     BridgeyLog.line(BridgeyLog.files, LogLines.file(BridgeyLog.policy, event: "received", transfer: completion.transferId, name: transfer.displayName))
                 } catch {
@@ -2578,6 +2649,12 @@ final class PairingCoordinator: ObservableObject {
                 receiveRemoteInput(message, in: current)
             case let kind where kind.hasPrefix("codes."):
                 receiveCodesMessage(message, in: current)
+            case let kind where kind.hasPrefix("actions."):
+                receiveActionsMessage(message, in: current)
+            case "focus.state":
+                receiveFocusState(message, in: current)
+            case "camera.status":
+                receiveCameraStatus(message, in: current)
             default:
                 break
             }
@@ -2628,6 +2705,13 @@ final class PairingCoordinator: ObservableObject {
         if disconnectedTrustedIDs.isEmpty { discoveryWindowStart = nil }
         BridgeyLog.reconnect.notice("connected peer=\(shortDeviceID(id), privacy: .public) via=\(source.rawValue, privacy: .public) address=\(current.remoteHost.map(addressTag) ?? "unknown", privacy: .public) attempts=\(attempts, privacy: .public)")
         diagnostics.record(category: "transport", event: "connected", outcome: source.rawValue, device: id, detail: "after_\(attempts)_attempts")
+        var record = healthRecords[id] ?? DeviceHealthRecord()
+        record.connectedSince = Date()
+        record.route = connectionRoute(forHost: current.remoteHost)
+        record.outbound = current.initiatedLocally
+        record.roundTrips = HeartbeatRoundTrips()
+        healthRecords[id] = record
+        macActions.disconnected(deviceID: id)
         if pairingSession === current {
             pairingSession = nil
             pairingFlow = .idle
@@ -2670,6 +2754,12 @@ final class PairingCoordinator: ObservableObject {
         features[filesBrowseFeatureKey] = false
         // Draft, edition only: this Mac reads codes from SMS and can advertise for the phone's companion link.
         features[smsCodesFeatureKey] = settings.isEnabled(.notifications, for: current.remoteDeviceID)
+        // Draft, edition only: this Mac understands links "open" (Open on Mac from the phone).
+        features[linksOpenFeatureKey] = settings.isEnabled(.links, for: current.remoteDeviceID)
+        // Draft, edition only: focus.state, while either Focus direction is on.
+        features[focusSyncFeatureKey] = focusSync.advertised
+        // Draft, edition only: this Mac can ask for photos; they arrive as files.
+        features[cameraFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
               let encrypted = try? encrypt(payload, key: key) else { return }
         current.send(PairingMessage(
@@ -2806,6 +2896,7 @@ final class PairingCoordinator: ObservableObject {
     /// Discovery changed: the engine remembers trusted phones' addresses and tries new arrivals.
     func connectTrustedPeerIfNeeded(_ peers: [DiscoveredPeer]) {
         lastPeers = peers
+        publishHealth()
         reconnect.discoveryChanged(peers)
     }
 
@@ -2848,6 +2939,8 @@ final class PairingCoordinator: ObservableObject {
     private func recordReconnect(_ event: ReconnectEvent) {
         switch event {
         case let .dial(id, address, attempt, reason):
+            healthRecords[id, default: DeviceHealthRecord()].reconnects.increment(now: Date())
+            publishHealth()
             let tag = addressTag(address.host)
             BridgeyLog.reconnect.notice("dial peer=\(shortDeviceID(id), privacy: .public) attempt=\(attempt, privacy: .public) reason=\(reason, privacy: .public) source=\(address.source.rawValue, privacy: .public) address=\(tag, privacy: .public)")
             diagnostics.record(category: "reconnect", event: "dial", outcome: reason, device: id, detail: "n\(attempt)_\(address.source.rawValue)_\(tag)")
@@ -2979,6 +3072,7 @@ final class PairingCoordinator: ObservableObject {
             ]
             if let seen = reconnect.addressBook.lastConnected(id) { entry["lastConnectedAt"] = formatter.string(from: seen) }
             if let next = reconnect.schedule.entry(id)?.nextAt { entry["nextAttemptAt"] = formatter.string(from: next) }
+            entry["health"] = healthSnapshot(for: id).diagnostics()
             return entry
         }
     }
@@ -3012,10 +3106,12 @@ final class PairingCoordinator: ObservableObject {
                 current.close()
                 return
             }
+            let pingID = UUID().uuidString.lowercased()
+            self.healthRecords[current.remoteDeviceID, default: DeviceHealthRecord()].roundTrips.sent(pingID, at: Date())
             current.send(PairingMessage(
                 kind: "heartbeat.ping",
                 sessionId: current.id,
-                messageId: UUID().uuidString.lowercased()
+                messageId: pingID
             ))
             self.reconnect.stillConnected(current.remoteDeviceID)
             self.publishLocalBattery()
@@ -3185,6 +3281,150 @@ final class PairingCoordinator: ObservableObject {
                 if self?.codeLinkStatus == line { self?.codeLinkStatus = nil }
             }
         }
+    }
+
+    // MARK: Mac actions (draft mac_actions_draft1)
+
+    /// actions.catalog to one phone, when Mac actions is on and granted here and on there.
+    private func sendActionsCatalog(to current: Session) {
+        guard registry.isActive(current), isFeatureAvailable(.macActions, for: current.remoteDeviceID) else { return }
+        _ = sendQuickPayload(kind: "actions.catalog", payload: macActions.catalogPayload(), to: current)
+    }
+
+    /// The list, a switch, a grant or Accessibility changed: every phone that may use it hears.
+    func sendActionsCatalogs() {
+        for (_, current) in registry.broadcastTargets({ id, _ in self.isFeatureAvailable(.macActions, for: id) }) {
+            sendActionsCatalog(to: current)
+        }
+    }
+
+    /// actions.run from a phone: decrypted and replay-checked here, everything else in the host.
+    private func receiveActionsMessage(_ message: PairingMessage, in current: Session) {
+        guard message.kind == "actions.run", registry.isActive(current), message.sessionId == current.id,
+              let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key), data.count <= 1024,
+              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+        macActions.receive(kind: message.kind, payload: payload, deviceID: current.remoteDeviceID, deviceName: current.peerName)
+    }
+
+    /// Menu bar panel > Link > Send current browser tab: Safari or Chrome's front tab to the selected phone.
+    func sendBrowserTab() {
+        guard isFeatureAvailable(.links) else {
+            quickActionsStatus(L10n.text("browser.unavailable", fallback: "Web links are unavailable on one of your devices"))
+            return
+        }
+        browserTab.currentTab { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case let .success(link): self.quickActions.sendLink(link)
+            case .failure(.noBrowser):
+                self.quickActionsStatus(L10n.text("browser.none", fallback: "Open Safari or Chrome first"))
+            case .failure(.noTab):
+                self.quickActionsStatus(L10n.text("browser.noTab", fallback: "The front browser tab has no web address"))
+            case .failure(.automation):
+                self.quickActionsStatus(L10n.text("browser.automation", fallback: "Allow Bridgey to control the browser in System Settings > Privacy & Security > Automation"))
+            }
+        }
+    }
+
+    private func quickActionsStatus(_ text: String) { quickActions.showStatus(text) }
+
+    /// focus.state from a phone: its Do Not Disturb, applied only when Follow is on here.
+    private func receiveFocusState(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key), data.count <= 256,
+              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              payload["version"] as? Int == 1, let number = payload["active"] as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID() else { return }
+        focusSync.received(active: number.boolValue, from: current.remoteDeviceID)
+    }
+
+    /// camera.status from a phone, for this Mac's open request.
+    private func receiveCameraStatus(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key), data.count <= 512,
+              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              payload["version"] as? Int == 1, let requestID = payload["requestId"] as? String,
+              let status = payload["status"] as? String else { return }
+        camera.received(status: status, requestID: requestID, from: current.remoteDeviceID, phoneName: current.peerName)
+    }
+
+    /// The phone takes photos for this Mac and Files is on for it.
+    func cameraAvailable(for id: String) -> Bool {
+        registry.state(for: id)?.remoteCamera == true && isFeatureAvailable(.files, for: id)
+    }
+
+    /// Panel > File > Take Photo with [phone], or the Shortcuts action: the request ID, if sent.
+    @discardableResult
+    func takePhoto(with id: String? = nil) -> String? {
+        guard let target = id ?? registry.target(selected: selectedDeviceID), cameraAvailable(for: target) else { return nil }
+        return camera.request(from: target, phoneName: intentName(target))
+    }
+
+    // MARK: Shortcuts and Siri (App Intents)
+
+    /// Paired phones for the Shortcuts phone picker.
+    func intentPhones() -> [PhoneEntity] {
+        trustedDevices.map { PhoneEntity(id: $0.id, name: $0.name) }
+    }
+
+    /// The connected phone an intent aims at: the named one, else the panel's selection.
+    func intentTarget(_ id: String?) -> String? {
+        if let id { return registry.session(for: id) != nil ? id : nil }
+        return registry.target(selected: selectedDeviceID)
+    }
+
+    func intentName(_ id: String) -> String {
+        connectedPhones.first { $0.id == id }?.name ?? trustedName(id)
+    }
+
+    func intentBattery(for id: String) -> PhoneBatteryEntity? {
+        guard isFeatureAvailable(.battery, for: id), let battery = registry.state(for: id)?.battery else { return nil }
+        return PhoneBatteryEntity(id: id, phone: intentName(id), level: battery.level, charging: battery.isCharging)
+    }
+
+    /// Runs a single-phone action aimed at `id`, then puts the panel's selection back. The panel
+    /// keeps its link card: a temporary target change does not reset quick actions.
+    @discardableResult
+    func withIntentTarget<T>(_ id: String, _ body: () -> T) -> T {
+        let previous = selectedDeviceID
+        let previousTarget = publishedTarget
+        selectedDeviceID = id
+        publishedTarget = registry.target(selected: id)
+        publish()
+        let result = body()
+        selectedDeviceID = previous
+        publishedTarget = previousTarget
+        publish()
+        return result
+    }
+
+    /// Send text to phone: the phone's clipboard, without touching this Mac's pasteboard.
+    func sendText(_ text: String, to id: String) -> Bool {
+        guard let current = registry.session(for: id), registry.isActive(current), isFeatureAvailable(.clipboard, for: id),
+              !text.isEmpty, clipboardTextFits(text) else { return false }
+        sendClipboardContent(text: text, html: nil, concealed: false, automatic: false, in: current)
+        return true
+    }
+
+    // MARK: Connection health
+
+    func healthSnapshot(for id: String) -> ConnectionHealthSnapshot {
+        ConnectionHealthSnapshot(
+            deviceID: id, record: healthRecords[id], connected: registry.session(for: id) != nil,
+            discoveryVisible: lastPeers.contains { $0.deviceIDHint == id }, discovery: discoveryHealth(), now: Date()
+        )
+    }
+
+    private func publishHealth() {
+        var snapshots: [String: ConnectionHealthSnapshot] = [:]
+        for id in trustedDeviceIDs { snapshots[id] = healthSnapshot(for: id) }
+        if snapshots != connectionHealth { connectionHealth = snapshots }
     }
 
     /// codes.* (sms_codes_draft1): code access reports and the companion link's advertising.

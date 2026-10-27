@@ -137,6 +137,21 @@ struct SettingsModel {
     var remoteAudit: [RemoteControlAuditEntry] = []
     /// Permissions and Reset (SetupCenter).
     var setup = SetupSettingsModel()
+    /// Media and actions > Mac actions: what phones may run, the Shortcuts on this Mac (nil until
+    /// read), and the private action log.
+    var macActions = MacActionsConfig()
+    var availableShortcuts: [String]?
+    var macActionsAudit: [MacActionAuditEntry] = []
+    /// Media and actions > Open links from phones right away.
+    var openLinksRightAway = false
+    /// Devices > [phone] > Connection health.
+    var health: [String: ConnectionHealthSnapshot] = [:]
+    /// Devices > [phone] > Battery alerts; a missing phone uses the defaults.
+    var batteryAlerts: [String: BatteryAlertThresholds] = [:]
+    /// Notifications > Focus.
+    var focusSync = FocusSyncSettings()
+    /// Files > Copy photos from the phone camera to the clipboard.
+    var cameraCopyToClipboard = false
 
     var connectedDeviceID: String? {
         if case let .connected(id, _) = state { return id }
@@ -222,6 +237,16 @@ struct SettingsActions {
     var clearRemoteAudit: () -> Void = {}
     /// Permissions, Reset and Run setup again (SetupCenter).
     var setup = SetupSettingsActions()
+    var setMacActionSwitch: (MacActionSwitch, Bool) -> Void = { _, _ in }
+    var addMacActionApps: () -> Void = {}
+    var removeMacActionApp: (String) -> Void = { _ in }
+    var addMacActionShortcut: (String) -> Void = { _ in }
+    var removeMacActionShortcut: (String) -> Void = { _ in }
+    var clearMacActionsAudit: () -> Void = {}
+    var setOpenLinksRightAway: (Bool) -> Void = { _ in }
+    var setBatteryAlerts: (String, BatteryAlertThresholds) -> Void = { _, _ in }
+    var setFocusSync: ((inout FocusSyncSettings) -> Void) -> Void = { _ in }
+    var setCameraCopyToClipboard: (Bool) -> Void = { _ in }
 }
 
 enum SettingsLinks {
@@ -665,6 +690,7 @@ private struct NotificationsPane: View {
             NotificationPermissionRow(model: model, actions: actions)
         }
         CodesCard(model: model, actions: actions)
+        FocusSyncCard(model: model, actions: actions)
         NotificationHistoryCard(model: model, actions: actions)
     }
 }
@@ -721,6 +747,11 @@ private struct FilesPane: View {
                            subtitle: L10n.text("settings.files.tag.detail", fallback: "Adds the Bridgey tag, so Finder can list everything that came from your phone."),
                            isOn: model.tagReceivedFiles, set: actions.setTagReceivedFiles)
         }
+        SettingsCard(footnote: L10n.text("camera.settings.note", fallback: "In the menu bar panel, File > Take Photo with your phone. The phone opens its camera once it is unlocked; the photo lands in Received files.")) {
+            SettingsToggle(title: L10n.text("camera.settings.clipboard", fallback: "Copy photos from the phone camera to the clipboard"),
+                           subtitle: L10n.text("camera.settings.clipboard.detail", fallback: "Ready to paste as soon as the photo arrives"),
+                           divider: false, isOn: model.cameraCopyToClipboard, set: actions.setCameraCopyToClipboard)
+        }
         // Send options (Before sending, menu-bar drops): SendOptionsSettings.swift.
         SendOptionsSettingsSection()
     }
@@ -754,8 +785,15 @@ private struct MediaActionsPane: View {
         SettingsCard(title: L10n.text("settings.quickActions", fallback: "Quick actions")) {
             ForEach(Array([BridgeyFeature.links, .ping, .findDevice, .battery].enumerated()), id: \.element) { index, feature in
                 FeatureSwitch(feature: feature, model: model, actions: actions, divider: index > 0)
+                if feature == .links {
+                    SettingsToggle(title: L10n.text("settings.links.openRightAway", fallback: "Open links from phones right away"),
+                                   subtitle: L10n.text("settings.links.openRightAway.detail", fallback: "Open on Mac from the phone\u{2019}s share sheet opens the link in your browser. Off: it waits for you to open it here."),
+                                   isOn: model.openLinksRightAway, set: actions.setOpenLinksRightAway)
+                        .disabled(model.globalFeatures[.links] == false)
+                }
             }
         }
+        MacActionsCards(model: model, actions: actions)
         ShortcutsCard(model: model, actions: actions, only: [.link, .ping])
     }
 }
@@ -901,6 +939,7 @@ extension BridgeyFeature {
         case .media: L10n.text("feature.media.detail", fallback: "Control this Mac\u{2019}s music from the phone")
         case .calls: L10n.text("feature.calls.detail", fallback: "Start calls on the phone from this Mac")
         case .remoteInput: L10n.text("feature.remoteInput.detail", fallback: "Let a phone you allow move the pointer, type and change slides")
+        case .macActions: L10n.text("feature.macActions.detail", fallback: "Lock, sleep, volume, apps and Shortcuts from a phone you allow")
         }
     }
 }
@@ -963,7 +1002,8 @@ struct DeviceCard: View {
                 .font(BrandFont.body(12))
                 .foregroundStyle(c.on2)
                 .padding(.bottom, 4)
-            ForEach(BridgeyFeature.allCases.filter { $0 != .remoteInput }) { feature in
+            ConnectionHealthRow(health: model.health[device.id], now: model.now)
+            ForEach(BridgeyFeature.allCases.filter { !$0.needsDeviceGrant }) { feature in
                 SettingsToggle(
                     title: feature.title,
                     subtitle: note(feature),
@@ -972,6 +1012,10 @@ struct DeviceCard: View {
                     set: { actions.setForDevice(device.id, feature, $0) }
                 )
                 .disabled(model.globalFeatures[feature] == false)
+                if feature == .battery {
+                    BatteryAlertsRow(thresholds: model.batteryAlerts[device.id] ?? .default,
+                                     enabled: model.isEnabled(.battery, for: device.id)) { actions.setBatteryAlerts(device.id, $0) }
+                }
                 if feature == .clipboard {
                     AutoClipboardToggle(
                         isOn: model.isAutoClipboardEnabled(for: device.id),
@@ -984,6 +1028,8 @@ struct DeviceCard: View {
             }
             // Granted on its own, off by default; see Settings > Remote control.
             RemoteControlGrantToggle(device: device, model: model, actions: actions)
+            // The same for Mac actions; see Settings > Media and actions.
+            MacActionsGrantToggle(device: device, model: model, actions: actions)
         }
         .confirmationDialog(
             String(format: L10n.text("devices.forget.title", fallback: "Forget %@?"), device.name),
@@ -1317,7 +1363,13 @@ struct LiveSettingsView: View {
     @ObservedObject var setupCenter = SetupCenter.shared
     /// The setup window (SetupWindow.swift) shows the same live settings, one group at a time.
     let inSetup: Bool
+    @ObservedObject var macActions: MacActionsHost
+    @ObservedObject var macActionsAudit: MacActionsAuditLog
+    @ObservedObject var batteryAlerts: BatteryAlerts
+    @ObservedObject var focusSync: FocusSync
+    @ObservedObject var camera: PhoneCamera
     @State private var pane: SettingsPane = .devices
+    @State private var availableShortcuts: [String]?
     @State private var phoneLinkStatus: String?
     /// While Remote control is open: notices Accessibility being allowed in System Settings.
     private let accessibilityTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -1334,6 +1386,11 @@ struct LiveSettingsView: View {
         remoteInput = pairing.remoteInput
         remoteAudit = pairing.remoteInput.audit
         codeModel = pairing.codeModel
+        macActions = pairing.macActions
+        macActionsAudit = pairing.macActions.audit
+        batteryAlerts = pairing.batteryAlerts
+        focusSync = pairing.focusSync
+        camera = pairing.camera
     }
 
     private var codeModelDisplay: CodeModelDisplay {
@@ -1364,9 +1421,13 @@ struct LiveSettingsView: View {
             settings.refreshLoginItemStatus()
             remoteInput.refreshAccessibility()
             remoteAudit.prune()
+            macActionsAudit.prune()
         }
         .onReceive(accessibilityTicker) { _ in
-            if pane == .remoteControl { remoteInput.refreshAccessibility() }
+            if pane == .remoteControl || pane == .media { remoteInput.refreshAccessibility() }
+        }
+        .onChange(of: pane) { shown in
+            if shown == .media || shown == .notifications { loadShortcuts() }
         }
     }
 
@@ -1433,6 +1494,14 @@ struct LiveSettingsView: View {
         model.accessibilityTrusted = remoteInput.accessibilityTrusted
         model.remoteAudit = remoteAudit.entries
         model.setup = setupCenter.settingsModel
+        model.macActions = macActions.config
+        model.availableShortcuts = availableShortcuts
+        model.macActionsAudit = macActionsAudit.entries
+        model.openLinksRightAway = settings.openLinksRightAway
+        model.health = pairing.connectionHealth
+        model.focusSync = focusSync.settings
+        model.cameraCopyToClipboard = camera.copyToClipboard
+        model.batteryAlerts = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, batteryAlerts.thresholds(for: $0.id)) })
         return model
     }
 
@@ -1460,6 +1529,26 @@ struct LiveSettingsView: View {
         actions.stopRemoteControl = { remoteInput.stopLocally() }
         actions.openAccessibilitySettings = { NSWorkspace.shared.open(AccessibilityAccess.settingsURL) }
         actions.clearRemoteAudit = { remoteAudit.clear() }
+        actions.setMacActionSwitch = { item, enabled in
+            macActions.setSwitch(item, enabled: enabled)
+            // Lock needs Accessibility: macOS asks once, when Lock is turned on, never at launch.
+            if item == .lock && enabled {
+                remoteInput.refreshAccessibility()
+                if !remoteInput.accessibilityTrusted { AccessibilityAccess.request() }
+            }
+        }
+        actions.addMacActionApps = { macActions.addApps(chooseAllowedApps()) }
+        actions.removeMacActionApp = { macActions.removeApp(bundleID: $0) }
+        actions.addMacActionShortcut = { macActions.addShortcut(named: $0) }
+        actions.removeMacActionShortcut = { macActions.removeShortcut(id: $0) }
+        actions.clearMacActionsAudit = { macActionsAudit.clear() }
+        actions.setOpenLinksRightAway = { settings.setOpenLinksRightAway($0) }
+        actions.setBatteryAlerts = { id, thresholds in batteryAlerts.setThresholds(thresholds, for: id) }
+        actions.setCameraCopyToClipboard = { camera.setCopyToClipboard($0) }
+        actions.setFocusSync = { change in
+            focusSync.update(change)
+            if focusSync.settings.follow { loadShortcuts() }
+        }
         actions.setAutoClipboard = { settings.setAutoClipboard($0) }
         actions.setAutoClipboardForDevice = { deviceID, enabled in settings.setAutoClipboard(enabled, for: deviceID) }
         actions.setClipboardFiles = { settings.setClipboardFilesEnabled($0) }
@@ -1537,6 +1626,14 @@ struct LiveSettingsView: View {
         let grants = settings.deviceFeatures.mapValues { $0[.remoteInput] == true }
         if enabled, remoteControlEffectivelyEnabled(globalEnabled: settings.globalFeatures[.remoteInput] == true, deviceGrants: grants) {
             setupCenter.requestAccessibility { remoteInput.remoteControlEnabled() }
+        }
+    }
+
+    /// The Shortcuts on this Mac, read with `shortcuts list` off the main thread.
+    private func loadShortcuts() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let names = ShortcutsCLI.list() ?? []
+            DispatchQueue.main.async { availableShortcuts = names }
         }
     }
 

@@ -53,6 +53,10 @@ struct PanelModel {
     var notificationPrompt: NotificationPrompt?
     var mediaPlayer: MediaPlayer = .off
     var mediaDetail = ""
+    /// The browser "Send the current tab" asks (Safari or Chrome), nil when none is running.
+    var browserName: String?
+    /// The selected phone takes photos for this Mac (camera_draft1): its name, for File > Take Photo.
+    var cameraPhone: String?
     var fileTransferActive = false
     /// Automatic clipboard is running for the connected device.
     var autoClipboard = false
@@ -91,6 +95,8 @@ struct PanelActions {
     var openDropWindow: () -> Void = {}
     var showTransfers: () -> Void = {}
     var sendLink: () -> Void = {}
+    var sendBrowserTab: () -> Void = {}
+    var takePhoto: () -> Void = {}
     var call: () -> Void = {}
     var ping: () -> Void = {}
     var find: () -> Void = {}
@@ -1165,6 +1171,9 @@ private struct QuickActionBar: View {
                 [
                     PopUpMenuItem(title: L10n.text("quick.file.choose", fallback: "Send Files or Folders\u{2026}"), action: actions.chooseFile),
                     PopUpMenuItem(title: L10n.text("drop.open", fallback: "Open file drop window"), action: actions.openDropWindow),
+                    PopUpMenuItem(title: model.cameraPhone.map { String(format: L10n.text("quick.file.photo", fallback: "Take Photo with %@"), $0) }
+                                    ?? L10n.text("quick.file.photo.none", fallback: "Take Photo with Phone"),
+                                  enabled: model.cameraPhone != nil, action: actions.takePhoto),
                     .separator,
                     PopUpMenuItem(title: L10n.text("quick.file.transfers", fallback: "Show File Transfers"), enabled: model.hasTransferHistory || !model.transfers.isEmpty, action: actions.showTransfers),
                 ]
@@ -1174,7 +1183,18 @@ private struct QuickActionBar: View {
             .disabled(!model.available.contains(.files))
             .help(L10n.text("quick.file.help", fallback: "Send a file"))
 
-            quick("link", L10n.text("quick.link", fallback: "Link"), .links, help: L10n.text("quick.link.help", fallback: "Open the copied link on the phone"), action: actions.sendLink)
+            PopUpMenuButton(items: {
+                [
+                    PopUpMenuItem(title: L10n.text("quick.link.copied", fallback: "Send the Copied Link"), action: actions.sendLink),
+                    PopUpMenuItem(title: model.browserName.map { String(format: L10n.text("quick.link.tab", fallback: "Send the Current %@ Tab"), $0) }
+                                    ?? L10n.text("quick.link.tab.none", fallback: "Send the Current Browser Tab"),
+                                  enabled: model.browserName != nil, action: actions.sendBrowserTab),
+                ]
+            }) {
+                QuickActionLabel(symbol: "link", title: L10n.text("quick.link", fallback: "Link"), position: .middle)
+            }
+            .disabled(!model.available.contains(.links))
+            .help(L10n.text("quick.link.help", fallback: "Open the copied link or the current browser tab on the phone"))
             quick("phone.arrow.up.right", L10n.text("quick.call", fallback: "Call"), .calls, help: L10n.text("quick.call.help", fallback: "Call the phone number currently in the clipboard"), action: actions.call)
             quick("wave.3.right", L10n.text("quick.ping", fallback: "Ping"), .ping, help: L10n.text("quick.ping.help", fallback: "Play a short alert on the phone"), action: actions.ping)
             quick(ringing ? "stop.circle" : "location", ringing ? L10n.text("action.stop", fallback: "Stop") : L10n.text("quick.find", fallback: "Find"),
@@ -1386,6 +1406,8 @@ struct BridgeyPanel: View {
     @ObservedObject var updater: AppUpdater
     @ObservedObject var codeModel: CodeModelStore
     @ObservedObject var setupCenter = SetupCenter.shared
+    @ObservedObject var browserTab: BrowserTabReader
+    @ObservedObject var camera: PhoneCamera
     let onOpenSettings: () -> Void
     @State private var clipboard = PasteboardPreview()
     @State private var now = Date()
@@ -1400,6 +1422,8 @@ struct BridgeyPanel: View {
         quickActions = pairing.quickActions
         media = pairing.mediaController
         codeModel = pairing.codeModel
+        browserTab = pairing.browserTab
+        camera = pairing.camera
         self.onOpenSettings = onOpenSettings
     }
 
@@ -1457,12 +1481,14 @@ struct BridgeyPanel: View {
         model.available = Set(BridgeyFeature.allCases.filter { pairing.isFeatureAvailable($0) })
         model.clipboardLine = clipboard.line
         model.clipboardHidden = clipboard.hidden
-        model.status = pairing.rediscoverStatus ?? pairing.clipboardStatus ?? pairing.callStatus ?? pairing.pingStatus ?? quickActions.status ?? pairing.fileTransferStatus.flatMap { pairing.fileTransferActive ? nil : $0 }
+        model.status = pairing.rediscoverStatus ?? pairing.clipboardStatus ?? pairing.callStatus ?? pairing.pingStatus ?? quickActions.status ?? camera.status ?? pairing.fileTransferStatus.flatMap { pairing.fileTransferActive ? nil : $0 }
         if pairing.isFeatureAvailable(.notifications) && !pairing.notificationsAuthorized {
             model.notificationPrompt = pairing.notificationPermissionDetermined ? .openSettings : .request
         }
         model.mediaPlayer = media.player
         model.mediaDetail = media.snapshot.detail
+        model.browserName = browserTab.browser?.name
+        if case let .connected(deviceID, name) = pairing.state, pairing.cameraAvailable(for: deviceID) { model.cameraPhone = name }
         model.update = updater.flow
         model.appVersion = updater.shortVersion
         model.pairingStoreIssue = pairing.pairingStoreIssue
@@ -1497,6 +1523,8 @@ struct BridgeyPanel: View {
         actions.openDropWindow = { pairing.showFileDropWindow() }
         actions.showTransfers = { pairing.showFileTransferWindow() }
         actions.sendLink = { quickActions.sendClipboardLink() }
+        actions.sendBrowserTab = { pairing.sendBrowserTab() }
+        actions.takePhoto = { pairing.takePhoto() }
         actions.call = { pairing.sendCallFromClipboard() }
         actions.ping = { pairing.sendPing() }
         actions.find = { pairing.findAndroid() }
