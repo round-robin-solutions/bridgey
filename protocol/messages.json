@@ -8,18 +8,19 @@
     "mac-to-android": "Only the macOS client sends it; only the Android client handles it."
   },
   "transport": {
-    "framing": "One UTF-8 JSON object per line, terminated by LF. A CR before the LF is ignored.",
+    "framing": "One strict RFC 8259 JSON object per line, UTF-8, terminated by LF. One CR right before the LF is ignored.",
     "maxFrameBytes": 65536,
+    "maxJsonDepth": 32,
     "discovery": "_bridgey._tcp",
-    "onMalformedFrame": "Close the session before dispatch: oversized or unterminated frame, invalid UTF-8, not a JSON object, or a missing kind or sessionId.",
+    "onMalformedFrame": "Close the session before dispatch: oversized or unterminated frame, invalid UTF-8, not a strict JSON object, nested deeper than maxJsonDepth, a missing kind or sessionId, or an envelope field of the wrong type.",
     "onUnknownKind": "Ignore the message and keep the session.",
     "onUndecryptablePayload": "Close the session, except quick.request, quick.result and media.state, which are dropped.",
     "replayWindow": "Per session, the most recent 256 accepted messageId values."
   },
   "envelope": {
     "kind": { "type": "string", "required": true, "note": "1 to 64 bytes" },
-    "sessionId": { "type": "string", "required": true, "note": "at most 128 bytes" },
-    "messageId": { "type": "string", "required": false, "note": "UUID; required by every message that uses the replay window" },
+    "sessionId": { "type": "string", "required": true, "note": "at most 128 bytes; empty only in a pairing.cancel sent before the session ID is known" },
+    "messageId": { "type": "string", "required": false, "note": "UUID; required by every message that uses the replay window. An empty or null optional string counts as absent" },
     "deviceId": { "type": "string", "required": false },
     "deviceName": { "type": "string", "required": false },
     "publicKey": { "type": "string", "required": false, "note": "base64 X9.63 P-256 ephemeral key" },
@@ -29,7 +30,7 @@
     "nonce": { "type": "string", "required": false, "note": "base64 12-byte AES-GCM nonce" },
     "ciphertext": { "type": "string", "required": false, "note": "base64 AES-GCM ciphertext followed by the 16-byte tag" },
     "transferId": { "type": "string", "required": false, "note": "UUID of a file transfer" },
-    "sequence": { "type": "integer", "required": false, "note": "file chunk sequence, from 0" }
+    "sequence": { "type": "integer", "required": false, "note": "file chunk sequence, from 0; an integral JSON number within plus or minus 2^53 - 1 (1.0 and 1e2 are integers)" }
   },
   "features": [
     { "key": "clipboard", "requiredInMap": true },

@@ -44,15 +44,33 @@ They also check that the file's feature keys match `BridgeyFeature` and
 `featureEnabledByLegacyPeer`, and that every listed kind is described in this
 document.
 
+Both clients decode the shared golden vectors in
+[`protocol/test-vectors/protocol-v1.json`](../protocol/test-vectors/protocol-v1.json)
+(valid and invalid frames, `features.update`, `battery.update` and
+`clipboard.rich` payloads) and must reach the same result for each.
+`ProtocolFuzzTest` and `ProtocolFuzzTests` feed random bytes and mutated,
+truncated, oversized and deeply nested frames, wrong types, unknown kinds and
+replayed IDs to the frame reader and the payload decoders. They run a fixed
+number of cases from a fixed seed; set `BRIDGEY_FUZZ_ITERATIONS` and
+`BRIDGEY_FUZZ_SEED` for longer or different runs.
+
 What 1.0 freezes:
 
 - Framing: one UTF-8 JSON object per line ended by LF, at most 65,536 bytes per
-  frame before decoding. A CR before the LF is ignored.
-- Envelope: `kind` (1 to 64 bytes) and `sessionId` (at most 128 bytes) are
-  required strings; the other envelope fields in `protocol/messages.json` are
-  optional, and each has one type. An oversized or unterminated frame, invalid
-  UTF-8, a frame that is not a JSON object, or a missing `kind` or `sessionId`
-  closes the session before any message is dispatched.
+  frame before decoding and at most 32 levels of nesting (the outer object
+  counts as one). One CR right before the LF is ignored. Frames are strict
+  RFC 8259 JSON: no comments, single quotes, unquoted names, trailing commas,
+  trailing text, or unpaired surrogate escapes. Both clients run the same
+  strict check before parsing, so they accept exactly the same frames.
+- Envelope: `kind` (1 to 64 bytes) and `sessionId` (at most 128 bytes, empty
+  only in a `pairing.cancel` sent before the session ID is known) are required
+  strings; the other envelope fields in `protocol/messages.json` are optional,
+  and each has one type. `sequence` is an integral JSON number within
+  plus or minus 2^53 - 1; `1.0` and `1e2` count as integers. An empty or null
+  optional string counts as absent. An oversized or unterminated frame,
+  invalid UTF-8, a frame that is not a strict JSON object or is nested too
+  deeply, a missing `kind` or `sessionId`, or an envelope field of the wrong
+  type closes the session before any message is dispatched.
 - Every message kind in `protocol/messages.json`: its direction, envelope
   fields, payload fields, their types and bounds, and its meaning.
 - Pairing and encryption as described in this document and in `SECURITY.md`.
@@ -67,7 +85,9 @@ Rules:
    needs a new field or a new kind.
 3. Feature negotiation gates every new message. Each peer sends a complete
    `features.update` map after pairing and whenever local policy changes, and
-   every value in that map is a boolean. The original keys (`clipboard`,
+   every value in that map is a boolean. Receivers ignore keys they do not
+   know, whatever their value, and keep the previous state when the payload
+   `version` is not 1. The original keys (`clipboard`,
    `files`, `notifications`, `battery`, `find_device`) must be present. Every
    later key is optional, a missing key means `false`, and clients list it in
    `featureEnabledByLegacyPeer` as disabled so a peer that predates it never
@@ -86,8 +106,8 @@ Rules:
    rejections, such as an invalid phone number answered with `calls.rejected`,
    keep the session.
 6. Replay protection is per session. Encrypted messages with a `messageId` go
-   through a window of the most recent 256 accepted IDs; a repeated ID has no
-   effect. `quick.request` also carries a per-feature sequence that must
+   through a window of the most recent 256 accepted IDs, oldest evicted first;
+   a repeated ID has no effect. `quick.request` also carries a per-feature sequence that must
    increase. Every session has its own key, so nothing replays across sessions.
 7. Retiring a key: stop sending its messages and advertise the key as `false`
    for at least one release, then stop advertising it. Receivers keep ignoring
@@ -98,7 +118,8 @@ Rules:
    negotiation below). Until then the protocol is version 1.
 
 To add a message: describe it in this document first, add one entry to
-`protocol/messages.json`, and gate it with a new feature key unless it only
+`protocol/messages.json`, add golden vectors for a new payload to
+`protocol/test-vectors/`, and gate it with a new feature key unless it only
 answers a message that already has one. The contract tests then pass on both
 platforms only when both clients use the new kind.
 

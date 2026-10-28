@@ -37,7 +37,9 @@ class ProtocolContractTest {
     }
 
     @Test fun transportLimitsMatchTheCode() {
-        assertEquals(MAX_PROTOCOL_FRAME_BYTES, contract.getJSONObject("transport").getInt("maxFrameBytes"))
+        val transport = contract.getJSONObject("transport")
+        assertEquals(MAX_PROTOCOL_FRAME_BYTES, transport.getInt("maxFrameBytes"))
+        assertEquals(MAX_PROTOCOL_JSON_DEPTH, transport.getInt("maxJsonDepth"))
     }
 
     @Test fun contractIsConsistent() {

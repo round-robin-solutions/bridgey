@@ -46,6 +46,7 @@ final class ProtocolContractTests: XCTestCase {
     func testTransportLimitsMatchTheCode() throws {
         let transport = try XCTUnwrap(contract["transport"] as? [String: Any])
         XCTAssertEqual(transport["maxFrameBytes"] as? Int, maximumProtocolFrameBytes)
+        XCTAssertEqual(transport["maxJsonDepth"] as? Int, maximumProtocolJSONDepth)
     }
 
     func testEveryKindIsDescribedInTheProtocolDocument() throws {
