@@ -166,7 +166,7 @@ final class SetupCenter: ObservableObject {
 
     private func closeSetupWindow() {
         closingSetup = true
-        setupWindow?.close()
+        BridgeyWindows.close(setupWindow)
         closingSetup = false
         stopPolling()
     }
@@ -389,7 +389,7 @@ final class SetupCenter: ObservableObject {
 
     func showWhatsNew(reviewSetup: Bool) {
         let content = WhatsNewContent.make(version: Self.currentVersion, notes: currentNotes, reviewSetup: reviewSetup)
-        whatsNewWindow?.close()
+        BridgeyWindows.close(whatsNewWindow)
         let view = BrandRoot(reduceMotion: settings?.reduceMotion ?? false) {
             WhatsNewView(
                 content: content,
@@ -416,7 +416,7 @@ final class SetupCenter: ObservableObject {
     }
 
     private func closeWhatsNew() {
-        whatsNewWindow?.close()
+        BridgeyWindows.close(whatsNewWindow)
         whatsNewWindow = nil
     }
 
@@ -706,7 +706,7 @@ enum BrandSheet {
         let dismiss: () -> Void = { [weak sheet] in
             guard !dismissed, let sheet else { return }
             dismissed = true
-            if let parent = sheet.sheetParent { parent.endSheet(sheet) } else { sheet.close() }
+            if let parent = sheet.sheetParent { parent.endSheet(sheet) } else { BridgeyWindows.close(sheet) }
         }
         let host = NSHostingController(rootView: BrandRoot(reduceMotion: reduceMotion) { content(dismiss) })
         host.sizingOptions = .preferredContentSize

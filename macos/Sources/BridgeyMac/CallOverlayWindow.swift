@@ -25,17 +25,8 @@ struct CallOverlayEnvironment {
                     window.animator().alphaValue = alpha
                 }, completionHandler: completion)
             },
-            screenUnavailable: {
-                if CGDisplayIsAsleep(CGMainDisplayID()) != 0 { return true }
-                let session = CGSessionCopyCurrentDictionary() as? [String: Any]
-                return (session?["CGSSessionScreenIsLocked"] as? Bool) == true
-            },
-            windowServerShows: { number in
-                guard number > 0,
-                      let info = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(number)) as? [[String: Any]],
-                      let window = info.first else { return false }
-                return (window[kCGWindowIsOnscreen as String] as? Bool) == true
-            }
+            screenUnavailable: { BridgeyWindows.screenUnavailable() },
+            windowServerShows: { BridgeyWindows.windowServerShows($0) }
         )
     }
 }

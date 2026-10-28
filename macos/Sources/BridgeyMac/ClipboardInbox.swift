@@ -622,7 +622,7 @@ final class ClipboardPasteProgressPanel: NSObject, ClipboardPasteProgress {
     }
 
     func hide() {
-        panel?.orderOut(nil)
+        BridgeyWindows.orderOut(panel)
         panel = nil
         onCancel = nil
     }

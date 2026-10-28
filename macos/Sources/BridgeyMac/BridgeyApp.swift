@@ -13,6 +13,8 @@ struct BridgeyApp: App {
 
     init() {
         LegacyPreferences.migrateIfNeeded()
+        // Popovers close on clicks in other apps; closed windows that stay on screen are taken off.
+        WindowWatchdog.shared.start()
         // Before BridgeySettings writes anything: a pending reset, then setup or the review banner.
         SetupCenter.shared.prepareLaunch()
         let settings = BridgeySettings()
