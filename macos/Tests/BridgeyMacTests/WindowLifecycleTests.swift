@@ -244,6 +244,7 @@ final class WindowLifecycleTests: XCTestCase {
         let (panel, _) = makePanel()
         let number = panel.windowNumber
         panel.orderOut(nil)
+        WindowWatchdog.shared.windowHidden(panel)
         // The window server keeps drawing it.
         BridgeyWindows.onScreenWindowNumbers = { [number] }
         let watchdog = WindowWatchdog.shared
@@ -261,12 +262,15 @@ final class WindowLifecycleTests: XCTestCase {
         clock = clock.addingTimeInterval(2)
         watchdog.sweep()
         XCTAssertEqual(repairs.count, 2, "a window that left the screen is not touched again")
+        watchdog.sweep()
+        XCTAssertFalse(watchdog.isSweeping, "the watchdog sleeps when nothing is left to check")
     }
 
     func testWatchdogLeavesWindowsMidAnimationAlone() {
         let (panel, _) = makePanel()
         let number = panel.windowNumber
         panel.orderOut(nil)
+        WindowWatchdog.shared.windowHidden(panel)
         BridgeyWindows.onScreenWindowNumbers = { [number] }
         WindowWatchdog.shared.sweep()
         clock = clock.addingTimeInterval(1)

@@ -398,7 +398,7 @@ final class TrayWindowController: NSWindowController {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior.insert(.canJoinAllSpaces)
-        // No AppKit ordering animation: a close that never finishes it left the panel on screen.
+        // Ordered in and out at once, as the other Bridgey panels: no AppKit ordering animation to wait on.
         panel.animationBehavior = .none
         panel.minSize = NSSize(width: TrayView.width, height: 300)
         panel.setFrameAutosaveName("BridgeyTray")

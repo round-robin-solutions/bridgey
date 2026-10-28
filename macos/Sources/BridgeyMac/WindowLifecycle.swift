@@ -162,8 +162,10 @@ final class WindowWatchdog: NSObject {
     private var popovers: [ObjectIdentifier: NSPopover] = [:]
     private var outsideClickMonitor: Any?
     private var timer: Timer?
-    /// Hidden windows the window server still drew at the last sweep, with when that was first seen.
-    private var ghosts: [ObjectIdentifier: (window: NSWindow, since: Date, orderedOut: Bool)] = [:]
+    /// Windows that were just hidden, or that a wake, unlock or display change may have left behind:
+    /// checked against the window server until they are confirmed gone. Weak, so a window that is
+    /// released goes too.
+    private var suspects: [ObjectIdentifier: (window: Weak<NSWindow>, since: Date, orderedOut: Bool)] = [:]
     private var quietSweeps = 0
 
     func start() {
@@ -187,7 +189,6 @@ final class WindowWatchdog: NSObject {
         DistributedNotificationCenter.default().addObserver(
             self, selector: #selector(systemChanged), name: Notification.Name("com.apple.screenIsUnlocked"), object: nil
         )
-        startSweeping()
     }
 
     @objc private func popoverWillShow(_ note: Notification) {
@@ -214,16 +215,21 @@ final class WindowWatchdog: NSObject {
         windowHidden(window)
     }
 
+    /// Fires when a window is ordered in or out by any route.
     @objc private func occlusionChanged(_ note: Notification) {
-        if let window = note.object as? NSWindow, window.isVisible,
-           madeTransparent.removeValue(forKey: ObjectIdentifier(window)) != nil {
-            window.alphaValue = 1
+        guard let window = note.object as? NSWindow else { return }
+        if window.isVisible {
+            if madeTransparent.removeValue(forKey: ObjectIdentifier(window)) != nil { window.alphaValue = 1 }
+        } else {
+            windowHidden(window)
         }
-        startSweeping()
     }
 
+    /// A wake, unlock, Space or display change: every hidden window is checked once.
     @objc private func systemChanged() {
-        quietSweeps = 0
+        for window in NSApp.windows where !window.isVisible && window.windowNumber > 0 && !Self.isStatusItemWindow(window) {
+            suspect(window)
+        }
         sweep()
         startSweeping()
     }
@@ -265,15 +271,20 @@ final class WindowWatchdog: NSObject {
 
     /// `window` was just closed or ordered out: make sure it left the screen.
     func windowHidden(_ window: NSWindow) {
-        guard started else { return }
+        guard started, !Self.isStatusItemWindow(window) else { return }
+        suspect(window)
         startSweeping()
     }
 
-    /// One pass over Bridgey's windows. Runs on a timer while anything is on screen, and after
-    /// screen wake, unlock, display and Space changes.
+    private func suspect(_ window: NSWindow) {
+        let key = ObjectIdentifier(window)
+        if suspects[key]?.window.value !== window { suspects[key] = (Weak(window), now(), false) }
+    }
+
+    /// One pass: orphaned popovers, and hidden windows the window server still draws. Runs on a
+    /// timer only while a popover is open or a hidden window is not yet confirmed gone.
     func sweep() {
         let time = now()
-        var seen = Set<ObjectIdentifier>()
         for (key, popover) in popovers where popover.isShown {
             // A popover whose window went away (closed behind AppKit's back) is an orphan.
             let parent = Self.window(of: popover)?.parent
@@ -285,50 +296,45 @@ final class WindowWatchdog: NSObject {
             }
         }
         updateOutsideClickMonitor()
-        let onScreen = BridgeyWindows.onScreenWindowNumbers()
-        for window in NSApp.windows where !Self.isStatusItemWindow(window) && window.windowNumber > 0 {
-            if window.isVisible {
-                if window.contentView == nil {
-                    onRepair(Self.kind(window), "no_content")
+        suspects = suspects.filter { _, entry in
+            guard let window = entry.window.value else { return false }
+            // Shown again, or minimised into the Dock (ordering it out would lose it): not ours to fix.
+            return !window.isVisible && !window.isMiniaturized && window.windowNumber > 0
+        }
+        if !suspects.isEmpty {
+            let onScreen = BridgeyWindows.onScreenWindowNumbers()
+            for (key, entry) in suspects {
+                guard let window = entry.window.value else { continue }
+                guard onScreen.contains(window.windowNumber) else {
+                    suspects.removeValue(forKey: key)
+                    continue
+                }
+                guard time.timeIntervalSince(entry.since) >= ghostGrace else { continue }
+                if !entry.orderedOut {
+                    onRepair(Self.kind(window), "still_on_screen")
+                    window.alphaValue = 0
+                    madeTransparent[key] = window
                     BridgeyWindows.withoutOrderingAnimation(window) { $0.orderOut(nil) }
+                    suspects[key] = (entry.window, time, true)
+                } else {
+                    // Ordered out twice and still drawn: order it in once more, transparent, then out,
+                    // which brings AppKit and the window server back in step.
+                    onRepair(Self.kind(window), "resynced")
+                    BridgeyWindows.withoutOrderingAnimation(window) {
+                        $0.alphaValue = 0
+                        $0.orderBack(nil)
+                        $0.orderOut(nil)
+                    }
+                    madeTransparent[key] = window
+                    suspects.removeValue(forKey: key)
                 }
-                continue
-            }
-            // A minimised window lives in the Dock; ordering it out would lose it.
-            guard !window.isMiniaturized, onScreen.contains(window.windowNumber) else { continue }
-            let key = ObjectIdentifier(window)
-            seen.insert(key)
-            guard let ghost = ghosts[key] else {
-                ghosts[key] = (window, time, false)
-                continue
-            }
-            guard time.timeIntervalSince(ghost.since) >= ghostGrace else { continue }
-            if !ghost.orderedOut {
-                onRepair(Self.kind(window), "still_on_screen")
-                window.alphaValue = 0
-                madeTransparent[key] = window
-                BridgeyWindows.withoutOrderingAnimation(window) { $0.orderOut(nil) }
-                ghosts[key] = (window, time, true)
-            } else {
-                // Ordered out twice and still drawn: show it to the window server once more without
-                // a frame on screen, then order it out, which resyncs AppKit and the server.
-                onRepair(Self.kind(window), "resynced")
-                BridgeyWindows.withoutOrderingAnimation(window) {
-                    $0.alphaValue = 0
-                    $0.orderBack(nil)
-                    $0.orderOut(nil)
-                }
-                madeTransparent[key] = window
-                ghosts.removeValue(forKey: key)
             }
         }
-        ghosts = ghosts.filter { seen.contains($0.key) }
-        let anyVisible = NSApp.windows.contains { $0.isVisible && !Self.isStatusItemWindow($0) }
-        if anyVisible || !ghosts.isEmpty || !popovers.isEmpty {
-            quietSweeps = 0
-        } else {
+        if suspects.isEmpty && popovers.isEmpty {
             quietSweeps += 1
-            if quietSweeps >= 3 { stopSweeping() }
+            if quietSweeps >= 2 { stopSweeping() }
+        } else {
+            quietSweeps = 0
         }
     }
 
@@ -362,6 +368,8 @@ final class WindowWatchdog: NSObject {
         }
     }
 
+    var isSweeping: Bool { timer != nil }
+
     private static func window(of popover: NSPopover) -> NSWindow? {
         guard let controller = popover.contentViewController, controller.isViewLoaded else { return nil }
         return controller.view.window
@@ -376,4 +384,9 @@ final class WindowWatchdog: NSObject {
         if window.className.contains("Popover") { return "popover" }
         return window is NSPanel ? "panel" : "window"
     }
+}
+
+final class Weak<Value: AnyObject> {
+    weak var value: Value?
+    init(_ value: Value) { self.value = value }
 }
