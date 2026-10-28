@@ -212,8 +212,14 @@ private final class NotificationPresenter: NSObject, UNUserNotificationCenterDel
 
 @MainActor
 final class PairingCoordinator: ObservableObject {
-    /// The pairing in progress while there is one, otherwise the connected device.
+    /// Connected to the selected device while any device is connected, otherwise the pairing in progress.
     @Published private(set) var state: PairingState = .idle
+    /// The pairing in progress: connecting, verification or failed, otherwise idle.
+    @Published private(set) var pairingFlow: PairingState = .idle
+    /// Every connected device with its own features, battery and ringing state, in connection order.
+    @Published private(set) var connections: [ConnectedDevice] = []
+    /// The device user actions go to while it is connected; otherwise the most recently connected one.
+    @Published private(set) var selectedDeviceID: String?
     @Published private(set) var trustedDeviceIDs: Set<String>
     @Published private(set) var clipboardStatus: String? = nil
     @Published private(set) var remoteBattery: RemoteBatteryStatus? = nil
@@ -250,17 +256,23 @@ final class PairingCoordinator: ObservableObject {
     private lazy var registry = SessionRegistry<Session>(localDeviceID: deviceID)
     /// The session whose pairing code is shown, or the connection the user started.
     private var pairingSession: Session?
-    /// The pairing in progress: connecting, verification or failed, otherwise idle.
-    private var pairingFlow: PairingState = .idle
+    /// The device ID `publish()` last chose as the target.
+    private var publishedTargetID: String?
     /// The session of the device user actions go to.
     private var session: Session? {
-        registry.target(selected: nil).flatMap { registry.session(for: $0) }
+        targetDeviceID.flatMap { registry.session(for: $0) }
     }
+    private var targetDeviceID: String? { registry.target(selected: selectedDeviceID) }
     private var discoveryCancellable: AnyCancellable?
     private var settingsCancellable: AnyCancellable?
-    private var reconnectWorkItem: DispatchWorkItem?
-    private var lastTrustedEndpoint: (host: String, port: Int, name: String)?
-    private var reconnectAttempt = 0
+    /// Per device this Mac dials: where it was reached, reconnect attempts and the pending reconnect.
+    private var trustedEndpoints: [String: (host: String, port: Int, name: String)] = [:]
+    private var reconnectAttempts: [String: Int] = [:]
+    private var reconnectWorkItems: [String: DispatchWorkItem] = [:]
+    /// Which device each transfer, queued file and outgoing folder belongs to.
+    private var transferDevices = TransferOwners()
+    /// The device that made this Mac ring.
+    private var macRingingFrom: String?
     /// The session a quick request is being answered on.
     private var quickReplyTarget: Session?
     private var callRequestID: String?
@@ -334,7 +346,12 @@ final class PairingCoordinator: ObservableObject {
         UNUserNotificationCenter.current().delegate = notificationPresenter
         refreshNotificationAuthorization()
         startListener()
-        quickActions.available = { [weak self] in self?.isFeatureAvailable($0) == true }
+        quickActions.available = { [weak self] feature in
+            guard let self else { return false }
+            // A request is checked against the device that sent it.
+            if let requester = self.quickReplyTarget { return self.isFeatureAvailable(feature, for: requester.remoteDeviceID) }
+            return self.isFeatureAvailable(feature)
+        }
         folderBrowser.available = { [weak self] in
             guard let self, self.session != nil else { return false }
             return self.isFeatureAvailable(.files) && self.isFeatureAvailable(.filesBrowse)
@@ -379,7 +396,9 @@ final class PairingCoordinator: ObservableObject {
                     if !self.isFeatureAvailable(.filesBrowse) || !self.isFeatureAvailable(.files) { self.folderBrowser.reset() }
                     self.mediaController.reset()
                     if !self.featureEnabled(.clipboard) { self.clearClipboardSendStatus() }
-                    if !self.featureEnabled(.notifications) { self.clearRemoteCall() }
+                    if let call = self.remoteCall, !self.settings.isEnabled(.notifications, for: call.deviceID) {
+                        self.clearRemoteCall()
+                    }
                     if !self.featureEnabled(.calls) {
                         self.clearPendingCall()
                         self.clearCallStatus()
@@ -445,6 +464,7 @@ final class PairingCoordinator: ObservableObject {
         }
     }
 
+    /// A connection the user started. It shows its progress and never disturbs connected devices.
     func pair(host: String, port: Int, peerName: String) {
         diagnostics.record(category: "pairing", event: "connection_started")
         guard let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
@@ -453,17 +473,23 @@ final class PairingCoordinator: ObservableObject {
         }
         if let previous = pairingSession { endSession(previous) }
         pairingFlow = .connecting(peerName)
-        lastTrustedEndpoint = (host, port, peerName)
         NSLog("PAIRING started peer=%@", peerName)
-        let connection = NWConnection(host: NWEndpoint.Host(host), port: endpointPort, using: .tcp)
+        pairingSession = dial(host: host, port: endpointPort, peerName: peerName, deviceID: nil)
+        publish()
+    }
+
+    /// Opens a session. `deviceID` marks a background reconnect to a trusted device.
+    @discardableResult
+    private func dial(host: String, port: NWEndpoint.Port, peerName: String, deviceID dialDeviceID: String?) -> Session {
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: .tcp)
         let current = Session(connection: connection, peerName: peerName)
         current.initiatedLocally = true
+        current.endpoint = (host, Int(port.rawValue), peerName)
+        current.dialDeviceID = dialDeviceID
         current.id = UUID().uuidString.lowercased()
         current.privateKey = P256.KeyAgreement.PrivateKey()
         current.localEphemeralKey = current.privateKey!.publicKey.x963Representation.base64EncodedString()
         registry.addPending(current, initiatedLocally: true)
-        pairingSession = current
-        publish()
         scheduleConnectionTimeout(for: current)
         configure(current) { [weak self, weak current] in
             guard let self, let current, current.privateKey != nil else { return }
@@ -475,6 +501,7 @@ final class PairingCoordinator: ObservableObject {
                 publicKey: current.localEphemeralKey
             ))
         }
+        return current
     }
 
     func confirm() {
@@ -511,9 +538,9 @@ final class PairingCoordinator: ObservableObject {
         publish()
     }
 
-    /// Disconnects the device user actions go to.
+    /// Disconnects the selected device. Other devices stay connected.
     func dismiss() {
-        guard let id = registry.target(selected: nil) else {
+        guard let id = targetDeviceID else {
             cancel()
             return
         }
@@ -522,38 +549,49 @@ final class PairingCoordinator: ObservableObject {
 
     /// Disconnects one device. It connects again when it is next discovered.
     func disconnect(deviceID id: String) {
+        reconnectWorkItems.removeValue(forKey: id)?.cancel()
         guard let current = registry.session(for: id) else { return }
         endSession(current)
-        stopMacSound()
-        clearPendingCall()
+        if registry.connectedIDs.isEmpty { clearPendingCall() }
         deviceDisconnected(id)
+    }
+
+    /// Chooses the device user actions go to.
+    func selectDevice(_ id: String) {
+        guard registry.session(for: id) != nil else { return }
+        selectedDeviceID = id
+        publish()
     }
 
     func forget(deviceID: String) {
         trustRegistry.remove(deviceID: deviceID)
         trustedDeviceIDs.remove(deviceID)
         settings.removeDevice(deviceID)
+        trustedEndpoints.removeValue(forKey: deviceID)
+        reconnectAttempts.removeValue(forKey: deviceID)
         disconnect(deviceID: deviceID)
         NSLog("PAIRING revoked peerId=%@", String(deviceID.prefix(8)))
     }
 
-    /// Recomputes the published state and the connected device's mirrors from the registry.
+    /// Recomputes the published device list, the state and the selected device's mirrors.
     private func publish() {
-        let targetID = registry.target(selected: nil)
-        let target = registry.connections.first { $0.id == targetID }
-        let newState: PairingState
-        if pairingFlow != .idle {
-            newState = pairingFlow
-        } else if let target {
-            newState = .connected(deviceID: target.id, peerName: target.name)
-        } else {
-            newState = .idle
-        }
+        let devices = registry.connections
+        if connections != devices { connections = devices }
+        if let selected = selectedDeviceID, !devices.contains(where: { $0.id == selected }) { selectedDeviceID = nil }
+        let targetID = targetDeviceID
+        let target = devices.first { $0.id == targetID }
+        let newState = target.map { PairingState.connected(deviceID: $0.id, peerName: $0.name) } ?? pairingFlow
         if state != newState { state = newState }
         let link = target?.link ?? PeerLinkState()
         if remoteFeatures != link.remoteFeatures { remoteFeatures = link.remoteFeatures }
         if remoteBattery != link.battery { remoteBattery = link.battery }
         if androidRinging != link.ringing { androidRinging = link.ringing }
+        if targetID != publishedTargetID {
+            publishedTargetID = targetID
+            // The phone folder browser follows the selected device.
+            folderBrowser.reset()
+            if phoneFolderWindow?.window?.isVisible == true { folderBrowser.refreshRoots() }
+        }
     }
 
     /// Stops a session's timers, forgets it and closes it. Returns its device ID when it
@@ -568,16 +606,19 @@ final class PairingCoordinator: ObservableObject {
         return deviceID
     }
 
-    /// A connected device went away: its transfers, call and action state end with it.
+    /// A connected device went away. Only its transfers, call and ringing end with it; the
+    /// action status lines are cleared when it was the selected device.
     private func deviceDisconnected(_ id: String) {
-        cancelIncomingFiles()
-        clearRemoteCall()
-        clearCallStatus()
-        clearClipboardSendStatus()
-        clearPingStatus()
-        quickActions.reset()
-        folderBrowser.reset()
-        mediaController.reset()
+        interruptTransfers(for: id)
+        clearRemoteCall(for: id)
+        if macRingingFrom == id { stopMacSound() }
+        if id == publishedTargetID {
+            clearCallStatus()
+            clearClipboardSendStatus()
+            clearPingStatus()
+            quickActions.reset()
+        }
+        if !registry.connectedIDs.contains(where: { isFeatureAvailable(.media, for: $0) }) { mediaController.reset() }
         publish()
         NSLog("TRANSPORT disconnected peerId=%@", String(id.prefix(8)))
     }
@@ -670,7 +711,7 @@ final class PairingCoordinator: ObservableObject {
 
     @discardableResult
     private func flushPendingCallIfPossible() -> Bool {
-        let target = registry.target(selected: nil)
+        let target = targetDeviceID
         guard let number = pendingCallNumber,
               pendingPhoneCallCanDispatch(
                 isConnected: target != nil,
@@ -706,7 +747,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func isFeatureAvailable(_ feature: BridgeyFeature) -> Bool {
-        guard let id = registry.target(selected: nil) else {
+        guard let id = targetDeviceID else {
             return effectiveFeatureAvailable(localEnabled: featureEnabled(feature), remoteEnabled: remoteFeatures[feature] != false)
         }
         return isFeatureAvailable(feature, for: id)
@@ -916,9 +957,15 @@ final class PairingCoordinator: ObservableObject {
         _ = sendFindCommand(kind: "find.start")
     }
 
+    /// Stops ringing here and on the selected device, every device that is ringing and the
+    /// device that made this Mac ring.
     func stopFinding() {
+        let requester = macRingingFrom
         stopMacSound()
-        _ = sendFindCommand(kind: "find.stop")
+        let target = targetDeviceID
+        for device in registry.broadcastTargets({ id, link in link.ringing || id == requester || id == target }) {
+            _ = sendFindCommand(kind: "find.stop", to: device.session)
+        }
     }
 
     private func sendFindCommand(kind: String, to target: Session? = nil) -> Bool {
@@ -949,6 +996,7 @@ final class PairingCoordinator: ObservableObject {
               payload.alertId == "active" else { throw PairingError.invalidMessage }
         if start {
             startMacSound()
+            if macRinging { macRingingFrom = current.remoteDeviceID }
             _ = sendFindCommand(kind: macRinging ? "find.started" : "find.stopped", to: current)
         } else {
             stopMacSound()
@@ -993,6 +1041,7 @@ final class PairingCoordinator: ObservableObject {
         findDeviceSound?.stop()
         findDeviceSound = nil
         macRinging = false
+        macRingingFrom = nil
     }
 
     func chooseAndSendFile() {
@@ -1083,8 +1132,9 @@ final class PairingCoordinator: ObservableObject {
 
     /// Adds files to the outgoing queue. Files are offered one after another,
     /// each as its own transfer, so a failure or cancellation affects only that file.
-    private func queueFiles(_ urls: [URL], uploadTarget: (rootID: String, path: String)? = nil) {
-        guard session != nil, isFeatureAvailable(.files) else { return }
+    /// Each queued file remembers its device: `deviceID`, or the selected device.
+    private func queueFiles(_ urls: [URL], uploadTarget: (rootID: String, path: String)? = nil, to deviceID: String? = nil) {
+        guard let deviceID = deviceID ?? targetDeviceID, isFeatureAvailable(.files, for: deviceID) else { return }
         let queuedAt = Date()
         let status = L10n.text("files.queued", fallback: "Queued")
         for (index, url) in urls.enumerated() {
@@ -1099,6 +1149,7 @@ final class PairingCoordinator: ObservableObject {
                 queued: true
             )
             if let uploadTarget { uploadTargets[transferID] = uploadTarget }
+            transferDevices.assign(transferID, to: deviceID)
             fileSendQueue.enqueue(id: transferID, item: url)
         }
         pruneTransferHistory()
@@ -1107,12 +1158,17 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func startNextQueuedFile() {
-        guard session != nil else { return }
-        guard isFeatureAvailable(.files) else {
-            stopFileQueue(status: "File transfer is turned off on one of your devices")
+        guard let next = fileSendQueue.startNext() else { return }
+        guard let deviceID = transferDevices[next.id], registry.session(for: deviceID) != nil else {
+            markFileTransferFinished(id: next.id, status: "File transfer interrupted")
+            finishQueuedFile(next.id)
             return
         }
-        guard let next = fileSendQueue.startNext() else { return }
+        guard isFeatureAvailable(.files, for: deviceID) else {
+            markFileTransferFinished(id: next.id, status: "File transfer is turned off on one of your devices")
+            finishQueuedFile(next.id)
+            return
+        }
         if (try? next.item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
             startFolder(next.item, folderID: next.id)
         } else {
@@ -1124,7 +1180,7 @@ final class PairingCoordinator: ObservableObject {
         if let folderID = folderFileOwners.removeValue(forKey: transferID) {
             if let folder = outgoingFolder, folder.id == folderID, folder.currentTransferID == transferID {
                 folder.currentTransferID = nil
-                if folder.completedTransferID != transferID, let current = session {
+                if folder.completedTransferID != transferID, let current = registry.session(for: folder.deviceID) {
                     // The file failed here: tell Android to drop it so the next file can start.
                     markTransferCancelled(transferID)
                     current.send(PairingMessage(kind: "files.cancel", sessionId: current.id, transferId: transferID))
@@ -1140,13 +1196,14 @@ final class PairingCoordinator: ObservableObject {
         fileSendQueue.currentID == transferID || outgoingFolder?.currentTransferID == transferID
     }
 
-    /// Ends every file that has not started yet with the given status. They remain retryable.
-    private func stopFileQueue(status: String) {
-        fileSendQueue.removeAllPending().forEach { markFileTransferFinished(id: $0, status: status) }
+    /// Ends every file for the device that has not started yet with the given status. They remain retryable.
+    private func stopFileQueue(for deviceID: String, status: String) {
+        fileSendQueue.removePending { transferDevices.owns(deviceID, $0) }
+            .forEach { markFileTransferFinished(id: $0, status: status) }
     }
 
     private func prepareFile(_ url: URL, transferID: String, folderEntry: (folderID: String, entry: Int, size: Int64)? = nil) {
-        guard let current = session else { return }
+        guard let deviceID = transferDevices[transferID], let current = registry.session(for: deviceID) else { return }
         let expectedSessionID = current.id
         let preparationCancellation = FileCancellationToken()
         filePreparationCancellation = preparationCancellation
@@ -1168,7 +1225,7 @@ final class PairingCoordinator: ObservableObject {
                         self.finishQueuedFile(transferID)
                         return
                     }
-                    guard let current = self.session, current.id == expectedSessionID else {
+                    guard let current = self.registry.session(for: deviceID), current.id == expectedSessionID else {
                         self.markFileTransferFinished(id: transferID, status: "Transfer interrupted — reconnect to retry")
                         self.finishQueuedFile(transferID)
                         return
@@ -1235,14 +1292,17 @@ final class PairingCoordinator: ObservableObject {
         guard let nonce = message.nonce, let ciphertext = message.ciphertext,
               let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: current.pairingKey!),
               plaintext.count <= FolderRules.maxPayloadBytes else { throw PairingError.invalidMessage }
+        // The browser shows the selected device; answers from other devices are not for it.
+        let fromBrowsedDevice = current.remoteDeviceID == targetDeviceID
         guard message.kind == "browse.error" else {
-            folderBrowser.receive(kind: message.kind, payload: plaintext)
+            if fromBrowsedDevice { folderBrowser.receive(kind: message.kind, payload: plaintext) }
             return
         }
         guard let error = try? JSONDecoder().decode(BrowseErrorPayload.self, from: plaintext) else { return }
-        if folderBrowser.receive(error: error) { return }
+        if fromBrowsedDevice, folderBrowser.receive(error: error) { return }
         // An upload the phone refused: it never sent files.accept, so end the transfer here.
         guard error.version == 1, uploadTargets[error.requestId] != nil,
+              transferDevices.owns(current.remoteDeviceID, error.requestId),
               let transfer = outgoingFiles.removeValue(forKey: error.requestId) else { return }
         transfer.cancel()
         markTransferCancelled(error.requestId)
@@ -1258,7 +1318,8 @@ final class PairingCoordinator: ObservableObject {
 
     /// Scans a queued folder in the background, then offers it with its manifest.
     private func startFolder(_ url: URL, folderID: String) {
-        guard let current = session, isFeatureAvailable(.folders) else {
+        guard let deviceID = transferDevices[folderID], let current = registry.session(for: deviceID),
+              isFeatureAvailable(.folders, for: deviceID) else {
             markFileTransferFinished(id: folderID, status: Self.foldersOffText)
             finishQueuedFile(folderID)
             return
@@ -1276,7 +1337,7 @@ final class PairingCoordinator: ObservableObject {
                 self.filePreparationCancellation = nil
                 switch result {
                 case let .success(manifest):
-                    guard let current = self.session, current.id == expectedSessionID,
+                    guard let current = self.registry.session(for: deviceID), current.id == expectedSessionID,
                           let key = current.pairingKey else {
                         self.markFileTransferFinished(id: folderID, status: "File transfer interrupted")
                         self.finishQueuedFile(folderID)
@@ -1316,7 +1377,7 @@ final class PairingCoordinator: ObservableObject {
             finishQueuedFile(folderID)
             return
         }
-        let folder = OutgoingFolder(id: folderID, manifest: manifest)
+        let folder = OutgoingFolder(id: folderID, deviceID: current.remoteDeviceID, manifest: manifest)
         outgoingFolder = folder
         current.send(PairingMessage(
             kind: "folders.offer",
@@ -1342,14 +1403,16 @@ final class PairingCoordinator: ObservableObject {
 
     private func receiveFolderAccept(_ message: PairingMessage, in current: Session) throws {
         guard let payload = try decryptFolderPayload(FolderAcceptPayload.self, message, in: current),
-              let folder = outgoingFolder, folder.id == payload.folderId, !folder.accepted else { return }
+              let folder = outgoingFolder, folder.id == payload.folderId, folder.deviceID == current.remoteDeviceID,
+              !folder.accepted else { return }
         folder.accepted = true
         folder.timeout?.cancel()
         sendNextFolderFile(folder)
     }
 
     private func receiveFolderRejected(_ message: PairingMessage, in current: Session) throws {
-        guard message.sessionId == current.id, let folder = outgoingFolder else { return }
+        guard message.sessionId == current.id, let folder = outgoingFolder,
+              folder.deviceID == current.remoteDeviceID else { return }
         let code: String
         if message.ciphertext == nil {
             guard message.transferId == folder.id else { return }
@@ -1373,8 +1436,8 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func sendNextFolderFile(_ folder: OutgoingFolder) {
-        guard outgoingFolder === folder, session != nil else { return }
-        guard isFeatureAvailable(.files), isFeatureAvailable(.folders) else {
+        guard outgoingFolder === folder, registry.session(for: folder.deviceID) != nil else { return }
+        guard isFeatureAvailable(.files, for: folder.deviceID), isFeatureAvailable(.folders, for: folder.deviceID) else {
             endOutgoingFolder(folder, status: Self.foldersOffText, notifyPeer: true)
             return
         }
@@ -1390,11 +1453,12 @@ final class PairingCoordinator: ObservableObject {
         let transferID = UUID().uuidString.lowercased()
         folder.currentTransferID = transferID
         folderFileOwners[transferID] = folder.id
+        transferDevices.assign(transferID, to: folder.deviceID)
         prepareFile(url, transferID: transferID, folderEntry: (folder.id, entry, entries[entry].size))
     }
 
     private func completeOutgoingFolder(_ folder: OutgoingFolder) {
-        guard let current = session, !folder.completing else { return }
+        guard let current = registry.session(for: folder.deviceID), !folder.completing else { return }
         folder.completing = true
         sendFolderPayload(FolderCompletePayload(folderId: folder.id, sentFiles: folder.sentFiles), kind: "folders.complete", through: current)
         scheduleFolderTimeout(folder, after: 30, status: L10n.text("folders.noAnswer", fallback: "Android did not answer"))
@@ -1402,7 +1466,8 @@ final class PairingCoordinator: ObservableObject {
 
     private func receiveFolderResult(_ message: PairingMessage, in current: Session) throws {
         guard let payload = try decryptFolderPayload(FolderResultPayload.self, message, in: current),
-              let folder = outgoingFolder, folder.id == payload.folderId, folder.completing else { return }
+              let folder = outgoingFolder, folder.id == payload.folderId, folder.deviceID == current.remoteDeviceID,
+              folder.completing else { return }
         folder.timeout?.cancel()
         outgoingFolder = nil
         let total = folder.manifest.fileCount
@@ -1425,17 +1490,14 @@ final class PairingCoordinator: ObservableObject {
         guard outgoingFolder === folder else { return }
         outgoingFolder = nil
         folder.timeout?.cancel()
-        if notifyPeer, let current = session {
-            current.send(PairingMessage(kind: "folders.cancel", sessionId: current.id, transferId: folder.id))
-        }
+        let peer = notifyPeer ? registry.session(for: folder.deviceID) : nil
+        if let peer { peer.send(PairingMessage(kind: "folders.cancel", sessionId: peer.id, transferId: folder.id)) }
         if let transferID = folder.currentTransferID {
             folderFileOwners.removeValue(forKey: transferID)
             markTransferCancelled(transferID)
             filePreparationCancellation?.cancel()
             filePreparationCancellation = nil
-            if notifyPeer, let current = session {
-                current.send(PairingMessage(kind: "files.cancel", sessionId: current.id, transferId: transferID))
-            }
+            if let peer { peer.send(PairingMessage(kind: "files.cancel", sessionId: peer.id, transferId: transferID)) }
             outgoingFiles.removeValue(forKey: transferID)?.cancel()
         }
         markFileTransferFinished(id: folder.id, status: status)
@@ -1505,7 +1567,7 @@ final class PairingCoordinator: ObservableObject {
         let transferIDs = Set(incomingFiles.keys).union(outgoingFiles.keys)
         transferIDs.forEach { transferID in
             markTransferCancelled(transferID)
-            session?.send(PairingMessage(kind: "files.cancel", sessionId: session?.id ?? "", transferId: transferID))
+            sendTransferCancel(transferID)
         }
         incomingFiles.values.forEach { $0.cancel() }
         incomingFiles.removeAll()
@@ -1531,7 +1593,7 @@ final class PairingCoordinator: ObservableObject {
             filePreparationCancellation = nil
         }
         markTransferCancelled(transferID)
-        session?.send(PairingMessage(kind: "files.cancel", sessionId: session?.id ?? "", transferId: transferID))
+        sendTransferCancel(transferID)
         incomingFiles.removeValue(forKey: transferID)?.cancel()
         outgoingFiles.removeValue(forKey: transferID)?.cancel()
         markFileTransferFinished(id: transferID, status: "Transfer cancelled")
@@ -1539,21 +1601,29 @@ final class PairingCoordinator: ObservableObject {
         finishQueuedFile(transferID)
     }
 
+    /// Tells the device a transfer belongs to that it was cancelled.
+    private func sendTransferCancel(_ transferID: String) {
+        guard let deviceID = transferDevices[transferID], let current = registry.session(for: deviceID) else { return }
+        current.send(PairingMessage(kind: "files.cancel", sessionId: current.id, transferId: transferID))
+    }
+
+    /// Retries on the device the file was first sent to.
     func retryFileTransfer(id transferID: String) {
         guard let url = outgoingFileSources[transferID] else { return }
-        guard session != nil else {
+        guard let deviceID = transferDevices[transferID], registry.session(for: deviceID) != nil else {
             markFileTransferFinished(id: transferID, status: "Reconnect before retrying")
             return
         }
-        guard isFeatureAvailable(.files) else {
+        guard isFeatureAvailable(.files, for: deviceID) else {
             markFileTransferFinished(id: transferID, status: "File transfer is turned off on one of your devices")
             return
         }
         fileTransfers.removeValue(forKey: transferID)
         outgoingFileSources.removeValue(forKey: transferID)
         let uploadTarget = uploadTargets.removeValue(forKey: transferID)
+        transferDevices.remove(transferID)
         diagnostics.record(category: "transfer", event: "retry_started")
-        queueFiles([url], uploadTarget: uploadTarget)
+        queueFiles([url], uploadTarget: uploadTarget, to: deviceID)
     }
 
     func clearTransferHistory() {
@@ -1561,6 +1631,7 @@ final class PairingCoordinator: ObservableObject {
         inactiveIDs.forEach {
             outgoingFileSources.removeValue(forKey: $0)
             uploadTargets.removeValue(forKey: $0)
+            transferDevices.remove($0)
         }
         fileTransfers = fileTransfers.filter { $0.value.active }
         fileTransferActive = fileTransfers.values.contains(where: { $0.active })
@@ -1634,9 +1705,11 @@ final class PairingCoordinator: ObservableObject {
             if let deviceID = self.endSession(current) {
                 self.deviceDisconnected(deviceID)
                 self.diagnostics.record(category: "transport", event: "disconnected", outcome: "reconnecting")
-                self.scheduleReconnect()
+                self.scheduleReconnect(for: deviceID)
             } else if wasPairing {
                 self.failPairing("Pairing connection lost")
+            } else if let id = current.dialDeviceID {
+                self.scheduleReconnect(for: id)
             }
         }
         current.connection.stateUpdateHandler = { [weak self, weak current] newState in
@@ -1753,29 +1826,33 @@ final class PairingCoordinator: ObservableObject {
                 let features = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
                     ($0, payload.features[$0.rawValue] ?? false)
                 })
-                registry.update(current.remoteDeviceID) {
+                let deviceID = current.remoteDeviceID
+                registry.update(deviceID) {
                     $0.remoteFeatures = features
                     $0.featureStateReceived = true
                     if features[.battery] == false { $0.battery = nil }
                     if features[.findDevice] == false { $0.ringing = false }
                 }
                 publish()
-                if !isFeatureAvailable(.links) { quickActions.reset() }
-                if !isFeatureAvailable(.filesBrowse) || !isFeatureAvailable(.files) { folderBrowser.reset() }
+                if deviceID == targetDeviceID {
+                    if !isFeatureAvailable(.links) { quickActions.reset() }
+                    if !isFeatureAvailable(.filesBrowse) || !isFeatureAvailable(.files) { folderBrowser.reset() }
+                    if features[.ping] == false { clearPingStatus() }
+                    if features[.clipboard] == false { clearClipboardSendStatus() }
+                    if features[.calls] == false { clearCallStatus() }
+                }
                 mediaController.reset()
                 mediaController.refresh()
-                if features[.ping] == false { clearPingStatus() }
-                if features[.clipboard] == false { clearClipboardSendStatus() }
-                if features[.notifications] == false { clearRemoteCall() }
-                if features[.calls] == false { clearCallStatus() }
-                if features[.folders] == false, let folder = outgoingFolder {
+                if features[.notifications] == false { clearRemoteCall(for: deviceID) }
+                if features[.folders] == false, let folder = outgoingFolder, folder.deviceID == deviceID {
                     endOutgoingFolder(folder, status: Self.foldersOffText, notifyPeer: true)
                 }
-                if features[.files] == false && fileTransferActive {
-                    cancelFileTransfer()
-                    fileTransferStatus = nil
+                if features[.files] == false {
+                    let owned = transferDevices.transfers(of: deviceID).filter { fileTransfers[$0]?.active == true }
+                    owned.forEach { cancelFileTransfer(id: $0) }
+                    if !owned.isEmpty { fileTransferStatus = nil }
                 }
-                if features[.findDevice] == false { stopMacSound() }
+                if features[.findDevice] == false, macRingingFrom == deviceID { stopMacSound() }
                 flushPendingCallIfPossible()
                 if isFeatureAvailable(.battery, for: current.remoteDeviceID) {
                     publishLocalBattery(to: current, force: true)
@@ -1924,9 +2001,13 @@ final class PairingCoordinator: ObservableObject {
                       Data(base64Encoded: offer.sha256)?.count == 32 else {
                     throw PairingError.invalidMessage
                 }
-                guard incomingFiles[offer.transferId] == nil else { throw PairingError.invalidMessage }
+                guard incomingFiles[offer.transferId] == nil,
+                      transferDevices[offer.transferId] == nil || transferDevices.owns(current.remoteDeviceID, offer.transferId) else {
+                    throw PairingError.invalidMessage
+                }
                 let transfer = try IncomingFileTransfer(offer: offer, directoryAccess: settings.receiveDirectoryAccess())
                 incomingFiles[offer.transferId] = transfer
+                transferDevices.assign(offer.transferId, to: current.remoteDeviceID)
                 beginFileTransferUI()
                 fileTransferStatus = "Receiving \(transfer.displayName): \(transfer.progressStatus(force: true)!)"
                 updateFileTransfer(id: offer.transferId, name: transfer.displayName, status: fileTransferStatus!, active: true)
@@ -1947,6 +2028,7 @@ final class PairingCoordinator: ObservableObject {
                       let transferID = message.transferId,
                       let sequence = message.sequence,
                       let transfer = incomingFiles[transferID],
+                      owns(current, transferID),
                       let nonce = message.nonce,
                       let ciphertext = message.ciphertext,
                       let chunk = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: current.pairingKey!) else {
@@ -1968,7 +2050,8 @@ final class PairingCoordinator: ObservableObject {
                       let completion = try? JSONDecoder().decode(FileCompletePayload.self, from: plaintext) else {
                     throw PairingError.invalidMessage
                 }
-                guard let transfer = incomingFiles.removeValue(forKey: completion.transferId) else {
+                guard owns(current, completion.transferId),
+                      let transfer = incomingFiles.removeValue(forKey: completion.transferId) else {
                     if cancelledTransferIDs.contains(completion.transferId) { return }
                     throw PairingError.invalidMessage
                 }
@@ -2008,6 +2091,7 @@ final class PairingCoordinator: ObservableObject {
                 guard registry.isActive(current),
                       message.sessionId == current.id,
                       let transferID = message.transferId,
+                      owns(current, transferID),
                       let transfer = outgoingFiles[transferID] else { throw PairingError.invalidMessage }
                 updateFileTransfer(id: transferID, name: transfer.displayName, status: "Sending \(transfer.displayName)…", active: true)
                 transfer.send(
@@ -2045,20 +2129,20 @@ final class PairingCoordinator: ObservableObject {
                     }
                 )
             case "files.rejected":
-                guard let transferID = message.transferId,
+                guard let transferID = message.transferId, owns(current, transferID),
                       let transfer = outgoingFiles.removeValue(forKey: transferID) else { return }
                 transfer.cancel()
                 markTransferCancelled(transferID)
                 markFileTransferFinished(id: transferID, status: "File transfer is turned off on Android")
                 filePreparationCancellation = nil
                 fileTransferStatus = "File transfer is turned off on Android"
-                stopFileQueue(status: "File transfer is turned off on Android")
+                stopFileQueue(for: current.remoteDeviceID, status: "File transfer is turned off on Android")
                 if let folder = outgoingFolder, folderFileOwners[transferID] == folder.id {
                     endOutgoingFolder(folder, status: "File transfer is turned off on Android", notifyPeer: true)
                 }
                 finishQueuedFile(transferID)
             case "files.complete.ack":
-                guard let transferID = message.transferId,
+                guard let transferID = message.transferId, owns(current, transferID),
                       let transfer = outgoingFiles.removeValue(forKey: transferID) else { return }
                 outgoingFileSources.removeValue(forKey: transferID)
                 if let folder = outgoingFolder, folderFileOwners[transferID] == folder.id {
@@ -2072,7 +2156,7 @@ final class PairingCoordinator: ObservableObject {
                 NSLog("PLUGIN file sent name=%@", transfer.displayName)
                 finishQueuedFile(transferID)
             case "files.cancel":
-                guard let transferID = message.transferId else { return }
+                guard let transferID = message.transferId, owns(current, transferID) else { return }
                 markTransferCancelled(transferID)
                 incomingFiles.removeValue(forKey: transferID)?.cancel()
                 outgoingFiles.removeValue(forKey: transferID)?.cancel()
@@ -2082,7 +2166,7 @@ final class PairingCoordinator: ObservableObject {
                 NSLog("PLUGIN file cancellation received transfer=%@", String(transferID.prefix(8)))
                 finishQueuedFile(transferID)
             case "files.cancel.ack":
-                if let transferID = message.transferId {
+                if let transferID = message.transferId, owns(current, transferID) {
                     markFileTransferFinished(id: transferID, status: "Transfer cancelled")
                 }
             case "browse.roots.result", "browse.list.result", "browse.download.result", "browse.error":
@@ -2095,12 +2179,12 @@ final class PairingCoordinator: ObservableObject {
                 try receiveFolderResult(message, in: current)
             case "folders.cancel":
                 guard message.sessionId == current.id, let folderID = message.transferId else { return }
-                if let folder = outgoingFolder, folder.id == folderID {
+                if let folder = outgoingFolder, folder.id == folderID, folder.deviceID == current.remoteDeviceID {
                     endOutgoingFolder(folder, status: "Transfer cancelled by Android", notifyPeer: false)
                 }
                 current.send(PairingMessage(kind: "folders.cancel.ack", sessionId: current.id, transferId: folderID))
             case "files.chunk.ack":
-                if let transferID = message.transferId, let sequence = message.sequence {
+                if let transferID = message.transferId, let sequence = message.sequence, owns(current, transferID) {
                     outgoingFiles[transferID]?.acknowledge(sequence: sequence)
                 }
             default:
@@ -2133,19 +2217,17 @@ final class PairingCoordinator: ObservableObject {
             return
         case let .accepted(replaced):
             if let replaced {
+                // Transfers ran over the replaced socket, which the device closes too.
                 replaced.connectionTimeout?.cancel()
                 replaced.heartbeat?.cancel()
                 replaced.close()
-                cancelIncomingFiles()
+                interruptTransfers(for: deviceID)
             }
         }
-        // One device at a time: a different device that connects replaces the previous one.
-        for other in registry.connectedIDs where other != deviceID {
-            disconnect(deviceID: other)
-        }
+        if let endpoint = current.endpoint { trustedEndpoints[deviceID] = endpoint }
+        reconnectAttempts[deviceID] = 0
+        reconnectWorkItems.removeValue(forKey: deviceID)?.cancel()
         diagnostics.record(category: "pairing", event: "connected")
-        reconnectAttempt = 0
-        reconnectWorkItem?.cancel()
         publish()
         sendFeatureState(to: current)
         if isFeatureAvailable(.battery, for: deviceID) { publishLocalBattery(to: current, force: true) }
@@ -2174,28 +2256,41 @@ final class PairingCoordinator: ObservableObject {
         ))
     }
 
-    private func cancelIncomingFiles() {
-        let hadActiveTransfers = fileTransfers.values.contains(where: { $0.active })
-        filePreparationCancellation?.cancel()
-        outgoingFolder?.timeout?.cancel()
-        outgoingFolder = nil
-        folderFileOwners.removeAll()
-        fileSendQueue.removeAll().forEach {
-            markFileTransferFinished(id: $0, status: "Transfer interrupted — reconnect to retry")
+    /// The transfer belongs to the device on the other end of `current`.
+    private func owns(_ current: Session, _ transferID: String) -> Bool {
+        transferDevices.owns(current.remoteDeviceID, transferID)
+    }
+
+    /// Ends the transfers of a device that went away. Its outgoing files stay retryable;
+    /// transfers with other devices continue.
+    private func interruptTransfers(for deviceID: String) {
+        let owned = transferDevices.transfers(of: deviceID)
+        guard !owned.isEmpty else { return }
+        let hadActiveTransfers = fileTransfers.values.contains { $0.active && owned.contains($0.id) }
+        fileSendQueue.removePending { owned.contains($0) }
+        if let folder = outgoingFolder, folder.deviceID == deviceID {
+            folder.timeout?.cancel()
+            outgoingFolder = nil
         }
-        incomingFiles.values.forEach { $0.cancel() }
-        incomingFiles.removeAll()
-        outgoingFiles.values.forEach { $0.cancel() }
-        outgoingFiles.removeAll()
-        fileTransfers = recoverInterruptedTransfers(fileTransfers)
-        fileTransferActive = false
-        filePreparationCancellation = nil
-        if fileTransferStatus?.hasPrefix("Receiving ") == true {
-            fileTransferStatus = "File transfer interrupted"
+        folderFileOwners = folderFileOwners.filter { !owned.contains($0.key) }
+        let currentID = fileSendQueue.currentID.flatMap { owned.contains($0) ? $0 : nil }
+        if currentID != nil {
+            filePreparationCancellation?.cancel()
+            filePreparationCancellation = nil
         }
+        for id in owned {
+            incomingFiles.removeValue(forKey: id)?.cancel()
+            outgoingFiles.removeValue(forKey: id)?.cancel()
+        }
+        let rows = fileTransfers.filter { owned.contains($0.key) }
+        fileTransfers = fileTransfers.filter { !owned.contains($0.key) }.merging(recoverInterruptedTransfers(rows)) { $1 }
+        pruneTransferHistory()
+        fileTransferActive = fileTransfers.values.contains(where: { $0.active })
         if hadActiveTransfers {
+            fileTransferStatus = "File transfer interrupted"
             diagnostics.record(category: "transfer", event: "interrupted", outcome: "retry_available")
         }
+        if let currentID, fileSendQueue.finish(id: currentID) { startNextQueuedFile() }
     }
 
     /// Shows a received file in Finder. Files that arrive in quick succession,
@@ -2264,6 +2359,8 @@ final class PairingCoordinator: ObservableObject {
             .sorted { $0.startedAt > $1.startedAt }
             .prefix(maximumTransferHistory)
         fileTransfers = Dictionary(uniqueKeysWithValues: (active + Array(history)).map { ($0.id, $0) })
+        transferDevices.retain(Set(fileTransfers.keys).union(folderFileOwners.keys).union(incomingFiles.keys)
+            .union(outgoingFiles.keys).union(fileSendQueue.pendingIDs).union(fileSendQueue.currentID.map { [$0] } ?? []))
     }
 
     private func authenticateOrPrompt(_ current: Session) {
@@ -2303,26 +2400,38 @@ final class PairingCoordinator: ObservableObject {
         return publicKey.isValidSignature(signature, for: data)
     }
 
+    /// Dials every discovered trusted device this Mac is the dialer for, unless it is
+    /// connected or being dialled already.
     func connectTrustedPeerIfNeeded(_ peers: [DiscoveredPeer]) {
-        guard state == .idle else { return }
-        guard let peer = peers.first(where: {
-            guard let id = $0.deviceIDHint else { return false }
-            return trustedDeviceIDs.contains(id) && deviceID < id
-        }), let host = peer.host, let port = peer.port else { return }
-        pair(host: host, port: port, peerName: peer.deviceNameHint)
+        for peer in peers {
+            guard let id = peer.deviceIDHint, trustedDeviceIDs.contains(id), deviceID < id,
+                  registry.session(for: id) == nil, !isDialing(id),
+                  let host = peer.host, let port = peer.port.flatMap({ UInt16(exactly: $0) }),
+                  let endpointPort = NWEndpoint.Port(rawValue: port) else { continue }
+            reconnectWorkItems.removeValue(forKey: id)?.cancel()
+            dial(host: host, port: endpointPort, peerName: peer.deviceNameHint, deviceID: id)
+        }
     }
 
-    private func scheduleReconnect() {
-        guard let endpoint = lastTrustedEndpoint else { return }
-        reconnectWorkItem?.cancel()
-        let delay = reconnectDelay(attempt: reconnectAttempt)
-        reconnectAttempt += 1
+    private func isDialing(_ id: String) -> Bool {
+        registry.pendingSessions.contains { $0.dialDeviceID == id }
+    }
+
+    /// Dials a trusted device again with backoff, at the endpoint where this Mac last reached it.
+    private func scheduleReconnect(for id: String) {
+        guard let endpoint = trustedEndpoints[id], trustedDeviceIDs.contains(id) else { return }
+        reconnectWorkItems[id]?.cancel()
+        let attempt = reconnectAttempts[id, default: 0]
+        reconnectAttempts[id] = attempt + 1
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.state == .idle else { return }
-            self.pair(host: endpoint.host, port: endpoint.port, peerName: endpoint.name)
+            guard let self else { return }
+            self.reconnectWorkItems.removeValue(forKey: id)
+            guard self.registry.session(for: id) == nil, !self.isDialing(id),
+                  let port = UInt16(exactly: endpoint.port).flatMap({ NWEndpoint.Port(rawValue: $0) }) else { return }
+            self.dial(host: endpoint.host, port: port, peerName: endpoint.name, deviceID: id)
         }
-        reconnectWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        reconnectWorkItems[id] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + reconnectDelay(attempt: attempt), execute: work)
     }
 
     /// Ends a session that has not authenticated in time, unless its pairing code is shown.
@@ -2333,10 +2442,14 @@ final class PairingCoordinator: ObservableObject {
             let wasPairing = self.pairingSession === current
             self.endSession(current)
             NSLog("TRANSPORT connection timed out")
-            guard wasPairing else { return }
-            self.pairingFlow = .idle
-            self.publish()
-            self.scheduleReconnect()
+            if wasPairing {
+                self.failPairing(L10n.text(
+                    "pairing.timeout",
+                    fallback: "The device did not answer. Check that both devices are on the same network and try again."
+                ))
+            } else if let id = current.dialDeviceID {
+                self.scheduleReconnect(for: id)
+            }
         }
         current.connectionTimeout = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: timeout)
@@ -2359,7 +2472,8 @@ final class PairingCoordinator: ObservableObject {
             if self.isFeatureAvailable(.battery, for: current.remoteDeviceID) {
                 self.publishLocalBattery(to: current, force: false)
             }
-            self.mediaController.refresh()
+            // One refresh per interval; the media state goes to every phone with Media on.
+            if current.remoteDeviceID == self.targetDeviceID { self.mediaController.refresh() }
             self.scheduleHeartbeat(for: current)
         }
         current.heartbeat = work
@@ -2594,6 +2708,11 @@ final class PairingCoordinator: ObservableObject {
         diagnostics.record(category: "notification", event: "removed_remotely")
     }
 
+    /// Clears the call card when it shows a call from this device.
+    private func clearRemoteCall(for deviceID: String) {
+        if remoteCall?.deviceID == deviceID { clearRemoteCall() }
+    }
+
     private func clearRemoteCall() {
         mediaController.callChanged(active: false)
         guard let call = remoteCall else { return }
@@ -2648,6 +2767,9 @@ private final class Session {
     var connectionTimeout: DispatchWorkItem?
     var heartbeat: DispatchWorkItem?
     var lastSentBattery: LocalBatteryStatus?
+    /// Where this Mac dialled, and the trusted device a background reconnect is for.
+    var endpoint: (host: String, port: Int, name: String)?
+    var dialDeviceID: String?
     var onMessage: ((PairingMessage) -> Void)?
     var onFailure: (() -> Void)?
     private var buffer = Data()
@@ -2745,6 +2867,7 @@ private final class FileCancellationToken: @unchecked Sendable {
 /// The folder being sent: its manifest and the position of the next file.
 private final class OutgoingFolder {
     let id: String
+    let deviceID: String
     let manifest: OutgoingFolderManifest
     var nextEntry = 0
     var startedFiles = 0
@@ -2755,8 +2878,9 @@ private final class OutgoingFolder {
     var completing = false
     var timeout: DispatchWorkItem?
 
-    init(id: String, manifest: OutgoingFolderManifest) {
+    init(id: String, deviceID: String, manifest: OutgoingFolderManifest) {
         self.id = id
+        self.deviceID = deviceID
         self.manifest = manifest
     }
 }

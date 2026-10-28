@@ -43,6 +43,10 @@ private struct FileDropView: View {
                 .font(.title2.weight(.semibold))
             Text(L10n.text("drop.detail", fallback: "This window stays open while you switch to Finder."))
                 .foregroundStyle(.secondary)
+            if pairing.connections.count > 1, case let .connected(_, name) = pairing.state {
+                Text(String(format: L10n.text("drop.target", fallback: "Files go to %@"), name))
+                    .foregroundStyle(.secondary)
+            }
 
             VStack(spacing: 10) {
                 Image(systemName: isTargeted ? "arrow.down.doc.fill" : "doc.badge.arrow.up")

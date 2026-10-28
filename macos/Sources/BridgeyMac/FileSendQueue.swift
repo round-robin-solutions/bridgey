@@ -39,6 +39,14 @@ struct FileSendQueue<Item> {
         return true
     }
 
+    /// Removes the files that have not started yet and match, and returns their IDs in queue order.
+    @discardableResult
+    mutating func removePending(where matches: (String) -> Bool) -> [String] {
+        let removed = pending.filter { matches($0.id) }.map(\.id)
+        pending.removeAll { matches($0.id) }
+        return removed
+    }
+
     /// Removes every file that has not started yet and returns their IDs in queue order.
     mutating func removeAllPending() -> [String] {
         let ids = pendingIDs
@@ -53,4 +61,25 @@ struct FileSendQueue<Item> {
         pending.removeAll()
         return ids
     }
+}
+
+/// Which device each transfer belongs to. Messages about a transfer are accepted only from
+/// its own device, and a device that disconnects ends only its own transfers.
+struct TransferOwners {
+    private var devices: [String: String] = [:]
+
+    subscript(transferID: String) -> String? { devices[transferID] }
+
+    mutating func assign(_ transferID: String, to deviceID: String) { devices[transferID] = deviceID }
+
+    mutating func remove(_ transferID: String) { devices.removeValue(forKey: transferID) }
+
+    func owns(_ deviceID: String, _ transferID: String) -> Bool { devices[transferID] == deviceID }
+
+    func transfers(of deviceID: String) -> Set<String> {
+        Set(devices.compactMap { $0.value == deviceID ? $0.key : nil })
+    }
+
+    /// Forgets transfers that are no longer queued, running or shown in the history.
+    mutating func retain(_ live: Set<String>) { devices = devices.filter { live.contains($0.key) } }
 }

@@ -54,3 +54,8 @@
 "browse.timeout" = "Android did not answer";
 "transfers.quickLook" = "Quick Look";
 "transfers.showInFinder" = "Show in Finder";
+"panel.connectedMany" = "Connected to %d devices";
+"panel.sendTo" = "Send to";
+"settings.connected" = "Connected";
+"drop.target" = "Files go to %@";
+"pairing.timeout" = "The device did not answer. Check that both devices are on the same network and try again.";

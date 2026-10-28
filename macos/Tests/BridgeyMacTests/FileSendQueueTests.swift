@@ -95,3 +95,44 @@ final class FileSendQueueTests: XCTestCase {
         XCTAssertEqual(uniqueReceivedFileURL(noExtension).lastPathComponent, "notes 2")
     }
 }
+
+/// Routing of transfers when several devices are connected.
+final class TransferRoutingTests: XCTestCase {
+    func testRemovingOneDevicesPendingFilesKeepsTheOthersInOrder() {
+        var queue = FileSendQueue<String>()
+        var owners = TransferOwners()
+        for (id, device) in [("1", "phone-a"), ("2", "phone-b"), ("3", "phone-a"), ("4", "phone-b")] {
+            queue.enqueue(id: id, item: id)
+            owners.assign(id, to: device)
+        }
+        XCTAssertEqual(queue.startNext()?.id, "1")
+        XCTAssertEqual(queue.removePending { owners.owns("phone-a", $0) }, ["3"])
+        XCTAssertEqual(queue.currentID, "1", "the running file is ended by its own path, not here")
+        XCTAssertEqual(queue.pendingIDs, ["2", "4"])
+    }
+
+    func testOwnersKeepDevicesApart() {
+        var owners = TransferOwners()
+        owners.assign("in-1", to: "phone-a")
+        owners.assign("out-1", to: "phone-b")
+        owners.assign("out-2", to: "phone-a")
+        XCTAssertTrue(owners.owns("phone-a", "in-1"))
+        XCTAssertFalse(owners.owns("phone-b", "in-1"), "a device cannot cancel or complete another device's transfer")
+        XCTAssertFalse(owners.owns("phone-a", "unknown"))
+        XCTAssertEqual(owners.transfers(of: "phone-a"), ["in-1", "out-2"])
+        XCTAssertEqual(owners.transfers(of: "phone-b"), ["out-1"])
+        XCTAssertEqual(owners["out-1"], "phone-b")
+    }
+
+    func testOwnersForgetTransfersThatAreGone() {
+        var owners = TransferOwners()
+        owners.assign("kept", to: "phone-a")
+        owners.assign("pruned", to: "phone-a")
+        owners.assign("removed", to: "phone-b")
+        owners.remove("removed")
+        owners.retain(["kept"])
+        XCTAssertEqual(owners.transfers(of: "phone-a"), ["kept"])
+        XCTAssertNil(owners["pruned"])
+        XCTAssertNil(owners["removed"])
+    }
+}
