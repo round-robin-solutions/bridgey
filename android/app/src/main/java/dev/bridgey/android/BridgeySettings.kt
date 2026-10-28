@@ -39,6 +39,8 @@ data class BridgeySettingsState(
     val directCallsEnabled: Boolean,
     /** Remote control pointer speed, 1 (slow) to 5 (fast). */
     val remotePointerSpeed: Int = DEFAULT_REMOTE_POINTER_SPEED,
+    /** In the slides remote, volume down goes to the next slide and volume up to the previous one. */
+    val remoteVolumeKeys: Boolean = false,
 )
 
 internal const val DEFAULT_REMOTE_POINTER_SPEED = 3
@@ -124,6 +126,11 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         mutableState.value = mutableState.value.copy(remotePointerSpeed = value)
     }
 
+    fun setRemoteVolumeKeys(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_REMOTE_VOLUME_KEYS, enabled).apply()
+        mutableState.value = mutableState.value.copy(remoteVolumeKeys = enabled)
+    }
+
     fun removeDevice(deviceId: String) {
         val editor = preferences.edit()
         BridgeyFeature.entries.forEach { editor.remove("device.$deviceId.${it.key}") }
@@ -157,6 +164,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
             directCallsEnabled = preferences.getBoolean(KEY_DIRECT_CALLS_ENABLED, false),
             remotePointerSpeed = preferences.getInt(KEY_REMOTE_POINTER_SPEED, DEFAULT_REMOTE_POINTER_SPEED)
                 .takeIf { it in REMOTE_POINTER_SPEEDS } ?: DEFAULT_REMOTE_POINTER_SPEED,
+            remoteVolumeKeys = preferences.getBoolean(KEY_REMOTE_VOLUME_KEYS, false),
         )
     }
 
@@ -166,5 +174,6 @@ class BridgeySettings(context: Context, defaultDeviceName: String) {
         private const val KEY_DISABLED_NOTIFICATION_PACKAGES = "notification.disabled_packages"
         private const val KEY_DIRECT_CALLS_ENABLED = "calls.direct_enabled"
         private const val KEY_REMOTE_POINTER_SPEED = "remote.pointer_speed"
+        private const val KEY_REMOTE_VOLUME_KEYS = "remote.volume_keys_slides"
     }
 }

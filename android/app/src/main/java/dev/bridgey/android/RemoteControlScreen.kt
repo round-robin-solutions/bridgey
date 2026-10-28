@@ -4,13 +4,19 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -40,9 +46,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -52,6 +61,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -59,8 +69,8 @@ import kotlin.math.hypot
 import kotlinx.coroutines.delay
 
 /**
- * Remote control of the connected Mac: a touchpad with an optional keyboard. The session runs only
- * while this screen is shown. It starts once when the screen opens, keeps the display on, and stops
+ * Remote control of the connected Mac: a touchpad with an optional keyboard, or a presentation
+ * remote with a laser pointer. The session runs only while this screen is shown. It starts once when the screen opens, keeps the display on, and stops
  * when the screen closes, the app leaves the foreground or the display turns off. Coming back shows
  * Start again rather than restarting by itself.
  */
@@ -70,6 +80,7 @@ internal fun RemoteControlRoute(
     deviceName: String,
     controller: RemoteInputController,
     pointerSpeed: Int,
+    volumeKeys: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val session by controller.state.collectAsStateWithLifecycle()
@@ -96,7 +107,8 @@ internal fun RemoteControlRoute(
         deviceName = deviceName,
         session = shown,
         pointerSpeed = pointerSpeed,
-        onStart = { controller.start(deviceId, RemoteMode.TOUCHPAD) },
+        volumeKeys = volumeKeys,
+        onStart = { controller.start(deviceId, it) },
         onStop = { controller.stop(RemoteStopReason.USER) },
         input = controller::send,
         modifier = modifier,
@@ -117,12 +129,14 @@ private fun RemoteControlScreen(
     deviceName: String,
     session: RemoteSessionState,
     pointerSpeed: Int,
-    onStart: () -> Unit,
+    volumeKeys: Boolean,
+    onStart: (RemoteMode) -> Unit,
     onStop: () -> Unit,
     input: (RemoteInput) -> Boolean,
     modifier: Modifier = Modifier,
 ) {
     val active = session is RemoteSessionState.Active
+    var mode by rememberSaveable { mutableStateOf(RemoteMode.TOUCHPAD) }
     var keyboard by rememberSaveable { mutableStateOf(false) }
     val batcher = remember { MotionBatcher() }
     val send by rememberUpdatedState(input)
@@ -139,7 +153,10 @@ private fun RemoteControlScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         RemoteStatusCard(deviceName, session, onStop)
-        if (active) {
+        ModeSwitch(mode, onMode = { mode = it })
+        if (!active) {
+            SessionCard(deviceName, session, { onStart(mode) }, Modifier.weight(1f).fillMaxWidth())
+        } else if (mode == RemoteMode.TOUCHPAD) {
             TouchSurface(pointerSpeed, batcher, send, Modifier.weight(1f).fillMaxWidth())
             if (keyboard) {
                 SpecialKeysRow(send)
@@ -149,7 +166,22 @@ private fun RemoteControlScreen(
                 Text(stringResource(if (keyboard) R.string.remote_keyboard_hide else R.string.remote_keyboard))
             }
         } else {
-            SessionCard(deviceName, session, onStart, Modifier.weight(1f).fillMaxWidth())
+            PresentationPane(volumeKeys, batcher, send, Modifier.weight(1f).fillMaxWidth())
+        }
+    }
+}
+
+/** Touchpad or Slides. Either mode can send any input; the Mac only shows which one is in use. */
+@Composable
+private fun ModeSwitch(mode: RemoteMode, onMode: (RemoteMode) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        RemoteMode.entries.forEach { entry ->
+            val label = stringResource(if (entry == RemoteMode.TOUCHPAD) R.string.remote_mode_touchpad else R.string.remote_mode_slides)
+            if (entry == mode) {
+                Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(label) }
+            } else {
+                OutlinedButton(onClick = { onMode(entry) }, modifier = Modifier.weight(1f)) { Text(label) }
+            }
         }
     }
 }
@@ -342,6 +374,140 @@ private fun TextComposer(send: (RemoteInput) -> Boolean) {
         )
         Button(onClick = submit, enabled = text.isNotEmpty()) { Text(stringResource(R.string.remote_text_send)) }
     }
+}
+
+/**
+ * The presentation remote: big Previous and Next, Start, Black screen and End, and a laser pad.
+ * The Mac maps each action to the keys of the presentation app in front, so this phone never
+ * chooses key codes.
+ */
+@Composable
+private fun PresentationPane(volumeKeys: Boolean, batcher: MotionBatcher, send: (RemoteInput) -> Boolean, modifier: Modifier) {
+    val view = LocalView.current
+    val press: (PresentAction) -> Unit = { action ->
+        if (send(RemoteInput.Present(action))) view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+    }
+    // Volume keys change slides while this pane shows, if Settings allows it.
+    DisposableEffect(volumeKeys) {
+        VolumeKeyRouter.handler = if (volumeKeys) {
+            { up -> press(if (up) PresentAction.PREVIOUS else PresentAction.NEXT) }
+        } else {
+            null
+        }
+        onDispose { VolumeKeyRouter.handler = null }
+    }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LaserPad(batcher, send, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { press(PresentAction.START) }, modifier = Modifier.weight(1f)) {
+                Text(stringResource(R.string.remote_present_start), maxLines = 1)
+            }
+            OutlinedButton(onClick = { press(PresentAction.BLACK) }, modifier = Modifier.weight(1f)) {
+                Text(stringResource(R.string.remote_present_black), maxLines = 1)
+            }
+            OutlinedButton(onClick = { press(PresentAction.END) }, modifier = Modifier.weight(1f)) {
+                Text(stringResource(R.string.remote_present_end), maxLines = 1)
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        if (volumeKeys) {
+            Text(
+                stringResource(R.string.remote_volume_keys_on),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Row(Modifier.fillMaxWidth().height(120.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(
+                onClick = { press(PresentAction.PREVIOUS) },
+                shape = RoundedCornerShape(28.dp),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+            ) { Text(stringResource(R.string.remote_present_previous), style = MaterialTheme.typography.titleMedium) }
+            Button(
+                onClick = { press(PresentAction.NEXT) },
+                shape = RoundedCornerShape(28.dp),
+                modifier = Modifier.weight(1.5f).fillMaxHeight(),
+            ) { Text(stringResource(R.string.remote_present_next), style = MaterialTheme.typography.titleLarge) }
+        }
+    }
+}
+
+/**
+ * The laser: touch and hold to show a dot on the Mac where your finger is, move to move it, lift
+ * to hide it. The pad stands for the whole display (16:9).
+ */
+@Composable
+private fun LaserPad(batcher: MotionBatcher, input: (RemoteInput) -> Boolean, modifier: Modifier) {
+    val send by rememberUpdatedState(input)
+    val view = LocalView.current
+    var size by remember { mutableStateOf(IntSize.Zero) }
+    var finger by remember { mutableStateOf<Offset?>(null) }
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = modifier
+            .onSizeChanged { size = it }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    fun position(at: Offset) = laserPosition(at.x, at.y, size.width.toFloat(), size.height.toFloat())
+                    val (x, y) = position(down.position)
+                    send(RemoteInput.Present(PresentAction.LASER_ON, x, y))
+                    view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                    finger = down.position
+                    down.consume()
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            val (mx, my) = position(change.position)
+                            batcher.moveLaser(mx, my)
+                            finger = change.position
+                            change.consume()
+                        }
+                    } finally {
+                        batcher.clearLaser()
+                        send(RemoteInput.Present(PresentAction.LASER_OFF))
+                        finger = null
+                    }
+                }
+            },
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            if (finger == null) {
+                Text(
+                    stringResource(R.string.remote_laser_hint),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.align(Alignment.Center).padding(16.dp),
+                )
+            }
+            // The dot under the finger: moved by a transform only.
+            Box(
+                Modifier
+                    .graphicsLayer {
+                        val at = finger
+                        alpha = if (at == null) 0f else 1f
+                        translationX = (at?.x ?: 0f) - 10.dp.toPx()
+                        translationY = (at?.y ?: 0f) - 10.dp.toPx()
+                    }
+                    .size(20.dp)
+                    .background(Color(0xFFFF453A), CircleShape),
+            )
+        }
+    }
+}
+
+/**
+ * The presentation remote claims the volume keys while it is shown and Settings allows it.
+ * MainActivity asks it before the system changes the volume.
+ */
+internal object VolumeKeyRouter {
+    @Volatile var handler: ((volumeUp: Boolean) -> Unit)? = null
 }
 
 /** Shown instead of the controls whenever no session runs: connecting, why it stopped, and Start. */

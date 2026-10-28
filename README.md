@@ -297,6 +297,16 @@ Bridgey can also handle `tel:` links from browsers. In macOS Settings, press
 default phone-link handler. Browsers still show their external-application
 confirmation before opening Bridgey and sending the validated number.
 
+Remote control is off by default on both devices. To use the phone as a
+touchpad, keyboard, or slides remote, turn on **Mac remote control** on Android
+and **Remote control** on the Mac, then allow that phone under the Mac's
+**Paired devices**. The Mac asks for Accessibility access the first time remote
+control becomes usable. While a phone is in control, a pill at the top of the
+Mac screen names it; press **Stop** there or `Control-Option-Escape` to end the
+session at any time. Only a short list of named keys plus Shift can be sent, so
+shortcuts such as Quit or Lock never cross the connection. The Mac keeps a
+private 30-day log of sessions with counts only, never typed text.
+
 Incoming and active calls appear in a compact floating macOS call panel with
 explicit controls. It stays available across Spaces without activating Bridgey
 or taking focus from the current app; hiding it leaves the same controls in the

@@ -2,11 +2,15 @@ import AppKit
 import ApplicationServices
 import Foundation
 
-/// The visible side of a session: the pill with Stop and the stop shortcut.
+/// The visible side of a session: the pill with Stop, the stop shortcut and the laser dot.
 @MainActor
 protocol RemoteControlIndicating: AnyObject {
     func show(deviceName: String, mode: RemoteInputMode, onStop: @escaping () -> Void)
     func hide()
+    /// Shows the laser at a 0...10,000 position. `anchor` (laser on) picks the display that holds
+    /// the pointer; moves stay on that display.
+    func showLaser(x: Int, y: Int, anchor: Bool)
+    func hideLaser()
 }
 
 /**
@@ -38,6 +42,7 @@ final class RemoteInputHost: ObservableObject {
     private let indicator: RemoteControlIndicating
     private let accessibility: () -> Bool
     private let requestAccessibility: () -> Void
+    private let frontmostBundleID: () -> String?
     private let clock: () -> Date
     private let schedulesTimer: Bool
 
@@ -55,6 +60,7 @@ final class RemoteInputHost: ObservableObject {
         var dropped = 0
         var rejected = 0
         var held = Set<PointerButton>()
+        var laserOn = false
 
         init(inputSessionID: String, deviceID: String, deviceName: String, mode: RemoteInputMode, now: Date) {
             self.inputSessionID = inputSessionID
@@ -82,6 +88,7 @@ final class RemoteInputHost: ObservableObject {
         audit: RemoteControlAuditLog,
         accessibility: @escaping () -> Bool,
         requestAccessibility: @escaping () -> Void = {},
+        frontmostBundleID: @escaping () -> String? = { nil },
         clock: @escaping () -> Date = Date.init,
         schedulesTimer: Bool = true
     ) {
@@ -90,6 +97,7 @@ final class RemoteInputHost: ObservableObject {
         self.audit = audit
         self.accessibility = accessibility
         self.requestAccessibility = requestAccessibility
+        self.frontmostBundleID = frontmostBundleID
         self.clock = clock
         self.schedulesTimer = schedulesTimer
     }
@@ -101,7 +109,8 @@ final class RemoteInputHost: ObservableObject {
             indicator: RemoteControlIndicator(),
             audit: RemoteControlAuditLog(),
             accessibility: AccessibilityAccess.isTrusted,
-            requestAccessibility: AccessibilityAccess.request
+            requestAccessibility: AccessibilityAccess.request,
+            frontmostBundleID: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
         )
     }
 
@@ -129,11 +138,6 @@ final class RemoteInputHost: ObservableObject {
         }
         guard isAllowed(deviceID) else {
             end(.disabled, notify: true)
-            return
-        }
-        guard message.command.eventType != .present else {
-            // Presentation actions are not handled by this host yet: dropped and counted.
-            current.rejected += 1
             return
         }
         let now = clock()
@@ -213,8 +217,20 @@ final class RemoteInputHost: ObservableObject {
             injector.type(text)
         case let .key(key, shift):
             injector.press([key.stroke(shift: shift)])
-        case .present:
-            break
+        case let .present(action, x, y):
+            switch action {
+            case .laserOn:
+                current.laserOn = true
+                indicator.showLaser(x: x ?? 0, y: y ?? 0, anchor: true)
+            case .laserMove:
+                guard current.laserOn else { return }
+                indicator.showLaser(x: x ?? 0, y: y ?? 0, anchor: false)
+            case .laserOff:
+                current.laserOn = false
+                indicator.hideLaser()
+            default:
+                injector.press(presentationStrokes(action, frontmostBundleID: frontmostBundleID()))
+            }
         }
     }
 
@@ -256,10 +272,11 @@ final class RemoteInputHost: ObservableObject {
         active = nil
         ticker?.cancel()
         ticker = nil
-        // Nothing stays pressed.
+        // Nothing stays pressed, and the laser goes with the session.
         for button in PointerButton.allCases where current.held.contains(button) {
             injector.button(button, down: false)
         }
+        if current.laserOn { indicator.hideLaser() }
         indicator.hide()
         if notify {
             _ = send(current.deviceID, "input.session.stop",

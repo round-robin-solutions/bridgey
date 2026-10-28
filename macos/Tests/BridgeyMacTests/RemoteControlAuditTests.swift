@@ -69,6 +69,8 @@ final class RemoteControlAuditTests: XCTestCase {
         final class NoIndicator: RemoteControlIndicating {
             func show(deviceName: String, mode: RemoteInputMode, onStop: @escaping () -> Void) {}
             func hide() {}
+            func showLaser(x: Int, y: Int, anchor: Bool) {}
+            func hideLaser() {}
         }
         let clock = now
         let audit = RemoteControlAuditLog(store: RemoteControlAuditStore(fileURL: fileURL), clock: { clock })
@@ -97,8 +99,7 @@ final class RemoteControlAuditTests: XCTestCase {
             XCTAssertFalse(raw.contains(secret), secret)
         }
         XCTAssertTrue(raw.contains("OnePlus 11"))
-        XCTAssertEqual(audit.entries.first?.counts, ["text": 1, "key": 1, "pointer": 1])
-        XCTAssertEqual(audit.entries.first?.rejected, 1, "presentation actions are not handled by this host yet")
+        XCTAssertEqual(audit.entries.first?.counts, ["text": 1, "key": 1, "pointer": 1, "present": 1])
         XCTAssertEqual(audit.entries.first?.endReason, "user")
     }
 }

@@ -2,6 +2,7 @@ package dev.bridgey.android
 
 import kotlin.math.abs
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 /** What the touchpad turns touches into. Distances are in pixels of the touch surface. */
 sealed interface TouchpadGesture {
@@ -172,10 +173,17 @@ class MotionBatcher {
     private var dragY = 0f
     private var scrollX = 0f
     private var scrollY = 0f
+    private var laser: Pair<Int, Int>? = null
 
     fun addPointer(dx: Float, dy: Float) { pointerX += dx; pointerY += dy }
     fun addDrag(dx: Float, dy: Float) { dragX += dx; dragY += dy }
     fun addScroll(dx: Float, dy: Float) { scrollX += dx; scrollY += dy }
+
+    /** Only the latest laser position is sent. */
+    fun moveLaser(x: Int, y: Int) { laser = x to y }
+
+    /** Forgets a laser move not sent yet (the laser just turned off). */
+    fun clearLaser() { laser = null }
 
     fun flush(): List<RemoteInput> = buildList {
         drain(pointerX, pointerY, RemoteInputLimits.MAX_POINTER_DELTA) { dx, dy -> add(RemoteInput.Pointer(dx, dy)) }
@@ -184,6 +192,8 @@ class MotionBatcher {
             .also { (rx, ry) -> dragX = rx; dragY = ry }
         drain(scrollX, scrollY, RemoteInputLimits.MAX_PIXEL_SCROLL) { dx, dy -> add(RemoteInput.Scroll(dx, dy)) }
             .also { (rx, ry) -> scrollX = rx; scrollY = ry }
+        laser?.let { (x, y) -> add(RemoteInput.Present(PresentAction.LASER_MOVE, x, y)) }
+        laser = null
     }
 
     /** Emits the whole-number part in chunks within ±[limit]; returns the fractions left over. */
@@ -198,4 +208,11 @@ class MotionBatcher {
         }
         return rest
     }
+}
+
+/** A position on the laser pad as 0...10,000 on each axis, clamped to the pad. */
+fun laserPosition(x: Float, y: Float, width: Float, height: Float): Pair<Int, Int> {
+    if (width <= 0f || height <= 0f) return 0 to 0
+    val scale = RemoteInputLimits.LASER_SCALE
+    return (x / width * scale).roundToInt().coerceIn(0, scale) to (y / height * scale).roundToInt().coerceIn(0, scale)
 }

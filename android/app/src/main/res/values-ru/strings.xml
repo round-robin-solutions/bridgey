@@ -15,7 +15,7 @@
     <string name="remote_speed_4">Быстрее</string>
     <string name="remote_speed_5">Быстро</string>
     <string name="remote_entry_title">Удалённое управление</string>
-    <string name="remote_entry_detail">Телефон как тачпад и клавиатура для Mac</string>
+    <string name="remote_entry_detail">Телефон как тачпад, клавиатура и пульт слайдов для Mac</string>
     <string name="remote_entry_open">Открыть</string>
     <string name="remote_done">Готово</string>
     <string name="remote_status_active">Вы управляете</string>
@@ -66,4 +66,15 @@
     <string name="remote_reason_unsupported">Эта версия не может управлять %1$s. Обновите Bridgey на обоих устройствах.</string>
     <string name="remote_reason_disconnected">Соединение с %1$s потеряно.</string>
     <string name="remote_reason_no_answer">%1$s не ответил. Проверьте, что там открыт Bridgey последней версии.</string>
+    <string name="remote_mode_touchpad">Тачпад</string>
+    <string name="remote_mode_slides">Слайды</string>
+    <string name="remote_present_start">Начать</string>
+    <string name="remote_present_black">Чёрный экран</string>
+    <string name="remote_present_end">Завершить</string>
+    <string name="remote_present_previous">Назад</string>
+    <string name="remote_present_next">Дальше</string>
+    <string name="remote_laser_hint">Коснитесь и держите, чтобы показать лазерную указку</string>
+    <string name="remote_volume_keys_title">Клавиши громкости листают слайды</string>
+    <string name="remote_volume_keys_detail">В пульте слайдов уменьшение громкости открывает следующий слайд, а увеличение открывает предыдущий</string>
+    <string name="remote_volume_keys_on">Тише: следующий слайд. Громче: предыдущий.</string>
 </resources>

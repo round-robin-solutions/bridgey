@@ -112,7 +112,7 @@ class TouchpadGesturesTest {
         assertEquals(listOf(TouchpadGesture.Click(PointerButton.RIGHT)), g.onUp(3, 100))
     }
 
-    // Batching and gain
+    // Batching, gain and the laser
 
     @Test fun batcherSendsWholePointsAndKeepsFractions() {
         val batcher = MotionBatcher()
@@ -132,6 +132,23 @@ class TouchpadGesturesTest {
         batcher.addDrag(3f, 4f)
         assertEquals(listOf(RemoteInput.DragMove(3, 4)), batcher.flush())
         assertTrue(batcher.flush().all { it.isValid() })
+    }
+
+    @Test fun onlyTheLatestLaserPositionIsSent() {
+        val batcher = MotionBatcher()
+        batcher.moveLaser(100, 100)
+        batcher.moveLaser(200, 300)
+        assertEquals(listOf(RemoteInput.Present(PresentAction.LASER_MOVE, 200, 300)), batcher.flush())
+        batcher.moveLaser(1, 1)
+        batcher.clearLaser()
+        assertTrue(batcher.flush().isEmpty())
+    }
+
+    @Test fun laserPositionsAreFractionsOfThePadClamped() {
+        assertEquals(0 to 0, laserPosition(-20f, -5f, 400f, 225f))
+        assertEquals(5_000 to 5_000, laserPosition(200f, 112.5f, 400f, 225f))
+        assertEquals(10_000 to 10_000, laserPosition(500f, 400f, 400f, 225f))
+        assertEquals(0 to 0, laserPosition(10f, 10f, 0f, 0f))
     }
 
     @Test fun pointerSpeedGrowsWithTheSettingAndWithQuickSwipes() {

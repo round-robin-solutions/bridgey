@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -166,6 +167,19 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         refreshPermissionState()
     }
+
+    /** While the slides remote shows (and Settings allows it), the volume keys change slides. */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        val handler = VolumeKeyRouter.handler
+        if (handler == null || !isVolumeKey(keyCode)) return super.onKeyDown(keyCode, event)
+        if (event.repeatCount == 0) handler(keyCode == KeyEvent.KEYCODE_VOLUME_UP)
+        return true
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
+        if (VolumeKeyRouter.handler != null && isVolumeKey(keyCode)) true else super.onKeyUp(keyCode, event)
+
+    private fun isVolumeKey(keyCode: Int) = keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -361,6 +375,7 @@ private fun BridgeyApp(
                 deviceName = remote.second,
                 controller = remoteInput,
                 pointerSpeed = settingsState.remotePointerSpeed,
+                volumeKeys = settingsState.remoteVolumeKeys,
                 modifier = Modifier.padding(padding),
             )
         } else if (showingSettings) {
@@ -399,6 +414,7 @@ private fun BridgeyApp(
                 onForget = pairing::forget,
                 onExportDiagnostics = onExportDiagnostics,
                 onRemotePointerSpeedChanged = settings::setRemotePointerSpeed,
+                onRemoteVolumeKeysChanged = settings::setRemoteVolumeKeys,
                 modifier = Modifier.padding(padding),
             )
         } else {
@@ -578,6 +594,7 @@ private fun SettingsScreen(
     onForget: (String) -> Unit,
     onExportDiagnostics: () -> Unit,
     onRemotePointerSpeedChanged: (Int) -> Unit,
+    onRemoteVolumeKeysChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var editedName by remember(state.deviceName) { mutableStateOf(state.deviceName) }
@@ -646,7 +663,14 @@ private fun SettingsScreen(
         }
 
         if (state.globalFeatures[BridgeyFeature.REMOTE_INPUT] == true) {
-            item { RemoteControlSettingsCard(state.remotePointerSpeed, onRemotePointerSpeedChanged) }
+            item {
+                RemoteControlSettingsCard(
+                    state.remotePointerSpeed,
+                    onRemotePointerSpeedChanged,
+                    state.remoteVolumeKeys,
+                    onRemoteVolumeKeysChanged,
+                )
+            }
         }
 
         if (state.globalFeatures[BridgeyFeature.NOTIFICATIONS] != false) {
@@ -738,9 +762,14 @@ private val CALL_INTEGRATION_PERMISSIONS = arrayOf(
     Manifest.permission.ANSWER_PHONE_CALLS,
 )
 
-/** Remote control on this phone: how fast the pointer moves, and what the Mac must allow. */
+/** Remote control on this phone: pointer speed, volume keys for slides, and what the Mac must allow. */
 @Composable
-private fun RemoteControlSettingsCard(pointerSpeed: Int, onPointerSpeedChanged: (Int) -> Unit) {
+private fun RemoteControlSettingsCard(
+    pointerSpeed: Int,
+    onPointerSpeedChanged: (Int) -> Unit,
+    volumeKeys: Boolean,
+    onVolumeKeysChanged: (Boolean) -> Unit,
+) {
     val speedLabels = listOf(
         R.string.remote_speed_1, R.string.remote_speed_2, R.string.remote_speed_3, R.string.remote_speed_4, R.string.remote_speed_5,
     )
@@ -766,6 +795,17 @@ private fun RemoteControlSettingsCard(pointerSpeed: Int, onPointerSpeedChanged: 
                 valueRange = REMOTE_POINTER_SPEEDS.first.toFloat()..REMOTE_POINTER_SPEEDS.last.toFloat(),
                 steps = REMOTE_POINTER_SPEEDS.last - REMOTE_POINTER_SPEEDS.first - 1,
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(stringResource(R.string.remote_volume_keys_title))
+                    Text(
+                        stringResource(R.string.remote_volume_keys_detail),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = volumeKeys, onCheckedChange = onVolumeKeysChanged)
+            }
         }
     }
 }

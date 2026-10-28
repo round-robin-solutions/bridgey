@@ -52,11 +52,52 @@ final class RemoteInputInjectorTests: XCTestCase {
         }
     }
 
-    func testOnlyPreviousAppUsesCommandControlOrOption() {
-        // Every stroke a controller can cause through keys.
-        let strokes = RemoteKey.allCases.flatMap { [$0.stroke(shift: false), $0.stroke(shift: true)] }
+    func testDisplayContainingAPointFallsBackToTheNearest() {
+        XCTAssertEqual(display(containing: CGPoint(x: 3000, y: 0), displays: displays), monitor)
+        XCTAssertEqual(display(containing: CGPoint(x: 100, y: 1500), displays: displays), portrait)
+        XCTAssertNil(display(containing: .zero, displays: []))
+    }
+
+    func testLaserPositionsMapToTheDisplayAndToCocoaCoordinates() {
+        XCTAssertEqual(laserPoint(x: 0, y: 0, on: monitor), CGPoint(x: 1512, y: -300))
+        XCTAssertEqual(laserPoint(x: 10_000, y: 10_000, on: monitor), CGPoint(x: 4072, y: 1140))
+        XCTAssertEqual(laserPoint(x: 5_000, y: 2_500, on: laptop), CGPoint(x: 756, y: 245.5))
+        // Cocoa's y grows upwards from the bottom of the main display.
+        XCTAssertEqual(cocoaPoint(fromQuartz: CGPoint(x: 756, y: 245.5), mainDisplayHeight: 982), CGPoint(x: 756, y: 736.5))
+        XCTAssertEqual(cocoaPoint(fromQuartz: CGPoint(x: 1600, y: -300), mainDisplayHeight: 982), CGPoint(x: 1600, y: 1282))
+    }
+
+    // MARK: Presentations
+
+    func testPresentationActionsMapPerApp() {
+        let keynote = "com.apple.iWork.Keynote"
+        XCTAssertEqual(presentationStrokes(.next, frontmostBundleID: keynote), [KeyStroke(keyCode: KeyStroke.Code.pageDown)])
+        XCTAssertEqual(presentationStrokes(.previous, frontmostBundleID: nil), [KeyStroke(keyCode: KeyStroke.Code.pageUp)])
+        XCTAssertEqual(presentationStrokes(.end, frontmostBundleID: keynote), [KeyStroke(keyCode: KeyStroke.Code.escape)])
+        XCTAssertEqual(presentationStrokes(.black, frontmostBundleID: "com.google.Chrome"), [KeyStroke(keyCode: KeyStroke.Code.b)])
+        XCTAssertEqual(presentationStrokes(.start, frontmostBundleID: keynote), [KeyStroke(keyCode: KeyStroke.Code.p, modifiers: [.option, .command])])
+        XCTAssertEqual(presentationStrokes(.start, frontmostBundleID: "com.microsoft.Powerpoint"), [KeyStroke(keyCode: KeyStroke.Code.returnKey, modifiers: .command)])
+        XCTAssertEqual(presentationStrokes(.start, frontmostBundleID: "com.apple.Safari"), [KeyStroke(keyCode: KeyStroke.Code.returnKey, modifiers: .command)])
+        XCTAssertEqual(presentationStrokes(.start, frontmostBundleID: "com.apple.Preview"), [KeyStroke(keyCode: KeyStroke.Code.f, modifiers: [.control, .command])])
+        XCTAssertEqual(presentationStrokes(.start, frontmostBundleID: nil), [KeyStroke(keyCode: KeyStroke.Code.f, modifiers: [.control, .command])])
+        XCTAssertEqual(presentationStrokes(.laserOn, frontmostBundleID: keynote), [])
+    }
+
+    func testOnlyTheHostChosenShortcutsUseCommandControlOrOption() {
+        // Every stroke a controller can cause, through keys or presentation actions.
+        var strokes = RemoteKey.allCases.flatMap { [$0.stroke(shift: false), $0.stroke(shift: true)] }
+        for action in PresentAction.allCases {
+            for app in [nil, "com.apple.iWork.Keynote", "com.microsoft.Powerpoint", "com.google.Chrome"] {
+                strokes += presentationStrokes(action, frontmostBundleID: app)
+            }
+        }
         let shortcuts = Set(strokes.filter { !$0.modifiers.isSubset(of: .shift) }.map { "\($0.keyCode):\($0.modifiers.rawValue)" })
-        XCTAssertEqual(shortcuts, ["\(KeyStroke.Code.tab):\(KeyModifiers.command.rawValue)"])
+        XCTAssertEqual(shortcuts, [
+            "\(KeyStroke.Code.tab):\(KeyModifiers.command.rawValue)",
+            "\(KeyStroke.Code.p):\(KeyModifiers([.option, .command]).rawValue)",
+            "\(KeyStroke.Code.returnKey):\(KeyModifiers.command.rawValue)",
+            "\(KeyStroke.Code.f):\(KeyModifiers([.control, .command]).rawValue)",
+        ])
         // Never Q, W, H, M, Space, Delete or the screenshot keys with a modifier.
         let forbidden: Set<CGKeyCode> = [12, 13, 4, 46, 49, 51, 20, 21, 23]
         XCTAssertTrue(strokes.allSatisfy { $0.modifiers.isSubset(of: .shift) || !forbidden.contains($0.keyCode) })

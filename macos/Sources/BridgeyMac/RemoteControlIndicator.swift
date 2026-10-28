@@ -4,14 +4,16 @@ import SwiftUI
 
 /*
  * While a phone controls this Mac: a small pill at the top of the screen ("Pixel is controlling
- * this Mac", Stop), always on top, non-activating, above full-screen slideshows, plus the
- * Control-Option-Escape stop shortcut. The remote cannot send Control or Option, so it can never
- * press the shortcut itself.
+ * this Mac", Stop), always on top, non-activating, above full-screen slideshows; the
+ * Control-Option-Escape stop shortcut; and the laser dot. The remote cannot send Control or
+ * Option, so it can never press the shortcut itself.
  */
 
 @MainActor
 final class RemoteControlIndicator: RemoteControlIndicating {
     private var pill: NSPanel?
+    private var laser: NSPanel?
+    private var laserDisplay: CGRect?
     private var stopHotKey: GlobalHotKey?
 
     func show(deviceName: String, mode: RemoteInputMode, onStop: @escaping () -> Void) {
@@ -33,6 +35,35 @@ final class RemoteControlIndicator: RemoteControlIndicating {
         pill?.orderOut(nil)
         pill = nil
         stopHotKey = nil
+        hideLaser()
+    }
+
+    func showLaser(x: Int, y: Int, anchor: Bool) {
+        let displays = CGEventInjector.displayBounds()
+        if anchor || laserDisplay == nil {
+            let pointer = CGEvent(source: nil)?.location ?? .zero
+            laserDisplay = display(containing: pointer, displays: displays) ?? displays.first
+        }
+        guard let target = laserDisplay else { return }
+        let size = RemoteLaserDot.size
+        let panel = laser ?? {
+            let created = Self.overlayPanel(size: CGSize(width: size, height: size))
+            created.contentView = NSHostingView(rootView: RemoteLaserDot())
+            created.ignoresMouseEvents = true
+            created.hasShadow = false
+            laser = created
+            return created
+        }()
+        let quartz = laserPoint(x: x, y: y, on: target)
+        let point = cocoaPoint(fromQuartz: quartz, mainDisplayHeight: CGDisplayBounds(CGMainDisplayID()).height)
+        // Moving the window is the only change per update: nothing is redrawn.
+        panel.setFrameOrigin(NSPoint(x: point.x - size / 2, y: point.y - size / 2))
+        if !panel.isVisible { panel.orderFrontRegardless() }
+    }
+
+    func hideLaser() {
+        laser?.orderOut(nil)
+        laserDisplay = nil
     }
 
     static func overlayPanel(size: CGSize) -> NSPanel {
@@ -99,5 +130,20 @@ struct RemoteControlPill: View {
         .overlay { Capsule().strokeBorder(.white.opacity(0.18)) }
         .padding(6)
         .accessibilityElement(children: .contain)
+    }
+}
+
+/// The laser: a red dot with a soft glow, drawn once; only its window moves.
+struct RemoteLaserDot: View {
+    static let size: CGFloat = 40
+
+    var body: some View {
+        ZStack {
+            Circle().fill(RadialGradient(colors: [Color.red.opacity(0.5), .clear], center: .center, startRadius: 4, endRadius: Self.size / 2))
+            Circle().fill(Color.red).frame(width: 12, height: 12)
+            Circle().fill(Color.white.opacity(0.85)).frame(width: 4, height: 4)
+        }
+        .frame(width: Self.size, height: Self.size)
+        .accessibilityHidden(true)
     }
 }

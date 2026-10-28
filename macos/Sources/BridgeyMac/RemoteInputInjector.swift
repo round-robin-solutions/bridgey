@@ -47,6 +47,9 @@ struct KeyStroke: Equatable {
         static let right: CGKeyCode = 124
         static let down: CGKeyCode = 125
         static let up: CGKeyCode = 126
+        static let b: CGKeyCode = 11
+        static let f: CGKeyCode = 3
+        static let p: CGKeyCode = 35
     }
 }
 
@@ -75,6 +78,45 @@ extension RemoteKey {
     }
 }
 
+/// Presentation actions as keys for the frontmost app. Next and previous are Page Down and Page Up,
+/// like presentation clickers; start plays from the current slide.
+func presentationStrokes(_ action: PresentAction, frontmostBundleID: String?) -> [KeyStroke] {
+    switch action {
+    case .next: return [KeyStroke(keyCode: KeyStroke.Code.pageDown)]
+    case .previous: return [KeyStroke(keyCode: KeyStroke.Code.pageUp)]
+    case .end: return [KeyStroke(keyCode: KeyStroke.Code.escape)]
+    case .black: return [KeyStroke(keyCode: KeyStroke.Code.b)]
+    case .start:
+        switch PresentationApp(bundleID: frontmostBundleID) {
+        case .keynote: return [KeyStroke(keyCode: KeyStroke.Code.p, modifiers: [.option, .command])]
+        case .powerPoint, .browser: return [KeyStroke(keyCode: KeyStroke.Code.returnKey, modifiers: .command)]
+        case .other: return [KeyStroke(keyCode: KeyStroke.Code.f, modifiers: [.control, .command])]
+        }
+    case .laserOn, .laserMove, .laserOff: return []
+    }
+}
+
+/// The frontmost app, as far as presentations care. Google Slides runs in a browser.
+enum PresentationApp: Equatable {
+    case keynote, powerPoint, browser, other
+
+    static let browsers: Set<String> = [
+        "com.apple.Safari", "com.apple.SafariTechnologyPreview", "com.google.Chrome", "com.google.Chrome.beta",
+        "com.google.Chrome.canary", "company.thebrowser.Browser", "com.microsoft.edgemac", "org.mozilla.firefox",
+        "com.brave.Browser", "com.vivaldi.Vivaldi", "com.operasoftware.Opera", "org.chromium.Chromium",
+    ]
+
+    init(bundleID: String?) {
+        switch bundleID {
+        case "com.apple.iWork.Keynote": self = .keynote
+        case "com.microsoft.Powerpoint": self = .powerPoint
+        case let id? where Self.browsers.contains(id): self = .browser
+        default: self = .other
+        }
+    }
+}
+
+
 /// Keeps a point on a display: unchanged when inside one, otherwise the nearest point of the
 /// nearest display. Works for any arrangement, gaps and different sizes included. `displays` are
 /// global display bounds (Quartz: origin top left of the main display, y down).
@@ -95,6 +137,23 @@ func clampToDisplays(_ point: CGPoint, displays: [CGRect]) -> CGPoint {
         }
     }
     return best
+}
+
+/// The display that contains `point`, or the nearest one.
+func display(containing point: CGPoint, displays: [CGRect]) -> CGRect? {
+    let clamped = clampToDisplays(point, displays: displays)
+    return displays.first { clamped.x >= $0.minX && clamped.x < $0.maxX && clamped.y >= $0.minY && clamped.y < $0.maxY }
+}
+
+/// A laser position (0...10,000 on each axis, origin top left) on `display`, in Quartz coordinates.
+func laserPoint(x: Int, y: Int, on display: CGRect) -> CGPoint {
+    let scale = CGFloat(RemoteInputLimits.laserScale)
+    return CGPoint(x: display.minX + display.width * CGFloat(x) / scale, y: display.minY + display.height * CGFloat(y) / scale)
+}
+
+/// Quartz (y down from the top of the main display) to Cocoa (y up from its bottom).
+func cocoaPoint(fromQuartz point: CGPoint, mainDisplayHeight: CGFloat) -> CGPoint {
+    CGPoint(x: point.x, y: mainDisplayHeight - point.y)
 }
 
 /// Text as Unicode key events: at most `limit` UTF-16 units each (apps read up to 20), never

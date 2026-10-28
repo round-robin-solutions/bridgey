@@ -24,6 +24,8 @@ private final class FakeInjector: RemoteInputInjecting {
 private final class FakeIndicator: RemoteControlIndicating {
     var shown: (name: String, mode: RemoteInputMode)?
     var onStop: (() -> Void)?
+    var laser: (x: Int, y: Int, anchor: Bool)?
+    var laserHidden = 0
 
     func show(deviceName: String, mode: RemoteInputMode, onStop: @escaping () -> Void) {
         shown = (deviceName, mode)
@@ -31,6 +33,11 @@ private final class FakeIndicator: RemoteControlIndicating {
     }
 
     func hide() { shown = nil }
+    func showLaser(x: Int, y: Int, anchor: Bool) { laser = (x, y, anchor) }
+    func hideLaser() {
+        laser = nil
+        laserHidden += 1
+    }
 }
 
 final class RemoteInputHostTests: XCTestCase {
@@ -57,6 +64,7 @@ final class RemoteInputHostTests: XCTestCase {
             audit: audit,
             accessibility: { [unowned self] in self.trusted },
             requestAccessibility: { [unowned self] in self.accessibilityRequests += 1 },
+            frontmostBundleID: { "com.apple.iWork.Keynote" },
             clock: { [unowned self] in self.now },
             schedulesTimer: false
         )
@@ -177,16 +185,20 @@ final class RemoteInputHostTests: XCTestCase {
         XCTAssertTrue(entry.accepted)
     }
 
-    @MainActor func testPresentationActionsAreNotHandledYet() {
+    @MainActor func testPresentationActionsAreMappedByTheHost() {
         makeHost()
         start(mode: "presentation")
-        XCTAssertEqual(host.active?.mode, .presentation)
         message("input.present", ["action": "next"])
-        message("input.present", ["action": "laser_on", "x": 5000, "y": 5000])
-        XCTAssertTrue(injector.calls.isEmpty)
-        host.stopLocally()
-        XCTAssertEqual(host.audit.entries.first?.rejected, 2)
-        XCTAssertEqual(host.audit.entries.first?.counts, [:])
+        message("input.present", ["action": "start"])
+        message("input.present", ["action": "black"])
+        XCTAssertEqual(injector.calls, [
+            .press([KeyStroke(keyCode: KeyStroke.Code.pageDown)]),
+            .press([KeyStroke(keyCode: KeyStroke.Code.p, modifiers: [.option, .command])]),
+            .press([KeyStroke(keyCode: KeyStroke.Code.b)]),
+        ])
+        message("input.session.stop", ["reason": "user"])
+        XCTAssertEqual(host.audit.entries.first?.counts, ["present": 3])
+        XCTAssertEqual(host.audit.entries.first?.mode, "presentation")
     }
 
     @MainActor func testDragHoldsTheLeftButtonAndMovesAsADrag() {
@@ -297,6 +309,32 @@ final class RemoteInputHostTests: XCTestCase {
         XCTAssertEqual(sent.last?.payload["reason"] as? String, "local_stop")
         XCTAssertEqual(host.audit.entries.first?.endReason, "local_stop")
         XCTAssertEqual(host.audit.entries.first?.mode, "touchpad")
+    }
+
+    @MainActor func testLocalStopReleasesButtonsHidesLaserAndTellsThePhone() {
+        makeHost()
+        start(mode: "presentation")
+        message("input.button", ["button": "left", "action": "down"])
+        message("input.present", ["action": "laser_on", "x": 5000, "y": 5000])
+        XCTAssertEqual(indicator.laser?.anchor, true)
+        message("input.present", ["action": "laser_move", "x": 6000, "y": 4000])
+        XCTAssertEqual(indicator.laser?.x, 6000)
+        XCTAssertEqual(indicator.laser?.anchor, false)
+        indicator.onStop?()
+        XCTAssertNil(host.active)
+        XCTAssertEqual(injector.calls.last, .button(.left, false))
+        XCTAssertNil(indicator.laser)
+        XCTAssertNil(indicator.shown)
+        XCTAssertEqual(sent.last?.payload["reason"] as? String, "local_stop")
+        XCTAssertEqual(host.audit.entries.first?.endReason, "local_stop")
+        XCTAssertEqual(host.audit.entries.first?.mode, "presentation")
+    }
+
+    @MainActor func testLaserMoveWithoutLaserOnDoesNothing() {
+        makeHost()
+        start(mode: "presentation")
+        message("input.present", ["action": "laser_move", "x": 1, "y": 1])
+        XCTAssertNil(indicator.laser)
     }
 
     @MainActor func testRevokedGrantOrAccessibilityEndsTheSession() {

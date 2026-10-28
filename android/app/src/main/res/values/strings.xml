@@ -15,7 +15,7 @@
     <string name="remote_speed_4">Quick</string>
     <string name="remote_speed_5">Fast</string>
     <string name="remote_entry_title">Remote control</string>
-    <string name="remote_entry_detail">Use this phone as a touchpad and keyboard for the Mac</string>
+    <string name="remote_entry_detail">Use this phone as a touchpad, keyboard and slides remote for the Mac</string>
     <string name="remote_entry_open">Open</string>
     <string name="remote_done">Done</string>
     <string name="remote_status_active">You are in control</string>
@@ -66,4 +66,15 @@
     <string name="remote_reason_unsupported">%1$s cannot be controlled by this version. Update Bridgey on both devices.</string>
     <string name="remote_reason_disconnected">The connection to %1$s was lost.</string>
     <string name="remote_reason_no_answer">%1$s did not answer. Check that Bridgey is open there and up to date.</string>
+    <string name="remote_mode_touchpad">Touchpad</string>
+    <string name="remote_mode_slides">Slides</string>
+    <string name="remote_present_start">Start</string>
+    <string name="remote_present_black">Black screen</string>
+    <string name="remote_present_end">End</string>
+    <string name="remote_present_previous">Previous</string>
+    <string name="remote_present_next">Next</string>
+    <string name="remote_laser_hint">Touch and hold to show the laser pointer</string>
+    <string name="remote_volume_keys_title">Volume keys change slides</string>
+    <string name="remote_volume_keys_detail">In the slides remote, volume down goes to the next slide and volume up to the previous one</string>
+    <string name="remote_volume_keys_on">Volume down: next slide. Volume up: previous slide.</string>
 </resources>
