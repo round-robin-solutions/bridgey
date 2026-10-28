@@ -6,6 +6,7 @@ enum BridgeyFeature: String, CaseIterable, Identifiable {
     case clipboard
     case files
     case folders
+    case filesBrowse = "files_browse"
     case notifications
     case battery
     case findDevice = "find_device"
@@ -20,6 +21,7 @@ enum BridgeyFeature: String, CaseIterable, Identifiable {
         case .clipboard: "Clipboard"
         case .files: "File transfer"
         case .folders: "Folder transfer"
+        case .filesBrowse: "Browse Android folders"
         case .notifications: "Android notifications"
         case .battery: "Battery status"
         case .findDevice: "Find Device"
@@ -32,7 +34,7 @@ enum BridgeyFeature: String, CaseIterable, Identifiable {
 }
 
 func featureEnabledByLegacyPeer(_ feature: BridgeyFeature) -> Bool {
-    ![.calls, .ping, .links, .media, .folders].contains(feature)
+    ![.calls, .ping, .links, .media, .folders, .filesBrowse].contains(feature)
 }
 
 func effectiveFeatureEnabled(globalEnabled: Bool, deviceEnabled: Bool?) -> Bool {

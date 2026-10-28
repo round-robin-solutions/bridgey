@@ -110,6 +110,8 @@ private struct FileOfferPayload: Codable {
     let sha256: String
     var folderId: String? = nil
     var entry: Int? = nil
+    var browseRootId: String? = nil
+    var browsePath: String? = nil
 }
 
 private struct FolderOfferPayload: Codable {
@@ -227,6 +229,7 @@ final class PairingCoordinator: ObservableObject {
     @Published private(set) var callStatus: String?
     @Published private(set) var pingStatus: String?
     let quickActions = QuickActions()
+    let folderBrowser = PhoneFolderBrowser()
     let mediaController = MediaController()
     let shortcuts = ShortcutSettings()
 
@@ -267,6 +270,9 @@ final class PairingCoordinator: ObservableObject {
     private var outgoingFileSources: [String: URL] = [:]
     private var fileSendQueue = FileSendQueue<URL>()
     private var outgoingFolder: OutgoingFolder?
+    private var uploadTargets: [String: (rootID: String, path: String)] = [:]
+    private var phoneFolderWindow: PhoneFolderBrowserWindowController?
+    private var stateCancellable: AnyCancellable?
     private var folderFileOwners: [String: String] = [:]
     private var filePreparationCancellation: FileCancellationToken?
     private var fileTransferWindow: FileTransferWindowController?
@@ -322,6 +328,18 @@ final class PairingCoordinator: ObservableObject {
         refreshNotificationAuthorization()
         startListener()
         quickActions.available = { [weak self] in self?.isFeatureAvailable($0) == true }
+        folderBrowser.available = { [weak self] in
+            guard let self, case .connected = self.state else { return false }
+            return self.isFeatureAvailable(.files) && self.isFeatureAvailable(.filesBrowse)
+        }
+        folderBrowser.send = { [weak self] in self?.sendBrowseRequest(kind: $0, payload: $1) == true }
+        folderBrowser.upload = { [weak self] url, rootID, path in self?.queueFiles([url], uploadTarget: (rootID, path)) }
+        stateCancellable = $state.sink { [weak self] state in
+            guard case .connected = state else {
+                self?.folderBrowser.reset()
+                return
+            }
+        }
         quickActions.send = { [weak self] in self?.sendQuickPayload(kind: $0, payload: $1) == true }
         mediaController.allowed = { [weak self] in
             guard let self, case .connected = self.state else { return false }
@@ -351,6 +369,7 @@ final class PairingCoordinator: ObservableObject {
                     if !self.featureEnabled(.battery) { self.remoteBattery = nil }
                     if !self.featureEnabled(.ping) { self.clearPingStatus() }
                     if !self.isFeatureAvailable(.links) { self.quickActions.reset() }
+                    if !self.isFeatureAvailable(.filesBrowse) || !self.isFeatureAvailable(.files) { self.folderBrowser.reset() }
                     self.mediaController.reset()
                     if !self.featureEnabled(.clipboard) { self.clearClipboardSendStatus() }
                     if !self.featureEnabled(.notifications) { self.clearRemoteCall() }
@@ -1005,7 +1024,8 @@ final class PairingCoordinator: ObservableObject {
 
     /// Adds files to the outgoing queue. Files are offered one after another,
     /// each as its own transfer, so a failure or cancellation affects only that file.
-    private func queueFiles(_ urls: [URL]) {
+    private func queueFiles(_ urls: [URL], uploadTarget: (rootID: String, path: String)? = nil) {
+        guard session != nil, case .connected = state, isFeatureAvailable(.files) else { return }
         let queuedAt = Date()
         let status = L10n.text("files.queued", fallback: "Queued")
         for (index, url) in urls.enumerated() {
@@ -1019,6 +1039,7 @@ final class PairingCoordinator: ObservableObject {
                 startedAt: queuedAt.addingTimeInterval(Double(index) / 1_000),
                 queued: true
             )
+            if let uploadTarget { uploadTargets[transferID] = uploadTarget }
             fileSendQueue.enqueue(id: transferID, item: url)
         }
         pruneTransferHistory()
@@ -1098,6 +1119,8 @@ final class PairingCoordinator: ObservableObject {
                         var offer = transfer.offer
                         offer.folderId = folderEntry?.folderID
                         offer.entry = folderEntry?.entry
+                        offer.browseRootId = self.uploadTargets[transferID]?.rootID
+                        offer.browsePath = self.uploadTargets[transferID]?.path
                         let payload = try JSONEncoder().encode(offer)
                         let encrypted = try encrypt(payload, key: current.pairingKey!)
                         self.outgoingFiles[transfer.transferID] = transfer
@@ -1133,6 +1156,42 @@ final class PairingCoordinator: ObservableObject {
                 }
             }
         }
+    }
+
+    private func sendBrowseRequest(kind: String, payload: Data) -> Bool {
+        guard let current = session, case .connected = state, let key = current.pairingKey,
+              let sealed = try? encrypt(payload, key: key) else { return false }
+        current.send(PairingMessage(
+            kind: kind,
+            sessionId: current.id,
+            messageId: UUID().uuidString.lowercased(),
+            nonce: sealed.nonce,
+            ciphertext: sealed.ciphertext
+        ))
+        return true
+    }
+
+    private func receiveBrowseAnswer(_ message: PairingMessage, in current: Session) throws {
+        guard case .connected = state, message.sessionId == current.id,
+              let messageID = message.messageId, current.acceptMessageID(messageID) else { return }
+        guard let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: current.pairingKey!),
+              plaintext.count <= FolderRules.maxPayloadBytes else { throw PairingError.invalidMessage }
+        guard message.kind == "browse.error" else {
+            folderBrowser.receive(kind: message.kind, payload: plaintext)
+            return
+        }
+        guard let error = try? JSONDecoder().decode(BrowseErrorPayload.self, from: plaintext) else { return }
+        if folderBrowser.receive(error: error) { return }
+        // An upload the phone refused: it never sent files.accept, so end the transfer here.
+        guard error.version == 1, uploadTargets[error.requestId] != nil,
+              let transfer = outgoingFiles.removeValue(forKey: error.requestId) else { return }
+        transfer.cancel()
+        markTransferCancelled(error.requestId)
+        let status = PhoneFolderBrowser.text(forError: error.code)
+        fileTransferStatus = status
+        markFileTransferFinished(id: error.requestId, status: status)
+        finishQueuedFile(error.requestId)
     }
 
     private static var foldersOffText: String {
@@ -1434,13 +1493,17 @@ final class PairingCoordinator: ObservableObject {
         }
         fileTransfers.removeValue(forKey: transferID)
         outgoingFileSources.removeValue(forKey: transferID)
+        let uploadTarget = uploadTargets.removeValue(forKey: transferID)
         diagnostics.record(category: "transfer", event: "retry_started")
-        queueFiles([url])
+        queueFiles([url], uploadTarget: uploadTarget)
     }
 
     func clearTransferHistory() {
         let inactiveIDs = fileTransfers.values.filter { !$0.active }.map(\.id)
-        inactiveIDs.forEach { outgoingFileSources.removeValue(forKey: $0) }
+        inactiveIDs.forEach {
+            outgoingFileSources.removeValue(forKey: $0)
+            uploadTargets.removeValue(forKey: $0)
+        }
         fileTransfers = fileTransfers.filter { $0.value.active }
         fileTransferActive = fileTransfers.values.contains(where: { $0.active })
     }
@@ -1450,6 +1513,13 @@ final class PairingCoordinator: ObservableObject {
             fileTransferWindow = FileTransferWindowController(pairing: self)
         }
         fileTransferWindow?.show()
+    }
+
+    func showPhoneFolderBrowser() {
+        if phoneFolderWindow == nil {
+            phoneFolderWindow = PhoneFolderBrowserWindowController(browser: folderBrowser)
+        }
+        phoneFolderWindow?.show()
     }
 
     func showFileDropWindow() {
@@ -1653,6 +1723,7 @@ final class PairingCoordinator: ObservableObject {
                 })
                 remoteFeatureStateReceived = true
                 if !isFeatureAvailable(.links) { quickActions.reset() }
+                if !isFeatureAvailable(.filesBrowse) || !isFeatureAvailable(.files) { folderBrowser.reset() }
                 mediaController.reset()
                 mediaController.refresh()
                 if remoteFeatures[.battery] == false { remoteBattery = nil }
@@ -1964,6 +2035,8 @@ final class PairingCoordinator: ObservableObject {
                 if let transferID = message.transferId {
                     markFileTransferFinished(id: transferID, status: "Transfer cancelled")
                 }
+            case "browse.roots.result", "browse.list.result", "browse.download.result", "browse.error":
+                try receiveBrowseAnswer(message, in: current)
             case "folders.accept":
                 try receiveFolderAccept(message, in: current)
             case "folders.rejected":

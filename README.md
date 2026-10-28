@@ -325,6 +325,12 @@ the name is taken (`Photos (1)`), so nothing existing is merged or replaced.
 Hidden files, symbolic links and empty folders are not sent or created. A
 folder is limited to 10,000 files and 2,000 subfolders.
 
+With Browse shared folders enabled on both devices, the **Phone** action in
+the Mac menu-bar panel opens a window with the folders shared on Android.
+Downloads arrive in the Mac's received-files folder like any other transfer.
+When Android allows it, **Add Files…** uploads files into the folder being
+viewed; a taken name gets a number and nothing is replaced.
+
 Recent file transfers remain visible until cleared. An outgoing transfer that
 fails or is interrupted can be retried after the devices reconnect; retrying
 creates a new transfer and starts from byte zero so that integrity verification

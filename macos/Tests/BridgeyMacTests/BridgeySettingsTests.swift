@@ -24,6 +24,7 @@ final class BridgeySettingsTests: XCTestCase {
         XCTAssertFalse(featureEnabledByLegacyPeer(.calls))
         XCTAssertFalse(featureEnabledByLegacyPeer(.ping))
         XCTAssertFalse(featureEnabledByLegacyPeer(.folders))
+        XCTAssertFalse(featureEnabledByLegacyPeer(.filesBrowse))
         XCTAssertTrue(featureEnabledByLegacyPeer(.battery))
     }
 }
