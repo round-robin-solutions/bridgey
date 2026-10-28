@@ -1,6 +1,7 @@
 package dev.bridgey.android
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ContentValues
@@ -1788,8 +1789,10 @@ private class AndroidIdentity(context: Context) {
     }
 }
 
-private class AndroidTrustRegistry(context: Context) {
-    private val preferences = context.getSharedPreferences("bridgey.trust", Context.MODE_PRIVATE)
+/** Trusted peers in SharedPreferences `bridgey.trust`: `peer.<deviceId>.name` and `peer.<deviceId>.identityKey`. */
+internal class AndroidTrustRegistry(private val preferences: SharedPreferences) {
+    constructor(context: Context) : this(context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE))
+
     private val mutableIds = MutableStateFlow(loadIds())
     val trustedDeviceIds: StateFlow<Set<String>> = mutableIds.asStateFlow()
     private val mutableDevices = MutableStateFlow(loadDevices())
@@ -1824,4 +1827,8 @@ private class AndroidTrustRegistry(context: Context) {
     private fun loadDevices(): List<TrustedDevice> = loadIds().map { id ->
         TrustedDevice(id, preferences.getString("peer.$id.name", null) ?: "Unknown device")
     }.sortedBy { it.name.lowercase() }
+
+    companion object {
+        const val PREFERENCES_NAME = "bridgey.trust"
+    }
 }
