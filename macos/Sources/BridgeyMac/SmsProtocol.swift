@@ -27,6 +27,10 @@ enum SmsKinds {
     static let attachmentData = "sms.attachment_data"
     static let contacts = "sms.contacts"
     static let contactsResult = "sms.contacts_result"
+    static let markRead = "sms.mark_read"
+    static let markReadResult = "sms.mark_read_result"
+    static let blockedNumbers = "sms.blocked_numbers"
+    static let blockedNumbersResult = "sms.blocked_numbers_result"
 }
 
 /// Plaintext limits per kind (protocol/messages.json maxPlaintextBytes).
@@ -35,6 +39,7 @@ enum SmsLimits {
     static let status = 2_048
     static let changed = 256
     static let contactsResult = 16_384
+    static let markReadResult = 4_096
     static let small = 1_024
     static let sendRequest = 8_192
     /// Body of one send, in UTF-16 units.
@@ -45,6 +50,8 @@ enum SmsLimits {
     static let threadsPerPage = 50
     static let messagesPerPage = 100
     static let syncPerPage = 200
+    /** Conversations in one sms.mark_read. */
+    static let markReadPerRequest = 50
 
     /// The largest plaintext a phone may send for `kind`; nil for kinds the phone never sends.
     static func incoming(_ kind: String) -> Int? {
@@ -53,7 +60,8 @@ enum SmsLimits {
         case SmsKinds.changed: changed
         case SmsKinds.threadsPage, SmsKinds.messagesPage, SmsKinds.syncPage, SmsKinds.attachmentData: page
         case SmsKinds.contactsResult: contactsResult
-        case SmsKinds.sendStatus: small
+        case SmsKinds.markReadResult: markReadResult
+        case SmsKinds.sendStatus, SmsKinds.blockedNumbersResult: small
         default: nil
         }
     }
@@ -195,6 +203,37 @@ struct SmsAttachment: Equatable {
     let width: Int
     let height: Int
     let error: String?
+}
+
+/// What the phone did for one conversation read on this Mac (sms.mark_read_result).
+enum SmsMarkReadOutcome: String, Equatable {
+    /// The messaging app's own Mark as read ran on its notification.
+    case marked
+    /// No notification for it on the phone: it stays unread there.
+    case notShown = "not_shown"
+    /// The messaging app's notification has no Mark as read.
+    case noAction = "no_action"
+    case failed
+}
+
+struct SmsMarkReadResult: Equatable {
+    let requestID: String
+    let results: [(threadId: Int, outcome: SmsMarkReadOutcome)]
+    let error: String?
+
+    static func == (a: Self, b: Self) -> Bool {
+        a.requestID == b.requestID && a.error == b.error && a.results.map(\.threadId) == b.results.map(\.threadId)
+            && a.results.map(\.outcome) == b.results.map(\.outcome)
+    }
+}
+
+/// Block on phone (sms.blocked_numbers_result).
+enum SmsBlockedNumbersOutcome: String, Equatable {
+    /// Bridgey was in front on the phone: Blocked numbers is open.
+    case opened
+    /// A Bridgey notification on the phone opens it.
+    case notified
+    case unavailable
 }
 
 struct SmsContactsResult: Equatable {
@@ -385,6 +424,31 @@ func decodeSmsContactsResult(_ data: Data) -> SmsContactsResult? {
     return SmsContactsResult(requestID: requestID, contacts: contacts, error: pageError(object["error"]))
 }
 
+/// sms.mark_read_result: missing results read as none; an invalid entry is dropped; more than 50 is malformed.
+func decodeSmsMarkReadResult(_ data: Data) -> SmsMarkReadResult? {
+    guard let object = smsObject(data, limit: SmsLimits.markReadResult), let requestID = smsRequestID(object["requestId"]) else { return nil }
+    var results: [(threadId: Int, outcome: SmsMarkReadOutcome)] = []
+    switch object["results"] {
+    case nil, is NSNull: break
+    case let list as [Any]:
+        guard list.count <= SmsLimits.markReadPerRequest else { return nil }
+        for entry in list {
+            guard let item = entry as? [String: Any], let thread = jsonInteger(item["threadId"]), thread >= 1,
+                  let raw = item["result"] as? String else { continue }
+            results.append((thread, SmsMarkReadOutcome(rawValue: raw) ?? .failed))
+        }
+    default: return nil
+    }
+    return SmsMarkReadResult(requestID: requestID, results: results, error: pageError(object["error"]))
+}
+
+/// sms.blocked_numbers_result: an unknown result reads as unavailable.
+func decodeSmsBlockedNumbersResult(_ data: Data) -> (requestID: String, outcome: SmsBlockedNumbersOutcome)? {
+    guard let object = smsObject(data, limit: SmsLimits.small), let requestID = smsRequestID(object["requestId"]),
+          let raw = object["result"] as? String else { return nil }
+    return (requestID, SmsBlockedNumbersOutcome(rawValue: raw) ?? .unavailable)
+}
+
 // MARK: - Requests (Mac to phone)
 
 enum SmsRequests {
@@ -413,6 +477,21 @@ enum SmsRequests {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, utf16Count(trimmed) <= 64 else { return nil }
         return ["version": 1, "requestId": requestID, "query": trimmed]
+    }
+
+    /// Conversations read on this Mac (1 to 50, repeats once); nil when there are none.
+    static func markRead(_ requestID: String, threadIds: [Int]) -> [String: Any]? {
+        var seen = Set<Int>()
+        let ids = threadIds.filter { $0 >= 1 && seen.insert($0).inserted }
+        guard !ids.isEmpty, ids.count <= SmsLimits.markReadPerRequest else { return nil }
+        return ["version": 1, "requestId": requestID, "threadIds": ids]
+    }
+
+    /// Opens Blocked numbers on the phone, with the number to add when it is one.
+    static func blockedNumbers(_ requestID: String, address: String? = nil) -> [String: Any] {
+        var payload: [String: Any] = ["version": 1, "requestId": requestID]
+        if let address, let number = normalizedSmsAddress(address) { payload["address"] = number }
+        return payload
     }
 
     /// Where a send goes: a conversation, a new number, or the SMS notification it answers.

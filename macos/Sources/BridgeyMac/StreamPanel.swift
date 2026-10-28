@@ -1514,7 +1514,7 @@ struct BridgeyPanel: View {
         model.transfers = liveTransfers(pairing.fileTransfers)
         model.hasTransferHistory = !pairing.fileTransfers.isEmpty
         if let target = model.targetDeviceID, pairing.textMessagesAvailable(for: target) {
-            model.messagesUnread = pairing.textMessages.data(target).cache.threads.reduce(0) { $0 + $1.unread }
+            model.messagesUnread = pairing.textMessages.unreadCount(target)
         }
         model.fileTransferActive = pairing.fileTransferActive
         if case let .connected(deviceID, _) = pairing.state {

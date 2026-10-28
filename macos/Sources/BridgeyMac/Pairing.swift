@@ -3253,6 +3253,13 @@ final class PairingCoordinator: ObservableObject {
     private func deliverNotification(_ payload: RemoteNotificationPayload, deviceID: String, deviceName: String) {
         let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: payload.notificationId)
         codeReads.removeValue(forKey: identifier)?.cancel()
+        // A conversation muted in the Messages window shows no banner on this Mac; history still lists it.
+        if let thread = payload.smsThreadId?.value, smsReplyAvailable(payload, deviceID: deviceID),
+           textMessages.isMuted(deviceID, thread: thread) {
+            recordNotificationHistory(payload, deviceID: deviceID)
+            diagnostics.record(category: "notification", event: "sms_muted")
+            return
+        }
         if payload.redacted == true, isSmsNotification(packageName: payload.packageName, smsDefaultApp: payload.smsDefaultApp) {
             // Android hid the text from Bridgey on the phone: Settings shows it until the phone reports otherwise.
             registry.update(deviceID) { $0.codeAccess = .hidden }
