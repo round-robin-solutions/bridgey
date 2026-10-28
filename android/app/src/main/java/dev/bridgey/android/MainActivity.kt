@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -38,6 +39,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
@@ -57,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -321,6 +324,7 @@ private fun BridgeyApp(
     val pingStatus by pairing.pingStatus.collectAsStateWithLifecycle()
     val trustedDevices by pairing.trustedDevices.collectAsStateWithLifecycle()
     val remoteFeatures by pairing.remoteFeatures.collectAsStateWithLifecycle()
+    val connections by pairing.connections.collectAsStateWithLifecycle()
     val settingsState by settings.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var permissionPrompt by remember { mutableStateOf<PermissionPrompt?>(null) }
@@ -349,8 +353,7 @@ private fun BridgeyApp(
             SettingsScreen(
                 state = settingsState,
                 trustedDevices = trustedDevices,
-                connectedDeviceId = (pairingState as? PairingState.Connected)?.deviceId,
-                remoteFeatures = remoteFeatures,
+                connections = connections,
                 onDeviceNameChanged = onDeviceNameChanged,
                 onGlobalFeatureChanged = { feature, enabled ->
                     settings.setGlobal(feature, enabled)
@@ -364,7 +367,7 @@ private fun BridgeyApp(
                     settings.setForDevice(deviceId, feature, enabled)
                     if (
                         feature == BridgeyFeature.FIND_DEVICE && !enabled &&
-                        (pairingState as? PairingState.Connected)?.deviceId == deviceId
+                        connections.any { it.id == deviceId }
                     ) pairing.stopFinding()
                 },
                 onNotificationApplicationChanged = { packageName, enabled ->
@@ -390,6 +393,7 @@ private fun BridgeyApp(
                 peers = peers,
                 trustedIds = trustedIds,
                 pairingState = pairingState,
+                connections = connections,
                 clipboardStatus = clipboardStatus,
                 fileTransfers = fileTransfers,
                 phoneRinging = phoneRinging,
@@ -549,8 +553,7 @@ private fun BridgeyApp(
 private fun SettingsScreen(
     state: BridgeySettingsState,
     trustedDevices: List<TrustedDevice>,
-    connectedDeviceId: String?,
-    remoteFeatures: Map<BridgeyFeature, Boolean>,
+    connections: List<ConnectedDevice>,
     onDeviceNameChanged: (String) -> Unit,
     onGlobalFeatureChanged: (BridgeyFeature, Boolean) -> Unit,
     onDeviceFeatureChanged: (String, BridgeyFeature, Boolean) -> Unit,
@@ -723,7 +726,8 @@ private fun SettingsScreen(
                     Text("Choose what this phone may use with this device.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     BridgeyFeature.entries.forEach { feature ->
                         val globallyEnabled = state.globalFeatures[feature] != false
-                        val disabledRemotely = device.id == connectedDeviceId && remoteFeatures[feature] == false
+                        val disabledRemotely = connections.firstOrNull { it.id == device.id }
+                            ?.link?.remoteFeatures?.get(feature) == false
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.weight(1f)) {
                                 Text(feature.title, color = if (globallyEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -776,6 +780,7 @@ private fun DeviceScreen(
     peers: List<DiscoveredPeer>,
     trustedIds: Set<String>,
     pairingState: PairingState,
+    connections: List<ConnectedDevice>,
     clipboardStatus: String?,
     fileTransfers: Map<String, FileTransferState>,
     phoneRinging: Boolean,
@@ -800,6 +805,10 @@ private fun DeviceScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         val connected = pairingState as? PairingState.Connected
+        if (connected != null && connections.size > 1) {
+            item { SectionTitle(stringResource(R.string.devices_connected_title)) }
+            item { ConnectedDevicesCard(connections, connected.deviceId, pairing::selectDevice) }
+        }
         if (connected != null) {
             item {
                 ConnectedDeviceCard(
@@ -852,7 +861,7 @@ private fun DeviceScreen(
             }
         }
 
-        val visiblePeers = peers.filter { it.deviceIdHint != connected?.deviceId }
+        val visiblePeers = peers.filter { peer -> connections.none { it.id == peer.deviceIdHint } }
         if (visiblePeers.isNotEmpty()) {
             item { SectionTitle("Nearby") }
             items(visiblePeers, key = { it.key }) { peer ->
@@ -964,6 +973,42 @@ private fun ConnectedDeviceCard(
             }
             clipboardStatus?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = .72f)) }
             pingStatus?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = .72f)) }
+        }
+    }
+}
+
+/** Every connected device; actions started on this phone go to the selected one. */
+@Composable
+private fun ConnectedDevicesCard(connections: List<ConnectedDevice>, selectedId: String, onSelect: (String) -> Unit) {
+    Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(vertical = 10.dp)) {
+            connections.forEach { device ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .selectable(selected = device.id == selectedId, role = Role.RadioButton, onClick = { onSelect(device.id) })
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = device.id == selectedId, onClick = null)
+                    Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                        Text(device.name, fontWeight = FontWeight.Medium)
+                        device.link.battery?.let { battery ->
+                            Text(
+                                stringResource(R.string.devices_battery, battery.level),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            Text(
+                stringResource(R.string.devices_target_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
+            )
         }
     }
 }

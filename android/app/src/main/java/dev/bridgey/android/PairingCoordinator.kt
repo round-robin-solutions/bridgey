@@ -157,8 +157,25 @@ class PairingCoordinator(
     @Volatile private var pairingFlow: PairingState = PairingState.Idle
     @Volatile private var publishedTarget: String? = null
     @Volatile private var localBattery: Pair<Int, Boolean>? = null
+    private val mutableConnections = MutableStateFlow<List<ConnectedDevice>>(emptyList())
+    /** Every connected device with its own features, battery and ringing state, in connection order. */
+    val connections: StateFlow<List<ConnectedDevice>> = mutableConnections.asStateFlow()
+    private val mutableSelectedDeviceId = MutableStateFlow<String?>(null)
+    /** The device the user picked for actions; null means the most recently connected one. */
+    val selectedDeviceId: StateFlow<String?> = mutableSelectedDeviceId.asStateFlow()
+    /** The device user actions go to. */
+    private val targetId: String? get() = registry.target(mutableSelectedDeviceId.value)
     /** The target device's session, which user actions use. */
-    private val session: Session? get() = registry.target(null)?.let(registry::sessionFor)
+    private val session: Session? get() = targetId?.let(registry::sessionFor)
+    /** Trusted devices this phone is dialling by itself, so each is dialled once. */
+    private val dialing = ConcurrentHashMap.newKeySet<String>()
+    private val transferOwners = TransferOwners()
+    /** Devices that made this phone ring; stopping tells them. */
+    private val ringingRequesters = ConcurrentHashMap.newKeySet<String>()
+    /** The last media state of each Mac; the media card shows the selected one. */
+    private val mediaStates = ConcurrentHashMap<String, JSONObject>()
+    /** While a quick message is handled, the device that sent it: policy and replies use it. */
+    private val quickReplyTarget = ThreadLocal<Session?>()
     private var acceptJob: Job? = null
     private var findRingtone: Ringtone? = null
     private val diagnostics = BridgeyDiagnostics()
@@ -208,6 +225,25 @@ class PairingCoordinator(
         }
     }
 
+    /** Dials a trusted device in the background. Unlike [pair], it never shows connection progress. */
+    fun reconnect(host: String, port: Int, peerName: String, deviceId: String) {
+        if (registry.sessionFor(deviceId) != null || !dialing.add(deviceId)) return
+        scope.launch {
+            runCatching { Socket(host, port) }
+                .onSuccess { handle(it, initiatedLocally = true, peerHint = peerName, reconnectId = deviceId) }
+                .onFailure {
+                    dialing.remove(deviceId)
+                    android.util.Log.i("Bridgey", "TRANSPORT reconnect failed peerId=${deviceId.take(8)}")
+                }
+        }
+    }
+
+    /** Picks the device that user actions go to. */
+    fun selectDevice(deviceId: String?) {
+        mutableSelectedDeviceId.value = deviceId
+        publish()
+    }
+
     fun confirm() {
         scope.launch {
             val current = pairingSession ?: return@launch
@@ -226,9 +262,9 @@ class PairingCoordinator(
         publish()
     }
 
-    /** Disconnects the target device, or cancels the pairing when no device is connected. */
+    /** Disconnects the selected device, or cancels the pairing when no device is connected. */
     fun dismiss() {
-        val target = registry.target(null)
+        val target = targetId
         if (target == null) cancel() else disconnect(target)
     }
 
@@ -252,8 +288,10 @@ class PairingCoordinator(
      * waiting for confirmation is shown even while another device is connected.
      */
     @Synchronized private fun publish() {
-        val target = registry.target(null)
-        val device = target?.let { id -> registry.connections.firstOrNull { it.id == id } }
+        val target = targetId
+        val connected = registry.connections
+        mutableConnections.value = connected
+        val device = target?.let { id -> connected.firstOrNull { it.id == id } }
         val flow = pairingFlow
         mutableState.value = when {
             flow is PairingState.Verification -> flow
@@ -267,14 +305,18 @@ class PairingCoordinator(
         if (target != publishedTarget) {
             publishedTarget = target
             clearPingStatus()
-            quickActions.reset()
+            quickActions.targetChanged()
+            target?.let(mediaStates::get)?.let { quickActions.receive("media.state", it) }
         }
     }
 
-    /** One device's session ended. */
+    /** One device's session ended: only its transfers, ringing and media state go. */
     private fun deviceDisconnected(deviceId: String) {
-        cancelIncomingFiles()
-        stopPhoneRinging()
+        interruptTransfers(deviceId)
+        mediaStates.remove(deviceId)
+        ringingRequesters.remove(deviceId)
+        if (ringingRequesters.isEmpty()) stopPhoneRinging()
+        if (registry.connectedIds.isEmpty()) mutableSelectedDeviceId.value = null
         publish()
         diagnostics.record("transport", "disconnected", "reconnecting")
         android.util.Log.i("Bridgey", "TRANSPORT disconnected peerId=${deviceId.take(8)}")
@@ -298,8 +340,20 @@ class PairingCoordinator(
     private fun remoteEnabled(current: Session, feature: BridgeyFeature): Boolean =
         registry.link(current.remoteDeviceId)?.remoteFeatures?.get(feature) != false
 
-    fun isFeatureAvailable(feature: BridgeyFeature): Boolean =
-        effectiveFeatureAvailable(featureEnabled(feature), mutableRemoteFeatures.value[feature] != false)
+    fun isFeatureAvailable(feature: BridgeyFeature): Boolean {
+        quickReplyTarget.get()?.let { sender ->
+            return isFeatureAvailable(feature, sender.remoteDeviceId, registry.link(sender.remoteDeviceId))
+        }
+        return effectiveFeatureAvailable(featureEnabled(feature), mutableRemoteFeatures.value[feature] != false)
+    }
+
+    /** [feature] is on here for [deviceId] and on that device itself. */
+    private fun isFeatureAvailable(feature: BridgeyFeature, deviceId: String, link: PeerLinkState?): Boolean =
+        effectiveFeatureAvailable(settings.isEnabled(feature, deviceId), link?.remoteFeatures?.get(feature) != false)
+
+    /** Every connected device where [feature] is available, for a broadcast. */
+    private fun sessionsWith(feature: BridgeyFeature): List<Session> =
+        registry.broadcastTargets { id, link -> isFeatureAvailable(feature, id, link) }.map { it.second }
 
     fun sendClipboard() {
         val clipboard = appContext.getSystemService(ClipboardManager::class.java)
@@ -385,11 +439,10 @@ class PairingCoordinator(
         }
     }
 
-    /** Sends this phone's battery to the target device and remembers it for devices that connect later. */
+    /** Sends this phone's battery to every device with Battery on and remembers it for devices that connect later. */
     fun sendBattery(level: Int, isCharging: Boolean) {
         localBattery = level to isCharging
-        if (!isFeatureAvailable(BridgeyFeature.BATTERY)) return
-        sendBattery(session ?: return, level, isCharging)
+        sessionsWith(BridgeyFeature.BATTERY).forEach { sendBattery(it, level, isCharging) }
     }
 
     private fun sendBattery(connectedSession: Session, level: Int, isCharging: Boolean) {
@@ -485,7 +538,7 @@ class PairingCoordinator(
     }
 
     private fun sendQuickPayload(kind: String, payload: JSONObject): Boolean {
-        val current = session ?: return false
+        val current = quickReplyTarget.get() ?: session ?: return false
         val key = current.pairingKey ?: return false
         val encrypted = Crypto.encrypt(key, payload.toString().toByteArray(Charsets.UTF_8))
         scope.launch {
@@ -509,7 +562,17 @@ class PairingCoordinator(
             val sequence = (raw as Number).toLong()
             if (!current.quickSequence.accept(payload.optString("feature"), sequence)) return
         }
-        quickActions.receive(message.kind, payload)
+        if (message.kind == "media.state") {
+            mediaStates[current.remoteDeviceId] = payload
+            if (targetId != current.remoteDeviceId) return
+        }
+        // Policy checks and the reply use the device that sent this, not the selected one.
+        quickReplyTarget.set(current)
+        try {
+            quickActions.receive(message.kind, payload)
+        } finally {
+            quickReplyTarget.remove()
+        }
     }
 
     fun sendNotification(
@@ -523,10 +586,9 @@ class PairingCoordinator(
         applicationIcon: String? = null,
         callType: String? = null,
     ) {
-        if (!isFeatureAvailable(BridgeyFeature.NOTIFICATIONS)) return
-        val connectedSession = session ?: return
+        val targets = sessionsWith(BridgeyFeature.NOTIFICATIONS)
+        if (targets.isEmpty()) return
         scope.launch {
-            if (!registry.isActive(connectedSession)) return@launch
             val payload = JSONObject()
                 .put("packageName", packageName.take(256))
                 .put("applicationName", applicationName.take(128))
@@ -552,18 +614,20 @@ class PairingCoordinator(
                 })
                 .toString()
                 .toByteArray()
-            val encrypted = Crypto.encrypt(connectedSession.pairingKey!!, payload)
-            if (connectedSession.send(
-                    Message(
-                        kind = "notifications.post",
-                        sessionId = connectedSession.id,
-                        messageId = UUID.randomUUID().toString(),
-                        nonce = encrypted.nonce,
-                        ciphertext = encrypted.ciphertext,
-                    ),
-                )
-            ) {
-                android.util.Log.i("Bridgey", "PLUGIN notification sent package=$packageName")
+            targets.filter(registry::isActive).forEach { connectedSession ->
+                val encrypted = Crypto.encrypt(connectedSession.pairingKey!!, payload)
+                if (connectedSession.send(
+                        Message(
+                            kind = "notifications.post",
+                            sessionId = connectedSession.id,
+                            messageId = UUID.randomUUID().toString(),
+                            nonce = encrypted.nonce,
+                            ciphertext = encrypted.ciphertext,
+                        ),
+                    )
+                ) {
+                    android.util.Log.i("Bridgey", "PLUGIN notification sent package=$packageName")
+                }
             }
         }
     }
@@ -573,24 +637,26 @@ class PairingCoordinator(
     }
 
     private fun sendNotificationReference(kind: String, notificationId: String) {
-        if (!isFeatureAvailable(BridgeyFeature.NOTIFICATIONS) || notificationId.isBlank()) return
-        val connectedSession = session ?: return
+        if (notificationId.isBlank()) return
+        val targets = sessionsWith(BridgeyFeature.NOTIFICATIONS)
+        if (targets.isEmpty()) return
         scope.launch {
-            if (!registry.isActive(connectedSession)) return@launch
             val payload = JSONObject()
                 .put("notificationId", notificationId.take(512))
                 .toString()
                 .toByteArray()
-            val encrypted = Crypto.encrypt(connectedSession.pairingKey!!, payload)
-            connectedSession.send(
-                Message(
-                    kind = kind,
-                    sessionId = connectedSession.id,
-                    messageId = UUID.randomUUID().toString(),
-                    nonce = encrypted.nonce,
-                    ciphertext = encrypted.ciphertext,
-                ),
-            )
+            targets.filter(registry::isActive).forEach { connectedSession ->
+                val encrypted = Crypto.encrypt(connectedSession.pairingKey!!, payload)
+                connectedSession.send(
+                    Message(
+                        kind = kind,
+                        sessionId = connectedSession.id,
+                        messageId = UUID.randomUUID().toString(),
+                        nonce = encrypted.nonce,
+                        ciphertext = encrypted.ciphertext,
+                    ),
+                )
+            }
         }
     }
 
@@ -599,13 +665,16 @@ class PairingCoordinator(
         scope.launch { sendFindCommand("find.start") }
     }
 
+    /** Stops ringing here and on every device that is ringing or made this phone ring. */
     fun stopFinding() {
         stopPhoneRinging()
-        scope.launch { sendFindCommand("find.stop") }
+        val targets = findStopTargets(registry.connections, ringingRequesters.toSet(), targetId)
+        ringingRequesters.clear()
+        scope.launch { targets.mapNotNull(registry::sessionFor).forEach { sendFindCommand("find.stop", it) } }
     }
 
-    private fun sendFindCommand(kind: String): Boolean {
-        val current = session ?: return false
+    private fun sendFindCommand(kind: String, current: Session? = session): Boolean {
+        if (current == null) return false
         if (kind == "find.start" && !isFeatureAvailable(BridgeyFeature.FIND_DEVICE)) return false
         val payload = JSONObject().put("alertId", "active").toString().toByteArray()
         val encrypted = Crypto.encrypt(current.pairingKey!!, payload)
@@ -634,13 +703,15 @@ class PairingCoordinator(
             return fail("Invalid find-device message")
         }
         if (start) {
+            ringingRequesters += current.remoteDeviceId
             startPhoneRinging()
-            sendFindCommand(if (mutablePhoneRinging.value) "find.started" else "find.stopped")
+            sendFindCommand(if (mutablePhoneRinging.value) "find.started" else "find.stopped", current)
         } else {
             stopPhoneRinging()
+            ringingRequesters.clear()
             registry.update(current.remoteDeviceId) { it.copy(ringing = false) }
             publish()
-            sendFindCommand("find.stopped")
+            sendFindCommand("find.stopped", current)
         }
         android.util.Log.i("Bridgey", "PLUGIN find-device ${if (start) "started" else "stopped"}")
     }
@@ -672,13 +743,16 @@ class PairingCoordinator(
      * Adds files to the outgoing queue. Files are offered one after another,
      * each as its own transfer, so a failure or cancellation affects only that file.
      */
-    fun sendFiles(uris: List<Uri>): List<String> {
+    fun sendFiles(uris: List<Uri>): List<String> = sendFiles(uris, targetId)
+
+    /** Queues files for [deviceId]; the queue stays sequential across devices. */
+    private fun sendFiles(uris: List<Uri>, deviceId: String?): List<String> {
         if (uris.isEmpty()) return emptyList()
-        if (!isFeatureAvailable(BridgeyFeature.FILES)) {
+        if (deviceId != null && !isFeatureAvailable(BridgeyFeature.FILES, deviceId, registry.link(deviceId))) {
             mutableFileTransferStatus.value = "File transfer is turned off on one of your devices"
             return emptyList()
         }
-        if (session == null) {
+        if (deviceId == null || registry.sessionFor(deviceId) == null) {
             mutableFileTransferStatus.value = "Not connected — file was not sent"
             return emptyList()
         }
@@ -687,6 +761,7 @@ class PairingCoordinator(
         val queued = uris.distinct().mapIndexed { index, uri ->
             val transferId = UUID.randomUUID().toString()
             outgoingFileSources[transferId] = uri
+            transferOwners.assign(transferId, deviceId)
             FileTransferState(
                 id = transferId,
                 name = "Selected file",
@@ -721,11 +796,6 @@ class PairingCoordinator(
         }
 
     private fun startNextQueuedFile() {
-        if (session == null) return
-        if (!isFeatureAvailable(BridgeyFeature.FILES)) {
-            stopFileQueue("File transfer is turned off on one of your devices")
-            return
-        }
         val (transferId, uri) = fileSendQueue.startNext() ?: return
         startFile(transferId, uri)
     }
@@ -734,15 +804,24 @@ class PairingCoordinator(
         if (fileSendQueue.finish(transferId)) startNextQueuedFile()
     }
 
-    /** Ends every file that has not started yet with the given status. They remain retryable. */
-    private fun stopFileQueue(status: String) {
-        fileSendQueue.removeAllPending().forEach { removeFileTransfer(it, status) }
+    /** Ends every file for [deviceId] (or every device) that has not started yet. They remain retryable. */
+    private fun stopFileQueue(status: String, deviceId: String? = null) {
+        fileSendQueue.pendingIds()
+            .filter { deviceId == null || transferOwners.owns(it, deviceId) }
+            .filter(fileSendQueue::removePending)
+            .forEach { removeFileTransfer(it, status) }
     }
 
     private fun startFile(transferId: String, uri: Uri) {
-        val connectedSession = session
-        if (connectedSession == null) {
+        val deviceId = transferOwners.owner(transferId)
+        val connectedSession = deviceId?.let(registry::sessionFor)
+        if (deviceId == null || connectedSession == null) {
             removeFileTransfer(transferId, "Transfer interrupted — reconnect to retry")
+            finishQueuedFile(transferId)
+            return
+        }
+        if (!isFeatureAvailable(BridgeyFeature.FILES, deviceId, registry.link(deviceId))) {
+            removeFileTransfer(transferId, "File transfer is turned off on one of your devices")
             finishQueuedFile(transferId)
             return
         }
@@ -891,7 +970,7 @@ class PairingCoordinator(
 
     fun cancelFileTransfer(transferId: String) {
         incomingFolder?.takeIf { it.id == transferId }?.let { folder ->
-            val current = session
+            val current = transferOwners.owner(folder.id)?.let(registry::sessionFor)
             scope.launch {
                 if (current != null && registry.isActive(current)) {
                     current.send(Message(kind = "folders.cancel", sessionId = current.id, transferId = folder.id))
@@ -907,7 +986,7 @@ class PairingCoordinator(
             diagnostics.record("transfer", "cancelled")
             return
         }
-        val current = session
+        val current = transferOwners.owner(transferId)?.let(registry::sessionFor)
         markTransferCancelled(transferId)
         scope.launch {
             repeat(3) { attempt ->
@@ -931,20 +1010,22 @@ class PairingCoordinator(
         mutableFileTransfers.value.values.filter { it.active }.forEach { cancelFileTransfer(it.id) }
     }
 
+    /** Sends a failed file again to the device it was meant for. */
     fun retryFileTransfer(transferId: String) {
         val uri = outgoingFileSources[transferId] ?: return
-        if (session == null) {
+        val deviceId = transferOwners.owner(transferId)
+        if (deviceId == null || registry.sessionFor(deviceId) == null) {
             removeFileTransfer(transferId, "Reconnect before retrying")
             return
         }
-        if (!isFeatureAvailable(BridgeyFeature.FILES)) {
+        if (!isFeatureAvailable(BridgeyFeature.FILES, deviceId, registry.link(deviceId))) {
             removeFileTransfer(transferId, "File transfer is turned off on one of your devices")
             return
         }
         mutableFileTransfers.value = mutableFileTransfers.value.toMutableMap().apply { remove(transferId) }
         outgoingFileSources.remove(transferId)
         diagnostics.record("transfer", "retry_started")
-        sendFile(uri)
+        sendFiles(listOf(uri), deviceId)
     }
 
     fun diagnosticsReport(): String {
@@ -975,6 +1056,10 @@ class PairingCoordinator(
         registry.removeAll().forEach(Session::close)
         pairingSession = null
         pairingFlow = PairingState.Idle
+        dialing.clear()
+        ringingRequesters.clear()
+        mediaStates.clear()
+        mutableSelectedDeviceId.value = null
         stopPhoneRinging()
         publish()
         server?.close()
@@ -999,10 +1084,12 @@ class PairingCoordinator(
         refreshFileTransferSummary("File transfer interrupted")
     }
 
-    private fun handle(socket: Socket, initiatedLocally: Boolean, peerHint: String?) {
+    /** Runs one session. [reconnectId] marks a background reconnect, which never owns the pairing prompt. */
+    private fun handle(socket: Socket, initiatedLocally: Boolean, peerHint: String?, reconnectId: String? = null) {
         if (registry.pendingSessions.size >= MAX_PENDING_SESSIONS) {
             runCatching { socket.close() }
-            if (initiatedLocally) failPairing("Could not connect to ${peerHint ?: "Mac"}")
+            reconnectId?.let(dialing::remove)
+            if (initiatedLocally && reconnectId == null) failPairing("Could not connect to ${peerHint ?: "Mac"}")
             return
         }
         socket.keepAlive = true
@@ -1010,14 +1097,17 @@ class PairingCoordinator(
         socket.soTimeout = HEARTBEAT_INTERVAL_MILLIS.toInt()
         val current = Session(socket)
         current.initiatedLocally = initiatedLocally
+        current.reconnectId = reconnectId
         registry.addPending(current, initiatedLocally)
         if (initiatedLocally) {
-            // A connection the user started replaces an earlier one the user started.
-            val previous = pairingSession
-            pairingSession = current
-            if (previous != null && registry.isPending(previous)) {
-                previous.send(Message(kind = "pairing.cancel", sessionId = previous.id))
-                previous.close()
+            if (reconnectId == null) {
+                // A connection the user started replaces an earlier one the user started.
+                val previous = pairingSession
+                pairingSession = current
+                if (previous != null && registry.isPending(previous)) {
+                    previous.send(Message(kind = "pairing.cancel", sessionId = previous.id))
+                    previous.close()
+                }
             }
             current.peerName = peerHint ?: "Mac"
             current.keyPair = Crypto.generateKeyPair()
@@ -1068,6 +1158,7 @@ class PairingCoordinator(
             }
         }
         current.close()
+        current.reconnectId?.let(dialing::remove)
         val failure = result.exceptionOrNull() as? SessionFailure
         val deviceId = registry.remove(current)
         if (pairingSession === current) {
@@ -1189,8 +1280,8 @@ class PairingCoordinator(
                 }
             }
             "battery.update" -> receiveBattery(current, message)
-            "files.accept" -> message.transferId?.let { pendingFileAccepts.remove(it)?.complete(true) }
-            "files.complete.ack" -> message.transferId?.let { pendingFileCompletions.remove(it)?.complete(true) }
+            "files.accept" -> message.transferId?.takeIf { owns(current, it) }?.let { pendingFileAccepts.remove(it)?.complete(true) }
+            "files.complete.ack" -> message.transferId?.takeIf { owns(current, it) }?.let { pendingFileCompletions.remove(it)?.complete(true) }
             "files.offer" -> {
                 if (settings.isEnabled(BridgeyFeature.FILES, current.remoteDeviceId)) {
                     receiveFileOffer(current, message)
@@ -1199,8 +1290,8 @@ class PairingCoordinator(
                     sendFeatureState()
                 }
             }
-            "files.rejected" -> message.transferId?.let { transferId ->
-                stopFileQueue("File transfer is turned off on Mac")
+            "files.rejected" -> message.transferId?.takeIf { owns(current, it) }?.let { transferId ->
+                stopFileQueue("File transfer is turned off on Mac", current.remoteDeviceId)
                 pendingFileAccepts.remove(transferId)?.complete(false)
                 outgoingFileJobs.remove(transferId)?.cancel()
                 removeFileTransfer(transferId, "File transfer is turned off on Mac")
@@ -1210,7 +1301,7 @@ class PairingCoordinator(
             "files.chunk" -> receiveFileChunk(current, message)
             "files.complete" -> receiveFileComplete(current, message)
             "files.cancel" -> receiveFileCancel(current, message.transferId)
-            "files.cancel.ack" -> message.transferId?.let { removeFileTransfer(it, "Transfer cancelled") }
+            "files.cancel.ack" -> message.transferId?.takeIf { owns(current, it) }?.let { removeFileTransfer(it, "Transfer cancelled") }
             "folders.offer" -> receiveFolderOffer(current, message)
             "folders.manifest" -> receiveFolderManifest(current, message)
             "folders.complete" -> receiveFolderComplete(current, message)
@@ -1366,8 +1457,10 @@ class PairingCoordinator(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             return fail("Receiving files requires Android 10 or newer")
         }
+        if (transferOwners.owner(transferId)?.let { it != current.remoteDeviceId } == true) return fail("Invalid file offer")
+        transferOwners.assign(transferId, current.remoteDeviceId)
         val folderId = payload.optString("folderId").takeIf(String::isNotEmpty)
-        val folder = folderId?.let { id -> incomingFolder?.takeIf { it.id == id } }
+        val folder = folderId?.let { id -> incomingFolder?.takeIf { it.id == id && owns(current, id) } }
         if (folderId != null && folder == null && folderId in endedFolderIds) {
             // The folder was cancelled here while this offer was on its way: decline it, keep the session.
             markTransferCancelled(transferId)
@@ -1421,7 +1514,7 @@ class PairingCoordinator(
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
         val transferId = message.transferId ?: return
-        val transfer = incomingFiles[transferId] ?: run {
+        val transfer = incomingFiles[transferId]?.takeIf { owns(current, transferId) } ?: run {
             if (transferId in cancelledTransferIds) return
             return fail("Unknown file transfer")
         }
@@ -1461,7 +1554,7 @@ class PairingCoordinator(
         val payload = runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)) }.getOrNull()
             ?: return fail("Invalid file completion")
         val transferId = payload.optString("transferId")
-        val transfer = incomingFiles.remove(transferId) ?: run {
+        val transfer = (if (owns(current, transferId)) incomingFiles.remove(transferId) else null) ?: run {
             if (transferId in cancelledTransferIds) return
             return fail("Unknown file transfer")
         }
@@ -1489,7 +1582,7 @@ class PairingCoordinator(
     }
 
     private fun receiveFileCancel(current: Session, transferId: String?) {
-        if (transferId == null) return
+        if (transferId == null || !owns(current, transferId)) return
         folderFileOwners.remove(transferId)?.let { id ->
             incomingFolder?.takeIf { it.id == id && it.currentTransferId == transferId }?.currentTransferId = null
         }
@@ -1529,12 +1622,14 @@ class PairingCoordinator(
             else -> validateFolderOffer(offer)
         }
         if (rejection != null) return rejectFolder(current, folderId, rejection)
-        folderAssembly = FolderAssembly(offer, now)
+        folderAssembly = FolderAssembly(offer, now, current.remoteDeviceId)
     }
 
     private fun receiveFolderManifest(current: Session, message: Message) {
         val payload = decryptFolderPayload(current, message) ?: return
-        val assembly = folderAssembly?.takeIf { it.offer.folderId == payload.optString("folderId") } ?: return
+        val assembly = folderAssembly?.takeIf {
+            it.offer.folderId == payload.optString("folderId") && it.deviceId == current.remoteDeviceId
+        } ?: return
         val entries = payload.optJSONArray("entries")?.let(::parseFolderEntries)
         if (payload.strictLong("page") != assembly.nextPage.toLong() ||
             entries == null || entries.isEmpty() || entries.size > FolderRules.MAX_ENTRIES_PER_PAGE
@@ -1562,6 +1657,7 @@ class PairingCoordinator(
             IncomingFileTransfer.folderExists(appContext, it)
         } ?: return rejectFolder(current, offer.folderId, FolderRejection.IO_ERROR)
         val folder = IncomingFolder(offer, entries, FolderPlan.build(entries), localName)
+        transferOwners.assign(folder.id, current.remoteDeviceId)
         incomingFolder = folder
         mutableFileTransfers.value = mutableFileTransfers.value + (folder.id to FileTransferState(
             id = folder.id,
@@ -1579,7 +1675,7 @@ class PairingCoordinator(
 
     private fun receiveFolderComplete(current: Session, message: Message) {
         val payload = decryptFolderPayload(current, message) ?: return
-        val folder = incomingFolder?.takeIf { it.id == payload.optString("folderId") } ?: return
+        val folder = incomingFolder?.takeIf { it.id == payload.optString("folderId") && owns(current, it.id) } ?: return
         if (folder.currentTransferId != null) return fail("Invalid folder completion")
         incomingFolder = null
         val status = if (folder.savedFiles == folder.offer.fileCount) {
@@ -1599,8 +1695,8 @@ class PairingCoordinator(
     private fun receiveFolderCancel(current: Session, message: Message) {
         if (!registry.isActive(current) || message.sessionId != current.id) return
         val folderId = message.transferId ?: return
-        if (folderAssembly?.offer?.folderId == folderId) folderAssembly = null
-        incomingFolder?.takeIf { it.id == folderId }?.let { endIncomingFolder(it, "Transfer cancelled by Mac") }
+        if (folderAssembly?.takeIf { it.deviceId == current.remoteDeviceId }?.offer?.folderId == folderId) folderAssembly = null
+        incomingFolder?.takeIf { it.id == folderId && owns(current, folderId) }?.let { endIncomingFolder(it, "Transfer cancelled by Mac") }
         current.send(Message(kind = "folders.cancel.ack", sessionId = current.id, transferId = folderId))
     }
 
@@ -1733,7 +1829,7 @@ class PairingCoordinator(
             "browse.download" -> {
                 if (node.isDirectory || path.isEmpty()) return BrowseAnswer.Error("not_found")
                 if (!registry.isActive(current)) return BrowseAnswer.Error("io_error")
-                val transferId = sendFiles(listOf(sharedFolderStorage.documentUri(tree, node.documentId))).firstOrNull()
+                val transferId = sendFiles(listOf(sharedFolderStorage.documentUri(tree, node.documentId)), current.remoteDeviceId).firstOrNull()
                     ?: return BrowseAnswer.Error("policy")
                 BrowseAnswer.Result("browse.download.result", JSONObject().put("transferId", transferId))
             }
@@ -1955,10 +2051,13 @@ class PairingCoordinator(
                 publish()
                 return
             }
-            is Admission.Accepted -> admission.replaced?.close()
+            is Admission.Accepted -> admission.replaced?.let { replaced ->
+                // Transfers ran on the replaced socket and cannot continue on the new one.
+                replaced.close()
+                interruptTransfers(deviceId)
+            }
         }
-        // One device at a time for now: a different device replaces the connected one.
-        registry.connectedIds.filter { it != deviceId }.forEach(::disconnect)
+        current.reconnectId?.let(dialing::remove)
         if (registry.connectedIds.size == 1) browseBudget.reset()
         publish()
         diagnostics.record("pairing", "connected")
@@ -2027,11 +2126,19 @@ class PairingCoordinator(
             )
         }
         publish()
+        val deviceId = current.remoteDeviceId
+        if (isFeatureAvailable(BridgeyFeature.BATTERY, deviceId, registry.link(deviceId))) {
+            localBattery?.let { (level, charging) -> sendBattery(current, level, charging) }
+        }
         quickActions.policyChanged()
-        if (received[BridgeyFeature.CLIPBOARD] == false) mutableClipboardStatus.value = null
-        if (received[BridgeyFeature.PING] == false) clearPingStatus()
-        if (received[BridgeyFeature.FILES] == false) stopFileQueue("File transfer is turned off on one of your devices")
-        if (received[BridgeyFeature.FIND_DEVICE] == false) stopPhoneRinging()
+        if (targetId == deviceId) {
+            if (received[BridgeyFeature.CLIPBOARD] == false) mutableClipboardStatus.value = null
+            if (received[BridgeyFeature.PING] == false) clearPingStatus()
+        }
+        if (received[BridgeyFeature.FILES] == false) stopFileQueue("File transfer is turned off on one of your devices", current.remoteDeviceId)
+        if (received[BridgeyFeature.FIND_DEVICE] == false && ringingRequesters.remove(deviceId) && ringingRequesters.isEmpty()) {
+            stopPhoneRinging()
+        }
     }
 
     private fun receiveBattery(current: Session, message: Message) {
@@ -2065,27 +2172,31 @@ class PairingCoordinator(
 
     private class SessionFailure(message: String) : Exception(message)
 
-    private fun cancelIncomingFiles() {
-        val hadActiveTransfers = mutableFileTransfers.value.values.any(FileTransferState::active)
-        incomingFiles.values.forEach(IncomingFileTransfer::cancel)
-        incomingFiles.clear()
-        folderAssembly = null
-        incomingFolder = null
-        folderFileOwners.clear()
-        interruptFileQueue()
-        outgoingFileJobs.values.forEach(Job::cancel)
-        outgoingFileJobs.clear()
-        pendingFileAccepts.values.forEach { it.complete(false) }
-        pendingFileAccepts.clear()
-        pendingFileCompletions.values.forEach { it.complete(false) }
-        pendingFileCompletions.clear()
-        mutableFileTransfers.value = recoverInterruptedTransfers(mutableFileTransfers.value)
+    /** Interrupts the transfers of one device after its session ended. They stay retryable. */
+    private fun interruptTransfers(deviceId: String) {
+        val owned = transferOwners.transfersOf(deviceId)
+        val hadActiveTransfers = mutableFileTransfers.value.values.any { it.active && it.id in owned }
+        owned.forEach { transferId ->
+            incomingFiles.remove(transferId)?.cancel()
+            outgoingFileJobs.remove(transferId)?.cancel()
+            pendingFileAccepts.remove(transferId)?.complete(false)
+            pendingFileCompletions.remove(transferId)?.complete(false)
+            folderFileOwners.remove(transferId)
+        }
+        if (folderAssembly?.deviceId == deviceId) folderAssembly = null
+        if (incomingFolder?.id in owned) incomingFolder = null
+        fileSendQueue.pendingIds().filter { it in owned }.forEach(fileSendQueue::removePending)
+        fileSendQueue.currentId()?.takeIf { it in owned }?.let(::finishQueuedFile)
+        mutableFileTransfers.value = mutableFileTransfers.value +
+            recoverInterruptedTransfers(mutableFileTransfers.value.filterKeys { it in owned })
         refreshFileTransferSummary("File transfer interrupted")
         if (hadActiveTransfers) diagnostics.record("transfer", "interrupted", "retry_available")
         if (mutableFileTransferStatus.value?.startsWith("Receiving ") == true) {
             mutableFileTransferStatus.value = "File transfer interrupted"
         }
     }
+
+    private fun owns(current: Session, transferId: String): Boolean = transferOwners.owns(transferId, current.remoteDeviceId)
 
     private companion object {
         const val FILE_CHUNK_SIZE = 24 * 1024
@@ -2106,6 +2217,8 @@ class PairingCoordinator(
         var remoteDeviceId = ""
         var remoteIdentityKey: String? = null
         var initiatedLocally = false
+        /** Set for a background reconnect to this trusted device. */
+        var reconnectId: String? = null
         var localEphemeralKey = ""
         var remoteEphemeralKey = ""
         var keyPair: KeyPair? = null
@@ -2314,7 +2427,7 @@ private sealed interface UploadTarget {
     data class Rejected(val code: String) : UploadTarget
 }
 
-private class FolderAssembly(val offer: FolderOffer, val startedAtMillis: Long) {
+private class FolderAssembly(val offer: FolderOffer, val startedAtMillis: Long, val deviceId: String) {
     val entries = ArrayList<FolderEntry>()
     var nextPage = 0
 }

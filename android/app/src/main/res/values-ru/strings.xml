@@ -19,4 +19,13 @@
     <string name="shared_folders_remove">Убрать</string>
     <string name="shared_folders_uploads">Разрешить Mac добавлять файлы</string>
     <string name="shared_folders_uploads_body">Если имя занято, файл с Mac получает новое имя. Ничего не заменяется.</string>
+    <string name="devices_connected_title">Подключённые устройства</string>
+    <string name="devices_target_hint">Буфер обмена, файлы, пинг и поиск устройства отправляются на выбранное устройство.</string>
+    <string name="devices_battery">Батарея %1$d%%</string>
+    <plurals name="notification_connected_many">
+        <item quantity="one">Подключено %1$d устройство</item>
+        <item quantity="few">Подключено %1$d устройства</item>
+        <item quantity="many">Подключено %1$d устройств</item>
+        <item quantity="other">Подключено %1$d устройства</item>
+    </plurals>
 </resources>

@@ -19,4 +19,11 @@
     <string name="shared_folders_remove">Remove</string>
     <string name="shared_folders_uploads">Allow the Mac to add files</string>
     <string name="shared_folders_uploads_body">Files from the Mac get a new name when one is taken. Nothing is replaced.</string>
+    <string name="devices_connected_title">Connected devices</string>
+    <string name="devices_target_hint">Clipboard, files, Ping and Ring go to the selected device.</string>
+    <string name="devices_battery">Battery %1$d%%</string>
+    <plurals name="notification_connected_many">
+        <item quantity="one">Connected to %1$d device</item>
+        <item quantity="other">Connected to %1$d devices</item>
+    </plurals>
 </resources>
