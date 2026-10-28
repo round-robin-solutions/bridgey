@@ -228,8 +228,11 @@ bottom of the Mac menu-bar panel.
   controls**.
 - **Mac only:** **Launch at login**, the received files folder, phone links,
   media player, keyboard shortcuts and notification history.
+- **Permissions:** each permission Bridgey can use, what it is for, whether it
+  is allowed, and a button to the matching system settings.
 - **Diagnostics:** exports a report without private content. See
   [diagnostics.md](diagnostics.md).
+- **Reset Bridgey on this phone** or **on this Mac:** see below.
 
 ### Forget a device
 
@@ -240,6 +243,24 @@ device's overrides on this device and closes the connection. The other device
 keeps its own record until you forget it there too. To use the pair again,
 pair from the beginning and compare a new code.
 
+### Reset Bridgey on a device
+
+**Reset Bridgey** at the bottom of Settings deletes this device's paired
+devices and their keys, all settings and per-device choices, and local history,
+then shows the welcome guide again. It asks for confirmation first and lists
+what is deleted and what is kept.
+
+- On Android it also deletes the notification application list and call
+  settings and clears the recent transfer list.
+- On the Mac it also deletes keyboard shortcuts, media settings, the
+  notification history, mirrored notifications in Notification Center and the
+  transfer list.
+- It keeps received files, permissions you granted, and the device's identity.
+  Launch at login on the Mac stays as it is.
+
+The other device keeps its record of the reset device. Forget it there too
+before you pair again for a clean start.
+
 ### Turn off Bridgey on Android
 
 Back closes the Bridgey screen but leaves the connection running. **Turn off
@@ -249,7 +270,9 @@ back on.
 
 ## Permissions
 
-Bridgey asks for access only when the related feature needs it:
+Bridgey asks for access only when the related feature needs it. The welcome
+guide names the optional permissions, and **Permissions** in Settings shows
+each one with its current state:
 
 - **Android notifications** keep the connection, transfer progress, received
   files and Find Device controls visible.

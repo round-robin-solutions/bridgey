@@ -75,7 +75,7 @@ final class BridgeySettings: ObservableObject {
         hasCompletedOnboarding = storedDefaults.bool(forKey: "settings.onboarding.completed")
         notificationHistoryEnabled = storedDefaults.bool(forKey: "settings.notificationHistory.enabled")
         globalFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
-            ($0, storedDefaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media))
+            ($0, storedDefaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? Self.enabledByDefault($0))
         })
         var perDevice: [String: [BridgeyFeature: Bool]] = [:]
         for (key, value) in storedDefaults.dictionaryRepresentation() where key.hasPrefix("settings.device.") {
@@ -88,10 +88,29 @@ final class BridgeySettings: ObservableObject {
             }
         }
         deviceFeatures = perDevice
-        receiveFolderPath = storedDefaults.string(forKey: "settings.receiveFolderPath")
-            ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("Bridgey", isDirectory: true).path
+        receiveFolderPath = storedDefaults.string(forKey: "settings.receiveFolderPath") ?? Self.defaultReceiveFolderPath
         refreshLoginItemStatus()
+    }
+
+    private static func enabledByDefault(_ feature: BridgeyFeature) -> Bool { feature != .media }
+
+    private static var defaultReceiveFolderPath: String {
+        FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Bridgey", isDirectory: true).path
+    }
+
+    /// Deletes every stored `settings.` value and returns to the defaults. Launch at login is held by
+    /// macOS and stays as it is.
+    func resetToDefaults() {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("settings.") {
+            defaults.removeObject(forKey: key)
+        }
+        deviceName = Host.current().localizedName ?? "Mac"
+        hasCompletedOnboarding = false
+        notificationHistoryEnabled = false
+        globalFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map { ($0, Self.enabledByDefault($0)) })
+        deviceFeatures = [:]
+        receiveFolderPath = Self.defaultReceiveFolderPath
     }
 
     func setDeviceName(_ value: String) {

@@ -20,6 +20,7 @@ final class ShortcutSettings: ObservableObject {
     @Published private(set) var useShift: Bool
     @Published private(set) var error: String?
     private var registered: [GlobalHotKey] = []
+    private var active = false
     private let defaults: UserDefaults
     var perform: (ShortcutAction) -> Void = { _ in }
 
@@ -39,10 +40,20 @@ final class ShortcutSettings: ObservableObject {
         defaults.set(key, forKey: "shortcuts.\(action.rawValue)")
         register()
     }
+    func reset() {
+        defaults.removeObject(forKey: "shortcuts.shift")
+        useShift = false
+        for action in ShortcutAction.allCases {
+            defaults.removeObject(forKey: "shortcuts.\(action.rawValue)")
+            keys[action] = action.defaultKey
+        }
+        if active { register() }
+    }
     func setShift(_ value: Bool) {
         useShift = value; defaults.set(value, forKey: "shortcuts.shift"); register()
     }
     func register() {
+        active = true
         registered.removeAll(); error = nil
         for (index, action) in ShortcutAction.allCases.enumerated() {
             guard let key = Self.keys.first(where: { $0.0 == keys[action] }) else { continue }

@@ -281,7 +281,10 @@ Open **Settings** on Android or the gear menu on macOS to:
   Find Device, and Calls from Mac globally;
 - override those features for each trusted device or forget its trust record;
 - choose the macOS folder used for received files;
-- start the macOS app automatically at login.
+- start the macOS app automatically at login;
+- see each permission Bridgey can use, why, and whether it is allowed;
+- reset Bridgey on that device, which deletes paired devices, settings, and
+  local history after a confirmation.
 
 To call from macOS, copy a phone number and press **Call** in Bridgey or
 `Control-Option-P`. In applications that expose macOS Services, select a phone

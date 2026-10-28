@@ -483,6 +483,24 @@ final class PairingCoordinator: ObservableObject {
         NSLog("PAIRING revoked peerId=%@", String(deviceID.prefix(8)))
     }
 
+    /// Settings, Reset Bridgey on this Mac: ends the session and deletes trust records, settings, keyboard
+    /// shortcuts, media settings, notification history and the transfer list (LocalDataReset).
+    func resetLocalData() {
+        cancel()
+        for deviceID in trustRegistry.deviceIDs { trustRegistry.remove(deviceID: deviceID) }
+        trustedDeviceIDs = trustRegistry.deviceIDs
+        clearNotificationHistory()
+        clearTransferHistory()
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+        mediaController.player = .off
+        mediaController.pauseForCalls = false
+        shortcuts.reset()
+        settings.resetToDefaults()
+        LocalDataReset.removeStoredKeys(from: .standard)
+        updateDeviceName(settings.deviceName)
+        NSLog("PAIRING local data reset")
+    }
+
     func updateDeviceName(_ value: String) {
         deviceName = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(64))
     }

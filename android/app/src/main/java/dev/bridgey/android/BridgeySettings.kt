@@ -38,7 +38,10 @@ internal fun effectiveFeatureEnabled(
 internal fun effectiveFeatureAvailable(localEnabled: Boolean, remoteEnabled: Boolean): Boolean =
     localEnabled && remoteEnabled
 
-class BridgeySettings internal constructor(private val preferences: SharedPreferences, defaultDeviceName: String) {
+class BridgeySettings internal constructor(
+    private val preferences: SharedPreferences,
+    private val defaultDeviceName: String,
+) {
     constructor(context: Context, defaultDeviceName: String) :
         this(context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE), defaultDeviceName)
 
@@ -104,6 +107,13 @@ class BridgeySettings internal constructor(private val preferences: SharedPrefer
     fun setDirectCallsEnabled(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_DIRECT_CALLS_ENABLED, enabled).apply()
         mutableState.value = mutableState.value.copy(directCallsEnabled = enabled)
+    }
+
+    /** Deletes every stored setting and returns to the defaults. */
+    @Synchronized
+    fun reset() {
+        preferences.edit().clear().commit()
+        mutableState.value = load(defaultDeviceName)
     }
 
     fun removeDevice(deviceId: String) {

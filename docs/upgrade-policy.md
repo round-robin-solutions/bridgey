@@ -72,6 +72,27 @@ Feature keys are the `features.update` keys: `clipboard`, `files`,
 Login item registration is held by macOS (`SMAppService`), not by Bridgey.
 Transfer history and the diagnostics log are kept in memory only.
 
+## Local data reset
+
+Settings on each platform has a reset control that asks for confirmation
+first.
+
+- Android, Reset Bridgey on this phone: deletes `bridgey.settings`,
+  `bridgey.trust`, and `bridgey_onboarding`, ends the current session, and
+  clears the recent transfer list. It keeps `bridgey` (device ID and on/off
+  state), the Keystore signing key, received files, and permissions granted in
+  Android Settings.
+- macOS, Reset Bridgey on this Mac: deletes the trust Keychain item's entries,
+  every `settings.`, `shortcuts.`, `media.`, and legacy `trusted.` key,
+  `notification-history.json`, mirrored notifications in Notification Center,
+  and the transfer list, and ends the current session. It keeps `deviceID`,
+  `legacyPreferencesMigrated`, the Keychain signing key, received files, and
+  launch at login.
+
+Paired devices keep their own record of the reset device until it is forgotten
+there too. A store added later must be added to the reset, or listed here as
+kept, in the same pull request.
+
 ## Rules for changing a stored format
 
 1. Never rename or reuse a key or file. Add a new key and keep reading the old

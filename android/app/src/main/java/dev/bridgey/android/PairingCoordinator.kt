@@ -223,6 +223,13 @@ class PairingCoordinator(
         android.util.Log.i("Bridgey", "PAIRING revoked peerId=${deviceId.take(8)}")
     }
 
+    /** Forgets every trusted device, ends the current session and clears the finished transfers. */
+    fun forgetAllDevices() {
+        trust.trustedDeviceIds.value.forEach(::forget)
+        dismiss()
+        clearTransferHistory()
+    }
+
     fun updateDeviceName(value: String) {
         localDeviceName = value.trim().take(64).ifBlank { "Android device" }
     }
@@ -1803,6 +1810,12 @@ internal class AndroidTrustRegistry(private val preferences: SharedPreferences) 
             .putString("peer.$deviceId.name", name)
             .putString("peer.$deviceId.identityKey", identityKey)
             .apply()
+        mutableIds.value = loadIds()
+        mutableDevices.value = loadDevices()
+    }
+
+    fun clear() {
+        preferences.edit().clear().commit()
         mutableIds.value = loadIds()
         mutableDevices.value = loadDevices()
     }
