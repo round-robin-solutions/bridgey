@@ -1032,6 +1032,8 @@ carry a `requestId` (UUID) that the answer echoes.
 | `sms.send` / `sms.send_status` | Mac asks, phone answers | `body` and one of `threadId`, `address`, `notificationId`, optional `subId` / `status`, `reason`, `via` | send one SMS; statuses `sending`, `sent`, `delivered`, `failed`, `refused` |
 | `sms.attachment` / `sms.attachment_data` | Mac asks, phone answers | `partId` / `mimeType`, `width`, `height`, `data` | one MMS image as a JPEG of at most 28 KiB |
 | `sms.contacts` / `sms.contacts_result` | Mac asks, phone answers | `query` / up to 20 `contacts` | names and numbers for a new message |
+| `sms.mark_read` / `sms.mark_read_result` | Mac asks, phone answers | up to 50 `threadIds` / `results` (`threadId`, `result`) | conversations read on the Mac: the phone runs the messaging app's own Mark as read on the notifications it still shows for them |
+| `sms.blocked_numbers` / `sms.blocked_numbers_result` | Mac asks, phone answers | optional `address` / `result` | opens Android's Blocked numbers screen on the phone |
 
 Pages stay under 40 KiB of plaintext (the frame limit is 64 KiB); the phone stops adding entries
 and sets `more`. A message is `{id, threadId, direction, status, date, address, body, truncated?,
@@ -1055,6 +1057,35 @@ on the Mac, when the phone turns it off, when the phone is forgotten, and from R
 refused (`group`) and the Mac says to answer it on the phone. Emergency numbers are refused. At most
 one send per second and 30 in 10 minutes per Mac (`rate_limited`); Android's own premium-number and
 volume prompts still apply on the phone. At most 4 open `sms.attachment` requests per Mac.
+
+**Managing conversations from the Mac.** Pin, mute, archive, read state, Mark as unread and Delete
+(a conversation or one message) are this Mac's own: they live in a small per-phone file next to the
+cache (0600, no message text), are never sent anywhere, and go when the cache goes (Forget, Text
+messages off on either device, Reset). Android lets only the default SMS app write to the SMS
+provider, so nothing the Mac does changes the phone's messages; Delete says "Removes it from this
+Mac. It stays on your phone." and keeps a tombstone (thread ID, its newest message's date and ID) so
+the next sync does not bring it back until a newer message arrives. An archived conversation comes
+back when a newer message arrives unless it is muted. A muted conversation shows no banner on the
+Mac (the phone sends `smsThreadId` with each SMS notification).
+
+Two things do reach the phone:
+
+- **Mark as read.** When a conversation is read on the Mac (opened, or marked read) and the phone
+  still counts it unread, the Mac sends `sms.mark_read`. For each conversation the phone looks at the
+  default SMS app's notifications it still shows (matched to conversations as for replies: by text,
+  sender and time), and runs the app's own action tagged `SEMANTIC_ACTION_MARK_AS_READ`, which marks
+  the messages read in the app and clears the notification. Each conversation's `result` is `marked`,
+  `not_shown` (no notification for it, so it stays unread on the phone), `no_action` (the app's
+  notification has no Mark as read) or `failed`. The Mac says which, in plain words. A phone that
+  does not know the request (older than this draft revision) never answers; the Mac treats that as
+  not reaching the phone.
+- **Block on phone.** Only the default dialer, the default SMS app and the carrier may add to
+  Android's blocked list, but any app may open the system Blocked numbers screen
+  (`TelecomManager.createManageBlockedNumbersIntent`). `sms.blocked_numbers` opens it at once when
+  Bridgey is in front on the phone (`opened`), otherwise Bridgey posts a notification that opens it
+  when tapped (`notified`), because Android does not let an app open a screen from the background;
+  `unavailable` when the phone has no such screen (for example a secondary user). The number is
+  shown so the person can add it there.
 
 **Codes from messages.** Unchanged: SMS notifications still carry `smsDefaultApp` and the Mac still
 reads codes from them. The conversation view offers Copy code on a message that looks like it holds

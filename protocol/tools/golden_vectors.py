@@ -705,6 +705,21 @@ sms_q("unknown fields are ignored", "sms.threads", {"version":1,"requestId":R2,"
 sms_q("over 1 KiB", "sms.threads", sized('{"version":1,"requestId":"%s","limit":5,"pad":"' % R2, 1025), "reject", raw=True)
 sms_q("exactly 1 KiB", "sms.threads", sized('{"version":1,"requestId":"%s","limit":5,"pad":"' % R2, 1024), {"requestId":R2,"limit":5,"before":None}, raw=True)
 sms_q("lenient JSON", "sms.threads", "{version:1,requestId:'%s',limit:5}" % R2, "reject", raw=True)
+# Managing conversations from the Mac: mark read through the phone's notification action, and Android's Blocked numbers screen.
+sms_q("mark read, one conversation", "sms.mark_read", {"version":1,"requestId":R2,"threadIds":[12]}, {"requestId":R2,"threadIds":[12]})
+sms_q("mark read, several, repeats count once", "sms.mark_read", {"version":1,"requestId":R2.upper(),"threadIds":[12,7,12,3]}, {"requestId":R2,"threadIds":[12,7,3]})
+sms_q("mark read, 50 conversations", "sms.mark_read", {"version":1,"requestId":R2,"threadIds":list(range(1,51))}, {"requestId":R2,"threadIds":list(range(1,51))})
+sms_q("mark read, 51 conversations", "sms.mark_read", {"version":1,"requestId":R2,"threadIds":list(range(1,52))}, "reject")
+sms_q("mark read, none", "sms.mark_read", {"version":1,"requestId":R2,"threadIds":[]}, "reject")
+sms_q("mark read, threadId 0", "sms.mark_read", {"version":1,"requestId":R2,"threadIds":[4,0]}, "reject")
+sms_q("mark read, threadId as a string", "sms.mark_read", {"version":1,"requestId":R2,"threadIds":["4"]}, "reject")
+sms_q("mark read, threadIds not an array", "sms.mark_read", {"version":1,"requestId":R2,"threadIds":4}, "reject")
+sms_q("mark read, threadIds missing", "sms.mark_read", {"version":1,"requestId":R2}, "reject")
+sms_q("blocked numbers", "sms.blocked_numbers", {"version":1,"requestId":R2}, {"requestId":R2,"address":None})
+sms_q("blocked numbers with the number", "sms.blocked_numbers", {"version":1,"requestId":R2,"address":"+91 98765-43210"}, {"requestId":R2,"address":"+919876543210"})
+sms_q("blocked numbers, null number is absent", "sms.blocked_numbers", {"version":1,"requestId":R2,"address":None}, {"requestId":R2,"address":None})
+sms_q("blocked numbers, a sender name is not a number", "sms.blocked_numbers", {"version":1,"requestId":R2,"address":"HDFCBK"}, "reject")
+sms_q("blocked numbers, number as a number", "sms.blocked_numbers", {"version":1,"requestId":R2,"address":5550100}, "reject")
 
 smssend = []
 def sms_s(name, p, expect, raw=False): smssend.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
@@ -825,8 +840,36 @@ sms_d("version 2", {"version":2,"requestId":R2,"status":"sent"}, "reject")
 sms_d("over 1 KiB", sized('{"version":1,"requestId":"%s","status":"sent","pad":"' % R2, 1025), "reject", raw=True)
 sms_d("lenient JSON", "{version:1,requestId:'%s',status:'sent'}" % R2, "reject", raw=True)
 
+smsmark = []
+def sms_mr(name, p, expect, raw=False): smsmark.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+def mrx(results, error=None): return {"requestId":R2,"results":[{"threadId":t,"result":r} for t, r in results],"error":error}
+sms_mr("every result", {"version":1,"requestId":R2,"results":[{"threadId":12,"result":"marked"},{"threadId":7,"result":"not_shown"},{"threadId":3,"result":"no_action"},{"threadId":9,"result":"failed"}]},
+   mrx([(12,"marked"),(7,"not_shown"),(3,"no_action"),(9,"failed")]))
+sms_mr("disabled on the phone", {"version":1,"requestId":R2.upper(),"results":[],"error":"disabled"}, mrx([], "disabled"))
+sms_mr("results missing reads as none", {"version":1,"requestId":R2,"error":"disabled"}, mrx([], "disabled"))
+sms_mr("an unknown result reads as failed", {"version":1,"requestId":R2,"results":[{"threadId":12,"result":"snoozed"}]}, mrx([(12,"failed")]))
+sms_mr("invalid entries are dropped", {"version":1,"requestId":R2,"results":[{"threadId":0,"result":"marked"},{"threadId":"5","result":"marked"},{"threadId":6},"x",{"threadId":8,"result":"marked"}]},
+   mrx([(8,"marked")]))
+sms_mr("an unknown error is ignored", {"version":1,"requestId":R2,"results":[{"threadId":1,"result":"marked"}],"error":"x"*40}, mrx([(1,"marked")]))
+sms_mr("results not an array", {"version":1,"requestId":R2,"results":{"threadId":1,"result":"marked"}}, "reject")
+sms_mr("more than 50 entries", {"version":1,"requestId":R2,"results":[{"threadId":i,"result":"marked"} for i in range(1,52)]}, "reject")
+sms_mr("requestId not a UUID", {"version":1,"requestId":"mark-1","results":[]}, "reject")
+sms_mr("version 2", {"version":2,"requestId":R2,"results":[]}, "reject")
+sms_mr("over 4 KiB", sized('{"version":1,"requestId":"%s","results":[],"pad":"' % R2, 4097), "reject", raw=True)
+sms_mr("lenient JSON", "{version:1,requestId:'%s',results:[]}" % R2, "reject", raw=True)
+
+smsblock = []
+def sms_b(name, p, expect, raw=False): smsblock.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+for outcome in ["opened","notified","unavailable"]:
+    sms_b(outcome, {"version":1,"requestId":R2,"result":outcome}, {"requestId":R2,"result":outcome})
+sms_b("an unknown result reads as unavailable", {"version":1,"requestId":R2.upper(),"result":"blocked"}, {"requestId":R2,"result":"unavailable"})
+sms_b("result missing", {"version":1,"requestId":R2}, "reject")
+sms_b("requestId not a UUID", {"version":1,"requestId":"block-1","result":"opened"}, "reject")
+sms_b("version 2", {"version":2,"requestId":R2,"result":"opened"}, "reject")
+sms_b("over 1 KiB", sized('{"version":1,"requestId":"%s","result":"opened","pad":"' % R2, 1025), "reject", raw=True)
+
 out = {
-  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect, and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page) and smsSendStatus by the Mac; requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units.",
+  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect, and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page), smsSendStatus, smsMarkReadResult and smsBlockedNumbersResult by the Mac (the phone also writes exactly the expected plaintext for each valid one); requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units.",
   "sessionId": S,
   "frames": frames,
   "featuresUpdate": feat,
@@ -853,8 +896,10 @@ out = {
   "smsStatus": smsstatus,
   "smsMessage": smsmsg,
   "smsSendStatus": smssent,
+  "smsMarkReadResult": smsmark,
+  "smsBlockedNumbersResult": smsblock,
 }
 open(OUT,'w').write(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
 print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat), len(st), len(ustart), len(uresult),
       len(screq), len(scstat), len(sstream), len(sframe),
-      len(smsreq), len(smssend), len(smsstatus), len(smsmsg), len(smssent))
+      len(smsreq), len(smssend), len(smsstatus), len(smsmsg), len(smssent), len(smsmark), len(smsblock))
