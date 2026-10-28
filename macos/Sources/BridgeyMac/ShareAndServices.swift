@@ -308,7 +308,7 @@ final class QuickSendController: NSObject, NSWindowDelegate {
     }
 
     func close() {
-        panel?.orderOut(nil)
+        BridgeyWindows.orderOut(panel)
         savingObservation = nil
     }
 

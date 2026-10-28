@@ -570,6 +570,10 @@ is idle; an idle state must hold for 1.5 s) and then adds `"callEnded": true` to
 the reference payload. macOS removes a call card at once when `callEnded` is
 true; without it (an older Android release) the card stays for 2 s and survives
 if the call is posted again in that time.
+The notification ID names the phone app's notification, not the call: dialers post
+every call under the same notification, so consecutive calls arrive with the same
+ID. macOS treats a post with another caller for a card that is waiting out those
+2 s as a new call.
 
 ### Codes from messages (`sms_codes_draft1`)
 

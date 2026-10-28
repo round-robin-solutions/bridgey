@@ -378,7 +378,15 @@ final class PairingCoordinator: ObservableObject {
     private var filePreparationCancellations: [String: FileCancellationToken] = [:]
     private var fileTransferWindow: FileTransferWindowController?
     private var fileDropWindow: FileDropWindowController?
-    private lazy var callOverlayWindow = CallOverlayWindowController(pairing: self)
+    private lazy var callOverlayWindow: CallOverlayWindowController = {
+        let controller = CallOverlayWindowController()
+        controller.onHide = { [weak self] in self?.hideCallOverlay() }
+        controller.onAction = { [weak self] in self?.performRemoteCallAction($0) }
+        controller.onRepair = { [weak self] reason, call in
+            self?.logCall("overlay_repaired", notificationID: call?.notificationID ?? "", deviceID: call?.deviceID ?? "", reason: reason)
+        }
+        return controller
+    }()
     private var activeRemoteCalls = ActiveRemoteCalls()
     private var hiddenCallOverlayIdentities = Set<String>()
     private var audibleCallIdentities = Set<String>()
@@ -3720,9 +3728,24 @@ final class PairingCoordinator: ObservableObject {
         let actions = (payload.actions ?? []).filter { !$0.allowsReply }.prefix(4).map {
             RemoteCallAction(id: $0.actionToken, title: $0.title)
         }
-        let previousType = activeRemoteCalls.all.first {
+        var previous = activeRemoteCalls.all.first {
             $0.deviceID == deviceID && $0.notificationID == payload.notificationId
-        }?.type
+        }
+        if let ending = previous,
+           isNewCallOnSameNotification(
+               previous: ending,
+               pendingRemoval: activeRemoteCalls.isPendingRemoval(notificationID: ending.notificationID, deviceID: deviceID),
+               caller: payload.title
+           ) {
+            // Dialers post every call under one notification, so the phone sends one id for all of
+            // them: a different caller while the last call's card was going is a new call, and the
+            // last call's hide, silence and history must not carry over.
+            activeRemoteCalls.remove(notificationID: ending.notificationID, deviceID: deviceID)
+            forgetCallIdentity(ending)
+            logCall("ended", ending, reason: "replaced")
+            previous = nil
+        }
+        let previousType = previous?.type
         let resumed = activeRemoteCalls.update(RemoteCallStatus(
             notificationID: payload.notificationId,
             deviceID: deviceID,
@@ -3761,7 +3784,7 @@ final class PairingCoordinator: ObservableObject {
         mediaController.callChanged(active: activeRemoteCalls.pausesMedia)
         if let call = remoteCall,
            !hiddenCallOverlayIdentities.contains(callOverlayIdentity(call.notificationID, deviceID: call.deviceID)) {
-            callOverlayWindow.show()
+            callOverlayWindow.show(call)
         } else {
             callOverlayWindow.hide()
         }
@@ -4079,8 +4102,8 @@ final class PairingCoordinator: ObservableObject {
         recordedCallIdentities.removeAll()
         silencedCallIdentities.removeAll()
         callRinger.update(ringing: false)
-        guard !calls.isEmpty else { return }
         callOverlayWindow.hide()
+        guard !calls.isEmpty else { return }
         let identifiers = calls.map {
             remoteNotificationRequestIdentifier(deviceID: $0.deviceID, notificationID: $0.notificationID)
         }

@@ -164,6 +164,8 @@ enum BridgeyLog {
     static let plugin = Logger(subsystem: subsystem, category: "plugin")
     /// Phone screen streams: stream id prefixes, sizes, rates, latency and counts; never pixels or names.
     static let screen = Logger(subsystem: subsystem, category: "screen")
+    /// Windows and popovers that had to be taken off the screen by hand: a window kind and a reason.
+    static let windows = Logger(subsystem: subsystem, category: "windows")
 
     /// Writes a line built by `LogLines`; nil (category off) writes nothing.
     static func line(_ logger: Logger, _ line: String?) {
