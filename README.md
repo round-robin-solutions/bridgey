@@ -174,8 +174,13 @@ are more explicit and auditable than a simple feature-for-feature clone:
 android/              Kotlin + Jetpack Compose application and core tests
 macos/                Swift + SwiftUI menu-bar application
 protocol/             Machine-readable, platform-independent schemas
+testdata/migrations/  Stored data from released versions, for upgrade tests
 docs/architecture.md  Components, ownership, and delivery sequence
 docs/protocol.md      Version 1 wire protocol
+docs/user-guide.md    Installing, pairing, features, and troubleshooting
+docs/developer-guide.md  Building, testing, and changing the protocol
+docs/compatibility.md Tested Android, vendor, and macOS versions
+docs/diagnostics.md   Diagnostics export and logs
 SECURITY.md            Threat model and cryptographic design
 ```
 
@@ -317,6 +322,7 @@ Settings can export a structured diagnostics JSON file. It contains bounded
 event metadata, application/platform versions, feature states, connection
 state, and transfer counts. It never includes clipboard text, notification
 content, file names, network addresses, or device/session/transfer identifiers.
+See [diagnostics](docs/diagnostics.md) for how to export and read it.
 
 ## Development principles
 
@@ -330,7 +336,8 @@ content, file names, network addresses, or device/session/transfer identifiers.
 
 Suggested debug log categories are `DISCOVERY`, `PAIRING`, `TRANSPORT`, and
 `PLUGIN`. See [the architecture](docs/architecture.md), [wire protocol](docs/protocol.md),
-the [security model](SECURITY.md), and [security testing](docs/security-testing.md).
+the [security model](SECURITY.md), [security testing](docs/security-testing.md),
+and the [developer guide](docs/developer-guide.md).
 
 ## Contributing
 
