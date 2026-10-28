@@ -378,7 +378,15 @@ final class PairingCoordinator: ObservableObject {
     private var filePreparationCancellations: [String: FileCancellationToken] = [:]
     private var fileTransferWindow: FileTransferWindowController?
     private var fileDropWindow: FileDropWindowController?
-    private lazy var callOverlayWindow = CallOverlayWindowController(pairing: self)
+    private lazy var callOverlayWindow: CallOverlayWindowController = {
+        let controller = CallOverlayWindowController()
+        controller.onHide = { [weak self] in self?.hideCallOverlay() }
+        controller.onAction = { [weak self] in self?.performRemoteCallAction($0) }
+        controller.onRepair = { [weak self] reason, call in
+            self?.logCall("overlay_repaired", notificationID: call?.notificationID ?? "", deviceID: call?.deviceID ?? "", reason: reason)
+        }
+        return controller
+    }()
     private var activeRemoteCalls = ActiveRemoteCalls()
     private var hiddenCallOverlayIdentities = Set<String>()
     private var audibleCallIdentities = Set<String>()
@@ -3754,7 +3762,7 @@ final class PairingCoordinator: ObservableObject {
         mediaController.callChanged(active: activeRemoteCalls.pausesMedia)
         if let call = remoteCall,
            !hiddenCallOverlayIdentities.contains(callOverlayIdentity(call.notificationID, deviceID: call.deviceID)) {
-            callOverlayWindow.show()
+            callOverlayWindow.show(call)
         } else {
             callOverlayWindow.hide()
         }
@@ -4072,8 +4080,8 @@ final class PairingCoordinator: ObservableObject {
         recordedCallIdentities.removeAll()
         silencedCallIdentities.removeAll()
         callRinger.update(ringing: false)
-        guard !calls.isEmpty else { return }
         callOverlayWindow.hide()
+        guard !calls.isEmpty else { return }
         let identifiers = calls.map {
             remoteNotificationRequestIdentifier(deviceID: $0.deviceID, notificationID: $0.notificationID)
         }
