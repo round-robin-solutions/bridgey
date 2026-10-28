@@ -48,9 +48,11 @@ private struct FileDropView: View {
                 Image(systemName: isTargeted ? "arrow.down.doc.fill" : "doc.badge.arrow.up")
                     .font(.system(size: 36))
                     .foregroundStyle(canSend ? Color.accentColor : Color.secondary)
-                Text(canSend
-                     ? L10n.text("drop.ready", fallback: "Drop one or more files anywhere in this area. They are sent one after another.")
-                     : L10n.text("drop.unavailable", fallback: "Connect an Android device and enable File transfer first."))
+                Text(!canSend
+                     ? L10n.text("drop.unavailable", fallback: "Connect an Android device and enable File transfer first.")
+                     : pairing.isFeatureAvailable(.folders)
+                     ? L10n.text("drop.readyFolders", fallback: "Drop files or folders anywhere in this area. They are sent one after another.")
+                     : L10n.text("drop.ready", fallback: "Drop one or more files anywhere in this area. They are sent one after another."))
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

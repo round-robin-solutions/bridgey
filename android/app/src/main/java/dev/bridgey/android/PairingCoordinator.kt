@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
 import android.provider.MediaStore
+import android.os.StatFs
 import android.os.SystemClock
 import android.media.AudioAttributes
 import android.media.Ringtone
@@ -140,6 +141,10 @@ class PairingCoordinator(
     private val outgoingFileJobs = ConcurrentHashMap<String, Job>()
     private val outgoingFileSources = ConcurrentHashMap<String, Uri>()
     private val fileSendQueue = FileSendQueue<Uri>()
+    @Volatile private var folderAssembly: FolderAssembly? = null
+    @Volatile private var incomingFolder: IncomingFolder? = null
+    private val folderFileOwners = ConcurrentHashMap<String, String>()
+    private val endedFolderIds = ConcurrentHashMap.newKeySet<String>()
     val deviceId: String get() = localDeviceId
     private var server: ServerSocket? = null
     private var session: Session? = null
@@ -823,6 +828,18 @@ class PairingCoordinator(
     }
 
     fun cancelFileTransfer(transferId: String) {
+        incomingFolder?.takeIf { it.id == transferId }?.let { folder ->
+            val current = session
+            scope.launch {
+                if (session === current) {
+                    current?.send(Message(kind = "folders.cancel", sessionId = current.id, transferId = folder.id))
+                    folder.currentTransferId?.let { current?.send(Message(kind = "files.cancel", sessionId = current.id, transferId = it)) }
+                }
+            }
+            endIncomingFolder(folder, "Transfer cancelled")
+            diagnostics.record("transfer", "cancelled")
+            return
+        }
         if (fileSendQueue.removePending(transferId)) {
             removeFileTransfer(transferId, "Transfer cancelled")
             diagnostics.record("transfer", "cancelled")
@@ -912,6 +929,9 @@ class PairingCoordinator(
         pendingFileCompletions.clear()
         incomingFiles.values.forEach(IncomingFileTransfer::cancel)
         incomingFiles.clear()
+        folderAssembly = null
+        incomingFolder = null
+        folderFileOwners.clear()
         interruptFileQueue()
         outgoingFileJobs.values.forEach(Job::cancel)
         outgoingFileJobs.clear()
@@ -1118,6 +1138,10 @@ class PairingCoordinator(
             "files.complete" -> receiveFileComplete(current, message)
             "files.cancel" -> receiveFileCancel(message.transferId)
             "files.cancel.ack" -> message.transferId?.let { removeFileTransfer(it, "Transfer cancelled") }
+            "folders.offer" -> receiveFolderOffer(current, message)
+            "folders.manifest" -> receiveFolderManifest(current, message)
+            "folders.complete" -> receiveFolderComplete(current, message)
+            "folders.cancel" -> receiveFolderCancel(current, message)
         }
     }
 
@@ -1267,13 +1291,51 @@ class PairingCoordinator(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             return fail("Receiving files requires Android 10 or newer")
         }
+        val folderId = payload.optString("folderId").takeIf(String::isNotEmpty)
+        val folder = folderId?.let { id -> incomingFolder?.takeIf { it.id == id } }
+        if (folderId != null && folder == null && folderId in endedFolderIds) {
+            // The folder was cancelled here while this offer was on its way: decline it, keep the session.
+            markTransferCancelled(transferId)
+            current.send(Message(kind = "files.cancel", sessionId = current.id, transferId = transferId))
+            return
+        }
+        val entryIndex = payload.strictLong("entry")
+        val entry = entryIndex?.takeIf { folder != null && it > folder.lastEntry && it < folder.entries.size }
+            ?.let { folder?.entries?.get(it.toInt()) }
+        if (folderId != null && (folder == null || entry == null || entry.isDirectory || entry.name != name || entry.size != size)) {
+            return fail("Invalid file offer")
+        }
+        folder?.currentTransferId?.let { stale ->
+            // The sender gave up on the previous file of this folder and moved on.
+            markTransferCancelled(stale)
+            folderFileOwners.remove(stale)
+            incomingFiles.remove(stale)?.cancel()
+            folder.currentTransferId = null
+        }
+        val localPath = if (folder != null && entryIndex != null) folder.plan.localPath(entryIndex.toInt()) else null
         val transfer = runCatching {
-            IncomingFileTransfer(appContext, transferId, name, mimeType, size, hash)
+            if (folder == null || localPath == null) {
+                IncomingFileTransfer(appContext, transferId, name, mimeType, size, hash)
+            } else {
+                IncomingFileTransfer(
+                    appContext, transferId, localPath.substringAfterLast('/'), mimeType, size, hash,
+                    relativeDirectory = listOf(folder.relativeRoot, localPath.substringBeforeLast('/', ""))
+                        .filter(String::isNotEmpty).joinToString("/"),
+                )
+            }
         }.getOrElse { return fail("Could not create file in Downloads") }
+        if (folder != null && entryIndex != null) {
+            folder.lastEntry = entryIndex
+            folder.currentTransferId = transferId
+            folderFileOwners[transferId] = folder.id
+        }
         incomingFiles[transferId] = transfer
         updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: ${transfer.progress.status(0, force = true)}", true)
         current.send(Message(kind = "files.accept", sessionId = current.id, transferId = transferId))
-        android.util.Log.i("Bridgey", "PLUGIN file accepted name=${transfer.displayName} size=$size")
+        android.util.Log.i(
+            "Bridgey",
+            if (folder != null) "PLUGIN folder file accepted size=$size" else "PLUGIN file accepted name=${transfer.displayName} size=$size",
+        )
     }
 
     private fun receiveFileChunk(current: Session, message: Message) {
@@ -1291,6 +1353,8 @@ class PairingCoordinator(
             message.ciphertext ?: return fail("Invalid encrypted file chunk"),
         ) ?: return fail("Invalid encrypted file chunk")
         if (!runCatching { transfer.append(chunk, message.sequence ?: -1) }.isSuccess) {
+            // Cancelled from the UI while this chunk was being written.
+            if (transferId in cancelledTransferIds) return
             incomingFiles.remove(transfer.transferId)?.cancel()
             return fail("Invalid file data")
         }
@@ -1326,17 +1390,29 @@ class PairingCoordinator(
         val savedUri = runCatching { transfer.finish(payload.optString("sha256")) }.getOrNull()
         if (savedUri == null) {
             transfer.cancel()
+            if (transferId in cancelledTransferIds) return
             mutableFileTransferStatus.value = "File verification failed"
             return fail("File verification failed")
         }
-        updateFileTransfer(transferId, transfer.displayName, "${transfer.displayName} saved to Download/Bridgey", false)
-        ReceivedFileNotifier.show(appContext, transfer.displayName, transfer.mimeType, savedUri)
+        val folder = folderFileOwners.remove(transferId)?.let { id -> incomingFolder?.takeIf { it.id == id } }
+        if (folder != null) {
+            folder.currentTransferId = null
+            folder.savedFiles++
+            folder.lastSaved = savedUri to transfer.mimeType
+            updateFolderRow(folder, appContext.getString(R.string.folder_receiving, folder.localName, folder.savedFiles, folder.offer.fileCount))
+        } else {
+            updateFileTransfer(transferId, transfer.displayName, "${transfer.displayName} saved to Download/Bridgey", false)
+            ReceivedFileNotifier.show(appContext, transfer.displayName, transfer.mimeType, savedUri)
+        }
         current.send(Message(kind = "files.complete.ack", sessionId = current.id, transferId = transferId))
-        android.util.Log.i("Bridgey", "PLUGIN file received name=${transfer.displayName}")
+        android.util.Log.i("Bridgey", if (folder != null) "PLUGIN folder file received" else "PLUGIN file received name=${transfer.displayName}")
     }
 
     private fun receiveFileCancel(transferId: String?) {
         if (transferId == null) return
+        folderFileOwners.remove(transferId)?.let { id ->
+            incomingFolder?.takeIf { it.id == id && it.currentTransferId == transferId }?.currentTransferId = null
+        }
         markTransferCancelled(transferId)
         incomingFiles.remove(transferId)?.cancel()
         outgoingFileJobs.remove(transferId)?.cancel()
@@ -1345,6 +1421,163 @@ class PairingCoordinator(
         removeFileTransfer(transferId, "Transfer cancelled by Mac")
         session?.send(Message(kind = "files.cancel.ack", sessionId = session?.id ?: return, transferId = transferId))
         android.util.Log.i("Bridgey", "PLUGIN file cancellation received transfer=${transferId.take(8)}")
+    }
+
+    private fun receiveFolderOffer(current: Session, message: Message) {
+        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!featureEnabled(BridgeyFeature.FILES, current) || !featureEnabled(BridgeyFeature.FOLDERS, current)) {
+            current.send(Message(kind = "folders.rejected", sessionId = current.id, transferId = message.transferId))
+            sendFeatureState()
+            return
+        }
+        val payload = decryptFolderPayload(current, message) ?: return
+        val folderId = payload.optString("folderId")
+        if (!isUuid(folderId) || folderId != message.transferId) return
+        val offer = FolderOffer(
+            folderId = folderId,
+            name = payload.optString("name"),
+            fileCount = payload.strictLong("fileCount")?.coerceIn(-1, Int.MAX_VALUE.toLong())?.toInt() ?: -1,
+            folderCount = payload.strictLong("folderCount")?.coerceIn(-1, Int.MAX_VALUE.toLong())?.toInt() ?: -1,
+            totalSize = payload.strictLong("totalSize") ?: -1,
+            pageCount = payload.strictLong("pageCount")?.coerceIn(-1, Int.MAX_VALUE.toLong())?.toInt() ?: -1,
+        )
+        val now = SystemClock.elapsedRealtime()
+        val rejection = when {
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.Q -> FolderRejection.UNSUPPORTED
+            incomingFolder != null -> FolderRejection.BUSY
+            folderAssembly?.let { now - it.startedAtMillis < FOLDER_MANIFEST_TIMEOUT_MILLIS } == true -> FolderRejection.BUSY
+            else -> validateFolderOffer(offer)
+        }
+        if (rejection != null) return rejectFolder(current, folderId, rejection)
+        folderAssembly = FolderAssembly(offer, now)
+    }
+
+    private fun receiveFolderManifest(current: Session, message: Message) {
+        val payload = decryptFolderPayload(current, message) ?: return
+        val assembly = folderAssembly?.takeIf { it.offer.folderId == payload.optString("folderId") } ?: return
+        val entries = payload.optJSONArray("entries")?.let(::parseFolderEntries)
+        if (payload.strictLong("page") != assembly.nextPage.toLong() ||
+            entries == null || entries.isEmpty() || entries.size > FolderRules.MAX_ENTRIES_PER_PAGE
+        ) {
+            folderAssembly = null
+            return rejectFolder(current, assembly.offer.folderId, FolderRejection.INVALID_MANIFEST)
+        }
+        assembly.entries += entries
+        assembly.nextPage++
+        if (assembly.nextPage < assembly.offer.pageCount) return
+        folderAssembly = null
+        acceptFolder(current, assembly.offer, assembly.entries)
+    }
+
+    private fun acceptFolder(current: Session, offer: FolderOffer, entries: List<FolderEntry>) {
+        if (!featureEnabled(BridgeyFeature.FILES, current) || !featureEnabled(BridgeyFeature.FOLDERS, current)) {
+            return rejectFolder(current, offer.folderId, FolderRejection.POLICY)
+        }
+        validateFolderManifest(offer, entries)?.let { return rejectFolder(current, offer.folderId, it) }
+        val available = runCatching { appContext.getExternalFilesDir(null)?.let { StatFs(it.path).availableBytes } }.getOrNull()
+        if (available != null && offer.totalSize > available - FOLDER_SPACE_MARGIN) {
+            return rejectFolder(current, offer.folderId, FolderRejection.INSUFFICIENT_SPACE)
+        }
+        val localName = uniqueLocalName(safeLocalName(offer.name), isDirectory = true) {
+            IncomingFileTransfer.folderExists(appContext, it)
+        } ?: return rejectFolder(current, offer.folderId, FolderRejection.IO_ERROR)
+        val folder = IncomingFolder(offer, entries, FolderPlan.build(entries), localName)
+        incomingFolder = folder
+        mutableFileTransfers.value = mutableFileTransfers.value + (folder.id to FileTransferState(
+            id = folder.id,
+            name = localName,
+            status = appContext.getString(R.string.folder_receiving, localName, 0, offer.fileCount),
+            active = true,
+            progressPercent = null,
+        ))
+        pruneTransferHistory()
+        refreshFileTransferSummary()
+        sendFolderPayload(current, "folders.accept", JSONObject().put("folderId", folder.id).put("name", localName))
+        diagnostics.record("transfer", "folder_accepted")
+        android.util.Log.i("Bridgey", "PLUGIN folder accepted files=${offer.fileCount}")
+    }
+
+    private fun receiveFolderComplete(current: Session, message: Message) {
+        val payload = decryptFolderPayload(current, message) ?: return
+        val folder = incomingFolder?.takeIf { it.id == payload.optString("folderId") } ?: return
+        if (folder.currentTransferId != null) return fail("Invalid folder completion")
+        incomingFolder = null
+        val status = if (folder.savedFiles == folder.offer.fileCount) {
+            appContext.getString(R.string.folder_saved, folder.localName)
+        } else {
+            appContext.getString(R.string.folder_saved_partly, folder.savedFiles, folder.offer.fileCount, folder.localName)
+        }
+        removeFileTransfer(folder.id, status)
+        folder.lastSaved?.let { (uri, mimeType) ->
+            ReceivedFileNotifier.show(appContext, folder.localName, mimeType, uri, appContext.getString(R.string.folder_received))
+        }
+        sendFolderPayload(current, "folders.result", JSONObject().put("folderId", folder.id).put("savedFiles", folder.savedFiles))
+        diagnostics.record("transfer", "folder_received")
+        android.util.Log.i("Bridgey", "PLUGIN folder received files=${folder.savedFiles}")
+    }
+
+    private fun receiveFolderCancel(current: Session, message: Message) {
+        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        val folderId = message.transferId ?: return
+        if (folderAssembly?.offer?.folderId == folderId) folderAssembly = null
+        incomingFolder?.takeIf { it.id == folderId }?.let { endIncomingFolder(it, "Transfer cancelled by Mac") }
+        current.send(Message(kind = "folders.cancel.ack", sessionId = current.id, transferId = folderId))
+    }
+
+    /** Stops an incoming folder: saved files stay, the file in progress is deleted. */
+    private fun endIncomingFolder(folder: IncomingFolder, status: String) {
+        if (incomingFolder === folder) incomingFolder = null
+        endedFolderIds += folder.id
+        while (endedFolderIds.size > 16) endedFolderIds.firstOrNull()?.let(endedFolderIds::remove)
+        folder.currentTransferId?.let { transferId ->
+            markTransferCancelled(transferId)
+            folderFileOwners.remove(transferId)
+            incomingFiles.remove(transferId)?.cancel()
+        }
+        removeFileTransfer(folder.id, status)
+    }
+
+    private fun updateFolderRow(folder: IncomingFolder, status: String) {
+        val previous = mutableFileTransfers.value[folder.id] ?: return
+        mutableFileTransfers.value = mutableFileTransfers.value + (folder.id to previous.copy(
+            status = status,
+            progressPercent = (folder.savedFiles * 100 / folder.offer.fileCount).coerceIn(0, 100),
+        ))
+        refreshFileTransferSummary()
+    }
+
+    private fun rejectFolder(current: Session, folderId: String, rejection: FolderRejection) {
+        sendFolderPayload(current, "folders.rejected", JSONObject().put("folderId", folderId).put("code", rejection.code), folderId)
+        diagnostics.record("transfer", "folder_rejected", rejection.code)
+    }
+
+    private fun decryptFolderPayload(current: Session, message: Message): JSONObject? {
+        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return null
+        val messageId = message.messageId ?: return null
+        if (!current.acceptMessageId(messageId)) return null
+        val plaintext = Crypto.decrypt(current.pairingKey!!, message.nonce ?: "", message.ciphertext ?: "")
+        if (plaintext == null || plaintext.size > FolderRules.MAX_PAYLOAD_BYTES) {
+            fail("Invalid encrypted folder message")
+            return null
+        }
+        val payload = runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)) }.getOrNull()
+            ?: run {
+                fail("Invalid folder message")
+                return null
+            }
+        return payload.takeIf { it.opt("version") == 1 }
+    }
+
+    private fun sendFolderPayload(current: Session, kind: String, payload: JSONObject, transferId: String? = null) {
+        val encrypted = Crypto.encrypt(current.pairingKey!!, payload.put("version", 1).toString().toByteArray(Charsets.UTF_8))
+        current.send(Message(
+            kind = kind,
+            sessionId = current.id,
+            messageId = UUID.randomUUID().toString(),
+            transferId = transferId,
+            nonce = encrypted.nonce,
+            ciphertext = encrypted.ciphertext,
+        ))
     }
 
     /** Ends the current and waiting outgoing files after the session is lost. They remain retryable. */
@@ -1358,6 +1591,12 @@ class PairingCoordinator(
     }
 
     private fun updateFileTransfer(id: String, name: String, status: String, active: Boolean) {
+        folderFileOwners[id]?.let { folderId ->
+            incomingFolder?.takeIf { it.id == folderId }?.let { folder ->
+                updateFolderRow(folder, appContext.getString(R.string.folder_file_progress, status, folder.savedFiles + 1, folder.offer.fileCount))
+            }
+            return
+        }
         mutableFileTransfers.value = mutableFileTransfers.value.toMutableMap().apply {
             val percent = Regex("(\\d{1,3})%").find(status)?.groupValues?.get(1)?.toIntOrNull()?.coerceIn(0, 100)
             val previous = get(id)
@@ -1376,6 +1615,7 @@ class PairingCoordinator(
     }
 
     private fun removeFileTransfer(id: String, status: String) {
+        if (folderFileOwners.containsKey(id)) return
         mutableFileTransfers.value[id]?.let { previous ->
             mutableFileTransfers.value = mutableFileTransfers.value.toMutableMap().apply {
                 put(id, previous.copy(
@@ -1541,6 +1781,9 @@ class PairingCoordinator(
         val hadActiveTransfers = mutableFileTransfers.value.values.any(FileTransferState::active)
         incomingFiles.values.forEach(IncomingFileTransfer::cancel)
         incomingFiles.clear()
+        folderAssembly = null
+        incomingFolder = null
+        folderFileOwners.clear()
         interruptFileQueue()
         outgoingFileJobs.values.forEach(Job::cancel)
         outgoingFileJobs.clear()
@@ -1562,6 +1805,8 @@ class PairingCoordinator(
         const val MAX_FILE_SIZE = 10L * 1024 * 1024 * 1024
         const val MAX_NOTIFICATION_ICON_BASE64_LENGTH = 28 * 1024
         const val HEARTBEAT_INTERVAL_MILLIS = 10_000L
+        const val FOLDER_MANIFEST_TIMEOUT_MILLIS = 30_000L
+        const val FOLDER_SPACE_MARGIN = 64L * 1024 * 1024
     }
 
     private class Session(private val socket: Socket) {
@@ -1657,6 +1902,7 @@ private class IncomingFileTransfer(
     val mimeType: String,
     val expectedSize: Long,
     private val expectedHash: String,
+    relativeDirectory: String = RECEIVE_DIRECTORY,
 ) {
     val displayName = sanitize(offeredName)
     val progress = TransferProgress(expectedSize)
@@ -1672,7 +1918,7 @@ private class IncomingFileTransfer(
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, displayName)
             put(MediaStore.Downloads.MIME_TYPE, mimeType.take(255))
-            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Bridgey")
+            put(MediaStore.Downloads.RELATIVE_PATH, relativeDirectory)
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
@@ -1716,6 +1962,77 @@ private class IncomingFileTransfer(
             .take(255)
         return leaf.ifBlank { "file" }
     }
+
+    companion object {
+        val RECEIVE_DIRECTORY = "${Environment.DIRECTORY_DOWNLOADS}/Bridgey"
+
+        /**
+         * Whether a folder named [name] already exists in the receive directory.
+         * MediaStore only lists Bridgey's own downloads, so the file system is
+         * checked as well; MediaStore still never overwrites a file it did not see.
+         */
+        fun folderExists(context: Context, name: String): Boolean {
+            val relative = "$RECEIVE_DIRECTORY/$name/"
+            val pattern = relative.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            val listed = runCatching {
+                context.contentResolver.query(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    arrayOf(MediaStore.MediaColumns._ID),
+                    "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? ESCAPE '\\'",
+                    arrayOf(pattern),
+                    null,
+                )?.use { it.count > 0 }
+            }.getOrNull() == true
+            @Suppress("DEPRECATION")
+            val onDisk = runCatching {
+                java.io.File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Bridgey/$name").exists()
+            }.getOrDefault(false)
+            return listed || onDisk
+        }
+    }
+}
+
+private class FolderAssembly(val offer: FolderOffer, val startedAtMillis: Long) {
+    val entries = ArrayList<FolderEntry>()
+    var nextPage = 0
+}
+
+private class IncomingFolder(
+    val offer: FolderOffer,
+    val entries: List<FolderEntry>,
+    val plan: FolderPlan,
+    val localName: String,
+) {
+    val id: String get() = offer.folderId
+    val relativeRoot = "${IncomingFileTransfer.RECEIVE_DIRECTORY}/$localName"
+    @Volatile var lastEntry = -1L
+    @Volatile var currentTransferId: String? = null
+    @Volatile var savedFiles = 0
+    @Volatile var lastSaved: Pair<Uri, String>? = null
+}
+
+/** An integer JSON value, or null for anything else (strings and fractions included). */
+private fun JSONObject.strictLong(key: String): Long? {
+    val value = opt(key)
+    return if (value is Int) value.toLong() else value as? Long
+}
+
+private fun isUuid(value: String): Boolean = runCatching { UUID.fromString(value) }.isSuccess && value.length == 36
+
+/** Folder manifest entries, or null when any entry is malformed. Paths are checked later as a whole. */
+private fun parseFolderEntries(array: JSONArray): List<FolderEntry>? {
+    val entries = ArrayList<FolderEntry>(array.length())
+    for (index in 0 until array.length()) {
+        val item = array.optJSONObject(index) ?: return null
+        val path = item.opt("path") as? String ?: return null
+        val type = item.opt("type") as? String ?: return null
+        entries += when (type) {
+            "dir" -> if (item.has("size")) return null else FolderEntry(path, isDirectory = true)
+            "file" -> FolderEntry(path, isDirectory = false, size = item.strictLong("size") ?: return null)
+            else -> return null
+        }
+    }
+    return entries
 }
 
 private data class Message(

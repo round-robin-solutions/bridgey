@@ -7,4 +7,9 @@
     <string name="welcome_continue">Get started</string>
     <string name="file_queued">Queued</string>
     <string name="transfers_cancel_all">Cancel all</string>
+    <string name="folder_receiving">Receiving %1$s (%2$d/%3$d)</string>
+    <string name="folder_file_progress">%1$s (file %2$d of %3$d)</string>
+    <string name="folder_saved">%1$s saved to Download/Bridgey</string>
+    <string name="folder_saved_partly">Files saved: %1$d of %2$d, in Download/Bridgey/%3$s</string>
+    <string name="folder_received">Folder received</string>
 </resources>
