@@ -134,7 +134,7 @@ class PairingCoordinator(
     private val mutablePingStatus = MutableStateFlow<String?>(null)
     val pingStatus: StateFlow<String?> = mutablePingStatus.asStateFlow()
     private var pendingPingId: String? = null
-    private val mutableRemoteFeatures = MutableStateFlow(defaultFeatureState())
+    private val mutableRemoteFeatures = MutableStateFlow(defaultRemoteFeatureState())
     val remoteFeatures: StateFlow<Map<BridgeyFeature, Boolean>> = mutableRemoteFeatures.asStateFlow()
     private val incomingFiles = ConcurrentHashMap<String, IncomingFileTransfer>()
     private val cancelledTransferIds = ConcurrentHashMap.newKeySet<String>()
@@ -149,7 +149,16 @@ class PairingCoordinator(
     private val browseBudget = BrowseRequestBudget()
     val deviceId: String get() = localDeviceId
     private var server: ServerSocket? = null
-    private var session: Session? = null
+    /** Pending sessions (handshake or pairing code) and one authenticated session per device. */
+    private val registry = SessionRegistry<Session>(localDeviceId)
+    /** The session whose pairing code is shown, or the connection the user started. */
+    @Volatile private var pairingSession: Session? = null
+    /** The pairing in progress only: connecting, verification or failed, else idle. */
+    @Volatile private var pairingFlow: PairingState = PairingState.Idle
+    @Volatile private var publishedTarget: String? = null
+    @Volatile private var localBattery: Pair<Int, Boolean>? = null
+    /** The target device's session, which user actions use. */
+    private val session: Session? get() = registry.target(null)?.let(registry::sessionFor)
     private var acceptJob: Job? = null
     private var findRingtone: Ringtone? = null
     private val diagnostics = BridgeyDiagnostics()
@@ -160,7 +169,10 @@ class PairingCoordinator(
         scope.launch {
             settings.state.collect {
                 if (!featureEnabled(BridgeyFeature.CLIPBOARD)) mutableClipboardStatus.value = null
-                if (!featureEnabled(BridgeyFeature.BATTERY)) mutableRemoteBattery.value = null
+                registry.connectedIds.filterNot { settings.isEnabled(BridgeyFeature.BATTERY, it) }.forEach { id ->
+                    registry.update(id) { it.copy(battery = null) }
+                }
+                publish()
                 if (!featureEnabled(BridgeyFeature.PING)) clearPingStatus()
                 quickActions.policyChanged()
                 sendFeatureState()
@@ -174,62 +186,105 @@ class PairingCoordinator(
         acceptJob = scope.launch {
             runCatching {
                 ServerSocket(port).also { server = it }.use { listener ->
-                    while (!listener.isClosed) handle(listener.accept(), initiatedLocally = false, peerHint = null)
+                    while (!listener.isClosed) {
+                        val socket = listener.accept()
+                        // Each connection reads on its own coroutine, so a new one never waits for another to end.
+                        scope.launch { handle(socket, initiatedLocally = false, peerHint = null) }
+                    }
                 }
-            }.onFailure { if (server?.isClosed == false) fail("Pairing listener failed") }
+            }.onFailure { if (server?.isClosed == false) failPairing("Pairing listener failed") }
         }
     }
 
     fun pair(host: String, port: Int, peerName: String) {
         diagnostics.record("pairing", "connection_started")
         android.util.Log.i("Bridgey", "PAIRING started peer=$peerName")
-        mutableState.value = PairingState.Connecting(peerName)
+        pairingFlow = PairingState.Connecting(peerName)
+        publish()
         scope.launch {
             runCatching { Socket(host, port) }
                 .onSuccess { handle(it, initiatedLocally = true, peerHint = peerName) }
-                .onFailure { fail("Could not connect to $peerName") }
+                .onFailure { failPairing("Could not connect to $peerName") }
         }
     }
 
     fun confirm() {
         scope.launch {
-            val current = session ?: return@launch
+            val current = pairingSession ?: return@launch
+            if (current.pairingKey == null || current.localConfirmed) return@launch
             confirm(current)
         }
     }
 
+    /** Cancels the pairing in progress or clears its failure. Connected devices stay connected. */
     fun cancel() {
-        val current = session
-        session = null
+        val current = pairingSession
+        pairingSession = null
         current?.send(Message(kind = "pairing.cancel", sessionId = current.id))
         current?.close()
-        stopPhoneRinging()
-        mutableMacRinging.value = false
-        mutableRemoteBattery.value = null
-        clearPingStatus()
-        quickActions.reset()
-        mutableRemoteFeatures.value = defaultFeatureState()
-        mutableState.value = PairingState.Idle
+        pairingFlow = PairingState.Idle
+        publish()
     }
 
+    /** Disconnects the target device, or cancels the pairing when no device is connected. */
     fun dismiss() {
-        val current = session
-        session = null
-        current?.close()
-        stopPhoneRinging()
-        mutableMacRinging.value = false
-        mutableRemoteBattery.value = null
-        clearPingStatus()
-        quickActions.reset()
-        mutableRemoteFeatures.value = defaultFeatureState()
-        mutableState.value = PairingState.Idle
+        val target = registry.target(null)
+        if (target == null) cancel() else disconnect(target)
+    }
+
+    /** Disconnects one device; other sessions stay. */
+    fun disconnect(deviceId: String) {
+        val current = registry.sessionFor(deviceId) ?: return
+        registry.remove(current)
+        current.close()
+        deviceDisconnected(deviceId)
     }
 
     fun forget(deviceId: String) {
         trust.remove(deviceId)
         settings.removeDevice(deviceId)
-        if ((mutableState.value as? PairingState.Connected)?.deviceId == deviceId) dismiss()
+        disconnect(deviceId)
         android.util.Log.i("Bridgey", "PAIRING revoked peerId=${deviceId.take(8)}")
+    }
+
+    /**
+     * Recomputes the public single-device flows from the target device. A pairing code
+     * waiting for confirmation is shown even while another device is connected.
+     */
+    @Synchronized private fun publish() {
+        val target = registry.target(null)
+        val device = target?.let { id -> registry.connections.firstOrNull { it.id == id } }
+        val flow = pairingFlow
+        mutableState.value = when {
+            flow is PairingState.Verification -> flow
+            device != null -> PairingState.Connected(device.id, device.name)
+            else -> flow
+        }
+        val link = device?.link ?: PeerLinkState()
+        mutableRemoteFeatures.value = link.remoteFeatures
+        mutableRemoteBattery.value = link.battery
+        mutableMacRinging.value = link.ringing
+        if (target != publishedTarget) {
+            publishedTarget = target
+            clearPingStatus()
+            quickActions.reset()
+        }
+    }
+
+    /** One device's session ended. */
+    private fun deviceDisconnected(deviceId: String) {
+        cancelIncomingFiles()
+        stopPhoneRinging()
+        publish()
+        diagnostics.record("transport", "disconnected", "reconnecting")
+        android.util.Log.i("Bridgey", "TRANSPORT disconnected peerId=${deviceId.take(8)}")
+    }
+
+    /** Shows [message] for the pairing the user sees; connected devices are not touched. */
+    private fun failPairing(message: String) {
+        pairingSession = null
+        pairingFlow = PairingState.Failed(message)
+        publish()
     }
 
     fun updateDeviceName(value: String) {
@@ -238,6 +293,10 @@ class PairingCoordinator(
 
     private fun featureEnabled(feature: BridgeyFeature, current: Session? = session): Boolean =
         settings.isEnabled(feature, current?.remoteDeviceId?.takeIf(String::isNotEmpty))
+
+    /** Whether the device on [current] has [feature] on, from its last `features.update`. */
+    private fun remoteEnabled(current: Session, feature: BridgeyFeature): Boolean =
+        registry.link(current.remoteDeviceId)?.remoteFeatures?.get(feature) != false
 
     fun isFeatureAvailable(feature: BridgeyFeature): Boolean =
         effectiveFeatureAvailable(featureEnabled(feature), mutableRemoteFeatures.value[feature] != false)
@@ -277,14 +336,14 @@ class PairingCoordinator(
             return
         }
         val connectedSession = session
-        if (connectedSession == null || mutableState.value !is PairingState.Connected) {
+        if (connectedSession == null) {
             mutableClipboardStatus.value = "Not connected — clipboard was not sent"
             onResult(ClipboardSendResult.NOT_CONNECTED)
             return
         }
         scope.launch {
             val current = connectedSession
-            if (session !== current || mutableState.value !is PairingState.Connected) {
+            if (!registry.isActive(current)) {
                 mutableClipboardStatus.value = "Not connected — clipboard was not sent"
                 onResult(ClipboardSendResult.NOT_CONNECTED)
                 return@launch
@@ -310,7 +369,7 @@ class PairingCoordinator(
             mutableClipboardStatus.value = "Sending…"
             android.util.Log.i("Bridgey", "PLUGIN clipboard sent")
             delay(3_000)
-            if (pendingClipboardSends.containsKey(messageId) && session === current) {
+            if (pendingClipboardSends.containsKey(messageId) && registry.isActive(current)) {
                 if (!current.send(message)) {
                     pendingClipboardSends.remove(messageId)?.invoke(ClipboardSendResult.CONNECTION_LOST)
                     mutableClipboardStatus.value = "Connection lost"
@@ -326,12 +385,16 @@ class PairingCoordinator(
         }
     }
 
+    /** Sends this phone's battery to the target device and remembers it for devices that connect later. */
     fun sendBattery(level: Int, isCharging: Boolean) {
+        localBattery = level to isCharging
         if (!isFeatureAvailable(BridgeyFeature.BATTERY)) return
-        val connectedSession = session ?: return
-        if (mutableState.value !is PairingState.Connected) return
+        sendBattery(session ?: return, level, isCharging)
+    }
+
+    private fun sendBattery(connectedSession: Session, level: Int, isCharging: Boolean) {
         scope.launch {
-            if (session !== connectedSession || mutableState.value !is PairingState.Connected) return@launch
+            if (!registry.isActive(connectedSession)) return@launch
             val payload = JSONObject()
                 .put("level", level.coerceIn(0, 100))
                 .put("isCharging", isCharging)
@@ -355,7 +418,7 @@ class PairingCoordinator(
 
     fun sendPing() {
         val current = session
-        if (current == null || mutableState.value !is PairingState.Connected) {
+        if (current == null) {
             mutablePingStatus.value = "Mac is not connected"
             return
         }
@@ -368,7 +431,7 @@ class PairingCoordinator(
         pendingPingId = messageId
         mutablePingStatus.value = "Pinging Mac…"
         scope.launch {
-            if (session !== current || !current.send(
+            if (!registry.isActive(current) || !current.send(
                     Message(
                         kind = "ping.request",
                         sessionId = current.id,
@@ -397,7 +460,7 @@ class PairingCoordinator(
             sendFeatureState()
             return
         }
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
         val plaintext = Crypto.decrypt(
@@ -424,17 +487,16 @@ class PairingCoordinator(
     private fun sendQuickPayload(kind: String, payload: JSONObject): Boolean {
         val current = session ?: return false
         val key = current.pairingKey ?: return false
-        if (mutableState.value !is PairingState.Connected) return false
         val encrypted = Crypto.encrypt(key, payload.toString().toByteArray(Charsets.UTF_8))
         scope.launch {
-            if (session === current) current.send(Message(kind = kind, sessionId = current.id,
+            if (registry.isActive(current)) current.send(Message(kind = kind, sessionId = current.id,
                 messageId = UUID.randomUUID().toString(), nonce = encrypted.nonce, ciphertext = encrypted.ciphertext))
         }
         return true
     }
 
     private fun receiveQuickPayload(current: Session, message: Message) {
-        if (session !== current || mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         val key = current.pairingKey ?: return
         val id = message.messageId ?: return
         if (!current.acceptMessageId(id)) return
@@ -463,9 +525,8 @@ class PairingCoordinator(
     ) {
         if (!isFeatureAvailable(BridgeyFeature.NOTIFICATIONS)) return
         val connectedSession = session ?: return
-        if (mutableState.value !is PairingState.Connected) return
         scope.launch {
-            if (session !== connectedSession || mutableState.value !is PairingState.Connected) return@launch
+            if (!registry.isActive(connectedSession)) return@launch
             val payload = JSONObject()
                 .put("packageName", packageName.take(256))
                 .put("applicationName", applicationName.take(128))
@@ -514,9 +575,8 @@ class PairingCoordinator(
     private fun sendNotificationReference(kind: String, notificationId: String) {
         if (!isFeatureAvailable(BridgeyFeature.NOTIFICATIONS) || notificationId.isBlank()) return
         val connectedSession = session ?: return
-        if (mutableState.value !is PairingState.Connected) return
         scope.launch {
-            if (session !== connectedSession || mutableState.value !is PairingState.Connected) return@launch
+            if (!registry.isActive(connectedSession)) return@launch
             val payload = JSONObject()
                 .put("notificationId", notificationId.take(512))
                 .toString()
@@ -536,7 +596,6 @@ class PairingCoordinator(
 
     fun findMac() {
         if (!isFeatureAvailable(BridgeyFeature.FIND_DEVICE)) return
-        if (mutableState.value !is PairingState.Connected) return
         scope.launch { sendFindCommand("find.start") }
     }
 
@@ -548,7 +607,6 @@ class PairingCoordinator(
     private fun sendFindCommand(kind: String): Boolean {
         val current = session ?: return false
         if (kind == "find.start" && !isFeatureAvailable(BridgeyFeature.FIND_DEVICE)) return false
-        if (mutableState.value !is PairingState.Connected) return false
         val payload = JSONObject().put("alertId", "active").toString().toByteArray()
         val encrypted = Crypto.encrypt(current.pairingKey!!, payload)
         return current.send(
@@ -564,7 +622,7 @@ class PairingCoordinator(
 
     private fun receiveFindCommand(current: Session, message: Message, start: Boolean) {
         if (start && !settings.isEnabled(BridgeyFeature.FIND_DEVICE, current.remoteDeviceId)) return
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
         val plaintext = Crypto.decrypt(
@@ -580,7 +638,8 @@ class PairingCoordinator(
             sendFindCommand(if (mutablePhoneRinging.value) "find.started" else "find.stopped")
         } else {
             stopPhoneRinging()
-            mutableMacRinging.value = false
+            registry.update(current.remoteDeviceId) { it.copy(ringing = false) }
+            publish()
             sendFindCommand("find.stopped")
         }
         android.util.Log.i("Bridgey", "PLUGIN find-device ${if (start) "started" else "stopped"}")
@@ -619,7 +678,7 @@ class PairingCoordinator(
             mutableFileTransferStatus.value = "File transfer is turned off on one of your devices"
             return emptyList()
         }
-        if (session == null || mutableState.value !is PairingState.Connected) {
+        if (session == null) {
             mutableFileTransferStatus.value = "Not connected — file was not sent"
             return emptyList()
         }
@@ -662,7 +721,7 @@ class PairingCoordinator(
         }
 
     private fun startNextQueuedFile() {
-        if (session == null || mutableState.value !is PairingState.Connected) return
+        if (session == null) return
         if (!isFeatureAvailable(BridgeyFeature.FILES)) {
             stopFileQueue("File transfer is turned off on one of your devices")
             return
@@ -682,7 +741,7 @@ class PairingCoordinator(
 
     private fun startFile(transferId: String, uri: Uri) {
         val connectedSession = session
-        if (connectedSession == null || mutableState.value !is PairingState.Connected) {
+        if (connectedSession == null) {
             removeFileTransfer(transferId, "Transfer interrupted — reconnect to retry")
             finishQueuedFile(transferId)
             return
@@ -834,9 +893,9 @@ class PairingCoordinator(
         incomingFolder?.takeIf { it.id == transferId }?.let { folder ->
             val current = session
             scope.launch {
-                if (session === current) {
-                    current?.send(Message(kind = "folders.cancel", sessionId = current.id, transferId = folder.id))
-                    folder.currentTransferId?.let { current?.send(Message(kind = "files.cancel", sessionId = current.id, transferId = it)) }
+                if (current != null && registry.isActive(current)) {
+                    current.send(Message(kind = "folders.cancel", sessionId = current.id, transferId = folder.id))
+                    folder.currentTransferId?.let { current.send(Message(kind = "files.cancel", sessionId = current.id, transferId = it)) }
                 }
             }
             endIncomingFolder(folder, "Transfer cancelled")
@@ -852,7 +911,9 @@ class PairingCoordinator(
         markTransferCancelled(transferId)
         scope.launch {
             repeat(3) { attempt ->
-                if (session === current) current?.send(Message(kind = "files.cancel", sessionId = current.id, transferId = transferId))
+                if (current != null && registry.isActive(current)) {
+                    current.send(Message(kind = "files.cancel", sessionId = current.id, transferId = transferId))
+                }
                 if (attempt < 2) delay(250)
             }
         }
@@ -872,7 +933,7 @@ class PairingCoordinator(
 
     fun retryFileTransfer(transferId: String) {
         val uri = outgoingFileSources[transferId] ?: return
-        if (session == null || mutableState.value !is PairingState.Connected) {
+        if (session == null) {
             removeFileTransfer(transferId, "Reconnect before retrying")
             return
         }
@@ -911,15 +972,11 @@ class PairingCoordinator(
     }
 
     fun pause() {
-        val current = session
-        session = null
-        current?.close()
+        registry.removeAll().forEach(Session::close)
+        pairingSession = null
+        pairingFlow = PairingState.Idle
         stopPhoneRinging()
-        mutableMacRinging.value = false
-        mutableRemoteBattery.value = null
-        clearPingStatus()
-        quickActions.reset()
-        mutableRemoteFeatures.value = defaultFeatureState()
+        publish()
         server?.close()
         server = null
         acceptJob?.cancel()
@@ -940,23 +997,28 @@ class PairingCoordinator(
         outgoingFileJobs.clear()
         mutableFileTransfers.value = recoverInterruptedTransfers(mutableFileTransfers.value)
         refreshFileTransferSummary("File transfer interrupted")
-        mutableState.value = PairingState.Idle
     }
 
     private fun handle(socket: Socket, initiatedLocally: Boolean, peerHint: String?) {
-        session?.close()
+        if (registry.pendingSessions.size >= MAX_PENDING_SESSIONS) {
+            runCatching { socket.close() }
+            if (initiatedLocally) failPairing("Could not connect to ${peerHint ?: "Mac"}")
+            return
+        }
         socket.keepAlive = true
         socket.tcpNoDelay = true
         socket.soTimeout = HEARTBEAT_INTERVAL_MILLIS.toInt()
         val current = Session(socket)
         current.initiatedLocally = initiatedLocally
-        session = current
-        browseBudget.reset()
-        mutableRemoteBattery.value = null
-        clearPingStatus()
-        quickActions.reset()
-        mutableRemoteFeatures.value = defaultFeatureState()
+        registry.addPending(current, initiatedLocally)
         if (initiatedLocally) {
+            // A connection the user started replaces an earlier one the user started.
+            val previous = pairingSession
+            pairingSession = current
+            if (previous != null && registry.isPending(previous)) {
+                previous.send(Message(kind = "pairing.cancel", sessionId = previous.id))
+                previous.close()
+            }
             current.peerName = peerHint ?: "Mac"
             current.keyPair = Crypto.generateKeyPair()
             current.localEphemeralKey = Crypto.encodePublicKey(current.keyPair!!)
@@ -978,8 +1040,8 @@ class PairingCoordinator(
                     current.lastReceivedAtMillis = SystemClock.elapsedRealtime()
                     receive(current, Message.decode(line))
                 } catch (_: SocketTimeoutException) {
-                    if (session !== current) break
-                    if (mutableState.value is PairingState.Connected) {
+                    if (!registry.contains(current)) break
+                    if (registry.isActive(current)) {
                         if (heartbeatExpired(
                                 supported = current.heartbeatSupported,
                                 lastReceivedAtMillis = current.lastReceivedAtMillis,
@@ -995,44 +1057,44 @@ class PairingCoordinator(
                                 messageId = UUID.randomUUID().toString(),
                             ))
                         ) break
+                    } else if (current.code == null &&
+                        SystemClock.elapsedRealtime() - current.startedAtMillis > HANDSHAKE_TIMEOUT_MILLIS
+                    ) {
+                        // A handshake that never reached a pairing code does not hold a slot forever.
+                        android.util.Log.w("Bridgey", "TRANSPORT handshake timed out")
+                        break
                     }
                 }
             }
         }
-        if (session === current && mutableState.value is PairingState.Connected) {
-            session = null
-            cancelIncomingFiles()
-            stopPhoneRinging()
-            mutableMacRinging.value = false
-            mutableRemoteBattery.value = null
-            clearPingStatus()
-            quickActions.reset()
-            mutableRemoteFeatures.value = defaultFeatureState()
-            mutableState.value = PairingState.Idle
-            diagnostics.record("transport", "disconnected", "reconnecting")
-            android.util.Log.i("Bridgey", "TRANSPORT disconnected")
-        } else if (session === current) {
-            result.exceptionOrNull()?.let {
-                android.util.Log.w("Bridgey", "PAIRING disconnected before confirmation")
-            }
-            fail("Pairing connection lost")
+        current.close()
+        val failure = result.exceptionOrNull() as? SessionFailure
+        val deviceId = registry.remove(current)
+        if (pairingSession === current) {
+            android.util.Log.w("Bridgey", "PAIRING disconnected before confirmation")
+            failPairing(failure?.message ?: "Pairing connection lost")
+        } else if (failure != null && registry.connectedIds.isEmpty()) {
+            failPairing(failure.message ?: "Invalid message")
         }
+        if (deviceId != null) deviceDisconnected(deviceId)
     }
 
     private fun receive(current: Session, message: Message) {
         when (message.kind) {
             "quick.request", "quick.result", "media.state" -> receiveQuickPayload(current, message)
             "heartbeat.ping" -> {
-                if (message.sessionId != current.id || mutableState.value !is PairingState.Connected) return
+                if (message.sessionId != current.id || !registry.isActive(current)) return
                 current.heartbeatSupported = true
                 current.send(Message(kind = "heartbeat.pong", sessionId = current.id, messageId = message.messageId))
             }
             "heartbeat.pong" -> {
-                if (message.sessionId == current.id && mutableState.value is PairingState.Connected) {
+                if (message.sessionId == current.id && registry.isActive(current)) {
                     current.heartbeatSupported = true
                 }
             }
             "pairing.offer" -> {
+                // The handshake runs once; an authenticated session cannot restart it.
+                if (!registry.isPending(current) || current.keyPair != null) return
                 current.id = message.sessionId
                 current.peerName = message.deviceName ?: "Android device"
                 current.remoteDeviceId = message.deviceId ?: return
@@ -1054,7 +1116,7 @@ class PairingCoordinator(
                 authenticateOrPrompt(current)
             }
             "pairing.answer" -> {
-                if (message.sessionId != current.id) return
+                if (!registry.isPending(current) || !current.initiatedLocally || message.sessionId != current.id || current.pairingKey != null) return
                 current.peerName = message.deviceName ?: current.peerName
                 current.remoteDeviceId = message.deviceId ?: return
                 current.remoteEphemeralKey = message.publicKey ?: return
@@ -1064,7 +1126,7 @@ class PairingCoordinator(
                 authenticateOrPrompt(current)
             }
             "pairing.confirm" -> {
-                if (message.sessionId != current.id) return
+                if (!registry.isPending(current) || message.sessionId != current.id || current.pairingKey == null) return
                 val remoteId = message.deviceId ?: return fail("Invalid pairing confirmation")
                 val identityKey = message.identityKey ?: return fail("Invalid pairing confirmation")
                 val proof = message.proof ?: return fail("Invalid pairing confirmation")
@@ -1084,7 +1146,14 @@ class PairingCoordinator(
                 current.remoteConfirmed = true
                 completeIfConfirmed(current)
             }
-            "pairing.cancel" -> cancel()
+            "pairing.cancel" -> {
+                if (pairingSession === current) {
+                    pairingSession = null
+                    pairingFlow = PairingState.Idle
+                    publish()
+                }
+                current.close()
+            }
             "features.update" -> receiveFeatureState(current, message)
             "clipboard.update" -> receiveClipboard(current, message, rich = false)
             "clipboard.rich" -> receiveClipboard(current, message, rich = true)
@@ -1112,7 +1181,7 @@ class PairingCoordinator(
             "find.stopped" -> receiveFindAcknowledgement(current, message, started = false)
             "ping.request" -> receivePing(current, message)
             "ping.ack" -> {
-                if (session !== current || message.sessionId != current.id || mutableState.value !is PairingState.Connected) return
+                if (message.sessionId != current.id || !registry.isActive(current)) return
                 val messageId = message.messageId ?: return
                 if (pendingPingId == messageId) {
                     pendingPingId = null
@@ -1140,7 +1209,7 @@ class PairingCoordinator(
             // setting changes. Disabling Files blocks the next offer instead.
             "files.chunk" -> receiveFileChunk(current, message)
             "files.complete" -> receiveFileComplete(current, message)
-            "files.cancel" -> receiveFileCancel(message.transferId)
+            "files.cancel" -> receiveFileCancel(current, message.transferId)
             "files.cancel.ack" -> message.transferId?.let { removeFileTransfer(it, "Transfer cancelled") }
             "folders.offer" -> receiveFolderOffer(current, message)
             "folders.manifest" -> receiveFolderManifest(current, message)
@@ -1155,7 +1224,7 @@ class PairingCoordinator(
             sendFeatureState()
             return
         }
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
         val plaintext = Crypto.decrypt(
@@ -1173,7 +1242,7 @@ class PairingCoordinator(
 
     private fun receiveCallRequest(current: Session, message: Message) {
         val messageId = message.messageId ?: return
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id || !current.acceptMessageId(messageId)) return
+        if (!registry.isActive(current) || message.sessionId != current.id || !current.acceptMessageId(messageId)) return
         if (!settings.isEnabled(BridgeyFeature.CALLS, current.remoteDeviceId)) {
             current.send(Message(kind = "calls.rejected", sessionId = current.id, messageId = messageId))
             sendFeatureState()
@@ -1209,7 +1278,7 @@ class PairingCoordinator(
             sendFeatureState()
             return
         }
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
         val plaintext = Crypto.decrypt(
@@ -1235,7 +1304,7 @@ class PairingCoordinator(
             sendFeatureState()
             return
         }
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
         val plaintext = Crypto.decrypt(
@@ -1259,7 +1328,7 @@ class PairingCoordinator(
     }
 
     private fun receiveFindAcknowledgement(current: Session, message: Message, started: Boolean) {
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
         val plaintext = Crypto.decrypt(
@@ -1270,11 +1339,12 @@ class PairingCoordinator(
         if (runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)).getString("alertId") }.getOrNull() != "active") {
             return fail("Invalid find-device acknowledgement")
         }
-        mutableMacRinging.value = started
+        registry.update(current.remoteDeviceId) { it.copy(ringing = started) }
+        publish()
     }
 
     private fun receiveFileOffer(current: Session, message: Message) {
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
         val plaintext = Crypto.decrypt(
@@ -1347,7 +1417,7 @@ class PairingCoordinator(
     }
 
     private fun receiveFileChunk(current: Session, message: Message) {
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
         val transferId = message.transferId ?: return
@@ -1380,7 +1450,7 @@ class PairingCoordinator(
     }
 
     private fun receiveFileComplete(current: Session, message: Message) {
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
         val plaintext = Crypto.decrypt(
@@ -1418,7 +1488,7 @@ class PairingCoordinator(
         android.util.Log.i("Bridgey", if (folder != null) "PLUGIN folder file received" else "PLUGIN file received name=${transfer.displayName}")
     }
 
-    private fun receiveFileCancel(transferId: String?) {
+    private fun receiveFileCancel(current: Session, transferId: String?) {
         if (transferId == null) return
         folderFileOwners.remove(transferId)?.let { id ->
             incomingFolder?.takeIf { it.id == id && it.currentTransferId == transferId }?.currentTransferId = null
@@ -1429,12 +1499,12 @@ class PairingCoordinator(
         pendingFileAccepts.remove(transferId)?.complete(false)
         pendingFileCompletions.remove(transferId)?.complete(false)
         removeFileTransfer(transferId, "Transfer cancelled by Mac")
-        session?.send(Message(kind = "files.cancel.ack", sessionId = session?.id ?: return, transferId = transferId))
+        current.send(Message(kind = "files.cancel.ack", sessionId = current.id, transferId = transferId))
         android.util.Log.i("Bridgey", "PLUGIN file cancellation received transfer=${transferId.take(8)}")
     }
 
     private fun receiveFolderOffer(current: Session, message: Message) {
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         if (!featureEnabled(BridgeyFeature.FILES, current) || !featureEnabled(BridgeyFeature.FOLDERS, current)) {
             current.send(Message(kind = "folders.rejected", sessionId = current.id, transferId = message.transferId))
             sendFeatureState()
@@ -1527,7 +1597,7 @@ class PairingCoordinator(
     }
 
     private fun receiveFolderCancel(current: Session, message: Message) {
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         val folderId = message.transferId ?: return
         if (folderAssembly?.offer?.folderId == folderId) folderAssembly = null
         incomingFolder?.takeIf { it.id == folderId }?.let { endIncomingFolder(it, "Transfer cancelled by Mac") }
@@ -1562,19 +1632,13 @@ class PairingCoordinator(
     }
 
     private fun decryptFolderPayload(current: Session, message: Message): JSONObject? {
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return null
+        if (!registry.isActive(current) || message.sessionId != current.id) return null
         val messageId = message.messageId ?: return null
         if (!current.acceptMessageId(messageId)) return null
         val plaintext = Crypto.decrypt(current.pairingKey!!, message.nonce ?: "", message.ciphertext ?: "")
-        if (plaintext == null || plaintext.size > FolderRules.MAX_PAYLOAD_BYTES) {
-            fail("Invalid encrypted folder message")
-            return null
-        }
+        if (plaintext == null || plaintext.size > FolderRules.MAX_PAYLOAD_BYTES) fail("Invalid encrypted folder message")
         val payload = runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)) }.getOrNull()
-            ?: run {
-                fail("Invalid folder message")
-                return null
-            }
+            ?: fail("Invalid folder message")
         return payload.takeIf { it.opt("version") == 1 }
     }
 
@@ -1591,7 +1655,7 @@ class PairingCoordinator(
     }
 
     private fun receiveBrowseRequest(current: Session, message: Message) {
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
         val plaintext = Crypto.decrypt(current.pairingKey!!, message.nonce ?: "", message.ciphertext ?: "")
@@ -1603,7 +1667,7 @@ class PairingCoordinator(
         if (payload.opt("version") != 1 || !isUuid(requestId)) return
         fun error(code: String) = sendBrowsePayload(current, "browse.error", JSONObject().put("requestId", requestId).put("code", code))
         if (!featureEnabled(BridgeyFeature.FILES, current) || !featureEnabled(BridgeyFeature.FILES_BROWSE, current) ||
-            mutableRemoteFeatures.value[BridgeyFeature.FILES_BROWSE] == false
+            !remoteEnabled(current, BridgeyFeature.FILES_BROWSE)
         ) {
             error("policy")
             sendFeatureState()
@@ -1615,7 +1679,7 @@ class PairingCoordinator(
             try {
                 val answer = runCatching { answerBrowseRequest(current, message.kind, payload) }
                     .getOrElse { failure -> if (failure is SharedFolderUnavailableException) BrowseAnswer.Error("unavailable") else BrowseAnswer.Error("io_error") }
-                if (session !== current) return@launch
+                if (!registry.isActive(current)) return@launch
                 when (answer) {
                     is BrowseAnswer.Error -> error(answer.code)
                     is BrowseAnswer.Result -> sendBrowsePayload(current, answer.kind, answer.payload.put("requestId", requestId))
@@ -1668,7 +1732,7 @@ class PairingCoordinator(
             }
             "browse.download" -> {
                 if (node.isDirectory || path.isEmpty()) return BrowseAnswer.Error("not_found")
-                if (session !== current) return BrowseAnswer.Error("io_error")
+                if (!registry.isActive(current)) return BrowseAnswer.Error("io_error")
                 val transferId = sendFiles(listOf(sharedFolderStorage.documentUri(tree, node.documentId))).firstOrNull()
                     ?: return BrowseAnswer.Error("policy")
                 BrowseAnswer.Result("browse.download.result", JSONObject().put("transferId", transferId))
@@ -1706,11 +1770,11 @@ class PairingCoordinator(
                         documentUri = target.documentUri, locationLabel = target.label,
                     )
                 }.getOrNull() ?: return@launch reject("io_error")
-                if (session !== current || transferId in cancelledTransferIds || incomingFiles.putIfAbsent(transferId, transfer) != null) {
+                if (!registry.isActive(current) || transferId in cancelledTransferIds || incomingFiles.putIfAbsent(transferId, transfer) != null) {
                     transfer.cancel()
                     return@launch
                 }
-                if (session !== current) {
+                if (!registry.isActive(current)) {
                     incomingFiles.remove(transferId)?.cancel()
                     return@launch
                 }
@@ -1725,7 +1789,7 @@ class PairingCoordinator(
 
     /** Where an upload offer may be saved, after the policy, folder and name checks. */
     private fun resolveUploadTarget(current: Session, payload: JSONObject, offeredName: String): UploadTarget {
-        if (!featureEnabled(BridgeyFeature.FILES_BROWSE, current) || mutableRemoteFeatures.value[BridgeyFeature.FILES_BROWSE] == false) {
+        if (!featureEnabled(BridgeyFeature.FILES_BROWSE, current) || !remoteEnabled(current, BridgeyFeature.FILES_BROWSE)) {
             return UploadTarget.Rejected("policy")
         }
         if (!settings.state.value.sharedFolderUploadsEnabled) return UploadTarget.Rejected("read_only")
@@ -1835,9 +1899,18 @@ class PairingCoordinator(
     private fun authenticateOrPrompt(current: Session) {
         if (trust.identityKey(current.remoteDeviceId) != null) {
             confirm(current)
-        } else {
-            mutableState.value = PairingState.Verification(current.peerName, current.code!!)
+            return
         }
+        val waiting = pairingSession
+        if (waiting != null && waiting !== current && waiting.code != null && registry.isPending(waiting)) {
+            // Only one pairing code is shown at a time.
+            current.send(Message(kind = "pairing.cancel", sessionId = current.id))
+            current.close()
+            return
+        }
+        pairingSession = current
+        pairingFlow = PairingState.Verification(current.peerName, current.code!!)
+        publish()
     }
 
     private fun confirm(current: Session) {
@@ -1866,18 +1939,43 @@ class PairingCoordinator(
     }
 
     private fun completeIfConfirmed(current: Session) {
-        if (current.localConfirmed && current.remoteConfirmed) {
-            trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!)
-            mutableState.value = PairingState.Connected(current.remoteDeviceId, current.peerName)
-            diagnostics.record("pairing", "connected")
-            sendFeatureState()
-            android.util.Log.i("Bridgey", "PAIRING verified peer=${current.peerName}")
+        if (!current.localConfirmed || !current.remoteConfirmed || registry.isActive(current)) return
+        val deviceId = current.remoteDeviceId
+        trust.save(deviceId, current.peerName, current.remoteIdentityKey!!)
+        val ownsPrompt = pairingSession === current
+        if (ownsPrompt || pairingFlow is PairingState.Failed) {
+            if (ownsPrompt) pairingSession = null
+            pairingFlow = PairingState.Idle
         }
+        when (val admission = registry.authenticate(current, deviceId, current.peerName)) {
+            Admission.Rejected -> {
+                // The device is already connected over the session the duplicate rule keeps.
+                android.util.Log.i("Bridgey", "TRANSPORT duplicate session closed peerId=${deviceId.take(8)}")
+                current.close()
+                publish()
+                return
+            }
+            is Admission.Accepted -> admission.replaced?.close()
+        }
+        // One device at a time for now: a different device replaces the connected one.
+        registry.connectedIds.filter { it != deviceId }.forEach(::disconnect)
+        if (registry.connectedIds.size == 1) browseBudget.reset()
+        publish()
+        diagnostics.record("pairing", "connected")
+        sendFeatureState(current)
+        localBattery?.takeIf { featureEnabled(BridgeyFeature.BATTERY, current) }?.let { (level, charging) ->
+            sendBattery(current, level, charging)
+        }
+        android.util.Log.i("Bridgey", "PAIRING verified peer=${current.peerName}")
     }
 
+    /** Sends each connected device the local feature state with its own per-device settings. */
     private fun sendFeatureState() {
-        val current = session ?: return
-        if (mutableState.value !is PairingState.Connected || current.pairingKey == null) return
+        registry.broadcastTargets { _, _ -> true }.forEach { (_, current) -> sendFeatureState(current) }
+    }
+
+    private fun sendFeatureState(current: Session) {
+        if (current.pairingKey == null) return
         val featureValues = JSONObject()
         BridgeyFeature.entries.forEach { feature ->
             featureValues.put(feature.key, settings.isEnabled(feature, current.remoteDeviceId))
@@ -1900,7 +1998,7 @@ class PairingCoordinator(
     }
 
     private fun receiveFeatureState(current: Session, message: Message) {
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
         val plaintext = Crypto.decrypt(
@@ -1920,21 +2018,25 @@ class PairingCoordinator(
             if (values.opt(feature.key) !is Boolean) return fail("Invalid feature state")
             values.getBoolean(feature.key)
         }
-        mutableRemoteFeatures.value = received
+        registry.update(current.remoteDeviceId) { link ->
+            link.copy(
+                remoteFeatures = received,
+                featureStateReceived = true,
+                battery = link.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
+                ringing = link.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
+            )
+        }
+        publish()
         quickActions.policyChanged()
         if (received[BridgeyFeature.CLIPBOARD] == false) mutableClipboardStatus.value = null
-        if (received[BridgeyFeature.BATTERY] == false) mutableRemoteBattery.value = null
         if (received[BridgeyFeature.PING] == false) clearPingStatus()
         if (received[BridgeyFeature.FILES] == false) stopFileQueue("File transfer is turned off on one of your devices")
-        if (received[BridgeyFeature.FIND_DEVICE] == false) {
-            stopPhoneRinging()
-            mutableMacRinging.value = false
-        }
+        if (received[BridgeyFeature.FIND_DEVICE] == false) stopPhoneRinging()
     }
 
     private fun receiveBattery(current: Session, message: Message) {
         if (!featureEnabled(BridgeyFeature.BATTERY, current)) return
-        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        if (!registry.isActive(current) || message.sessionId != current.id) return
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
         val plaintext = Crypto.decrypt(
@@ -1946,23 +2048,22 @@ class PairingCoordinator(
             ?: return fail("Invalid battery status")
         val level = payload.optInt("level", -1)
         if (level !in 0..100 || payload.opt("isCharging") !is Boolean) return fail("Invalid battery status")
-        mutableRemoteBattery.value = RemoteBatteryStatus(level, payload.getBoolean("isCharging"))
+        val battery = RemoteBatteryStatus(level, payload.getBoolean("isCharging"))
+        registry.update(current.remoteDeviceId) { it.copy(battery = battery) }
+        publish()
         android.util.Log.i("Bridgey", "PLUGIN battery received level=$level")
     }
 
-    private fun fail(message: String) {
-        session?.close()
-        session = null
-        cancelIncomingFiles()
-        mutableRemoteBattery.value = null
-        clearPingStatus()
-        quickActions.reset()
-        mutableRemoteFeatures.value = defaultFeatureState()
-        mutableFileTransfers.value = recoverInterruptedTransfers(mutableFileTransfers.value)
-        refreshFileTransferSummary("File transfer interrupted")
-        mutableState.value = PairingState.Failed(message)
+    /**
+     * Ends the session that sent an invalid message. Called only on that session's reader;
+     * the read loop closes the session and shows [message] when it was the pairing.
+     */
+    private fun fail(message: String): Nothing {
         diagnostics.record("protocol", "session_failed", "rejected")
+        throw SessionFailure(message)
     }
+
+    private class SessionFailure(message: String) : Exception(message)
 
     private fun cancelIncomingFiles() {
         val hadActiveTransfers = mutableFileTransfers.value.values.any(FileTransferState::active)
@@ -1987,11 +2088,12 @@ class PairingCoordinator(
     }
 
     private companion object {
-        fun defaultFeatureState(): Map<BridgeyFeature, Boolean> = BridgeyFeature.entries.associateWith(::featureEnabledByLegacyPeer)
         const val FILE_CHUNK_SIZE = 24 * 1024
         const val MAX_FILE_SIZE = 10L * 1024 * 1024 * 1024
         const val MAX_NOTIFICATION_ICON_BASE64_LENGTH = 28 * 1024
         const val HEARTBEAT_INTERVAL_MILLIS = 10_000L
+        const val HANDSHAKE_TIMEOUT_MILLIS = 30_000L
+        const val MAX_PENDING_SESSIONS = 8
         const val FOLDER_MANIFEST_TIMEOUT_MILLIS = 30_000L
         const val FOLDER_SPACE_MARGIN = 64L * 1024 * 1024
     }
@@ -2011,6 +2113,7 @@ class PairingCoordinator(
         var pairingKey: ByteArray? = null
         var localConfirmed = false
         var remoteConfirmed = false
+        val startedAtMillis = SystemClock.elapsedRealtime()
         @Volatile var lastReceivedAtMillis = SystemClock.elapsedRealtime()
         @Volatile var heartbeatSupported = false
         private val seenMessageIds = LinkedHashSet<String>()
