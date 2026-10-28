@@ -180,6 +180,8 @@ final class PairingCoordinator: ObservableObject {
     @Published private(set) var remoteCall: RemoteCallStatus?
     @Published private(set) var callStatus: String?
     @Published private(set) var pingStatus: String?
+    /// Connection health without addresses, names or identifiers.
+    @Published private(set) var connectionHealth = ConnectionHealthSnapshot()
     let quickActions = QuickActions()
     let mediaController = MediaController()
     let macActions = MacActions.live()
@@ -232,6 +234,9 @@ final class PairingCoordinator: ObservableObject {
     private var lastSentBattery: LocalBatteryStatus?
     private var lastMacActionsState: Data?
     private let diagnostics = BridgeyDiagnostics()
+    private var health = ConnectionHealth() {
+        didSet { if connectionHealth != health.snapshot { connectionHealth = health.snapshot } }
+    }
     private let notificationHistoryStore: NotificationHistoryStore
 
     init(deviceID: String, deviceName: String, settings: BridgeySettings) {
@@ -382,6 +387,7 @@ final class PairingCoordinator: ObservableObject {
 
     func pair(host: String, port: Int, peerName: String) {
         diagnostics.record(category: "pairing", event: "connection_started")
+        health.attempt(at: Date())
         guard let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
             state = .failed("Invalid peer port")
             return
@@ -444,6 +450,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func cancel() {
+        health.disconnected(.user, at: Date())
         connectionTimeoutWorkItem?.cancel()
         heartbeatWorkItem?.cancel()
         let current = session
@@ -467,6 +474,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func dismiss() {
+        health.disconnected(.user, at: Date())
         connectionTimeoutWorkItem?.cancel()
         heartbeatWorkItem?.cancel()
         let current = session
@@ -962,7 +970,8 @@ final class PairingCoordinator: ObservableObject {
             connectionState: stateName,
             transfers: Array(fileTransfers.values),
             localFeatures: localFeatures,
-            remoteFeatures: remoteFeatures
+            remoteFeatures: remoteFeatures,
+            connectionHealth: health.current(at: Date())
         ) else { return }
         let panel = NSSavePanel()
         panel.title = "Export Bridgey Diagnostics"
@@ -1116,6 +1125,7 @@ final class PairingCoordinator: ObservableObject {
 
     private func accept(_ connection: NWConnection) {
         session?.close()
+        health.attempt(at: Date())
         let current = Session(connection: connection, peerName: "Android device")
         current.initiatedLocally = false
         session = current
@@ -1160,6 +1170,7 @@ final class PairingCoordinator: ObservableObject {
                 self.remoteFeatures = defaultRemoteFeatureState()
                 self.remoteFeatureStateReceived = false
                 self.state = .idle
+                self.health.disconnected(current?.heartbeatTimedOut == true ? .heartbeat : .connectionLost, at: Date())
                 NSLog("TRANSPORT disconnected")
                 self.diagnostics.record(category: "transport", event: "disconnected", outcome: "reconnecting")
                 self.scheduleReconnect()
@@ -1212,6 +1223,7 @@ final class PairingCoordinator: ObservableObject {
             case "heartbeat.pong":
                 guard message.sessionId == current.id, case .connected = state else { return }
                 current.heartbeatSupported = true
+                health.heartbeatAnswered(message.messageId, at: Date())
             case "pairing.offer":
                 guard let publicKey = message.publicKey else { throw PairingError.invalidMessage }
                 current.id = message.sessionId
@@ -1595,6 +1607,7 @@ final class PairingCoordinator: ObservableObject {
                 break
             }
         } catch {
+            health.disconnected(.protocolError, at: Date())
             current.close()
             state = .failed("Invalid pairing message")
             diagnostics.record(category: "protocol", event: "message_rejected", outcome: "session_closed")
@@ -1606,6 +1619,7 @@ final class PairingCoordinator: ObservableObject {
             connectionTimeoutWorkItem?.cancel()
             saveTrust(current)
             state = .connected(deviceID: current.remoteDeviceID, peerName: current.peerName)
+            health.connected(host: endpointHost(current.connection.endpoint), openedHere: current.initiatedLocally, at: Date())
             diagnostics.record(category: "pairing", event: "connected")
             reconnectAttempt = 0
             reconnectWorkItem?.cancel()
@@ -1763,13 +1777,16 @@ final class PairingCoordinator: ObservableObject {
             guard let self, let current, self.session === current, case .connected = self.state else { return }
             if heartbeatExpired(supported: current.heartbeatSupported, lastReceivedAt: current.lastReceivedAt) {
                 NSLog("TRANSPORT heartbeat timed out")
+                current.heartbeatTimedOut = true
                 current.close()
                 return
             }
+            let pingID = UUID().uuidString.lowercased()
+            self.health.heartbeatSent(pingID, at: Date())
             current.send(PairingMessage(
                 kind: "heartbeat.ping",
                 sessionId: current.id,
-                messageId: UUID().uuidString.lowercased()
+                messageId: pingID
             ))
             self.publishLocalBattery()
             self.mediaController.refresh()
@@ -2063,6 +2080,7 @@ private final class Session {
     var remoteConfirmed = false
     var lastReceivedAt = Date()
     var heartbeatSupported = false
+    var heartbeatTimedOut = false
     var onMessage: ((PairingMessage) -> Void)?
     var onFailure: (() -> Void)?
     private var buffer = Data()

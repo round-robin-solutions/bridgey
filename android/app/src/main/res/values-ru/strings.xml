@@ -42,4 +42,24 @@
     <string name="share_link_detail">Mac покажет её, пока вы не откроете или не скроете её там.</string>
     <string name="share_link_send">Отправить ссылку</string>
     <string name="share_link_as_text">Отправить как текст</string>
+    <string name="health_title">Состояние подключения</string>
+    <string name="health_not_connected">Не подключено</string>
+    <string name="health_connected">Подключено через %1$s, %2$s</string>
+    <string name="health_opened_here">подключился этот телефон</string>
+    <string name="health_opened_peer">подключился Mac</string>
+    <string name="health_since">Подключено с %1$s</string>
+    <string name="health_rtt">Задержка %1$d мс (обычно %2$d мс)</string>
+    <string name="health_rtt_waiting">Измеряем задержку…</string>
+    <string name="health_last_drop">Последнее отключение: %1$s в %2$s</string>
+    <string name="health_attempts">Попыток подключения сегодня: %1$d</string>
+    <string name="health_battery_exempt">Оптимизация батареи для Bridgey выключена</string>
+    <string name="health_battery_optimized">Оптимизация батареи для Bridgey включена, поэтому Android может приостанавливать подключение в фоне</string>
+    <string name="health_route_local">локальную сеть</string>
+    <string name="health_route_shared">частную сеть (VPN или NAT оператора)</string>
+    <string name="health_route_other">другую сеть</string>
+    <string name="health_route_unknown">неизвестный маршрут</string>
+    <string name="health_drop_heartbeat">перестал отвечать</string>
+    <string name="health_drop_connection">соединение потеряно</string>
+    <string name="health_drop_user">отключено на этом телефоне</string>
+    <string name="health_drop_protocol">неожиданное сообщение</string>
 </resources>

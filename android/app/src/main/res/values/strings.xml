@@ -42,4 +42,24 @@
     <string name="share_link_detail">The Mac shows it until you open or dismiss it there.</string>
     <string name="share_link_send">Send link</string>
     <string name="share_link_as_text">Send as text</string>
+    <string name="health_title">Connection health</string>
+    <string name="health_not_connected">Not connected</string>
+    <string name="health_connected">Connected over %1$s, %2$s</string>
+    <string name="health_opened_here">opened by this phone</string>
+    <string name="health_opened_peer">opened by the Mac</string>
+    <string name="health_since">Connected since %1$s</string>
+    <string name="health_rtt">Round trip %1$d ms (typical %2$d ms)</string>
+    <string name="health_rtt_waiting">Measuring the round trip…</string>
+    <string name="health_last_drop">Last disconnect: %1$s at %2$s</string>
+    <string name="health_attempts">Connection attempts today: %1$d</string>
+    <string name="health_battery_exempt">Battery optimization is off for Bridgey</string>
+    <string name="health_battery_optimized">Battery optimization is on for Bridgey, so Android may pause the connection in the background</string>
+    <string name="health_route_local">the local network</string>
+    <string name="health_route_shared">a private network (VPN or carrier NAT)</string>
+    <string name="health_route_other">another network</string>
+    <string name="health_route_unknown">an unknown route</string>
+    <string name="health_drop_heartbeat">stopped responding</string>
+    <string name="health_drop_connection">connection lost</string>
+    <string name="health_drop_user">disconnected on this phone</string>
+    <string name="health_drop_protocol">unexpected message</string>
 </resources>

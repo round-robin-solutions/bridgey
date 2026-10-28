@@ -562,6 +562,7 @@ private struct SettingsView: View {
                 }
             }
             Section("Diagnostics") {
+                ConnectionHealthView(health: pairing.connectionHealth)
                 Text("Exports a bounded event log without clipboard text, notification content, file names, addresses, or device identifiers.")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Export Diagnostics…") { pairing.exportDiagnostics() }
