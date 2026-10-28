@@ -93,10 +93,11 @@ optional details. Error text must not disclose secrets.
 The current native clients also exchange an authenticated, encrypted
 `features.update` message after pairing and whenever local policy changes. Its
 version 1 payload contains a complete boolean map for `clipboard`, `files`,
-`notifications`, `battery`, `find_device`, `ping`, `calls`, `links`, `media`, and `folders`. A UI action is
+`notifications`, `battery`, `find_device`, `ping`, `calls`, `links`, `media`, `folders`, and
+`files_browse`. A UI action is
 available only when both peers report the corresponding feature as enabled. Clients
 predating this message are treated as enabling the original v1 features for
-compatibility; the later `calls`, `ping`, `links`, `media`, and `folders` features are disabled unless a peer
+compatibility; the later `calls`, `ping`, `links`, `media`, `folders`, and `files_browse` features are disabled unless a peer
 advertises them explicitly. A receiver ignores keys it does not know.
 
 ## Pairing flow
@@ -318,6 +319,62 @@ verified, so no storage permission is needed. MediaStore stores files only, so
 empty folders are not created on Android. The macOS sender skips hidden items,
 symbolic links, special files and partial `.bridgey-part` files, and anything
 outside the limits above, and does not send a folder without files.
+
+### Browsing shared folders (`files_browse`)
+
+The Android user can share folders with paired devices by granting them
+through the system Storage Access Framework folder picker (a persisted
+`ACTION_OPEN_DOCUMENT_TREE` grant). Bridgey requests no broad storage
+permission and can see nothing outside those trees. A peer may browse the
+shared folders, download files from them and, when the Android user allows it,
+upload files into them. The phone serves the requests below while both peers
+report `files` and `files_browse`; the current macOS client browses and serves
+nothing.
+
+Requests and answers are AES-GCM encrypted, accepted only in the connected
+session after the replay check, carry `version: 1` and a lowercase UUID
+`requestId`, and are limited to 8 KiB of plaintext (answers 32 KiB). The asker
+gives up after 8 seconds. The phone answers at most 4 requests at a time and
+20 per 10 seconds, upload checks included; others are answered `busy`. Failures answer `browse.error`
+`{version, requestId, code}` with `policy`, `busy`, `invalid_request`,
+`not_found`, `unavailable` (the grant was revoked or the storage removed),
+`read_only` or `io_error`. Names, sizes and dates stay inside the encrypted
+session and are not logged. Content URIs, document IDs and file system paths
+never cross the wire.
+
+A location is a `rootId` and a `path`. `rootId` is a random identifier the
+phone created when the folder was shared. `path` is `""` for the shared
+folder itself or names joined with `/` under the folder rules above (each
+name 1 to 255 UTF-8 bytes, not `.` or `..`, no `/`, NUL or control
+characters; at most 32 names and 1,024 bytes). The phone resolves each name by
+an exact match among the children of the previous folder, so a request can
+never leave the shared tree. Hidden items (names starting with `.`) are not
+listed and cannot be resolved.
+
+- `browse.roots` `{version, requestId}` answers `browse.roots.result`
+  `{version, requestId, roots, uploads}`: at most 16 `{rootId, name}` entries
+  and whether uploads are allowed.
+- `browse.list` `{version, requestId, rootId, path, offset}` answers
+  `browse.list.result` `{version, requestId, rootId, path, offset, total,
+  entries, nextOffset}`. Entries are `{name, dir, size, modified}` (`size` and
+  `modified`, Unix milliseconds, are omitted when unknown or for folders),
+  folders first, then files, by name ignoring case. A page holds at most 200
+  entries and stays within the answer limit; `nextOffset` is omitted on the
+  last page.
+- `browse.download` `{version, requestId, rootId, path}` names a file. The
+  phone answers `browse.download.result` `{version, requestId, transferId}`
+  and queues the file as a normal outgoing transfer with that transfer ID, so
+  the receiver applies its usual policy, verification and naming. Folders are
+  not downloaded in version 1.
+- Upload: the asker sends a normal file transfer whose encrypted `files.offer`
+  adds `browseRootId` and `browsePath` (a folder). The phone accepts it only
+  while uploads are allowed (a local switch, off by default) and the folder
+  resolves; otherwise it answers `browse.error` with the transfer ID as
+  `requestId` and does not accept the offer. A leading `.` in the name becomes
+  `_`, and the phone picks the first free name ignoring case
+  (`photo (1).jpg`), so nothing is overwritten or hidden. It writes the
+  file through the document provider, and deletes it if verification fails or
+  the transfer is interrupted.
 
 ### Notifications (`notifications.send.v1`, `notifications.dismiss.v1`)
 

@@ -145,6 +145,8 @@ class PairingCoordinator(
     @Volatile private var incomingFolder: IncomingFolder? = null
     private val folderFileOwners = ConcurrentHashMap<String, String>()
     private val endedFolderIds = ConcurrentHashMap.newKeySet<String>()
+    private val sharedFolderStorage = SharedFolderStorage(appContext.contentResolver)
+    private val browseBudget = BrowseRequestBudget()
     val deviceId: String get() = localDeviceId
     private var server: ServerSocket? = null
     private var session: Session? = null
@@ -605,21 +607,21 @@ class PairingCoordinator(
         mutablePhoneRinging.value = false
     }
 
-    fun sendFile(uri: Uri) = sendFiles(listOf(uri))
+    fun sendFile(uri: Uri): List<String> = sendFiles(listOf(uri))
 
     /**
      * Adds files to the outgoing queue. Files are offered one after another,
      * each as its own transfer, so a failure or cancellation affects only that file.
      */
-    fun sendFiles(uris: List<Uri>) {
-        if (uris.isEmpty()) return
+    fun sendFiles(uris: List<Uri>): List<String> {
+        if (uris.isEmpty()) return emptyList()
         if (!isFeatureAvailable(BridgeyFeature.FILES)) {
             mutableFileTransferStatus.value = "File transfer is turned off on one of your devices"
-            return
+            return emptyList()
         }
         if (session == null || mutableState.value !is PairingState.Connected) {
             mutableFileTransferStatus.value = "Not connected — file was not sent"
-            return
+            return emptyList()
         }
         val queuedAt = System.currentTimeMillis()
         val status = appContext.getString(R.string.file_queued)
@@ -650,6 +652,7 @@ class PairingCoordinator(
             }
         }
         startNextQueuedFile()
+        return queued.map { (transfer, _) -> transfer.id }
     }
 
     private fun displayName(uri: Uri): String? =
@@ -948,6 +951,7 @@ class PairingCoordinator(
         val current = Session(socket)
         current.initiatedLocally = initiatedLocally
         session = current
+        browseBudget.reset()
         mutableRemoteBattery.value = null
         clearPingStatus()
         quickActions.reset()
@@ -1142,6 +1146,7 @@ class PairingCoordinator(
             "folders.manifest" -> receiveFolderManifest(current, message)
             "folders.complete" -> receiveFolderComplete(current, message)
             "folders.cancel" -> receiveFolderCancel(current, message)
+            "browse.roots", "browse.list", "browse.download" -> receiveBrowseRequest(current, message)
         }
     }
 
@@ -1312,6 +1317,9 @@ class PairingCoordinator(
             incomingFiles.remove(stale)?.cancel()
             folder.currentTransferId = null
         }
+        if (folder == null && payload.has("browseRootId")) {
+            return receiveUploadOffer(current, payload, transferId, name, mimeType, size, hash)
+        }
         val localPath = if (folder != null && entryIndex != null) folder.plan.localPath(entryIndex.toInt()) else null
         val transfer = runCatching {
             if (folder == null || localPath == null) {
@@ -1400,6 +1408,8 @@ class PairingCoordinator(
             folder.savedFiles++
             folder.lastSaved = savedUri to transfer.mimeType
             updateFolderRow(folder, appContext.getString(R.string.folder_receiving, folder.localName, folder.savedFiles, folder.offer.fileCount))
+        } else if (transfer.isUpload) {
+            updateFileTransfer(transferId, transfer.displayName, "${transfer.displayName} saved to ${transfer.locationLabel}", false)
         } else {
             updateFileTransfer(transferId, transfer.displayName, "${transfer.displayName} saved to Download/Bridgey", false)
             ReceivedFileNotifier.show(appContext, transfer.displayName, transfer.mimeType, savedUri)
@@ -1575,6 +1585,183 @@ class PairingCoordinator(
             sessionId = current.id,
             messageId = UUID.randomUUID().toString(),
             transferId = transferId,
+            nonce = encrypted.nonce,
+            ciphertext = encrypted.ciphertext,
+        ))
+    }
+
+    private fun receiveBrowseRequest(current: Session, message: Message) {
+        if (mutableState.value !is PairingState.Connected || message.sessionId != current.id) return
+        val messageId = message.messageId ?: return
+        if (!current.acceptMessageId(messageId)) return
+        val plaintext = Crypto.decrypt(current.pairingKey!!, message.nonce ?: "", message.ciphertext ?: "")
+            ?: return fail("Invalid encrypted browse request")
+        if (plaintext.size > BrowseRules.MAX_REQUEST_BYTES) return fail("Invalid browse request")
+        val payload = runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)) }.getOrNull()
+            ?: return fail("Invalid browse request")
+        val requestId = payload.optString("requestId")
+        if (payload.opt("version") != 1 || !isUuid(requestId)) return
+        fun error(code: String) = sendBrowsePayload(current, "browse.error", JSONObject().put("requestId", requestId).put("code", code))
+        if (!featureEnabled(BridgeyFeature.FILES, current) || !featureEnabled(BridgeyFeature.FILES_BROWSE, current) ||
+            mutableRemoteFeatures.value[BridgeyFeature.FILES_BROWSE] == false
+        ) {
+            error("policy")
+            sendFeatureState()
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return error("policy")
+        if (!browseBudget.tryStart(SystemClock.elapsedRealtime())) return error("busy")
+        scope.launch {
+            try {
+                val answer = runCatching { answerBrowseRequest(current, message.kind, payload) }
+                    .getOrElse { failure -> if (failure is SharedFolderUnavailableException) BrowseAnswer.Error("unavailable") else BrowseAnswer.Error("io_error") }
+                if (session !== current) return@launch
+                when (answer) {
+                    is BrowseAnswer.Error -> error(answer.code)
+                    is BrowseAnswer.Result -> sendBrowsePayload(current, answer.kind, answer.payload.put("requestId", requestId))
+                }
+            } finally {
+                browseBudget.finish()
+            }
+        }
+    }
+
+    private fun answerBrowseRequest(current: Session, kind: String, payload: JSONObject): BrowseAnswer {
+        val shared = settings.state.value.sharedFolders
+        if (kind == "browse.roots") {
+            val roots = JSONArray()
+            shared.forEach { roots.put(JSONObject().put("rootId", it.id).put("name", it.name)) }
+            return BrowseAnswer.Result(
+                "browse.roots.result",
+                JSONObject().put("roots", roots).put("uploads", settings.state.value.sharedFolderUploadsEnabled),
+            )
+        }
+        val rootId = payload.opt("rootId") as? String ?: return BrowseAnswer.Error("invalid_request")
+        val path = payload.opt("path") as? String ?: return BrowseAnswer.Error("invalid_request")
+        if (!BrowseRules.isValidPath(path)) return BrowseAnswer.Error("invalid_request")
+        val folder = shared.firstOrNull { it.id == rootId } ?: return BrowseAnswer.Error("not_found")
+        val tree = Uri.parse(folder.uri)
+        if (!sharedFolderStorage.hasGrant(tree)) return BrowseAnswer.Error("unavailable")
+        val node = sharedFolderStorage.resolve(tree, path) ?: return BrowseAnswer.Error("not_found")
+        return when (kind) {
+            "browse.list" -> {
+                val offset = payload.strictLong("offset")?.takeIf { it in 0..Int.MAX_VALUE }?.toInt()
+                    ?: return BrowseAnswer.Error("invalid_request")
+                if (!node.isDirectory) return BrowseAnswer.Error("not_found")
+                val entries = sharedFolderStorage.children(tree, node.documentId)
+                    .map { BrowseEntry(it.name, it.isDirectory, it.size.takeUnless { _ -> it.isDirectory }, it.modified) }
+                val page = browsePage(sortBrowseEntries(entries), offset)
+                val items = JSONArray()
+                page.entries.forEach { entry ->
+                    items.put(JSONObject().put("name", entry.name).put("dir", entry.isDirectory).apply {
+                        entry.size?.let { put("size", it) }
+                        entry.modified?.let { put("modified", it) }
+                    })
+                }
+                BrowseAnswer.Result("browse.list.result", JSONObject()
+                    .put("rootId", rootId)
+                    .put("path", path)
+                    .put("offset", offset)
+                    .put("total", page.total)
+                    .put("entries", items)
+                    .apply { page.nextOffset?.let { put("nextOffset", it) } })
+            }
+            "browse.download" -> {
+                if (node.isDirectory || path.isEmpty()) return BrowseAnswer.Error("not_found")
+                if (session !== current) return BrowseAnswer.Error("io_error")
+                val transferId = sendFiles(listOf(sharedFolderStorage.documentUri(tree, node.documentId))).firstOrNull()
+                    ?: return BrowseAnswer.Error("policy")
+                BrowseAnswer.Result("browse.download.result", JSONObject().put("transferId", transferId))
+            }
+            else -> BrowseAnswer.Error("invalid_request")
+        }
+    }
+
+    /**
+     * An upload into a shared folder. Resolving the folder and creating the document
+     * can be slow on some providers, so it runs off the reader thread and counts
+     * toward the browse request limits. The offer is accepted only afterwards.
+     */
+    private fun receiveUploadOffer(
+        current: Session,
+        payload: JSONObject,
+        transferId: String,
+        name: String,
+        mimeType: String,
+        size: Long,
+        hash: String,
+    ) {
+        fun reject(code: String) = sendBrowsePayload(current, "browse.error", JSONObject().put("requestId", transferId).put("code", code))
+        if (!browseBudget.tryStart(SystemClock.elapsedRealtime())) return reject("busy")
+        scope.launch {
+            try {
+                val target = when (val resolved = resolveUploadTarget(current, payload, name)) {
+                    is UploadTarget.Rejected -> return@launch reject(resolved.code)
+                    is UploadTarget.Accepted -> resolved
+                }
+                // The constructor deletes the new document if it cannot be opened.
+                val transfer = runCatching {
+                    IncomingFileTransfer(
+                        appContext, transferId, target.name, mimeType, size, hash,
+                        documentUri = target.documentUri, locationLabel = target.label,
+                    )
+                }.getOrNull() ?: return@launch reject("io_error")
+                if (session !== current || transferId in cancelledTransferIds || incomingFiles.putIfAbsent(transferId, transfer) != null) {
+                    transfer.cancel()
+                    return@launch
+                }
+                if (session !== current) {
+                    incomingFiles.remove(transferId)?.cancel()
+                    return@launch
+                }
+                updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: ${transfer.progress.status(0, force = true)}", true)
+                current.send(Message(kind = "files.accept", sessionId = current.id, transferId = transferId))
+                android.util.Log.i("Bridgey", "PLUGIN upload accepted size=$size")
+            } finally {
+                browseBudget.finish()
+            }
+        }
+    }
+
+    /** Where an upload offer may be saved, after the policy, folder and name checks. */
+    private fun resolveUploadTarget(current: Session, payload: JSONObject, offeredName: String): UploadTarget {
+        if (!featureEnabled(BridgeyFeature.FILES_BROWSE, current) || mutableRemoteFeatures.value[BridgeyFeature.FILES_BROWSE] == false) {
+            return UploadTarget.Rejected("policy")
+        }
+        if (!settings.state.value.sharedFolderUploadsEnabled) return UploadTarget.Rejected("read_only")
+        val rootId = payload.opt("browseRootId") as? String ?: return UploadTarget.Rejected("invalid_request")
+        val path = payload.opt("browsePath") as? String ?: return UploadTarget.Rejected("invalid_request")
+        if (!BrowseRules.isValidPath(path)) return UploadTarget.Rejected("invalid_request")
+        val folder = settings.state.value.sharedFolders.firstOrNull { it.id == rootId } ?: return UploadTarget.Rejected("not_found")
+        val tree = Uri.parse(folder.uri)
+        return try {
+            if (!sharedFolderStorage.hasGrant(tree)) return UploadTarget.Rejected("unavailable")
+            if (!sharedFolderStorage.canWrite(tree)) return UploadTarget.Rejected("read_only")
+            val directory = sharedFolderStorage.resolve(tree, path)?.takeIf { it.isDirectory }
+                ?: return UploadTarget.Rejected("not_found")
+            if (!directory.canCreate) return UploadTarget.Rejected("read_only")
+            val taken = sharedFolderStorage.children(tree, directory.documentId)
+                .mapTo(HashSet()) { it.name.lowercase(java.util.Locale.ROOT) }
+            // Hidden names cannot be listed or resolved, so an upload never creates one.
+            val visible = safeLocalName(offeredName).replaceFirst(Regex("^\\.+"), "_")
+            val name = uniqueLocalName(visible, isDirectory = false) {
+                it.lowercase(java.util.Locale.ROOT) in taken
+            } ?: return UploadTarget.Rejected("io_error")
+            val label = listOf(folder.name, path).filter(String::isNotEmpty).joinToString("/")
+            UploadTarget.Accepted(name, sharedFolderStorage.createFile(tree, directory.documentId, name), label)
+        } catch (_: SharedFolderUnavailableException) {
+            UploadTarget.Rejected("unavailable")
+        } catch (_: Exception) {
+            UploadTarget.Rejected("io_error")
+        }
+    }
+
+    private fun sendBrowsePayload(current: Session, kind: String, payload: JSONObject) {
+        val encrypted = Crypto.encrypt(current.pairingKey!!, payload.put("version", 1).toString().toByteArray(Charsets.UTF_8))
+        current.send(Message(
+            kind = kind,
+            sessionId = current.id,
+            messageId = UUID.randomUUID().toString(),
             nonce = encrypted.nonce,
             ciphertext = encrypted.ciphertext,
         ))
@@ -1903,8 +2090,12 @@ private class IncomingFileTransfer(
     val expectedSize: Long,
     private val expectedHash: String,
     relativeDirectory: String = RECEIVE_DIRECTORY,
+    private val documentUri: Uri? = null,
+    val locationLabel: String = "Download/Bridgey",
 ) {
     val displayName = sanitize(offeredName)
+    /** Written into a shared folder through its document provider instead of MediaStore. */
+    val isUpload: Boolean get() = documentUri != null
     val progress = TransferProgress(expectedSize)
     private val resolver = context.contentResolver
     private val uri: Uri
@@ -1915,17 +2106,25 @@ private class IncomingFileTransfer(
     private var nextSequence = 0L
 
     init {
-        val values = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, displayName)
-            put(MediaStore.Downloads.MIME_TYPE, mimeType.take(255))
-            put(MediaStore.Downloads.RELATIVE_PATH, relativeDirectory)
-            put(MediaStore.Downloads.IS_PENDING, 1)
-        }
-        uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: error("Could not allocate download")
-        output = resolver.openOutputStream(uri, "w") ?: run {
-            resolver.delete(uri, null, null)
-            error("Could not open download")
+        if (documentUri != null) {
+            uri = documentUri
+            output = runCatching { resolver.openOutputStream(uri, "w") }.getOrNull() ?: run {
+                discard()
+                error("Could not open document")
+            }
+        } else {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, displayName)
+                put(MediaStore.Downloads.MIME_TYPE, mimeType.take(255))
+                put(MediaStore.Downloads.RELATIVE_PATH, relativeDirectory)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: error("Could not allocate download")
+            output = resolver.openOutputStream(uri, "w") ?: run {
+                resolver.delete(uri, null, null)
+                error("Could not open download")
+            }
         }
     }
 
@@ -1944,16 +2143,26 @@ private class IncomingFileTransfer(
         output.close()
         val actual = Base64.encodeToString(digest.digest(), Base64.NO_WRAP)
         if (receivedSize != expectedSize || completionHash != expectedHash || actual != expectedHash) {
-            resolver.delete(uri, null, null)
+            discard()
             return null
         }
-        resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+        if (documentUri == null) {
+            resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+        }
         return uri
     }
 
     @Synchronized fun cancel() {
         runCatching { output.close() }
-        resolver.delete(uri, null, null)
+        discard()
+    }
+
+    private fun discard() {
+        if (documentUri != null) {
+            runCatching { android.provider.DocumentsContract.deleteDocument(resolver, uri) }
+        } else {
+            resolver.delete(uri, null, null)
+        }
     }
 
     private fun sanitize(name: String): String {
@@ -1990,6 +2199,16 @@ private class IncomingFileTransfer(
             return listed || onDisk
         }
     }
+}
+
+private sealed interface BrowseAnswer {
+    data class Result(val kind: String, val payload: JSONObject) : BrowseAnswer
+    data class Error(val code: String) : BrowseAnswer
+}
+
+private sealed interface UploadTarget {
+    data class Accepted(val name: String, val documentUri: Uri, val label: String) : UploadTarget
+    data class Rejected(val code: String) : UploadTarget
 }
 
 private class FolderAssembly(val offer: FolderOffer, val startedAtMillis: Long) {

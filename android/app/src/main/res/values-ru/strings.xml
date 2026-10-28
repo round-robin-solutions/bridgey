@@ -12,4 +12,11 @@
     <string name="folder_saved">Папка %1$s сохранена в Download/Bridgey</string>
     <string name="folder_saved_partly">Сохранено файлов: %1$d из %2$d, в Download/Bridgey/%3$s</string>
     <string name="folder_received">Папка получена</string>
+    <string name="shared_folders_title">Общие папки</string>
+    <string name="shared_folders_body">Сопряжённый Mac может просматривать и скачивать файлы из папок, добавленных здесь. Остальное содержимое телефона Bridgey не видит.</string>
+    <string name="shared_folders_empty">Общих папок пока нет.</string>
+    <string name="shared_folders_add">Добавить папку</string>
+    <string name="shared_folders_remove">Убрать</string>
+    <string name="shared_folders_uploads">Разрешить Mac добавлять файлы</string>
+    <string name="shared_folders_uploads_body">Если имя занято, файл с Mac получает новое имя. Ничего не заменяется.</string>
 </resources>

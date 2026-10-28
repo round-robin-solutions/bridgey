@@ -12,4 +12,11 @@
     <string name="folder_saved">%1$s saved to Download/Bridgey</string>
     <string name="folder_saved_partly">Files saved: %1$d of %2$d, in Download/Bridgey/%3$s</string>
     <string name="folder_received">Folder received</string>
+    <string name="shared_folders_title">Shared folders</string>
+    <string name="shared_folders_body">Your paired Mac can browse and download files from the folders you add here. Bridgey cannot see anything else on this phone.</string>
+    <string name="shared_folders_empty">No folders shared yet.</string>
+    <string name="shared_folders_add">Add folder</string>
+    <string name="shared_folders_remove">Remove</string>
+    <string name="shared_folders_uploads">Allow the Mac to add files</string>
+    <string name="shared_folders_uploads_body">Files from the Mac get a new name when one is taken. Nothing is replaced.</string>
 </resources>

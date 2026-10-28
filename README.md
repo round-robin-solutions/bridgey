@@ -261,6 +261,10 @@ Bridgey asks for access only when the related feature needs it:
   Android notification display on the Mac.
 - File access is scoped to the files and folders selected by the user and the
   Bridgey receive directory (`Downloads/Bridgey`).
+- Android shared folders are optional. A paired Mac can browse and download
+  only from folders added under **Shared folders** in Android Settings through
+  the system folder picker, and can add files to them only after you allow it
+  there. Bridgey does not request broad storage permission.
 
 Bridgey does not request location, contacts, SMS, call-log, camera, microphone,
 screen recording, Accessibility, Input Monitoring, or Full Disk Access.

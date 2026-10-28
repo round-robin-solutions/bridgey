@@ -30,6 +30,7 @@ class BridgeySettingsTest {
         assertFalse(featureEnabledByLegacyPeer(BridgeyFeature.CALLS))
         assertFalse(featureEnabledByLegacyPeer(BridgeyFeature.PING))
         assertFalse(featureEnabledByLegacyPeer(BridgeyFeature.FOLDERS))
+        assertFalse(featureEnabledByLegacyPeer(BridgeyFeature.FILES_BROWSE))
         assertTrue(featureEnabledByLegacyPeer(BridgeyFeature.BATTERY))
     }
 }
