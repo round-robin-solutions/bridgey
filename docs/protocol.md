@@ -21,6 +21,12 @@ and some acknowledgements remain outside the encrypted payload; traffic
 metadata is visible. Replay caches are bounded and session-local, not persistent.
 The future transport design must not be advertised as an implemented guarantee.
 
+A client may hold one authenticated session per trusted peer at the same time,
+plus sessions that are still handshaking. Keys, replay caches, quick-request
+sequences and transfers belong to their session; every session uses the same
+wire format. Routing between several devices is described under "Multiple
+devices" in `docs/architecture.md`.
+
 ## Discovery
 
 Browse and publish DNS-SD service type `_bridgey._tcp.local.`. TXT values are

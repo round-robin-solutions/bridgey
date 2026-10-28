@@ -181,10 +181,6 @@ private struct FeatureStatePayload: Codable {
     let features: [String: Bool]
 }
 
-private func defaultRemoteFeatureState() -> [BridgeyFeature: Bool] {
-    Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map { ($0, featureEnabledByLegacyPeer($0)) })
-}
-
 private final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
     var onDismiss: ((String, String) -> Void)?
     var onAction: ((String, String, String, String?) -> Void)?
@@ -216,6 +212,7 @@ private final class NotificationPresenter: NSObject, UNUserNotificationCenterDel
 
 @MainActor
 final class PairingCoordinator: ObservableObject {
+    /// The pairing in progress while there is one, otherwise the connected device.
     @Published private(set) var state: PairingState = .idle
     @Published private(set) var trustedDeviceIDs: Set<String>
     @Published private(set) var clipboardStatus: String? = nil
@@ -249,14 +246,23 @@ final class PairingCoordinator: ObservableObject {
     private let identity: MacIdentity
     private let trustRegistry: MacTrustRegistry
     private var listener: NWListener?
-    private var session: Session?
+    /// Every session: pending handshakes and pairings, and one per connected device.
+    private lazy var registry = SessionRegistry<Session>(localDeviceID: deviceID)
+    /// The session whose pairing code is shown, or the connection the user started.
+    private var pairingSession: Session?
+    /// The pairing in progress: connecting, verification or failed, otherwise idle.
+    private var pairingFlow: PairingState = .idle
+    /// The session of the device user actions go to.
+    private var session: Session? {
+        registry.target(selected: nil).flatMap { registry.session(for: $0) }
+    }
     private var discoveryCancellable: AnyCancellable?
     private var settingsCancellable: AnyCancellable?
     private var reconnectWorkItem: DispatchWorkItem?
-    private var connectionTimeoutWorkItem: DispatchWorkItem?
-    private var heartbeatWorkItem: DispatchWorkItem?
     private var lastTrustedEndpoint: (host: String, port: Int, name: String)?
     private var reconnectAttempt = 0
+    /// The session a quick request is being answered on.
+    private var quickReplyTarget: Session?
     private var callRequestID: String?
     private var callTimeoutWorkItem: DispatchWorkItem?
     private var callStatusClearWorkItem: DispatchWorkItem?
@@ -264,7 +270,6 @@ final class PairingCoordinator: ObservableObject {
     private var pingStatusClearWorkItem: DispatchWorkItem?
     private var pendingCallNumber: String?
     private var pendingCallExpiryWorkItem: DispatchWorkItem?
-    private var remoteFeatureStateReceived = false
     private var clipboardSendID: String?
     private var clipboardTimeoutWorkItem: DispatchWorkItem?
     private let notificationPresenter = NotificationPresenter()
@@ -276,7 +281,6 @@ final class PairingCoordinator: ObservableObject {
     private var outgoingFolder: OutgoingFolder?
     private var uploadTargets: [String: (rootID: String, path: String)] = [:]
     private var phoneFolderWindow: PhoneFolderBrowserWindowController?
-    private var stateCancellable: AnyCancellable?
     private var folderFileOwners: [String: String] = [:]
     private var filePreparationCancellation: FileCancellationToken?
     private var fileTransferWindow: FileTransferWindowController?
@@ -288,7 +292,6 @@ final class PairingCoordinator: ObservableObject {
     private var receivedFilesToReveal: [URL] = []
     private var revealReceivedFilesWorkItem: DispatchWorkItem?
     private var findDeviceSound: NSSound?
-    private var lastSentBattery: LocalBatteryStatus?
     private let diagnostics = BridgeyDiagnostics()
     private let notificationHistoryStore: NotificationHistoryStore
 
@@ -333,24 +336,21 @@ final class PairingCoordinator: ObservableObject {
         startListener()
         quickActions.available = { [weak self] in self?.isFeatureAvailable($0) == true }
         folderBrowser.available = { [weak self] in
-            guard let self, case .connected = self.state else { return false }
+            guard let self, self.session != nil else { return false }
             return self.isFeatureAvailable(.files) && self.isFeatureAvailable(.filesBrowse)
         }
         folderBrowser.send = { [weak self] in self?.sendBrowseRequest(kind: $0, payload: $1) == true }
         folderBrowser.upload = { [weak self] url, rootID, path in self?.queueFiles([url], uploadTarget: (rootID, path)) }
-        stateCancellable = $state.sink { [weak self] state in
-            guard case .connected = state else {
-                self?.folderBrowser.reset()
-                return
-            }
-        }
         quickActions.send = { [weak self] in self?.sendQuickPayload(kind: $0, payload: $1) == true }
         mediaController.allowed = { [weak self] in
-            guard let self, case .connected = self.state else { return false }
-            return self.isFeatureAvailable(.media)
+            guard let self else { return false }
+            return self.registry.connectedIDs.contains { self.isFeatureAvailable(.media, for: $0) }
         }
-        mediaController.onState = { [weak self] in
-            _ = self?.sendQuickPayload(kind: "media.state", payload: $0)
+        mediaController.onState = { [weak self] payload in
+            guard let self else { return }
+            for target in self.registry.broadcastTargets({ id, _ in self.isFeatureAvailable(.media, for: id) }) {
+                _ = self.sendQuickPayload(kind: "media.state", payload: payload, to: target.session)
+            }
         }
         shortcuts.perform = { [weak self] action in
             switch action {
@@ -370,7 +370,10 @@ final class PairingCoordinator: ObservableObject {
             .sink { [weak self] value in
                 DispatchQueue.main.async {
                     guard let self else { return }
-                    if !self.featureEnabled(.battery) { self.remoteBattery = nil }
+                    for id in self.registry.connectedIDs where !self.settings.isEnabled(.battery, for: id) {
+                        self.registry.update(id) { $0.battery = nil }
+                    }
+                    self.publish()
                     if !self.featureEnabled(.ping) { self.clearPingStatus() }
                     if !self.isFeatureAvailable(.links) { self.quickActions.reset() }
                     if !self.isFeatureAvailable(.filesBrowse) || !self.isFeatureAvailable(.files) { self.folderBrowser.reset() }
@@ -445,10 +448,11 @@ final class PairingCoordinator: ObservableObject {
     func pair(host: String, port: Int, peerName: String) {
         diagnostics.record(category: "pairing", event: "connection_started")
         guard let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
-            state = .failed("Invalid peer port")
+            failPairing("Invalid peer port")
             return
         }
-        state = .connecting(peerName)
+        if let previous = pairingSession { endSession(previous) }
+        pairingFlow = .connecting(peerName)
         lastTrustedEndpoint = (host, port, peerName)
         NSLog("PAIRING started peer=%@", peerName)
         let connection = NWConnection(host: NWEndpoint.Host(host), port: endpointPort, using: .tcp)
@@ -457,16 +461,9 @@ final class PairingCoordinator: ObservableObject {
         current.id = UUID().uuidString.lowercased()
         current.privateKey = P256.KeyAgreement.PrivateKey()
         current.localEphemeralKey = current.privateKey!.publicKey.x963Representation.base64EncodedString()
-        session?.close()
-        session = current
-        remoteBattery = nil
-        clearPingStatus()
-        quickActions.reset()
-        mediaController.reset()
-        lastSentBattery = nil
-        remoteFeatures = defaultRemoteFeatureState()
-        remoteFeatureStateReceived = false
-        clearRemoteCall()
+        registry.addPending(current, initiatedLocally: true)
+        pairingSession = current
+        publish()
         scheduleConnectionTimeout(for: current)
         configure(current) { [weak self, weak current] in
             guard let self, let current, current.privateKey != nil else { return }
@@ -481,7 +478,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func confirm() {
-        guard let current = session else { return }
+        guard let current = pairingSession, current.pairingKey != nil, !current.localConfirmed else { return }
         confirm(current)
     }
 
@@ -504,56 +501,92 @@ final class PairingCoordinator: ObservableObject {
         completeIfConfirmed(current)
     }
 
+    /// Cancels the pairing in progress, or clears its failure. Connected devices stay connected.
     func cancel() {
-        connectionTimeoutWorkItem?.cancel()
-        heartbeatWorkItem?.cancel()
-        let current = session
-        session = nil
-        current?.send(PairingMessage(kind: "pairing.cancel", sessionId: current?.id ?? ""))
-        current?.close()
-        stopMacSound()
-        androidRinging = false
-        clearRemoteCall()
-        clearPendingCall()
-        clearCallStatus()
-        clearClipboardSendStatus()
-        clearPingStatus()
-        quickActions.reset()
-        mediaController.reset()
-        lastSentBattery = nil
-        remoteFeatures = defaultRemoteFeatureState()
-        remoteFeatureStateReceived = false
-        state = .idle
+        if let current = pairingSession {
+            current.send(PairingMessage(kind: "pairing.cancel", sessionId: current.id))
+            endSession(current)
+        }
+        pairingFlow = .idle
+        publish()
     }
 
+    /// Disconnects the device user actions go to.
     func dismiss() {
-        connectionTimeoutWorkItem?.cancel()
-        heartbeatWorkItem?.cancel()
-        let current = session
-        session = nil
-        current?.close()
+        guard let id = registry.target(selected: nil) else {
+            cancel()
+            return
+        }
+        disconnect(deviceID: id)
+    }
+
+    /// Disconnects one device. It connects again when it is next discovered.
+    func disconnect(deviceID id: String) {
+        guard let current = registry.session(for: id) else { return }
+        endSession(current)
         stopMacSound()
-        androidRinging = false
-        remoteBattery = nil
-        clearRemoteCall()
         clearPendingCall()
-        clearCallStatus()
-        clearClipboardSendStatus()
-        clearPingStatus()
-        quickActions.reset()
-        mediaController.reset()
-        lastSentBattery = nil
-        remoteFeatures = defaultRemoteFeatureState()
-        remoteFeatureStateReceived = false
-        state = .idle
+        deviceDisconnected(id)
     }
 
     func forget(deviceID: String) {
         trustRegistry.remove(deviceID: deviceID)
         trustedDeviceIDs.remove(deviceID)
         settings.removeDevice(deviceID)
-        if case let .connected(connectedID, _) = state, connectedID == deviceID { dismiss() }
+        disconnect(deviceID: deviceID)
         NSLog("PAIRING revoked peerId=%@", String(deviceID.prefix(8)))
+    }
+
+    /// Recomputes the published state and the connected device's mirrors from the registry.
+    private func publish() {
+        let targetID = registry.target(selected: nil)
+        let target = registry.connections.first { $0.id == targetID }
+        let newState: PairingState
+        if pairingFlow != .idle {
+            newState = pairingFlow
+        } else if let target {
+            newState = .connected(deviceID: target.id, peerName: target.name)
+        } else {
+            newState = .idle
+        }
+        if state != newState { state = newState }
+        let link = target?.link ?? PeerLinkState()
+        if remoteFeatures != link.remoteFeatures { remoteFeatures = link.remoteFeatures }
+        if remoteBattery != link.battery { remoteBattery = link.battery }
+        if androidRinging != link.ringing { androidRinging = link.ringing }
+    }
+
+    /// Stops a session's timers, forgets it and closes it. Returns its device ID when it
+    /// was that device's connected session; the caller then runs `deviceDisconnected`.
+    @discardableResult
+    private func endSession(_ current: Session) -> String? {
+        current.connectionTimeout?.cancel()
+        current.heartbeat?.cancel()
+        if pairingSession === current { pairingSession = nil }
+        let deviceID = registry.remove(current)
+        current.close()
+        return deviceID
+    }
+
+    /// A connected device went away: its transfers, call and action state end with it.
+    private func deviceDisconnected(_ id: String) {
+        cancelIncomingFiles()
+        clearRemoteCall()
+        clearCallStatus()
+        clearClipboardSendStatus()
+        clearPingStatus()
+        quickActions.reset()
+        folderBrowser.reset()
+        mediaController.reset()
+        publish()
+        NSLog("TRANSPORT disconnected peerId=%@", String(id.prefix(8)))
+    }
+
+    /// Shows a failure for the pairing in progress. Connected devices are not touched.
+    private func failPairing(_ message: String) {
+        if let current = pairingSession { endSession(current) }
+        pairingFlow = .failed(message)
+        publish()
     }
 
     func updateDeviceName(_ value: String) {
@@ -600,7 +633,7 @@ final class PairingCoordinator: ObservableObject {
             setTransientCallStatus("Clipboard does not contain a valid phone number")
             return
         }
-        guard let current = session, case .connected = state,
+        guard let current = session,
               let plaintext = try? JSONEncoder().encode(CallRequestPayload(number: number)),
               let encrypted = try? encrypt(plaintext, key: current.pairingKey!) else {
             setTransientCallStatus("Android is not connected")
@@ -637,12 +670,11 @@ final class PairingCoordinator: ObservableObject {
 
     @discardableResult
     private func flushPendingCallIfPossible() -> Bool {
-        let isConnected: Bool
-        if case .connected = state { isConnected = true } else { isConnected = false }
+        let target = registry.target(selected: nil)
         guard let number = pendingCallNumber,
               pendingPhoneCallCanDispatch(
-                isConnected: isConnected,
-                featureStateReceived: remoteFeatureStateReceived
+                isConnected: target != nil,
+                featureStateReceived: target.flatMap { registry.link(for: $0)?.featureStateReceived } == true
               ) else { return false }
         pendingCallNumber = nil
         pendingCallExpiryWorkItem?.cancel()
@@ -674,14 +706,23 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func isFeatureAvailable(_ feature: BridgeyFeature) -> Bool {
-        effectiveFeatureAvailable(
-            localEnabled: featureEnabled(feature),
-            remoteEnabled: remoteFeatures[feature] != false
+        guard let id = registry.target(selected: nil) else {
+            return effectiveFeatureAvailable(localEnabled: featureEnabled(feature), remoteEnabled: remoteFeatures[feature] != false)
+        }
+        return isFeatureAvailable(feature, for: id)
+    }
+
+    /// The feature is on here for the device and on the device itself.
+    func isFeatureAvailable(_ feature: BridgeyFeature, for deviceID: String) -> Bool {
+        guard let link = registry.link(for: deviceID) else { return false }
+        return effectiveFeatureAvailable(
+            localEnabled: settings.isEnabled(feature, for: deviceID),
+            remoteEnabled: link.remoteFeatures[feature] != false
         )
     }
 
     func sendClipboard() {
-        guard let current = session, case .connected = state else { return }
+        guard let current = session else { return }
         guard isFeatureAvailable(.clipboard) else {
             clipboardStatus = "Clipboard is turned off on one of your devices"
             return
@@ -714,12 +755,12 @@ final class PairingCoordinator: ObservableObject {
         clipboardSendID = messageID
         clipboardStatus = "Sending…"
         let timeout = DispatchWorkItem { [weak self, weak current] in
-            guard let self, let current, self.session === current,
+            guard let self, let current, self.registry.isActive(current),
                   self.clipboardSendID == messageID else { return }
             self.clipboardSendID = nil
             self.clipboardTimeoutWorkItem = nil
             self.clipboardStatus = "No delivery acknowledgement"
-            self.sendFeatureState()
+            self.sendFeatureState(to: current)
         }
         clipboardTimeoutWorkItem = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: timeout)
@@ -734,7 +775,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func sendPing() {
-        guard let current = session, case .connected = state else {
+        guard let current = session else {
             setTransientPingStatus("Android is not connected")
             return
         }
@@ -769,10 +810,10 @@ final class PairingCoordinator: ObservableObject {
 
     private func receivePing(_ message: PairingMessage, in current: Session) throws {
         guard featureEnabled(.ping, current: current) else {
-            sendFeatureState()
+            sendFeatureState(to: current)
             return
         }
-        guard case .connected = state,
+        guard registry.isActive(current),
               message.sessionId == current.id,
               let messageID = message.messageId,
               current.acceptMessageID(messageID),
@@ -805,8 +846,10 @@ final class PairingCoordinator: ObservableObject {
         pingStatus = nil
     }
 
-    private func sendQuickPayload(kind: String, payload: [String: Any]) -> Bool {
-        guard let current = session, case .connected = state, let key = current.pairingKey,
+    /// Quick actions go to `target`, the device a request came from while it is being answered,
+    /// or the device user actions go to.
+    private func sendQuickPayload(kind: String, payload: [String: Any], to target: Session? = nil) -> Bool {
+        guard let current = target ?? quickReplyTarget ?? session, registry.isActive(current), let key = current.pairingKey,
               let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= 32768,
               let encrypted = try? encrypt(data, key: key) else { return false }
         current.send(PairingMessage(kind: kind, sessionId: current.id,
@@ -815,7 +858,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func receiveQuickPayload(_ message: PairingMessage, current: Session) {
-        guard session === current, case .connected = state, message.sessionId == current.id,
+        guard registry.isActive(current), message.sessionId == current.id,
               let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
               let nonce = message.nonce, let ciphertext = message.ciphertext,
               let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key), data.count <= 8192,
@@ -828,30 +871,37 @@ final class PairingCoordinator: ObservableObject {
         if message.kind == "quick.request", payload["feature"] as? String == "media" {
             guard let requestID = payload["requestId"] as? String, UUID(uuidString: requestID) != nil else { return }
             let reply: (Bool) -> Void = { [weak self, weak current] accepted in
-                guard let self, let current, self.session === current else { return }
+                guard let self, let current, self.registry.isActive(current) else { return }
                 _ = self.sendQuickPayload(kind: "quick.result", payload: [
                     "version": 1, "requestId": requestID, "feature": "media", "accepted": accepted
-                ])
+                ], to: current)
             }
-            guard isFeatureAvailable(.media), let action = payload["action"] as? String,
+            guard isFeatureAvailable(.media, for: current.remoteDeviceID), let action = payload["action"] as? String,
                   let value = payload["value"] as? String else { reply(false); return }
             mediaController.command(action: action, value: value, completion: reply)
         } else {
+            quickReplyTarget = current
             quickActions.receive(message.kind, payload: payload)
+            quickReplyTarget = nil
         }
     }
 
+    /// Sends this Mac's battery to every connected device with Battery available.
     private func publishLocalBattery(force: Bool = false) {
-        guard isFeatureAvailable(.battery),
-              let current = session, case .connected = state,
-              let status = currentMacBatteryStatus(),
-              force || status != lastSentBattery,
+        for target in registry.broadcastTargets({ id, _ in isFeatureAvailable(.battery, for: id) }) {
+            publishLocalBattery(to: target.session, force: force)
+        }
+    }
+
+    private func publishLocalBattery(to current: Session, force: Bool) {
+        guard let status = currentMacBatteryStatus(),
+              force || status != current.lastSentBattery,
               let plaintext = try? JSONEncoder().encode(BatteryPayload(
                 level: status.level,
                 isCharging: status.isCharging
               )),
               let encrypted = try? encrypt(plaintext, key: current.pairingKey!) else { return }
-        lastSentBattery = status
+        current.lastSentBattery = status
         current.send(PairingMessage(
             kind: "battery.update",
             sessionId: current.id,
@@ -871,8 +921,8 @@ final class PairingCoordinator: ObservableObject {
         _ = sendFindCommand(kind: "find.stop")
     }
 
-    private func sendFindCommand(kind: String) -> Bool {
-        guard let current = session, case .connected = state,
+    private func sendFindCommand(kind: String, to target: Session? = nil) -> Bool {
+        guard let current = target ?? session,
               (kind != "find.start" || isFeatureAvailable(.findDevice)),
               let payload = try? JSONEncoder().encode(FindDevicePayload(alertId: "active")),
               let encrypted = try? encrypt(payload, key: current.pairingKey!) else { return false }
@@ -888,7 +938,7 @@ final class PairingCoordinator: ObservableObject {
 
     private func receiveFindCommand(_ message: PairingMessage, in current: Session, start: Bool) throws {
         if start && !featureEnabled(.findDevice, current: current) { return }
-        guard case .connected = state,
+        guard registry.isActive(current),
               message.sessionId == current.id,
               let messageID = message.messageId,
               current.acceptMessageID(messageID),
@@ -899,11 +949,11 @@ final class PairingCoordinator: ObservableObject {
               payload.alertId == "active" else { throw PairingError.invalidMessage }
         if start {
             startMacSound()
-            _ = sendFindCommand(kind: macRinging ? "find.started" : "find.stopped")
+            _ = sendFindCommand(kind: macRinging ? "find.started" : "find.stopped", to: current)
         } else {
             stopMacSound()
-            androidRinging = false
-            _ = sendFindCommand(kind: "find.stopped")
+            setRemoteRinging(false, for: current)
+            _ = sendFindCommand(kind: "find.stopped", to: current)
         }
         NSLog("PLUGIN find-device %@", start ? "started" : "stopped")
     }
@@ -913,7 +963,7 @@ final class PairingCoordinator: ObservableObject {
         in current: Session,
         started: Bool
     ) throws {
-        guard case .connected = state,
+        guard registry.isActive(current),
               message.sessionId == current.id,
               let messageID = message.messageId,
               current.acceptMessageID(messageID),
@@ -922,7 +972,12 @@ final class PairingCoordinator: ObservableObject {
               let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: current.pairingKey!),
               let payload = try? JSONDecoder().decode(FindDevicePayload.self, from: plaintext),
               payload.alertId == "active" else { throw PairingError.invalidMessage }
-        androidRinging = started
+        setRemoteRinging(started, for: current)
+    }
+
+    private func setRemoteRinging(_ ringing: Bool, for current: Session) {
+        registry.update(current.remoteDeviceID) { $0.ringing = ringing }
+        publish()
     }
 
     private func startMacSound() {
@@ -941,7 +996,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func chooseAndSendFile() {
-        guard session != nil, case .connected = state else {
+        guard session != nil else {
             fileTransferStatus = "Not connected — file was not sent"
             return
         }
@@ -966,14 +1021,14 @@ final class PairingCoordinator: ObservableObject {
             panel.allowsMultipleSelection = true
             panel.level = .floating
             guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
-            guard self.session != nil, case .connected = self.state, self.isFeatureAvailable(.files) else { return }
+            guard self.session != nil, self.isFeatureAvailable(.files) else { return }
             self.queueFiles(panel.urls)
         }
     }
 
     @discardableResult
     func sendDroppedFiles(_ urls: [URL]) -> Bool {
-        guard session != nil, case .connected = state else {
+        guard session != nil else {
             fileTransferStatus = "Not connected — file was not sent"
             return false
         }
@@ -1029,7 +1084,7 @@ final class PairingCoordinator: ObservableObject {
     /// Adds files to the outgoing queue. Files are offered one after another,
     /// each as its own transfer, so a failure or cancellation affects only that file.
     private func queueFiles(_ urls: [URL], uploadTarget: (rootID: String, path: String)? = nil) {
-        guard session != nil, case .connected = state, isFeatureAvailable(.files) else { return }
+        guard session != nil, isFeatureAvailable(.files) else { return }
         let queuedAt = Date()
         let status = L10n.text("files.queued", fallback: "Queued")
         for (index, url) in urls.enumerated() {
@@ -1052,7 +1107,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func startNextQueuedFile() {
-        guard session != nil, case .connected = state else { return }
+        guard session != nil else { return }
         guard isFeatureAvailable(.files) else {
             stopFileQueue(status: "File transfer is turned off on one of your devices")
             return
@@ -1091,7 +1146,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func prepareFile(_ url: URL, transferID: String, folderEntry: (folderID: String, entry: Int, size: Int64)? = nil) {
-        guard let current = session, case .connected = state else { return }
+        guard let current = session else { return }
         let expectedSessionID = current.id
         let preparationCancellation = FileCancellationToken()
         filePreparationCancellation = preparationCancellation
@@ -1113,8 +1168,7 @@ final class PairingCoordinator: ObservableObject {
                         self.finishQueuedFile(transferID)
                         return
                     }
-                    guard let current = self.session, current.id == expectedSessionID,
-                          case .connected = self.state else {
+                    guard let current = self.session, current.id == expectedSessionID else {
                         self.markFileTransferFinished(id: transferID, status: "Transfer interrupted — reconnect to retry")
                         self.finishQueuedFile(transferID)
                         return
@@ -1163,7 +1217,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func sendBrowseRequest(kind: String, payload: Data) -> Bool {
-        guard let current = session, case .connected = state, let key = current.pairingKey,
+        guard let current = session, let key = current.pairingKey,
               let sealed = try? encrypt(payload, key: key) else { return false }
         current.send(PairingMessage(
             kind: kind,
@@ -1176,7 +1230,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func receiveBrowseAnswer(_ message: PairingMessage, in current: Session) throws {
-        guard case .connected = state, message.sessionId == current.id,
+        guard registry.isActive(current), message.sessionId == current.id,
               let messageID = message.messageId, current.acceptMessageID(messageID) else { return }
         guard let nonce = message.nonce, let ciphertext = message.ciphertext,
               let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: current.pairingKey!),
@@ -1204,7 +1258,7 @@ final class PairingCoordinator: ObservableObject {
 
     /// Scans a queued folder in the background, then offers it with its manifest.
     private func startFolder(_ url: URL, folderID: String) {
-        guard let current = session, case .connected = state, isFeatureAvailable(.folders) else {
+        guard let current = session, isFeatureAvailable(.folders) else {
             markFileTransferFinished(id: folderID, status: Self.foldersOffText)
             finishQueuedFile(folderID)
             return
@@ -1222,7 +1276,7 @@ final class PairingCoordinator: ObservableObject {
                 self.filePreparationCancellation = nil
                 switch result {
                 case let .success(manifest):
-                    guard let current = self.session, current.id == expectedSessionID, case .connected = self.state,
+                    guard let current = self.session, current.id == expectedSessionID,
                           let key = current.pairingKey else {
                         self.markFileTransferFinished(id: folderID, status: "File transfer interrupted")
                         self.finishQueuedFile(folderID)
@@ -1319,7 +1373,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func sendNextFolderFile(_ folder: OutgoingFolder) {
-        guard outgoingFolder === folder, session != nil, case .connected = state else { return }
+        guard outgoingFolder === folder, session != nil else { return }
         guard isFeatureAvailable(.files), isFeatureAvailable(.folders) else {
             endOutgoingFolder(folder, status: Self.foldersOffText, notifyPeer: true)
             return
@@ -1420,7 +1474,7 @@ final class PairingCoordinator: ObservableObject {
         _ message: PairingMessage,
         in current: Session
     ) throws -> Payload? {
-        guard case .connected = state, message.sessionId == current.id,
+        guard registry.isActive(current), message.sessionId == current.id,
               let messageID = message.messageId, current.acceptMessageID(messageID) else { return nil }
         guard let nonce = message.nonce, let ciphertext = message.ciphertext,
               let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: current.pairingKey!),
@@ -1487,7 +1541,7 @@ final class PairingCoordinator: ObservableObject {
 
     func retryFileTransfer(id transferID: String) {
         guard let url = outgoingFileSources[transferID] else { return }
-        guard session != nil, case .connected = state else {
+        guard session != nil else {
             markFileTransferFinished(id: transferID, status: "Reconnect before retrying")
             return
         }
@@ -1559,19 +1613,13 @@ final class PairingCoordinator: ObservableObject {
         }
     }
 
+    /// An incoming connection is handshaken next to the existing sessions; a duplicate
+    /// for an already connected device is resolved only after authentication.
     private func accept(_ connection: NWConnection) {
-        session?.close()
         let current = Session(connection: connection, peerName: "Android device")
         current.initiatedLocally = false
-        session = current
-        remoteBattery = nil
-        clearPingStatus()
-        quickActions.reset()
-        mediaController.reset()
-        lastSentBattery = nil
-        remoteFeatures = defaultRemoteFeatureState()
-        remoteFeatureStateReceived = false
-        clearRemoteCall()
+        registry.addPending(current, initiatedLocally: false)
+        scheduleConnectionTimeout(for: current)
         configure(current, onReady: {})
     }
 
@@ -1581,33 +1629,14 @@ final class PairingCoordinator: ObservableObject {
             self.receive(message, in: current)
         }
         current.onFailure = { [weak self, weak current] in
-            guard let self, self.session === current else { return }
-            self.connectionTimeoutWorkItem?.cancel()
-            self.heartbeatWorkItem?.cancel()
-            self.cancelIncomingFiles()
-            self.clearClipboardSendStatus()
-            self.clearCallStatus()
-            if !self.outgoingFiles.isEmpty {
-                self.outgoingFiles.values.forEach { $0.cancel() }
-                self.outgoingFiles.removeAll()
-                self.fileTransferStatus = "File transfer interrupted"
-            }
-            if case .connected = self.state {
-                self.session = nil
-                self.remoteBattery = nil
-                self.clearPingStatus()
-                self.quickActions.reset()
-                self.mediaController.reset()
-                self.lastSentBattery = nil
-                self.clearRemoteCall()
-                self.remoteFeatures = defaultRemoteFeatureState()
-                self.remoteFeatureStateReceived = false
-                self.state = .idle
-                NSLog("TRANSPORT disconnected")
+            guard let self, let current, self.registry.contains(current) else { return }
+            let wasPairing = self.pairingSession === current
+            if let deviceID = self.endSession(current) {
+                self.deviceDisconnected(deviceID)
                 self.diagnostics.record(category: "transport", event: "disconnected", outcome: "reconnecting")
                 self.scheduleReconnect()
-            } else {
-                self.state = .failed("Pairing connection lost")
+            } else if wasPairing {
+                self.failPairing("Pairing connection lost")
             }
         }
         current.connection.stateUpdateHandler = { [weak self, weak current] newState in
@@ -1621,18 +1650,9 @@ final class PairingCoordinator: ObservableObject {
                 case .failed, .cancelled:
                     current.onFailure?()
                 case let .waiting(error) where localNetworkPermissionDenied(error):
-                    guard self.session === current else { return }
-                    self.connectionTimeoutWorkItem?.cancel()
-                    self.heartbeatWorkItem?.cancel()
-                    self.session = nil
-                    self.clearPingStatus()
-                    self.quickActions.reset()
-                    self.mediaController.reset()
-                    self.lastSentBattery = nil
-                    self.clearRemoteCall()
-                    self.remoteFeatureStateReceived = false
-                    current.close()
-                    self.state = .failed("Local Network access is off. Enable Bridgey in System Settings → Privacy & Security → Local Network.")
+                    guard self.registry.contains(current) else { return }
+                    if let deviceID = self.endSession(current) { self.deviceDisconnected(deviceID) }
+                    self.failPairing("Local Network access is off. Enable Bridgey in System Settings → Privacy & Security → Local Network.")
                     self.diagnostics.record(category: "transport", event: "local_network_denied", outcome: "permission_required")
                 default:
                     break
@@ -1648,14 +1668,15 @@ final class PairingCoordinator: ObservableObject {
             case "quick.request", "quick.result":
                 receiveQuickPayload(message, current: current)
             case "heartbeat.ping":
-                guard message.sessionId == current.id, case .connected = state else { return }
+                guard message.sessionId == current.id, registry.isActive(current) else { return }
                 current.heartbeatSupported = true
                 current.send(PairingMessage(kind: "heartbeat.pong", sessionId: current.id, messageId: message.messageId))
             case "heartbeat.pong":
-                guard message.sessionId == current.id, case .connected = state else { return }
+                guard message.sessionId == current.id, registry.isActive(current) else { return }
                 current.heartbeatSupported = true
             case "pairing.offer":
-                guard let publicKey = message.publicKey else { throw PairingError.invalidMessage }
+                guard registry.isPending(current), !current.initiatedLocally, current.pairingKey == nil,
+                      let publicKey = message.publicKey else { throw PairingError.invalidMessage }
                 current.id = message.sessionId
                 current.peerName = message.deviceName ?? "Android device"
                 guard let remoteDeviceID = message.deviceId else { throw PairingError.invalidMessage }
@@ -1676,7 +1697,8 @@ final class PairingCoordinator: ObservableObject {
                 ))
                 authenticateOrPrompt(current)
             case "pairing.answer":
-                guard message.sessionId == current.id,
+                guard registry.isPending(current), current.initiatedLocally, current.pairingKey == nil,
+                      message.sessionId == current.id,
                       let key = current.privateKey,
                       let publicKey = message.publicKey,
                       let remoteDeviceID = message.deviceId else { throw PairingError.invalidMessage }
@@ -1688,7 +1710,8 @@ final class PairingCoordinator: ObservableObject {
                 current.pairingKey = material.key
                 authenticateOrPrompt(current)
             case "pairing.confirm":
-                guard message.sessionId == current.id,
+                guard registry.isPending(current), current.pairingKey != nil,
+                      message.sessionId == current.id,
                       let remoteID = message.deviceId,
                       remoteID == current.remoteDeviceID,
                       let identityKey = message.identityKey,
@@ -1708,9 +1731,14 @@ final class PairingCoordinator: ObservableObject {
                 current.remoteConfirmed = true
                 completeIfConfirmed(current)
             case "pairing.cancel":
-                cancel()
+                let wasPairing = pairingSession === current
+                if let deviceID = endSession(current) { deviceDisconnected(deviceID) }
+                if wasPairing {
+                    pairingFlow = .idle
+                    publish()
+                }
             case "features.update":
-                guard case .connected = state,
+                guard registry.isActive(current),
                       message.sessionId == current.id,
                       let messageID = message.messageId,
                       current.acceptMessageID(messageID),
@@ -1722,32 +1750,36 @@ final class PairingCoordinator: ObservableObject {
                       BridgeyFeature.allCases.filter(featureEnabledByLegacyPeer).allSatisfy({ payload.features[$0.rawValue] != nil }) else {
                     throw PairingError.invalidMessage
                 }
-                remoteFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
+                let features = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
                     ($0, payload.features[$0.rawValue] ?? false)
                 })
-                remoteFeatureStateReceived = true
+                registry.update(current.remoteDeviceID) {
+                    $0.remoteFeatures = features
+                    $0.featureStateReceived = true
+                    if features[.battery] == false { $0.battery = nil }
+                    if features[.findDevice] == false { $0.ringing = false }
+                }
+                publish()
                 if !isFeatureAvailable(.links) { quickActions.reset() }
                 if !isFeatureAvailable(.filesBrowse) || !isFeatureAvailable(.files) { folderBrowser.reset() }
                 mediaController.reset()
                 mediaController.refresh()
-                if remoteFeatures[.battery] == false { remoteBattery = nil }
-                if remoteFeatures[.ping] == false { clearPingStatus() }
-                if remoteFeatures[.clipboard] == false { clearClipboardSendStatus() }
-                if remoteFeatures[.notifications] == false { clearRemoteCall() }
-                if remoteFeatures[.calls] == false { clearCallStatus() }
-                if remoteFeatures[.folders] == false, let folder = outgoingFolder {
+                if features[.ping] == false { clearPingStatus() }
+                if features[.clipboard] == false { clearClipboardSendStatus() }
+                if features[.notifications] == false { clearRemoteCall() }
+                if features[.calls] == false { clearCallStatus() }
+                if features[.folders] == false, let folder = outgoingFolder {
                     endOutgoingFolder(folder, status: Self.foldersOffText, notifyPeer: true)
                 }
-                if remoteFeatures[.files] == false && fileTransferActive {
+                if features[.files] == false && fileTransferActive {
                     cancelFileTransfer()
                     fileTransferStatus = nil
                 }
-                if remoteFeatures[.findDevice] == false {
-                    stopMacSound()
-                    androidRinging = false
-                }
+                if features[.findDevice] == false { stopMacSound() }
                 flushPendingCallIfPossible()
-                publishLocalBattery(force: true)
+                if isFeatureAvailable(.battery, for: current.remoteDeviceID) {
+                    publishLocalBattery(to: current, force: true)
+                }
             case "ping.request":
                 try receivePing(message, in: current)
             case "ping.ack":
@@ -1762,10 +1794,10 @@ final class PairingCoordinator: ObservableObject {
                         sessionId: current.id,
                         messageId: message.messageId
                     ))
-                    sendFeatureState()
+                    sendFeatureState(to: current)
                     return
                 }
-                guard case .connected = state,
+                guard registry.isActive(current),
                       message.sessionId == current.id,
                       let messageID = message.messageId,
                       current.acceptMessageID(messageID),
@@ -1816,7 +1848,7 @@ final class PairingCoordinator: ObservableObject {
                 try receiveFindAcknowledgement(message, in: current, started: false)
             case "battery.update":
                 guard featureEnabled(.battery, current: current) else { return }
-                guard case .connected = state,
+                guard registry.isActive(current),
                       message.sessionId == current.id,
                       let messageID = message.messageId,
                       current.acceptMessageID(messageID),
@@ -1827,11 +1859,14 @@ final class PairingCoordinator: ObservableObject {
                       (0...100).contains(payload.level) else {
                     throw PairingError.invalidMessage
                 }
-                remoteBattery = RemoteBatteryStatus(level: payload.level, isCharging: payload.isCharging)
+                registry.update(current.remoteDeviceID) {
+                    $0.battery = RemoteBatteryStatus(level: payload.level, isCharging: payload.isCharging)
+                }
+                publish()
                 NSLog("PLUGIN battery received level=%d charging=%@", payload.level, String(payload.isCharging))
             case "notifications.post":
                 guard featureEnabled(.notifications, current: current) else { return }
-                guard case .connected = state,
+                guard registry.isActive(current),
                       message.sessionId == current.id,
                       let messageID = message.messageId,
                       current.acceptMessageID(messageID),
@@ -1871,10 +1906,10 @@ final class PairingCoordinator: ObservableObject {
                         sessionId: current.id,
                         transferId: message.transferId
                     ))
-                    sendFeatureState()
+                    sendFeatureState(to: current)
                     return
                 }
-                guard case .connected = state,
+                guard registry.isActive(current),
                       message.sessionId == current.id,
                       let messageID = message.messageId,
                       current.acceptMessageID(messageID),
@@ -1905,7 +1940,7 @@ final class PairingCoordinator: ObservableObject {
                 if let transferID = message.transferId,
                    incomingFiles[transferID] == nil,
                    cancelledTransferIDs.contains(transferID) { return }
-                guard case .connected = state,
+                guard registry.isActive(current),
                       message.sessionId == current.id,
                       let messageID = message.messageId,
                       current.acceptMessageID(messageID),
@@ -1923,7 +1958,7 @@ final class PairingCoordinator: ObservableObject {
                     updateFileTransfer(id: transferID, name: transfer.displayName, status: fileTransferStatus!, active: true)
                 }
             case "files.complete":
-                guard case .connected = state,
+                guard registry.isActive(current),
                       message.sessionId == current.id,
                       let messageID = message.messageId,
                       current.acceptMessageID(messageID),
@@ -1970,7 +2005,7 @@ final class PairingCoordinator: ObservableObject {
                 if let transferID = message.transferId,
                    outgoingFiles[transferID] == nil,
                    cancelledTransferIDs.contains(transferID) { return }
-                guard case .connected = state,
+                guard registry.isActive(current),
                       message.sessionId == current.id,
                       let transferID = message.transferId,
                       let transfer = outgoingFiles[transferID] else { throw PairingError.invalidMessage }
@@ -1986,7 +2021,7 @@ final class PairingCoordinator: ObservableObject {
                         self.updateFileTransfer(id: transferID, name: transfer.displayName, status: value, active: true)
                     },
                     completion: { [weak self, weak current] result in
-                        guard let self, let current, self.session === current else { return }
+                        guard let self, let current, self.registry.isActive(current) else { return }
                         switch result {
                         case let .success(completion):
                             guard !transfer.isCancelled,
@@ -2072,29 +2107,59 @@ final class PairingCoordinator: ObservableObject {
                 break
             }
         } catch {
-            current.close()
-            state = .failed("Invalid pairing message")
+            let wasPairing = pairingSession === current
+            let deviceID = endSession(current)
+            if let deviceID { deviceDisconnected(deviceID) }
+            if wasPairing || deviceID != nil { failPairing("Invalid pairing message") }
             diagnostics.record(category: "protocol", event: "message_rejected", outcome: "session_closed")
         }
     }
 
     private func completeIfConfirmed(_ current: Session) {
-        if current.localConfirmed && current.remoteConfirmed {
-            connectionTimeoutWorkItem?.cancel()
-            saveTrust(current)
-            state = .connected(deviceID: current.remoteDeviceID, peerName: current.peerName)
-            diagnostics.record(category: "pairing", event: "connected")
-            reconnectAttempt = 0
-            reconnectWorkItem?.cancel()
-            sendFeatureState()
-            publishLocalBattery(force: true)
-            scheduleHeartbeat(for: current)
-            NSLog("PAIRING verified peer=%@", current.peerName)
+        guard current.localConfirmed && current.remoteConfirmed, registry.isPending(current) else { return }
+        current.connectionTimeout?.cancel()
+        saveTrust(current)
+        if pairingSession === current {
+            pairingSession = nil
+            pairingFlow = .idle
         }
+        let deviceID = current.remoteDeviceID
+        switch registry.authenticate(current, deviceID: deviceID, peerName: current.peerName) {
+        case .rejected:
+            // The device's other session wins the duplicate rule; both ends close this one.
+            NSLog("TRANSPORT duplicate session closed peerId=%@", String(deviceID.prefix(8)))
+            endSession(current)
+            publish()
+            return
+        case let .accepted(replaced):
+            if let replaced {
+                replaced.connectionTimeout?.cancel()
+                replaced.heartbeat?.cancel()
+                replaced.close()
+                cancelIncomingFiles()
+            }
+        }
+        // One device at a time: a different device that connects replaces the previous one.
+        for other in registry.connectedIDs where other != deviceID {
+            disconnect(deviceID: other)
+        }
+        diagnostics.record(category: "pairing", event: "connected")
+        reconnectAttempt = 0
+        reconnectWorkItem?.cancel()
+        publish()
+        sendFeatureState(to: current)
+        if isFeatureAvailable(.battery, for: deviceID) { publishLocalBattery(to: current, force: true) }
+        scheduleHeartbeat(for: current)
+        NSLog("PAIRING verified peer=%@", current.peerName)
     }
 
+    /// Sends every connected device the local feature state for that device.
     private func sendFeatureState() {
-        guard let current = session, case .connected = state, let key = current.pairingKey else { return }
+        registry.broadcastTargets { _, _ in true }.forEach { sendFeatureState(to: $0.session) }
+    }
+
+    private func sendFeatureState(to current: Session) {
+        guard registry.isActive(current), let key = current.pairingKey else { return }
         let features = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
             ($0.rawValue, settings.isEnabled($0, for: current.remoteDeviceID))
         })
@@ -2204,9 +2269,19 @@ final class PairingCoordinator: ObservableObject {
     private func authenticateOrPrompt(_ current: Session) {
         if trustedIdentityKey(current.remoteDeviceID) != nil {
             confirm(current)
-        } else {
-            state = .verification(peerName: current.peerName, code: current.code!)
+            return
         }
+        if let other = pairingSession, other !== current {
+            // Only one pairing code is shown at a time; this device can ask again afterwards.
+            current.send(PairingMessage(kind: "pairing.cancel", sessionId: current.id))
+            endSession(current)
+            return
+        }
+        pairingSession = current
+        current.awaitingCode = true
+        current.connectionTimeout?.cancel()
+        pairingFlow = .verification(peerName: current.peerName, code: current.code!)
+        publish()
     }
 
     private func authTranscript(_ current: Session) -> Data {
@@ -2250,25 +2325,27 @@ final class PairingCoordinator: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
+    /// Ends a session that has not authenticated in time, unless its pairing code is shown.
     private func scheduleConnectionTimeout(for current: Session) {
-        connectionTimeoutWorkItem?.cancel()
+        current.connectionTimeout?.cancel()
         let timeout = DispatchWorkItem { [weak self, weak current] in
-            guard let self, let current, self.session === current else { return }
-            guard case .connecting = self.state else { return }
-            self.session = nil
-            current.close()
-            self.state = .idle
+            guard let self, let current, self.registry.isPending(current), !current.awaitingCode else { return }
+            let wasPairing = self.pairingSession === current
+            self.endSession(current)
             NSLog("TRANSPORT connection timed out")
+            guard wasPairing else { return }
+            self.pairingFlow = .idle
+            self.publish()
             self.scheduleReconnect()
         }
-        connectionTimeoutWorkItem = timeout
+        current.connectionTimeout = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: timeout)
     }
 
     private func scheduleHeartbeat(for current: Session) {
-        heartbeatWorkItem?.cancel()
+        current.heartbeat?.cancel()
         let work = DispatchWorkItem { [weak self, weak current] in
-            guard let self, let current, self.session === current, case .connected = self.state else { return }
+            guard let self, let current, self.registry.isActive(current) else { return }
             if heartbeatExpired(supported: current.heartbeatSupported, lastReceivedAt: current.lastReceivedAt) {
                 NSLog("TRANSPORT heartbeat timed out")
                 current.close()
@@ -2279,11 +2356,13 @@ final class PairingCoordinator: ObservableObject {
                 sessionId: current.id,
                 messageId: UUID().uuidString.lowercased()
             ))
-            self.publishLocalBattery()
+            if self.isFeatureAvailable(.battery, for: current.remoteDeviceID) {
+                self.publishLocalBattery(to: current, force: false)
+            }
             self.mediaController.refresh()
             self.scheduleHeartbeat(for: current)
         }
-        heartbeatWorkItem = work
+        current.heartbeat = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: work)
     }
 
@@ -2440,10 +2519,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func dismissAndroidNotification(_ notificationID: String, deviceID: String) {
-        guard case let .connected(connectedDeviceID, _) = state,
-              connectedDeviceID == deviceID,
-              let current = session,
-              current.remoteDeviceID == deviceID,
+        guard let current = registry.session(for: deviceID),
               featureEnabled(.notifications, current: current),
               !notificationID.isEmpty,
               notificationID.count <= 512,
@@ -2465,10 +2541,7 @@ final class PairingCoordinator: ObservableObject {
         actionToken: String,
         replyText: String?
     ) {
-        guard case let .connected(connectedDeviceID, _) = state,
-              connectedDeviceID == deviceID,
-              let current = session,
-              current.remoteDeviceID == deviceID,
+        guard let current = registry.session(for: deviceID),
               featureEnabled(.notifications, current: current),
               !notificationID.isEmpty,
               notificationID.count <= 512,
@@ -2491,7 +2564,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func receiveNotificationReference(_ message: PairingMessage, in current: Session) throws -> NotificationReferencePayload? {
-        guard case .connected = state,
+        guard registry.isActive(current),
               message.sessionId == current.id,
               let messageID = message.messageId,
               current.acceptMessageID(messageID),
@@ -2570,6 +2643,11 @@ private final class Session {
     var remoteConfirmed = false
     var lastReceivedAt = Date()
     var heartbeatSupported = false
+    /// The pairing code is on screen; the handshake timeout no longer applies.
+    var awaitingCode = false
+    var connectionTimeout: DispatchWorkItem?
+    var heartbeat: DispatchWorkItem?
+    var lastSentBattery: LocalBatteryStatus?
     var onMessage: ((PairingMessage) -> Void)?
     var onFailure: (() -> Void)?
     private var buffer = Data()
