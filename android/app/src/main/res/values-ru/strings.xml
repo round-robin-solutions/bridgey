@@ -38,4 +38,8 @@
     <string name="widget_status_unpaired">Сначала выполните сопряжение с Mac в Bridgey</string>
     <string name="widget_status_empty">Разрешите блокировку, сон или громкость в настройках Bridgey на Mac</string>
     <string name="services_controls_hint">Элементы управления устройствами и виджет Bridgey на главном экране показывают действия, которые разрешает ваш Mac.</string>
+    <string name="share_link_summary">Отправить эту ссылку с %1$s на Mac?</string>
+    <string name="share_link_detail">Mac покажет её, пока вы не откроете или не скроете её там.</string>
+    <string name="share_link_send">Отправить ссылку</string>
+    <string name="share_link_as_text">Отправить как текст</string>
 </resources>

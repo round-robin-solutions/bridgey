@@ -142,6 +142,9 @@ that an operation definitely never reached the other peer.
   no user credentials, whitespace/control characters or backslashes, valid
   optional port. One pending received link per device; a second is declined.
   Acceptance means queued for explicit local Open/Dismiss, **not** opened.
+  The Mac can also send the address of the
+  front Safari or Chrome tab as an `offer`; it reads it with a fixed
+  AppleScript, so macOS asks for Automation access the first time.
 - `media`: Android → Mac, only `toggle`, `pause`, `next`, `previous`, `seek`
   (integer seconds 0…604800), `volume` (integer 0…100). The Mac must locally
   opt in and select running Music or Spotify. Commands map to fixed player

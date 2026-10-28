@@ -38,4 +38,8 @@
     <string name="widget_status_unpaired">Pair a Mac in Bridgey first</string>
     <string name="widget_status_empty">Allow Lock, Sleep or Volume in Bridgey Settings on the Mac</string>
     <string name="services_controls_hint">Device controls and the Bridgey home-screen widget offer the Mac actions your Mac allows.</string>
+    <string name="share_link_summary">Send this link from %1$s to your Mac?</string>
+    <string name="share_link_detail">The Mac shows it until you open or dismiss it there.</string>
+    <string name="share_link_send">Send link</string>
+    <string name="share_link_as_text">Send as text</string>
 </resources>

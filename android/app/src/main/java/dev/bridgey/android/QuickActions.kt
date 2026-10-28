@@ -30,6 +30,17 @@ internal fun validatedWebLink(value: String): String? {
         !uri.host.isNullOrBlank() && uri.rawUserInfo == null && (uri.port == -1 || uri.port in 1..65535) }
 }
 
+/** The web link in shared text: the whole text, or its only http(s) word, as in "Title https://...". */
+internal fun sharedWebLink(text: String): String? {
+    if (text.length > 8192) return null
+    validatedWebLink(text)?.let { return it }
+    return text.split(Regex("\\s+"))
+        .filter { it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true) }
+        .singleOrNull()?.let(::validatedWebLink)
+}
+
+internal fun linkHost(link: String): String = runCatching { URI(link).host }.getOrNull() ?: link.take(64)
+
 data class MacMediaState(
     val player: String = "", val title: String = "", val artist: String = "",
     val playing: Boolean = false, val position: Int = 0, val duration: Int = 0, val volume: Int = 0,

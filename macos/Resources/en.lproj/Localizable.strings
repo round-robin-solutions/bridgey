@@ -39,3 +39,8 @@
 "actions.outcome.permission" = "Refused: needs Accessibility";
 "actions.outcome.unavailable" = "Not available on this Mac";
 "actions.outcome.failed" = "Failed";
+"browser.tab" = "Tab";
+"browser.tab.help" = "Send the current Safari or Chrome tab to Android";
+"browser.none" = "Open Safari or Chrome first";
+"browser.noTab" = "The front browser tab has no web address";
+"browser.automation" = "Allow Bridgey to control the browser in System Settings > Privacy & Security > Automation";

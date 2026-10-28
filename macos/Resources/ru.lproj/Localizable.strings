@@ -39,3 +39,8 @@
 "actions.outcome.permission" = "Отклонено: нужен Универсальный доступ";
 "actions.outcome.unavailable" = "Недоступно на этом Mac";
 "actions.outcome.failed" = "Не удалось";
+"browser.tab" = "Вкладка";
+"browser.tab.help" = "Отправить текущую вкладку Safari или Chrome на Android";
+"browser.none" = "Сначала откройте Safari или Chrome";
+"browser.noTab" = "У передней вкладки браузера нет веб-адреса";
+"browser.automation" = "Разрешите Bridgey управлять браузером в Системных настройках > «Конфиденциальность и безопасность» > «Автоматизация»";

@@ -209,6 +209,8 @@ private struct BridgeyPanel: View {
                 }
                 if pairing.isFeatureAvailable(.links) {
                     actionButton("Link", icon: "link") { pairing.quickActions.sendClipboardLink() }
+                    actionButton(L10n.text("browser.tab", fallback: "Tab"), icon: "safari") { pairing.quickActions.sendBrowserTab() }
+                        .help(L10n.text("browser.tab.help", fallback: "Send the current Safari or Chrome tab to Android"))
                 }
             }
             QuickActionsPanel(actions: pairing.quickActions)
