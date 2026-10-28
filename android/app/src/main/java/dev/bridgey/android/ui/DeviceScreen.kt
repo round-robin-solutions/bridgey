@@ -107,6 +107,10 @@ data class DeviceState(
 class DeviceActions(
     val back: () -> Unit = {},
     val forget: () -> Unit = {},
+    /** Disconnects this Mac until the user connects again. */
+    val disconnect: () -> Unit = {},
+    /** Connects again to a Mac the user disconnected. */
+    val connect: () -> Unit = {},
     val sendFile: () -> Unit = {},
     val sendLink: () -> Unit = {},
     val ping: () -> Unit = {},
@@ -222,6 +226,25 @@ private fun DeviceBar(state: DeviceState, actions: DeviceActions) {
                 containerColor = BridgeyTheme.colors.surface2,
                 shape = RoundedCornerShape(16.dp),
             ) {
+                if (state.connected) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.device_disconnect, state.ring.name)) },
+                        leadingIcon = { Icon(BridgeyIcons.PowerSettingsNew, null) },
+                        onClick = {
+                            menu = false
+                            actions.disconnect()
+                        },
+                    )
+                } else if (state.ring.reconnect?.disconnectedByUser == true) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.device_connect, state.ring.name)) },
+                        leadingIcon = { Icon(BridgeyIcons.Link, null) },
+                        onClick = {
+                            menu = false
+                            actions.connect()
+                        },
+                    )
+                }
                 if (state.ring.trusted) {
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.device_forget, state.ring.name), color = BridgeyTheme.colors.warn) },

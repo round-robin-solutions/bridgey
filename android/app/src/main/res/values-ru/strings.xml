@@ -133,6 +133,9 @@
 
     <string name="device_more">Другие действия</string>
     <string name="device_forget">Забыть %1$s</string>
+    <string name="device_disconnect">Отключить %1$s</string>
+    <string name="device_connect">Подключиться к %1$s</string>
+    <string name="ring_disconnected_by_you">Отключено</string>
     <string name="device_tab_activity">Активность</string>
     <string name="device_tab_permissions">Разрешения</string>
     <string name="device_permissions_intro">Чем этот телефон делится с %1$s.</string>

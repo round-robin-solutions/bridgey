@@ -394,6 +394,8 @@ data class ReconnectDisplay(
     val lastSeenMillis: Long?,
     /** Several attempts failed: "Can't reach" rather than "Reconnecting". */
     val struggling: Boolean,
+    /** The user disconnected it on this phone: nothing is retried until they connect again. */
+    val disconnectedByUser: Boolean = false,
 )
 
 /** What NSD shows for one device with an advertised id right now (trusted or not). */
