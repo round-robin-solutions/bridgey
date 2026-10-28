@@ -70,6 +70,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
             .forEach { forwardedNotifications.record(notificationToken(it.key), it.key, it.packageName) }
         // Removals are not delivered while unbound, so retract anything that disappeared meanwhile.
         retractStaleForwardedNotifications(active.mapTo(mutableSetOf()) { notificationToken(it.key) })
+        restoreSmsTargets(active)
         updateTelephonyCallback()
         refreshActiveCallNotifications()
         BridgeyLogging.i(LogCategory.NOTIFICATIONS, "PLUGIN notification listener connected")
@@ -287,6 +288,60 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         actionTokensByNotificationId[notificationId] = forwarded.map(ForwardedNotificationAction::token)
         while (storedActions.size > MAX_STORED_ACTIONS) storedActions.remove(storedActions.keys.first())
         return forwarded
+    }
+
+    /**
+     * Text messages: the default SMS app's notifications already showing when the listener connects
+     * (Bridgey restarted or updated, or Android rebound it) are found again, with their actions, so a
+     * Mac can still answer them and mark them read (sms.mark_read). Seen live: after an update the
+     * phone answered not_shown for a notification still on screen. Nothing is forwarded again.
+     */
+    @Synchronized
+    private fun restoreSmsTargets(active: List<StatusBarNotification>) {
+        val bridgey = application as BridgeyApplication
+        val skipped = when {
+            !bridgey.isPrimaryUser -> "user"
+            !bridgey.isBridgeyEnabled -> "off"
+            !bridgey.settings.smsOn() -> "sms_off"
+            else -> null
+        }
+        val smsPackage = if (skipped == null) runCatching { bridgey.codeAccess.defaultSmsPackage() }.getOrNull() else null
+        if (skipped != null || smsPackage == null) {
+            BridgeyLogging.i(LogCategory.NOTIFICATIONS, "SMS notifications not looked at reason=${skipped ?: "no_default_app"}")
+            return
+        }
+        val provider = dev.bridgey.android.sms.SmsProvider(this)
+        var restored = 0
+        var matched = 0
+        active.filter {
+            it.packageName == smsPackage && it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 &&
+                bridgey.settings.isNotificationApplicationEnabled(it.packageName)
+        }.forEach { sbn ->
+            val notificationId = notificationToken(sbn.key)
+            if (dev.bridgey.android.sms.SmsNotificationTargets.get(notificationId) != null) return@forEach
+            val notification = sbn.notification
+            val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
+            val text = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim().orEmpty()
+            // The same tokens as when it was forwarded: they are derived from the notification and the action's place.
+            val actions = storeActions(notificationId, notificationActionCandidates(notification, null, false))
+            val threadId = if (provider.canRead) {
+                runCatching {
+                    dev.bridgey.android.sms.matchNotificationThreadAnyTime(title, text, sbn.postTime, notification.`when`, provider::recentInbox)
+                }.getOrNull()
+            } else {
+                null
+            }
+            dev.bridgey.android.sms.SmsNotificationTargets.record(
+                dev.bridgey.android.sms.SmsNotificationTarget(
+                    notificationId, title, text, sbn.postTime, threadId, messageTime = notification.`when`,
+                    replyToken = actions.firstOrNull { it.allowsReply }?.token,
+                    markReadToken = actions.firstOrNull { it.markRead }?.token ?: storeHiddenMarkRead(notificationId, notification),
+                ),
+            )
+            restored++
+            if (threadId != null) matched++
+        }
+        BridgeyLogging.i(LogCategory.NOTIFICATIONS, "SMS notifications found again restored=$restored matched=$matched")
     }
 
     /**
@@ -526,6 +581,12 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         fun dismiss(notificationId: String): Boolean {
             val service = activeService?.get() ?: return false
             return service.dismissForwardedNotification(notificationId)
+        }
+
+        /** sms.mark_read: the SMS notifications showing now, in case some were missed (Bridgey just started). */
+        fun refreshSmsTargets() {
+            val service = activeService?.get() ?: return
+            runCatching { service.restoreSmsTargets(service.activeNotifications.orEmpty().filterNot { it.packageName == service.packageName }) }
         }
 
         fun perform(notificationId: String, actionToken: String, replyText: String?): Boolean {

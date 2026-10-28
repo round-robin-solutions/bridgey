@@ -626,8 +626,8 @@ final class TextMessages: ObservableObject {
     func manage(_ phoneID: String) -> SmsManagement { management[phoneID] ?? SmsManagement() }
 
     /// The conversation list as the window shows it.
-    func rows(_ phoneID: String, filter: SmsListFilter) -> [SmsThreadRow] {
-        data(phoneID).cache.rows(manage(phoneID), filter: filter)
+    func rows(_ phoneID: String, filter: SmsListFilter, holding: Int? = nil) -> [SmsThreadRow] {
+        data(phoneID).cache.rows(manage(phoneID), filter: filter, holding: holding)
     }
 
     /// A conversation's messages without the ones deleted on this Mac.

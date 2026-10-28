@@ -231,4 +231,25 @@ class SmsProtocolTest {
             .put("threadIds", org.json.JSONArray(listOf(3, 3, 4))).toString().toByteArray())
         assertEquals(listOf(3L, 4L), (request as SmsRequest.MarkRead).threadIds)
     }
+
+    /** A kind the phone decodes but the session never hands over is silently dropped (seen live with sms.mark_read). */
+    @Test fun everyRequestFromAMacIsRoutedToTheSmsServer() {
+        val root = java.io.File(System.getProperty("bridgey.repoRoot") ?: "../..")
+        val source = java.io.File(root, "android/app/src/main/java/dev/bridgey/android/PairingCoordinator.kt").readText()
+        val routed = Regex("((?:\"sms\\.[a-z_]+\",?\\s*)+)->\\s*receiveSmsMessage").find(source)?.groupValues?.get(1).orEmpty()
+        val kinds = Regex("\"(sms\\.[a-z_]+)\"").findAll(routed).map { it.groupValues[1] }.toSet()
+        assertEquals(SmsKinds.fromMac, kinds)
+    }
+
+    /** Seen live: Google Messages re-posted a 15:02 conversation's notification at 15:46, keeping `when` at 15:02. */
+    @Test fun aNotificationPostedAgainLaterIsMatchedAroundItsMessageTime() {
+        val message = 1_000_000_000L
+        val repost = message + 44 * 60_000L
+        val inbox = listOf(InboxCandidate(1, "5551234", "Hello from the feasibility check", message), InboxCandidate(5, "5550103", "Table is under Kapoor", repost - 5_000))
+        val read = { since: Long -> inbox.filter { it.date >= since } }
+        assertNull("around the post time alone it is not found", matchNotificationThread("555-1234", "Hello from the feasibility check", repost, read(repost - MATCH_WINDOW_BEFORE_MILLIS), message))
+        assertEquals(1L, matchNotificationThreadAnyTime("555-1234", "Hello from the feasibility check", repost, message, read))
+        assertEquals(5L, matchNotificationThreadAnyTime("555-0103", "Table is under Kapoor", repost, repost - 5_000, read))
+        assertNull("no message time: no second try", matchNotificationThreadAnyTime("555-1234", "Hello from the feasibility check", repost, 0, read))
+    }
 }

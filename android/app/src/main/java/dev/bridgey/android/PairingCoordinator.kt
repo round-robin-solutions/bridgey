@@ -207,6 +207,7 @@ class PairingCoordinator(
         replyAsSms = { settings.state.value.smsReplyAsSms },
         performAppReply = { notificationId, token, text -> BridgeyNotificationListenerService.perform(notificationId, token, text) },
         performMarkRead = { notificationId, token -> BridgeyNotificationListenerService.perform(notificationId, token, null) },
+        refreshNotificationTargets = { BridgeyNotificationListenerService.refreshSmsTargets() },
         openBlockedNumbers = { address -> openBlockedNumbers(address) },
     )
 
@@ -2795,7 +2796,9 @@ class PairingCoordinator(
             "camera.request" -> receiveCameraMessage(current, message)
             "screen.request" -> receiveScreenRequest(current, message)
             "screen.started", "screen.ack", "screen.stop" -> receiveScreenStream(current, message)
-            "sms.threads", "sms.messages", "sms.sync", "sms.send", "sms.attachment", "sms.contacts" -> receiveSmsMessage(current, message)
+            // Every kind in SmsKinds.fromMac (SmsProtocolTest checks this line lists them all).
+            "sms.threads", "sms.messages", "sms.sync", "sms.send", "sms.attachment", "sms.contacts",
+            "sms.mark_read", "sms.blocked_numbers" -> receiveSmsMessage(current, message)
             "notifications.action" -> receiveNotificationAction(current, message)
             "calls.request" -> receiveCallRequest(current, message)
             "find.start" -> receiveFindCommand(current, message, start = true)

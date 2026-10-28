@@ -42,6 +42,8 @@ struct MessagesUnreadAnchor: Equatable {
     let thread: Int
     /// This Mac's read point before the conversation opened.
     let readThrough: Int?
+    /// The phone's unread count then.
+    let count: Int
     var messageID: String?
     var resolved = false
 }
@@ -80,6 +82,11 @@ enum MessagesWindowController {
         }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+        // SwiftUI hands the search field the keyboard when the window becomes key; the list keeps it
+        // instead, so Command-Delete and the other shortcuts work at once (Command-F goes to search).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if let window, window.firstResponder is NSText { window.makeFirstResponder(nil) }
+        }
     }
 
     /// The Messages window's own key events (its shortcuts) and alerts.
@@ -288,7 +295,8 @@ private struct MessagesLiveView: View {
         }
         if case let .thread(id)? = target {
             let unread = messages.isUnread(phoneID, thread: id)
-            selection.unread = unread ? MessagesUnreadAnchor(thread: id, readThrough: messages.manage(phoneID).readThrough[String(id)]) : nil
+            selection.unread = unread ? MessagesUnreadAnchor(thread: id, readThrough: messages.manage(phoneID).readThrough[String(id)],
+                                                             count: messages.data(phoneID).cache.thread(id)?.unread ?? 0) : nil
             resolveUnreadAnchor()
             messages.open(phoneID, thread: id)
             // Opening a conversation reads it here, and on the phone through its notification.
@@ -305,7 +313,7 @@ private struct MessagesLiveView: View {
         guard let phoneID, var anchor = selection.unread, !anchor.resolved else { return }
         let list = messages.visibleMessages(phoneID, thread: anchor.thread)
         guard !list.isEmpty else { return }
-        anchor.messageID = smsFirstUnread(list, readThrough: anchor.readThrough)?.id
+        anchor.messageID = smsFirstUnread(list, readThrough: anchor.readThrough, count: anchor.count)?.id
         anchor.resolved = true
         selection.unread = anchor
     }
@@ -350,7 +358,9 @@ private struct MessagesLiveView: View {
         model.phoneName = name
         model.threads = data.cache.threads
         model.filter = selection.filter
-        model.rows = messages.rows(phoneID, filter: selection.filter)
+        // The conversation opened while unread keeps its place until another one opens.
+        let holding = selection.unread.flatMap { anchor in selection.target == .thread(anchor.thread) ? anchor.thread : nil }
+        model.rows = messages.rows(phoneID, filter: selection.filter, holding: holding)
         let all = selection.filter == .all ? model.rows : messages.rows(phoneID, filter: .all)
         let archived = selection.filter == .archived ? model.rows : messages.rows(phoneID, filter: .archived)
         model.states = Dictionary((all + archived).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -373,7 +383,7 @@ private struct MessagesLiveView: View {
             model.loadingMessages = data.loadingMessages.contains(id)
             model.outgoing = messages.outgoing.filter { $0.phoneID == phoneID && $0.target == .thread(id) }
             if let anchor = selection.unread, anchor.thread == id {
-                model.unreadFrom = anchor.resolved ? anchor.messageID : smsFirstUnread(model.messages, readThrough: anchor.readThrough)?.id
+                model.unreadFrom = anchor.resolved ? anchor.messageID : smsFirstUnread(model.messages, readThrough: anchor.readThrough, count: anchor.count)?.id
             }
         case let .address(address)?:
             model.outgoing = messages.outgoing.filter {
@@ -499,6 +509,7 @@ private struct MessagesLiveView: View {
         }
         actions.deleteMessage = { message in confirmDeleteMessage(message) }
         actions.openHit = { hit in
+            if MessagesWindowController.current?.firstResponder is NSText { MessagesWindowController.current?.makeFirstResponder(nil) }
             selection.focusMessage = hit.message.id
             selection.selected = []
             if selection.target == .thread(hit.threadId) {
@@ -520,6 +531,8 @@ private struct MessagesLiveView: View {
     }
 
     private func click(_ thread: Int, command: Bool, shift: Bool) {
+        // A click in the list takes the keyboard from a text field, as in Mail, so the list's shortcuts work.
+        if MessagesWindowController.current?.firstResponder is NSText { MessagesWindowController.current?.makeFirstResponder(nil) }
         if shift, let start = selection.rangeStart ?? openThread {
             let order = (selection.query.isEmpty ? model.rows : model.search.threads).map(\.id)
             if let from = order.firstIndex(of: start), let to = order.firstIndex(of: thread) {
@@ -1313,8 +1326,9 @@ private struct BulkPane: View {
             Text(L10n.text("sms.selected.detail", fallback: "Changes here stay on this Mac. Mark as read also clears their notifications on your phone."))
                 .font(BrandFont.body(13)).foregroundStyle(c.on2)
                 .multilineTextAlignment(.center)
+                // No fixedSize: the window takes this pane's smallest size as its own minimum, and a
+                // text fixed to its height at no width is a letter per line (it grew the window, seen live).
                 .frame(maxWidth: 360)
-                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 if menu.anyUnread {
                     Button(L10n.text("sms.action.read", fallback: "Mark as read")) { actions.markRead(ids) }
@@ -1380,7 +1394,9 @@ private struct ConversationPane: View {
                         Image(systemName: "bell.slash.fill").font(.system(size: 11)).foregroundStyle(c.on2)
                     }
                 }
-                Text(subtitle).font(BrandFont.body(12)).foregroundStyle(c.on2).lineLimit(1)
+                if !subtitle.isEmpty {
+                    Text(subtitle).font(BrandFont.body(12)).foregroundStyle(c.on2).lineLimit(1)
+                }
             }
             Spacer(minLength: 8)
             if let row = model.openRow { tools(row) }
@@ -1649,10 +1665,11 @@ private struct MessageBubble: View {
                              request: actions.requestImage)
             }
             if !message.body.isEmpty {
+                // Not selectable, as in Messages: selectable text would take the right-click for the
+                // system text menu and hide this message's own (Copy text copies it all).
                 Text(bodyText)
                     .font(BrandFont.body(13))
                     .foregroundStyle(mine ? c.onpri : c.on)
-                    .textSelection(.enabled)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(mine ? c.pri : c.s2))
@@ -1678,6 +1695,7 @@ private struct MessageBubble: View {
             }
             .padding(.horizontal, 4)
         }
+        .contentShape(Rectangle())
         .popover(isPresented: $details, arrowEdge: mine ? .leading : .trailing) {
             MessageDetails(message: message, model: model)
         }

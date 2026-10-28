@@ -67,6 +67,17 @@
         <intent>
             <action android:name="android.telecom.action.MANAGE_BLOCKED_NUMBERS" />
         </intent>
+        <!-- Text messages and Codes: seeing the default SMS app. Telephony.Sms.getDefaultSmsPackage only
+             returns an app Bridgey may see; without these it returned null after every update until Bridgey
+             happened to interact with the app (seen live on Android 16), so SMS notifications were not
+             recognised. These are lookups, not handlers: Bridgey still never becomes the SMS app. -->
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="smsto" />
+        </intent>
+        <intent>
+            <action android:name="android.provider.Telephony.SMS_DELIVER" />
+        </intent>
         <!-- Setup asks which of these already have a Mac app (setup/SetupQuestions.kt MacTwinApps). -->
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />

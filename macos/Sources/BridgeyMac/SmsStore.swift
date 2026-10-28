@@ -69,6 +69,7 @@ struct SmsCache: Codable, Equatable {
     mutating func applyMessages(_ page: [SmsMessage], thread: Int, before: SmsMessage?, more: Bool) {
         let key = String(thread)
         var list = messages[key] ?? []
+        let known = Set(list.map(\.id))
         let ids = Set(page.map(\.id))
         if let oldest = page.min(by: { SmsMessage.newerFirst($1, $0) }) {
             list.removeAll { message in
@@ -84,6 +85,17 @@ struct SmsCache: Codable, Equatable {
             if let index = list.firstIndex(where: { $0.id == message.id }) { list[index] = message } else { list.append(message) }
         }
         list.sort(by: SmsMessage.newerFirst)
+        // An open conversation's refresh can bring a new message before the sync does (seen live): the
+        // conversation's line and unread count follow, as sync would have done, so it is counted once.
+        if before == nil, let index = threads.firstIndex(where: { $0.threadId == thread }) {
+            for message in page.sorted(by: { SmsMessage.newerFirst($1, $0) }) where !known.contains(message.id) && message.date > threads[index].date {
+                threads[index].date = message.date
+                threads[index].snippet = smsSnippet(message)
+                if message.subId != nil { threads[index].subId = message.subId }
+                if message.direction == .incoming, !message.read { threads[index].unread += 1 }
+            }
+            threads.sort { $0.date != $1.date ? $0.date > $1.date : $0.threadId > $1.threadId }
+        }
         if list.count > Self.maximumMessagesPerThread {
             list = Array(list.prefix(Self.maximumMessagesPerThread))
             olderMore[key] = true

@@ -224,6 +224,17 @@ final class TextMessagesTests: XCTestCase {
         XCTAssertTrue(cache.threadsMore)
     }
 
+    func testANewMessageFromAnOpenConversationsRefreshCountsOnceWithTheSyncAfter() {
+        var cache = SmsCache()
+        cache.applyThreads([decodeSmsThread(thread(7, date: 1))!], first: true, more: false)
+        let new = decodeSmsMessage(message("s9", date: 10, body: "Arrived while open", read: false))!
+        cache.applyMessages([new, decodeSmsMessage(message("s1", date: 1))!], thread: 7, before: nil, more: false)
+        XCTAssertEqual(cache.thread(7)?.unread, 1)
+        XCTAssertEqual(cache.thread(7)?.snippet, "Arrived while open")
+        cache.applySync([new])
+        XCTAssertEqual(cache.thread(7)?.unread, 1, "the sync after does not count it again")
+    }
+
     func testUnreadIncomingMessagesCountOnTheirConversation() {
         var cache = SmsCache()
         cache.applyThreads([decodeSmsThread(thread(7, date: 1))!], first: true, more: false)
@@ -437,6 +448,11 @@ final class TextMessagesTests: XCTestCase {
         XCTAssertEqual(order(), [5, 2, 4, 1, 3], "pinned sit above unread")
         XCTAssertEqual(order(.unread), [2, 4])
         XCTAssertEqual(messages.rows(phone, filter: .all).first?.pinned, true)
+        // Opened while unread and read now: it keeps its place until another conversation opens.
+        messages.markRead([4], phoneID: phone, report: false)
+        XCTAssertEqual(order(), [5, 2, 1, 3, 4])
+        XCTAssertEqual(messages.rows(phone, filter: .all, holding: 4).map(\.id), [5, 2, 4, 1, 3])
+        XCTAssertEqual(messages.rows(phone, filter: .unread, holding: 4).map(\.id), [2, 4])
     }
 
     func testReadOnThisMacStaysReadUntilANewerMessageWhateverThePhoneSays() throws {
@@ -579,12 +595,15 @@ final class TextMessagesTests: XCTestCase {
         XCTAssertTrue(messages.search("   ", phoneID: phone).isEmpty)
     }
 
-    func testTheUnreadDividerSitsAboveTheOldestUnreadMessageNotReadHere() {
+    func testTheUnreadDividerSitsAboveTheOldestOfThePhonesUnreadMessagesNotReadHere() {
+        // s1 was synced while unread and read on the phone since: its flag here is stale.
         let list = [message("s4", date: 40, read: false), message("s3", date: 30, read: false), message("s2", out: true, date: 25),
-                    message("s1", date: 20, read: true)].compactMap(decodeSmsMessage).sorted(by: SmsMessage.newerFirst)
-        XCTAssertEqual(smsFirstUnread(list, readThrough: nil)?.id, "s3")
-        XCTAssertEqual(smsFirstUnread(list, readThrough: 30)?.id, "s4", "read on this Mac up to s3")
-        XCTAssertNil(smsFirstUnread(list, readThrough: 40))
+                    message("s1", date: 20, read: false)].compactMap(decodeSmsMessage).sorted(by: SmsMessage.newerFirst)
+        XCTAssertEqual(smsFirstUnread(list, readThrough: nil, count: 2)?.id, "s3", "the phone counts two")
+        XCTAssertEqual(smsFirstUnread(list, readThrough: 30, count: 2)?.id, "s4", "read on this Mac up to s3")
+        XCTAssertEqual(smsFirstUnread(list, readThrough: nil, count: 9)?.id, "s1", "never past the oldest here")
+        XCTAssertNil(smsFirstUnread(list, readThrough: 40, count: 2))
+        XCTAssertNil(smsFirstUnread(list, readThrough: nil, count: 0), "marked unread on this Mac only: no divider")
     }
 
     func testBlockOnPhoneSendsTheNumberAndSaysWhatThePhoneDid() throws {

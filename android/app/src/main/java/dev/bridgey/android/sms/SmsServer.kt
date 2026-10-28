@@ -79,6 +79,8 @@ class SmsServer(
     private val performAppReply: (notificationId: String, token: String, text: String) -> Boolean,
     /** Runs the app's own Mark as read on the notification; true when Android took it. */
     private val performMarkRead: (notificationId: String, token: String) -> Boolean = { _, _ -> false },
+    /** Looks at the SMS notifications showing now again (any missed while Bridgey started). */
+    private val refreshNotificationTargets: () -> Unit = {},
     /** Opens Android's Blocked numbers screen, or a notification that opens it. */
     private val openBlockedNumbers: (address: String?) -> BlockedNumbersResult = { BlockedNumbersResult.UNAVAILABLE },
     private val clock: () -> Long = System::currentTimeMillis,
@@ -269,18 +271,23 @@ class SmsServer(
             send(deviceId, SmsKinds.MARK_READ_RESULT, smsMarkReadResultPayload(request.requestId, emptyList(), "disabled"))
             return
         }
+        refreshNotificationTargets()
         val unmatched = SmsNotificationTargets.all().filter { it.threadId == null }
         if (unmatched.isNotEmpty() && provider.canRead) {
             unmatched.forEach { target ->
                 runCatching {
-                    matchNotificationThread(
-                        target.title, target.text, target.postTime,
-                        provider.recentInbox(target.postTime - MATCH_WINDOW_BEFORE_MILLIS), target.messageTime,
-                    )
+                    matchNotificationThreadAnyTime(target.title, target.text, target.postTime, target.messageTime, provider::recentInbox)
                 }.getOrNull()?.let { SmsNotificationTargets.matched(target.notificationId, it) }
             }
         }
-        val results = markReadResults(request.threadIds, SmsNotificationTargets.all(), performMarkRead)
+        val shown = SmsNotificationTargets.all()
+        val results = markReadResults(request.threadIds, shown, performMarkRead)
+        // Counts only: which conversations and what they say never reach the log.
+        dev.bridgey.android.BridgeyLogging.i(
+            dev.bridgey.android.LogCategory.NOTIFICATIONS,
+            "SMS mark read asked=${request.threadIds.size} shown=${shown.size} unmatched=${shown.count { it.threadId == null }} " +
+                results.groupingBy { it.second.wire }.eachCount().entries.joinToString(" ") { "${it.key}=${it.value}" },
+        )
         send(deviceId, SmsKinds.MARK_READ_RESULT, smsMarkReadResultPayload(request.requestId, results))
     }
 

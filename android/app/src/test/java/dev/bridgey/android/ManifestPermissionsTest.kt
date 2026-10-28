@@ -68,7 +68,12 @@ class ManifestPermissionsTest {
      */
     @Test
     fun neverADefaultSmsHandler() {
-        val manifest = File("src/main/AndroidManifest.xml").readText()
+        val full = File("src/main/AndroidManifest.xml").readText()
+        // <queries> may name these intents to see the default SMS app (lookups only, no components); the rest of
+        // the manifest may not.
+        val queries = Regex("<queries>[\\s\\S]*?</queries>").find(full)?.value.orEmpty()
+        listOf("<activity", "<receiver", "<service", "<provider", "<intent-filter").forEach { org.junit.Assert.assertFalse(it, queries.contains(it)) }
+        val manifest = full.replace(queries, "")
         listOf(
             "android.provider.Telephony.SMS_DELIVER", "android.provider.Telephony.WAP_PUSH_DELIVER",
             "android.intent.action.RESPOND_VIA_MESSAGE", "android.intent.action.SENDTO", "android.permission.BROADCAST_SMS",

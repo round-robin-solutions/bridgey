@@ -200,8 +200,9 @@ extension SmsCache {
     }
 
     /// Pinned first, then unread, then the rest, each newest first. Deleted conversations never show;
-    /// archived ones only in the Archived list.
-    func rows(_ management: SmsManagement, filter: SmsListFilter) -> [SmsThreadRow] {
+    /// archived ones only in the Archived list. `holding`: the conversation open since it was unread
+    /// keeps its place among the unread ones (and in the Unread list) until another one opens.
+    func rows(_ management: SmsManagement, filter: SmsListFilter, holding: Int? = nil) -> [SmsThreadRow] {
         var rows: [SmsThreadRow] = []
         for thread in threads {
             let messages = visibleMessages(in: thread.threadId, management: management)
@@ -216,12 +217,12 @@ extension SmsCache {
                                    archived: management.isArchived(thread))
             switch filter {
             case .all: if !row.archived { rows.append(row) }
-            case .unread: if !row.archived && row.unread > 0 { rows.append(row) }
+            case .unread: if !row.archived && (row.unread > 0 || row.id == holding) { rows.append(row) }
             case .archived: if row.archived { rows.append(row) }
             }
         }
         guard filter != .archived else { return rows }
-        func rank(_ row: SmsThreadRow) -> Int { row.pinned ? 0 : row.unread > 0 ? 1 : 2 }
+        func rank(_ row: SmsThreadRow) -> Int { row.pinned ? 0 : row.unread > 0 || row.id == holding ? 1 : 2 }
         // The cache is newest first already; a stable sort keeps that order inside each group.
         return rows.enumerated().sorted { a, b in
             let left = rank(a.element), right = rank(b.element)
@@ -319,8 +320,13 @@ private func smsSearchHit(_ thread: Int, _ message: SmsMessage, first: Range<Str
     return SmsSearchHit(threadId: thread, message: message, excerpt: excerpt, matches: smsMatches(of: query, in: excerpt))
 }
 
-/// The first unread message of a conversation as it was when opened: the oldest incoming message the
-/// phone has unread and this Mac had not read. Nil when there is none (marked unread on this Mac only).
-func smsFirstUnread(_ messages: [SmsMessage], readThrough: Int?) -> SmsMessage? {
-    messages.last { $0.direction == .incoming && !$0.read && $0.date > (readThrough ?? -1) }
+/// The first unread message of a conversation as it was when opened: of the incoming messages newer
+/// than this Mac's read point, the oldest of the newest `count` (the phone's unread count). It counts
+/// from the phone's number, not each message's flag: a message synced while unread keeps that flag
+/// here after the phone reads it (seen live). Nil when the phone counts none (marked unread here only).
+func smsFirstUnread(_ messages: [SmsMessage], readThrough: Int?, count: Int) -> SmsMessage? {
+    guard count > 0 else { return nil }
+    let incoming = messages.filter { $0.direction == .incoming && $0.date > (readThrough ?? -1) }
+    guard !incoming.isEmpty else { return nil }
+    return incoming[min(count, incoming.count) - 1]
 }

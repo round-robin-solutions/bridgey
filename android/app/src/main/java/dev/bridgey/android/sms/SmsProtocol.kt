@@ -598,6 +598,18 @@ fun matchNotificationThread(title: String, text: String, postTime: Long, candida
     }?.threadId
 }
 
+/**
+ * [matchNotificationThread] for a notification that may have been posted again long after its message:
+ * Google Messages re-posts an older conversation's notification when another message arrives, keeping
+ * Notification.when at the message's own time. When nothing matches around the post time, the same
+ * rules are tried around [messageTime]. [inbox] reads the inbox from a time.
+ */
+fun matchNotificationThreadAnyTime(title: String, text: String, postTime: Long, messageTime: Long, inbox: (since: Long) -> List<InboxCandidate>): Long? {
+    matchNotificationThread(title, text, postTime, inbox(postTime - MATCH_WINDOW_BEFORE_MILLIS), messageTime)?.let { return it }
+    if (messageTime <= 0 || kotlin.math.abs(postTime - messageTime) <= MATCH_WINDOW_AFTER_MILLIS) return null
+    return matchNotificationThread(title, text, messageTime, inbox(messageTime - MATCH_WINDOW_BEFORE_MILLIS), messageTime)
+}
+
 /** Two normalised numbers are the same phone when one ends with the other's last 9 or more digits. */
 fun sameNumber(a: String?, b: String?): Boolean {
     if (a == null || b == null) return false
