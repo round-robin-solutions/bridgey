@@ -468,6 +468,7 @@ fun ringStateLabel(state: RingState): String = stringResource(
 @Composable
 fun ringStatusLabel(ring: DeviceRing): String = when {
     !ring.canRetry -> ringStateLabel(ring.state)
+    ring.reconnect?.disconnectedByUser == true -> stringResource(R.string.ring_disconnected_by_you)
     ring.reconnect?.struggling == true -> stringResource(R.string.ring_retrying)
     else -> stringResource(R.string.ring_reconnecting)
 }

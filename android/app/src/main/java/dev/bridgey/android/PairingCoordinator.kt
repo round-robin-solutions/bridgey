@@ -245,6 +245,7 @@ class PairingCoordinator(
      * dialled before; the session registry keeps one socket when both dial at once.
      */
     private val reconnectClock = AndroidReconnectClock()
+    private val held = HeldDevices()
     internal val reconnect = ReconnectEngine(KnownAddressBook(SharedPreferencesAddressBookStore(context.applicationContext)), reconnectClock)
     private val linkDebouncer = EventDebouncer(reconnectClock) { reasons -> linkChanged(reasons) }
 
@@ -408,7 +409,7 @@ class PairingCoordinator(
     var remoteInputListener: ((deviceId: String, kind: String, payload: ByteArray) -> Unit)? = null
 
     init {
-        reconnect.isTrusted = { reconnecting && it in trust.trustedDeviceIds.value }
+        reconnect.isTrusted = { reconnecting && it in trust.trustedDeviceIds.value && !held.isHeld(it) }
         reconnect.isConnected = { registry.session(it) != null }
         reconnect.networks = { localNetworks() }
         reconnect.dial = ::dialTrusted
@@ -575,11 +576,19 @@ class PairingCoordinator(
     /** "Retry now" on a disconnected device: every known address at once. */
     fun retryNow(deviceId: String) {
         BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT retry now peer=${deviceId.take(8)}")
+        held.release(deviceId)
         reconnect.dialEverywhere(deviceId, "retry_now")
     }
 
     private fun publishReconnectStates() {
-        val states = trust.trustedDeviceIds.value.mapNotNull { id -> reconnect.display(id)?.let { id to it } }.toMap()
+        val states = trust.trustedDeviceIds.value.mapNotNull { id ->
+            val display = if (held.isHeld(id) && registry.session(id) == null) {
+                ReconnectDisplay(reconnect.addressBook.lastConnected(id), struggling = false, disconnectedByUser = true)
+            } else {
+                reconnect.display(id)
+            }
+            display?.let { id to it }
+        }.toMap()
         if (mutableReconnectStates.value != states) mutableReconnectStates.value = states
     }
 
@@ -741,6 +750,17 @@ class PairingCoordinator(
     /** Clears a pairing failure, as [cancel]. */
     fun dismiss() = cancel()
 
+    /**
+     * The user disconnected [deviceId] on its device page: it stays disconnected (no redial, and its
+     * own reconnects are closed) until the user taps Connect, which goes through [retryNow].
+     */
+    fun disconnectByUser(deviceId: String) {
+        BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT disconnected by user peer=${deviceId.take(8)}")
+        held.hold(deviceId)
+        disconnect(deviceId)
+        publishReconnectStates()
+    }
+
     /** Disconnects one device; the others stay connected. The link comes back through the normal reconnect, as before. */
     fun disconnect(deviceId: String) {
         val current = registry.session(deviceId) ?: return
@@ -751,6 +771,7 @@ class PairingCoordinator(
     }
 
     fun forget(deviceId: String) {
+        held.release(deviceId)
         folderJournals.deleteForPeer(deviceId).forEach { record -> record.header.oneOffTree?.let(placesStore::releaseOneOff) }
         folderSender.forget(deviceId)
         mutableFileTransfers.update { transfers -> transfers.filterValues { it.kind != TransferKind.FOLDER || it.active || it.deviceId != deviceId } }
@@ -3368,6 +3389,14 @@ class PairingCoordinator(
 
     @Synchronized private fun completeIfConfirmed(current: Session) {
         if (!current.localConfirmed || !current.remoteConfirmed || current.authenticated) return
+        if (held.isHeld(current.remoteDeviceId)) {
+            // Disconnected by the user on this phone: its own reconnect closes until the user connects again.
+            current.dropReason = "user_disconnect"
+            dialFinished(current)
+            current.close()
+            publish()
+            return
+        }
         trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!)
         when (val admission = registry.authenticate(current, current.remoteDeviceId, current.peerName)) {
             SessionRegistry.Admission.Rejected -> {

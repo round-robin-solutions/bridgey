@@ -127,6 +127,9 @@
 
     <string name="device_more">More options</string>
     <string name="device_forget">Forget %1$s</string>
+    <string name="device_disconnect">Disconnect %1$s</string>
+    <string name="device_connect">Connect to %1$s</string>
+    <string name="ring_disconnected_by_you">Disconnected</string>
     <string name="device_tab_activity">Activity</string>
     <string name="device_tab_permissions">Permissions</string>
     <string name="device_permissions_intro">What this phone shares with %1$s.</string>

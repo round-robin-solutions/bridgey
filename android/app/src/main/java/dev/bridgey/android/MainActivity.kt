@@ -753,6 +753,7 @@ private fun BridgeyApp(
     fun reconnectCard(ring: DeviceRing?): LiveCard.Reconnecting? {
         if (ring?.canRetry != true) return null
         val retry = ring.reconnect ?: return null
+        if (retry.disconnectedByUser) return null
         val seen = retry.lastSeenMillis?.let {
             lastSeenText(it, now, java.time.ZoneId.systemDefault(), java.util.Locale.getDefault(), android.text.format.DateFormat.is24HourFormat(context))
         }
@@ -957,6 +958,8 @@ private fun BridgeyApp(
                             actions = DeviceActions(
                                 back = { stack.pop() },
                                 forget = { forgetting = ring },
+                                disconnect = { ring.deviceId?.let(pairing::disconnectByUser) },
+                                connect = { ring.deviceId?.let(pairing::retryNow) },
                                 sendFile = { attach.open(ring.deviceId) },
                                 sendLink = {
                                     pairing.selectDevice(ring.deviceId)
