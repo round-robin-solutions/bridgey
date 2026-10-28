@@ -17,12 +17,17 @@ import AppKit
 
 @MainActor
 enum BridgeyWindows {
-    /// The window server still draws the window with this number, whatever AppKit believes.
-    static var windowServerShows: (Int) -> Bool = { number in
-        guard number > 0,
-              let info = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(number)) as? [[String: Any]],
-              let window = info.first else { return false }
-        return (window[kCGWindowIsOnscreen as String] as? Bool) == true
+    /// This app's windows the window server draws now, whatever AppKit believes. One query per call.
+    static var onScreenWindowNumbers: () -> Set<Int> = {
+        let pid = Int(ProcessInfo.processInfo.processIdentifier)
+        let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+        return Set(info.compactMap { entry in
+            (entry[kCGWindowOwnerPID as String] as? Int) == pid ? entry[kCGWindowNumber as String] as? Int : nil
+        })
+    }
+
+    static func windowServerShows(_ windowNumber: Int) -> Bool {
+        windowNumber > 0 && onScreenWindowNumbers().contains(windowNumber)
     }
 
     /// The screen is locked or asleep: fades would never be seen and may never finish.
@@ -280,6 +285,7 @@ final class WindowWatchdog: NSObject {
             }
         }
         updateOutsideClickMonitor()
+        let onScreen = BridgeyWindows.onScreenWindowNumbers()
         for window in NSApp.windows where !Self.isStatusItemWindow(window) && window.windowNumber > 0 {
             if window.isVisible {
                 if window.contentView == nil {
@@ -288,7 +294,8 @@ final class WindowWatchdog: NSObject {
                 }
                 continue
             }
-            guard BridgeyWindows.windowServerShows(window.windowNumber) else { continue }
+            // A minimised window lives in the Dock; ordering it out would lose it.
+            guard !window.isMiniaturized, onScreen.contains(window.windowNumber) else { continue }
             let key = ObjectIdentifier(window)
             seen.insert(key)
             guard let ghost = ghosts[key] else {

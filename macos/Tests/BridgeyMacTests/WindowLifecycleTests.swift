@@ -12,7 +12,7 @@ final class WindowLifecycleTests: XCTestCase {
     private var repairs: [String] = []
     private var pendingFades: [() -> Void] = []
     private var savedAnimate = BridgeyWindows.animateAlpha
-    private var savedServer = BridgeyWindows.windowServerShows
+    private var savedServer = BridgeyWindows.onScreenWindowNumbers
     private var savedUnavailable = BridgeyWindows.screenUnavailable
     private var savedDeadline = BridgeyWindows.fadeDeadline
     private var clock = Date()
@@ -29,11 +29,11 @@ final class WindowLifecycleTests: XCTestCase {
         watchdog.now = { [unowned self] in clock }
         watchdog.onRepair = { [unowned self] _, reason in repairs.append(reason) }
         savedAnimate = BridgeyWindows.animateAlpha
-        savedServer = BridgeyWindows.windowServerShows
+        savedServer = BridgeyWindows.onScreenWindowNumbers
         savedUnavailable = BridgeyWindows.screenUnavailable
         savedDeadline = BridgeyWindows.fadeDeadline
         BridgeyWindows.screenUnavailable = { false }
-        BridgeyWindows.windowServerShows = { _ in false }
+        BridgeyWindows.onScreenWindowNumbers = { [] }
     }
 
     override func tearDown() {
@@ -43,7 +43,7 @@ final class WindowLifecycleTests: XCTestCase {
         }
         windows = []
         BridgeyWindows.animateAlpha = savedAnimate
-        BridgeyWindows.windowServerShows = savedServer
+        BridgeyWindows.onScreenWindowNumbers = savedServer
         BridgeyWindows.screenUnavailable = savedUnavailable
         BridgeyWindows.fadeDeadline = savedDeadline
         WindowWatchdog.shared.now = Date.init
@@ -245,7 +245,7 @@ final class WindowLifecycleTests: XCTestCase {
         let number = panel.windowNumber
         panel.orderOut(nil)
         // The window server keeps drawing it.
-        BridgeyWindows.windowServerShows = { $0 == number }
+        BridgeyWindows.onScreenWindowNumbers = { [number] }
         let watchdog = WindowWatchdog.shared
         watchdog.sweep()
         XCTAssertEqual(repairs, [], "a window just ordered out may still be animating")
@@ -257,7 +257,7 @@ final class WindowLifecycleTests: XCTestCase {
         watchdog.sweep()
         XCTAssertEqual(repairs, ["still_on_screen", "resynced"])
         XCTAssertFalse(panel.isVisible)
-        BridgeyWindows.windowServerShows = { _ in false }
+        BridgeyWindows.onScreenWindowNumbers = { [] }
         clock = clock.addingTimeInterval(2)
         watchdog.sweep()
         XCTAssertEqual(repairs.count, 2, "a window that left the screen is not touched again")
@@ -267,10 +267,10 @@ final class WindowLifecycleTests: XCTestCase {
         let (panel, _) = makePanel()
         let number = panel.windowNumber
         panel.orderOut(nil)
-        BridgeyWindows.windowServerShows = { $0 == number }
+        BridgeyWindows.onScreenWindowNumbers = { [number] }
         WindowWatchdog.shared.sweep()
         clock = clock.addingTimeInterval(1)
-        BridgeyWindows.windowServerShows = { _ in false }
+        BridgeyWindows.onScreenWindowNumbers = { [] }
         WindowWatchdog.shared.sweep()
         clock = clock.addingTimeInterval(2)
         WindowWatchdog.shared.sweep()

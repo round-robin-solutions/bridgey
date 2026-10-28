@@ -3721,9 +3721,24 @@ final class PairingCoordinator: ObservableObject {
         let actions = (payload.actions ?? []).filter { !$0.allowsReply }.prefix(4).map {
             RemoteCallAction(id: $0.actionToken, title: $0.title)
         }
-        let previousType = activeRemoteCalls.all.first {
+        var previous = activeRemoteCalls.all.first {
             $0.deviceID == deviceID && $0.notificationID == payload.notificationId
-        }?.type
+        }
+        if let ending = previous,
+           isNewCallOnSameNotification(
+               previous: ending,
+               pendingRemoval: activeRemoteCalls.isPendingRemoval(notificationID: ending.notificationID, deviceID: deviceID),
+               caller: payload.title
+           ) {
+            // Dialers post every call under one notification, so the phone sends one id for all of
+            // them: a different caller while the last call's card was going is a new call, and the
+            // last call's hide, silence and history must not carry over.
+            activeRemoteCalls.remove(notificationID: ending.notificationID, deviceID: deviceID)
+            forgetCallIdentity(ending)
+            logCall("ended", ending, reason: "replaced")
+            previous = nil
+        }
+        let previousType = previous?.type
         let resumed = activeRemoteCalls.update(RemoteCallStatus(
             notificationID: payload.notificationId,
             deviceID: deviceID,
