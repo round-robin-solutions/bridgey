@@ -1,5 +1,5 @@
 {
- "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect, and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page) and smsSendStatus by the Mac; requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units.",
+ "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect, and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page), smsSendStatus, smsMarkReadResult and smsBlockedNumbersResult by the Mac (the phone also writes exactly the expected plaintext for each valid one); requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units.",
  "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
  "frames": [
   {
@@ -10060,6 +10060,334 @@
    "kind": "sms.threads",
    "plaintextString": "{version:1,requestId:'5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293',limit:5}",
    "expect": "reject"
+  },
+  {
+   "name": "mark read, one conversation",
+   "kind": "sms.mark_read",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadIds": [
+     12
+    ]
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadIds": [
+     12
+    ]
+   }
+  },
+  {
+   "name": "mark read, several, repeats count once",
+   "kind": "sms.mark_read",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5B6C7D8E-9F01-4A2B-8C3D-4E5F60718293",
+    "threadIds": [
+     12,
+     7,
+     12,
+     3
+    ]
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadIds": [
+     12,
+     7,
+     3
+    ]
+   }
+  },
+  {
+   "name": "mark read, 50 conversations",
+   "kind": "sms.mark_read",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadIds": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22,
+     23,
+     24,
+     25,
+     26,
+     27,
+     28,
+     29,
+     30,
+     31,
+     32,
+     33,
+     34,
+     35,
+     36,
+     37,
+     38,
+     39,
+     40,
+     41,
+     42,
+     43,
+     44,
+     45,
+     46,
+     47,
+     48,
+     49,
+     50
+    ]
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadIds": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22,
+     23,
+     24,
+     25,
+     26,
+     27,
+     28,
+     29,
+     30,
+     31,
+     32,
+     33,
+     34,
+     35,
+     36,
+     37,
+     38,
+     39,
+     40,
+     41,
+     42,
+     43,
+     44,
+     45,
+     46,
+     47,
+     48,
+     49,
+     50
+    ]
+   }
+  },
+  {
+   "name": "mark read, 51 conversations",
+   "kind": "sms.mark_read",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadIds": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22,
+     23,
+     24,
+     25,
+     26,
+     27,
+     28,
+     29,
+     30,
+     31,
+     32,
+     33,
+     34,
+     35,
+     36,
+     37,
+     38,
+     39,
+     40,
+     41,
+     42,
+     43,
+     44,
+     45,
+     46,
+     47,
+     48,
+     49,
+     50,
+     51
+    ]
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "mark read, none",
+   "kind": "sms.mark_read",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadIds": []
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "mark read, threadId 0",
+   "kind": "sms.mark_read",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadIds": [
+     4,
+     0
+    ]
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "mark read, threadId as a string",
+   "kind": "sms.mark_read",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadIds": [
+     "4"
+    ]
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "mark read, threadIds not an array",
+   "kind": "sms.mark_read",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "threadIds": 4
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "mark read, threadIds missing",
+   "kind": "sms.mark_read",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "blocked numbers",
+   "kind": "sms.blocked_numbers",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "address": null
+   }
+  },
+  {
+   "name": "blocked numbers with the number",
+   "kind": "sms.blocked_numbers",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "address": "+91 98765-43210"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "address": "+919876543210"
+   }
+  },
+  {
+   "name": "blocked numbers, null number is absent",
+   "kind": "sms.blocked_numbers",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "address": null
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "address": null
+   }
+  },
+  {
+   "name": "blocked numbers, a sender name is not a number",
+   "kind": "sms.blocked_numbers",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "address": "HDFCBK"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "blocked numbers, number as a number",
+   "kind": "sms.blocked_numbers",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "address": 5550100
+   },
+   "expect": "reject"
   }
  ],
  "smsSend": [
@@ -11742,6 +12070,499 @@
   {
    "name": "lenient JSON",
    "plaintextString": "{version:1,requestId:'5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293',status:'sent'}",
+   "expect": "reject"
+  }
+ ],
+ "smsMarkReadResult": [
+  {
+   "name": "every result",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "results": [
+     {
+      "threadId": 12,
+      "result": "marked"
+     },
+     {
+      "threadId": 7,
+      "result": "not_shown"
+     },
+     {
+      "threadId": 3,
+      "result": "no_action"
+     },
+     {
+      "threadId": 9,
+      "result": "failed"
+     }
+    ]
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "results": [
+     {
+      "threadId": 12,
+      "result": "marked"
+     },
+     {
+      "threadId": 7,
+      "result": "not_shown"
+     },
+     {
+      "threadId": 3,
+      "result": "no_action"
+     },
+     {
+      "threadId": 9,
+      "result": "failed"
+     }
+    ],
+    "error": null
+   }
+  },
+  {
+   "name": "disabled on the phone",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5B6C7D8E-9F01-4A2B-8C3D-4E5F60718293",
+    "results": [],
+    "error": "disabled"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "results": [],
+    "error": "disabled"
+   }
+  },
+  {
+   "name": "results missing reads as none",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "error": "disabled"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "results": [],
+    "error": "disabled"
+   }
+  },
+  {
+   "name": "an unknown result reads as failed",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "results": [
+     {
+      "threadId": 12,
+      "result": "snoozed"
+     }
+    ]
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "results": [
+     {
+      "threadId": 12,
+      "result": "failed"
+     }
+    ],
+    "error": null
+   }
+  },
+  {
+   "name": "invalid entries are dropped",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "results": [
+     {
+      "threadId": 0,
+      "result": "marked"
+     },
+     {
+      "threadId": "5",
+      "result": "marked"
+     },
+     {
+      "threadId": 6
+     },
+     "x",
+     {
+      "threadId": 8,
+      "result": "marked"
+     }
+    ]
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "results": [
+     {
+      "threadId": 8,
+      "result": "marked"
+     }
+    ],
+    "error": null
+   }
+  },
+  {
+   "name": "an unknown error is ignored",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "results": [
+     {
+      "threadId": 1,
+      "result": "marked"
+     }
+    ],
+    "error": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "results": [
+     {
+      "threadId": 1,
+      "result": "marked"
+     }
+    ],
+    "error": null
+   }
+  },
+  {
+   "name": "results not an array",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "results": {
+     "threadId": 1,
+     "result": "marked"
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "more than 50 entries",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "results": [
+     {
+      "threadId": 1,
+      "result": "marked"
+     },
+     {
+      "threadId": 2,
+      "result": "marked"
+     },
+     {
+      "threadId": 3,
+      "result": "marked"
+     },
+     {
+      "threadId": 4,
+      "result": "marked"
+     },
+     {
+      "threadId": 5,
+      "result": "marked"
+     },
+     {
+      "threadId": 6,
+      "result": "marked"
+     },
+     {
+      "threadId": 7,
+      "result": "marked"
+     },
+     {
+      "threadId": 8,
+      "result": "marked"
+     },
+     {
+      "threadId": 9,
+      "result": "marked"
+     },
+     {
+      "threadId": 10,
+      "result": "marked"
+     },
+     {
+      "threadId": 11,
+      "result": "marked"
+     },
+     {
+      "threadId": 12,
+      "result": "marked"
+     },
+     {
+      "threadId": 13,
+      "result": "marked"
+     },
+     {
+      "threadId": 14,
+      "result": "marked"
+     },
+     {
+      "threadId": 15,
+      "result": "marked"
+     },
+     {
+      "threadId": 16,
+      "result": "marked"
+     },
+     {
+      "threadId": 17,
+      "result": "marked"
+     },
+     {
+      "threadId": 18,
+      "result": "marked"
+     },
+     {
+      "threadId": 19,
+      "result": "marked"
+     },
+     {
+      "threadId": 20,
+      "result": "marked"
+     },
+     {
+      "threadId": 21,
+      "result": "marked"
+     },
+     {
+      "threadId": 22,
+      "result": "marked"
+     },
+     {
+      "threadId": 23,
+      "result": "marked"
+     },
+     {
+      "threadId": 24,
+      "result": "marked"
+     },
+     {
+      "threadId": 25,
+      "result": "marked"
+     },
+     {
+      "threadId": 26,
+      "result": "marked"
+     },
+     {
+      "threadId": 27,
+      "result": "marked"
+     },
+     {
+      "threadId": 28,
+      "result": "marked"
+     },
+     {
+      "threadId": 29,
+      "result": "marked"
+     },
+     {
+      "threadId": 30,
+      "result": "marked"
+     },
+     {
+      "threadId": 31,
+      "result": "marked"
+     },
+     {
+      "threadId": 32,
+      "result": "marked"
+     },
+     {
+      "threadId": 33,
+      "result": "marked"
+     },
+     {
+      "threadId": 34,
+      "result": "marked"
+     },
+     {
+      "threadId": 35,
+      "result": "marked"
+     },
+     {
+      "threadId": 36,
+      "result": "marked"
+     },
+     {
+      "threadId": 37,
+      "result": "marked"
+     },
+     {
+      "threadId": 38,
+      "result": "marked"
+     },
+     {
+      "threadId": 39,
+      "result": "marked"
+     },
+     {
+      "threadId": 40,
+      "result": "marked"
+     },
+     {
+      "threadId": 41,
+      "result": "marked"
+     },
+     {
+      "threadId": 42,
+      "result": "marked"
+     },
+     {
+      "threadId": 43,
+      "result": "marked"
+     },
+     {
+      "threadId": 44,
+      "result": "marked"
+     },
+     {
+      "threadId": 45,
+      "result": "marked"
+     },
+     {
+      "threadId": 46,
+      "result": "marked"
+     },
+     {
+      "threadId": 47,
+      "result": "marked"
+     },
+     {
+      "threadId": 48,
+      "result": "marked"
+     },
+     {
+      "threadId": 49,
+      "result": "marked"
+     },
+     {
+      "threadId": 50,
+      "result": "marked"
+     },
+     {
+      "threadId": 51,
+      "result": "marked"
+     }
+    ]
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "mark-1",
+    "results": []
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "results": []
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 4 KiB",
+   "plaintextString": "{\"version\":1,\"requestId\":\"5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293\",\"results\":[],\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,requestId:'5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293',results:[]}",
+   "expect": "reject"
+  }
+ ],
+ "smsBlockedNumbersResult": [
+  {
+   "name": "opened",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "result": "opened"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "result": "opened"
+   }
+  },
+  {
+   "name": "notified",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "result": "notified"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "result": "notified"
+   }
+  },
+  {
+   "name": "unavailable",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "result": "unavailable"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "result": "unavailable"
+   }
+  },
+  {
+   "name": "an unknown result reads as unavailable",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5B6C7D8E-9F01-4A2B-8C3D-4E5F60718293",
+    "result": "blocked"
+   },
+   "expect": {
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "result": "unavailable"
+   }
+  },
+  {
+   "name": "result missing",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "block-1",
+    "result": "opened"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293",
+    "result": "opened"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 1 KiB",
+   "plaintextString": "{\"version\":1,\"requestId\":\"5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293\",\"result\":\"opened\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
    "expect": "reject"
   }
  ]

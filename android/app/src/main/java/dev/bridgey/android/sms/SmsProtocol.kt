@@ -32,9 +32,13 @@ object SmsKinds {
     const val ATTACHMENT_DATA = "sms.attachment_data"
     const val CONTACTS = "sms.contacts"
     const val CONTACTS_RESULT = "sms.contacts_result"
+    const val MARK_READ = "sms.mark_read"
+    const val MARK_READ_RESULT = "sms.mark_read_result"
+    const val BLOCKED_NUMBERS = "sms.blocked_numbers"
+    const val BLOCKED_NUMBERS_RESULT = "sms.blocked_numbers_result"
 
     /** What a Mac may send to the phone. */
-    val fromMac = setOf(THREADS, MESSAGES, SYNC, SEND, ATTACHMENT, CONTACTS)
+    val fromMac = setOf(THREADS, MESSAGES, SYNC, SEND, ATTACHMENT, CONTACTS, MARK_READ, BLOCKED_NUMBERS)
 }
 
 object SmsLimits {
@@ -42,6 +46,9 @@ object SmsLimits {
     const val SEND_MAX_BYTES = 8_192
     const val PAGE_MAX_BYTES = 40_960
     const val CONTACTS_RESULT_MAX_BYTES = 16_384
+    const val MARK_READ_RESULT_MAX_BYTES = 4_096
+    /** sms.mark_read: conversations per request. */
+    const val MARK_READ_MAX = 50
     const val THREADS_LIMIT = 50
     const val MESSAGES_LIMIT = 100
     const val SYNC_LIMIT = 200
@@ -83,6 +90,12 @@ sealed interface SmsRequest {
     data class Sync(override val requestId: String, val since: SmsCursor, val limit: Int) : SmsRequest
     data class Attachment(override val requestId: String, val partId: String) : SmsRequest
     data class Contacts(override val requestId: String, val query: String) : SmsRequest
+
+    /** Conversations read on a Mac: run the messaging app's own Mark as read on their notifications. */
+    data class MarkRead(override val requestId: String, val threadIds: List<Long>) : SmsRequest
+
+    /** Open Android's Blocked numbers screen; [address] is shown so the person can add it there. */
+    data class BlockedNumbers(override val requestId: String, val address: String?) : SmsRequest
 }
 
 sealed interface SendTarget {
@@ -124,7 +137,8 @@ private fun decodeEnvelope(plaintext: ByteArray, maxBytes: Int): JSONObject? {
 }
 
 /**
- * sms.threads, sms.messages, sms.sync, sms.attachment and sms.contacts as the phone reads them: strict
+ * sms.threads, sms.messages, sms.sync, sms.attachment, sms.contacts, sms.mark_read and sms.blocked_numbers
+ * as the phone reads them: strict
  * JSON of at most 1,024 bytes, `version` 1, a UUID `requestId`, and the kind's own fields. Null when
  * malformed (the request is dropped).
  */
@@ -162,6 +176,16 @@ fun decodeSmsRequest(kind: String, plaintext: ByteArray): SmsRequest? {
         SmsKinds.CONTACTS -> {
             val query = (payload.opt("query") as? String)?.trim()?.takeIf { it.isNotEmpty() && it.length <= SmsLimits.QUERY_MAX } ?: return null
             SmsRequest.Contacts(requestId, query)
+        }
+        SmsKinds.MARK_READ -> {
+            val list = payload.opt("threadIds") as? JSONArray ?: return null
+            if (list.length() !in 1..SmsLimits.MARK_READ_MAX) return null
+            val ids = (0 until list.length()).map { index -> jsonInteger(list.opt(index))?.takeIf { it >= 1 } ?: return null }
+            SmsRequest.MarkRead(requestId, ids.distinct())
+        }
+        SmsKinds.BLOCKED_NUMBERS -> {
+            val address = if (payload.absent("address")) null else normalizeSmsAddress(payload.opt("address") as? String ?: return null) ?: return null
+            SmsRequest.BlockedNumbers(requestId, address)
         }
         else -> null
     }
@@ -429,6 +453,60 @@ fun smsSendStatusPayload(requestId: String, state: SendState, reason: SendReason
 fun pageBase(requestId: String, error: String? = null): JSONObject =
     JSONObject().put("version", 1).put("requestId", requestId).apply { if (error != null) put("error", error) }
 
+/** What happened to one conversation of an sms.mark_read. */
+enum class MarkReadResult(val wire: String) {
+    /** The messaging app's own Mark as read ran on its notification. */
+    MARKED("marked"),
+
+    /** The phone shows no notification for it: it stays unread on the phone. */
+    NOT_SHOWN("not_shown"),
+
+    /** Its notification has no Mark as read action. */
+    NO_ACTION("no_action"),
+
+    /** Android refused the action. */
+    FAILED("failed"),
+}
+
+fun smsMarkReadResultPayload(requestId: String, results: List<Pair<Long, MarkReadResult>>, error: String? = null): JSONObject =
+    pageBase(requestId, error).put("results", JSONArray().apply {
+        results.take(SmsLimits.MARK_READ_MAX).forEach { (threadId, result) -> put(JSONObject().put("threadId", threadId).put("result", result.wire)) }
+    })
+
+enum class BlockedNumbersResult(val wire: String) {
+    /** Bridgey was in front: the screen is open. */
+    OPENED("opened"),
+
+    /** A Bridgey notification opens it when tapped. */
+    NOTIFIED("notified"),
+
+    /** This phone (or user) has no Blocked numbers screen. */
+    UNAVAILABLE("unavailable"),
+}
+
+fun smsBlockedNumbersResultPayload(requestId: String, result: BlockedNumbersResult): JSONObject =
+    pageBase(requestId).put("result", result.wire)
+
+/**
+ * sms.mark_read for each of [threadIds], against the SMS notifications the phone shows ([targets]):
+ * every notification of a conversation that offers Mark as read gets it ([perform] runs the app's
+ * own action and says whether Android took it). Conversations are told apart only by the thread the
+ * notification was matched to; an unmatched notification is never marked.
+ */
+fun markReadResults(threadIds: List<Long>, targets: List<SmsNotificationTarget>, perform: (notificationId: String, token: String) -> Boolean): List<Pair<Long, MarkReadResult>> =
+    threadIds.distinct().take(SmsLimits.MARK_READ_MAX).map { threadId ->
+        val shown = targets.filter { it.threadId == threadId }
+        val actions = shown.filter { it.markReadToken != null }
+        val result = when {
+            shown.isEmpty() -> MarkReadResult.NOT_SHOWN
+            actions.isEmpty() -> MarkReadResult.NO_ACTION
+            // Every notification of the conversation is asked, even after one fails.
+            actions.map { perform(it.notificationId, it.markReadToken!!) }.any { it } -> MarkReadResult.MARKED
+            else -> MarkReadResult.FAILED
+        }
+        threadId to result
+    }
+
 data class SmsContact(val name: String, val address: String, val label: String? = null) {
     fun toJson(): JSONObject = JSONObject()
         .put("name", cutText(name, SmsLimits.NAME_MAX))
@@ -518,6 +596,18 @@ fun matchNotificationThread(title: String, text: String, postTime: Long, candida
             (candidate.name != null && candidate.name.trim().equals(heading, ignoreCase = true)) ||
             candidate.address.trim() == heading
     }?.threadId
+}
+
+/**
+ * [matchNotificationThread] for a notification that may have been posted again long after its message:
+ * Google Messages re-posts an older conversation's notification when another message arrives, keeping
+ * Notification.when at the message's own time. When nothing matches around the post time, the same
+ * rules are tried around [messageTime]. [inbox] reads the inbox from a time.
+ */
+fun matchNotificationThreadAnyTime(title: String, text: String, postTime: Long, messageTime: Long, inbox: (since: Long) -> List<InboxCandidate>): Long? {
+    matchNotificationThread(title, text, postTime, inbox(postTime - MATCH_WINDOW_BEFORE_MILLIS), messageTime)?.let { return it }
+    if (messageTime <= 0 || kotlin.math.abs(postTime - messageTime) <= MATCH_WINDOW_AFTER_MILLIS) return null
+    return matchNotificationThread(title, text, messageTime, inbox(messageTime - MATCH_WINDOW_BEFORE_MILLIS), messageTime)
 }
 
 /** Two normalised numbers are the same phone when one ends with the other's last 9 or more digits. */

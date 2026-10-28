@@ -195,4 +195,61 @@ class SmsProtocolTest {
         assertEquals(160, json.getString("snippet").length)
         assertFalse(json.has("subId"))
     }
+
+    private fun target(id: String, thread: Long?, markRead: String?) =
+        SmsNotificationTarget(id, "Anna", "See you", 1_000, thread, replyToken = null, markReadToken = markRead)
+
+    @Test fun markReadRunsTheAppsOwnActionOnEveryNotificationOfTheConversation() {
+        val ran = mutableListOf<String>()
+        val targets = listOf(target("n1", 12, "t1"), target("n2", 12, "t2"), target("n3", 7, null), target("n4", null, "t4"))
+        val results = markReadResults(listOf(12L, 7L, 3L, 12L), targets) { id, token -> ran += "$id:$token"; true }
+        assertEquals(listOf(12L to MarkReadResult.MARKED, 7L to MarkReadResult.NO_ACTION, 3L to MarkReadResult.NOT_SHOWN), results)
+        assertEquals("an unmatched notification is never marked", listOf("n1:t1", "n2:t2"), ran)
+    }
+
+    @Test fun markReadSaysFailedOnlyWhenAndroidRefusedEveryAction() {
+        val targets = listOf(target("n1", 12, "t1"), target("n2", 12, "t2"))
+        assertEquals(listOf(12L to MarkReadResult.MARKED), markReadResults(listOf(12L), targets) { id, _ -> id == "n2" })
+        assertEquals(listOf(12L to MarkReadResult.FAILED), markReadResults(listOf(12L), targets) { _, _ -> false })
+    }
+
+    @Test fun markReadAndBlockedNumbersPayloads() {
+        val id = "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293"
+        val payload = smsMarkReadResultPayload(id, listOf(12L to MarkReadResult.MARKED, 7L to MarkReadResult.NOT_SHOWN))
+        assertEquals(1, payload.getInt("version"))
+        assertFalse(payload.has("error"))
+        assertEquals("not_shown", payload.getJSONArray("results").getJSONObject(1).getString("result"))
+        assertEquals("disabled", smsMarkReadResultPayload(id, emptyList(), "disabled").getString("error"))
+        assertTrue(smsMarkReadResultPayload(id, (1L..60L).map { it to MarkReadResult.MARKED }).toString().toByteArray().size <= SmsLimits.MARK_READ_RESULT_MAX_BYTES)
+        assertEquals("notified", smsBlockedNumbersResultPayload(id, BlockedNumbersResult.NOTIFIED).getString("result"))
+    }
+
+    @Test fun markReadAndBlockedNumbersAreRequestsFromTheMac() {
+        assertTrue(SmsKinds.MARK_READ in SmsKinds.fromMac)
+        assertTrue(SmsKinds.BLOCKED_NUMBERS in SmsKinds.fromMac)
+        val request = decodeSmsRequest(SmsKinds.MARK_READ, JSONObject().put("version", 1).put("requestId", "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293")
+            .put("threadIds", org.json.JSONArray(listOf(3, 3, 4))).toString().toByteArray())
+        assertEquals(listOf(3L, 4L), (request as SmsRequest.MarkRead).threadIds)
+    }
+
+    /** A kind the phone decodes but the session never hands over is silently dropped (seen live with sms.mark_read). */
+    @Test fun everyRequestFromAMacIsRoutedToTheSmsServer() {
+        val root = java.io.File(System.getProperty("bridgey.repoRoot") ?: "../..")
+        val source = java.io.File(root, "android/app/src/main/java/dev/bridgey/android/PairingCoordinator.kt").readText()
+        val routed = Regex("((?:\"sms\\.[a-z_]+\",?\\s*)+)->\\s*receiveSmsMessage").find(source)?.groupValues?.get(1).orEmpty()
+        val kinds = Regex("\"(sms\\.[a-z_]+)\"").findAll(routed).map { it.groupValues[1] }.toSet()
+        assertEquals(SmsKinds.fromMac, kinds)
+    }
+
+    /** Seen live: Google Messages re-posted a 15:02 conversation's notification at 15:46, keeping `when` at 15:02. */
+    @Test fun aNotificationPostedAgainLaterIsMatchedAroundItsMessageTime() {
+        val message = 1_000_000_000L
+        val repost = message + 44 * 60_000L
+        val inbox = listOf(InboxCandidate(1, "5551234", "Hello from the feasibility check", message), InboxCandidate(5, "5550103", "Table is under Kapoor", repost - 5_000))
+        val read = { since: Long -> inbox.filter { it.date >= since } }
+        assertNull("around the post time alone it is not found", matchNotificationThread("555-1234", "Hello from the feasibility check", repost, read(repost - MATCH_WINDOW_BEFORE_MILLIS), message))
+        assertEquals(1L, matchNotificationThreadAnyTime("555-1234", "Hello from the feasibility check", repost, message, read))
+        assertEquals(5L, matchNotificationThreadAnyTime("555-0103", "Table is under Kapoor", repost, repost - 5_000, read))
+        assertNull("no message time: no second try", matchNotificationThreadAnyTime("555-1234", "Hello from the feasibility check", repost, 0, read))
+    }
 }

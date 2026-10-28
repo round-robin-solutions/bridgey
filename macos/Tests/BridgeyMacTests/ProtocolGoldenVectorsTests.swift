@@ -410,14 +410,36 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
                 written = SmsRequests.sync(id, since: SmsCursor(sms: since["sms"]!, mms: since["mms"]!), limit: expect["limit"] as! Int)
             case SmsKinds.attachment: written = SmsRequests.attachment(id, partID: expect["partId"] as! String)
             case SmsKinds.contacts: written = SmsRequests.contacts(id, query: expect["query"] as! String)
+            case SmsKinds.markRead: written = SmsRequests.markRead(id, threadIds: expect["threadIds"] as! [Int])
+            case SmsKinds.blockedNumbers: written = SmsRequests.blockedNumbers(id, address: expect["address"] as? String)
             default: return false
             }
             guard var written else { return false }
-            if written["before"] == nil, expect.keys.contains("before") { written["before"] = NSNull() }
+            for key in expect.keys where written[key] == nil { written[key] = NSNull() }
             written.removeValue(forKey: "version")
             return NSDictionary(dictionary: written).isEqual(to: expect)
         }
-        XCTAssertGreaterThanOrEqual(checked, 12)
+        XCTAssertGreaterThanOrEqual(checked, 17)
+    }
+
+    /// Text messages: the Mac reads the phone's sms.mark_read_result.
+    func testSmsMarkReadResult() throws {
+        try each("smsMarkReadResult") { vector in
+            let result: Any = decodeSmsMarkReadResult(plaintext(vector)).map { decoded -> [String: Any] in
+                ["requestId": decoded.requestID,
+                 "results": decoded.results.map { ["threadId": $0.threadId, "result": $0.outcome.rawValue] as [String: Any] },
+                 "error": decoded.error ?? NSNull()]
+            } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// Text messages: the Mac reads the phone's sms.blocked_numbers_result.
+    func testSmsBlockedNumbersResult() throws {
+        try each("smsBlockedNumbersResult") { vector in
+            let result: Any = decodeSmsBlockedNumbersResult(plaintext(vector)).map { ["requestId": $0.requestID, "result": $0.outcome.rawValue] } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
     }
 
     /// Text messages: sends the phone accepts are what the Mac writes; malformed bodies and numbers never leave the Mac.

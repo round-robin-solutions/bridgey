@@ -70,10 +70,10 @@ is unchanged; the upstream app declares none of these permissions.
   asks at Start, and when it ends it asks Android to drop the permission only if Text messages is
   off for every Mac.
 
-### Marking messages read from the Mac: feasibility (2026-10-27)
+### Marking messages read from the Mac
 
-Rahul, 2026-10-27: later, not in this release. What is possible on Android 14 to 16 for an app
-that is not the default SMS app:
+Feasibility, 2026-10-27 (Rahul then: later, not in that release). What is possible on Android 14
+to 16 for an app that is not the default SMS app:
 
 - **Through the SMS provider: no.** Android's reference says "Only the default SMS app (selected by
   the user in system settings) is able to write to the SMS Provider" and other apps "can only read
@@ -103,6 +103,37 @@ that is not the default SMS app:
 So a later "mark read" from the Mac can fire the messaging app's own Mark as read on the matching
 notification (which also clears it on the phone), with the companion link in place, and must say
 plainly that older conversations stay unread on the phone.
+
+Built 2026-10-28 (`sms.mark_read`, docs/protocol.md, "Managing conversations from the Mac"):
+
+- Reading a conversation on the Mac marks it read on the Mac, and the Mac then asks the phone. The
+  phone fires the action tagged `SEMANTIC_ACTION_MARK_AS_READ` on the conversation's notification
+  if one is still showing, and answers marked, not shown, no action or failed for each conversation.
+  The Mac says how many reached the phone. The action is kept on the phone and never sent to the
+  Mac as a button. On the API 36 emulator Google Messages posts it as its first action, titled
+  "Mark as read" (Reply is the second); firing it set `read = 1` in the provider and cleared the
+  notification.
+- A notification is matched to its conversation by the newest unread message from that sender
+  around the notification's time. Google Messages posts the notification of an older conversation
+  again with its time set to that conversation's newest message, so matching also looks around the
+  message's own time.
+- After Bridgey is updated, Android connects the listener again without posting the notifications
+  again, so the listener reads the notifications still showing and matches them then. Matching
+  needs to know the default SMS app, and on Android 11 and later that package is hidden from
+  Bridgey unless the manifest's `<queries>` names what an SMS app handles (`SENDTO smsto:` and
+  `SMS_DELIVER`). Those are lookups only: Bridgey declares no SMS component and never asks to
+  become the default SMS app.
+- Mark as unread, pin, mute, archive and delete stay on the Mac. Deleting removes the conversation
+  or message from this Mac only, as the window says.
+
+**Blocking a number.** Only the system, the default SMS app, the default phone app and carrier apps
+may read or change Android's blocked numbers
+([BlockedNumberContract](https://developer.android.com/reference/android/provider/BlockedNumberContract)).
+Bridgey can only open the system's Blocked numbers screen
+(`TelecomManager.createManageBlockedNumbersIntent`), which needs no permission. "Block on phone…"
+on the Mac (`sms.blocked_numbers`) opens it when Bridgey is in front on the phone, with a short
+note naming the number to add, and otherwise posts a notification that opens it (Android stops
+apps in the background from opening screens). The person adds the number there.
 
 ### Distribution and Google Play
 

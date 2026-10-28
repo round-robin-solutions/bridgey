@@ -98,8 +98,8 @@ the tables at the end of this page are generated from it with
   both, which also write the same plaintext for the vectors marked `write`; screen sharing:
   `screen.request` and the Mac's stream messages on the phone, `screen.status`, the phone's stream
   messages and the binary `screen.frame` header on the Mac; and Text messages: the `sms.*` requests
-  and `sms.send` on the phone, `sms.status`, a page's message object and `sms.send_status` on the
-  Mac). `mac_actions_draft1` and `camera_draft1` are switches in the apps but
+  and `sms.send` on the phone, `sms.status`, a page's message object, `sms.send_status`,
+  `sms.mark_read_result` and `sms.blocked_numbers_result` on the Mac). `mac_actions_draft1` and `camera_draft1` are switches in the apps but
   draft keys on the wire: the vectors pin them once, under the draft keys, and like every draft key
   they read `true` only for JSON `true`. (`remote_input_draft1` predates the shared draft list: a
   non-boolean value still closes the session.)
@@ -171,7 +171,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-124 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+128 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -993,6 +993,10 @@ Either side ends the stream. A Mac refusing a start sends it with the start's st
 | `sms.attachment_data` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `sms.contacts` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `sms.contacts_result` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 16,384 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.mark_read` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.mark_read_result` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.blocked_numbers` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.blocked_numbers_result` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
 
 `sms.status`
 
@@ -1132,6 +1136,39 @@ Answered by `sms.contacts_result`.
 - `requestId`: string, echoes the request
 - `contacts`: array of at most 20 {name (at most 128), address (at most 64), label (optional, at most 32)}
 - `error`: optional: permission (contacts is then empty)
+
+`sms.mark_read`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `threadIds`: array of 1 to 50 integers, each at least 1 (repeats count once)
+
+Answered by `sms.mark_read_result`.
+
+Read on the Mac: the phone runs the messaging app's own Mark as read (Notification.Action SEMANTIC_ACTION_MARK_AS_READ) on each notification it still shows for those conversations. Bridgey never writes to the SMS provider; a conversation without a notification stays unread on the phone.
+
+`sms.mark_read_result`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `results`: array of at most 50 {threadId (integer), result: marked | not_shown | no_action | failed (an unknown result reads as failed)}; an invalid entry is dropped
+- `error`: optional: disabled (results is then empty)
+
+`sms.blocked_numbers`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `address`: string, optional, the number to block as in sms.send (shown to the person, never written by Bridgey)
+
+Answered by `sms.blocked_numbers_result`.
+
+Opens Android's own Blocked numbers screen (TelecomManager.createManageBlockedNumbersIntent): at once when Bridgey is in front, otherwise through a Bridgey notification the person taps. Only the default dialer or SMS app may write the blocked list, so the person adds the number there.
+
+`sms.blocked_numbers_result`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `result`: opened | notified | unavailable (an unknown result reads as unavailable)
 
 #### `places.*`
 

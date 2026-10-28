@@ -7,6 +7,11 @@ import Foundation
  * Deleted when Text messages is turned off here or on the phone, when the phone is forgotten, and from
  * Reset. With "Keep conversations on this Mac" off nothing is written and the files go.
  * MMS images are never written (TextMessages keeps them in memory).
+ *
+ * Next to each cache, `<phone>.manage.json` keeps this Mac's own choices for that phone (pin, mute,
+ * archive, read state, deleted conversations and messages; SmsManagement): IDs and dates, never text.
+ * It is written whatever "Keep conversations" says, so a deleted conversation stays deleted and a pin
+ * stays pinned after a restart, and goes with the cache on Forget, Text messages off and Reset.
  */
 
 struct SmsCache: Codable, Equatable {
@@ -64,6 +69,7 @@ struct SmsCache: Codable, Equatable {
     mutating func applyMessages(_ page: [SmsMessage], thread: Int, before: SmsMessage?, more: Bool) {
         let key = String(thread)
         var list = messages[key] ?? []
+        let known = Set(list.map(\.id))
         let ids = Set(page.map(\.id))
         if let oldest = page.min(by: { SmsMessage.newerFirst($1, $0) }) {
             list.removeAll { message in
@@ -79,6 +85,17 @@ struct SmsCache: Codable, Equatable {
             if let index = list.firstIndex(where: { $0.id == message.id }) { list[index] = message } else { list.append(message) }
         }
         list.sort(by: SmsMessage.newerFirst)
+        // An open conversation's refresh can bring a new message before the sync does (seen live): the
+        // conversation's line and unread count follow, as sync would have done, so it is counted once.
+        if before == nil, let index = threads.firstIndex(where: { $0.threadId == thread }) {
+            for message in page.sorted(by: { SmsMessage.newerFirst($1, $0) }) where !known.contains(message.id) && message.date > threads[index].date {
+                threads[index].date = message.date
+                threads[index].snippet = smsSnippet(message)
+                if message.subId != nil { threads[index].subId = message.subId }
+                if message.direction == .incoming, !message.read { threads[index].unread += 1 }
+            }
+            threads.sort { $0.date != $1.date ? $0.date > $1.date : $0.threadId > $1.threadId }
+        }
         if list.count > Self.maximumMessagesPerThread {
             list = Array(list.prefix(Self.maximumMessagesPerThread))
             olderMore[key] = true
@@ -120,6 +137,14 @@ struct SmsCache: Codable, Equatable {
         return unknown
     }
 
+    /// Deleted from this Mac: the conversation and its messages go from the cache.
+    mutating func remove(thread: Int) { drop([thread]) }
+
+    /// One message deleted from this Mac.
+    mutating func remove(message id: String, in thread: Int) {
+        messages[String(thread)]?.removeAll { $0.id == id }
+    }
+
     private mutating func drop(_ ids: [Int]) {
         let set = Set(ids)
         threads.removeAll { set.contains($0.threadId) }
@@ -152,8 +177,36 @@ struct SmsStore {
     }
 
     func fileURL(_ phoneID: String) -> URL {
+        directory.appendingPathComponent("\(Self.safeName(phoneID)).json")
+    }
+
+    /// This Mac's own choices for the phone's conversations. Safe names have no dot, so it never collides with a cache.
+    func managementURL(_ phoneID: String) -> URL {
+        directory.appendingPathComponent("\(Self.safeName(phoneID)).manage.json")
+    }
+
+    private static func safeName(_ phoneID: String) -> String {
         let safe = String(phoneID.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }.prefix(64))
-        return directory.appendingPathComponent("\(safe.isEmpty ? "phone" : safe).json")
+        return safe.isEmpty ? "phone" : safe
+    }
+
+    func loadManagement(_ phoneID: String) -> SmsManagement? {
+        guard let data = try? Data(contentsOf: managementURL(phoneID)),
+              let management = try? JSONDecoder().decode(SmsManagement.self, from: data), management.version == 1 else { return nil }
+        return management
+    }
+
+    /// Nothing to keep removes the file.
+    @discardableResult
+    func saveManagement(_ management: SmsManagement, for phoneID: String) -> Bool {
+        if management.isEmpty {
+            try? FileManager.default.removeItem(at: managementURL(phoneID))
+            return true
+        }
+        guard let data = try? JSONEncoder().encode(management) else { return false }
+        let ok = TrayStore.writeOwnerOnly(data, to: managementURL(phoneID))
+        if !ok { BridgeyLog.notifications.error("text messages choices write failed") }
+        return ok
     }
 
     func load(_ phoneID: String) -> SmsCache? {
@@ -172,6 +225,18 @@ struct SmsStore {
 
     func delete(_ phoneID: String) {
         try? FileManager.default.removeItem(at: fileURL(phoneID))
+        try? FileManager.default.removeItem(at: managementURL(phoneID))
+    }
+
+    /// Keep conversations turned off: the caches go, this Mac's choices stay (the folder goes when none are left).
+    func deleteCaches() {
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        let kept = files.filter { $0.lastPathComponent.hasSuffix(".manage.json") }
+        guard !kept.isEmpty else {
+            deleteAll()
+            return
+        }
+        for file in files where !kept.contains(file) { try? FileManager.default.removeItem(at: file) }
     }
 
     func deleteAll() {

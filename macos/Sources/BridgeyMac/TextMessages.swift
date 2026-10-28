@@ -11,6 +11,9 @@ import Foundation
  *  - older conversations and older messages load only when scrolled to; an open conversation's newest
  *    page is refreshed after a change, at most once every 2 seconds;
  *  - MMS images load when shown, at most 4 at a time, and stay in memory only.
+ * Managing conversations (SmsManagement) is this Mac's own: pin, mute, archive, read state and
+ * Delete never reach the phone, except Mark as read, which asks the phone to run the messaging
+ * app's own notification action (sms.mark_read) and says what happened.
  * The transport is a closure, so the logic is tested without a phone.
  */
 
@@ -29,6 +32,34 @@ struct SmsOutgoing: Identifiable, Equatable {
     var isNotificationReply: Bool { if case .notification = target { true } else { false } }
     var isFinal: Bool { state == .failed || state == .refused || state == .delivered }
     var failed: Bool { state == .failed || state == .refused }
+}
+
+/// Something the Messages window says for a moment: what reached the phone, or did not.
+struct SmsNotice: Equatable, Identifiable {
+    enum Kind: Equatable {
+        /// Read on this Mac; how the phone's Mark as read went for those conversations.
+        case markRead(SmsMarkReadSummary)
+        /// Block on phone: nil when the phone did not answer.
+        case blocked(SmsBlockedNumbersOutcome?, address: String?)
+    }
+
+    let id: String
+    let phoneID: String
+    let kind: Kind
+}
+
+struct SmsMarkReadSummary: Equatable {
+    var total = 0
+    var marked = 0
+    var notShown = 0
+    var noAction = 0
+    var failed = 0
+    /// The phone did not answer (not connected, or a version without sms.mark_read).
+    var noAnswer = false
+    /// Text messages is off for this Mac on the phone.
+    var disabled = false
+
+    var stillUnread: Int { total - marked }
 }
 
 /// One phone's conversations as this Mac knows them.
@@ -58,6 +89,12 @@ final class TextMessages: ObservableObject {
     @Published private(set) var contactsSearching = false
     /// The conversation shown in the Messages window, refreshed after each change.
     @Published private(set) var openConversation: (phoneID: String, threadId: Int)?
+    /// This Mac's own choices per phone (pin, mute, archive, read state, deleted).
+    @Published private(set) var management: [String: SmsManagement] = [:]
+    /// The newest thing to say in the Messages window.
+    @Published private(set) var notice: SmsNotice?
+    /// Changes each time any phone's conversations change (cheap to watch).
+    @Published private(set) var revision = 0
 
     /// Sends one encrypted message to the phone; false when it could not go.
     var send: (_ phoneID: String, _ kind: String, _ payload: [String: Any]) -> Bool = { _, _, _ in false }
@@ -83,6 +120,11 @@ final class TextMessages: ObservableObject {
     private var failedImages: Set<String> = []
     private var saveScheduled: Set<String> = []
     private var contactsRequest: String?
+    /// Phones whose older conversations are loading page after page (unread and pinned ones may be there).
+    private var filling: [String: Int] = [:]
+    private var lastThreadsRefresh: [String: Date] = [:]
+    static let maximumFillPages = 6
+    static let threadsRefreshSpacing: TimeInterval = 3
 
     private enum Pending: Equatable {
         case threads(phoneID: String, first: Bool)
@@ -91,10 +133,13 @@ final class TextMessages: ObservableObject {
         case attachment(phoneID: String, partID: String)
         case contacts(phoneID: String)
         case send(phoneID: String)
+        case markRead(phoneID: String, threads: [Int], report: Bool)
+        case blockedNumbers(phoneID: String, address: String?)
 
         var phoneID: String {
             switch self {
-            case let .threads(id, _), let .messages(id, _, _), let .sync(id), let .attachment(id, _), let .contacts(id), let .send(id): id
+            case let .threads(id, _), let .messages(id, _, _), let .sync(id), let .attachment(id, _), let .contacts(id), let .send(id),
+                 let .markRead(id, _, _), let .blockedNumbers(id, _): id
             }
         }
     }
@@ -139,6 +184,9 @@ final class TextMessages: ObservableObject {
     func forget(_ phoneID: String) {
         disconnected(phoneID)
         phones.removeValue(forKey: phoneID)
+        management.removeValue(forKey: phoneID)
+        filling.removeValue(forKey: phoneID)
+        if notice?.phoneID == phoneID { notice = nil }
         loaded.remove(phoneID)
         outgoing.removeAll { $0.phoneID == phoneID }
         for key in images.keys where key.hasPrefix(phoneID + "|") { images.removeValue(forKey: key) }
@@ -158,6 +206,8 @@ final class TextMessages: ObservableObject {
         outgoing.removeAll()
         contactResults = []
         openConversation = nil
+        management.removeAll()
+        notice = nil
         store.deleteAll()
     }
 
@@ -166,7 +216,7 @@ final class TextMessages: ObservableObject {
         if keep {
             for (id, phone) in phones { store.save(phone.cache, for: id) }
         } else {
-            store.deleteAll()
+            store.deleteCaches()
         }
     }
 
@@ -176,6 +226,7 @@ final class TextMessages: ObservableObject {
         var phone = phones[phoneID] ?? SmsPhoneData()
         if keepOnDisk(), let cache = store.load(phoneID) { phone.cache = cache }
         phones[phoneID] = phone
+        if management[phoneID] == nil, let saved = store.loadManagement(phoneID) { management[phoneID] = saved }
     }
 
     // MARK: Receiving
@@ -199,6 +250,8 @@ final class TextMessages: ObservableObject {
                 phone.problem = page.error
                 if page.error == nil { phone.cache.applyThreads(page.threads, first: first, more: page.more) }
             }
+            applyManagement(phoneID)
+            continueFilling(phoneID, failed: page.error != nil)
             persist(phoneID)
         case SmsKinds.messagesPage:
             guard let page = decodeSmsMessagesPage(data),
@@ -210,6 +263,7 @@ final class TextMessages: ObservableObject {
                 if page.error == nil { phone.cache.applyMessages(page.messages, thread: thread, before: before, more: page.more) }
             }
             reconcile(page.messages, phoneID: phoneID)
+            applyManagement(phoneID)
             persist(phoneID)
         case SmsKinds.syncPage:
             guard let page = decodeSmsSyncPage(data), case let .sync(owner)? = pending[page.requestID], owner == phoneID else { return }
@@ -235,6 +289,16 @@ final class TextMessages: ObservableObject {
             contactsRequest = nil
             contactsSearching = false
             contactResults = result.contacts
+        case SmsKinds.markReadResult:
+            guard let result = decodeSmsMarkReadResult(data), case let .markRead(owner, threads, report)? = pending[result.requestID],
+                  owner == phoneID else { return }
+            pending.removeValue(forKey: result.requestID)
+            markReadArrived(result, threads: threads, report: report, from: phoneID)
+        case SmsKinds.blockedNumbersResult:
+            guard let result = decodeSmsBlockedNumbersResult(data), case let .blockedNumbers(owner, address)? = pending[result.requestID],
+                  owner == phoneID else { return }
+            pending.removeValue(forKey: result.requestID)
+            say(.blocked(result.outcome, address: address), phoneID: phoneID)
         default:
             break
         }
@@ -259,8 +323,22 @@ final class TextMessages: ObservableObject {
     private func changed(_ cursor: SmsCursor, from phoneID: String) {
         update(phoneID) { $0.status?.cursor = cursor }
         guard let mine = data(phoneID).cache.cursor else { return }
-        if mine.isBehind(cursor) { startSync(phoneID) }
+        if mine.isBehind(cursor) {
+            startSync(phoneID)
+        } else {
+            // Nothing new, so something changed in place: read on the phone, or deleted there. The
+            // conversation list carries the phone's unread counts.
+            refreshThreadsSoon(phoneID)
+        }
         refreshOpenConversation(phoneID)
+    }
+
+    /// The newest conversations again, at most once every 3 seconds.
+    private func refreshThreadsSoon(_ phoneID: String) {
+        let time = now()
+        if let last = lastThreadsRefresh[phoneID], time.timeIntervalSince(last) < Self.threadsRefreshSpacing { return }
+        lastThreadsRefresh[phoneID] = time
+        requestThreads(phoneID, first: true)
     }
 
     private func syncArrived(_ page: SmsSyncPage, from phoneID: String) {
@@ -289,6 +367,7 @@ final class TextMessages: ObservableObject {
             phone.cache.cursor = page.cursor
         }
         reconcile(page.messages, phoneID: phoneID)
+        applyManagement(phoneID)
         if !unknown.isEmpty, !data(phoneID).loadingThreads { requestThreads(phoneID, first: true) }
         let pages = (syncPages[phoneID] ?? 0) + 1
         syncPages[phoneID] = pages
@@ -349,6 +428,7 @@ final class TextMessages: ObservableObject {
         switch entry {
         case .threads:
             update(phoneID) { $0.loadingThreads = false }
+            filling.removeValue(forKey: phoneID)
         case let .messages(_, thread, _):
             update(phoneID) { $0.loadingMessages.remove(thread) }
         case .sync:
@@ -366,15 +446,19 @@ final class TextMessages: ObservableObject {
                 outgoing[index].reason = .failed
                 if outgoing[index].isNotificationReply { onReplyFailed(outgoing[index]) }
             }
+        case let .markRead(_, threads, report):
+            if report { say(.markRead(SmsMarkReadSummary(total: threads.count, noAnswer: true)), phoneID: phoneID) }
+        case let .blockedNumbers(_, address):
+            say(.blocked(nil, address: address), phoneID: phoneID)
         }
     }
 
-    private func requestThreads(_ phoneID: String, first: Bool) {
+    private func requestThreads(_ phoneID: String, first: Bool, limit: Int = 30) {
         let phone = data(phoneID)
         guard !phone.loadingThreads else { return }
         let id = newRequestID()
         let before = first ? nil : phone.cache.threads.last?.date
-        if request(SmsKinds.threads, SmsRequests.threads(id, before: before, limit: 30), as: .threads(phoneID: phoneID, first: first), id: id) {
+        if request(SmsKinds.threads, SmsRequests.threads(id, before: before, limit: limit), as: .threads(phoneID: phoneID, first: first), id: id) {
             update(phoneID) { $0.loadingThreads = true }
         }
     }
@@ -537,12 +621,212 @@ final class TextMessages: ObservableObject {
         contactResults = []
     }
 
+    // MARK: Managing conversations (this Mac's own, except Mark as read)
+
+    func manage(_ phoneID: String) -> SmsManagement { management[phoneID] ?? SmsManagement() }
+
+    /// The conversation list as the window shows it.
+    func rows(_ phoneID: String, filter: SmsListFilter, holding: Int? = nil) -> [SmsThreadRow] {
+        data(phoneID).cache.rows(manage(phoneID), filter: filter, holding: holding)
+    }
+
+    /// A conversation's messages without the ones deleted on this Mac.
+    func visibleMessages(_ phoneID: String, thread: Int) -> [SmsMessage] {
+        data(phoneID).cache.visibleMessages(in: thread, management: manage(phoneID))
+    }
+
+    func search(_ query: String, phoneID: String) -> SmsSearchResults {
+        data(phoneID).cache.search(query, management: manage(phoneID))
+    }
+
+    /// The menu bar panel's count: unread on this Mac, muted and archived conversations left out.
+    func unreadCount(_ phoneID: String) -> Int { data(phoneID).cache.unreadCount(manage(phoneID)) }
+
+    func isUnread(_ phoneID: String, thread: Int) -> Bool {
+        guard let summary = data(phoneID).cache.thread(thread) else { return false }
+        return manage(phoneID).unread(summary, messages: visibleMessages(phoneID, thread: thread)) > 0
+    }
+
+    /// A banner for this conversation would be muted on this Mac.
+    func isMuted(_ phoneID: String, thread: Int) -> Bool {
+        ensureLoaded(phoneID)
+        return manage(phoneID).isMuted(thread)
+    }
+
+    /// Read on this Mac; for conversations the phone still counts unread, the phone runs the
+    /// messaging app's own Mark as read on their notifications. [report]: say how that went.
+    func markRead(_ threads: [Int], phoneID: String, report: Bool = true) {
+        ensureLoaded(phoneID)
+        let cache = data(phoneID).cache
+        var manage = self.manage(phoneID)
+        var onPhone: [Int] = []
+        for id in threads {
+            guard let thread = cache.thread(id) else { continue }
+            manage.markRead(id, through: cache.newestIncomingDate(thread))
+            if thread.unread > 0 { onPhone.append(id) }
+        }
+        setManagement(phoneID, manage)
+        var start = 0
+        while start < onPhone.count {
+            let chunk = Array(onPhone[start..<min(start + SmsLimits.markReadPerRequest, onPhone.count)])
+            start += chunk.count
+            let id = newRequestID()
+            guard let payload = SmsRequests.markRead(id, threadIds: chunk) else { continue }
+            if !request(SmsKinds.markRead, payload, as: .markRead(phoneID: phoneID, threads: chunk, report: report), id: id), report {
+                say(.markRead(SmsMarkReadSummary(total: chunk.count, noAnswer: true)), phoneID: phoneID)
+            }
+        }
+    }
+
+    /// Unread again on this Mac only (the phone cannot be told).
+    func markUnread(_ threads: [Int], phoneID: String) {
+        changeManagement(phoneID) { manage in threads.forEach { manage.markUnread($0) } }
+    }
+
+    func setPinned(_ threads: [Int], _ on: Bool, phoneID: String) {
+        changeManagement(phoneID) { manage in threads.forEach { manage.setPinned($0, on) } }
+    }
+
+    func setMuted(_ threads: [Int], _ on: Bool, phoneID: String) {
+        changeManagement(phoneID) { manage in threads.forEach { manage.setMuted($0, on) } }
+    }
+
+    /// Hidden from the list until a newer message arrives (unless muted).
+    func archive(_ threads: [Int], phoneID: String) {
+        let cache = data(phoneID).cache
+        changeManagement(phoneID) { manage in
+            for id in threads { if let thread = cache.thread(id) { manage.archive(thread) } }
+        }
+    }
+
+    func unarchive(_ threads: [Int], phoneID: String) {
+        changeManagement(phoneID) { manage in threads.forEach { manage.unarchive($0) } }
+    }
+
+    /// Removed from this Mac (it stays on the phone) until a newer message arrives.
+    func deleteThreads(_ threads: [Int], phoneID: String) {
+        ensureLoaded(phoneID)
+        var manage = self.manage(phoneID)
+        update(phoneID) { phone in
+            for id in threads {
+                guard let thread = phone.cache.thread(id) else { continue }
+                manage.delete(thread, newestMessageID: phone.cache.messages(in: id).first?.id)
+                phone.cache.remove(thread: id)
+            }
+        }
+        outgoing.removeAll { item in
+            guard item.phoneID == phoneID, case let .thread(id) = item.target else { return false }
+            return threads.contains(id)
+        }
+        if let open = openConversation, open.phoneID == phoneID, threads.contains(open.threadId) { openConversation = nil }
+        setManagement(phoneID, manage)
+        persist(phoneID)
+    }
+
+    /// One message removed from this Mac.
+    func deleteMessage(_ id: String, thread: Int, phoneID: String) {
+        ensureLoaded(phoneID)
+        guard let message = data(phoneID).cache.messages(in: thread).first(where: { $0.id == id }) else { return }
+        changeManagement(phoneID) { $0.deleteMessage(id, date: message.date, in: thread) }
+        update(phoneID) { $0.cache.remove(message: id, in: thread) }
+        persist(phoneID)
+    }
+
+    /// Block on phone: Android's Blocked numbers screen opens there (or its notification does).
+    func blockOnPhone(_ address: String?, phoneID: String) {
+        let id = newRequestID()
+        if !request(SmsKinds.blockedNumbers, SmsRequests.blockedNumbers(id, address: address),
+                    as: .blockedNumbers(phoneID: phoneID, address: address), id: id) {
+            say(.blocked(nil, address: address), phoneID: phoneID)
+        }
+    }
+
+    /// Loads older conversations page after page (up to the cache's 200), so unread and pinned ones
+    /// further down are found without scrolling.
+    func fillThreads(_ phoneID: String) {
+        let phone = data(phoneID)
+        guard filling[phoneID] == nil, phone.cache.threadsMore, phone.cache.threads.count < SmsCache.maximumThreads else { return }
+        filling[phoneID] = 0
+        if !phone.loadingThreads { continueFilling(phoneID, failed: false) }
+    }
+
+    private func continueFilling(_ phoneID: String, failed: Bool) {
+        guard let pages = filling[phoneID] else { return }
+        let cache = data(phoneID).cache
+        guard !failed, pages < Self.maximumFillPages, cache.threadsMore, cache.threads.count < SmsCache.maximumThreads else {
+            filling.removeValue(forKey: phoneID)
+            return
+        }
+        filling[phoneID] = pages + 1
+        requestThreads(phoneID, first: false, limit: SmsLimits.threadsPerPage)
+    }
+
+    func clearNotice(_ id: String) {
+        if notice?.id == id { notice = nil }
+    }
+
+    private func markReadArrived(_ result: SmsMarkReadResult, threads: [Int], report: Bool, from phoneID: String) {
+        var summary = SmsMarkReadSummary(total: threads.count)
+        if result.error != nil {
+            summary.disabled = true
+        } else {
+            for thread in threads {
+                switch result.results.first(where: { $0.threadId == thread })?.outcome {
+                case .marked?: summary.marked += 1
+                case .notShown?: summary.notShown += 1
+                case .noAction?: summary.noAction += 1
+                case .failed?, nil: summary.failed += 1
+                }
+            }
+        }
+        // The messaging app writes the read state a moment later; the list then carries the phone's counts.
+        if summary.marked > 0 {
+            schedule(1.5) { [weak self] in self?.requestThreads(phoneID, first: true) }
+        }
+        if report { say(.markRead(summary), phoneID: phoneID) }
+    }
+
+    private func say(_ kind: SmsNotice.Kind, phoneID: String) {
+        notice = SmsNotice(id: newRequestID(), phoneID: phoneID, kind: kind)
+    }
+
+    private func changeManagement(_ phoneID: String, _ change: (inout SmsManagement) -> Void) {
+        ensureLoaded(phoneID)
+        var manage = self.manage(phoneID)
+        change(&manage)
+        setManagement(phoneID, manage)
+    }
+
+    private func setManagement(_ phoneID: String, _ manage: SmsManagement) {
+        guard management[phoneID] != manage else { return }
+        management[phoneID] = manage
+        store.saveManagement(manage, for: phoneID)
+    }
+
+    /// After the cache changed: what this Mac deleted stays out of it, and archives, tombstones and
+    /// read points that newer messages or the phone ended go.
+    private func applyManagement(_ phoneID: String) {
+        guard var manage = management[phoneID], !manage.isEmpty else { return }
+        manage.reconcile(with: data(phoneID).cache)
+        update(phoneID) { phone in
+            for key in manage.deleted.keys {
+                guard let id = Int(key) else { continue }
+                phone.cache.remove(thread: id)
+            }
+            for (key, ids) in manage.deletedMessages where phone.cache.messages[key]?.contains(where: { ids[$0.id] != nil }) == true {
+                phone.cache.messages[key]?.removeAll { ids[$0.id] != nil }
+            }
+        }
+        setManagement(phoneID, manage)
+    }
+
     // MARK: Helpers
 
     private func update(_ phoneID: String, _ change: (inout SmsPhoneData) -> Void) {
         var phone = phones[phoneID] ?? SmsPhoneData()
         change(&phone)
         phones[phoneID] = phone
+        revision &+= 1
     }
 
     /// Writes the phone's cache once per second at most, while Keep conversations on this Mac is on.

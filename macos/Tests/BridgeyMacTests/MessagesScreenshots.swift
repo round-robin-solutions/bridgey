@@ -79,7 +79,15 @@ final class MessagesScreenshots: XCTestCase {
             message("s102", out: false, "Free on Saturday?", at(26, 20, 5)),
         ].sorted(by: SmsMessage.newerFirst)
         model.images = ["p77": photo]
-        return model
+        return model.listed(SmsManagement())
+    }
+
+    /// Managing conversations: unread ones and a pin, the unread divider in an opened conversation.
+    private var managed: SmsManagement {
+        var manage = SmsManagement()
+        manage.setPinned(12, true)
+        manage.setMuted(10, true)
+        return manage
     }
 
     @MainActor func testConversation() throws {
@@ -96,6 +104,7 @@ final class MessagesScreenshots: XCTestCase {
                        body: "482913 is your OTP for the transaction of Rs 2,499 at Amazon. Valid for 5 minutes. Do not share it with anyone.", subId: 2),
         ]
         model.threads[1].unread = 0
+        model = model.listed(SmsManagement())
         model.canSend = false
         try render(model, name: "mac-messages-code", copied: nil)
         var anna = self.model
@@ -124,6 +133,51 @@ final class MessagesScreenshots: XCTestCase {
             SmsMessage(id: "s299", threadId: 11, direction: .incoming, status: .received, date: ms(at(23, 19, 2)), address: "+911", body: "Who is in town this week?", subId: 1),
         ]
         try render(model, name: "mac-messages-group")
+    }
+
+    @MainActor func testUnreadFirstAndTheDivider() throws {
+        var model = self.model
+        model.threads[0].unread = 2
+        model = model.listed(managed)
+        model.target = .thread(7)
+        model.messages = [
+            message("s107", out: false, "Also, can you bring the charger?", at(27, 9, 40)),
+            message("s106", out: false, "Running a bit late, table is under Kapoor", at(27, 9, 39)),
+            message("s105", out: true, "Perfect, see you at 6", at(27, 9, 38), status: .delivered),
+            message("s104", out: false, "Booked a table at Olive for 6. Here is the place", at(27, 9, 30)),
+            message("s103", out: true, "Sounds good. Lunch or dinner?", at(26, 20, 12)),
+            message("s102", out: false, "Free on Saturday?", at(26, 20, 5)),
+        ].sorted(by: SmsMessage.newerFirst)
+        model.unreadFrom = "s106"
+        model.notice = MessagesNoticeText(id: "n", text: "Also marked read on OnePlus 11.", symbol: "checkmark.circle", good: true)
+        try render(model, name: "mac-messages-unread-first")
+    }
+
+    @MainActor func testUnreadFilterArchivedAndSearch() throws {
+        var unread = self.model.listed(managed, filter: .unread)
+        unread.target = nil
+        try render(unread, name: "mac-messages-filter-unread")
+        var manage = managed
+        manage.archive(SmsThread(threadId: 12, participants: [], snippet: "", date: ms(at(20, 8, 0)), unread: 0))
+        manage.archive(SmsThread(threadId: 11, participants: [], snippet: "", date: ms(at(23, 19, 10)), unread: 0))
+        var archived = self.model.listed(manage, filter: .archived)
+        archived.target = .thread(11)
+        archived.messages = [
+            SmsMessage(id: "s300", threadId: 11, direction: .incoming, status: .received, date: ms(at(23, 19, 10)), address: "+912", body: "Dinner on Friday?", subId: 1),
+        ]
+        try render(archived, name: "mac-messages-archived")
+        var search = self.model
+        search.query = "olive"
+        search.search = search.cache.search("olive", management: SmsManagement())
+        search.focusMessage = "s104"
+        try render(search, name: "mac-messages-search")
+    }
+
+    @MainActor func testSeveralSelected() throws {
+        var model = self.model
+        model.selected = [8, 9, 10]
+        model.selecting = true
+        try render(model, name: "mac-messages-bulk")
     }
 
     @MainActor func testStates() throws {
@@ -187,5 +241,45 @@ final class MessagesScreenshots: XCTestCase {
         let rep = NSBitmapImageRep(cgImage: image)
         guard let data = rep.representation(using: .png, properties: [:]) else { return }
         try data.write(to: directory.appendingPathComponent("\(name).png"))
+    }
+}
+
+private extension MessagesModel {
+    /// The cache these sample threads and messages make (for the list's order and search).
+    var cache: SmsCache {
+        var cache = SmsCache()
+        cache.applyThreads(threads, first: true, more: false)
+        if case let .thread(id)? = target { cache.applyMessages(messages.filter { $0.threadId == id }, thread: id, before: nil, more: false) }
+        // Search finds Anna's messages wherever the sample opens.
+        cache.applyMessages([
+            SmsMessage(id: "s104", threadId: 7, direction: .incoming, status: .received, date: threads.first { $0.threadId == 7 }!.date - 480_000,
+                       address: "+919876543210", body: "Booked a table at Olive for 6. Here is the place"),
+        ], thread: 7, before: nil, more: true)
+        cache.applyMessages([
+            SmsMessage(id: "s801", threadId: 8, direction: .incoming, status: .received, date: threads.first { $0.threadId == 8 }!.date - 86_400_000 * 3,
+                       address: "HDFCBK", body: "Thank you for using your card at OLIVE BAR AND KITCHEN for Rs 3,240"),
+        ], thread: 8, before: nil, more: true)
+        return cache
+    }
+
+    /// The list as the window builds it from the cache.
+    func listed(_ manage: SmsManagement, filter: SmsListFilter = .all) -> MessagesModel {
+        var model = self
+        let cache = SmsCache().with(threads)
+        model.filter = filter
+        model.rows = cache.rows(manage, filter: filter)
+        let all = cache.rows(manage, filter: .all), archived = cache.rows(manage, filter: .archived)
+        model.states = Dictionary((all + archived).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        model.unreadConversations = all.filter { $0.unread > 0 }.count
+        model.archivedCount = archived.count
+        return model
+    }
+}
+
+private extension SmsCache {
+    func with(_ threads: [SmsThread]) -> SmsCache {
+        var cache = self
+        cache.applyThreads(threads, first: true, more: false)
+        return cache
     }
 }

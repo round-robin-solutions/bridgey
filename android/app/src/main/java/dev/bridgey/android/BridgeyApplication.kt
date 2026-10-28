@@ -173,6 +173,7 @@ class BridgeyApplication : Application() {
         startCodeAccess()
         startUpdateAll()
         startCamera()
+        startBlockedNumbers()
         screenShare = dev.bridgey.android.screen.ScreenShareHub(this, pairing) { startedActivityCount > 0 }
         pairing.screenListener = screenShare
         registerForegroundClipboardWatcher()
@@ -233,6 +234,11 @@ class BridgeyApplication : Application() {
             }
         }
         pairing.cameraEnded = { request -> dev.bridgey.android.camera.CameraNotifier.dismiss(this, request.deviceId) }
+    }
+
+    /** Block on phone, from a Mac's Messages window (sms.blocked_numbers). */
+    private fun startBlockedNumbers() {
+        pairing.openBlockedNumbers = { address -> dev.bridgey.android.sms.BlockedNumbers.open(this, address, startedActivityCount > 0) }
     }
 
     private fun startUpdateAll() {
