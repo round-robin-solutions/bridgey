@@ -26,4 +26,16 @@
     <string name="mac_action_refused_permission">The Mac needs Accessibility access first. Open Bridgey on the Mac.</string>
     <string name="mac_action_refused_unavailable">Not available on the Mac right now: the app is gone or there is no sound output</string>
     <string name="mac_action_refused_failed">The Mac could not do this</string>
+    <string name="control_ping">Ping Mac</string>
+    <string name="control_find">Find Mac</string>
+    <string name="control_status_ready">Ready</string>
+    <string name="control_status_offline">Offline</string>
+    <string name="control_status_unavailable">Turned off on one of your devices</string>
+    <string name="control_status_ringing">Ringing</string>
+    <string name="control_status_muted">Muted</string>
+    <string name="widget_name">Bridgey Mac actions</string>
+    <string name="widget_description">Lock, sleep and volume for your paired Mac</string>
+    <string name="widget_status_unpaired">Pair a Mac in Bridgey first</string>
+    <string name="widget_status_empty">Allow Lock, Sleep or Volume in Bridgey Settings on the Mac</string>
+    <string name="services_controls_hint">Device controls and the Bridgey home-screen widget offer the Mac actions your Mac allows.</string>
 </resources>

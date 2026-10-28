@@ -26,4 +26,16 @@
     <string name="mac_action_refused_permission">Mac сначала нужен Универсальный доступ. Откройте Bridgey на Mac.</string>
     <string name="mac_action_refused_unavailable">Сейчас недоступно на Mac: приложения больше нет или нет вывода звука</string>
     <string name="mac_action_refused_failed">Mac не удалось это выполнить</string>
+    <string name="control_ping">Пинг Mac</string>
+    <string name="control_find">Найти Mac</string>
+    <string name="control_status_ready">Готово</string>
+    <string name="control_status_offline">Не в сети</string>
+    <string name="control_status_unavailable">Выключено на одном из устройств</string>
+    <string name="control_status_ringing">Звонит</string>
+    <string name="control_status_muted">Без звука</string>
+    <string name="widget_name">Действия на Mac в Bridgey</string>
+    <string name="widget_description">Блокировка, сон и громкость для сопряжённого Mac</string>
+    <string name="widget_status_unpaired">Сначала выполните сопряжение с Mac в Bridgey</string>
+    <string name="widget_status_empty">Разрешите блокировку, сон или громкость в настройках Bridgey на Mac</string>
+    <string name="services_controls_hint">Элементы управления устройствами и виджет Bridgey на главном экране показывают действия, которые разрешает ваш Mac.</string>
 </resources>
