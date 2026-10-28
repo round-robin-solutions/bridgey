@@ -331,6 +331,10 @@ Downloads arrive in the Mac's received-files folder like any other transfer.
 When Android allows it, **Add Files…** uploads files into the folder being
 viewed; a taken name gets a number and nothing is replaced.
 
+Files received on the Mac record the sending device in Finder's "Where from",
+make the Downloads stack bounce when they land inside Downloads, and offer
+Quick Look and Show in Finder from the File Transfer window.
+
 Recent file transfers remain visible until cleared. An outgoing transfer that
 fails or is interrupted can be retried after the devices reconnect; retrying
 creates a new transfer and starts from byte zero so that integrity verification

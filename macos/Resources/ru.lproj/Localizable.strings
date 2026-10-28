@@ -52,3 +52,5 @@
 "browse.error.other" = "Android не удалось выполнить запрос";
 "browse.unavailable" = "Подключите Android-устройство с включённым просмотром общих папок.";
 "browse.timeout" = "Android не ответил";
+"transfers.quickLook" = "Быстрый просмотр";
+"transfers.showInFinder" = "Показать в Finder";

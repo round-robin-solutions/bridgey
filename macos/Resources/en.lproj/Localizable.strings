@@ -52,3 +52,5 @@
 "browse.error.other" = "Android could not complete the request";
 "browse.unavailable" = "Connect an Android device with Browse shared folders turned on.";
 "browse.timeout" = "Android did not answer";
+"transfers.quickLook" = "Quick Look";
+"transfers.showInFinder" = "Show in Finder";

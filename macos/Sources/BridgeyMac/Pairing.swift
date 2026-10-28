@@ -44,6 +44,8 @@ struct FileTransferRow: Identifiable, Equatable {
     let startedAt: Date
     let retryable: Bool
     let queued: Bool
+    /// The saved file of a finished incoming transfer, for Show in Finder and Quick Look.
+    let localURL: URL?
 
     init(
         id: String,
@@ -52,7 +54,8 @@ struct FileTransferRow: Identifiable, Equatable {
         active: Bool,
         startedAt: Date = Date(),
         retryable: Bool = false,
-        queued: Bool = false
+        queued: Bool = false,
+        localURL: URL? = nil
     ) {
         self.id = id
         self.name = name
@@ -61,6 +64,7 @@ struct FileTransferRow: Identifiable, Equatable {
         self.startedAt = startedAt
         self.retryable = retryable
         self.queued = queued
+        self.localURL = localURL
     }
 }
 
@@ -1938,12 +1942,23 @@ final class PairingCoordinator: ObservableObject {
                     let folder = destination.deletingLastPathComponent().path
                     fileTransferStatus = "Saved \(transfer.displayName) to \(folder)"
                     updateFileTransfer(id: completion.transferId, name: transfer.displayName, status: fileTransferStatus!, active: false)
+                    if let row = fileTransfers[completion.transferId] {
+                        fileTransfers[completion.transferId] = FileTransferRow(
+                            id: row.id,
+                            name: row.name,
+                            status: row.status,
+                            active: false,
+                            startedAt: row.startedAt,
+                            localURL: destination
+                        )
+                    }
                     fileTransferActive = fileTransfers.values.contains(where: { $0.active })
                     current.send(PairingMessage(
                         kind: "files.complete.ack",
                         sessionId: current.id,
                         transferId: completion.transferId
                     ))
+                    FinderMetadata.finishReceivedFile(destination, deviceName: current.peerName)
                     revealReceivedFile(destination)
                     NSLog("PLUGIN file received name=%@", transfer.displayName)
                 } catch {
