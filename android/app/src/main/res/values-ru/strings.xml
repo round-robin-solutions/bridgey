@@ -1079,4 +1079,11 @@
     <string name="updates_installing_detail">Bridgey сейчас перезапустится</string>
     <string name="updates_not_applied_title">Обновление не применилось</string>
     <string name="updates_not_applied_detail">Версия %1$s была установлена, но Bridgey снова запустился с %2$s. Сам он повторять не будет.</string>
+    <!-- Text messages: Block on phone, from the Mac's Messages window -->
+    <string name="sms_block_channel">Блокировка номеров с Mac</string>
+    <string name="sms_block_channel_detail">Когда Mac просит открыть заблокированные номера на этом телефоне</string>
+    <string name="sms_block_notification_title">Открыть заблокированные номера</string>
+    <string name="sms_block_notification_text">Нажмите, чтобы открыть заблокированные номера Android, и добавьте туда %1$s.</string>
+    <string name="sms_block_notification_text_plain">Нажмите, чтобы открыть заблокированные номера Android, и добавьте туда номер.</string>
+    <string name="sms_block_toast">Добавьте здесь %1$s, чтобы заблокировать</string>
 </resources>

@@ -271,6 +271,8 @@ class ProtocolGoldenVectorsTest {
                 )
                 is dev.bridgey.android.sms.SmsRequest.Attachment -> mapOf("requestId" to request.requestId, "partId" to request.partId)
                 is dev.bridgey.android.sms.SmsRequest.Contacts -> mapOf("requestId" to request.requestId, "query" to request.query)
+                is dev.bridgey.android.sms.SmsRequest.MarkRead -> mapOf("requestId" to request.requestId, "threadIds" to request.threadIds)
+                is dev.bridgey.android.sms.SmsRequest.BlockedNumbers -> mapOf("requestId" to request.requestId, "address" to request.address)
             }
         } ?: "reject"
         result == normalize(vector.get("expect"))
@@ -343,6 +345,28 @@ class ProtocolGoldenVectorsTest {
             if (via != null) put("via", via.wire)
         }
         normalize(dev.bridgey.android.sms.smsSendStatusPayload(expect.getString("requestId"), state, reason, via)) == normalize(wire)
+    }
+
+    /** Text messages: Mark as read results as the phone writes them (the Mac decodes the same vectors). */
+    @Test fun smsMarkReadResultAsThePhoneSendsIt() = each("smsMarkReadResult") { vector ->
+        val expect = vector.get("expect") as? JSONObject ?: return@each true
+        val results = expect.getJSONArray("results").let { array ->
+            (0 until array.length()).map(array::getJSONObject).map { entry ->
+                entry.getLong("threadId") to dev.bridgey.android.sms.MarkReadResult.entries.first { it.wire == entry.getString("result") }
+            }
+        }
+        val error = if (expect.isNull("error")) null else expect.getString("error")
+        val written = dev.bridgey.android.sms.smsMarkReadResultPayload(expect.getString("requestId"), results, error)
+        val wire = JSONObject(expect.toString()).put("version", 1).apply { if (isNull("error")) remove("error") }
+        normalize(written) == normalize(wire)
+    }
+
+    /** Text messages: Block on phone results as the phone writes them. */
+    @Test fun smsBlockedNumbersResultAsThePhoneSendsIt() = each("smsBlockedNumbersResult") { vector ->
+        val expect = vector.get("expect") as? JSONObject ?: return@each true
+        val result = dev.bridgey.android.sms.BlockedNumbersResult.entries.first { it.wire == expect.getString("result") }
+        val wire = JSONObject().put("version", 1).put("requestId", expect.getString("requestId")).put("result", result.wire)
+        normalize(dev.bridgey.android.sms.smsBlockedNumbersResultPayload(expect.getString("requestId"), result)) == normalize(wire)
     }
 
     /** The phone is the controller: what it would send must be exactly what the Mac host accepts. */

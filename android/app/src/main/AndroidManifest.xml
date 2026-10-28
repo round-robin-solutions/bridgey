@@ -63,6 +63,10 @@
         <intent>
             <action android:name="android.telecom.InCallService" />
         </intent>
+        <!-- Text messages, Block on phone: Android's own Blocked numbers screen (sms/BlockedNumbers.kt). -->
+        <intent>
+            <action android:name="android.telecom.action.MANAGE_BLOCKED_NUMBERS" />
+        </intent>
         <!-- Setup asks which of these already have a Mac app (setup/SetupQuestions.kt MacTwinApps). -->
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />

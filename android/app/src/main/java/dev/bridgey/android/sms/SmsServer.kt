@@ -26,6 +26,8 @@ data class SmsNotificationTarget(
     val replyToken: String?,
     /** Notification.when: the message's own time in messaging apps, used when Android hides the sender. */
     val messageTime: Long = 0,
+    /** The retained token of the app's own Mark as read (SEMANTIC_ACTION_MARK_AS_READ), if it offers one. */
+    val markReadToken: String? = null,
 )
 
 /** The SMS notifications active on the phone, newest kept, at most 256. */
@@ -41,6 +43,14 @@ object SmsNotificationTargets {
     }
 
     @Synchronized fun get(notificationId: String): SmsNotificationTarget? = targets[notificationId]
+
+    /** Every SMS notification the phone shows now, oldest first. */
+    @Synchronized fun all(): List<SmsNotificationTarget> = targets.values.toList()
+
+    /** A conversation found later for a notification that had none (it keeps its place). */
+    @Synchronized fun matched(notificationId: String, threadId: Long) {
+        targets[notificationId]?.let { if (it.threadId == null) targets[notificationId] = it.copy(threadId = threadId) }
+    }
 
     @Synchronized fun remove(notificationId: String) {
         targets.remove(notificationId)
@@ -67,6 +77,10 @@ class SmsServer(
     private val replyAsSms: () -> Boolean,
     /** Runs the app's own reply on the notification; true when Android took it. */
     private val performAppReply: (notificationId: String, token: String, text: String) -> Boolean,
+    /** Runs the app's own Mark as read on the notification; true when Android took it. */
+    private val performMarkRead: (notificationId: String, token: String) -> Boolean = { _, _ -> false },
+    /** Opens Android's Blocked numbers screen, or a notification that opens it. */
+    private val openBlockedNumbers: (address: String?) -> BlockedNumbersResult = { BlockedNumbersResult.UNAVAILABLE },
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val limiter = SmsSendLimiter(clock)
@@ -151,6 +165,8 @@ class SmsServer(
                 is SmsRequest.Sync -> sync(deviceId, request)
                 is SmsRequest.Attachment -> imageLocks.getOrPut(deviceId, ::Mutex).withLock { attachment(deviceId, request) }
                 is SmsRequest.Contacts -> contacts(deviceId, request)
+                is SmsRequest.MarkRead -> markRead(deviceId, request)
+                is SmsRequest.BlockedNumbers -> blockedNumbers(deviceId, request)
             }
         }
     }
@@ -240,6 +256,37 @@ class SmsServer(
         val room = pageRoom(pageBase(request.requestId).put("contacts", JSONArray()), SmsLimits.CONTACTS_RESULT_MAX_BYTES)
         val (kept, _) = fitEntries(provider.contacts(request.query).map(SmsContact::toJson), room)
         send(deviceId, SmsKinds.CONTACTS_RESULT, base.put("contacts", JSONArray(kept)))
+    }
+
+    /**
+     * Conversations read on the Mac: the messaging app's own Mark as read on each notification of
+     * theirs the phone still shows. A notification whose conversation was not found when it was
+     * posted is matched again now (the same text, sender and time rules as replies). The SMS provider
+     * is never written: only the default SMS app may.
+     */
+    private fun markRead(deviceId: String, request: SmsRequest.MarkRead) {
+        if (!localEnabled(deviceId)) {
+            send(deviceId, SmsKinds.MARK_READ_RESULT, smsMarkReadResultPayload(request.requestId, emptyList(), "disabled"))
+            return
+        }
+        val unmatched = SmsNotificationTargets.all().filter { it.threadId == null }
+        if (unmatched.isNotEmpty() && provider.canRead) {
+            unmatched.forEach { target ->
+                runCatching {
+                    matchNotificationThread(
+                        target.title, target.text, target.postTime,
+                        provider.recentInbox(target.postTime - MATCH_WINDOW_BEFORE_MILLIS), target.messageTime,
+                    )
+                }.getOrNull()?.let { SmsNotificationTargets.matched(target.notificationId, it) }
+            }
+        }
+        val results = markReadResults(request.threadIds, SmsNotificationTargets.all(), performMarkRead)
+        send(deviceId, SmsKinds.MARK_READ_RESULT, smsMarkReadResultPayload(request.requestId, results))
+    }
+
+    private fun blockedNumbers(deviceId: String, request: SmsRequest.BlockedNumbers) {
+        val result = if (localEnabled(deviceId)) openBlockedNumbers(request.address) else BlockedNumbersResult.UNAVAILABLE
+        send(deviceId, SmsKinds.BLOCKED_NUMBERS_RESULT, smsBlockedNumbersResultPayload(request.requestId, result))
     }
 
     // MARK: Sending

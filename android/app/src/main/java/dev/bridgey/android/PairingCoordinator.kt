@@ -206,7 +206,12 @@ class PairingCoordinator(
         send = ::sendSmsPayload,
         replyAsSms = { settings.state.value.smsReplyAsSms },
         performAppReply = { notificationId, token, text -> BridgeyNotificationListenerService.perform(notificationId, token, text) },
+        performMarkRead = { notificationId, token -> BridgeyNotificationListenerService.perform(notificationId, token, null) },
+        openBlockedNumbers = { address -> openBlockedNumbers(address) },
     )
+
+    /** Set by the application: opens Android's Blocked numbers screen, or a notification that opens it. */
+    @Volatile var openBlockedNumbers: (address: String?) -> dev.bridgey.android.sms.BlockedNumbersResult = { dev.bridgey.android.sms.BlockedNumbersResult.UNAVAILABLE }
 
     /** Macs that last heard this phone's Text messages status (the feature on at both ends). */
     private val smsPeers = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())

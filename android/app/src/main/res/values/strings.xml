@@ -1015,4 +1015,11 @@
     <string name="updates_installing_detail">Bridgey restarts in a moment</string>
     <string name="updates_not_applied_title">Update didn\'t apply</string>
     <string name="updates_not_applied_detail">%1$s was installed, but Bridgey started again on %2$s. It won\'t try again on its own.</string>
+    <!-- Text messages: Block on phone, from the Mac's Messages window -->
+    <string name="sms_block_channel">Blocking numbers from the Mac</string>
+    <string name="sms_block_channel_detail">When a Mac asks to open Blocked numbers on this phone</string>
+    <string name="sms_block_notification_title">Open Blocked numbers</string>
+    <string name="sms_block_notification_text">Tap to open Android\'s Blocked numbers, then add %1$s there.</string>
+    <string name="sms_block_notification_text_plain">Tap to open Android\'s Blocked numbers, then add the number there.</string>
+    <string name="sms_block_toast">Add %1$s here to block it</string>
 </resources>

@@ -160,6 +160,8 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         if (smsDefaultApp && !groupSummary && bridgey.settings.smsOn()) {
             val provider = dev.bridgey.android.sms.SmsProvider(this)
             val replyToken = actions.firstOrNull { it.allowsReply }?.token
+            // The app's own Mark as read, for a conversation read on the Mac (sms.mark_read).
+            val markReadToken = actions.firstOrNull { it.markRead }?.token ?: storeHiddenMarkRead(notificationId, notification)
             smsThreadId = if (provider.canRead) {
                 runCatching {
                     dev.bridgey.android.sms.matchNotificationThread(
@@ -173,6 +175,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
             dev.bridgey.android.sms.SmsNotificationTargets.record(
                 dev.bridgey.android.sms.SmsNotificationTarget(
                     notificationId, title, text, sbn.postTime, smsThreadId, messageTime = notification.`when`, replyToken = replyToken,
+                    markReadToken = markReadToken,
                 ),
             )
             // With the sender hidden and no conversation found, a reply could only fail: no Reply on the Mac.
@@ -279,11 +282,27 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
                 remoteInputs = remoteInputs,
                 systemCallAction = action.systemCallAction,
             )
-            ForwardedNotificationAction(token = token, title = title, allowsReply = remoteInputs.isNotEmpty())
+            ForwardedNotificationAction(token = token, title = title, allowsReply = remoteInputs.isNotEmpty(), markRead = action.markRead)
         }
         actionTokensByNotificationId[notificationId] = forwarded.map(ForwardedNotificationAction::token)
         while (storedActions.size > MAX_STORED_ACTIONS) storedActions.remove(storedActions.keys.first())
         return forwarded
+    }
+
+    /**
+     * A Mark as read the Mac is not shown (past the forwarded four, untitled, or only in the wearable
+     * extension): retained under its own token so sms.mark_read can run it. Null when there is none.
+     */
+    @Synchronized
+    private fun storeHiddenMarkRead(notificationId: String, notification: Notification): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
+        val candidates = notification.actions.orEmpty().toList() + Notification.WearableExtender(notification).actions
+        val action = candidates.firstOrNull { it.semanticAction == Notification.Action.SEMANTIC_ACTION_MARK_AS_READ && it.actionIntent != null } ?: return null
+        val token = notificationActionToken(notificationId, HIDDEN_MARK_READ_INDEX)
+        storedActions[token] = StoredNotificationAction(notificationId, action.actionIntent, emptyArray(), null)
+        actionTokensByNotificationId[notificationId] = actionTokensByNotificationId[notificationId].orEmpty() + token
+        while (storedActions.size > MAX_STORED_ACTIONS) storedActions.remove(storedActions.keys.first())
+        return token
     }
 
     @Synchronized
@@ -546,6 +565,8 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         }
 
         private const val MAX_FORWARDED_ACTIONS = 4
+        /** Token index of a Mark as read kept only for sms.mark_read (forwarded actions use 0 to 3). */
+        private const val HIDDEN_MARK_READ_INDEX = 100
         private const val MAX_STORED_ACTIONS = 2_048
         private const val MAX_REPLY_LENGTH = 4_096
         private const val MAX_ICON_BYTES = 20 * 1024
@@ -561,6 +582,8 @@ private data class NotificationActionCandidate(
     val pendingIntent: PendingIntent? = null,
     val remoteInputs: List<RemoteInput> = emptyList(),
     val systemCallAction: SystemCallAction? = null,
+    /** Tagged SEMANTIC_ACTION_MARK_AS_READ by the app (API 28 and later). */
+    val markRead: Boolean = false,
 )
 
 internal enum class SystemCallAction { ANSWER, END }
@@ -589,6 +612,7 @@ private fun notificationActionCandidates(
             title = action.title?.toString().orEmpty(),
             pendingIntent = pendingIntent,
             remoteInputs = action.remoteInputs.orEmpty().toList(),
+            markRead = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && action.semanticAction == Notification.Action.SEMANTIC_ACTION_MARK_AS_READ,
         )
     }
     if (callType == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return candidates
@@ -707,6 +731,8 @@ data class ForwardedNotificationAction(
     val token: String,
     val title: String,
     val allowsReply: Boolean,
+    /** The app's own Mark as read: kept on the phone for sms.mark_read, never sent to the Mac. */
+    val markRead: Boolean = false,
 )
 
 private data class StoredNotificationAction(
