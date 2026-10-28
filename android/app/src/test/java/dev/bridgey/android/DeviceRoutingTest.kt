@@ -56,4 +56,19 @@ class DeviceRoutingTest {
         // a-mac dials this phone itself; y-mac is connected; x-mac is listed twice.
         assertEquals(listOf("x-mac", "z-mac"), targets.map { it.second })
     }
+
+    @Test fun aDeviceDisconnectedByTheUserStaysDisconnectedUntilTheUserConnects() {
+        val held = HeldDevices()
+        assertTrue(held.admits("mac-a", userInitiated = false))
+        held.hold("mac-a")
+        assertTrue(held.isHeld("mac-a"))
+        assertFalse("its own reconnect is closed", held.admits("mac-a", userInitiated = false))
+        assertTrue("other devices are not affected", held.admits("mac-b", userInitiated = false))
+        assertTrue("connecting from Nearby lets it back", held.admits("mac-a", userInitiated = true))
+        assertFalse(held.isHeld("mac-a"))
+        assertTrue(held.admits("mac-a", userInitiated = false))
+        held.hold("mac-b")
+        held.release("mac-b")
+        assertFalse(held.isHeld("mac-b"))
+    }
 }

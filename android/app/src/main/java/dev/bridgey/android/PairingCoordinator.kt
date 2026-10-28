@@ -169,6 +169,7 @@ class PairingCoordinator(
     private val session: Session? get() = targetId?.let(registry::sessionFor)
     /** Trusted devices this phone is dialling by itself, so each is dialled once. */
     private val dialing = ConcurrentHashMap.newKeySet<String>()
+    private val held = HeldDevices()
     private val transferOwners = TransferOwners()
     /** Devices that made this phone ring; stopping tells them. */
     private val ringingRequesters = ConcurrentHashMap.newKeySet<String>()
@@ -227,7 +228,7 @@ class PairingCoordinator(
 
     /** Dials a trusted device in the background. Unlike [pair], it never shows connection progress. */
     fun reconnect(host: String, port: Int, peerName: String, deviceId: String) {
-        if (registry.sessionFor(deviceId) != null || !dialing.add(deviceId)) return
+        if (held.isHeld(deviceId) || registry.sessionFor(deviceId) != null || !dialing.add(deviceId)) return
         scope.launch {
             runCatching { Socket(host, port) }
                 .onSuccess { handle(it, initiatedLocally = true, peerHint = peerName, reconnectId = deviceId) }
@@ -266,6 +267,16 @@ class PairingCoordinator(
     fun dismiss() {
         val target = targetId
         if (target == null) cancel() else disconnect(target)
+    }
+
+    /**
+     * The user disconnected [deviceId] on this phone: it stays disconnected, also when it
+     * tries to reconnect, until the user connects to it again from Nearby.
+     */
+    fun disconnectByUser(deviceId: String) {
+        held.hold(deviceId)
+        disconnect(deviceId)
+        android.util.Log.i("Bridgey", "TRANSPORT disconnected by user peerId=${deviceId.take(8)}")
     }
 
     /** Disconnects one device; other sessions stay. */
@@ -2037,6 +2048,12 @@ class PairingCoordinator(
     private fun completeIfConfirmed(current: Session) {
         if (!current.localConfirmed || !current.remoteConfirmed || registry.isActive(current)) return
         val deviceId = current.remoteDeviceId
+        if (!held.admits(deviceId, userInitiated = current.initiatedLocally && current.reconnectId == null)) {
+            // Disconnected by the user on this phone: its reconnect is closed until the user connects again.
+            current.reconnectId?.let(dialing::remove)
+            current.close()
+            return
+        }
         trust.save(deviceId, current.peerName, current.remoteIdentityKey!!)
         val ownsPrompt = pairingSession === current
         if (ownsPrompt || pairingFlow is PairingState.Failed) {

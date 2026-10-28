@@ -48,3 +48,24 @@ internal fun <P> autoDialTargets(
     val id = idOf(peer) ?: return@mapNotNull null
     if (id in trustedIds && localDeviceId < id && id !in connectedIds) peer to id else null
 }.distinctBy { it.second }
+
+/**
+ * Devices the user disconnected on this phone. They are not dialled again and their
+ * reconnects are closed after authentication, until the user connects to them again
+ * from Nearby. Kept in memory only: restarting Bridgey forgets it.
+ */
+internal class HeldDevices {
+    private val held = HashSet<String>()
+
+    @Synchronized fun hold(deviceId: String) { held += deviceId }
+
+    @Synchronized fun release(deviceId: String) { held -= deviceId }
+
+    @Synchronized fun isHeld(deviceId: String): Boolean = deviceId in held
+
+    /** A session with a held device is kept only when the user started it from this phone. */
+    @Synchronized fun admits(deviceId: String, userInitiated: Boolean): Boolean {
+        if (userInitiated) held -= deviceId
+        return deviceId !in held
+    }
+}

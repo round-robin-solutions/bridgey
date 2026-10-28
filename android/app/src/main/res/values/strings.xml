@@ -22,6 +22,8 @@
     <string name="devices_connected_title">Connected devices</string>
     <string name="devices_target_hint">Clipboard, files, Ping and Ring go to the selected device.</string>
     <string name="devices_battery">Battery %1$d%%</string>
+    <string name="devices_disconnect">Disconnect</string>
+    <string name="devices_disconnect_named">Disconnect %1$s</string>
     <plurals name="notification_connected_many">
         <item quantity="one">Connected to %1$d device</item>
         <item quantity="other">Connected to %1$d devices</item>

@@ -807,7 +807,7 @@ private fun DeviceScreen(
         val connected = pairingState as? PairingState.Connected
         if (connected != null && connections.size > 1) {
             item { SectionTitle(stringResource(R.string.devices_connected_title)) }
-            item { ConnectedDevicesCard(connections, connected.deviceId, pairing::selectDevice) }
+            item { ConnectedDevicesCard(connections, connected.deviceId, pairing::selectDevice, pairing::disconnectByUser) }
         }
         if (connected != null) {
             item {
@@ -892,6 +892,13 @@ private fun DeviceScreen(
             }
         }
 
+        if (connected != null && connections.size <= 1) {
+            item {
+                TextButton(onClick = { pairing.disconnectByUser(connected.deviceId) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.devices_disconnect_named, connected.peerName))
+                }
+            }
+        }
         if (connected != null && connected.deviceId in trustedIds) {
             item {
                 TextButton(onClick = { pairing.forget(connected.deviceId) }, modifier = Modifier.fillMaxWidth()) {
@@ -979,7 +986,12 @@ private fun ConnectedDeviceCard(
 
 /** Every connected device; actions started on this phone go to the selected one. */
 @Composable
-private fun ConnectedDevicesCard(connections: List<ConnectedDevice>, selectedId: String, onSelect: (String) -> Unit) {
+private fun ConnectedDevicesCard(
+    connections: List<ConnectedDevice>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
+    onDisconnect: (String) -> Unit,
+) {
     Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(vertical = 10.dp)) {
             connections.forEach { device ->
@@ -1001,6 +1013,7 @@ private fun ConnectedDevicesCard(connections: List<ConnectedDevice>, selectedId:
                             )
                         }
                     }
+                    TextButton(onClick = { onDisconnect(device.id) }) { Text(stringResource(R.string.devices_disconnect)) }
                 }
             }
             Text(

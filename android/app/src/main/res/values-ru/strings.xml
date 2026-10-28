@@ -22,6 +22,8 @@
     <string name="devices_connected_title">Подключённые устройства</string>
     <string name="devices_target_hint">Буфер обмена, файлы, пинг и поиск устройства отправляются на выбранное устройство.</string>
     <string name="devices_battery">Батарея %1$d%%</string>
+    <string name="devices_disconnect">Отключить</string>
+    <string name="devices_disconnect_named">Отключить %1$s</string>
     <plurals name="notification_connected_many">
         <item quantity="one">Подключено %1$d устройство</item>
         <item quantity="few">Подключено %1$d устройства</item>
