@@ -1425,3 +1425,6 @@
 "sync.question.keep" = "Оставить мои";
 "sync.question.use" = "Использовать эти";
 "sync.question.window" = "Синхронизация настроек";
+"sync.name.screen" = "Показ экрана";
+"sync.name.sms" = "SMS";
+"sync.name.autoUpdateAll" = "Обновлять все устройства автоматически";

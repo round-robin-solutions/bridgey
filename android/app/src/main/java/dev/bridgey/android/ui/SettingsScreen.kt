@@ -441,7 +441,7 @@ private fun MessagesPage(state: SettingsState, actions: SettingsActions, listSta
         val on = state.featureOn(BridgeyFeature.SMS)
         item(key = "messages") {
             RowGroup(Modifier.padding(top = 8.dp)) {
-                row { shape -> FeatureSwitch(shape, BridgeyFeature.SMS, state, actions) }
+                featureRows(BridgeyFeature.SMS, state, actions)
                 if (on) messagesRows(state.messages, actions.messages)
             }
         }

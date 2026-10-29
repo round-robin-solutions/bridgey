@@ -12864,6 +12864,24 @@
       "changedAt": 1792900000016,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.screen": {
+      "value": true,
+      "changedAt": 1792900000017,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.sms": {
+      "value": true,
+      "changedAt": 1792900000018,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "updates.auto_all": {
+      "value": true,
+      "changedAt": 1792900000019,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     }
    },
@@ -12992,6 +13010,24 @@
      "codes.enabled": {
       "value": true,
       "changedAt": 1792900000016,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.screen": {
+      "value": true,
+      "changedAt": 1792900000017,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.sms": {
+      "value": true,
+      "changedAt": 1792900000018,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "updates.auto_all": {
+      "value": true,
+      "changedAt": 1792900000019,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
@@ -13865,6 +13901,96 @@
    }
   },
   {
+   "name": "feature.screen off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "feature.screen": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "feature.screen": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0,
+    "first": false,
+    "new": false,
+    "answered": false
+   }
+  },
+  {
+   "name": "feature.sms off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "feature.sms": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "feature.sms": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0,
+    "first": false,
+    "new": false,
+    "answered": false
+   }
+  },
+  {
+   "name": "updates.auto_all off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "updates.auto_all": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "updates.auto_all": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0,
+    "first": false,
+    "new": false,
+    "answered": false
+   }
+  },
+  {
    "name": "unknown key is skipped, the rest applies",
    "kind": "update",
    "plaintext": {
@@ -13943,6 +14069,24 @@
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
+     "sms.keep_on_mac": {
+      "value": true,
+      "changedAt": 9,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "sms.pinned": {
+      "value": "t1",
+      "changedAt": 9,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "sms.muted": {
+      "value": "t1",
+      "changedAt": 9,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
      "activity.previews": {
       "value": true,
       "changedAt": 0,
@@ -13961,7 +14105,7 @@
      }
     },
     "waiting": [],
-    "skipped": 6,
+    "skipped": 9,
     "first": false,
     "new": false,
     "answered": false
@@ -14579,7 +14723,7 @@
    }
   },
   {
-   "name": "32 records (11 unknown)",
+   "name": "32 records (8 unknown)",
    "kind": "snapshot",
    "plaintext": {
     "schema": 1,
@@ -14711,6 +14855,24 @@
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
+     "feature.screen": {
+      "value": true,
+      "changedAt": 1792900000017,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.sms": {
+      "value": true,
+      "changedAt": 1792900000018,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "updates.auto_all": {
+      "value": true,
+      "changedAt": 1792900000019,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
      "x.k00": {
       "value": true,
       "changedAt": 1,
@@ -14754,24 +14916,6 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
      "x.k07": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k08": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k09": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k10": {
       "value": true,
       "changedAt": 1,
       "version": 1,
@@ -14906,10 +15050,28 @@
       "changedAt": 1792900000016,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.screen": {
+      "value": true,
+      "changedAt": 1792900000017,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.sms": {
+      "value": true,
+      "changedAt": 1792900000018,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "updates.auto_all": {
+      "value": true,
+      "changedAt": 1792900000019,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
     "waiting": [],
-    "skipped": 11,
+    "skipped": 8,
     "first": false,
     "new": false,
     "answered": false
@@ -15048,6 +15210,24 @@
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
+     "feature.screen": {
+      "value": true,
+      "changedAt": 1792900000017,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "feature.sms": {
+      "value": true,
+      "changedAt": 1792900000018,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "updates.auto_all": {
+      "value": true,
+      "changedAt": 1792900000019,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
      "x.k00": {
       "value": true,
       "changedAt": 1,
@@ -15091,24 +15271,6 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
      "x.k07": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k08": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k09": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k10": {
       "value": true,
       "changedAt": 1,
       "version": 1,

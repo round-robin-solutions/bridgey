@@ -68,6 +68,11 @@ enum class SyncKey(val key: String, val token: String, val default: Any, val val
     FOCUS_SHARE("focus.share", "focus_share", false, feature = true),
     FOCUS_FOLLOW("focus.follow", "focus_follow", false, feature = true),
     CODES("codes.enabled", "codes", false, feature = true),
+    /** Share screen with Macs here; Show phone screens on the Mac. Each share is still asked on the phone. */
+    SCREEN("feature.screen", "screen", false, feature = true),
+    SMS("feature.sms", "sms", false, feature = true),
+    /** Update all devices automatically: stored and relayed until that setting lands (rr/auto-update-all). */
+    AUTO_UPDATE_ALL("updates.auto_all", "auto_update_all", false),
     ;
 
     fun accepts(value: Any?): Boolean = if (values != null) value is String && value in values else value is Boolean

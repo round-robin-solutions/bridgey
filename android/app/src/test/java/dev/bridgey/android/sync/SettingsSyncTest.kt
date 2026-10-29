@@ -120,7 +120,9 @@ class SettingsSyncTest {
         }
     }
 
-    private fun fakes(): Map<SyncKey, Fake> = SyncKey.entries.filter { it != SyncKey.CODES }.associateWith { Fake(it.default) }
+    /** The phone's settings: everything but the Mac-only codes and the not-yet-built Update all devices automatically. */
+    private fun fakes(): Map<SyncKey, Fake> =
+        SyncKey.entries.filter { it != SyncKey.CODES && it != SyncKey.AUTO_UPDATE_ALL }.associateWith { Fake(it.default) }
 
     private fun clear(vararg names: String) = names.forEach {
         context.getSharedPreferences("sync-test-$it", Context.MODE_PRIVATE).edit().clear().commit()
@@ -581,12 +583,46 @@ class SettingsSyncTest {
         assertNull(phone.answers.getString("mac", null))
     }
 
+    @Test fun textMessagesTurnedOnByAMacWaitForTheSmsPermissionHere() {
+        val (net, phone, mac) = pair()
+        phone.settings.getValue(SyncKey.SMS).waiting = true
+        net.link(phone, mac)
+        net.pump()
+        mac.edit(SyncKey.SMS, true)
+        net.pump()
+        assertEquals(true, phone[SyncKey.SMS])
+        // The permission is this phone's to give: the one case that notifies.
+        assertEquals(listOf(SyncKey.SMS), phone.turnedOn)
+        assertEquals(listOf("OnePlus 11"), mac.sync.ui.value.row(SyncKey.SMS)!!.waitingOn)
+        // Screen sharing asks on the phone each time, so turning it on never waits.
+        mac.edit(SyncKey.SCREEN, true)
+        net.pump()
+        assertEquals(true, phone[SyncKey.SCREEN])
+        assertEquals(listOf(SyncKey.SMS), phone.turnedOn)
+    }
+
+    @Test fun updateAllDevicesAutomaticallyIsRelayedBeforeAnyDeviceHasIt() {
+        clear("phone", "a", "b")
+        val net = Net()
+        val phone = Device("phone", "OnePlus 11", net)
+        val macSettings = { fakes() + (SyncKey.AUTO_UPDATE_ALL to Fake(false)) }
+        val a = Device("a", "Work Mac", net, macSettings())
+        val b = Device("b", "Home Mac", net, macSettings())
+        net.link(phone, a)
+        net.link(phone, b)
+        net.pump()
+        a.edit(SyncKey.AUTO_UPDATE_ALL, true)
+        net.pump()
+        assertEquals(true, b[SyncKey.AUTO_UPDATE_ALL])
+        assertEquals(true, phone.sync.record(SyncKey.AUTO_UPDATE_ALL)!!.value)
+    }
+
     @Test fun activityDetailRoundTrips() {
         val changes = listOf(SyncChange(SyncKey.REDUCE_MOTION, false), SyncChange(SyncKey.FOLDER_DESTINATION, "fixed"), SyncChange(SyncKey.CALLS, true))
         val detail = SyncDetail.encode(changes)
         assertEquals("folder_destination=2,reduce_motion=0,calls=1", detail)
         assertEquals(listOf(changes[1], changes[0], changes[2]), SyncDetail.decode(detail))
-        assertEquals(21, SyncDetail.decode(SyncDetail.encode(SyncKey.entries.map { SyncChange(it, it.default) })).size)
+        assertEquals(24, SyncDetail.decode(SyncDetail.encode(SyncKey.entries.map { SyncChange(it, it.default) })).size)
         assertTrue(SyncDetail.decode("calls=1,evil text").isEmpty())
     }
 }

@@ -964,7 +964,7 @@ T3 Code works" (a change made in Settings is saved to every connected device tha
 device that was offline or still differs shows it, with Apply to all). That replaces the earlier
 rule that sync never turns a feature on.
 
-**What syncs.** An allowlist of 21 schema 1 keys, the same on both platforms. A device that has no
+**What syncs.** An allowlist of 24 schema 1 keys, the same on both platforms. A device that has no
 such setting stores the record and relays it, so a phone carries a Mac-only setting between two
 Macs.
 
@@ -985,6 +985,9 @@ Macs.
 | `focus.share` | Share Do Not Disturb with Macs | Share Focus with phones | |
 | `focus.follow` | Follow the Mac's Focus | Follow the phone's Do Not Disturb | Android: Do Not Disturb access |
 | `codes.enabled` | Stored and relayed | Notifications > Codes from messages | Mac: the consent and model that turning codes on asks for there |
+| `feature.screen` | Share screen with Macs | Remote control > Show phone screens (a preference here) | Each share is still asked on the phone, every time |
+| `feature.sms` | Text messages | Text messages | Android: SMS permission (read and send) |
+| `updates.auto_all` | Update all devices automatically | Same | Stored and relayed until that setting lands (rr/auto-update-all); then a preference on both |
 
 A feature added later joins by adding its key to this table on both platforms; older builds skip
 the key, so nothing else changes.
@@ -995,7 +998,8 @@ turned off for one device, automatic clipboard for one device), device names, pa
 (received-files folder, places, the default folder, last destinations), "Allow other devices to
 change files here" and "Let other devices browse this phone" (they guard this device against the
 others), Update all's "Let paired devices start updates on this device" (a security choice each
-device makes for itself), the background clipboard and Keep Wi-Fi awake (they depend on this phone), logging,
+device makes for itself), Messages' pinned, muted, archived and read state and "Keep conversations
+on this Mac" (per Mac by design), the background clipboard and Keep Wi-Fi awake (they depend on this phone), logging,
 update channels, notification app filters, shortcuts, the Mac's media player, launch at login, and
 the sync switches themselves. A key outside the allowlist is skipped on receipt, never stored and
 never relayed.
@@ -1049,7 +1053,9 @@ only the list changes), and the other devices show "Turned on, needs permission 
 **Switches.** Settings > General > "Sync settings with paired devices" (on); setup's summary has the
 same switch as "Settings stay the same on your devices". On each device's page,
 "Sync settings with this device" (on). The device page shows "Off on <device>" when the other
-device's latest `features.update` shows the key false. "Choose what syncs" lists the 21 settings
+device's latest `features.update` shows the key false. "Choose what syncs" lists the settings this device has (22 on each: the
+phone leaves out the Mac's codes, the Mac the phone's camera, and neither lists Update all devices
+automatically until it lands)
 with a check each; an unchecked setting stays on this device (it is not sent, and records for it
 are skipped). Turning sync off keeps every value as it is.
 
@@ -1100,6 +1106,7 @@ Self-contained here; [SECURITY.md](../SECURITY.md) points to it.
 | Escalation through per-device grants | A phone turning on Mac actions or remote control for itself | Only the global switch syncs. Which phone may use Mac actions or control the Mac stays a grant made on the Mac and never syncs |
 | Opening this device's storage | A Mac turning on writes into places, or browsing | "Allow other devices to change files here" and "Let other devices browse this phone" never sync |
 | Starting updates remotely | A peer turning on "Let paired devices start updates on this device" so it can restart this device's Bridgey | That switch never syncs; each device decides it |
+| Reading texts | A peer turning on Text messages here, so it can read and send SMS | Android's SMS permission is still needed and is never granted remotely: without it the switch waits and notifies. With it already given, the change is in the activity stream with the device's name; Text messages turned off for one Mac stays off (per-device overrides never sync) |
 | Skipping a consent | A peer turning on codes from messages on a Mac, which would send message text to the cloud relay without the person agreeing there | A remote turn-on waits for the consent (and model) on that Mac; nothing turns on until the person allows it there |
 | Secrets or pairing data leaking | Keys, codes or trust read or overwritten | None of them is a sync key; the allowlist is closed and unknown keys are skipped, not relayed |
 | A new device overwriting an existing setup | A freshly paired device pushing its defaults over the choices of the devices already in use | The new device asks; nothing moves until the person answers, and Keep mine leaves both sides as they are |

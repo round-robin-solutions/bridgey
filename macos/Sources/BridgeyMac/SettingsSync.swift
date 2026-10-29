@@ -78,6 +78,11 @@ enum SyncKey: String, CaseIterable, Comparable {
     case focusShare = "focus.share"
     case focusFollow = "focus.follow"
     case codesEnabled = "codes.enabled"
+    /// v0.10 round 2: appended, so the order of the earlier keys and tokens never changes.
+    case featureScreen = "feature.screen"
+    case featureSms = "feature.sms"
+    /// Update all devices automatically: no setting on the Mac yet (rr/auto-update-all); stored and relayed.
+    case updatesAutoAll = "updates.auto_all"
 
     static func < (lhs: SyncKey, rhs: SyncKey) -> Bool {
         allCases.firstIndex(of: lhs)! < allCases.firstIndex(of: rhs)!
@@ -140,6 +145,7 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .focusShare: "focus_share"
         case .focusFollow: "focus_follow"
         case .codesEnabled: "codes"
+        case .updatesAutoAll: "auto_update_all"
         default: String(rawValue.dropFirst("feature.".count))
         }
     }
@@ -168,6 +174,9 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .focusShare: L10n.text("sync.name.focusShare", fallback: "Focus sharing")
         case .focusFollow: L10n.text("sync.name.focusFollow", fallback: "Focus following")
         case .codesEnabled: L10n.text("sync.name.codes", fallback: "Codes from messages")
+        case .featureScreen: L10n.text("sync.name.screen", fallback: "Screen sharing")
+        case .featureSms: L10n.text("sync.name.sms", fallback: "Text messages")
+        case .updatesAutoAll: L10n.text("sync.name.autoUpdateAll", fallback: "Update all devices automatically")
         }
     }
 
@@ -339,6 +348,8 @@ func settingsSyncStoredValues(_ defaults: [String: Any]) -> [SyncKey: SyncValue]
     bool(.autoClipboard, "settings.autoClipboard.enabled")
     bool(.clipboardFiles, "settings.clipboardFiles.enabled")
     bool(.codesEnabled, "settings.codes.enabled")
+    bool(.featureScreen, "settings.screen.show")
+    bool(.featureSms, "settings.sms.enabled")
     if let data = defaults["settings.focusSync"] as? Data, let focus = try? JSONDecoder().decode(FocusSyncSettings.self, from: data) {
         values[.focusShare] = .bool(focus.share)
         values[.focusFollow] = .bool(focus.follow)
@@ -349,7 +360,7 @@ func settingsSyncStoredValues(_ defaults: [String: Any]) -> [SyncKey: SyncValue]
 // MARK: Payloads
 
 struct SettingsPayload: Equatable {
-    /// The records of the 21 keys; skipped entries are counted, never kept.
+    /// The records of the 24 keys; skipped entries are counted, never kept.
     var records: [SyncKey: SyncRecord]
     /// The keys the sender has on but waiting for a permission there, in schema order.
     var waiting: [SyncKey]
@@ -697,7 +708,7 @@ final class SettingsSyncEngine {
             let local = record(key)
             switch snapshotOutcome(local: local, remote: remote, alreadyMeans: { self.alreadyMeans(key, $0) }) {
             case .adopt:
-                if !alreadyMeans(key, remote.value) { receipt.changes[key] = remote.value }
+                if settings[key] != nil && !alreadyMeans(key, remote.value) { receipt.changes[key] = remote.value }
                 records[key] = remote
                 receipt.applied.append(key)
             case .different:
@@ -743,7 +754,8 @@ final class SettingsSyncEngine {
             let local = record(key)
             let order = compareSyncRecords(remote, local)
             if order > 0 {
-                if !alreadyMeans(key, remote.value) { receipt.changes[key] = remote.value }
+                // Only what changes here makes an activity entry; a key this device only stores and relays does not.
+                if settings[key] != nil && !alreadyMeans(key, remote.value) { receipt.changes[key] = remote.value }
                 records[key] = remote
                 receipt.applied.append(key)
             } else if order < 0 {
@@ -819,7 +831,7 @@ final class SettingsSyncEngine {
             if use, let known = state.known[key] {
                 records[key] = known
                 receipt.applied.append(key)
-                receipt.changes[key] = known.value
+                if settings[key] != nil { receipt.changes[key] = known.value }
                 state.echo.insert(key)
             }
         }
@@ -1032,8 +1044,10 @@ final class SettingsSyncController: ObservableObject {
     }
 
     /// The settings of this Mac, watched wherever they change (Settings, setup, Siri, reset).
-    static func live(localDeviceID: String, settings: BridgeySettings, focus: FocusSync, codes: CodesSyncGate) -> SettingsSyncController {
-        let controller = SettingsSyncController(localDeviceID: localDeviceID, settings: liveSettings(settings, focus: focus, codes: codes))
+    static func live(localDeviceID: String, settings: BridgeySettings, focus: FocusSync, codes: CodesSyncGate,
+                     screen: PhoneScreen, setTextMessages: @escaping (Bool) -> Void) -> SettingsSyncController {
+        let controller = SettingsSyncController(localDeviceID: localDeviceID,
+                                                settings: liveSettings(settings, focus: focus, codes: codes, screen: screen, setTextMessages: setTextMessages))
         let changes: [AnyPublisher<Void, Never>] = [
             settings.$folderReceiveMode.map { _ in () }.eraseToAnyPublisher(),
             settings.$folderConflictPolicy.map { _ in () }.eraseToAnyPublisher(),
@@ -1044,6 +1058,8 @@ final class SettingsSyncController: ObservableObject {
             settings.$clipboardFilesEnabled.map { _ in () }.eraseToAnyPublisher(),
             settings.$codesEnabled.map { _ in () }.eraseToAnyPublisher(),
             focus.$settings.map { _ in () }.eraseToAnyPublisher(),
+            screen.$enabled.map { _ in () }.eraseToAnyPublisher(),
+            settings.$smsEnabled.map { _ in () }.eraseToAnyPublisher(),
         ]
         // @Published fires before the property changes: read it on the next turn of the main queue.
         Publishers.MergeMany(changes)
@@ -1055,7 +1071,11 @@ final class SettingsSyncController: ObservableObject {
     }
 
     /// `codes`: Codes from messages goes through its consent gate; nil (tests) writes the switch directly.
-    static func liveSettings(_ settings: BridgeySettings, focus: FocusSync, codes: CodesSyncGate? = nil) -> [SyncKey: SyncedSetting] {
+    /// `screen` and `setTextMessages`: the same paths as their Settings switches, so their side effects run (a
+    /// stream stops when Show phone screens goes off; Text messages off deletes the conversations kept here). Nil
+    /// (tests) leaves those keys stored and relayed only. `updates.auto_all` has no setting on the Mac yet.
+    static func liveSettings(_ settings: BridgeySettings, focus: FocusSync, codes: CodesSyncGate? = nil,
+                             screen: PhoneScreen? = nil, setTextMessages: ((Bool) -> Void)? = nil) -> [SyncKey: SyncedSetting] {
         func bool(_ read: @escaping () -> Bool, _ write: @escaping (Bool) -> Void) -> SyncedSetting {
             SyncedSetting(read: { .bool(read()) }, write: { value in if case let .bool(on) = value { write(on) } })
         }
@@ -1081,6 +1101,8 @@ final class SettingsSyncController: ObservableObject {
             .focusFollow: bool({ focus.settings.follow }, { on in focus.update { $0.follow = on } }),
             .codesEnabled: codes?.setting ?? bool({ settings.codesEnabled }, settings.setCodesEnabled),
         ]
+        if let screen { out[.featureScreen] = screenSetting(screen) }
+        if let setTextMessages { out[.featureSms] = bool({ settings.smsEnabled }, setTextMessages) }
         for key in SyncKey.allCases {
             guard let feature = key.feature else { continue }
             // Grant features read on only when their global switch is explicitly on.
@@ -1088,6 +1110,12 @@ final class SettingsSyncController: ObservableObject {
                             { settings.setGlobal(feature, enabled: $0) })
         }
         return out
+    }
+
+    /// Show phone screens, written the way its Settings switch does (a stream stops when it goes off). No
+    /// permission on the Mac, so it never waits.
+    static func screenSetting(_ screen: PhoneScreen) -> SyncedSetting {
+        SyncedSetting(read: { .bool(screen.enabled) }, write: { value in if case let .bool(on) = value { screen.setEnabled(on) } })
     }
 
     // MARK: Switches
@@ -1356,6 +1384,11 @@ final class SettingsSyncController: ObservableObject {
             peerWaiting: engine.peerWaiting(key).map(peerName)
         )
     }
+}
+
+extension SyncKey {
+    /// Keys the Mac only stores and relays (no setting here): left out of Choose what syncs.
+    static let storeOnlyOnMac: Set<SyncKey> = [.featureCamera, .updatesAutoAll]
 }
 
 /// What a synced folder destination does on this Mac.

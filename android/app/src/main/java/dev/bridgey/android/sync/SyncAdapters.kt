@@ -25,6 +25,8 @@ internal val SyncFeatureKeys: Map<SyncKey, BridgeyFeature> = mapOf(
     SyncKey.REMOTE_INPUT to BridgeyFeature.REMOTE_INPUT,
     SyncKey.MAC_ACTIONS to BridgeyFeature.MAC_ACTIONS,
     SyncKey.CAMERA to BridgeyFeature.CAMERA,
+    SyncKey.SCREEN to BridgeyFeature.SCREEN,
+    SyncKey.SMS to BridgeyFeature.SMS,
 )
 
 /** What only this phone can allow, per key. Read fresh each time; never synced. */
@@ -33,6 +35,8 @@ interface SyncPermissions {
     fun phoneCalls(): Boolean
     fun camera(): Boolean
     fun doNotDisturb(): Boolean
+    /** Text messages: read and send SMS. */
+    fun sms(): Boolean = true
 }
 
 class AndroidSyncPermissions(private val context: Context) : SyncPermissions {
@@ -47,11 +51,15 @@ class AndroidSyncPermissions(private val context: Context) : SyncPermissions {
     override fun camera(): Boolean = granted(Manifest.permission.CAMERA)
 
     override fun doNotDisturb(): Boolean = context.getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted
+
+    // The same two the Permissions page counts as "Text messages".
+    override fun sms(): Boolean = granted(Manifest.permission.READ_SMS) && granted(Manifest.permission.SEND_SMS)
 }
 
 /**
- * The phone's settings behind the 21 keys. `codes.enabled` has no setting on the phone: it is stored and relayed
- * so two Macs share it. Per-device overrides, grants, paths and the file access guards are not here, so they never
+ * The phone's settings behind the 24 keys. `codes.enabled` and `updates.auto_all` (until it lands) have no setting on
+ * the phone: they are stored and relayed so two Macs share them. Messages' pinned, muted, archived and read state is
+ * per Mac and never syncs. Per-device overrides, grants, paths and the file access guards are not here, so they never
  * sync.
  */
 fun phoneSyncedSettings(settings: BridgeySettings, ui: UiPreferences, permissions: SyncPermissions): Map<SyncKey, SyncedSetting> {
@@ -85,6 +93,7 @@ fun phoneSyncedSettings(settings: BridgeySettings, ui: UiPreferences, permission
             SyncKey.NOTIFICATIONS -> { { !permissions.notificationAccess() } }
             SyncKey.CALLS -> { { !permissions.phoneCalls() } }
             SyncKey.CAMERA -> { { !permissions.camera() } }
+            SyncKey.SMS -> { { !permissions.sms() } }
             else -> { { false } }
         }
         result[key] = switch(

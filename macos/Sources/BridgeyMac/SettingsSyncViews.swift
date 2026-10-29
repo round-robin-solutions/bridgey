@@ -2,6 +2,9 @@ import AppKit
 import SwiftUI
 
 extension SyncKey {
+    /// The settings Choose what syncs lists on this Mac: every key with a setting here, in schema order.
+    static var listedOnMac: [SyncKey] { allCases.filter { !storeOnlyOnMac.contains($0) } }
+
     /// The key that syncs a feature's global switch on this Mac.
     static func key(for feature: BridgeyFeature) -> SyncKey? { allCases.first { $0.feature == feature } }
 }
@@ -32,8 +35,9 @@ struct SettingsSyncCard: View {
     }
 
     private var syncedCountText: String {
-        let count = SyncKey.allCases.count - model.syncExcluded.count
-        return String(format: L10n.text("sync.choose.count", fallback: "%1$d of %2$d settings"), count, SyncKey.allCases.count)
+        let listed = SyncKey.listedOnMac
+        let count = listed.filter { !model.syncExcluded.contains($0) }.count
+        return String(format: L10n.text("sync.choose.count", fallback: "%1$d of %2$d settings"), count, listed.count)
     }
 }
 
@@ -54,7 +58,7 @@ struct SyncChoicesView: View {
                 .foregroundStyle(c.on2)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(SyncKey.allCases, id: \.self) { key in
+                ForEach(SyncKey.listedOnMac, id: \.self) { key in
                     Toggle(isOn: Binding(get: { !model.syncExcluded.contains(key) }, set: { actions.setSyncs(key, $0) })) {
                         Text(key.name).font(BrandFont.body(13)).foregroundStyle(c.on)
                     }

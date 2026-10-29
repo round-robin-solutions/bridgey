@@ -1453,7 +1453,7 @@ Answered by `folders.cancel.ack`.
 
 Answered by `settings.ack`.
 
-Sent by each side when settings_sync_draft1 becomes true on both for the session, including right after connecting. A snapshot never overwrites a chosen value: a setting the receiver never chose (version 0) takes the sender's chosen record; two different chosen values stay and show as Different on <device> with Apply to all. Schema 1 has 21 keys (docs/folders-and-settings-sync.md 8.4); unknown and per-device keys and invalid records are skipped one by one. A payload that fails decryption closes the session; one that fails validation is answered settings.error invalid_message.
+Sent by each side when settings_sync_draft1 becomes true on both for the session, including right after connecting. A snapshot never overwrites a chosen value: a setting the receiver never chose (version 0) takes the sender's chosen record; two different chosen values stay and show as Different on <device> with Apply to all. Schema 1 has 24 keys (docs/folders-and-settings-sync.md 8.4); unknown and per-device keys and invalid records are skipped one by one. A payload that fails decryption closes the session; one that fails validation is answered settings.error invalid_message.
 
 `settings.update`
 

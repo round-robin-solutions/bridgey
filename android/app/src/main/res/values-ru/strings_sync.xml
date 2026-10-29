@@ -21,6 +21,9 @@
     <string name="sync_name_focus_share">Передача фокусирования</string>
     <string name="sync_name_focus_follow">Следование за фокусированием</string>
     <string name="sync_name_codes">Коды из сообщений</string>
+    <string name="sync_name_screen">Показ экрана</string>
+    <string name="sync_name_sms">SMS</string>
+    <string name="sync_name_auto_update_all">Обновлять все устройства автоматически</string>
     <string name="sync_turned_on">%1$s: включено</string>
     <string name="sync_turned_off">%1$s: выключено</string>
     <string name="sync_folder_sender_picks">Папки: выбирает отправитель</string>

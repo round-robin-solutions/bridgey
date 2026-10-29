@@ -45,7 +45,8 @@ struct RemoteControlPane: View {
         }
         SettingsCard(title: PhoneScreenSettings.cardTitle, footnote: PhoneScreenSettings.footnote) {
             SettingsToggle(title: PhoneScreenSettings.switchTitle, subtitle: PhoneScreenSettings.switchDetail, divider: false,
-                           isOn: model.phoneScreenEnabled, set: actions.setPhoneScreen)
+                           synced: model.syncs(.featureScreen), isOn: model.phoneScreenEnabled, set: actions.setPhoneScreen)
+            SyncStatusLine(key: .featureScreen, model: model, actions: actions)
         }
         SettingsCard(title: L10n.text("remote.log", fallback: "Session log"),
                      footnote: L10n.text("remote.log.detail", fallback: "Kept only on this Mac, for 30 days. It records which phone controlled this Mac, when, for how long and how many moves, clicks and keys, never what was typed.")) {

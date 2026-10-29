@@ -99,7 +99,10 @@ final class SettingsSyncTests: XCTestCase {
         XCTAssertEqual(SettingsSyncDetail.detail("folder_destination=1,auto_clipboard=1"), "Folders: ask where to save, Automatic clipboard turned on")
         let all = SettingsSyncDetail.encode(Dictionary(uniqueKeysWithValues: SyncKey.allCases.map { ($0, $0.defaultValue) }))
         XCTAssertNotNil(SettingsSyncDetail.clean(all))
-        XCTAssertEqual(SettingsSyncDetail.decode(all).count, 21)
+        XCTAssertEqual(SettingsSyncDetail.decode(all).count, 24)
+        XCTAssertEqual(SyncKey.allCases.count, 24)
+        XCTAssertEqual(SyncKey.allCases.suffix(3).map(\.token), ["screen", "sms", "auto_update_all"])
+        XCTAssertEqual(SyncKey.listedOnMac.count, 22)
         XCTAssertTrue(SyncKey.allCases.allSatisfy { $0.token.count <= 24 })
         XCTAssertNil(SettingsSyncDetail.clean("reduce motion on"))
         let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
@@ -304,6 +307,65 @@ final class SettingsSyncTests: XCTestCase {
         net.deliverAll()
         XCTAssertFalse(gate.pending)
         XCTAssertEqual(net.values[phone]![.codesEnabled], .bool(false))
+    }
+
+    /// Text messages turned on from the phone: applied, an activity entry, no notification (it needs nothing here).
+    func testRemoteTextMessagesTurnOnIsActivityOnly() {
+        let net = Net(self)
+        net.add(phone); net.add(macA)
+        net.connect(phone, macA)
+        net.deliverAll()
+        net.edit(phone, .featureSms, .bool(true))
+        net.controllers[phone]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(net.values[macA]![.featureSms], .bool(true))
+        XCTAssertEqual(net.activity, ["\(macA)<-\(phone): sms=1"])
+        XCTAssertEqual(net.turnedOn, [])
+        XCTAssertEqual(SettingsSyncDetail.detail("sms=1"), "Text messages turned on")
+    }
+
+    /// Show phone screens turned on from the phone goes through PhoneScreen.setEnabled, like the Settings switch.
+    func testRemoteScreenEnableAppliesThroughPhoneScreen() {
+        let (defaults, _) = suite()
+        let screen = PhoneScreen(defaults: defaults)
+        var settingsChanges = 0
+        screen.onSettingsChange = { settingsChanges += 1 }
+        let net = Net(self)
+        net.add(phone)
+        net.add(macA, override: [.featureScreen: SettingsSyncController.screenSetting(screen)])
+        net.connect(phone, macA)
+        net.deliverAll()
+        net.edit(phone, .featureScreen, .bool(true))
+        net.controllers[phone]!.flush()
+        net.deliverAll()
+        XCTAssertTrue(screen.enabled)
+        XCTAssertTrue(defaults.bool(forKey: PhoneScreen.defaultsKey))
+        XCTAssertEqual(settingsChanges, 1)
+        XCTAssertEqual(net.activity, ["\(macA)<-\(phone): screen=1"])
+        XCTAssertEqual(net.turnedOn, [])
+        // Applied, so the Mac's own observer stamps nothing.
+        XCTAssertEqual(net.controllers[macA]!.engine.observeLocal(), [])
+    }
+
+    /// Update all devices automatically has no setting on the Mac: a Mac between two phones stores and relays it,
+    /// with no activity entry of its own.
+    func testStoreOnlyKeyIsRelayedByAMacHub() {
+        let net = Net(self)
+        let phoneB = "7e57d00d-0000-4000-8000-00000000000e"
+        net.add(phone, isPhone: true); net.add(phoneB, isPhone: true)
+        net.add(macA, without: [.updatesAutoAll, .featureCamera])
+        net.connect(phone, macA); net.connect(phoneB, macA)
+        net.deliverAll()
+        net.log.removeAll()
+        net.edit(phone, .updatesAutoAll, .bool(true))
+        net.controllers[phone]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(net.values[phoneB]![.updatesAutoAll], .bool(true))
+        XCTAssertEqual(net.values[macA]![.updatesAutoAll], .bool(false), "the Mac has no such setting")
+        XCTAssertEqual(net.controllers[macA]!.engine.record(.updatesAutoAll).value, .bool(true))
+        XCTAssertEqual(net.activity, ["\(phoneB)<-\(macA): auto_update_all=1"])
+        XCTAssertEqual(net.log.count, 4)
+        XCTAssertEqual(net.controllers[macA]!.status(.updatesAutoAll).differentOn, [])
     }
 
     /// A phone with two Macs carries one Mac's change to the other; nothing loops.
@@ -691,15 +753,16 @@ final class SettingsSyncTests: XCTestCase {
 
         /// `fresh`: the device never synced with anyone (first connects ask). Otherwise it synced before with a device
         /// not in this test, so a first connect between two such devices asks nobody. `isPhone`: it asks when both are new.
+        /// `without`: keys this device has no setting for (stored and relayed only).
         func add(_ id: String, clock: Int64 = 1000, override: [SyncKey: SyncedSetting] = [:], lacks: ((SyncKey) -> Bool)? = nil,
-                 fresh: Bool = false, isPhone: Bool = false, keep store: UserDefaults? = nil) {
+                 fresh: Bool = false, isPhone: Bool = false, keep store: UserDefaults? = nil, without: Set<SyncKey> = []) {
             let store = store ?? test.suite().0
             if !fresh && store.dictionary(forKey: SettingsSyncController.answersKey) == nil {
                 store.set(["0e0e0e0e-0000-4000-8000-000000000000": "auto"], forKey: SettingsSyncController.answersKey)
             }
             defaults[id] = store
             if values[id] == nil { values[id] = Dictionary(uniqueKeysWithValues: SyncKey.allCases.map { ($0, $0.defaultValue) }) }
-            var settings = SettingsSyncTests.fakeSettings(except: []) { [unowned self] in self.values[id]![$0]! } set: { [unowned self] in self.values[id]![$0] = $1 }
+            var settings = SettingsSyncTests.fakeSettings(except: without) { [unowned self] in self.values[id]![$0]! } set: { [unowned self] in self.values[id]![$0] = $1 }
             settings.merge(override) { $1 }
             let controller = SettingsSyncController(localDeviceID: id, defaults: store, settings: settings, clock: { clock }, debounce: 3600)
             controller.isPhone = isPhone

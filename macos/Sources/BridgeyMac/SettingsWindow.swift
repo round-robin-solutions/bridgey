@@ -1289,7 +1289,8 @@ struct TextMessagesCard: View {
         SettingsCard {
             SettingsToggle(title: L10n.text("sms.toggle", fallback: "Your phone\u{2019}s texts on this Mac"),
                            subtitle: L10n.text("sms.toggle.detail", fallback: "Read and answer conversations in the Messages window, and reply from text notifications. Off by default. Messages travel only between your phone and this Mac, encrypted; Bridgey never becomes the phone\u{2019}s default SMS app."),
-                           divider: false, isOn: model.smsEnabled, set: actions.setSmsEnabled)
+                           divider: false, synced: model.syncs(.featureSms), isOn: model.smsEnabled, set: actions.setSmsEnabled)
+            SyncStatusLine(key: .featureSms, model: model, actions: actions)
             if model.smsEnabled {
                 SettingsRow(title: phoneTitle, subtitle: phoneDetail, subtitleIsWarning: phoneWarning, divider: true) {
                     Button(L10n.text("sms.open", fallback: "Open Messages")) { actions.openMessages(nil, nil) }

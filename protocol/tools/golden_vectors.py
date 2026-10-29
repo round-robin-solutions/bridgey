@@ -877,7 +877,7 @@ sms_b("over 1 KiB", sized('{"version":1,"requestId":"%s","result":"opened","pad"
 
 # Settings sync (settings_sync_draft1, docs/folders-and-settings-sync.md sections 4.9, 8 and 8.4). settingsPayload: a
 # settings.snapshot or settings.update plaintext as the receiver reads it. expect is {records, waiting, skipped} (the
-# records of the 21 schema 1 keys, the keys the sender says wait for a permission there, and how many record entries were
+# records of the 24 schema 1 keys, the keys the sender says wait for a permission there, and how many record entries were
 # skipped one by one: unknown or per-device keys, wrong types, values out of range), "invalid" (the whole message is
 # dropped and answered settings.error invalid_message) or {"unsupportedSchema": N}.
 DA = "7e57d00d-0000-4000-8000-00000000000a"
@@ -887,8 +887,9 @@ SYNC_STRING_KEYS = {"files.folder_destination":["sender_picks","receiver_asks","
 SYNC_BOOL_KEYS = ["activity.previews","display.reduce_motion",
                   "feature.clipboard","feature.files","feature.notifications","feature.battery","feature.find_device","feature.ping",
                   "feature.links","feature.media","feature.calls","feature.remote_input","feature.mac_actions","feature.camera",
-                  "clipboard.automatic","clipboard.files","focus.share","focus.follow","codes.enabled"]
-assert len(SYNC_STRING_KEYS) + len(SYNC_BOOL_KEYS) == 21
+                  "clipboard.automatic","clipboard.files","focus.share","focus.follow","codes.enabled",
+                  "feature.screen","feature.sms","updates.auto_all"]
+assert len(SYNC_STRING_KEYS) + len(SYNC_BOOL_KEYS) == 24
 spay = []
 def sp(name, kind, p, expect, raw=False): spay.append({"name":name, "kind":kind, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
 def ok(records, skipped=0, waiting=None, first=False, new=False, answered=False):
@@ -912,8 +913,9 @@ sp("unknown key is skipped, the rest applies", "update", {"schema":1,"records":{
 sp("per-device and local-only keys are never synced", "snapshot",
    {"schema":1,"maxSchema":1,"records":{"pair.clipboard.automatic":rec(True,9,1,DA),"files.allow_replace":rec(True,9,1,DA),"files.allow_browse":rec(True,9,1,DA),
                                          "device.name":rec("x",9,1,DA),"updates.channel":rec("beta",9,1,DA),"updates.remote_start":rec(True,9,1,DA),
+                                         "sms.keep_on_mac":rec(True,9,1,DA),"sms.pinned":rec("t1",9,1,DA),"sms.muted":rec("t1",9,1,DA),
                                          "activity.previews":rec(True,0,0,"")}},
-   ok({"activity.previews":rec(True,0,0,"")}, 6))
+   ok({"activity.previews":rec(True,0,0,"")}, 9))
 sp("bare feature keys are not settings keys", "update", {"schema":1,"records":{"files":rec(True,9,1,DA),"remote_input_draft1":rec(True,9,1,DA)}}, ok({}, 2))
 sp("bool key with a string value", "update", {"schema":1,"records":{"display.reduce_motion":rec("true",9,1,DA)}}, ok({}, 1))
 sp("bool key with a number value", "update", {"schema":1,"records":{"feature.calls":rec(1,9,1,DA)}}, ok({}, 1))
@@ -948,9 +950,9 @@ sp("first connect of a new device", "snapshot", {"schema":1,"maxSchema":1,"recor
 sp("first connect of a device that synced before", "snapshot", {"schema":1,"maxSchema":1,"records":{},"first":True,"new":False}, ok({}, first=True))
 sp("the person answered", "update", {"schema":1,"records":{},"answered":True}, ok({}, answered=True))
 sp("first, new and answered that are not booleans count as false", "snapshot", {"schema":1,"records":{},"first":1,"new":"true","answered":None}, ok({}))
-filler = {"x.k%02d" % n: rec(True,1,1,DA) for n in range(11)}
+filler = {"x.k%02d" % n: rec(True,1,1,DA) for n in range(8)}
 assert len(every) + len(filler) == 32
-sp("32 records (11 unknown)", "snapshot", {"schema":1,"maxSchema":1,"records":{**every,**filler}}, ok(every, 11))
+sp("32 records (8 unknown)", "snapshot", {"schema":1,"maxSchema":1,"records":{**every,**filler}}, ok(every, 8))
 sp("33 records", "snapshot", {"schema":1,"maxSchema":1,"records":{**every,**filler,"x.k99":rec(True,1,1,DA)}}, "invalid")
 sp("waiting of 33 entries", "update", {"schema":1,"records":{},"waiting":["feature.calls"]*33}, "invalid")
 sp("schema 2", "update", {"schema":2,"records":{}}, {"unsupportedSchema":2})

@@ -48,6 +48,13 @@ class SyncSettingsActions(
     val allow: (SyncKey) -> Unit = {},
 )
 
+/**
+ * The settings Choose what syncs offers: the ones this phone has (22). Codes from messages is a Mac setting and Update all
+ * devices automatically has no setting yet (rr/auto-update-all adds it): the phone only stores and relays those, as the
+ * Mac does for Photos for the Mac.
+ */
+val ChoosableSyncKeys: List<SyncKey> = SyncKey.entries - SyncKey.CODES - SyncKey.AUTO_UPDATE_ALL
+
 /** The sync key behind a feature's global switch. */
 fun syncKeyFor(feature: BridgeyFeature): SyncKey? = SyncFeatureKeys.entries.firstOrNull { it.value == feature }?.key
 
@@ -75,6 +82,9 @@ fun syncKeyName(context: Context, key: SyncKey): String = context.getString(
         SyncKey.FOCUS_SHARE -> R.string.sync_name_focus_share
         SyncKey.FOCUS_FOLLOW -> R.string.sync_name_focus_follow
         SyncKey.CODES -> R.string.sync_name_codes
+        SyncKey.SCREEN -> R.string.sync_name_screen
+        SyncKey.SMS -> R.string.sync_name_sms
+        SyncKey.AUTO_UPDATE_ALL -> R.string.sync_name_auto_update_all
     },
 )
 
@@ -154,10 +164,10 @@ fun SyncSettingsGroup(sync: SyncUiState, actions: SyncSettingsActions, modifier:
         }
         if (enabled) {
             row { shape ->
-                val total = SyncKey.entries.size
+                val total = ChoosableSyncKeys.size
                 ListRow(
                     shape, stringResource(R.string.settings_sync_choose),
-                    stringResource(R.string.settings_sync_choose_detail, total - sync.switches.excluded.size, total),
+                    stringResource(R.string.settings_sync_choose_detail, ChoosableSyncKeys.count { it !in sync.switches.excluded }, total),
                     BridgeyIcons.Settings, Tint.NEUTRAL, onClick = { choosing = true },
                 ) { Icon(BridgeyIcons.ChevronRight, null, tint = BridgeyTheme.colors.onSurfaceVariant) }
             }
@@ -177,7 +187,7 @@ internal fun ChooseWhatSyncsDialog(sync: SyncUiState, actions: SyncSettingsActio
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(stringResource(R.string.settings_sync_choose_note), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
-                SyncKey.entries.forEach { key ->
+                ChoosableSyncKeys.forEach { key ->
                     val checked = key !in sync.switches.excluded
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 48.dp)

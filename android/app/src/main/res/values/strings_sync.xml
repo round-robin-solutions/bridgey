@@ -22,6 +22,9 @@
     <string name="sync_name_focus_share">Focus sharing</string>
     <string name="sync_name_focus_follow">Focus following</string>
     <string name="sync_name_codes">Codes from messages</string>
+    <string name="sync_name_screen">Screen sharing</string>
+    <string name="sync_name_sms">Text messages</string>
+    <string name="sync_name_auto_update_all">Update all devices automatically</string>
     <string name="sync_turned_on">%1$s turned on</string>
     <string name="sync_turned_off">%1$s turned off</string>
     <string name="sync_folder_sender_picks">Folders: sending device chooses</string>

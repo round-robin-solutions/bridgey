@@ -1425,3 +1425,6 @@
 "sync.question.keep" = "Keep mine";
 "sync.question.use" = "Use these";
 "sync.question.window" = "Settings sync";
+"sync.name.screen" = "Screen sharing";
+"sync.name.sms" = "Text messages";
+"sync.name.autoUpdateAll" = "Update all devices automatically";
