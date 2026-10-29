@@ -1126,7 +1126,7 @@ struct OtherAppCallsRow: View {
 
     var body: some View {
         SettingsRow(title: L10n.text("settings.calls.otherApps", fallback: "When another app asks to call"),
-                    subtitle: L10n.text("settings.calls.otherApps.detail", fallback: "Covers tel: links and the Call with Bridgey item in the Services menu. Calls you start in Bridgey go through without asking.")) {
+                    subtitle: L10n.text("settings.calls.otherApps.detail", fallback: "Covers tel: links and the Call with Bridgey RR item in the Services menu. Calls you start in Bridgey go through without asking.")) {
             ChoiceButton(value: otherAppCallPolicyTitle(model.otherAppCallPolicy)) {
                 MacOtherAppCallPolicy.allCases.map { policy in
                     PopUpMenuItem(title: otherAppCallPolicyTitle(policy), checked: policy == model.otherAppCallPolicy) { actions.setOtherAppCallPolicy(policy) }

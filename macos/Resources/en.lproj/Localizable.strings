@@ -325,7 +325,7 @@
 "settings.calls.ring" = "Ring for incoming calls";
 "settings.calls.ring.detail" = "A soft ring repeats until you answer, decline or hide the call.";
 "settings.calls.otherApps" = "When another app asks to call";
-"settings.calls.otherApps.detail" = "Covers tel: links and the Call with Bridgey item in the Services menu. Calls you start in Bridgey go through without asking.";
+"settings.calls.otherApps.detail" = "Covers tel: links and the Call with Bridgey RR item in the Services menu. Calls you start in Bridgey go through without asking.";
 "settings.calls.otherApps.ask" = "Ask every time";
 "settings.calls.otherApps.callNow" = "Call right away";
 "settings.calls.otherApps.refuse" = "Don’t allow";

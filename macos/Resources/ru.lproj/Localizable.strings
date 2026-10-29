@@ -325,7 +325,7 @@
 "settings.calls.ring" = "Сигнал при входящих звонках";
 "settings.calls.ring.detail" = "Тихий сигнал повторяется, пока вы не ответите, не отклоните или не скроете звонок.";
 "settings.calls.otherApps" = "Когда другое приложение просит позвонить";
-"settings.calls.otherApps.detail" = "Касается ссылок tel: и пункта Call with Bridgey в меню «Службы». Звонки, начатые в самом Bridgey, выполняются без вопросов.";
+"settings.calls.otherApps.detail" = "Касается ссылок tel: и пункта Call with Bridgey RR в меню «Службы». Звонки, начатые в самом Bridgey, выполняются без вопросов.";
 "settings.calls.otherApps.ask" = "Спрашивать каждый раз";
 "settings.calls.otherApps.callNow" = "Звонить сразу";
 "settings.calls.otherApps.refuse" = "Не разрешать";
