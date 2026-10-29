@@ -37,7 +37,7 @@ final class LocalDataResetTests: XCTestCase {
         "settings.sms.enabled", "settings.sms.keepOnMac",
     ]
     private let identityKeys = ["deviceID", "settings.codes.installId"]
-    private let trustKeys = ["trustedDeviceIDs", "trusted.11111111-1111-1111-1111-111111111111.name", "protocolPin.11111111-1111-1111-1111-111111111111"]
+    private let trustKeys = ["trustedDeviceIDs", "trusted.11111111-1111-1111-1111-111111111111.name", "protocolPin.11111111-1111-1111-1111-111111111111", "sync.answers"]
     private let addressKeys = ["reconnect.addressBook.v1"]
     private let recordKeys = ["settings.codes.model.acceptance", "whatsNew.lastBuild", "whatsNew.offeredNotes", "SULastCheckTime", "legacyPreferencesMigrated"]
     /// Not Bridgey's to delete in any choice.

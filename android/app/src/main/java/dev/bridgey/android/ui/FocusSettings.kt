@@ -22,19 +22,28 @@ class FocusSettingsActions(
 )
 
 /** Share, Follow, and while Follow lacks access, the row that opens Android's access page. */
-internal fun GroupScope.focusRows(state: FocusSettingsState, actions: FocusSettingsActions) {
+internal fun GroupScope.focusRows(
+    state: FocusSettingsState,
+    actions: FocusSettingsActions,
+    sync: dev.bridgey.android.sync.SyncUiState = dev.bridgey.android.sync.SyncUiState(),
+    syncActions: SyncSettingsActions = SyncSettingsActions(),
+) {
     row { shape ->
         SwitchRow(
             shape, stringResource(R.string.focus_share_title), stringResource(R.string.focus_share_detail),
             BridgeyIcons.Bedtime, if (state.share) Tint.PURPLE else Tint.NEUTRAL, state.share, actions.setShare,
+            synced = sync.syncs(dev.bridgey.android.sync.SyncKey.FOCUS_SHARE),
         )
     }
+    syncRows(dev.bridgey.android.sync.SyncKey.FOCUS_SHARE, sync, syncActions)
     row { shape ->
         SwitchRow(
             shape, stringResource(R.string.focus_follow_title), stringResource(R.string.focus_follow_detail),
             BridgeyIcons.Bedtime, if (state.follow) Tint.PURPLE else Tint.NEUTRAL, state.follow, actions.setFollow,
+            synced = sync.syncs(dev.bridgey.android.sync.SyncKey.FOCUS_FOLLOW),
         )
     }
+    syncRows(dev.bridgey.android.sync.SyncKey.FOCUS_FOLLOW, sync, syncActions)
     if (state.follow) {
         row { shape -> FocusAccessRow(shape, state, actions) }
     }

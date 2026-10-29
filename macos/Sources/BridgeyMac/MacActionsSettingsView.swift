@@ -19,7 +19,8 @@ struct MacActionsCards: View {
         SettingsCard(title: L10n.text("settings.macActions", fallback: "Mac actions"),
                      footnote: L10n.text("actions.footnote", fallback: "A phone can only pick from this list, and only if you allow that phone below. It never sends commands, and Bridgey never runs anything else.")) {
             SettingsToggle(title: BridgeyFeature.macActions.title, subtitle: BridgeyFeature.macActions.subtitle, divider: false,
-                           isOn: on, set: { actions.setGlobal(.macActions, $0) })
+                           synced: model.syncs(.featureMacActions), isOn: on, set: { actions.setGlobal(.macActions, $0) })
+            SyncStatusLine(key: .featureMacActions, model: model, actions: actions)
             ForEach(MacActionSwitch.allCases) { item in
                 SettingsToggle(title: macActionSwitchTitle(item), subtitle: switchNote(item), subtitleIsWarning: switchWarning(item),
                                isOn: model.macActions.isOn(item), set: { actions.setMacActionSwitch(item, $0) })

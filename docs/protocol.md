@@ -1133,10 +1133,9 @@ one, using the same engine and guard as the notifications.
 ## Draft: folders, places and settings sync
 
 **Draft, edition only until accepted upstream.** Bridgey by Round Robin implements
-this first; upstream clients never receive these messages. Implemented so far
-(Files 2.0, first slice): folders Mac to phone and places on the phone. Phone to
-Mac and settings sync are not built yet; clients do not advertise
-`settings_sync_draft1`. The full design, user
+this first; upstream clients never receive these messages. Implemented: folders
+Mac to phone and places on the phone (Files 2.0, first slice), phone to Mac (second
+slice, below) and settings sync (v0.10). The full design, user
 experience and reasons are in [folders-and-settings-sync.md](folders-and-settings-sync.md).
 
 ### Negotiation
@@ -1294,7 +1293,20 @@ plus one, and increments `version`. The higher `changedAt` wins, then the higher
 unchanged and never re-sent as a new edit, so updates cannot ping-pong. Receivers
 answer `settings.ack` `{schema, ackOf, applied[], kept[]}` and send their newer
 records for `kept` keys unless already sent to that peer; unknown keys and invalid records are skipped one by
-one; an unsupported schema is answered `settings.error` `{schema, code, maxSchema}`.
+one; an unsupported schema is answered `settings.error` `{schema, code, maxSchema}`
+(`unsupported_schema`), and a payload that fails validation `invalid_message`.
+
+As built in v0.10 ([section 8.4](folders-and-settings-sync.md#84-as-built-v010-2026-10-27)):
+24 keys sync, feature switches included (`feature.<key>`, `clipboard.automatic`,
+`clipboard.files`, `focus.share`, `focus.follow`, `codes.enabled`) next to the four preferences;
+per-device grants and overrides, permissions, pairing, paths and the file access guards never
+sync. Live updates apply when they win by the rule above and are relayed to the device's other
+peers, so a phone with two Macs carries one Mac's change to the other. A snapshot never overwrites
+a chosen value: a setting the receiver never chose (`version` 0) takes the sender's, and two
+different chosen values stay as they are until Apply to all on either device. Snapshots and updates
+may carry `waiting` (keys that are on but wait for a permission on the sender). More than 20
+`settings.*` messages from one peer in 10 seconds are dropped and answered `settings.error`
+`rate_limited`. Threat model: [section 8.5](folders-and-settings-sync.md#85-threat-model-settings-sync).
 
 ## Draft: phone files, media and folders both ways
 

@@ -84,6 +84,8 @@ enum class SetupSetting(val default: String) {
     OEM_CHECKLIST(""),
     KEEP_WIFI_AWAKE("false"),
     REDUCE_MOTION("false"),
+    /** v0.10 settings sync: "Settings stay the same on your devices", on the summary (on by default). */
+    SETTINGS_SYNC("true"),
 }
 
 /** One setting set to a value by an answer or a switch. */
@@ -106,7 +108,7 @@ data class SetupAnswer(
  * How a setting is reached: a follow-up's answers, the feature switches page, the permissions
  * page, or its Settings page (More options on the card, Change details in Settings).
  */
-enum class Coverage { ANSWER, SWITCH, PERMISSION, MORE_OPTIONS }
+enum class Coverage { ANSWER, SWITCH, PERMISSION, MORE_OPTIONS, SUMMARY }
 
 /** What the path depends on besides the answers. [current]: the settings now. */
 data class SetupFacts(
@@ -410,6 +412,7 @@ object SetupQuestions {
             SetupFeatures.all.forEach { feature -> feature.settings.forEach { putIfAbsent(it, "switches" to Coverage.SWITCH) } }
             byPermission.forEach { (setting, kind) -> putIfAbsent(setting, kind.name to Coverage.PERMISSION) }
             moreOptions.forEach { (setting, page) -> putIfAbsent(setting, page to Coverage.MORE_OPTIONS) }
+            SetupSummary.settings.forEach { putIfAbsent(it, "summary" to Coverage.SUMMARY) }
         }
 }
 

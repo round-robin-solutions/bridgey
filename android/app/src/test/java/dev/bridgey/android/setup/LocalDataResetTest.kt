@@ -38,6 +38,8 @@ class LocalDataResetTest {
         "bridgey.mac_actions", "bridgey.widgets",
         // Text messages: which permissions it asked for.
         "bridgey.sms.asked",
+        // v0.10 settings sync: records, switches and choices; first-connect answers.
+        "bridgey.sync", "bridgey.sync.answers",
     )
 
     /** Every file and directory, relative to its root. */
@@ -110,7 +112,7 @@ class LocalDataResetTest {
         assertState(
             setOf(
                 "bridgey.settings", "bridgey.ui", "bridgey.remote", "bridgey.screenshot", "bridgey.attach", "bridgey.widgets", "bridgey.updates",
-                "bridgey.places", "bridgey.setup", "bridgey_onboarding", "bridgey.sms.asked",
+                "bridgey.places", "bridgey.setup", "bridgey_onboarding", "bridgey.sms.asked", "bridgey.sync",
             ),
             emptySet(),
         )
