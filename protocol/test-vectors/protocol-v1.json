@@ -407,7 +407,8 @@
      "camera_draft1": false,
      "updates_draft1": false,
      "screen_draft1": false,
-     "sms_draft1": false
+     "sms_draft1": false,
+     "files_fast_draft1": false
     }
    }
   },
@@ -460,7 +461,8 @@
      "camera_draft1": false,
      "updates_draft1": false,
      "screen_draft1": false,
-     "sms_draft1": false
+     "sms_draft1": false,
+     "files_fast_draft1": false
     }
    }
   },
@@ -515,7 +517,8 @@
      "camera_draft1": true,
      "updates_draft1": false,
      "screen_draft1": false,
-     "sms_draft1": false
+     "sms_draft1": false,
+     "files_fast_draft1": false
     }
    }
   },
@@ -566,7 +569,8 @@
      "camera_draft1": true,
      "updates_draft1": false,
      "screen_draft1": false,
-     "sms_draft1": false
+     "sms_draft1": false,
+     "files_fast_draft1": false
     }
    }
   },
@@ -619,7 +623,8 @@
      "camera_draft1": false,
      "updates_draft1": false,
      "screen_draft1": false,
-     "sms_draft1": false
+     "sms_draft1": false,
+     "files_fast_draft1": false
     }
    }
   },
@@ -668,7 +673,8 @@
      "camera_draft1": false,
      "updates_draft1": true,
      "screen_draft1": false,
-     "sms_draft1": false
+     "sms_draft1": false,
+     "files_fast_draft1": false
     }
    }
   },
@@ -716,7 +722,107 @@
      "camera_draft1": false,
      "updates_draft1": false,
      "screen_draft1": false,
-     "sms_draft1": false
+     "sms_draft1": false,
+     "files_fast_draft1": false
+    }
+   }
+  },
+  {
+   "name": "fast transfers: a phone and a Mac with files_fast_draft1",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "updates_draft1": true,
+     "files_fast_draft1": true
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "updates_draft1": true,
+     "screen_draft1": false,
+     "sms_draft1": false,
+     "files_fast_draft1": true
+    }
+   }
+  },
+  {
+   "name": "files_fast_draft1 that is not a boolean counts as false",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "files_fast_draft1": 1
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
+     "sms_draft1": false,
+     "files_fast_draft1": false
     }
    }
   },
@@ -765,7 +871,8 @@
      "camera_draft1": true,
      "updates_draft1": false,
      "screen_draft1": true,
-     "sms_draft1": false
+     "sms_draft1": false,
+     "files_fast_draft1": false
     }
    }
   },
@@ -813,7 +920,8 @@
      "camera_draft1": false,
      "updates_draft1": false,
      "screen_draft1": false,
-     "sms_draft1": false
+     "sms_draft1": false,
+     "files_fast_draft1": false
     }
    }
   },
@@ -862,7 +970,8 @@
      "camera_draft1": false,
      "updates_draft1": false,
      "screen_draft1": false,
-     "sms_draft1": true
+     "sms_draft1": true,
+     "files_fast_draft1": false
     }
    }
   },
@@ -910,7 +1019,8 @@
      "camera_draft1": false,
      "updates_draft1": false,
      "screen_draft1": false,
-     "sms_draft1": false
+     "sms_draft1": false,
+     "files_fast_draft1": false
     }
    }
   },
@@ -959,7 +1069,8 @@
      "camera_draft1": false,
      "updates_draft1": false,
      "screen_draft1": false,
-     "sms_draft1": false
+     "sms_draft1": false,
+     "files_fast_draft1": false
     }
    }
   },
@@ -1001,7 +1112,8 @@
      "camera_draft1": false,
      "updates_draft1": false,
      "screen_draft1": false,
-     "sms_draft1": false
+     "sms_draft1": false,
+     "files_fast_draft1": false
     }
    }
   },
@@ -1047,7 +1159,8 @@
      "camera_draft1": false,
      "updates_draft1": false,
      "screen_draft1": false,
-     "sms_draft1": false
+     "sms_draft1": false,
+     "files_fast_draft1": false
     }
    }
   },
@@ -1090,7 +1203,8 @@
      "camera_draft1": false,
      "updates_draft1": false,
      "screen_draft1": false,
-     "sms_draft1": false
+     "sms_draft1": false,
+     "files_fast_draft1": false
     }
    }
   },

@@ -72,6 +72,11 @@ sealed interface Route {
         override val key = "perf_test"
     }
 
+    /** Settings > Privacy > Transfer speed (SpeedTest.kt). */
+    data object SpeedTest : Route {
+        override val key = "speed_test"
+    }
+
     /** Lab builds: the Code reader test (Phase 0), opened from the Performance test. */
     data object CodeTest : Route {
         override val key = "code_test"
@@ -107,6 +112,7 @@ sealed interface Route {
             key == Devices.key -> Devices
             key == NotificationApps.key -> NotificationApps
             key == PerfTest.key -> PerfTest
+            key == SpeedTest.key -> SpeedTest
             key == CodeTest.key -> CodeTest
             key == Places.key -> Places
             key.startsWith("settings:") -> SettingsSection.entries

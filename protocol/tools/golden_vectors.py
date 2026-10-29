@@ -73,7 +73,7 @@ f("frame of 65,536 bytes with CRLF", None, {"kind":"pairing.offer","sessionId":S
 features_all = {"clipboard":True,"files":True,"notifications":True,"battery":True,"find_device":True,"ping":True,"links":True,"media":True,"calls":True,"remote_input_draft1":False}
 drafts_none = {"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False,"folders_receive_draft1":False,"files_browse_draft1":False,
                "mac_actions_draft1":False,"links_open_draft1":False,"focus_sync_draft1":False,"camera_draft1":False,
-               "updates_draft1":False,"screen_draft1":False,"sms_draft1":False}
+               "updates_draft1":False,"screen_draft1":False,"sms_draft1":False,"files_fast_draft1":False}
 feat = []
 def fe(name, plaintext, expect, raw=False):
     feat.append({"name": name, ("plaintextString" if raw else "plaintext"): plaintext, "expect": expect})
@@ -93,6 +93,11 @@ fe("automation keys that are not booleans count as false", {"version":1,"feature
 fe("Update all: an edition phone with updates_draft1", {"version":1,"features":{**features_all,"files_browse_draft1":True,"updates_draft1":True}},
    {"features":features_all,"drafts":{**drafts_none,"files_browse_draft1":True,"updates_draft1":True}})
 fe("updates_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"updates_draft1":"true"}},
+   {"features":features_all,"drafts":drafts_none})
+# Fast transfers (docs/protocol.md "Fast transfers"): a capability every new build advertises; true only for JSON true.
+fe("fast transfers: a phone and a Mac with files_fast_draft1", {"version":1,"features":{**features_all,"updates_draft1":True,"files_fast_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"updates_draft1":True,"files_fast_draft1":True}})
+fe("files_fast_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"files_fast_draft1":1}},
    {"features":features_all,"drafts":drafts_none})
 # Screen sharing (v0.9, docs/protocol.md "Phone screen to Mac"): a draft key, true only for JSON true.
 fe("v0.9 phone and Mac with screen sharing on", {"version":1,"features":{**features_all,"camera_draft1":True,"screen_draft1":True}},

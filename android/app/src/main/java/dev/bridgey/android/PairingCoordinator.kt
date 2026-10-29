@@ -21,9 +21,6 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import dev.bridgey.core.discovery.DiscoveredPeer
-import java.io.BufferedWriter
-import java.io.BufferedInputStream
-import java.io.OutputStreamWriter
 import java.io.OutputStream
 import java.math.BigInteger
 import java.net.InetSocketAddress
@@ -330,7 +327,19 @@ class PairingCoordinator(
     val remoteFeatures: StateFlow<Map<BridgeyFeature, Boolean>> = mutableRemoteFeatures.asStateFlow()
     private val incomingFiles = ConcurrentHashMap<String, IncomingFileTransfer>()
     private val cancelledTransferIds = ConcurrentHashMap.newKeySet<String>()
+    /** Wi-Fi and wake locks while transfers or a speed test run (TransferPower.kt). */
+    private val transferPower = TransferPowerLock(appContext, scope)
+
+    /** Settings > Privacy > Transfer speed (SpeedTest.kt). */
+    internal val speedTest = SpeedTest(
+        scope, transferPower,
+        linkFor = { id -> registry.session(id)?.takeIf { it.pairingKey != null && it.fastTransfers }?.let { SessionSpeedLink(it) } },
+        nameOf = { id -> registry.session(id)?.peerName ?: trust.trustedDevices.value.firstOrNull { it.id == id }?.name ?: "Mac" },
+    )
+
     private val outgoingFileJobs = ConcurrentHashMap<String, Job>()
+    /** Windows of single files this phone sends to fast peers (FastTransfer.kt), by transfer ID. */
+    private val outgoingPacers = ConcurrentHashMap<String, TransferPacer>()
     private val outgoingFileSources = ConcurrentHashMap<String, Uri>()
 
     /** Which device each file transfer belongs to. */
@@ -422,6 +431,17 @@ class PairingCoordinator(
         reconnect.onEvent = ::recordReconnect
         reconnect.onChange = ::publishReconnectStates
         clipboardInbox.listener = ::onClipboardInboxEvent
+        // Wi-Fi out of power saving while any transfer runs (TransferPower.kt).
+        scope.launch {
+            var active = false
+            mutableFileTransfers.collect { transfers ->
+                val now = transfers.values.any { it.active && !it.queued }
+                if (now != active) {
+                    active = now
+                    if (now) transferPower.acquire("transfers") else transferPower.release("transfers")
+                }
+            }
+        }
         clipboardInbox.linkFor = { id -> registry.session(id)?.takeIf { it.pairingKey != null }?.let(::SessionClipLink) }
         scope.launch {
             runCatching {
@@ -1063,6 +1083,11 @@ class PairingCoordinator(
         override fun send(kind: String, transferId: String?, payload: ByteArray?, sequence: Long?): Boolean =
             sendWithId(kind, UUID.randomUUID().toString(), payload, transferId, sequence)
 
+        override val fastTransfers: Boolean get() = target.fastTransfers
+
+        override fun sendFastChunk(transferId: String, sequence: Long, bytes: ByteArray, length: Int): Boolean =
+            registry.isActive(target) && target.sendFast(FastFrame.CHUNK_KIND, transferId, sequence, bytes, length)
+
         fun sendWithId(kind: String, messageId: String, payload: ByteArray?, transferId: String? = null, sequence: Long? = null): Boolean {
             if (!registry.isActive(target)) return false
             val key = target.pairingKey ?: return false
@@ -1262,6 +1287,11 @@ class PairingCoordinator(
 
         override fun sendOuter(kind: String, transferId: String): Boolean =
             registry.isActive(current) && current.send(Message(kind = kind, sessionId = current.id, transferId = transferId))
+
+        override val fastTransfers: Boolean get() = current.fastTransfers
+
+        override fun sendFastChunk(transferId: String, sequence: Long, bytes: ByteArray, length: Int): Boolean =
+            registry.isActive(current) && current.sendFast(FastFrame.CHUNK_KIND, transferId, sequence, bytes, length)
     }
 
     /** Rows for folders this phone sends; the one-off "Browse…" grant goes when the folder ends. */
@@ -2314,8 +2344,38 @@ class PairingCoordinator(
 
             val completed = CompletableDeferred<Boolean>()
             pendingFileCompletions[transferId] = completed
+            val fast = connectedSession.fastTransfers
             val sent = runCatching {
-                resolver.openInputStream(uri)?.use { input ->
+                if (fast) {
+                    // Binary frames of 256 KiB in a byte window that follows the link (FastTransfer.kt).
+                    val pacer = TransferPacer(fast = true)
+                    val job = coroutineContext[Job]
+                    outgoingPacers[transferId] = pacer
+                    try {
+                        resolver.openInputStream(uri)?.use { input ->
+                            val buffer = ByteArray(pacer.chunkSize)
+                            var total = 0L
+                            var sequence = 0L
+                            val progress = TransferProgress(metadata.third)
+                            while (true) {
+                                coroutineContext.ensureActive()
+                                val count = input.readFully(buffer)
+                                if (count <= 0) break
+                                check(pacer.waitForRoom(count) { job?.isActive == false })
+                                pacer.didSend(transferId, sequence, count)
+                                check(connectedSession.sendFast(FastFrame.CHUNK_KIND, transferId, sequence++, buffer, count))
+                                total += count
+                                progress.status((total - pacer.unacknowledgedBytes).coerceAtLeast(0))?.let {
+                                    updateFileTransfer(transferId, metadata.first, "Sending ${metadata.first}: $it", true)
+                                }
+                            }
+                            check(pacer.waitForAll { job?.isActive == false })
+                            updateFileTransfer(transferId, metadata.first, "Verifying ${metadata.first} on $peer…", true)
+                        } ?: error("File unavailable")
+                    } finally {
+                        outgoingPacers.remove(transferId)
+                    }
+                } else resolver.openInputStream(uri)?.use { input ->
                     val buffer = ByteArray(FILE_CHUNK_SIZE)
                     var total = 0L
                     var sequence = 0L
@@ -2546,6 +2606,7 @@ class PairingCoordinator(
         if (pendingPing?.first == deviceId) clearPingStatus()
         macActions.sessionEnded(deviceId)
         focusSync.sessionEnded(deviceId)
+        speedTest.disconnected(deviceId)
         endCameraRequest(deviceId)
         screenRequests.ended(deviceId)?.let { screenListener?.requestEnded(it) }
         screenListener?.disconnected(deviceId)
@@ -2602,9 +2663,24 @@ class PairingCoordinator(
         val result = runCatching {
             while (true) {
                 try {
-                    val line = current.input.readProtocolLine() ?: break
-                    current.lastReceivedAtMillis = SystemClock.elapsedRealtime()
-                    receive(current, Message.decode(line))
+                    when (val frame = current.frames.next() ?: break) {
+                        is ProtocolFrame.Json -> {
+                            current.lastReceivedAtMillis = SystemClock.elapsedRealtime()
+                            receive(current, Message.decode(frame.text))
+                        }
+                        is ProtocolFrame.Binary -> {
+                            current.lastReceivedAtMillis = SystemClock.elapsedRealtime()
+                            // Unknown binary kinds are skipped whole, like unknown message kinds.
+                            if (frame.kind != FastFrame.CHUNK_KIND && frame.kind != FastFrame.SPEED_KIND) continue
+                            val payload = runCatching { openFastFrameBody(frame.kind, frame.body, current.binaryKey ?: error("no key")) }
+                                .getOrElse {
+                                    current.dropReason = "protocol_error"
+                                    BridgeyLogging.w(LogCategory.CONNECTION, "TRANSPORT invalid binary frame")
+                                    break
+                                }
+                            receiveFast(current, payload)
+                        }
+                    }
                 } catch (_: SocketTimeoutException) {
                     if (current.closed) break
                     val now = SystemClock.elapsedRealtime()
@@ -2824,6 +2900,12 @@ class PairingCoordinator(
             "files.chunk.ack" -> message.transferId?.let {
                 if (folderSender.ownsFile(it) && registry.isActive(current) && message.sessionId == current.id) {
                     folderSender.handleOuter(current.remoteDeviceId, message.kind, it, message.sequence)
+                } else if (ownsTransfer(current, it)) {
+                    // Fast transfers (FastTransfer.kt): single files and clipboard files from this phone are paced.
+                    message.sequence?.let { sequence ->
+                        outgoingPacers[it]?.acknowledged(it, sequence)
+                        clipboardOutbox.onChunkAcknowledged(it, sequence)
+                    }
                 }
             }
             "files.complete.ack" -> message.transferId?.let {
@@ -2894,7 +2976,84 @@ class PairingCoordinator(
                 if (registry.isActive(current) && message.sessionId == current.id) folderSender.handleOuter(current.remoteDeviceId, message.kind, it, null)
             }
             in dev.bridgey.android.browse.BrowseKinds.requests, in dev.bridgey.android.browse.BrowseKinds.answers -> receiveBrowseMessage(current, message)
-            else -> if (message.kind.startsWith("input.")) receiveRemoteInput(current, message)
+            else -> when {
+                message.kind.startsWith("input.") -> receiveRemoteInput(current, message)
+                message.kind.startsWith("speed.") -> receiveSpeedMessage(current, message)
+            }
+        }
+    }
+
+    /**
+     * speed.* (draft files_fast_draft1): checked like other encrypted messages; one that does not decrypt is dropped and
+     * the session stays, as for the other drafts. Outer-only kinds (pings, acknowledgements, cancel) carry the test ID as
+     * transferId.
+     */
+    private fun receiveSpeedMessage(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id || !current.fastTransfers) return
+        var plaintext: ByteArray? = null
+        if (message.ciphertext != null) {
+            val messageId = message.messageId ?: return
+            if (!current.acceptMessageId(messageId)) return
+            plaintext = Crypto.decrypt(current.pairingKey ?: return, message.nonce ?: return, message.ciphertext) ?: return
+        }
+        speedTest.receive(current.remoteDeviceId, message.kind, plaintext, message.transferId, message.sequence)
+    }
+
+    /** Speed test messages to one device over its session (SpeedTest.kt). */
+    private inner class SessionSpeedLink(private val target: Session) : SpeedTestLink {
+        override fun sendEncrypted(kind: String, payload: ByteArray): Boolean = sendEncrypted(target, kind, payload)
+
+        override fun sendOuter(kind: String, testId: String, sequence: Long?): Boolean =
+            registry.isActive(target) && target.send(Message(kind = kind, sessionId = target.id, transferId = testId, sequence = sequence))
+
+        override fun sendData(testId: String, sequence: Long, plaintext: ByteArray): Boolean =
+            registry.isActive(target) && target.sendFast(FastFrame.SPEED_KIND, testId, sequence, plaintext)
+
+        override fun localLink(lockHeld: Boolean): SpeedLink =
+            PhoneSpeedLink.current(appContext, target.localAddress, lockHeld, transferPower.screenOn)
+    }
+
+    /** Connected devices that can run the speed test: they advertise files_fast_draft1. */
+    fun speedTestDevices(): List<Pair<String, String>> =
+        registry.connections().filter { registry.state(it.deviceId)?.remoteFastTransfers == true }.map { it.deviceId to it.peerName }
+
+    /**
+     * A binary frame (draft files_fast_draft1) from an authenticated session. A file chunk goes where the same chunk as
+     * JSON would go, with the larger size limit, and is acknowledged so the Mac's window moves; test bytes go to the
+     * speed test. A chunk for an unknown transfer closes the session, like JSON.
+     */
+    private fun receiveFast(current: Session, payload: FastFramePayload) {
+        if (!registry.isActive(current)) return
+        if (payload.kind == FastFrame.SPEED_KIND) {
+            speedTest.receiveData(current.remoteDeviceId, payload)
+            return
+        }
+        val transferId = payload.id
+        val sequence = payload.sequence
+        fun acknowledge() {
+            current.send(Message(kind = "files.chunk.ack", sessionId = current.id, transferId = transferId, sequence = sequence))
+        }
+        when {
+            clipboardInbox.handles(transferId) -> {
+                if (clipboardInbox.onChunk(transferId, sequence, payload.plaintext, FastFrame.MAXIMUM_PLAINTEXT)) acknowledge()
+            }
+            // The folder session acknowledges its own chunks.
+            folders.handles(transferId) -> folders.chunk(current.remoteDeviceId, transferId, sequence, payload.plaintext)
+            else -> {
+                if (!ownsTransfer(current, transferId)) return
+                val transfer = incomingFiles[transferId] ?: run {
+                    if (transferId in cancelledTransferIds) return
+                    return fail(current, "Unknown file transfer")
+                }
+                if (!runCatching { transfer.append(payload.plaintext, sequence, FastFrame.MAXIMUM_PLAINTEXT) }.isSuccess) {
+                    incomingFiles.remove(transfer.transferId)?.cancel()
+                    return fail(current, "Invalid file data")
+                }
+                transfer.progress.status(transfer.receivedSize)?.let {
+                    updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: $it", true)
+                }
+                acknowledge()
+            }
         }
     }
 
@@ -3429,6 +3588,7 @@ class PairingCoordinator(
             }
         }
         current.authenticated = true
+        current.pairingKey?.let(current::allowBinaryFrames)
         dialFinished(current)
         val source = if (current.initiatedLocally) AddressSource.OUTBOUND else AddressSource.INBOUND
         val port = if (current.initiatedLocally) current.remotePort else ReconnectPolicy.LISTENING_PORT
@@ -3479,6 +3639,8 @@ class PairingCoordinator(
         // Draft, edition only: Update all. Always advertised; whether paired devices may start this phone's
         // update is the remoteStart field of updates.status.
         featureValues.put(dev.bridgey.android.updates.UPDATES_FEATURE_KEY, true)
+        // Draft, edition only: binary chunk frames and a byte window (FastTransfer.kt). A capability, so always on.
+        featureValues.put(FILES_FAST_FEATURE_KEY, true)
         val payload = JSONObject()
             .put("version", 1)
             .put("features", featureValues)
@@ -3505,6 +3667,7 @@ class PairingCoordinator(
         val received = decoded.features
         val drafts = decoded.drafts
         val deviceId = current.remoteDeviceId
+        current.peerFast = drafts[FILES_FAST_FEATURE_KEY] == true
         registry.update(deviceId) { state ->
             state.copy(
                 remoteFeatures = received,
@@ -3516,6 +3679,7 @@ class PairingCoordinator(
                 remoteLinksOpen = drafts[dev.bridgey.android.actions.LINKS_OPEN_FEATURE_KEY] == true,
                 remoteFocusSync = drafts[dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY] == true,
                 remoteUpdates = drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true,
+                remoteFastTransfers = drafts[FILES_FAST_FEATURE_KEY] == true,
                 updateStatus = state.updateStatus.takeIf { drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true },
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
                 ringing = state.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
@@ -3851,8 +4015,27 @@ class PairingCoordinator(
     }
 
     private class Session(private val socket: Socket) {
-        val input = BufferedInputStream(socket.getInputStream())
-        private val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), Charsets.UTF_8))
+        /** Frames of both kinds, read with the reader's own buffer (FastTransfer.kt). */
+        val frames = ProtocolStreamReader(socket.getInputStream())
+        private val output = java.io.BufferedOutputStream(socket.getOutputStream(), 64 * 1024)
+
+        /** This end's address of the socket, for the speed test's link facts (which interface carries the session). */
+        val localAddress: java.net.InetAddress? get() = runCatching { socket.localAddress }.getOrNull()
+
+        /** Set once the session is authenticated: binary frames are read from then on, with this key. */
+        @Volatile var binaryKey: ByteArray? = null
+            private set
+
+        /** The peer's latest features.update shows files_fast_draft1. */
+        @Volatile var peerFast = false
+
+        /** Fast transfers with this peer (FastTransfer.kt), read by senders when a transfer starts. */
+        val fastTransfers: Boolean get() = peerFast && binaryKey != null
+
+        fun allowBinaryFrames(key: ByteArray) {
+            binaryKey = key
+            frames.binaryAllowed = true
+        }
         var id = ""
         var peerName = "Device"
         var remoteDeviceId = ""
@@ -3930,11 +4113,34 @@ class PairingCoordinator(
             return write(message)
         }
 
+        /**
+         * One binary frame (draft files_fast_draft1), encrypted on the calling thread before it waits for the socket.
+         * Counts as a file chunk for the media lane, like a files.chunk message.
+         */
+        fun sendFast(kind: Int, id: String, sequence: Long, plaintext: ByteArray, length: Int = plaintext.size): Boolean {
+            val key = binaryKey ?: return false
+            val frame = runCatching { sealFastFrame(kind, id, sequence, plaintext, key, 0, length) }.getOrElse { return false }
+            urgentSenders.incrementAndGet()
+            try {
+                lastChunkAtMillis = SystemClock.elapsedRealtime()
+                return synchronized(writeLock) {
+                    val result = runCatching {
+                        output.write(frame)
+                        output.flush()
+                    }
+                    result.exceptionOrNull()?.let { BridgeyLogging.w(LogCategory.CONNECTION, "TRANSPORT send failed kind=binary", it) }
+                    result.isSuccess
+                }
+            } finally {
+                urgentSenders.decrementAndGet()
+            }
+        }
+
         private fun write(message: Message): Boolean = synchronized(writeLock) {
             val result = runCatching {
-                writer.write(message.encode())
-                writer.newLine()
-                writer.flush()
+                output.write(message.encode().toByteArray(Charsets.UTF_8))
+                output.write('\n'.code)
+                output.flush()
             }
             result.exceptionOrNull()?.let {
                 BridgeyLogging.w(LogCategory.CONNECTION, "TRANSPORT send failed kind=${message.kind}", it)
@@ -3964,7 +4170,7 @@ private class TransferProgress(private val totalBytes: Long) {
         if (!force && elapsedMs < 250 && transferred < totalBytes) return null
         if (elapsedMs > 0) {
             val sample = (transferred - lastBytes).coerceAtLeast(0) * 1000.0 / elapsedMs
-            smoothedBytesPerSecond = if (smoothedBytesPerSecond == 0.0) sample else smoothedBytesPerSecond * 0.7 + sample * 0.3
+            smoothedBytesPerSecond = smoothedRate(smoothedBytesPerSecond, sample, elapsedMs / 1000.0)
         }
         lastUpdateAt = now
         lastBytes = transferred
@@ -4029,9 +4235,10 @@ private class IncomingFileTransfer(
         }
     }
 
-    @Synchronized fun append(bytes: ByteArray, sequence: Long) {
+    /** [maximumChunk] is 24 KiB for JSON chunks and 1 MiB for binary ones (draft files_fast_draft1). */
+    @Synchronized fun append(bytes: ByteArray, sequence: Long, maximumChunk: Int = 24 * 1024) {
         check(sequence == nextSequence)
-        check(bytes.size <= 24 * 1024)
+        check(bytes.size <= maximumChunk)
         check(receivedSize + bytes.size <= expectedSize)
         output.write(bytes)
         digest.update(bytes)

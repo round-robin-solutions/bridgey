@@ -19,6 +19,8 @@ class ManifestPermissionsTest {
                 "android.permission.ACCESS_NETWORK_STATE",
                 "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
                 "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+                // The transfer speed test reads the Wi-Fi link rate and band (FastTransfer, SpeedTest.kt).
+                "android.permission.ACCESS_WIFI_STATE",
                 "android.permission.POST_NOTIFICATIONS",
                 "android.permission.FOREGROUND_SERVICE",
                 "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",

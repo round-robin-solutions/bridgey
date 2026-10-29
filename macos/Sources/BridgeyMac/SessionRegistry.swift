@@ -27,6 +27,8 @@ struct PhoneLinkState: Equatable {
     var remoteScreen = false
     /// The phone advertised `sms_draft1`: Text messages is on there for this Mac.
     var remoteSms = false
+    /// The phone advertised `files_fast_draft1`: binary chunk frames and the byte window (FastTransfer.swift).
+    var remoteFastTransfers = false
     /// The phone's last `codes.status`: whether Android shows Bridgey the text of code messages.
     var codeAccess: CodeAccessStatus?
     var battery: RemoteBatteryStatus?

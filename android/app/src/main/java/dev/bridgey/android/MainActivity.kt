@@ -1084,6 +1084,7 @@ private fun BridgeyApp(
                             openDevices = { stack.push(Route.Devices) },
                             openSection = { stack.push(settingsRoute(it)) },
                             openPerfTest = { stack.push(Route.PerfTest) },
+                            openSpeedTest = { stack.push(Route.SpeedTest) },
                             openNotificationApps = { stack.push(Route.NotificationApps) },
                             appNotifications = {
                                 if (appNotificationsEnabled) onOpenAppNotificationSettings()
@@ -1210,6 +1211,24 @@ private fun BridgeyApp(
                         Route.Reset -> ResetRoute(setup, onBack = { stack.pop() })
                         else -> SettingsScreen(section = (route as? Route.SettingsPane)?.section, state = settingsUi, actions = settingsUiActions)
                     }
+                }
+                Route.SpeedTest -> {
+                    val speedState by pairing.speedTest.state.collectAsStateWithLifecycle()
+                    dev.bridgey.android.ui.SpeedTestScreen(
+                        state = speedState,
+                        devices = remember(connections) { pairing.speedTestDevices() },
+                        actions = dev.bridgey.android.ui.SpeedTestActions(
+                            back = { stack.pop() },
+                            start = pairing.speedTest::start,
+                            stop = pairing.speedTest::cancel,
+                            copy = { report ->
+                                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                                    ClipData.newPlainText("Bridgey speed test", report.plainText(BuildConfig.VERSION_NAME)),
+                                )
+                                android.widget.Toast.makeText(context, context.getString(R.string.speed_copied), android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                        ),
+                    )
                 }
                 Route.PerfTest -> {
                     val benchState by BenchState.state.collectAsStateWithLifecycle()

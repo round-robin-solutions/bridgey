@@ -951,7 +951,7 @@ class FolderReceiveSession(
             speedSampleBytes = bytesDone
         } else if (now - speedSampleAt >= EMIT_INTERVAL_MILLIS) {
             val sample = (bytesDone - speedSampleBytes).coerceAtLeast(0) * 1000 / (now - speedSampleAt)
-            bytesPerSecond = if (bytesPerSecond == 0L) sample else (bytesPerSecond * 7 + sample * 3) / 10
+            bytesPerSecond = dev.bridgey.android.smoothedRate(bytesPerSecond.toDouble(), sample.toDouble(), (now - speedSampleAt) / 1000.0).toLong()
             speedSampleAt = now
             speedSampleBytes = bytesDone
         }

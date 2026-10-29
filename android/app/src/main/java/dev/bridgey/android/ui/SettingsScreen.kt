@@ -162,6 +162,8 @@ class SettingsActions(
     val dismissUpdateError: () -> Unit = {},
     val openUrl: (String) -> Unit = {},
     val openPerfTest: () -> Unit = {},
+    /** Settings > Privacy > Transfer speed. */
+    val openSpeedTest: () -> Unit = {},
     val setRemotePointerSpeed: (Int) -> Unit = {},
     val setRemoteVolumeKeys: (Boolean) -> Unit = {},
     val requestBatteryExemption: () -> Unit = {},
@@ -544,6 +546,16 @@ private fun PrivacyPage(state: SettingsState, actions: SettingsActions, listStat
         item(key = "privacy.setup") { PrivacySetupRows(actions.setup) }
         item(key = "privacy.logging") {
             LoggingSettingsGroup(state.logging, actions.setLogging, actions.exportDiagnostics, actions.clearLogs)
+        }
+        item(key = "privacy.speed") {
+            RowGroup(Modifier.padding(top = 16.dp)) {
+                row { shape ->
+                    ListRow(
+                        shape, stringResource(R.string.settings_speed_test), stringResource(R.string.settings_speed_test_detail),
+                        BridgeyIcons.Wifi, Tint.BLUE, onClick = actions.openSpeedTest,
+                    )
+                }
+            }
         }
     }
     if (confirmClear) {

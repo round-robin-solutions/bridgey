@@ -23,6 +23,12 @@ internal interface ClipboardLink {
 
     /** Sends one message; [payload] is encrypted when present. False when the session is gone. */
     fun send(kind: String, transferId: String?, payload: ByteArray? = null, sequence: Long? = null): Boolean
+
+    /** The device advertised files_fast_draft1: chunks go as binary frames in a byte window (FastTransfer.kt). */
+    val fastTransfers: Boolean get() = false
+
+    /** One chunk as a binary frame: the first [length] bytes of [bytes]. */
+    fun sendFastChunk(transferId: String, sequence: Long, bytes: ByteArray, length: Int): Boolean = false
 }
 
 /** What the inbox puts on this phone's clipboard. */
@@ -216,9 +222,10 @@ internal class ClipboardInbox(
     }
 
     /** One chunk. False when it does not belong or is out of order; the transfer then fails. */
-    fun onChunk(transferId: String, sequence: Long, bytes: ByteArray): Boolean {
+    /** [maximumChunk] is 24 KiB for JSON chunks and 1 MiB for binary ones (draft files_fast_draft1). */
+    fun onChunk(transferId: String, sequence: Long, bytes: ByteArray, maximumChunk: Int = ClipLimits.CHUNK_SIZE): Boolean {
         val inbound = synchronized(lock) { transfers[transferId] } ?: return false
-        if (!inbound.append(sequence, bytes)) {
+        if (!inbound.append(sequence, bytes, maximumChunk)) {
             synchronized(lock) { failLocked(inbound, ClipErrorCode.INVALID, notifyPeer = true) }
             publishProgress()
             return false
@@ -449,10 +456,10 @@ internal class ClipboardInbox(
             lastActivity = clock()
         }
 
-        fun append(sequence: Long, bytes: ByteArray): Boolean = synchronized(monitor) {
+        fun append(sequence: Long, bytes: ByteArray, maximumChunk: Int = ClipLimits.CHUNK_SIZE): Boolean = synchronized(monitor) {
             val stream = output
             if (state != State.RECEIVING || stream == null || sequence != nextSequence ||
-                bytes.size > ClipLimits.CHUNK_SIZE || receivedBytes + bytes.size > item.size
+                bytes.size > maximumChunk || receivedBytes + bytes.size > item.size
             ) return false
             if (runCatching { stream.write(bytes) }.isFailure) return false
             digest.update(bytes)

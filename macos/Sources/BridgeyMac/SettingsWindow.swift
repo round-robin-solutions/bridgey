@@ -77,6 +77,8 @@ struct SettingsModel {
     var connectedCount = 0
     var trustedDevices: [TrustedDeviceInfo] = []
     var rings: [DeviceRing] = []
+    /// Connected phones that can run the speed test (they advertise files_fast_draft1).
+    var speedPhones: [SpeedPhone] = []
     var globalFeatures: [BridgeyFeature: Bool] = [:]
     var deviceFeatures: [String: [BridgeyFeature: Bool]] = [:]
     var remoteFeatures: [BridgeyFeature: Bool] = [:]
@@ -1321,6 +1323,7 @@ struct PrivacyPane: View {
             Text(L10n.text("settings.activity.clear.body", fallback: "This removes the stream from this Mac. Your other devices keep their own history."))
         }
         LoggingCard(model: model, actions: actions)
+        SpeedTestCard(phones: model.speedPhones)
         PrivacyResetCard(actions: actions)
     }
 }
@@ -1561,6 +1564,7 @@ struct LiveSettingsView: View {
         model.trustedDevices = pairing.trustedDevices
         model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, connected: pairing.connectedPhones,
                                   pairing: pairing.pairingFlow, reconnecting: pairing.reconnectStates)
+        model.speedPhones = pairing.speedPhones.map { SpeedPhone(id: $0.id, name: $0.name) }
         model.rediscovering = pairing.isRediscovering
         model.rediscoverStatus = pairing.rediscoverStatus
         model.globalFeatures = settings.globalFeatures

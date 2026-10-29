@@ -114,8 +114,11 @@ enum ClipboardOfferBuilder {
 /// it. Called from a background queue.
 final class ClipboardChunkSender: @unchecked Sendable {
     let send: (_ chunk: Data, _ sequence: Int64, _ transferID: String) -> Bool
+    /// Binary frames of 256 KiB in a byte window (draft files_fast_draft1); `send` then sends a binary frame.
+    let fast: Bool
 
-    init(send: @escaping (Data, Int64, String) -> Bool) {
+    init(fast: Bool = false, send: @escaping (Data, Int64, String) -> Bool) {
+        self.fast = fast
         self.send = send
     }
 }
@@ -164,6 +167,7 @@ final class ClipboardOutgoingTransfer: @unchecked Sendable {
         acknowledgement.lock()
         acknowledgement.broadcast()
         acknowledgement.unlock()
+        pacer?.cancel()
     }
 
     func acknowledge(sequence: Int64) {
@@ -171,7 +175,15 @@ final class ClipboardOutgoingTransfer: @unchecked Sendable {
         acknowledgedSequence = max(acknowledgedSequence, sequence)
         acknowledgement.broadcast()
         acknowledgement.unlock()
+        pacer?.acknowledged(transferID, through: sequence)
     }
+
+    /// Set while a fast stream runs; read from the main thread by `acknowledge`.
+    private var pacer: TransferPacer? {
+        get { lock.withLock { fastPacer } }
+        set { lock.withLock { fastPacer = newValue } }
+    }
+    private var fastPacer: TransferPacer?
 
     private func waitForAcknowledgement(_ sequence: Int64) throws {
         acknowledgement.lock()
@@ -197,6 +209,7 @@ final class ClipboardOutgoingTransfer: @unchecked Sendable {
     }
 
     private func streamChunks(_ sender: ClipboardChunkSender) throws -> String {
+        if sender.fast { return try streamFast(sender) }
         var hasher = SHA256()
         var sent: Int64 = 0
         var sequence: Int64 = 0
@@ -218,9 +231,45 @@ final class ClipboardOutgoingTransfer: @unchecked Sendable {
         return Data(hasher.finalize()).base64EncodedString()
     }
 
+    /// The fast path: binary frames of 256 KiB in a byte window that follows the link (FastTransfer.swift).
+    private func streamFast(_ sender: ClipboardChunkSender) throws -> String {
+        let pacer = TransferPacer(fast: true)
+        self.pacer = pacer
+        defer { self.pacer = nil }
+        var hasher = SHA256()
+        var sent: Int64 = 0
+        var sequence: Int64 = 0
+        let next = try reader(chunkSize: pacer.chunkSize)
+        while let chunk = try next(), !chunk.isEmpty {
+            guard !isCancelled else { throw ClipboardStreamError.cancelled }
+            guard sent + Int64(chunk.count) <= size else { throw ClipboardStreamError.changed }
+            hasher.update(data: chunk)
+            do {
+                try pacer.waitForRoom(chunk.count) { self.isCancelled }
+            } catch PairingError.cancelled {
+                throw ClipboardStreamError.cancelled
+            } catch {
+                throw ClipboardStreamError.connection
+            }
+            pacer.didSend(transferID, sequence: sequence, bytes: chunk.count)
+            guard sender.send(chunk, sequence, transferID) else { throw ClipboardStreamError.connection }
+            sequence += 1
+            sent += Int64(chunk.count)
+        }
+        guard sent == size else { throw ClipboardStreamError.changed }
+        do {
+            try pacer.waitForAll { self.isCancelled }
+        } catch PairingError.cancelled {
+            throw ClipboardStreamError.cancelled
+        } catch {
+            throw ClipboardStreamError.connection
+        }
+        guard !isCancelled else { throw ClipboardStreamError.cancelled }
+        return Data(hasher.finalize()).base64EncodedString()
+    }
+
     /// A function returning the next chunk, or nil at the end.
-    private func reader() throws -> () throws -> Data? {
-        let chunkSize = ClipboardOfferLimits.chunkSize
+    private func reader(chunkSize: Int = ClipboardOfferLimits.chunkSize) throws -> () throws -> Data? {
         switch source {
         case let .data(data):
             var offset = 0

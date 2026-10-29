@@ -404,7 +404,7 @@ class FolderSender(
             item.speedBytes = bytesDone
         } else if (now - item.speedAt >= 500) {
             val sample = (bytesDone - item.speedBytes).coerceAtLeast(0) * 1000 / (now - item.speedAt)
-            item.bytesPerSecond = if (item.bytesPerSecond == 0L) sample else (item.bytesPerSecond * 7 + sample * 3) / 10
+            item.bytesPerSecond = dev.bridgey.android.smoothedRate(item.bytesPerSecond.toDouble(), sample.toDouble(), (now - item.speedAt) / 1000.0).toLong()
             item.speedAt = now
             item.speedBytes = bytesDone
         }

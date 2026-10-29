@@ -409,20 +409,24 @@ final class ClipboardInbox {
         return true
     }
 
-    func handleChunk(transferID: String, sequence: Int64, data: Data) {
-        guard let transfer = transfers[transferID], transfer.result == nil else { return }
+    /// True when the chunk was written. `maximumChunk` is 24 KiB for JSON chunks and 1 MiB for binary ones
+    /// (draft files_fast_draft1).
+    @discardableResult
+    func handleChunk(transferID: String, sequence: Int64, data: Data, maximumChunk: Int = ClipboardOfferLimits.chunkSize) -> Bool {
+        guard let transfer = transfers[transferID], transfer.result == nil else { return false }
         guard transfer.started, let handle = transfer.handle, sequence == transfer.nextSequence,
-              data.count <= ClipboardOfferLimits.chunkSize,
+              data.count <= maximumChunk,
               transfer.received + Int64(data.count) <= transfer.expectedSize,
               (try? handle.write(contentsOf: data)) != nil else {
             transport.sendCancel(transferID)
             finish(transfer, .failure(.refused(nil)))
-            return
+            return false
         }
         transfer.hasher.update(data: data)
         transfer.received += Int64(data.count)
         transfer.nextSequence += 1
         transfer.lastActivity = clock()
+        return true
     }
 
     func handleComplete(transferID: String, sha256: String) {

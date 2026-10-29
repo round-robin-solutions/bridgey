@@ -16,6 +16,12 @@ interface FolderSendLink {
 
     /** An outer-only message (files.cancel, folders.cancel.ack). */
     fun sendOuter(kind: String, transferId: String): Boolean
+
+    /** The device advertised files_fast_draft1 (read once, when a folder starts). */
+    val fastTransfers: Boolean get() = false
+
+    /** One chunk as a binary frame (draft files_fast_draft1): the first [length] bytes of [bytes]. */
+    fun sendFastChunk(transferId: String, sequence: Long, bytes: ByteArray, length: Int): Boolean = false
 }
 
 /** Everything a folder needs to go out: the hashed manifest, its sources and what the offer says. */
@@ -142,13 +148,20 @@ class FolderSendSession(
         var sequence = 0L
     }
 
-    private class Flight(val entry: Int, val size: Long) {
+    private class Flight(val entry: Int, val size: Long, val chunkSize: Long) {
         var chunksSent = 0L
         var acked = -1L
         var completeSent = false
         val unacked: Long get() = (chunksSent - (acked + 1)).coerceAtLeast(0)
-        val ackedBytes: Long get() = minOf(size, (acked + 1) * CHUNK_SIZE)
+        val ackedBytes: Long get() = minOf(size, (acked + 1) * chunkSize)
     }
+
+    /**
+     * Binary frames, 256 KiB chunks and a byte window for a device with files_fast_draft1 (FastTransfer.kt); otherwise
+     * 24 KiB JSON chunks and at most 64 unacknowledged.
+     */
+    private val fast = link.fastTransfers
+    private val pacer = dev.bridgey.android.TransferPacer(fast)
 
     /** Per-file transfer IDs of this folder, for routing files.* answers. */
     fun owns(transferId: String): Boolean = flights.containsKey(transferId) || transferId in ownedIds
@@ -236,7 +249,7 @@ class FolderSendSession(
         if (payload.folderTransferId != id || (phase != Phase.SENDING && phase != Phase.COMPLETING)) return
         if (payload.entry !in plan.entries.indices) return
         if (current?.entry == payload.entry) stopCurrentFile(sendCancel = false)
-        flights.entries.firstOrNull { it.value.entry == payload.entry }?.key?.let(flights::remove)
+        flights.entries.firstOrNull { it.value.entry == payload.entry }?.key?.let(::removeFlight)
         pending.remove(payload.entry)
         recordFailure(payload.entry, payload.code, senderSide = false)
         lastAckProgress = clock()
@@ -256,6 +269,7 @@ class FolderSendSession(
         val flight = flights[transferId] ?: return
         if (sequence <= flight.acked) return
         flight.acked = minOf(sequence, flight.chunksSent - 1)
+        pacer.acknowledged(transferId, flight.acked)
         lastAckProgress = clock()
         events.progress(this)
         pump()
@@ -263,7 +277,7 @@ class FolderSendSession(
 
     fun completeAcknowledged(transferId: String) {
         val flight = flights[transferId]?.takeIf { it.completeSent } ?: return
-        flights.remove(transferId)
+        removeFlight(transferId)
         completed += flight.entry
         filesDone++
         completedBytes += flight.size
@@ -282,7 +296,7 @@ class FolderSendSession(
         link.sendOuter("files.cancel.ack", transferId)
         val flight = flights[transferId] ?: return
         if (current?.transferId == transferId) stopCurrentFile(sendCancel = false)
-        flights.remove(transferId)
+        removeFlight(transferId)
         recordFailure(flight.entry, FolderCodes.CANCELLED, senderSide = false)
         events.progress(this)
         pump()
@@ -343,6 +357,11 @@ class FolderSendSession(
 
     private val unackedChunks: Long get() = flights.values.sumOf { it.unacked }
 
+    private fun removeFlight(transferId: String) {
+        pacer.forget(transferId)
+        flights.remove(transferId)
+    }
+
     private fun pump() {
         if (phase != Phase.SENDING) return
         var budget = CHUNK_WINDOW * 2
@@ -357,7 +376,11 @@ class FolderSendSession(
                 continue
             }
             if (file.sent < file.size) {
-                if (unackedChunks >= CHUNK_WINDOW) break
+                if (fast) {
+                    if (!pacer.canSend(minOf(pacer.chunkSize.toLong(), file.size - file.sent).toInt())) break
+                } else if (unackedChunks >= CHUNK_WINDOW) {
+                    break
+                }
                 sendChunk(file)
             } else {
                 finishFile(file)
@@ -388,13 +411,13 @@ class FolderSendSession(
             .put("sha256", sha).put("folderTransferId", id).put("entry", index).put("path", entry.path)
         link.send("files.offer", offer, outerTransferId = transferId)
         current = CurrentFile(index, transferId, entry.size, input)
-        flights[transferId] = Flight(index, entry.size)
+        flights[transferId] = Flight(index, entry.size, pacer.chunkSize.toLong())
     }
 
-    private val buffer = ByteArray(CHUNK_SIZE.toInt())
+    private val buffer = ByteArray(pacer.chunkSize)
 
     private fun sendChunk(file: CurrentFile) {
-        val wanted = minOf(CHUNK_SIZE, file.size - file.sent).toInt()
+        val wanted = minOf(pacer.chunkSize.toLong(), file.size - file.sent).toInt()
         var count = 0
         try {
             while (count < wanted) {
@@ -406,9 +429,15 @@ class FolderSendSession(
             return abandonCurrentFile(FolderCodes.UNREADABLE)
         }
         if (count == 0) return abandonCurrentFile(FolderCodes.SOURCE_CHANGED)
-        val data = buffer.copyOf(count)
-        file.digest.update(data)
-        link.sendChunk(file.transferId, file.sequence, data)
+        if (fast) {
+            file.digest.update(buffer, 0, count)
+            pacer.didSend(file.transferId, file.sequence, count)
+            link.sendFastChunk(file.transferId, file.sequence, buffer, count)
+        } else {
+            val data = buffer.copyOf(count)
+            file.digest.update(data)
+            link.sendChunk(file.transferId, file.sequence, data)
+        }
         file.sequence++
         file.sent += count
         flights[file.transferId]?.chunksSent = file.sequence
@@ -423,7 +452,7 @@ class FolderSendSession(
         if (extra >= 0 || digest != plan.entries[file.entry].sha256) {
             // Changed since the manifest: the receiver drops what it has of it.
             link.sendOuter("files.cancel", file.transferId)
-            flights.remove(file.transferId)
+            removeFlight(file.transferId)
             recordFailure(file.entry, FolderCodes.SOURCE_CHANGED, senderSide = true)
             events.progress(this)
             return
@@ -438,7 +467,7 @@ class FolderSendSession(
         runCatching { file.input.close() }
         current = null
         link.sendOuter("files.cancel", file.transferId)
-        flights.remove(file.transferId)
+        removeFlight(file.transferId)
         recordFailure(file.entry, code, senderSide = true)
         events.progress(this)
     }

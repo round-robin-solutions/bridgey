@@ -17,7 +17,9 @@ the tables at the end of this page are generated from it with
   RFC 8259 JSON: no comments, single quotes, unquoted names or trailing commas, and no lone surrogate
   escapes. Both clients run the same strict check before parsing, so they accept exactly the same
   frames. Duplicate names are undefined; senders must not produce them. TCP port 42458,
-  Bonjour service `_bridgey._tcp`.
+  Bonjour service `_bridgey._tcp`. The draft `files_fast_draft1` adds binary frames (marker byte
+  `0xB1`, a kind and a 32-bit length; `transport.binaryFrames` in `protocol/messages.json`), read only
+  after authentication and sent only to a peer whose map shows the key; peers without it never see one.
 - **Envelope.** The outer object has `kind` (1 to 64 bytes) and `sessionId` (at most 128 bytes;
   empty only in a `pairing.cancel` sent before the session ID is known) plus optional string fields
   and an integer `sequence`. Each field has one type. A wrong type, a missing `kind` or `sessionId`,
@@ -88,6 +90,12 @@ the tables at the end of this page are generated from it with
   without documenting it fails the build's tests.
 - `python3 -m unittest discover -s scripts/rr/tests` runs `test_protocol_contract.py`, which validates
   the file and fails when the tables on this page are stale.
+- Binary frames and the speed test (`files_fast_draft1`) have their own vectors in
+  [`protocol/test-vectors/files-fast-v1.json`](../protocol/test-vectors/files-fast-v1.json), written by
+  `python3 protocol/tools/fast_vectors.py` (it needs the Python `cryptography` package for AES-GCM with a
+  fixed nonce): valid, skipped and rejected frames, frames both platforms must write byte for byte,
+  `speed.*` payloads and the speed test's verdict. `FastTransferVectorsTest` and
+  `FastTransferVectorsTests` decode them.
 - Golden vectors in [`protocol/test-vectors/protocol-v1.json`](../protocol/test-vectors/protocol-v1.json)
   are decoded by both test suites with the same expected results: valid and invalid frames, and
   key payloads (`features.update`, `clipboard.rich`, `clipboard.offer`, `battery.update`,
@@ -147,6 +155,7 @@ the tables at the end of this page are generated from it with
 | `camera_draft1` | edition-draft | no | false |
 | `updates_draft1` | edition-draft | no | false |
 | `screen_draft1` | edition-draft | no | false |
+| `files_fast_draft1` | edition-draft | no | false |
 | `sms_draft1` | edition-draft | no | false |
 | `settings_sync_draft1` | designed | no | false |
 
@@ -171,7 +180,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-128 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+137 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -322,9 +331,11 @@ Files is off locally; sent without decrypting the offer, followed by features.up
 
 - `(raw)`: file bytes, at most 24 KiB per chunk, sequence from 0 without gaps
 
+Between peers that both advertise files_fast_draft1 every chunk is a binary frame of kind 1 instead (transport.binaryFrames): up to 1 MiB, no envelope, the transfer ID and sequence bound into the AES-GCM tag.
+
 `files.chunk.ack`
 
-Cumulative. The Mac keeps at most 64 chunks unacknowledged.
+Cumulative. The Mac keeps at most 64 chunks unacknowledged. With files_fast_draft1 the receiver acknowledges every binary chunk in every direction, and the sender keeps its unacknowledged bytes within a window that shrinks when the acknowledgements' round trip grows 40 ms over its minimum.
 
 `files.complete`
 
@@ -1169,6 +1180,79 @@ Opens Android's own Blocked numbers screen (TelecomManager.createManageBlockedNu
 - `version`: integer, 1
 - `requestId`: string, echoes the request
 - `result`: opened | notified | unavailable (an unknown result reads as unavailable)
+
+#### `speed.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `speed.start` | edition-draft | either | files_fast_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `speed.ready` | edition-draft | either | files_fast_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `speed.ping` | edition-draft | either | files_fast_draft1 | no | none | frame | sessionId, transferId, sequence | android, macos |
+| `speed.pong` | edition-draft | either | files_fast_draft1 | no | none | frame | sessionId, transferId, sequence | android, macos |
+| `speed.ack` | edition-draft | either | files_fast_draft1 | no | none | frame | sessionId, transferId, sequence | android, macos |
+| `speed.turn` | edition-draft | either | files_fast_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `speed.done` | edition-draft | either | files_fast_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `speed.result` | edition-draft | either | files_fast_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `speed.cancel` | edition-draft | either | files_fast_draft1 | no | none | frame | sessionId, transferId | android, macos |
+
+`speed.start`
+
+- `version`: integer, 1
+- `testId`: string, UUID
+- `seconds`: integer, 2 to 15, how long each side sends
+- `link`: object: platform (string, 1 to 16 bytes), network (wifi | ethernet | hotspot | other), optional band (2.4 | 5 | 6), linkMbps (1 to 100000), standard (4 to 7), widthMhz (20 to 320), lockHeld and screenOn (booleans, phones)
+
+Answered by `speed.ready`.
+
+Speed test from the side that runs it. One test at a time per device; the other side answers within 5 seconds. Then ten speed.ping, then this side sends speed.data for `seconds`, then speed.turn, then the other side sends for `seconds` and answers speed.done.
+
+`speed.ready`
+
+- `version`: integer, 1
+- `testId`: string, UUID
+- `status`: ready | busy | disabled
+- `link`: object, as in speed.start, with ready
+
+`speed.ping`
+
+Answered by `speed.pong`.
+
+transferId is the test ID, sequence 1 to 10. Answered at once with speed.pong carrying the same fields; the round trip shown is their median.
+
+`speed.ack`
+
+Acknowledges the speed.data binary frame with that test ID and sequence (cumulative). The sender paces on these exactly as on files.chunk.ack.
+
+`speed.turn`
+
+- `version`: integer, 1
+- `testId`: string, UUID
+- `bytesPerSecond`: integer, 0 to 10^12, what the side that started measured from its acknowledgements after the first second
+
+The side that started has finished sending: the other side sends now.
+
+`speed.done`
+
+- `version`: integer, 1
+- `testId`: string, UUID
+- `bytesPerSecond`: integer, 0 to 10^12, what this side measured
+
+Answered by `speed.result`.
+
+`speed.result`
+
+- `version`: integer, 1
+- `testId`: string, UUID
+- `forwardBytesPerSecond`: optional integer, from the side that started to the other
+- `backBytesPerSecond`: optional integer, the other way
+- `roundTripMs`: optional number, 0 to 60000, median idle round trip
+- `loadedRoundTripMs`: optional number, 0 to 60000, round trip of the acknowledgements while sending
+
+So both apps can show the whole result.
+
+`speed.cancel`
+
+Either side stops the test (transferId is the test ID): Stop, a stall of 5 seconds, or a failure.
 
 #### `places.*`
 
