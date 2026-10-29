@@ -132,29 +132,47 @@ sp("result where a round trip is a boolean reads it as absent", "speed.result",
    {"testId": T, "forward": None, "back": 2, "roundTripMs": None, "loadedRoundTripMs": None})
 
 verdicts = []
+EFFICIENCY = (0.5, 0.75)
 
 
-def vd(name, mac, phone, best, expect):
-    verdicts.append({"name": name, "mac": mac, "phone": phone, "bestBytesPerSecond": best, "expect": expect})
+def half_up(x):
+    return int(x + 0.5)
+
+
+def expected(route, mac, phone):
+    """The same rule as both apps: goodput is 50% to 75% of the transmit rate; through one router the hops share airtime."""
+    def rng(mbps):
+        return half_up(mbps * EFFICIENCY[0] / 8), half_up(mbps * EFFICIENCY[1] / 8)
+    if route == "sameRouter":
+        a, b = mac.get("linkMbps"), phone.get("linkMbps")
+        return rng(1 / (1 / a + 1 / b)) if a and b else (30, 45)
+    if route == "macWired":
+        return rng(phone["linkMbps"]) if phone.get("linkMbps") else (50, 75)
+    if route == "hotspot":
+        return rng(mac["linkMbps"]) if mac.get("linkMbps") else (50, 90)
+    return (30, 45)
+
+
+def vd(name, mac, phone, best, route, as_expected, advice):
+    low, high = expected(route, mac, phone)
+    verdicts.append({"name": name, "mac": mac, "phone": phone, "bestBytesPerSecond": best,
+                     "expect": {"route": route, "low": low, "high": high, "asExpected": as_expected, "advice": advice}})
 
 
 wifi = lambda platform, mbps, band="5", **kw: {"platform": platform, "network": "wifi", "band": band, "linkMbps": mbps, **kw}
-vd("same router, Wi-Fi 6 80 MHz both, as expected", wifi("macos", 1201), wifi("android", 1201), 40e6,
-   {"route": "sameRouter", "low": 38, "high": 49, "asExpected": True, "advice": ["tryHotspot"]})
-vd("same router, 160 MHz Mac, slow phone on 2.4 GHz", wifi("macos", 2268), wifi("android", 144, band="2.4"), 3e6,
-   {"route": "sameRouter", "low": 8, "high": 11, "asExpected": False, "advice": ["phone24", "tryHotspot"]})
+vd("same router, Wi-Fi 6 80 MHz both, as expected", wifi("macos", 1201), wifi("android", 1201), 40e6, "sameRouter", True, ["tryHotspot"])
+vd("same router, 160 MHz both (what the work Mac and a OnePlus 11 can reach)", wifi("macos", 2268), wifi("android", 2402), 80e6,
+   "sameRouter", True, ["tryHotspot"])
+vd("same router, 160 MHz Mac, slow phone on 2.4 GHz", wifi("macos", 2268), wifi("android", 144, band="2.4"), 3e6, "sameRouter", False, ["phone24", "tryHotspot"])
 vd("same router, rates unknown", {"platform": "macos", "network": "wifi"}, {"platform": "android", "network": "wifi"}, 10e6,
-   {"route": "sameRouter", "low": 30, "high": 45, "asExpected": False, "advice": ["weakLink", "tryHotspot"]})
+   "sameRouter", False, ["weakLink", "tryHotspot"])
 vd("same router, slow with the screen off", wifi("macos", 1201), wifi("android", 1201, screenOn=False, lockHeld=True), 5e6,
-   {"route": "sameRouter", "low": 38, "high": 49, "asExpected": False, "advice": ["screenOff", "tryHotspot"]})
-vd("Mac on Ethernet", {"platform": "macos", "network": "ethernet"}, wifi("android", 1201), 60e6,
-   {"route": "macWired", "low": 75, "high": 98, "asExpected": True, "advice": []})
+   "sameRouter", False, ["screenOff", "tryHotspot"])
+vd("Mac on Ethernet", {"platform": "macos", "network": "ethernet"}, wifi("android", 1201), 60e6, "macWired", True, [])
 vd("Mac on the phone's hotspot", wifi("macos", 1201), {"platform": "android", "network": "hotspot", "lockHeld": True, "screenOn": True}, 80e6,
-   {"route": "hotspot", "low": 75, "high": 98, "asExpected": True, "advice": []})
-vd("hotspot, Mac rate unknown", {"platform": "macos", "network": "wifi"}, {"platform": "android", "network": "hotspot"}, 20e6,
-   {"route": "hotspot", "low": 50, "high": 90, "asExpected": False, "advice": ["weakLink"]})
-vd("loopback (the emulator)", {"platform": "macos", "network": "other"}, {"platform": "android", "network": "other"}, 200e6,
-   {"route": "unknown", "low": 30, "high": 45, "asExpected": True, "advice": []})
+   "hotspot", True, [])
+vd("hotspot, Mac rate unknown", {"platform": "macos", "network": "wifi"}, {"platform": "android", "network": "hotspot"}, 20e6, "hotspot", False, ["weakLink"])
+vd("loopback (the emulator)", {"platform": "macos", "network": "other"}, {"platform": "android", "network": "other"}, 200e6, "unknown", True, [])
 
 out = {
     "description": "Fast transfers (draft files_fast_draft1, docs/protocol.md 'Fast transfers' and 'Speed test'). The key is bytes 0 to 31, base64 in 'keyBase64'. "

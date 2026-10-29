@@ -632,7 +632,32 @@
    "expect": {
     "route": "sameRouter",
     "low": 38,
-    "high": 49,
+    "high": 56,
+    "asExpected": true,
+    "advice": [
+     "tryHotspot"
+    ]
+   }
+  },
+  {
+   "name": "same router, 160 MHz both (what the work Mac and a OnePlus 11 can reach)",
+   "mac": {
+    "platform": "macos",
+    "network": "wifi",
+    "band": "5",
+    "linkMbps": 2268
+   },
+   "phone": {
+    "platform": "android",
+    "network": "wifi",
+    "band": "5",
+    "linkMbps": 2402
+   },
+   "bestBytesPerSecond": 80000000.0,
+   "expect": {
+    "route": "sameRouter",
+    "low": 73,
+    "high": 109,
     "asExpected": true,
     "advice": [
      "tryHotspot"
@@ -657,7 +682,7 @@
    "expect": {
     "route": "sameRouter",
     "low": 8,
-    "high": 11,
+    "high": 13,
     "asExpected": false,
     "advice": [
      "phone24",
@@ -707,7 +732,7 @@
    "expect": {
     "route": "sameRouter",
     "low": 38,
-    "high": 49,
+    "high": 56,
     "asExpected": false,
     "advice": [
      "screenOff",
@@ -731,7 +756,7 @@
    "expect": {
     "route": "macWired",
     "low": 75,
-    "high": 98,
+    "high": 113,
     "asExpected": true,
     "advice": []
    }
@@ -754,7 +779,7 @@
    "expect": {
     "route": "hotspot",
     "low": 75,
-    "high": 98,
+    "high": 113,
     "asExpected": true,
     "advice": []
    }

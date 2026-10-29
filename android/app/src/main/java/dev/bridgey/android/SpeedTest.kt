@@ -167,9 +167,9 @@ data class SpeedVerdict(
     enum class Advice { PHONE_24, MAC_24, SCREEN_OFF, WEAK_LINK, TRY_HOTSPOT }
 
     companion object {
-        /** Typical goodput over Wi-Fi is about half to two thirds of the transmit rate. */
+        /** Goodput over one Wi-Fi hop is about half to three quarters of the transmit rate (docs/transfer-speed.md). */
         private const val EFFICIENCY_LOW = 0.5
-        private const val EFFICIENCY_HIGH = 0.65
+        private const val EFFICIENCY_HIGH = 0.75
 
         fun evaluate(mac: SpeedLink?, phone: SpeedLink, bestBytesPerSecond: Double): SpeedVerdict {
             val route = when {

@@ -150,8 +150,9 @@ struct SpeedVerdict: Equatable {
     let asExpected: Bool
     let advice: [Advice]
 
-    /// Typical goodput over Wi-Fi is about half to two thirds of the transmit rate (MAC overhead, acknowledgements).
-    static let efficiency: ClosedRange<Double> = 0.5...0.65
+    /// Goodput over one Wi-Fi hop is about half to three quarters of the transmit rate (airtime overhead and
+    /// acknowledgements; a OnePlus 11 measured 1.9 Gbit/s over a 2.6 Gbit/s link at 3 m, docs/transfer-speed.md).
+    static let efficiency: ClosedRange<Double> = 0.5...0.75
 
     static func evaluate(mac: SpeedLink, phone: SpeedLink?, best bytesPerSecond: Double) -> SpeedVerdict {
         let route: Route
