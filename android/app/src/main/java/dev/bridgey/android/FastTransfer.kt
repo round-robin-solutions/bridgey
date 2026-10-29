@@ -40,7 +40,8 @@ internal object FastFrame {
     /** What senders use. Receivers take up to [MAXIMUM_PLAINTEXT]. */
     const val CHUNK_SIZE = 256 * 1024
     const val MAXIMUM_SEQUENCE = 9_007_199_254_740_991L
-    val ASSOCIATED_DATA_PREFIX = "bridgey-files-fast-v1".toByteArray(Charsets.US_ASCII)
+    /** The first field of the associated data. Fast frames exist only on protocol 2 sessions. */
+    const val ASSOCIATED_DATA_LABEL = "bridgey-fast-frame-v2"
 }
 
 /** A decoded binary frame: what a files.chunk JSON message carried, without the envelope. */
@@ -52,19 +53,25 @@ private val fastRandom = SecureRandom()
 
 private fun validFastId(id: ByteArray): Boolean = id.size in 1..FastFrame.MAXIMUM_ID_BYTES && id.all { it in 0x21..0x7E }
 
-/** The bytes the AES-GCM tag covers besides the ciphertext: kind, transfer (or test) ID and sequence. */
-internal fun fastFrameAssociatedData(kind: Int, id: ByteArray, sequence: Long): ByteArray {
-    val prefix = FastFrame.ASSOCIATED_DATA_PREFIX
-    return ByteBuffer.allocate(prefix.size + 2 + id.size + 8).put(prefix).put(kind.toByte()).put(id.size.toByte()).put(id).putLong(sequence).array()
-}
+/**
+ * What the AES-GCM tag covers besides the ciphertext, length-prefixed like protocol 2 envelope tags
+ * ([SessionSecurity.lengthPrefixed]): the label, the sending device's ID, the kind, the transfer (or test) ID and the
+ * sequence. So a frame cannot be moved to another transfer, position or kind, nor reflected back to its sender.
+ */
+internal fun fastFrameAssociatedData(sender: String, kind: Int, id: String, sequence: Long): ByteArray =
+    SessionSecurity.lengthPrefixed(listOf(FastFrame.ASSOCIATED_DATA_LABEL, sender, kind.toString(), id, sequence.toString()))
 
-/** One whole frame, header included, from [length] bytes of [plaintext] at [offset]. [nonce] is random unless a vector fixes it. */
+/**
+ * One whole frame, header included, from [sender] (this device's ID), with [length] bytes of [plaintext] at [offset].
+ * [nonce] is random unless a vector fixes it.
+ */
 internal fun sealFastFrame(
     kind: Int,
     id: String,
     sequence: Long,
     plaintext: ByteArray,
     key: ByteArray,
+    sender: String,
     offset: Int = 0,
     length: Int = plaintext.size,
     nonce: ByteArray? = null,
@@ -80,17 +87,17 @@ internal fun sealFastFrame(
     head.put(FastFrame.MARKER).put(kind.toByte()).putInt(bodyLength).put(idBytes.size.toByte()).put(idBytes).putLong(sequence).put(iv)
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
-    cipher.updateAAD(fastFrameAssociatedData(kind, idBytes, sequence))
+    cipher.updateAAD(fastFrameAssociatedData(sender, kind, id, sequence))
     val written = cipher.doFinal(plaintext, offset, length, frame, head.position())
     check(written == length + 16)
     return frame
 }
 
 /**
- * Reads and decrypts a frame body (what follows the 6-byte header). A malformed field or a failed tag closes the
- * session: binary frames reach only authenticated sessions, so either means a broken or hostile peer.
+ * Reads and decrypts a frame body (what follows the 6-byte header) from [sender] (the other device's ID). A malformed
+ * field or a failed tag is dropped and counted like a frame with a bad envelope tag (16 close the session).
  */
-internal fun openFastFrameBody(kind: Int, body: ByteArray, key: ByteArray): FastFramePayload {
+internal fun openFastFrameBody(kind: Int, body: ByteArray, key: ByteArray, sender: String): FastFramePayload {
     if (body.size > FastFrame.MAXIMUM_BODY || body.isEmpty()) throw FastFrameException("malformed")
     val idLength = body[0].toInt() and 0xFF
     if (idLength !in 1..FastFrame.MAXIMUM_ID_BYTES || body.size < 1 + idLength + 8 + 12 + 16 + 1) throw FastFrameException("malformed")
@@ -101,15 +108,35 @@ internal fun openFastFrameBody(kind: Int, body: ByteArray, key: ByteArray): Fast
     val nonceStart = 1 + idLength + 8
     val cipherStart = nonceStart + 12
     if (body.size - cipherStart - 16 > FastFrame.MAXIMUM_PLAINTEXT) throw FastFrameException("malformed")
+    val id = String(idBytes, Charsets.US_ASCII)
     val plaintext = try {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, body, nonceStart, 12))
-        cipher.updateAAD(fastFrameAssociatedData(kind, idBytes, sequence))
+        cipher.updateAAD(fastFrameAssociatedData(sender, kind, id, sequence))
         cipher.doFinal(body, cipherStart, body.size - cipherStart)
     } catch (_: java.security.GeneralSecurityException) {
         throw FastFrameException("undecryptable")
     }
-    return FastFramePayload(kind, String(idBytes, Charsets.US_ASCII), sequence, plaintext)
+    return FastFramePayload(kind, id, sequence, plaintext)
+}
+
+/**
+ * Binary frames do not enter the messageId window. Instead each kind and ID must carry a higher sequence than the last
+ * frame taken with them (file chunks follow on 0, 1, 2, ...; speed test bytes too), so a frame recorded and sent again is
+ * dropped before it reaches a transfer. Remembers the last 256 IDs; an older ID's late frames are still refused by its
+ * transfer, which has ended. Used by one read loop.
+ */
+internal class FastReplayGuard(private val capacity: Int = 256) {
+    private val highest = LinkedHashMap<String, Long>()
+
+    fun accept(payload: FastFramePayload): Boolean {
+        val key = "${payload.kind}:${payload.id}"
+        val last = highest[key]
+        if (last != null && payload.sequence <= last) return false
+        if (last == null && highest.size >= capacity) highest.remove(highest.keys.first())
+        highest[key] = payload.sequence
+        return true
+    }
 }
 
 /** One frame read from the connection. */

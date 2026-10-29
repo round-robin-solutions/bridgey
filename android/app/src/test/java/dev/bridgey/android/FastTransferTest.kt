@@ -23,6 +23,7 @@ class FastTransferVectorsTest {
     private val root = File(System.getProperty("bridgey.repoRoot") ?: "../..")
     private val vectors = JSONObject(File(root, "protocol/test-vectors/files-fast-v1.json").readText())
     private val key = Base64.getDecoder().decode(vectors.getString("keyBase64"))
+    private val sender = vectors.getString("senderDeviceId")
 
     private fun each(group: String, check: (JSONObject) -> Boolean) {
         val array = vectors.getJSONArray(group)
@@ -36,7 +37,7 @@ class FastTransferVectorsTest {
         val reader = ProtocolStreamReader(ByteArrayInputStream(frame)).apply { binaryAllowed = true }
         val next = reader.next() as? ProtocolFrame.Binary ?: return@runCatching "reject"
         if (next.kind != FastFrame.CHUNK_KIND && next.kind != FastFrame.SPEED_KIND) return@runCatching "skip"
-        val payload = openFastFrameBody(next.kind, next.body, key)
+        val payload = openFastFrameBody(next.kind, next.body, key, sender)
         mapOf(
             "kind" to next.kind.toLong(), "id" to payload.id, "sequence" to payload.sequence,
             "plaintextBase64" to Base64.getEncoder().encodeToString(payload.plaintext),
@@ -51,7 +52,7 @@ class FastTransferVectorsTest {
         val expect = vector.getJSONObject("expect")
         val written = sealFastFrame(
             expect.getInt("kind"), expect.getString("id"), expect.getLong("sequence"),
-            Base64.getDecoder().decode(expect.getString("plaintextBase64")), key,
+            Base64.getDecoder().decode(expect.getString("plaintextBase64")), key, sender,
             nonce = Base64.getDecoder().decode(vector.getString("nonceBase64")),
         )
         written.contentEquals(frame)
@@ -141,22 +142,22 @@ class FastTransferTest {
 
     @Test fun oneMebibyteRoundTripsAndOneByteMoreIsRefused() {
         val plaintext = ByteArray(FastFrame.MAXIMUM_PLAINTEXT) { (it * 13).toByte() }
-        val frame = sealFastFrame(FastFrame.CHUNK_KIND, "t", 9, plaintext, key)
+        val frame = sealFastFrame(FastFrame.CHUNK_KIND, "t", 9, plaintext, key, "phone")
         val read = ProtocolStreamReader(ByteArrayInputStream(frame)).apply { binaryAllowed = true }.next() as ProtocolFrame.Binary
-        assertArrayEquals(plaintext, openFastFrameBody(read.kind, read.body, key).plaintext)
-        assertThrows(FastFrameException::class.java) { sealFastFrame(1, "t", 0, ByteArray(FastFrame.MAXIMUM_PLAINTEXT + 1), key) }
+        assertArrayEquals(plaintext, openFastFrameBody(read.kind, read.body, key, "phone").plaintext)
+        assertThrows(FastFrameException::class.java) { sealFastFrame(1, "t", 0, ByteArray(FastFrame.MAXIMUM_PLAINTEXT + 1), key, "phone") }
     }
 
     @Test fun offsetAndLengthSealOnlyThatPart() {
         val buffer = ByteArray(100) { it.toByte() }
-        val frame = sealFastFrame(FastFrame.CHUNK_KIND, "t", 0, buffer, key, 10, 20)
+        val frame = sealFastFrame(FastFrame.CHUNK_KIND, "t", 0, buffer, key, "phone", 10, 20)
         val read = ProtocolStreamReader(ByteArrayInputStream(frame)).apply { binaryAllowed = true }.next() as ProtocolFrame.Binary
-        assertArrayEquals(buffer.copyOfRange(10, 30), openFastFrameBody(read.kind, read.body, key).plaintext)
+        assertArrayEquals(buffer.copyOfRange(10, 30), openFastFrameBody(read.kind, read.body, key, "phone").plaintext)
     }
 
     @Test fun readerMixesJsonAndBinaryFramesAcrossAnySplit() {
         val json1 = "{\"kind\":\"files.chunk.ack\",\"sessionId\":\"s\",\"transferId\":\"t\",\"sequence\":1}\n".toByteArray()
-        val binary = sealFastFrame(FastFrame.CHUNK_KIND, "t", 2, ByteArray(300_000) { '\n'.code.toByte() }, key)
+        val binary = sealFastFrame(FastFrame.CHUNK_KIND, "t", 2, ByteArray(300_000) { '\n'.code.toByte() }, key, "mac")
         val json2 = "{\"kind\":\"heartbeat.ping\",\"sessionId\":\"s\",\"messageId\":\"m\"}\r\n".toByteArray()
         val stream = json1 + binary + json2
         for (split in listOf(1, 2, 5, 6, 7, 100, 4096, 65_536, 262_144, stream.size)) {
@@ -165,7 +166,7 @@ class FastTransferTest {
                 when (frame) {
                     is ProtocolFrame.Json -> decodeProtocolMessage(frame.text).kind
                     is ProtocolFrame.Binary -> {
-                        assertEquals(2L, openFastFrameBody(frame.kind, frame.body, key).sequence)
+                        assertEquals(2L, openFastFrameBody(frame.kind, frame.body, key, "mac").sequence)
                         "binary"
                     }
                 }
@@ -191,10 +192,21 @@ class FastTransferTest {
     }
 
     @Test fun aStreamEndingInsideABinaryFrameThrows() {
-        val frame = sealFastFrame(FastFrame.CHUNK_KIND, "t", 0, ByteArray(1000), key)
+        val frame = sealFastFrame(FastFrame.CHUNK_KIND, "t", 0, ByteArray(1000), key, "mac")
         assertThrows(java.io.EOFException::class.java) {
             ProtocolStreamReader(ByteArrayInputStream(frame.copyOf(500))).apply { binaryAllowed = true }.next()
         }
+    }
+
+    @Test fun replayGuardRefusesASequenceAlreadyTaken() {
+        val guard = FastReplayGuard()
+        val first = FastFramePayload(1, "t", 0, ByteArray(0))
+        assertTrue(guard.accept(first))
+        assertFalse("the same frame again", guard.accept(first))
+        assertTrue(guard.accept(FastFramePayload(1, "t", 1, ByteArray(0))))
+        assertFalse("an older frame after a newer one", guard.accept(first))
+        assertTrue("another kind is its own stream", guard.accept(FastFramePayload(2, "t", 0, ByteArray(0))))
+        assertTrue("another transfer is its own stream", guard.accept(FastFramePayload(1, "u", 0, ByteArray(0))))
     }
 
     @Test fun legacyPacerKeepsSixtyFourChunks() {

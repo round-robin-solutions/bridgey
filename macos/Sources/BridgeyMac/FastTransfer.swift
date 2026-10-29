@@ -27,7 +27,8 @@ enum FastFrame {
     /// What senders use. Receivers take up to `maximumPlaintext`.
     static let chunkSize = 256 * 1024
     static let maximumSequence: Int64 = 9_007_199_254_740_991
-    static let associatedDataPrefix = Data("bridgey-files-fast-v1".utf8)
+    /// The first field of the associated data. Fast frames exist only on protocol 2 sessions.
+    static let associatedDataLabel = "bridgey-fast-frame-v2"
 }
 
 /// A decoded binary frame: what a files.chunk JSON message carried, without the envelope.
@@ -43,30 +44,26 @@ enum FastFrameError: Error, Equatable {
     case undecryptable
 }
 
-/// The bytes the AES-GCM tag covers besides the ciphertext: the kind, the transfer (or test) ID and the
-/// sequence, so a chunk cannot be moved to another transfer or position.
-func fastFrameAssociatedData(kind: UInt8, id: Data, sequence: Int64) -> Data {
-    var data = FastFrame.associatedDataPrefix
-    data.append(kind)
-    data.append(UInt8(id.count))
-    data.append(id)
-    var big = UInt64(sequence).bigEndian
-    withUnsafeBytes(of: &big) { data.append(contentsOf: $0) }
-    return data
+/// What the AES-GCM tag covers besides the ciphertext, length-prefixed like protocol 2 envelope tags
+/// (SessionSecurity.lengthPrefixed): the label, the sending device's ID, the kind, the transfer (or test) ID and the
+/// sequence. So a frame cannot be moved to another transfer, position or kind, and cannot be reflected back to the
+/// device that sent it: its own ID is not the sender the receiver checks.
+func fastFrameAssociatedData(sender: String, kind: UInt8, id: String, sequence: Int64) -> Data {
+    SessionSecurity.lengthPrefixed([FastFrame.associatedDataLabel, sender, String(kind), id, String(sequence)])
 }
 
 private func validFastID(_ id: Data) -> Bool {
     (1...FastFrame.maximumIDBytes).contains(id.count) && id.allSatisfy { (0x21...0x7E).contains($0) }
 }
 
-/// One whole frame, header included. `nonce` is random unless a test vector fixes it.
-func sealFastFrame(kind: UInt8, id: String, sequence: Int64, plaintext: Data, key: Data, nonce: Data? = nil) throws -> Data {
+/// One whole frame, header included, from `sender` (this device's ID). `nonce` is random unless a test vector fixes it.
+func sealFastFrame(kind: UInt8, id: String, sequence: Int64, plaintext: Data, key: Data, sender: String, nonce: Data? = nil) throws -> Data {
     let idBytes = Data(id.utf8)
     guard validFastID(idBytes), (0...FastFrame.maximumSequence).contains(sequence),
           (1...FastFrame.maximumPlaintext).contains(plaintext.count) else { throw FastFrameError.malformed }
     let gcmNonce = try nonce.map { try AES.GCM.Nonce(data: $0) } ?? AES.GCM.Nonce()
     let sealed = try AES.GCM.seal(plaintext, using: SymmetricKey(data: key), nonce: gcmNonce,
-                                  authenticating: fastFrameAssociatedData(kind: kind, id: idBytes, sequence: sequence))
+                                  authenticating: fastFrameAssociatedData(sender: sender, kind: kind, id: id, sequence: sequence))
     let bodyLength = 1 + idBytes.count + 8 + 12 + sealed.ciphertext.count + 16
     var frame = Data(capacity: FastFrame.headerBytes + bodyLength)
     frame.append(FastFrame.marker)
@@ -83,9 +80,9 @@ func sealFastFrame(kind: UInt8, id: String, sequence: Int64, plaintext: Data, ke
     return frame
 }
 
-/// Reads and decrypts a frame body (what follows the 6-byte header). Malformed fields and a failed tag both
-/// close the session: binary frames reach only authenticated sessions, so either means a broken or hostile peer.
-func openFastFrameBody(kind: UInt8, body: Data, key: Data) throws -> FastFramePayload {
+/// Reads and decrypts a frame body (what follows the 6-byte header) from `sender` (the other device's ID). A malformed
+/// field or a failed tag is dropped and counted like a frame with a bad envelope tag (16 close the session).
+func openFastFrameBody(kind: UInt8, body: Data, key: Data, sender: String) throws -> FastFramePayload {
     let bytes = [UInt8](body)
     guard bytes.count <= FastFrame.maximumBody, let idLength = bytes.first.map(Int.init),
           (1...FastFrame.maximumIDBytes).contains(idLength), bytes.count >= 1 + idLength + 8 + 12 + 16 + 1 else {
@@ -103,11 +100,34 @@ func openFastFrameBody(kind: UInt8, body: Data, key: Data) throws -> FastFramePa
     do {
         let box = try AES.GCM.SealedBox(nonce: AES.GCM.Nonce(data: bytes[nonceStart..<cipherStart]),
                                         ciphertext: bytes[cipherStart..<tagStart], tag: bytes[tagStart...])
+        let id = String(decoding: idBytes, as: UTF8.self)
         let plaintext = try AES.GCM.open(box, using: SymmetricKey(data: key),
-                                         authenticating: fastFrameAssociatedData(kind: kind, id: idBytes, sequence: Int64(sequence)))
-        return FastFramePayload(kind: kind, id: String(decoding: idBytes, as: UTF8.self), sequence: Int64(sequence), plaintext: plaintext)
+                                         authenticating: fastFrameAssociatedData(sender: sender, kind: kind, id: id, sequence: Int64(sequence)))
+        return FastFramePayload(kind: kind, id: id, sequence: Int64(sequence), plaintext: plaintext)
     } catch {
         throw FastFrameError.undecryptable
+    }
+}
+
+/// Binary frames do not enter the messageId window. Instead each kind and ID must carry a higher sequence than the last
+/// frame taken with them (file chunks follow on 0, 1, 2, ...; speed test bytes too), so a frame recorded and sent again
+/// is dropped before it reaches a transfer. Remembers the last 256 IDs; an older ID's late frames are still refused by
+/// its transfer, which has ended.
+struct FastReplayGuard {
+    private var highest: [String: Int64] = [:]
+    private var order: [String] = []
+    let capacity = 256
+
+    mutating func accept(_ payload: FastFramePayload) -> Bool {
+        let key = "\(payload.kind):\(payload.id)"
+        if let last = highest[key] {
+            guard payload.sequence > last else { return false }
+        } else {
+            order.append(key)
+            if order.count > capacity { highest.removeValue(forKey: order.removeFirst()) }
+        }
+        highest[key] = payload.sequence
+        return true
     }
 }
 

@@ -113,19 +113,54 @@ are optional booleans described in their own sections; a missing draft key means
 
 ## Pairing flow
 
-Pairing runs only after a user selects a discovered peer:
+Pairing runs only after a user selects a discovered peer. What the native clients
+do (protocol 2, v0.10):
 
-1. Both peers create ephemeral P-256 ECDH key pairs and exchange
-   `pairing.offer`/`pairing.answer` containing nonces and public keys.
-2. Each validates all fields and derives the same secret with platform crypto.
-3. HKDF-SHA-256 derives independent verification and session keys, binding the
-   ordered public keys, nonces, device IDs, and protocol version into `info`.
-4. A six-digit code derived from the verification key is displayed on both
-   devices. It is never sent over the network.
-5. Each user explicitly confirms; peers exchange authenticated
-   `pairing.confirm` records containing their long-term public keys.
-6. Trust is stored only after both confirmations verify. Any timeout, mismatch,
-   rejection, or disconnect erases ephemeral state.
+1. The initiator creates an ephemeral P-256 key pair and sends `pairing.offer`
+   with `protocolVersion: 2`. For a first pairing (the target is not already
+   trusted) the offer carries `commitment`, the base64 SHA-256 of
+   `"bridgey-commit-v2", sessionId, publicKey` (each field length-prefixed), and
+   no `publicKey`. A reconnect to a trusted device sends `publicKey` instead,
+   because that device's pinned identity signature authenticates it.
+2. The responder answers with its own ephemeral key and `protocolVersion: 2`
+   before it has seen the initiator's key.
+3. After a commitment, the initiator sends `pairing.reveal` with its `publicKey`.
+   The responder checks it against the commitment and fails the pairing on a
+   mismatch.
+4. Both derive the session key with ECDH and HKDF-SHA-256 (salt SHA-256 of the
+   session ID, info `bridgey-pairing-v1`). The six-digit code of a protocol 2
+   first pairing comes from its own label, `bridgey-sas-v2` over the initiator's
+   and the responder's ephemeral keys, not from session key bytes. It is never
+   sent over the network.
+5. Each user explicitly confirms; peers exchange `pairing.confirm` with an HMAC
+   proof and an identity signature over the session ID, device IDs and both
+   ephemeral keys. Trust is stored only after both confirmations verify.
+
+Because neither side can choose its ephemeral key after seeing the other's, an
+active attacker in the middle cannot search for keys that make the two codes
+match; each attempt is a one in a million guess that the user sees as a new
+prompt. Pairing frames are only taken in order (the dialled end takes the offer
+and the reveal, the dialler the answer), so an answer cannot stand in for the
+reveal. Offers from other devices are limited to three a minute.
+
+When both ends sent `protocolVersion: 2`, every frame after pairing carries
+`tag`: base64 HMAC-SHA-256, under HMAC(session key, `bridgey-envelope-v2`), of the
+sender's device ID and every envelope field (length-prefixed, an absent or empty
+field written as length 0xFFFFFFFF). A frame with a missing or wrong tag is dropped, as
+is any non-pairing frame on a session that has not authenticated; 16 dropped
+frames close the connection. A device that once authenticated with protocol 2 is
+pinned to it, so a later session without tags is refused. Shared vectors are in
+`protocol/test-vectors/crypto-v1.properties` (from
+`protocol/tools/crypto_v2_vectors.py`).
+
+Compatibility: a protocol 1 client (0.9 and earlier, and upstream Bridgey)
+still reconnects to a trusted protocol 2 client until the pair has once
+connected on protocol 2. A first pairing needs protocol 2 on both ends, in both
+directions: a protocol 2 client neither sends nor accepts an offer without a
+commitment from a device it does not trust, because a man in the middle could
+grind the protocol 1 leg to the code it saw on the other. Update both apps to
+pair. Each answered offer from an untrusted device counts toward the three a
+minute, whether or not it reveals.
 
 Pairing offers expire after two minutes and cannot be silently retried. The
 short code is a human MITM check, not a password. Detailed primitive and storage
@@ -1476,14 +1511,16 @@ unacknowledged.
 ### Negotiation
 
 `features.update` gains the boolean key `files_fast_draft1`. It is a capability, not a setting: both apps advertise
-it whenever they support it (the Mac can turn it off for a test with `defaults write in.roundrobin.bridgey
+it whenever they support it, and use it only on a protocol 2 session (envelope tags on, see
+[Pairing flow](#pairing-flow)); on a protocol 1 session every chunk stays JSON whatever the map says (the Mac can turn it off for a test with `defaults write in.roundrobin.bridgey
 transfers.fastOff -bool true`). Fast transfers are used with a peer only while its latest map shows the key `true`. A
 sender decides once, when a transfer starts, and keeps that form for the whole transfer; a peer that supports the key
 reads binary frames for the rest of the session even if a later map shows `false`.
 
 ### Binary frames
 
-Once a session is authenticated, a client that supports the key also reads **binary frames** between JSON frames. A
+Once a session is authenticated on protocol 2, a client that supports the key also reads **binary frames** between
+JSON frames. A
 binary frame starts with the byte `0xB1`, which cannot start a JSON frame (`{` or whitespace) and is not a valid
 first byte of UTF-8 text, so a peer without the key would close the session instead of misreading it. Before
 authentication the byte is just an invalid JSON frame, as it always was. Integers are big-endian.
@@ -1499,11 +1536,20 @@ authentication the byte is just an invalid JSON frame, as it always was. Integer
 | next 12 | nonce | AES-GCM, random per frame |
 | rest | ciphertext and tag | plaintext 1 to 1,048,576 bytes, then the 16-byte tag |
 
-The AES-GCM key is the session key; the associated data is the ASCII text `bridgey-files-fast-v1`, the kind byte, the
-ID length byte, the ID and the 8-byte sequence, so a frame cannot be moved to another transfer, position or kind. A
-malformed or undecryptable frame closes the session (only authenticated peers send them). Binary frames do not enter
-the `messageId` replay window: file chunks must follow on without gaps, as JSON chunks already must, and speed test
-sequences must increase.
+**Authentication under protocol 2.** JSON frames carry an envelope tag; a binary frame needs none, because its
+AES-GCM tag already authenticates everything in it with the session key, and the associated data binds what the
+envelope tag binds: it is length-prefixed exactly like the envelope tag input (each field a 4-byte big-endian length
+and its UTF-8 bytes) and holds `bridgey-fast-frame-v2`, the **sending device's ID**, the kind (decimal), the ID and the
+sequence (decimal). So a frame cannot be moved to another transfer, position or kind, nor reflected back to the device
+that sent it (its own ID is not the sender the receiver checks), and nobody without the session key can make one.
+
+**Replay.** Binary frames do not enter the `messageId` window. Each side remembers, per kind and ID, the highest
+sequence it took (the last 256 IDs) and drops a frame that does not raise it; file transfers additionally require the
+next sequence exactly, as JSON chunks always did.
+
+**Bad frames.** A binary frame that fails its tag, is malformed inside its body or is a replay is dropped and counted
+with the frames dropped for a bad envelope tag; 16 close the connection, as for JSON. A header with a length outside
+1 to 1,048,677 closes the session at once, because the stream can no longer be split into frames.
 
 ### Files over binary frames
 

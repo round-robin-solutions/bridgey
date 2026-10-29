@@ -49,6 +49,8 @@ class QuickActions(
     private val send: (String, JSONObject) -> Boolean,
     /** The selected Mac understands `action: "open"` (draft links_open_draft1). */
     private val linksOpenSupported: () -> Boolean = { false },
+    /** [BridgeyFeature] is on for one device, whether or not it is the selected one. */
+    private val availableFor: (BridgeyFeature, String) -> Boolean = { feature, _ -> available(feature) },
 ) {
     private val mutableLinkResult = MutableStateFlow<LinkSendResult?>(null)
 
@@ -61,6 +63,10 @@ class QuickActions(
     }
     private val mutableLink = MutableStateFlow<String?>(null)
     val receivedLink = mutableLink.asStateFlow()
+
+    /** The device the received link came from, when known: Web links must stay on for it. */
+    @Volatile private var linkSender: String? = null
+    private fun linkAllowed(): Boolean = linkSender?.let { availableFor(BridgeyFeature.LINKS, it) } ?: available(BridgeyFeature.LINKS)
     private val mutableStatus = MutableStateFlow<String?>(null)
     val status = mutableStatus.asStateFlow()
     private val mutableMedia = MutableStateFlow(MacMediaState())
@@ -109,17 +115,25 @@ class QuickActions(
         request(BridgeyFeature.LINKS, if (open && linksOpenSupported()) "open" else "offer", url)
     }
 
-    @Synchronized fun receive(kind: String, payload: JSONObject) {
+    /**
+     * A message from [sender] (null: the selected device). A link offer is checked against the sender's own
+     * Web links setting, and [reply] answers on the sender's session.
+     */
+    @Synchronized fun receive(kind: String, payload: JSONObject, sender: String? = null, reply: (String, JSONObject) -> Boolean = send) {
         if (payload.opt("version") != 1) return
         when (kind) {
             "quick.request" -> {
                 val id = payload.optString("requestId")
                 if (runCatching { UUID.fromString(id) }.isFailure) return
                 val link = validatedWebLink(payload.optString("value"))
-                val accepted = available(BridgeyFeature.LINKS) && payload.optString("feature") == "links" &&
+                val linksOn = if (sender != null) availableFor(BridgeyFeature.LINKS, sender) else available(BridgeyFeature.LINKS)
+                val accepted = linksOn && payload.optString("feature") == "links" &&
                     payload.optString("action") == "offer" && link != null && mutableLink.value == null
-                if (accepted) mutableLink.value = link
-                send("quick.result", JSONObject().put("version", 1).put("requestId", id).put("feature", "links")
+                if (accepted) {
+                    mutableLink.value = link
+                    linkSender = sender
+                }
+                reply("quick.result", JSONObject().put("version", 1).put("requestId", id).put("feature", "links")
                     .put("accepted", accepted))
             }
             "quick.result" -> {
@@ -162,14 +176,14 @@ class QuickActions(
 
     fun openLink() {
         val link = mutableLink.value?.let(::validatedWebLink) ?: return
-        if (!available(BridgeyFeature.LINKS)) { dismissLink(); return }
+        if (!linkAllowed()) { dismissLink(); return }
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             .onSuccess { mutableLink.value = null }
             .onFailure { mutableStatus.value = "No browser available" }
     }
     fun dismissLink() { mutableLink.value = null }
     @Synchronized fun policyChanged() {
-        if (!available(BridgeyFeature.LINKS)) mutableLink.value = null
+        if (!linkAllowed()) mutableLink.value = null
         if (!available(BridgeyFeature.MEDIA)) mutableMedia.value = MacMediaState()
         pending.entries.removeAll { (feature, operation) ->
             val disabled = BridgeyFeature.entries.find { it.key == feature }?.let { !available(it) } ?: true

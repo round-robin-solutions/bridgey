@@ -151,6 +151,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         val actions = storeActions(
             notificationId,
             notificationActionCandidates(notification, callType, isTelephonyCall && canControlSystemCalls()),
+            isCall = callType != null,
         )
         // Text messages (sms_draft1): a Mac may answer an SMS notification, through the app's own reply or
         // by SMS to the conversation it belongs to. Found here once; the text is matched, never logged.
@@ -269,6 +270,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     private fun storeActions(
         notificationId: String,
         actions: List<NotificationActionCandidate>,
+        isCall: Boolean,
     ): List<ForwardedNotificationAction> {
         removeActions(notificationId)
         val forwarded = actions.take(MAX_FORWARDED_ACTIONS).mapIndexedNotNull { index, action ->
@@ -282,6 +284,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
                 pendingIntent = pendingIntent,
                 remoteInputs = remoteInputs,
                 systemCallAction = action.systemCallAction,
+                isCall = isCall || action.systemCallAction != null,
             )
             ForwardedNotificationAction(token = token, title = title, allowsReply = remoteInputs.isNotEmpty(), markRead = action.markRead)
         }
@@ -323,7 +326,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
             val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
             val text = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim().orEmpty()
             // The same tokens as when it was forwarded: they are derived from the notification and the action's place.
-            val actions = storeActions(notificationId, notificationActionCandidates(notification, null, false))
+            val actions = storeActions(notificationId, notificationActionCandidates(notification, null, false), isCall = false)
             val threadId = if (provider.canRead) {
                 runCatching {
                     dev.bridgey.android.sms.matchNotificationThreadAnyTime(title, text, sbn.postTime, notification.`when`, provider::recentInbox)
@@ -354,7 +357,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         val candidates = notification.actions.orEmpty().toList() + Notification.WearableExtender(notification).actions
         val action = candidates.firstOrNull { it.semanticAction == Notification.Action.SEMANTIC_ACTION_MARK_AS_READ && it.actionIntent != null } ?: return null
         val token = notificationActionToken(notificationId, HIDDEN_MARK_READ_INDEX)
-        storedActions[token] = StoredNotificationAction(notificationId, action.actionIntent, emptyArray(), null)
+        storedActions[token] = StoredNotificationAction(notificationId, action.actionIntent, emptyArray(), null, isCall = false)
         actionTokensByNotificationId[notificationId] = actionTokensByNotificationId[notificationId].orEmpty() + token
         while (storedActions.size > MAX_STORED_ACTIONS) storedActions.remove(storedActions.keys.first())
         return token
@@ -388,8 +391,10 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     }
 
     @Synchronized
-    private fun performAction(notificationId: String, actionToken: String, replyText: String?): Boolean {
+    private fun performAction(notificationId: String, actionToken: String, replyText: String?, callsEnabled: Boolean): Boolean {
         val action = storedActions[actionToken]?.takeIf { it.notificationId == notificationId } ?: return false
+        // Answer, decline and hang up need Calls on for the Mac that asked, not only Notifications.
+        if (!notificationActionAllowed(action.isCall, callsEnabled)) return false
         if (replyText != null && action.remoteInputs.isEmpty()) return false
         return runCatching {
             val succeeded = if (action.systemCallAction != null) {
@@ -446,7 +451,8 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     }
 
     private fun canControlSystemCalls(): Boolean =
-        isCallIntegrationEnabled() &&
+        (application as BridgeyApplication).settings.isEnabled(BridgeyFeature.CALLS, null) &&
+            isCallIntegrationEnabled() &&
             checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED
 
     private fun isCallIntegrationEnabled(): Boolean =
@@ -589,9 +595,10 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
             runCatching { service.restoreSmsTargets(service.activeNotifications.orEmpty().filterNot { it.packageName == service.packageName }) }
         }
 
-        fun perform(notificationId: String, actionToken: String, replyText: String?): Boolean {
+        /** [callsEnabled]: Calls is on for the Mac that asked; actions on a call need it (SMS replies pass false). */
+        fun perform(notificationId: String, actionToken: String, replyText: String?, callsEnabled: Boolean = false): Boolean {
             val service = activeService?.get() ?: return false
-            return service.performAction(notificationId, actionToken, replyText)
+            return service.performAction(notificationId, actionToken, replyText, callsEnabled)
         }
 
         fun filterChanged(packageName: String, enabled: Boolean) {
@@ -801,7 +808,17 @@ private data class StoredNotificationAction(
     val pendingIntent: PendingIntent?,
     val remoteInputs: Array<RemoteInput>,
     val systemCallAction: SystemCallAction?,
+    /** The action belongs to a call notification (system Answer/End or the dialer's own actions). */
+    val isCall: Boolean,
 )
+
+/** An action on a call notification needs Calls on for the asking Mac; other actions need only Notifications. */
+internal fun notificationActionAllowed(isCallAction: Boolean, callsEnabled: Boolean): Boolean =
+    !isCallAction || callsEnabled
+
+/** The actions a Mac receives with a notification: none on a call when Calls is off for that Mac. */
+internal fun <T> forwardedActionsFor(actions: List<T>, isCall: Boolean, callsEnabled: Boolean): List<T> =
+    if (isCall && !callsEnabled) emptyList() else actions
 
 internal class ForwardedNotificationRegistry(
     private val limit: Int = 512,

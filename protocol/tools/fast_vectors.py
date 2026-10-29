@@ -18,17 +18,28 @@ OTHER_KEY = bytes(range(1, 33))
 NONCE = bytes.fromhex("0f0e0d0c0b0a090807060504")
 T = "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b"
 MARKER = 0xB1
-PREFIX = b"bridgey-files-fast-v1"
+LABEL = "bridgey-fast-frame-v2"
+SENDER = "7e57d00d-0000-4000-8000-0000000000aa"
+RECEIVER = "7e57d00d-0000-4000-8000-0000000000bb"
 b64 = lambda b: base64.b64encode(b).decode()
 
 
-def aad(kind, ident, sequence):
-    return PREFIX + bytes([kind, len(ident)]) + ident + struct.pack(">Q", sequence)
+def length_prefixed(fields):
+    """As SessionSecurity.lengthPrefixed: a 4-byte big-endian length and the UTF-8 bytes of each field."""
+    out = b""
+    for field in fields:
+        data = field.encode()
+        out += struct.pack(">I", len(data)) + data
+    return out
 
 
-def body(kind, ident, sequence, plaintext, key=KEY, nonce=NONCE, aad_kind=None, aad_sequence=None):
+def aad(sender, kind, ident, sequence):
+    return length_prefixed([LABEL, sender, str(kind), ident.decode(), str(sequence)])
+
+
+def body(kind, ident, sequence, plaintext, key=KEY, nonce=NONCE, aad_kind=None, aad_sequence=None, sender=SENDER):
     ident = ident.encode() if isinstance(ident, str) else ident
-    sealed = AESGCM(key).encrypt(nonce, plaintext, aad(kind if aad_kind is None else aad_kind, ident,
+    sealed = AESGCM(key).encrypt(nonce, plaintext, aad(sender, kind if aad_kind is None else aad_kind, ident,
                                                        sequence if aad_sequence is None else aad_sequence))
     return bytes([len(ident)]) + ident + struct.pack(">Q", sequence) + nonce + sealed
 
@@ -68,8 +79,9 @@ v("a tampered ciphertext", frame(1, body(1, T, 0, small)[:-17] + bytes([body(1, 
 v("a moved sequence (not what the tag covers)", frame(1, body(1, T, 5, small, aad_sequence=4)), "reject")
 v("another kind's tag", frame(1, body(1, T, 0, small, aad_kind=2)), "reject")
 v("the wrong key", frame(1, body(1, T, 0, small, key=OTHER_KEY)), "reject")
+v("reflected: sealed by the receiving device itself", frame(1, body(1, T, 0, small, sender=RECEIVER)), "reject")
 v("a sequence of 2^53", frame(1, body(1, T, 9007199254740992, small)), "reject")
-v("an empty ID", frame(1, bytes([0]) + struct.pack(">Q", 0) + NONCE + AESGCM(KEY).encrypt(NONCE, small, aad(1, b"", 0))), "reject")
+v("an empty ID", frame(1, bytes([0]) + struct.pack(">Q", 0) + NONCE + AESGCM(KEY).encrypt(NONCE, small, aad(SENDER, 1, b"", 0))), "reject")
 v("a 65-byte ID", frame(1, body(1, "i" * 65, 0, small)), "reject")
 v("an ID with a space", frame(1, body(1, "a b", 0, small)), "reject")
 v("an ID with a control byte", frame(1, body(1, "a\x01b", 0, small)), "reject")
@@ -175,13 +187,16 @@ vd("hotspot, Mac rate unknown", {"platform": "macos", "network": "wifi"}, {"plat
 vd("loopback (the emulator)", {"platform": "macos", "network": "other"}, {"platform": "android", "network": "other"}, 200e6, "unknown", True, [])
 
 out = {
-    "description": "Fast transfers (draft files_fast_draft1, docs/protocol.md 'Fast transfers' and 'Speed test'). The key is bytes 0 to 31, base64 in 'keyBase64'. "
+    "description": "Fast transfers (draft files_fast_draft1, docs/protocol.md 'Fast transfers' and 'Speed test'). The key is bytes 0 to 31, base64 in 'keyBase64'; "
+                   "every frame is sent by 'senderDeviceId' and read by 'receiverDeviceId' (the associated data binds the sender). "
                    "fastFrame: 'frameBase64' is one whole binary frame, header included; expect is the decoded kind, id, sequence and plaintext, 'skip' (an unknown kind: "
                    "dropped whole, the session stays) or 'reject' (the session closes). 'write': true means both platforms also produce exactly these bytes from the expected "
                    "fields with the nonce in 'nonceBase64'. 'zeroPadTo': N appends zero bytes until the frame is N bytes long. speedPayload: the JSON plaintext of a speed.* message of 'kind'; 'plaintext' is serialised by each platform's own "
                    "encoder, 'plaintextString' is used byte for byte; absent optional values are null in expect; test IDs compare lowercased. speedVerdict: the plain-words "
                    "verdict both apps show for the two links and the better direction's bytes a second.",
     "keyBase64": b64(KEY),
+    "senderDeviceId": SENDER,
+    "receiverDeviceId": RECEIVER,
     "fastFrame": frames,
     "speedPayload": speed,
     "speedVerdict": verdicts,

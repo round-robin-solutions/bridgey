@@ -328,6 +328,12 @@ final class ClipboardOutbox {
         return transfers[transferID] != nil || finishedTransferIDs.contains(transferID)
     }
 
+    /// A running transfer, and `deviceID` is the phone the offer went to.
+    func serves(_ transferID: String?, to deviceID: String) -> Bool {
+        guard let transferID, transfers[transferID] != nil else { return false }
+        return current?.deviceID == deviceID
+    }
+
     /// A new outgoing offer replaces the previous one.
     func begin(offer: ClipboardOffer, sources: [ClipboardOutgoingSource], changeCount: Int, deviceID: String) {
         supersede()

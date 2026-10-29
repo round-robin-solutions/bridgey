@@ -7,12 +7,14 @@ import XCTest
 final class FastTransferVectorsTests: XCTestCase {
     private var vectors: [String: Any] = [:]
     private var key = Data()
+    private var sender = ""
 
     override func setUpWithError() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("../../../protocol/test-vectors/files-fast-v1.json")
         vectors = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
         key = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(vectors["keyBase64"] as? String)))
+        sender = try XCTUnwrap(vectors["senderDeviceId"] as? String)
     }
 
     private func each(_ group: String, file: StaticString = #filePath, line: UInt = #line, _ check: ([String: Any]) throws -> Bool) throws {
@@ -30,7 +32,7 @@ final class FastTransferVectorsTests: XCTestCase {
         guard let next = try? reader.nextFrame() else { return "reject" }
         guard case let .binary(kind, body) = next else { return "reject" }
         guard kind == FastFrame.chunkKind || kind == FastFrame.speedKind else { return "skip" }
-        guard let payload = try? openFastFrameBody(kind: kind, body: body, key: key) else { return "reject" }
+        guard let payload = try? openFastFrameBody(kind: kind, body: body, key: key, sender: sender) else { return "reject" }
         return ["kind": Int(payload.kind), "id": payload.id, "sequence": payload.sequence, "plaintextBase64": payload.plaintext.base64EncodedString()]
     }
 
@@ -44,7 +46,7 @@ final class FastTransferVectorsTests: XCTestCase {
                 let written = try sealFastFrame(kind: UInt8(expect["kind"] as! Int), id: expect["id"] as! String,
                                                 sequence: Int64(expect["sequence"] as! Int),
                                                 plaintext: Data(base64Encoded: expect["plaintextBase64"] as! String)!, key: key,
-                                                nonce: Data(base64Encoded: vector["nonceBase64"] as! String)!)
+                                                sender: sender, nonce: Data(base64Encoded: vector["nonceBase64"] as! String)!)
                 return written == frame
             }
             return true
@@ -111,18 +113,18 @@ final class FastTransferTests: XCTestCase {
 
     func testOneMebibyteChunkRoundTripsAndOneByteMoreIsRefused() throws {
         let plaintext = Data((0..<FastFrame.maximumPlaintext).map { UInt8(truncatingIfNeeded: $0 &* 13) })
-        let frame = try sealFastFrame(kind: FastFrame.chunkKind, id: "t", sequence: 9, plaintext: plaintext, key: key)
+        let frame = try sealFastFrame(kind: FastFrame.chunkKind, id: "t", sequence: 9, plaintext: plaintext, key: key, sender: "mac")
         var reader = ProtocolFrameReader()
         reader.binaryAllowed = true
         reader.append(frame)
         guard case let .binary(kind, body)? = try reader.nextFrame() else { return XCTFail("no binary frame") }
-        XCTAssertEqual(try openFastFrameBody(kind: kind, body: body, key: key).plaintext, plaintext)
-        XCTAssertThrowsError(try sealFastFrame(kind: 1, id: "t", sequence: 0, plaintext: plaintext + Data([0]), key: key))
+        XCTAssertEqual(try openFastFrameBody(kind: kind, body: body, key: key, sender: "mac").plaintext, plaintext)
+        XCTAssertThrowsError(try sealFastFrame(kind: 1, id: "t", sequence: 0, plaintext: plaintext + Data([0]), key: key, sender: "mac"))
     }
 
     func testReaderMixesJSONAndBinaryFramesAcrossAnySplit() throws {
         let json1 = Data(#"{"kind":"files.chunk.ack","sessionId":"s","transferId":"t","sequence":1}"#.utf8) + Data([0x0A])
-        let binary = try sealFastFrame(kind: FastFrame.chunkKind, id: "t", sequence: 2, plaintext: Data(repeating: 0x0A, count: 70_000), key: key)
+        let binary = try sealFastFrame(kind: FastFrame.chunkKind, id: "t", sequence: 2, plaintext: Data(repeating: 0x0A, count: 70_000), key: key, sender: "phone")
         let json2 = Data(#"{"kind":"heartbeat.ping","sessionId":"s","messageId":"m"}"#.utf8) + Data([0x0D, 0x0A])
         let stream = json1 + binary + json2
         for split in [1, 2, 5, 6, 7, 100, 4096, 65_536, stream.count] {
@@ -138,7 +140,7 @@ final class FastTransferTests: XCTestCase {
                     switch frame {
                     case let .message(message): kinds.append(message.kind)
                     case let .binary(kind, body):
-                        XCTAssertEqual(try openFastFrameBody(kind: kind, body: body, key: key).sequence, 2)
+                        XCTAssertEqual(try openFastFrameBody(kind: kind, body: body, key: key, sender: "phone").sequence, 2)
                         kinds.append("binary")
                     }
                 }
@@ -146,6 +148,36 @@ final class FastTransferTests: XCTestCase {
             XCTAssertEqual(kinds, ["files.chunk.ack", "binary", "heartbeat.ping"], "split \(split)")
             XCTAssertTrue(reader.buffer.isEmpty)
         }
+    }
+
+    /// A forged, reflected or replayed binary frame never reaches a transfer: the tag fails for the first two and the
+    /// replay guard refuses a sequence already taken. The session counts each like a frame with a bad envelope tag.
+    func testForgedReflectedAndReplayedFramesAreRejected() throws {
+        let chunk = Data(repeating: 7, count: 1000)
+        func body(_ frame: Data) -> (UInt8, Data) {
+            var reader = ProtocolFrameReader()
+            reader.binaryAllowed = true
+            reader.append(frame)
+            guard case let .binary(kind, body)? = try? reader.nextFrame() else { return (0, Data()) }
+            return (kind, body)
+        }
+        let genuine = body(try sealFastFrame(kind: 1, id: "t", sequence: 0, plaintext: chunk, key: key, sender: "phone"))
+        // Forged: another key (no session key); reflected: this Mac's own frame sent back to it.
+        let forged = body(try sealFastFrame(kind: 1, id: "t", sequence: 0, plaintext: chunk, key: Data(repeating: 9, count: 32), sender: "phone"))
+        let reflected = body(try sealFastFrame(kind: 1, id: "t", sequence: 0, plaintext: chunk, key: key, sender: "mac"))
+        XCTAssertThrowsError(try openFastFrameBody(kind: forged.0, body: forged.1, key: key, sender: "phone"))
+        XCTAssertThrowsError(try openFastFrameBody(kind: reflected.0, body: reflected.1, key: key, sender: "phone"))
+        var guardWindow = FastReplayGuard()
+        let first = try openFastFrameBody(kind: genuine.0, body: genuine.1, key: key, sender: "phone")
+        XCTAssertTrue(guardWindow.accept(first))
+        XCTAssertFalse(guardWindow.accept(first), "the same frame again")
+        let next = try openFastFrameBody(kind: 1, body: body(try sealFastFrame(kind: 1, id: "t", sequence: 1, plaintext: chunk, key: key, sender: "phone")).1,
+                                         key: key, sender: "phone")
+        XCTAssertTrue(guardWindow.accept(next))
+        XCTAssertFalse(guardWindow.accept(first), "an older frame after a newer one")
+        // The same sequence under another kind or transfer is its own stream.
+        XCTAssertTrue(guardWindow.accept(FastFramePayload(kind: 2, id: "t", sequence: 0, plaintext: Data())))
+        XCTAssertTrue(guardWindow.accept(FastFramePayload(kind: 1, id: "u", sequence: 0, plaintext: Data())))
     }
 
     func testWithoutBinaryAllowedTheMarkerIsAnInvalidJSONFrame() {

@@ -26,7 +26,7 @@ struct BridgeyApp: App {
         IntentHost.pairing = pairing
         SpeedTest.shared.host = pairing
         _pairing = StateObject(wrappedValue: pairing)
-        let callServiceProvider = CallServiceProvider { [weak pairing] number in pairing?.sendCallWhenConnected(number) }
+        let callServiceProvider = CallServiceProvider { [weak pairing] number in pairing?.sendCallWhenConnected(number, source: .service) }
         // Services: Call with Bridgey RR and Send to Phone with Bridgey (ShareAndServices.swift).
         let serviceProvider = BridgeyServiceProvider(calls: callServiceProvider) { payloads in
             QuickSendController.shared.present(payloads)
@@ -40,7 +40,7 @@ struct BridgeyApp: App {
         UpdateAllCoordinator.shared.configure(pairing: pairing, updater: updater)
         let settingsWindow = SettingsWindowController(discovery: discovery, pairing: pairing, settings: settings, updater: updater)
         self.settingsWindow = settingsWindow
-        appDelegate.configure { [weak pairing] number in pairing?.sendCallWhenConnected(number) }
+        appDelegate.configure { [weak pairing] number in pairing?.sendCallWhenConnected(number, source: .link) }
         // The Share extension's hand-off: what it put on the private pasteboard goes to the chooser.
         appDelegate.configure(onShare: { QuickSendController.shared.present(ShareHandoff.take()) })
         MenuBarHost.start(discovery: discovery, pairing: pairing, settings: settings, updater: updater, openSettings: settingsWindow.show)
