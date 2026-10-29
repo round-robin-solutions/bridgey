@@ -211,7 +211,7 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
         var written = 0
         try each("updatesStart") { vector in
             let decoded = UpdateStartRequest.decode(plaintext(vector))
-            let result: Any = decoded.map { ["requestId": $0.requestID, "retry": $0.retry] as [String: Any] } ?? "reject"
+            let result: Any = decoded.map { ["requestId": $0.requestID, "retry": $0.retry, "auto": $0.auto] as [String: Any] } ?? "reject"
             guard Self.same(result, vector["expect"]) else { return false }
             guard vector["write"] as? Bool == true, let request = decoded else { return true }
             written += 1
@@ -244,6 +244,7 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
             "channel": status.channel.rawValue, "state": status.state.rawValue, "target": status.target ?? NSNull(),
             "targetBuild": status.targetBuild ?? NSNull(), "progress": status.progress ?? NSNull(),
             "reason": status.reason?.rawValue ?? NSNull(), "remoteStart": status.remoteStart, "checkedAt": status.checkedAt,
+            "auto": status.auto, "busy": status.busy?.rawValue ?? NSNull(),
         ]
     }
 

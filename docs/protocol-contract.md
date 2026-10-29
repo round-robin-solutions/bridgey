@@ -861,25 +861,28 @@ The photo itself arrives as a files.offer carrying cameraRequestId.
 - `reason`: optional: with needs_user confirm | permission; with failed check | download | safety | installer | cancelled | not_applied | other; unknown reads as other
 - `remoteStart`: boolean: Let paired devices start updates on this device is on and the updater can run
 - `checkedAt`: integer, Unix ms of the last successful check, 0 for never
+- `auto`: boolean, optional, default false: Update all devices automatically is on there and its updater can run
+- `busy`: string, optional: what the person is doing there, so automatic updates wait: call | screen_share | remote_control | transfer | phone_files | setup; unknown reads as other (still busy)
 
-Sent once after each features.update that shows the key on both sides, then on every change of a field other than progress, and while downloading at most once a second. A receiver drops a status with an unknown state, platform or channel.
+Sent once after each features.update that shows the key on both sides, then on every change of a field other than progress, and while downloading at most once a second. A receiver drops a status with an unknown state, platform or channel, an auto that is not a boolean or a busy that is not a string. auto is written only when true, busy only when set.
 
 `updates.start`
 
 - `version`: integer, 1
 - `requestId`: string, UUID
 - `retry`: boolean, optional, default false: the person tapped Retry for this device
+- `auto`: boolean, optional, default false: started automatically (nobody tapped Update all); the receiver names the device that started it
 
 Answered by `updates.result`.
 
-Update yourself now from your own channel. It names no version, URL, file or channel: the receiver checks its own feed and installs only a newer build through its own checks (Android SHA-256 and signer, Mac Sparkle EdDSA), so it can never downgrade. Accepted only from a paired device whose map shows the key, while the receiver's Let paired devices start updates switch is on; at most one start every 30 seconds and five an hour per device. A start with a wrong version or a requestId that is not a UUID is dropped; anything else gets exactly one updates.result. Without retry, a device whose last attempt did not apply refuses not_applied.
+Update yourself now from your own channel. It names no version, URL, file or channel: the receiver checks its own feed and installs only a newer build through its own checks (Android SHA-256 and signer, Mac Sparkle EdDSA), so it can never downgrade. Accepted only from a paired device whose map shows the key, while the receiver's Let paired devices start updates switch is on; at most one start every 30 seconds and five an hour per device. A start with a wrong version or a requestId that is not a UUID is dropped; anything else gets exactly one updates.result. Without retry, a device whose last attempt did not apply refuses not_applied. With auto, a device whose person is busy (a call, a screen share, remote control, a transfer, a Phone files download, setup or pairing) refuses busy.
 
 `updates.result`
 
 - `version`: integer, 1
 - `requestId`: string, echoes the start
 - `status`: accepted | refused
-- `reason`: with refused: disabled | rate_limited | manual | not_applied | busy; senders read anything else as other
+- `reason`: with refused: disabled | rate_limited | manual | not_applied | busy (its updater cannot start now, or an automatic start found its person busy); senders read anything else as other
 
 accepted also when an update was already running. Progress follows as updates.status.
 

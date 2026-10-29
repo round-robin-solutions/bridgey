@@ -1,5 +1,5 @@
 {
- "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect, and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page), smsSendStatus, smsMarkReadResult and smsBlockedNumbersResult by the Mac (the phone also writes exactly the expected plaintext for each valid one); requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units.",
+ "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect (auto and retry: false), and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page), smsSendStatus, smsMarkReadResult and smsBlockedNumbersResult by the Mac (the phone also writes exactly the expected plaintext for each valid one); requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units.",
  "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
  "frames": [
   {
@@ -7198,7 +7198,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7227,7 +7229,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7258,7 +7262,9 @@
     "target": "0.9.0-rr.3-beta.3",
     "targetBuild": 903003,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7290,7 +7296,9 @@
     "target": "0.9.0-rr.3-beta.3",
     "targetBuild": 903003,
     "progress": 42,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7321,7 +7329,9 @@
     "target": "0.9.0-rr.3",
     "targetBuild": 903000,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7352,7 +7362,9 @@
     "target": "0.9.0-rr.3-beta.3",
     "targetBuild": 903003,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7384,7 +7396,9 @@
     "target": "0.9.0-rr.3-beta.3",
     "targetBuild": 903003,
     "progress": null,
-    "reason": "confirm"
+    "reason": "confirm",
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7416,7 +7430,9 @@
     "target": "0.9.0-rr.3-beta.3",
     "targetBuild": 903003,
     "progress": null,
-    "reason": "permission"
+    "reason": "permission",
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7448,7 +7464,9 @@
     "target": "0.9.0-rr.3-beta.3",
     "targetBuild": 903003,
     "progress": null,
-    "reason": "not_applied"
+    "reason": "not_applied",
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7478,7 +7496,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": "check"
+    "reason": "check",
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7507,7 +7527,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7537,8 +7559,398 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": "other"
+    "reason": "other",
+    "auto": false,
+    "busy": null
    }
+  },
+  {
+   "name": "automatic updates on",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": true
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": true,
+    "busy": null
+   },
+   "write": true
+  },
+  {
+   "name": "busy: call",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": true,
+    "busy": "call"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": true,
+    "busy": "call"
+   },
+   "write": true
+  },
+  {
+   "name": "busy: screen_share",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": true,
+    "busy": "screen_share"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": true,
+    "busy": "screen_share"
+   },
+   "write": true
+  },
+  {
+   "name": "busy: remote_control",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": true,
+    "busy": "remote_control"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": true,
+    "busy": "remote_control"
+   },
+   "write": true
+  },
+  {
+   "name": "busy: transfer",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": true,
+    "busy": "transfer"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": true,
+    "busy": "transfer"
+   },
+   "write": true
+  },
+  {
+   "name": "busy: phone_files",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": true,
+    "busy": "phone_files"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": true,
+    "busy": "phone_files"
+   },
+   "write": true
+  },
+  {
+   "name": "busy: setup",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": true,
+    "busy": "setup"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": true,
+    "busy": "setup"
+   },
+   "write": true
+  },
+  {
+   "name": "auto false written out",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": false
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": false,
+    "busy": null
+   }
+  },
+  {
+   "name": "an unknown busy reads as other (still busy)",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "busy": "karaoke"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": false,
+    "busy": "other"
+   }
+  },
+  {
+   "name": "busy null counts as absent",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "busy": null,
+    "auto": null
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": false,
+    "busy": null
+   }
+  },
+  {
+   "name": "auto as a string",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": "true"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "auto as a number",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "busy as a boolean",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "busy": true
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "busy as a number",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "busy": 1
+   },
+   "expect": "reject"
   },
   {
    "name": "unknown fields are ignored",
@@ -7569,7 +7981,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    }
   },
   {
@@ -7587,7 +8001,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    }
   },
   {
@@ -7619,7 +8035,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    }
   },
   {
@@ -7647,7 +8065,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    }
   },
   {
@@ -7750,7 +8170,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    }
   },
   {
@@ -8013,7 +8435,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    }
   },
   {
@@ -8044,7 +8468,8 @@
    },
    "expect": {
     "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
-    "retry": false
+    "retry": false,
+    "auto": false
    },
    "write": true
   },
@@ -8057,7 +8482,8 @@
    },
    "expect": {
     "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
-    "retry": true
+    "retry": true,
+    "auto": false
    },
    "write": true
   },
@@ -8070,7 +8496,8 @@
    },
    "expect": {
     "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
-    "retry": false
+    "retry": false,
+    "auto": false
    }
   },
   {
@@ -8081,7 +8508,8 @@
    },
    "expect": {
     "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
-    "retry": false
+    "retry": false,
+    "auto": false
    }
   },
   {
@@ -8094,8 +8522,58 @@
    },
    "expect": {
     "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
-    "retry": false
+    "retry": false,
+    "auto": false
    }
+  },
+  {
+   "name": "started automatically",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "auto": true
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false,
+    "auto": true
+   },
+   "write": true
+  },
+  {
+   "name": "auto false written out",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "auto": false
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false,
+    "auto": false
+   }
+  },
+  {
+   "name": "auto null counts as absent",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "auto": null
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false,
+    "auto": false
+   }
+  },
+  {
+   "name": "auto as a string",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "auto": "true"
+   },
+   "expect": "reject"
   },
   {
    "name": "retry as a string",
