@@ -116,6 +116,7 @@ struct SettingsModel {
     var mediaPlayer: MediaPlayer = .off
     var pauseForCalls = false
     var ringForCalls = true
+    var otherAppCallPolicy: MacOtherAppCallPolicy = .ask
     var logging = LoggingPolicy()
     var mediaDetail = ""
     var showPreviews = true
@@ -232,6 +233,7 @@ struct SettingsActions {
     var setPlayer: (MediaPlayer) -> Void = { _ in }
     var setPauseForCalls: (Bool) -> Void = { _ in }
     var setRingForCalls: (Bool) -> Void = { _ in }
+    var setOtherAppCallPolicy: (MacOtherAppCallPolicy) -> Void = { _ in }
     var setLogging: (LoggingPolicy) -> Void = { _ in }
     var clearLogs: () -> Void = {}
     var refreshPlayer: () -> Void = {}
@@ -727,6 +729,7 @@ private struct CallsPane: View {
         SettingsCard {
             FeatureSwitch(feature: .calls, model: model, actions: actions)
             PhoneLinksRow(status: model.phoneLinkStatus, use: actions.usePhoneLinks)
+            OtherAppCallsRow(model: model, actions: actions)
             RingForCallsToggle(model: model, actions: actions)
             PauseForCallsToggle(model: model, actions: actions)
         }
@@ -1113,6 +1116,31 @@ struct MediaPlayerRow: View {
                 .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
                 .disabled(model.mediaPlayer == .off)
         }
+    }
+}
+
+/// Settings > Calls > When another app asks to call: tel: links and the Call with Bridgey Service.
+struct OtherAppCallsRow: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+
+    var body: some View {
+        SettingsRow(title: L10n.text("settings.calls.otherApps", fallback: "When another app asks to call"),
+                    subtitle: L10n.text("settings.calls.otherApps.detail", fallback: "Covers tel: links and the Call with Bridgey item in the Services menu. Calls you start in Bridgey go through without asking.")) {
+            ChoiceButton(value: otherAppCallPolicyTitle(model.otherAppCallPolicy)) {
+                MacOtherAppCallPolicy.allCases.map { policy in
+                    PopUpMenuItem(title: otherAppCallPolicyTitle(policy), checked: policy == model.otherAppCallPolicy) { actions.setOtherAppCallPolicy(policy) }
+                }
+            }
+        }
+    }
+}
+
+func otherAppCallPolicyTitle(_ policy: MacOtherAppCallPolicy) -> String {
+    switch policy {
+    case .ask: return L10n.text("settings.calls.otherApps.ask", fallback: "Ask every time")
+    case .callNow: return L10n.text("settings.calls.otherApps.callNow", fallback: "Call right away")
+    case .refuse: return L10n.text("settings.calls.otherApps.refuse", fallback: "Don\u{2019}t allow")
     }
 }
 
@@ -1600,6 +1628,7 @@ struct LiveSettingsView: View {
         model.mediaPlayer = media.player
         model.pauseForCalls = media.pauseForCalls
         model.ringForCalls = settings.ringForIncomingCalls
+        model.otherAppCallPolicy = settings.otherAppCallPolicy
         model.logging = settings.logging
         model.mediaDetail = media.snapshot.detail
         model.showPreviews = settings.showActivityPreviews
@@ -1741,6 +1770,7 @@ struct LiveSettingsView: View {
             settings.setRingForIncomingCalls(enabled)
             pairing.refreshCallRinging()
         }
+        actions.setOtherAppCallPolicy = { settings.setOtherAppCallPolicy($0) }
         actions.refreshPlayer = { media.refresh() }
         actions.setShowPreviews = { settings.setShowActivityPreviews($0) }
         actions.setLogging = { settings.setLogging($0) }

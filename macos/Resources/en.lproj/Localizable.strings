@@ -324,6 +324,11 @@
 "settings.media.detail" = "macOS asks for Automation access to the player. Open the player on this Mac first.";
 "settings.calls.ring" = "Ring for incoming calls";
 "settings.calls.ring.detail" = "A soft ring repeats until you answer, decline or hide the call.";
+"settings.calls.otherApps" = "When another app asks to call";
+"settings.calls.otherApps.detail" = "Covers tel: links and the Call with Bridgey item in the Services menu. Calls you start in Bridgey go through without asking.";
+"settings.calls.otherApps.ask" = "Ask every time";
+"settings.calls.otherApps.callNow" = "Call right away";
+"settings.calls.otherApps.refuse" = "Don’t allow";
 "settings.media.pauseForCalls" = "Pause media during phone calls";
 "settings.media.pauseForCalls.detail" = "Playback stays paused after the call; resume it when ready.";
 "settings.media.player" = "Player";
@@ -1149,6 +1154,8 @@
 "call.confirm.title.anyPhone" = "Call %@ from your phone?";
 "call.confirm.detail" = "Another app asked Bridgey to place this call.";
 "call.confirm.call" = "Call";
+"call.confirm.dontAsk" = "Don’t ask again";
+"call.refused" = "Calls from other apps are off in Settings > Calls";
 
 /* Update all (UpdateAll.swift) */
 "updateAll.thisMac" = "This Mac";
