@@ -19,7 +19,7 @@ final class StatusPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    override func cancelOperation(_ sender: Any?) { orderOut(nil) }
+    override func cancelOperation(_ sender: Any?) { BridgeyWindows.orderOut(self) }
 }
 
 /// Sits over the status button: takes drags, lets every click through to the button.
@@ -123,12 +123,7 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
         panel.alphaValue = animate ? 0 : 1
         panel.orderFrontRegardless()
         if !byDrag { panel.makeKey() }
-        if animate {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.12
-                panel.animator().alphaValue = 1
-            }
-        }
+        if animate { BridgeyWindows.fadeIn(panel, duration: 0.12) } else { BridgeyWindows.cancelFade(panel) }
         statusItem.button?.highlight(true)
         installOutsideClickMonitor()
     }
@@ -136,7 +131,7 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
     func close() {
         guard isOpen else { return }
         openedByDrag = false
-        panel.orderOut(nil)
+        BridgeyWindows.orderOut(panel)
         statusItem.button?.highlight(false)
         removeOutsideClickMonitor()
     }

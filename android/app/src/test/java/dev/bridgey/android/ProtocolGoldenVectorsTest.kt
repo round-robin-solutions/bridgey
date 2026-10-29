@@ -155,6 +155,220 @@ class ProtocolGoldenVectorsTest {
         assertEquals(dev.bridgey.android.camera.CameraStatus.entries.size, checked)
     }
 
+    /** Screen sharing: the phone reads the Mac's request. */
+    @Test fun screenRequest() = each("screenRequest") { vector ->
+        val result: Any = dev.bridgey.android.screen.decodeScreenRequest(plaintext(vector))?.let { mapOf("requestId" to it) } ?: "reject"
+        result == normalize(vector.get("expect"))
+    }
+
+    /** Screen sharing: what the phone sends for each status is exactly what the Mac reads. */
+    @Test fun screenStatusAsThePhoneSendsIt() {
+        var checked = 0
+        each("screenStatus") { vector ->
+            val wire = vector.optString("android").takeIf { it.isNotEmpty() } ?: return@each true
+            checked++
+            val plaintext = vector.getJSONObject("plaintext")
+            val status = dev.bridgey.android.screen.ScreenStatus.entries.first { it.wire == wire }
+            vector.get("expect") != "reject" &&
+                normalize(dev.bridgey.android.screen.screenStatusPayload(plaintext.getString("requestId"), status)) == normalize(plaintext)
+        }
+        assertEquals(dev.bridgey.android.screen.ScreenStatus.entries.size, checked)
+    }
+
+    /** Screen sharing: the Mac's stream messages as the phone reads them (decoder android or both). */
+    @Test fun screenStreamAsThePhoneReadsIt() {
+        var checked = 0
+        each("screenStream") { vector ->
+            if (vector.getString("decoder") == "mac") return@each true
+            checked++
+            val result: Any = when (val message = dev.bridgey.android.screen.decodeScreenMacMessage(vector.getString("kind"), plaintext(vector))) {
+                null -> "reject"
+                is dev.bridgey.android.screen.ScreenMacMessage.Started -> mapOf("streamId" to message.streamId, "sequence" to message.sequence)
+                is dev.bridgey.android.screen.ScreenMacMessage.Ack -> mapOf(
+                    "streamId" to message.streamId, "sequence" to message.sequence, "frame" to message.frame,
+                    "decodeMs" to message.decodeMs, "keyframe" to message.keyframe,
+                )
+                is dev.bridgey.android.screen.ScreenMacMessage.Stop -> mapOf("streamId" to message.streamId, "sequence" to message.sequence, "reason" to message.reason.wire)
+            }
+            result == normalize(vector.get("expect"))
+        }
+        assertTrue(checked >= 20)
+    }
+
+    /** Screen sharing: screen.start, screen.stats and the phone's screen.stop exactly as the Mac reads them. */
+    @Test fun screenStreamAsThePhoneSendsIt() {
+        var checked = 0
+        each("screenStream") { vector ->
+            if (!vector.optBoolean("android")) return@each true
+            checked++
+            val plaintext = vector.getJSONObject("plaintext")
+            val streamId = plaintext.getString("streamId")
+            val sequence = plaintext.getLong("sequence")
+            val encoded = when (vector.getString("kind")) {
+                "screen.start" -> dev.bridgey.android.screen.screenStartPayload(
+                    streamId, sequence,
+                    dev.bridgey.android.screen.ScreenStartInfo(
+                        plaintext.getInt("width"), plaintext.getInt("height"), plaintext.getInt("fps"), plaintext.getLong("bitrate"),
+                        plaintext.optString("requestId").takeIf { it.isNotEmpty() },
+                    ),
+                )
+                "screen.stats" -> dev.bridgey.android.screen.screenStatsPayload(
+                    streamId, sequence,
+                    dev.bridgey.android.screen.ScreenStats(
+                        plaintext.getLong("latencyMs"), plaintext.getLong("rttMs"), plaintext.getLong("bitrate"),
+                        plaintext.getLong("sentBitrate"), plaintext.getInt("fps"), plaintext.getInt("dropped"),
+                    ),
+                )
+                "screen.stop" -> dev.bridgey.android.screen.screenStopPayload(
+                    streamId, sequence, dev.bridgey.android.screen.ScreenStopReason.entries.first { it.wire == plaintext.getString("reason") },
+                )
+                else -> return@each false
+            }
+            vector.get("expect") != "reject" && normalize(encoded) == normalize(plaintext)
+        }
+        assertTrue(checked >= 9)
+    }
+
+    /** Screen sharing: the frame header rules (the Mac's reader), and the phone's writer byte for byte. */
+    @Test fun screenFrame() {
+        var written = 0
+        each("screenFrame") { vector ->
+            var bytes = hex(vector.getString("plaintextHex"))
+            if (vector.has("padTo")) bytes = bytes.copyOf(vector.getInt("padTo"))
+            val decoded = dev.bridgey.android.screen.ScreenFrameCodec.decode(bytes)
+            val expect = vector.get("expect")
+            if (expect == "reject") return@each decoded == null
+            val (header, payload) = decoded ?: return@each false
+            // captureMicros may exceed 2^53 (up to 2^63-1): read it as a Long, not through normalize.
+            val expected = (normalize(expect) as Map<*, *>) + ("captureMicros" to (expect as JSONObject).getLong("captureMicros"))
+            val actual = mutableMapOf<String, Any>(
+                "streamId" to header.streamId, "sequence" to header.sequence, "frame" to header.frame, "part" to header.part.toLong(),
+                "key" to header.key, "parameterSets" to header.parameterSets, "last" to header.last, "captureMicros" to header.captureMicros,
+            )
+            if (expected.containsKey("payloadLength")) actual["payloadLength"] = payload.size.toLong() else actual["payloadHex"] = payload.toHex()
+            if (actual != expected) return@each false
+            if (!vector.optBoolean("android")) return@each true
+            written++
+            dev.bridgey.android.screen.ScreenFrameCodec.encode(header, payload).contentEquals(bytes)
+        }
+        assertTrue(written >= 4)
+    }
+
+    private fun hex(text: String): ByteArray = ByteArray(text.length / 2) { text.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+
+    private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+    /** Text messages: the Mac's page, sync, image and contact requests as the phone reads them. */
+    @Test fun smsRequest() = each("smsRequest") { vector ->
+        val result: Any = dev.bridgey.android.sms.decodeSmsRequest(vector.getString("kind"), plaintext(vector))?.let { request ->
+            when (request) {
+                is dev.bridgey.android.sms.SmsRequest.Threads -> mapOf("requestId" to request.requestId, "limit" to request.limit.toLong(), "before" to request.before)
+                is dev.bridgey.android.sms.SmsRequest.Messages -> mapOf(
+                    "requestId" to request.requestId, "threadId" to request.threadId, "limit" to request.limit.toLong(),
+                    "before" to request.before?.let { mapOf("date" to it.date, "id" to it.id) },
+                )
+                is dev.bridgey.android.sms.SmsRequest.Sync -> mapOf(
+                    "requestId" to request.requestId, "since" to mapOf("sms" to request.since.sms, "mms" to request.since.mms), "limit" to request.limit.toLong(),
+                )
+                is dev.bridgey.android.sms.SmsRequest.Attachment -> mapOf("requestId" to request.requestId, "partId" to request.partId)
+                is dev.bridgey.android.sms.SmsRequest.Contacts -> mapOf("requestId" to request.requestId, "query" to request.query)
+                is dev.bridgey.android.sms.SmsRequest.MarkRead -> mapOf("requestId" to request.requestId, "threadIds" to request.threadIds)
+                is dev.bridgey.android.sms.SmsRequest.BlockedNumbers -> mapOf("requestId" to request.requestId, "address" to request.address)
+            }
+        } ?: "reject"
+        result == normalize(vector.get("expect"))
+    }
+
+    /** Text messages: sms.send as the phone reads it. */
+    @Test fun smsSend() = each("smsSend") { vector ->
+        val result: Any = dev.bridgey.android.sms.decodeSmsSend(plaintext(vector))?.let { request ->
+            val target = request.target
+            mapOf(
+                "requestId" to request.requestId, "body" to request.body,
+                "threadId" to (target as? dev.bridgey.android.sms.SendTarget.Thread)?.threadId,
+                "address" to (target as? dev.bridgey.android.sms.SendTarget.Address)?.address,
+                "notificationId" to (target as? dev.bridgey.android.sms.SendTarget.Notification)?.notificationId,
+                "subId" to request.subId?.toLong(),
+            )
+        } ?: "reject"
+        result == normalize(vector.get("expect"))
+    }
+
+    /** Text messages: what the phone writes for each status the Mac accepts reads back the same. */
+    @Test fun smsStatusAsThePhoneSendsIt() = each("smsStatus") { vector ->
+        val expect = vector.get("expect") as? JSONObject ?: return@each true
+        val sims = expect.getJSONArray("sims").let { array ->
+            (0 until array.length()).map(array::getJSONObject).map { dev.bridgey.android.sms.SimInfo(it.getInt("subId"), it.getInt("slot"), it.getString("label")) }
+        }
+        val cursor = expect.getJSONObject("cursor")
+        val encoded = dev.bridgey.android.sms.smsStatusPayload(
+            expect.getBoolean("read"), expect.getBoolean("send"), expect.getBoolean("contacts"), sims,
+            dev.bridgey.android.sms.SmsCursor(cursor.getLong("sms"), cursor.getLong("mms")),
+        )
+        normalize(encoded) == normalize(JSONObject(expect.toString()).put("version", 1))
+    }
+
+    /** Text messages: a message the phone writes carries exactly the fields the Mac reads (absent defaults left out). */
+    @Test fun smsMessageAsThePhoneSendsIt() = each("smsMessage") { vector ->
+        val expect = vector.get("expect") as? JSONObject ?: return@each true
+        // A cut body is cut on the phone from a longer one; its vector has no longer body to start from.
+        if (expect.getBoolean("truncated")) return@each true
+        val parts = expect.getJSONArray("parts").let { array ->
+            (0 until array.length()).map(array::getJSONObject).map {
+                dev.bridgey.android.sms.SmsPart(it.getString("partId"), it.getString("mimeType"), if (it.isNull("size")) null else it.getLong("size"))
+            }
+        }
+        val message = dev.bridgey.android.sms.SmsMessage(
+            id = expect.getString("id"), threadId = expect.getLong("threadId"),
+            direction = dev.bridgey.android.sms.SmsDirection.entries.first { it.wire == expect.getString("direction") },
+            status = dev.bridgey.android.sms.SmsStatus.entries.first { it.wire == expect.getString("status") },
+            date = expect.getLong("date"), address = expect.getString("address"), body = expect.getString("body"),
+            subId = if (expect.isNull("subId")) null else expect.getInt("subId"), read = expect.getBoolean("read"), parts = parts,
+        )
+        val wire = JSONObject(expect.toString()).apply {
+            remove("truncated")
+            if (isNull("subId")) remove("subId")
+            if (getJSONArray("parts").length() == 0) remove("parts") else getJSONArray("parts").let { array ->
+                (0 until array.length()).map(array::getJSONObject).forEach { if (it.isNull("size")) it.remove("size") }
+            }
+        }
+        normalize(message.toJson()) == normalize(wire)
+    }
+
+    /** Text messages: send statuses as the phone writes them. */
+    @Test fun smsSendStatusAsThePhoneSendsIt() = each("smsSendStatus") { vector ->
+        val expect = vector.get("expect") as? JSONObject ?: return@each true
+        val state = dev.bridgey.android.sms.SendState.entries.first { it.wire == expect.getString("status") }
+        val reason = if (expect.isNull("reason")) null else dev.bridgey.android.sms.SendReason.entries.first { it.wire == expect.getString("reason") }
+        val via = if (expect.isNull("via")) null else dev.bridgey.android.sms.SendVia.entries.first { it.wire == expect.getString("via") }
+        val wire = JSONObject().put("version", 1).put("requestId", expect.getString("requestId")).put("status", state.wire).apply {
+            if (reason != null) put("reason", reason.wire)
+            if (via != null) put("via", via.wire)
+        }
+        normalize(dev.bridgey.android.sms.smsSendStatusPayload(expect.getString("requestId"), state, reason, via)) == normalize(wire)
+    }
+
+    /** Text messages: Mark as read results as the phone writes them (the Mac decodes the same vectors). */
+    @Test fun smsMarkReadResultAsThePhoneSendsIt() = each("smsMarkReadResult") { vector ->
+        val expect = vector.get("expect") as? JSONObject ?: return@each true
+        val results = expect.getJSONArray("results").let { array ->
+            (0 until array.length()).map(array::getJSONObject).map { entry ->
+                entry.getLong("threadId") to dev.bridgey.android.sms.MarkReadResult.entries.first { it.wire == entry.getString("result") }
+            }
+        }
+        val error = if (expect.isNull("error")) null else expect.getString("error")
+        val written = dev.bridgey.android.sms.smsMarkReadResultPayload(expect.getString("requestId"), results, error)
+        val wire = JSONObject(expect.toString()).put("version", 1).apply { if (isNull("error")) remove("error") }
+        normalize(written) == normalize(wire)
+    }
+
+    /** Text messages: Block on phone results as the phone writes them. */
+    @Test fun smsBlockedNumbersResultAsThePhoneSendsIt() = each("smsBlockedNumbersResult") { vector ->
+        val expect = vector.get("expect") as? JSONObject ?: return@each true
+        val result = dev.bridgey.android.sms.BlockedNumbersResult.entries.first { it.wire == expect.getString("result") }
+        val wire = JSONObject().put("version", 1).put("requestId", expect.getString("requestId")).put("result", result.wire)
+        normalize(dev.bridgey.android.sms.smsBlockedNumbersResultPayload(expect.getString("requestId"), result)) == normalize(wire)
+    }
+
     /** The phone is the controller: what it would send must be exactly what the Mac host accepts. */
     @Test fun remoteInputAsTheControllerSendsIt() {
         var checked = 0
@@ -171,6 +385,37 @@ class ProtocolGoldenVectorsTest {
         }
         assertTrue(checked >= 20)
     }
+
+    /** Update all: both platforms read updates.status alike, and write the marked vectors exactly. */
+    @Test fun updatesStatus() = each("updatesStatus") { vector ->
+        val decoded = dev.bridgey.android.updates.decodeUpdateStatus(plaintext(vector))
+        val result: Any = decoded?.let(::statusMap) ?: "reject"
+        val written = !vector.optBoolean("write") ||
+            (decoded != null && normalize(dev.bridgey.android.updates.updateStatusPayload(decoded)) == normalize(vector.get("plaintext")))
+        written && result == normalize(vector.get("expect"))
+    }
+
+    @Test fun updatesStart() = each("updatesStart") { vector ->
+        val decoded = dev.bridgey.android.updates.decodeUpdateStart(plaintext(vector))
+        val result: Any = decoded?.let { mapOf("requestId" to it.requestId, "retry" to it.retry) } ?: "reject"
+        val written = !vector.optBoolean("write") ||
+            (decoded != null && normalize(dev.bridgey.android.updates.updateStartPayload(decoded)) == normalize(vector.get("plaintext")))
+        written && result == normalize(vector.get("expect"))
+    }
+
+    @Test fun updatesResult() = each("updatesResult") { vector ->
+        val decoded = dev.bridgey.android.updates.decodeUpdateResult(plaintext(vector))
+        val result: Any = decoded?.let { mapOf("requestId" to it.requestId, "status" to it.status.wire, "reason" to it.reason?.wire) } ?: "reject"
+        val written = !vector.optBoolean("write") ||
+            (decoded != null && normalize(dev.bridgey.android.updates.updateResultPayload(decoded)) == normalize(vector.get("plaintext")))
+        written && result == normalize(vector.get("expect"))
+    }
+
+    private fun statusMap(status: dev.bridgey.android.updates.UpdateStatus): Map<String, Any?> = mapOf(
+        "platform" to status.platform.wire, "edition" to status.edition, "app" to status.app, "build" to status.build,
+        "channel" to status.channel.wire, "state" to status.state.wire, "target" to status.target, "targetBuild" to status.targetBuild,
+        "progress" to status.progress?.toLong(), "reason" to status.reason?.wire, "remoteStart" to status.remoteStart, "checkedAt" to status.checkedAt,
+    )
 
     private fun each(group: String, check: (JSONObject) -> Boolean) {
         val array = vectors.getJSONArray(group)

@@ -17,6 +17,8 @@ final class ExpectedDownload {
     var cancelled = false
     let progress: (PhoneTransferProgress) -> Void
     let completion: (Result<[URL], PhoneFilesError>) -> Void
+    /// The phone's folder offer arrived and the receive started.
+    var started = false
     private var finished = false
 
     init(requestId: String, phoneID: String, directory: URL, purpose: PhoneDownloadPurpose,
@@ -115,6 +117,12 @@ final class PhoneFilesController: PhoneFilesService {
     private var mediaRetry: [String: FolderTimer] = [:]
 
     var activeMediaRequests: Int { mediaActive.values.reduce(0) { $0 + $1.count } }
+
+    func mediaRequestsInWindow(phoneID: String) -> Int {
+        let now = clock.now
+        let sent = mediaSent[phoneID, default: []].filter { now.timeIntervalSince($0) < BrowseLimits.mediaWindow }.count
+        return sent + (mediaQueue[phoneID]?.count ?? 0)
+    }
     var inFlight: Int { requests.count }
 
     private func encode<P: Encodable>(_ payload: P) -> Data? { try? FolderJSON.encoder.encode(payload) }
@@ -142,15 +150,20 @@ final class PhoneFilesController: PhoneFilesService {
         guard wire.send(kind: kind, payload: payload, transferID: nil, sequence: nil) else { return finish(id, .notConnected) }
     }
 
-    /// A media-lane request: queued until the phone's media budget has room.
-    private func media(_ phoneID: String, kind: String, id: String, payload: Data?, answer: @escaping (String, Data) -> Bool,
+    /// A media-lane request: queued until the phone's media budget has room. `urgent` (a preview someone is
+    /// looking at) goes to the front of the queue, ahead of thumbnails and prefetch.
+    private func media(_ phoneID: String, kind: String, id: String, payload: Data?, urgent: Bool = false, answer: @escaping (String, Data) -> Bool,
                        fail: @escaping (PhoneFilesError) -> Void) {
         if let problem = availability(phoneID) { return fail(problem) }
         guard let payload else { return fail(.code(FolderCode.invalidMessage)) }
         let request = Request(id: id, phoneID: phoneID, media: true, answer: answer, fail: fail)
         request.pending = (kind, payload)
         requests[id] = request
-        mediaQueue[phoneID, default: []].append(id)
+        if urgent {
+            mediaQueue[phoneID, default: []].insert(id, at: 0)
+        } else {
+            mediaQueue[phoneID, default: []].append(id)
+        }
         pumpMedia(phoneID)
     }
 
@@ -325,7 +338,7 @@ final class PhoneFilesController: PhoneFilesService {
     private var thumbJobs: [String: ThumbJob] = [:]
 
     @discardableResult
-    func thumbnails(phoneID: String, entries: [PhoneFileEntry], size: Int, lane: String,
+    func thumbnails(phoneID: String, entries: [PhoneFileEntry], size: (PhoneFileEntry) -> Int, lane: String,
                     deliver: @escaping (PhoneFileEntry, PhoneImage) -> Void,
                     finished: @escaping (Result<[PhoneFileEntry], PhoneFilesError>) -> Void) -> PhoneFilesCancellable {
         let laneKey = "\(phoneID)\u{1F}\(lane)"
@@ -341,16 +354,27 @@ final class PhoneFilesController: PhoneFilesService {
             job.end(.success(job.missing))
             return .none
         }
-        let pixels = min(max(size, BrowseLimits.minThumbnailSize), BrowseLimits.maxThumbnailSize)
         thumbJobs[laneKey] = job
-        var chunks: [[PhoneFileEntry]] = []
-        var index = 0
-        while index < wanted.count {
-            chunks.append(Array(wanted[index..<min(index + BrowseLimits.maxThumbnailItems, wanted.count)]))
-            index += BrowseLimits.maxThumbnailItems
+        // One request per size (in order of first appearance, so visible items lead), at most 64 items each.
+        var groups: [(pixels: Int, entries: [PhoneFileEntry])] = []
+        for entry in wanted {
+            let pixels = min(max(size(entry), BrowseLimits.minThumbnailSize), BrowseLimits.maxThumbnailSize)
+            if let index = groups.firstIndex(where: { $0.pixels == pixels }) {
+                groups[index].entries.append(entry)
+            } else {
+                groups.append((pixels, [entry]))
+            }
+        }
+        var chunks: [(pixels: Int, entries: [PhoneFileEntry])] = []
+        for group in groups {
+            var index = 0
+            while index < group.entries.count {
+                chunks.append((group.pixels, Array(group.entries[index..<min(index + BrowseLimits.maxThumbnailItems, group.entries.count)])))
+                index += BrowseLimits.maxThumbnailItems
+            }
         }
         job.remaining = chunks.count
-        for chunk in chunks {
+        for (pixels, chunk) in chunks {
             let id = makeID()
             var byKey: [String: PhoneFileEntry] = [:]
             let items = chunk.enumerated().map { offset, entry -> ThumbnailItemPayload in
@@ -421,7 +445,7 @@ final class PhoneFilesController: PhoneFilesService {
     // MARK: Preview and range
 
     @discardableResult
-    func preview(phoneID: String, entry: PhoneFileEntry, size: Int,
+    func preview(phoneID: String, entry: PhoneFileEntry, size: Int, urgent: Bool,
                  completion: @escaping (Result<PhoneImage, PhoneFilesError>) -> Void) -> PhoneFilesCancellable {
         let id = makeID()
         let pixels = min(max(size, BrowseLimits.minPreviewSize), BrowseLimits.maxPreviewSize)
@@ -435,7 +459,7 @@ final class PhoneFilesController: PhoneFilesService {
             completion(result)
         }
         media(phoneID, kind: BrowseKind.mediaPreview, id: id,
-              payload: encode(MediaPreviewPayload(requestId: id, ref: WireRef(entry.ref), size: pixels, replaces: nil)),
+              payload: encode(MediaPreviewPayload(requestId: id, ref: WireRef(entry.ref), size: pixels, replaces: nil)), urgent: urgent,
               answer: { kind, data in
                   guard kind == BrowseKind.mediaPreviewPart else { return false }
                   guard let part = try? JSONDecoder().decode(MediaPreviewPartPayload.self, from: data), let bytes = Data(base64Encoded: part.data),
@@ -546,7 +570,7 @@ final class PhoneFilesController: PhoneFilesService {
         host?.expectDownload(expected)
         progress(PhoneTransferProgress(phase: .preparing))
         browse(phoneID, kind: BrowseKind.placesDownload, id: id, payload: encode(PlacesDownloadPayload(requestId: id, items: refs.map(WireRef.init))),
-               answer: { kind, data in
+               answer: { [weak self] kind, data in
                    guard kind == BrowseKind.placesDownloadStarted else { return false }
                    guard let started = try? JSONDecoder().decode(PlacesDownloadStartedPayload.self, from: data), FolderJSON.isWireID(started.folderTransferId) else {
                        expected.finish(.failure(.code(FolderCode.invalidMessage)))
@@ -557,6 +581,10 @@ final class PhoneFilesController: PhoneFilesService {
                    update.filesTotal = started.fileCount
                    update.bytesTotal = started.totalSize
                    if !expected.isFinished { expected.progress(update) }
+                   // The phone said it started: its folder offer follows on the same socket once the files are
+                   // hashed and earlier downloads are done. A preview whose offer never comes (the phone failed
+                   // while preparing, which it does not report) ends instead of blocking that item for good.
+                   if purpose == .preview { self?.watchOffer(expected) }
                    return true
                },
                fail: { [weak self] error in
@@ -568,6 +596,19 @@ final class PhoneFilesController: PhoneFilesService {
             self?.finish(id, nil)
             self?.host?.cancelDownload(expected)
             expected.finish(.failure(.cancelled))
+        }
+    }
+
+    /// How long a preview download may wait between `places.download_started` and the phone's folder offer
+    /// (hashing a large video and earlier downloads come first). Saves and drags have no limit: they show
+    /// progress and Cancel, and may queue behind each other for longer.
+    static let offerTimeout: TimeInterval = 60
+
+    private func watchOffer(_ expected: ExpectedDownload) {
+        _ = clock.schedule(after: Self.offerTimeout) { [weak self] in
+            guard !expected.isFinished, !expected.started, !expected.cancelled else { return }
+            self?.host?.cancelDownload(expected)
+            expected.finish(.failure(.timeout))
         }
     }
 

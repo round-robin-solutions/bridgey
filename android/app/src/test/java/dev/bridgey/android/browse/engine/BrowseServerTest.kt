@@ -127,6 +127,8 @@ class BrowseServerTest {
         val items = first.getJSONArray("items")
         assertEquals(100, items.length())
         assertEquals("150", items.getJSONObject(0).getJSONObject("ref").getString("mediaId"))
+        // The day the Mac groups by: what the gallery sorts by (date taken, else added).
+        assertEquals(149_000L, items.getJSONObject(0).getLong("taken"))
         assertFalse(first.toString().contains("content://"))
         val second = phone.answer(phone.request(BrowseKinds.MEDIA_LIST, JSONObject().put("kind", "media").put("cursor", first.getString("nextCursor"))))!!.second
         assertEquals(50, second.getJSONArray("items").length())
@@ -150,6 +152,32 @@ class BrowseServerTest {
         assertEquals("none", none.getString("access"))
     }
 
+    private fun sentKeys(phone: BrowseHarness, id: String): List<String> = phone.lowFor(id).flatMap { (_, batch) ->
+        batch.getJSONArray("thumbs").let { array -> (0 until array.length()).map { array.getJSONObject(it).getString("key") } }
+    }
+
+    /** A slow item (a 50 MP photo, a video frame) no longer holds back the thumbnails asked after it. */
+    @Test
+    fun aSlowThumbnailDoesNotHoldBackTheOthers() {
+        val phone = BrowseHarness()
+        repeat(6) { phone.media.add(it.toLong() + 1, "IMG_$it.jpg", it.toLong()) }
+        val slow = CountDownLatch(1)
+        phone.thumbs.slow = mapOf("content://media/external/file/1" to slow)
+        val id = java.util.UUID.randomUUID().toString()
+        val runner = Thread {
+            phone.request(BrowseKinds.MEDIA_THUMBNAILS, JSONObject().put("requestId", id).put("items", items(*(1..6).map { "k$it" to mediaRef(it.toLong()) }.toTypedArray())))
+        }
+        runner.start()
+        val deadline = System.currentTimeMillis() + 5_000
+        while (sentKeys(phone, id).size < 5 && System.currentTimeMillis() < deadline) Thread.sleep(5)
+        assertEquals((2..6).map { "k$it" }.toSet(), sentKeys(phone, id).toSet())
+        assertTrue(phone.lowFor(id).none { it.second.getBoolean("done") })
+        slow.countDown()
+        runner.join(5_000)
+        assertEquals((1..6).map { "k$it" }.sorted(), sentKeys(phone, id).sorted())
+        assertTrue(phone.lowFor(id).last().second.getBoolean("done"))
+    }
+
     @Test
     fun thumbnailsArriveInOrderBatchedWithinBoundsAndMissingNamed() {
         val phone = BrowseHarness()
@@ -165,9 +193,10 @@ class BrowseServerTest {
         assertTrue(batches.last().getBoolean("done"))
         assertTrue(batches.dropLast(1).none { it.getBoolean("done") })
         val keys = batches.flatMap { batch -> batch.getJSONArray("thumbs").let { array -> (0 until array.length()).map { array.getJSONObject(it).getString("key") } } }
-        assertEquals((1..20).map { "k$it" }, keys)
+        // Each exactly once, in the order they were ready.
+        assertEquals((1..20).map { "k$it" }.sorted(), keys.sorted())
         val missing = batches.flatMap { batch -> batch.getJSONArray("missing").let { array -> (0 until array.length()).map { array.getString(it) } } }
-        assertEquals(listOf("gone", "text"), missing)
+        assertEquals(listOf("gone", "text"), missing.sorted())
         val thumb = batches.first().getJSONArray("thumbs").getJSONObject(0)
         assertEquals("#336699", thumb.getString("tint"))
         assertTrue(java.util.Base64.getDecoder().decode(thumb.getString("data")).size <= BrowseLimits.THUMB_MAX_BYTES)

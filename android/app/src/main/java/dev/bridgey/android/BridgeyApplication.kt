@@ -47,6 +47,10 @@ class BridgeyApplication : Application() {
         private set
     lateinit var updater: AppUpdater
         private set
+
+    /** Update all (draft updates_draft1): this phone's status to the Macs, their requests, and runs from here. */
+    lateinit var updateAll: dev.bridgey.android.updates.UpdateAllCoordinator
+        private set
     lateinit var activityLog: ActivityLog
         private set
     lateinit var activity: ActivityRecorder
@@ -60,6 +64,10 @@ class BridgeyApplication : Application() {
     lateinit var remoteInput: RemoteInputController
         private set
     lateinit var remotePreferences: RemoteInputPreferences
+        private set
+
+    /** Share screen with Macs (draft screen_draft1): consent, the stream and its state. */
+    lateinit var screenShare: dev.bridgey.android.screen.ScreenShareHub
         private set
 
     /** Codes from messages: whether Android shows Bridgey the text of code SMS (companion link). */
@@ -163,7 +171,11 @@ class BridgeyApplication : Application() {
         }
         startRemoteInput()
         startCodeAccess()
+        startUpdateAll()
         startCamera()
+        startBlockedNumbers()
+        screenShare = dev.bridgey.android.screen.ScreenShareHub(this, pairing) { startedActivityCount > 0 }
+        pairing.screenListener = screenShare
         registerForegroundClipboardWatcher()
         if (preferences.getBoolean(PREFERENCE_ENABLED, true)) enableBridgey()
     }
@@ -222,6 +234,18 @@ class BridgeyApplication : Application() {
             }
         }
         pairing.cameraEnded = { request -> dev.bridgey.android.camera.CameraNotifier.dismiss(this, request.deviceId) }
+    }
+
+    /** Block on phone, from a Mac's Messages window (sms.blocked_numbers). */
+    private fun startBlockedNumbers() {
+        pairing.openBlockedNumbers = { address -> dev.bridgey.android.sms.BlockedNumbers.open(this, address, startedActivityCount > 0) }
+    }
+
+    private fun startUpdateAll() {
+        updater.isForeground = { startedActivityCount > 0 }
+        updateAll = dev.bridgey.android.updates.UpdateAllCoordinator(this, applicationScope, pairing, updater, settings)
+        pairing.updates = updateAll
+        updateAll.start()
     }
 
     private fun startCodeAccess() {

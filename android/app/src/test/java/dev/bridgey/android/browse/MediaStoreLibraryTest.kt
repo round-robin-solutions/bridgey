@@ -20,12 +20,35 @@ class MediaStoreLibraryTest {
         assertEquals(MediaAccess.FULL, access(32, Manifest.permission.READ_EXTERNAL_STORAGE))
         assertEquals(MediaAccess.NONE, access(32))
         assertEquals(MediaAccess.FULL, access(33, Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO))
-        assertEquals(MediaAccess.PARTIAL, access(33, Manifest.permission.READ_MEDIA_IMAGES))
+        // All photos without videos (what Send a fresh screenshot asks for) is not "the photos you chose".
+        assertEquals(MediaAccess.FULL, access(33, Manifest.permission.READ_MEDIA_IMAGES))
+        assertEquals(MediaAccess.FULL, access(34, Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED))
+        assertEquals(MediaAccess.FULL, access(34, Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO,
+            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED))
         assertEquals(MediaAccess.PARTIAL, access(34, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED))
+        assertEquals(MediaAccess.PARTIAL, access(35, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED, Manifest.permission.READ_MEDIA_VIDEO))
         assertEquals(MediaAccess.NONE, access(33, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED))
         assertEquals(MediaAccess.NONE, access(35))
         // READ_EXTERNAL_STORAGE means nothing for media from Android 13.
         assertEquals(MediaAccess.NONE, access(33, Manifest.permission.READ_EXTERNAL_STORAGE))
+    }
+
+    @Test
+    fun accessIsReadAgainOnEveryAsk() {
+        // The answer follows the grants at the time of asking, so a refresh after Allow all clears the banner.
+        val granted = mutableSetOf(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        assertEquals(MediaAccess.PARTIAL, MediaAccessRules.access(34) { it in granted })
+        granted += listOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+        assertEquals(MediaAccess.FULL, MediaAccessRules.access(34) { it in granted })
+    }
+
+    @Test
+    fun completeNeedsPhotosAndVideos() {
+        fun complete(sdk: Int, vararg granted: String) = MediaAccessRules.complete(sdk) { it in granted }
+        assertTrue(complete(32, Manifest.permission.READ_EXTERNAL_STORAGE))
+        assertTrue(complete(34, Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO))
+        assertEquals(false, complete(34, Manifest.permission.READ_MEDIA_IMAGES))
+        assertEquals(false, complete(34, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED))
     }
 
     @Test

@@ -312,6 +312,91 @@ final class ReconnectTests: XCTestCase {
         XCTAssertEqual(harness.engine.display(for: phone)?.struggling, false)
     }
 
+    // MARK: Away devices and moved addresses (27 October)
+
+    /// The logged case: the MacBook Pro was paired as ddae63e5, was reset at about 11:40 and came
+    /// back as 033327d6 at the same IPv4 address. The Mac dialled ddae63e5 there every minute and
+    /// the MacBook closed each connection. An address another device now advertises is skipped.
+    func testARememberedAddressNowAdvertisedByAnotherDeviceIsNotDialled() {
+        let oldMac = "ddae63e5-0000-4000-8000-000000000001"
+        let newMac = "033327d6-0000-4000-8000-000000000002"
+        var events: [ReconnectEvent] = []
+        let harness = Harness(clock: ManualClock(now: start), trusted: [oldMac, phone], networks: homeLAN)
+        harness.engine.onEvent = { events.append($0) }
+        harness.engine.addressBook.learn(oldMac, host: "192.168.29.192", port: 42_458, source: .outbound, at: start.addingTimeInterval(-600))
+        harness.engine.addressBook.learn(oldMac, host: "2401:4900:1c3a::1f", port: 42_458, source: .outbound, at: start.addingTimeInterval(-300))
+        let reset = DiscoveredPeer(serviceName: "Bridgey-033327d6", deviceIDHint: newMac, deviceNameHint: "Rahul's MacBook Pro", platformHint: "macos",
+                                   protocolVersionHint: 1, host: "MacBook-Pro.local.", port: 42_458, addresses: ["192.168.29.192", "2401:4900:1c3a::1f"])
+        harness.engine.discoveryChanged([reset])
+        XCTAssertTrue(harness.engine.candidates(for: oldMac).isEmpty)
+        harness.engine.disconnected(oldMac)
+        harness.clock.advance(by: 600)
+        XCTAssertTrue(harness.dials.isEmpty, "nothing reaches the reset MacBook under its old identity")
+        XCTAssertEqual(events.first, .noAddress(deviceID: oldMac, attempt: 1, reason: "backoff"))
+
+        // An address of a peer without an id (an older build) still counts as this device's.
+        harness.engine.discoveryChanged([DiscoveredPeer(serviceName: "Bridgey", deviceIDHint: nil, deviceNameHint: "Bridgey", platformHint: nil,
+                                                        protocolVersionHint: nil, host: nil, port: 42_458, addresses: ["192.168.29.192"])])
+        XCTAssertEqual(harness.engine.candidates(for: oldMac).map(\.host), ["2401:4900:1c3a::1f", "192.168.29.192"])
+    }
+
+    /// The other half of the logged case: every launch and wake gave a device gone since 10:20 a
+    /// fresh hour of 60 s dials. Away for over an hour, it is tried once, then every 10 minutes.
+    func testAnAwayDeviceIsTriedOnceAtLaunchThenEveryTenMinutes() {
+        let harness = Harness(clock: ManualClock(now: start), trusted: [phone], networks: homeLAN)
+        harness.engine.addressBook.learn(phone, host: "192.168.29.40", port: 42_458, source: .inbound, at: start.addingTimeInterval(-12 * 3_600))
+        harness.engine.addressBook.markSeen(phone, at: start.addingTimeInterval(-12 * 3_600))
+        XCTAssertTrue(harness.engine.isAway(phone))
+        // Launch: as Pairing.startReconnecting does.
+        harness.engine.disconnected(phone, seenNow: false)
+        harness.engine.resetAll([phone])
+        var count = 0
+        for _ in 0..<60 {
+            harness.clock.advance(by: 60)
+            count += harness.dials.count
+            harness.failDials()
+        }
+        XCTAssertEqual(count, 7, "one at launch, then every 10 minutes (0, 10, ..., 60 min), not 60 in the hour")
+        XCTAssertEqual(harness.engine.display(for: phone), ReconnectDisplay(lastSeen: start.addingTimeInterval(-12 * 3_600), struggling: true, away: true))
+
+        // A wake tries it once more, then the slow delay again.
+        harness.engine.resetAll([phone])
+        harness.clock.advance(by: 0)
+        XCTAssertEqual(harness.dials.count, 1)
+        harness.failDials()
+        harness.clock.advance(by: 599)
+        XCTAssertTrue(harness.dials.isEmpty)
+
+        // Discovery seeing it: a fresh fast phase, and it is no longer "away" in the panel.
+        let peer = DiscoveredPeer(serviceName: "Bridgey-a1b2c3d4", deviceIDHint: phone, deviceNameHint: "OnePlus 11", platformHint: "android",
+                                  protocolVersionHint: 1, host: nil, port: 42_458, addresses: ["192.168.29.52"])
+        harness.engine.discoveryChanged([peer])
+        harness.clock.advance(by: 0)
+        XCTAssertEqual(harness.dials.map(\.1), ["192.168.29.52"])
+        harness.failDials()
+        harness.clock.advance(by: 5)
+        XCTAssertEqual(harness.dials.count, 1, "fast delays again")
+        XCTAssertEqual(harness.engine.display(for: phone)?.away, false)
+    }
+
+    /// A device that dropped within the hour keeps the fast phase at launch, as before.
+    func testARecentlyDroppedDeviceKeepsTheFastPhase() {
+        let harness = Harness(clock: ManualClock(now: start), trusted: [phone], networks: homeLAN)
+        harness.engine.addressBook.learn(phone, host: "192.168.29.40", port: 42_458, source: .inbound, at: start.addingTimeInterval(-600))
+        harness.engine.addressBook.markSeen(phone, at: start.addingTimeInterval(-600))
+        XCTAssertFalse(harness.engine.isAway(phone))
+        harness.engine.disconnected(phone, seenNow: false)
+        harness.engine.resetAll([phone])
+        var count = 0
+        for _ in 0..<10 {
+            harness.clock.advance(by: 60)
+            count += harness.dials.count
+            harness.failDials()
+        }
+        XCTAssertGreaterThanOrEqual(count, 10)
+        XCTAssertEqual(harness.engine.display(for: phone)?.away, false)
+    }
+
     // MARK: Both sides dial at once
 
     /// Both apps now redial, so after a drop the phone's socket (A) and the Mac's (B) often
@@ -392,6 +477,35 @@ final class ReconnectTests: XCTestCase {
         XCTAssertEqual(connected.first?.state, .connected)
         XCTAssertFalse(connected.first?.canRetry == true)
         XCTAssertEqual(deviceRings(trusted: trusted, peers: [], connected: [], pairing: .idle).first?.state, .offline)
+    }
+
+    func testAnAwayDeviceSaysNotNearbyAndPointsAtANewDeviceWithItsName() {
+        let oldMac = "ddae63e5-0000-4000-8000-000000000001"
+        let trusted = [TrustedDeviceInfo(id: oldMac, name: "Rahul\u{2019}s MacBook Pro"), TrustedDeviceInfo(id: phone, name: "OnePlus 11")]
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Kolkata")!
+        let seen = calendar.date(from: DateComponents(year: 2026, month: 10, day: 27, hour: 10, minute: 20))!
+        let night = calendar.date(from: DateComponents(year: 2026, month: 10, day: 27, hour: 22, minute: 50))!
+        let newMac = DiscoveredPeer(serviceName: "Bridgey-033327d6", deviceIDHint: "033327d6-0000-4000-8000-000000000002",
+                                    deviceNameHint: "Rahul\u{2019}s MacBook Pro", platformHint: "macos", protocolVersionHint: 1,
+                                    host: nil, port: 42_458, addresses: ["192.168.29.192"])
+        let rings = deviceRings(trusted: trusted, peers: [newMac], connected: [PhoneConnection(id: phone, name: "OnePlus 11", state: PhoneLinkState())],
+                                pairing: .idle, reconnecting: [oldMac: ReconnectDisplay(lastSeen: seen, struggling: true, away: true)])
+        let away = rings.first { $0.deviceID == oldMac }!
+        XCTAssertEqual(away.state, .offline)
+        XCTAssertTrue(away.canRetry)
+        XCTAssertTrue(away.namesakeNearby)
+        XCTAssertEqual(ringStatusText(away), "Not nearby")
+        XCTAssertEqual(ringStatusDetail(away, now: night, locale: Locale(identifier: "en_GB"), calendar: calendar), "Not on this network (last seen 10:20)")
+        XCTAssertTrue(ringRetryHelp(away).contains("A new device named Rahul\u{2019}s MacBook Pro is nearby"))
+        // The new identity is listed as a new device to pair; the phone is not a namesake of anything.
+        XCTAssertEqual(rings.first { $0.deviceID == newMac.deviceIDHint }.map(ringStatusText), "New device")
+        XCTAssertFalse(rings.first { $0.deviceID == phone }!.namesakeNearby)
+        // Without a namesake nearby, the tooltip is only the away text.
+        let alone = deviceRings(trusted: trusted, peers: [], connected: [], pairing: .idle,
+                                reconnecting: [oldMac: ReconnectDisplay(lastSeen: seen, struggling: true, away: true)]).first { $0.deviceID == oldMac }!
+        XCTAssertFalse(alone.namesakeNearby)
+        XCTAssertFalse(ringRetryHelp(alone).contains("new device"))
     }
 
     func testRediscoverSummaries() {

@@ -56,9 +56,20 @@ enum PhoneFilesText {
                 return notBrowsable(phone)
             case "insufficient_space":
                 return L10n.text("phonefiles.error.space", fallback: "There is not enough free space.")
+            case "unsupported":
+                return L10n.text("phonefiles.error.unsupported", fallback: "This file can't be previewed. It may be damaged; Download still gets the original.")
             default:
                 return String(format: L10n.text("phonefiles.error.other", fallback: "Something went wrong on %@."), phone)
             }
+        }
+    }
+
+    /// Errors worth a Try again (the phone was busy or slow, or the connection dropped).
+    static func isTransient(_ error: PhoneFilesError) -> Bool {
+        switch error {
+        case .timeout, .notConnected: return true
+        case let .code(code): return [FolderCode.busy, FolderCode.ioError, FolderCode.timeout].contains(code)
+        case .notBrowsable, .cancelled: return false
         }
     }
 
@@ -98,15 +109,33 @@ enum PhoneFilesText {
         if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
             return L10n.text("phonefiles.day.yesterday", fallback: "Yesterday")
         }
-        let formatter = DateFormatter()
+        let template: String
         if let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day, days < 7, days > 0 {
-            formatter.setLocalizedDateFormatFromTemplate("EEEE")
+            template = "EEEE"
         } else if calendar.component(.year, from: date) == calendar.component(.year, from: now) {
-            formatter.setLocalizedDateFormatFromTemplate("d MMMM")
+            template = "d MMMM"
         } else {
-            formatter.setLocalizedDateFormatFromTemplate("d MMMM yyyy")
+            template = "d MMMM yyyy"
         }
-        return formatter.string(from: date)
+        return formatter(template).string(from: date)
+    }
+
+    /// One formatter per template and locale: making one per call cost a grid of 2,000 photos about 100 ms on
+    /// every redraw (the main thread was 92% in DateFormatter during a download, 2026-10-28).
+    private static var formatters: [String: DateFormatter] = [:]
+    private static let formattersLock = NSLock()
+
+    static func formatter(_ template: String) -> DateFormatter {
+        let locale = Locale.current
+        let key = template + "\u{1F}" + locale.identifier + "\u{1F}" + TimeZone.current.identifier
+        formattersLock.lock()
+        defer { formattersLock.unlock() }
+        if let cached = formatters[key] { return cached }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.setLocalizedDateFormatFromTemplate(template)
+        formatters[key] = formatter
+        return formatter
     }
 
     static func kind(_ entry: PhoneFileEntry) -> String {

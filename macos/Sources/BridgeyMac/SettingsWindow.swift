@@ -11,7 +11,7 @@ import SwiftUI
 /// Grouped by what people come to change, most used first. Each feature pane starts with that
 /// feature's switch, followed by its options. Android uses the same order.
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case thisMac, devices, clipboard, notifications, calls, files, media, remoteControl, privacy, updates, general, about
+    case thisMac, devices, clipboard, notifications, messages, calls, files, media, remoteControl, privacy, updates, general, about
     /// Privacy sub-pages (PermissionsView.swift, ResetView.swift); not in the sidebar.
     case permissions, reset
 
@@ -24,6 +24,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .devices: L10n.text("settings.devicesPermissions", fallback: "Devices and permissions")
         case .clipboard: L10n.text("settings.clipboard", fallback: "Clipboard")
         case .notifications: L10n.text("settings.notifications", fallback: "Notifications")
+        case .messages: L10n.text("sms.title", fallback: "Text messages")
         case .calls: L10n.text("settings.calls", fallback: "Calls")
         case .files: L10n.text("settings.files", fallback: "Files")
         case .media: L10n.text("settings.mediaActions", fallback: "Media and quick actions")
@@ -51,6 +52,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .devices: "laptopcomputer.and.iphone"
         case .clipboard: "doc.on.clipboard"
         case .notifications: "bell"
+        case .messages: "message"
         case .calls: "phone"
         case .files: "folder"
         case .media: "music.note"
@@ -126,6 +128,9 @@ struct SettingsModel {
     var canCheckForUpdates = false
     var updateFlow: UpdateFlow = .idle
     var updateDeferral: UpdateDeferral?
+    /// Update all: this Mac and its connected phones; and whether phones may start this Mac's update.
+    var updateAll = UpdateAllDisplay()
+    var remoteStartUpdates = true
     var shortVersion = "Development"
     var versionDescription = "Development"
     var phoneLinkStatus: String?
@@ -154,6 +159,12 @@ struct SettingsModel {
     var focusSync = FocusSyncSettings()
     /// Files > Copy photos from the phone camera to the clipboard.
     var cameraCopyToClipboard = false
+    /// Remote control > Show phone screens (screen_draft1). Off by default.
+    var phoneScreenEnabled = false
+    /// Settings > Text messages (draft sms_draft1).
+    var smsEnabled = false
+    var smsKeepOnMac = true
+    var smsPhone: SmsPhoneDisplay = .noPhone
 
     var connectedDeviceID: String? {
         if case let .connected(id, _) = state { return id }
@@ -233,6 +244,8 @@ struct SettingsActions {
     var setAutomaticallyChecks: (Bool) -> Void = { _ in }
     var checkForUpdates: () -> Void = {}
     var update = UpdateFlowActions()
+    var updateAll = UpdateAllActions()
+    var setRemoteStartUpdates: (Bool) -> Void = { _ in }
     var openURL: (URL) -> Void = { _ in }
     var stopRemoteControl: () -> Void = {}
     var openAccessibilitySettings: () -> Void = {}
@@ -249,6 +262,13 @@ struct SettingsActions {
     var setBatteryAlerts: (String, BatteryAlertThresholds) -> Void = { _, _ in }
     var setFocusSync: ((inout FocusSyncSettings) -> Void) -> Void = { _ in }
     var setCameraCopyToClipboard: (Bool) -> Void = { _ in }
+    var setPhoneScreen: (Bool) -> Void = { _ in }
+    /// Settings > Text messages.
+    var setSmsEnabled: (Bool) -> Void = { _ in }
+    var setSmsKeepOnMac: (Bool) -> Void = { _ in }
+    var deleteMessages: () -> Void = {}
+    /// The Messages window, on a phone and conversation when given (the history's Reply).
+    var openMessages: (String?, Int?) -> Void = { _, _ in }
 }
 
 enum SettingsLinks {
@@ -584,6 +604,7 @@ struct SettingsPaneView: View {
         case .devices: DevicesPane(model: model, actions: actions)
         case .clipboard: ClipboardPane(model: model, actions: actions)
         case .notifications: NotificationsPane(model: model, actions: actions)
+        case .messages: TextMessagesPane(model: model, actions: actions)
         case .calls: CallsPane(model: model, actions: actions)
         case .files: FilesPane(model: model, actions: actions)
         case .media: MediaActionsPane(model: model, actions: actions)
@@ -1166,6 +1187,12 @@ struct NotificationHistoryCard: View {
                             }
                             if !item.title.isEmpty { Text(item.title).font(BrandFont.body(13, .medium)).foregroundStyle(c.on) }
                             if !item.text.isEmpty { Text(item.text).font(BrandFont.body(12)).foregroundStyle(c.on2).lineLimit(3) }
+                            // Text messages: Reply opens the conversation in the Messages window.
+                            if model.smsEnabled, item.opensConversation {
+                                Button(L10n.text("sms.reply", fallback: "Reply")) { actions.openMessages(item.deviceID, item.smsThreadID) }
+                                    .buttonStyle(PillButtonStyle(kind: .tonal, height: 24))
+                                    .padding(.top, 4)
+                            }
                         }
                         .textSelection(.enabled)
                         .padding(.vertical, 8)
@@ -1177,6 +1204,98 @@ struct NotificationHistoryCard: View {
                     }
                 }
             }
+        }
+    }
+}
+
+/// Settings > Text messages, its own page as on the phone (Rahul, 2026-10-27). One card per topic, so
+/// later phone features that belong with texts (call settings, for example) join as cards of their own
+/// without reshaping the page.
+struct TextMessagesPane: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+
+    var body: some View {
+        TextMessagesCard(model: model, actions: actions)
+        if model.smsEnabled { TextMessagesStorageCard(model: model, actions: actions) }
+    }
+}
+
+/// Text messages: the switch, the phone's state and the Messages window.
+struct TextMessagesCard: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+
+    var body: some View {
+        SettingsCard {
+            SettingsToggle(title: L10n.text("sms.toggle", fallback: "Your phone\u{2019}s texts on this Mac"),
+                           subtitle: L10n.text("sms.toggle.detail", fallback: "Read and answer conversations in the Messages window, and reply from text notifications. Off by default. Messages travel only between your phone and this Mac, encrypted; Bridgey never becomes the phone\u{2019}s default SMS app."),
+                           divider: false, isOn: model.smsEnabled, set: actions.setSmsEnabled)
+            if model.smsEnabled {
+                SettingsRow(title: phoneTitle, subtitle: phoneDetail, subtitleIsWarning: phoneWarning, divider: true) {
+                    Button(L10n.text("sms.open", fallback: "Open Messages")) { actions.openMessages(nil, nil) }
+                        .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                }
+                SettingsRow(title: L10n.text("sms.limits", fallback: "Group conversations and pictures"),
+                            subtitle: L10n.text("sms.limits.detail", fallback: "You can read them here. Reply to groups and send pictures from your phone."), divider: true) { EmptyView() }
+            }
+        }
+    }
+
+    private var phoneTitle: String {
+        switch model.smsPhone {
+        case .noPhone: L10n.text("sms.state.noPhone", fallback: "No phone connected")
+        case let .phoneOff(name), let .waiting(name), let .ready(name, _): name
+        }
+    }
+
+    private var phoneWarning: Bool {
+        switch model.smsPhone {
+        case .phoneOff: true
+        case let .ready(_, status): !status.read
+        default: false
+        }
+    }
+
+    private var phoneDetail: String {
+        switch model.smsPhone {
+        case .noPhone: return L10n.text("sms.state.noPhone.detail", fallback: "Conversations show while your phone is connected.")
+        case .phoneOff: return L10n.text("sms.state.phoneOff", fallback: "Off on the phone. Turn on Text messages in Bridgey there.")
+        case .waiting: return L10n.text("sms.state.waiting", fallback: "Waiting for the phone\u{2026}")
+        case let .ready(_, status):
+            guard status.read else { return L10n.text("sms.state.permission", fallback: "SMS is not allowed on the phone yet. Allow it on Bridgey\u{2019}s Permissions page there.") }
+            var lines = [status.send ? L10n.text("sms.state.ready", fallback: "Reading and sending allowed")
+                                     : L10n.text("sms.state.readOnly", fallback: "Reading allowed; sending is not allowed on the phone")]
+            if !status.contacts { lines.append(L10n.text("sms.state.noContacts", fallback: "Names hidden until Contacts is allowed on the phone")) }
+            if status.sims.count > 1 {
+                lines.append(String(format: L10n.text("sms.state.sims", fallback: "SIMs: %@"), status.sims.map(simTitle).joined(separator: ", ")))
+            }
+            return lines.joined(separator: ". ")
+        }
+    }
+}
+
+/// Text messages > On this Mac: the cache and deleting it.
+struct TextMessagesStorageCard: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+    @State private var confirmDelete = false
+
+    var body: some View {
+        SettingsCard(title: L10n.text("sms.onThisMac", fallback: "On this Mac")) {
+            SettingsToggle(title: L10n.text("sms.keep", fallback: "Keep conversations on this Mac"),
+                           subtitle: L10n.text("sms.keep.detail", fallback: "Up to 200 conversations, readable only by your account, so they open instantly. Off: they load from the phone each time. Images are never kept."),
+                           divider: false, isOn: model.smsKeepOnMac, set: actions.setSmsKeepOnMac)
+            SettingsRow(title: L10n.text("sms.delete", fallback: "Delete messages on this Mac"),
+                        subtitle: L10n.text("sms.delete.detail", fallback: "Your phone keeps every message."), divider: true) {
+                Button(L10n.text("sms.delete.button", fallback: "Delete")) { confirmDelete = true }
+                    .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
+            }
+        }
+        .confirmationDialog(L10n.text("sms.delete.confirm", fallback: "Delete messages on this Mac?"), isPresented: $confirmDelete) {
+            Button(L10n.text("sms.delete.button", fallback: "Delete"), role: .destructive, action: actions.deleteMessages)
+        } message: {
+            Text(L10n.text("sms.delete.detail", fallback: "Your phone keeps every message."))
         }
     }
 }
@@ -1371,6 +1490,8 @@ struct LiveSettingsView: View {
     @ObservedObject var batteryAlerts: BatteryAlerts
     @ObservedObject var focusSync: FocusSync
     @ObservedObject var camera: PhoneCamera
+    @ObservedObject var updateAll = UpdateAllCoordinator.shared
+    @ObservedObject var phoneScreen: PhoneScreen
     @State private var pane: SettingsPane = .devices
     @State private var availableShortcuts: [String]?
     @State private var phoneLinkStatus: String?
@@ -1394,6 +1515,7 @@ struct LiveSettingsView: View {
         batteryAlerts = pairing.batteryAlerts
         focusSync = pairing.focusSync
         camera = pairing.camera
+        phoneScreen = pairing.phoneScreen
     }
 
     private var codeModelDisplay: CodeModelDisplay {
@@ -1490,6 +1612,8 @@ struct LiveSettingsView: View {
         model.canCheckForUpdates = updater.canCheckForUpdates
         model.updateFlow = updater.flow
         model.updateDeferral = updater.deferral
+        model.updateAll = updateAll.display()
+        model.remoteStartUpdates = updateAll.remoteStartAllowed
         model.shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
         model.versionDescription = updater.versionDescription
         model.phoneLinkStatus = phoneLinkStatus
@@ -1505,6 +1629,10 @@ struct LiveSettingsView: View {
         model.health = pairing.connectionHealth
         model.focusSync = focusSync.settings
         model.cameraCopyToClipboard = camera.copyToClipboard
+        model.phoneScreenEnabled = phoneScreen.enabled
+        model.smsEnabled = settings.smsEnabled
+        model.smsKeepOnMac = settings.smsKeepOnMac
+        model.smsPhone = pairing.textMessagesDisplay
         model.batteryAlerts = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, batteryAlerts.thresholds(for: $0.id)) })
         return model
     }
@@ -1550,6 +1678,11 @@ struct LiveSettingsView: View {
         actions.setOpenLinksRightAway = { settings.setOpenLinksRightAway($0) }
         actions.setBatteryAlerts = { id, thresholds in batteryAlerts.setThresholds(thresholds, for: id) }
         actions.setCameraCopyToClipboard = { camera.setCopyToClipboard($0) }
+        actions.setPhoneScreen = { phoneScreen.setEnabled($0) }
+        actions.setSmsEnabled = { pairing.setTextMessagesEnabled($0) }
+        actions.setSmsKeepOnMac = { pairing.setTextMessagesKeepOnMac($0) }
+        actions.deleteMessages = { pairing.deleteTextMessagesOnMac() }
+        actions.openMessages = { phoneID, threadID in MessagesWindowController.show(pairing: pairing, phoneID: phoneID, threadID: threadID) }
         actions.setFocusSync = { change in
             focusSync.update(change)
             if focusSync.settings.follow { loadShortcuts() }
@@ -1620,6 +1753,8 @@ struct LiveSettingsView: View {
         actions.setAutomaticallyChecks = { updater.setAutomaticallyChecks($0) }
         actions.checkForUpdates = { updater.checkForUpdates() }
         actions.update = updater.flowActions
+        actions.updateAll = updateAll.actions
+        actions.setRemoteStartUpdates = { updateAll.setRemoteStartAllowed($0) }
         actions.openURL = { NSWorkspace.shared.open($0) }
         return setupCenter.hooked(actions, showPane: { pane = $0 }, inSetup: inSetup)
     }

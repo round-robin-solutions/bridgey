@@ -8,6 +8,15 @@ struct NotificationHistoryItem: Codable, Identifiable, Equatable {
     let title: String
     let text: String
     let receivedAt: Date
+    /// Text messages (sms_draft1): the phone and notification it came from, its conversation and whether
+    /// the phone can answer it. Optional, so history files from before still load.
+    var deviceID: String? = nil
+    var notificationID: String? = nil
+    var smsThreadID: Int? = nil
+    var smsReply: Bool? = nil
+
+    /// Reply opens the conversation in the Messages window.
+    var opensConversation: Bool { deviceID != nil && (smsThreadID != nil || smsReply == true) }
 }
 
 final class NotificationHistoryStore {

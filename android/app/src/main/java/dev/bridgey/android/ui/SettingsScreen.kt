@@ -120,6 +120,10 @@ data class SettingsState(
     val setup: SetupSettingsState = SetupSettingsState(),
     /** Notifications > Focus sync with the Macs. */
     val focus: FocusSettingsState = FocusSettingsState(),
+    /** Updates > Your devices and Update all. */
+    val updateAll: UpdateAllUiState = UpdateAllUiState(),
+    /** Text messages: permissions and how replies are sent. */
+    val messages: MessagesSettingsState = MessagesSettingsState(),
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean = globalFeatures[feature] != false
 }
@@ -168,6 +172,8 @@ class SettingsActions(
     /** v0.10: Permissions, Reset, Run setup again, OEM steps, Obtainium. */
     val setup: SetupSettingsActions = SetupSettingsActions(),
     val focus: FocusSettingsActions = FocusSettingsActions(),
+    val updateAll: UpdateAllActions = UpdateAllActions(),
+    val messages: MessagesSettingsActions = MessagesSettingsActions(),
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
@@ -186,6 +192,7 @@ enum class SettingsSection(val titleRes: Int, val group: SettingsGroup?) {
     DEVICES(R.string.settings_devices, SettingsGroup.DEVICES),
     CLIPBOARD(R.string.feature_clipboard, SettingsGroup.FEATURES),
     NOTIFICATIONS(R.string.settings_notifications, SettingsGroup.FEATURES),
+    MESSAGES(R.string.feature_sms, SettingsGroup.FEATURES),
     CALLS(R.string.feature_calls, SettingsGroup.FEATURES),
     FILES(R.string.feature_files, SettingsGroup.FEATURES),
     MEDIA(R.string.settings_media, SettingsGroup.FEATURES),
@@ -236,6 +243,7 @@ fun SettingsScreen(
         SettingsSection.DEVICES -> DevicesPage(state, actions, listState)
         SettingsSection.CLIPBOARD -> ClipboardPage(state, actions, listState)
         SettingsSection.NOTIFICATIONS -> NotificationsPage(state, actions, listState)
+        SettingsSection.MESSAGES -> MessagesPage(state, actions, listState)
         SettingsSection.CALLS -> CallsPage(state, actions, listState)
         SettingsSection.FILES -> FilesPage(state, actions, listState)
         SettingsSection.MEDIA -> MediaPage(state, actions, listState)
@@ -417,6 +425,21 @@ private fun NotificationsPage(state: SettingsState, actions: SettingsActions, li
     }
 }
 
+/** Text messages: the switch, then what Android allows and how replies from the Mac are sent. */
+@Composable
+private fun MessagesPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
+    SectionPage(SettingsSection.MESSAGES, actions, listState) {
+        val on = state.featureOn(BridgeyFeature.SMS)
+        item(key = "messages") {
+            RowGroup(Modifier.padding(top = 8.dp)) {
+                row { shape -> FeatureSwitch(shape, BridgeyFeature.SMS, state, actions) }
+                if (on) messagesRows(state.messages, actions.messages)
+            }
+        }
+        item(key = "messages.note") { Note(stringResource(R.string.messages_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) }
+    }
+}
+
 /** Calls: the switch, then call status and controls. */
 @Composable
 private fun CallsPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
@@ -539,6 +562,14 @@ private fun PrivacyPage(state: SettingsState, actions: SettingsActions, listStat
 private fun UpdatesPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
     SectionPage(SettingsSection.UPDATES, actions, listState) {
         item(key = "updates") { UpdatesCard(state.update, state.installedVersion, state.now, actions) }
+        item(key = "updates.devices") {
+            val colors = BridgeyTheme.colors
+            YourDevicesCard(
+                state.updateAll,
+                actions.updateAll,
+                Modifier.padding(horizontal = 16.dp).padding(top = 12.dp).fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(colors.surface1).padding(bottom = 4.dp),
+            )
+        }
     }
 }
 
@@ -702,6 +733,7 @@ private fun sectionVisual(section: SettingsSection, state: SettingsState): Pair<
         SettingsSection.DEVICES -> BridgeyIcons.Devices to Tint.BLUE
         SettingsSection.CLIPBOARD -> feature(BridgeyFeature.CLIPBOARD)
         SettingsSection.NOTIFICATIONS -> feature(BridgeyFeature.NOTIFICATIONS)
+        SettingsSection.MESSAGES -> feature(BridgeyFeature.SMS)
         SettingsSection.CALLS -> feature(BridgeyFeature.CALLS)
         SettingsSection.FILES -> feature(BridgeyFeature.FILES)
         SettingsSection.MEDIA -> feature(BridgeyFeature.MEDIA, MediaSectionFeatures.any(state::featureOn))
@@ -715,7 +747,7 @@ private fun sectionVisual(section: SettingsSection, state: SettingsState): Pair<
 
 /** The features on the Media and quick actions page, in its order. */
 private val MediaSectionFeatures = listOf(
-    BridgeyFeature.MEDIA, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA, BridgeyFeature.LINKS, BridgeyFeature.PING,
+    BridgeyFeature.MEDIA, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA, BridgeyFeature.SCREEN, BridgeyFeature.LINKS, BridgeyFeature.PING,
     BridgeyFeature.FIND_DEVICE, BridgeyFeature.BATTERY,
 )
 
@@ -744,6 +776,12 @@ private fun sectionSummary(section: SettingsSection, state: SettingsState): Sect
             featureOff(BridgeyFeature.NOTIFICATIONS) -> SectionSummary(off)
             !state.notificationAccessEnabled -> SectionSummary(stringResource(R.string.settings_summary_notifications_access), warning = true)
             else -> SectionSummary(stringResource(R.string.settings_notification_apps_count, state.notificationAppsEnabled, state.notificationAppsTotal))
+        }
+        SettingsSection.MESSAGES -> when {
+            featureOff(BridgeyFeature.SMS) -> SectionSummary(off)
+            !state.messages.smsAllowed -> SectionSummary(stringResource(R.string.settings_summary_messages_access), warning = true)
+            state.messages.replyAsSms -> SectionSummary(stringResource(R.string.settings_summary_messages_sms))
+            else -> SectionSummary(stringResource(R.string.settings_summary_messages_on))
         }
         SettingsSection.CALLS -> SectionSummary(
             when {
@@ -806,8 +844,12 @@ private fun updatesSummary(state: SettingsState): SectionSummary {
         is UpdateCardPhase.Confirming -> stringResource(R.string.settings_summary_updates_ready, short(phase.update.versionName)) to false
         is UpdateCardPhase.Downloading -> stringResource(R.string.settings_summary_updates_downloading) to false
         is UpdateCardPhase.Failed -> stringResource(R.string.settings_summary_updates_failed) to true
+        is UpdateCardPhase.Installing -> stringResource(R.string.settings_summary_updates_ready, short(phase.update.versionName)) to false
+        is UpdateCardPhase.Ready -> stringResource(R.string.settings_summary_updates_ready, short(phase.update.versionName)) to false
+        is UpdateCardPhase.NotApplied -> stringResource(R.string.settings_summary_updates_failed) to true
     }
-    val ready = phase is UpdateCardPhase.Available || phase is UpdateCardPhase.Waiting || phase is UpdateCardPhase.Confirming
+    val ready = phase is UpdateCardPhase.Available || phase is UpdateCardPhase.Waiting || phase is UpdateCardPhase.Confirming ||
+        phase is UpdateCardPhase.Ready || phase is UpdateCardPhase.Installing
     return SectionSummary(stringResource(R.string.settings_summary_dot, channel, status), warning = warning, badge = ready)
 }
 
@@ -958,6 +1000,8 @@ private fun globalFeatureDetail(feature: BridgeyFeature): String = stringResourc
         BridgeyFeature.REMOTE_INPUT -> R.string.settings_remote_detail
         BridgeyFeature.MAC_ACTIONS -> R.string.settings_mac_actions_detail
         BridgeyFeature.CAMERA -> R.string.settings_camera_detail
+        BridgeyFeature.SCREEN -> R.string.settings_screen_detail
+        BridgeyFeature.SMS -> R.string.feature_sms_detail
     },
 )
 
@@ -1091,6 +1135,9 @@ private fun UpdateStatusCard(phase: UpdateCardPhase, installedVersion: String, n
         is UpdateCardPhase.Confirming -> stringResource(R.string.updates_is_ready, phase.update.versionName)
         is UpdateCardPhase.Downloading -> stringResource(R.string.updates_downloading, phase.update.versionName)
         is UpdateCardPhase.Failed -> stringResource(R.string.updates_failed)
+        is UpdateCardPhase.Ready -> stringResource(R.string.updates_is_ready, phase.update.versionName)
+        is UpdateCardPhase.Installing -> stringResource(R.string.updates_installing, phase.update.versionName)
+        is UpdateCardPhase.NotApplied -> stringResource(R.string.updates_not_applied_title)
     }
     val detail: String? = when (phase) {
         is UpdateCardPhase.Current -> if (phase.lastCheckedAt > 0) {
@@ -1109,12 +1156,15 @@ private fun UpdateStatusCard(phase: UpdateCardPhase, installedVersion: String, n
             Formatter.formatShortFileSize(context, phase.update.size),
         )
         is UpdateCardPhase.Failed -> updateErrorText(phase.error)
+        is UpdateCardPhase.Ready -> stringResource(R.string.updates_ready_detail)
+        is UpdateCardPhase.Installing -> stringResource(R.string.updates_installing_detail)
+        is UpdateCardPhase.NotApplied -> stringResource(R.string.updates_not_applied_detail, phase.versionName, installedVersion)
     }
     val (icon, tint) = when (phase) {
         is UpdateCardPhase.Current -> if (phase.lastCheckedAt > 0) BridgeyIcons.CheckCircle to Tint.GREEN else BridgeyIcons.Refresh to Tint.NEUTRAL
         is UpdateCardPhase.Skipped, UpdateCardPhase.Checking -> BridgeyIcons.Refresh to Tint.NEUTRAL
-        is UpdateCardPhase.Failed -> BridgeyIcons.Error to Tint.NEUTRAL
-        is UpdateCardPhase.Confirming -> BridgeyIcons.Update to Tint.GREEN
+        is UpdateCardPhase.Failed, is UpdateCardPhase.NotApplied -> BridgeyIcons.Error to Tint.NEUTRAL
+        is UpdateCardPhase.Confirming, is UpdateCardPhase.Ready, is UpdateCardPhase.Installing -> BridgeyIcons.Update to Tint.GREEN
         else -> BridgeyIcons.Download to Tint.PURPLE
     }
     Column(modifier) {
@@ -1123,7 +1173,7 @@ private fun UpdateStatusCard(phase: UpdateCardPhase, installedVersion: String, n
             Column(Modifier.weight(1f).padding(start = 12.dp, end = 12.dp)) {
                 Text(title, style = BridgeyType.itemTitle, color = colors.onSurface)
                 if (detail != null) {
-                    Text(detail, style = BridgeyType.itemBody, color = if (phase is UpdateCardPhase.Failed) colors.warn else colors.onSurfaceVariant)
+                    Text(detail, style = BridgeyType.itemBody, color = if (phase is UpdateCardPhase.Failed || phase is UpdateCardPhase.NotApplied) colors.warn else colors.onSurfaceVariant)
                 }
             }
             if (phase is UpdateCardPhase.Available) {
@@ -1194,6 +1244,13 @@ private fun UpdateStatusCard(phase: UpdateCardPhase, installedVersion: String, n
             is UpdateCardPhase.Failed -> Row(buttons, horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                 OutlinePillButton(stringResource(R.string.action_dismiss), null, actions.dismissUpdateError)
                 TonalPillButton(stringResource(R.string.action_retry), if (phase.retryInstalls) actions.install else actions.checkNow)
+            }
+            is UpdateCardPhase.Ready -> Row(buttons, horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                GradientButton(stringResource(R.string.updates_install), BridgeyIcons.Update, actions.install, height = 40.dp, textStyle = BridgeyType.label)
+            }
+            // Only the person tries a version that did not apply again.
+            is UpdateCardPhase.NotApplied -> Row(buttons, horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                TonalPillButton(stringResource(R.string.action_retry), if (phase.canRetry) actions.install else actions.checkNow)
             }
             else -> Unit
         }

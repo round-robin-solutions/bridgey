@@ -1029,7 +1029,7 @@ final class FolderSender {
         actions.setIncludeHidden = { [weak self] value in self?.changeOptions(id) { $0.includeHidden = value } }
         actions.setIncludeSystem = { [weak self] value in self?.changeOptions(id) { $0.includeSystem = value } }
         actions.send = { [weak self] in self?.sheetSend(id) }
-        actions.cancel = { [weak self] in self?.sheet?.controller.window?.close() }
+        actions.cancel = { [weak self] in BridgeyWindows.close(self?.sheet?.controller.window) }
         return actions
     }
 

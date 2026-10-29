@@ -19,6 +19,10 @@ data class DeviceLinkState(
     val remoteLinksOpen: Boolean = false,
     /** The device advertised focus_sync_draft1: it understands focus.state. */
     val remoteFocusSync: Boolean = false,
+    /** The device advertised updates_draft1: it sends updates.status and understands updates.start. */
+    val remoteUpdates: Boolean = false,
+    /** Its latest updates.status (version, channel, where its update stands), or null before the first. */
+    val updateStatus: dev.bridgey.android.updates.UpdateStatus? = null,
     val battery: RemoteBatteryStatus? = null,
     /** The device reported that it is ringing (Find device). */
     val ringing: Boolean = false,

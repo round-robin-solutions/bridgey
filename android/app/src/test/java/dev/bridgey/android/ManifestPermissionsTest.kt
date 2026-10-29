@@ -22,11 +22,13 @@ class ManifestPermissionsTest {
                 "android.permission.POST_NOTIFICATIONS",
                 "android.permission.FOREGROUND_SERVICE",
                 "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",
+                "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION",
                 "android.permission.WAKE_LOCK",
                 "android.permission.CALL_PHONE",
                 "android.permission.READ_PHONE_STATE",
                 "android.permission.ANSWER_PHONE_CALLS",
                 "android.permission.REQUEST_INSTALL_PACKAGES",
+                "android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION",
                 "android.permission.READ_LOGS",
                 "android.permission.SYSTEM_ALERT_WINDOW",
                 "android.permission.READ_MEDIA_IMAGES",
@@ -35,6 +37,10 @@ class ManifestPermissionsTest {
                 "android.permission.READ_EXTERNAL_STORAGE",
                 "android.permission.ACCESS_NOTIFICATION_POLICY",
                 "android.permission.CAMERA",
+                // Text messages (off by default, asked for when it is turned on).
+                "android.permission.READ_SMS",
+                "android.permission.SEND_SMS",
+                "android.permission.READ_CONTACTS",
             ),
             declared,
         )
@@ -69,15 +75,31 @@ class ManifestPermissionsTest {
         )
     }
 
-    /** READ_SMS is in lab builds only (beta, nightly, local), for the Code reader test; stable never has it. */
+    /** Since Text messages, SMS access is in every build and the lab overlay is gone. */
     @Test
-    fun labManifestAddsOnlyReadSmsAndOnlyOutsideStable() {
-        val lab = File("src/lab/AndroidManifest.xml").readText()
-        val declared = Regex("""<uses-permission android:name="([^"]+)"""").findAll(lab).map { it.groupValues[1] }.toSet()
-        assertEquals(setOf("android.permission.READ_SMS"), declared)
-        val gradle = File("build.gradle.kts").readText()
-        org.junit.Assert.assertTrue(gradle.contains("if (!isStableBuild) {"))
-        org.junit.Assert.assertTrue(gradle.contains("src/lab/AndroidManifest.xml"))
-        org.junit.Assert.assertTrue(!File("src/main/AndroidManifest.xml").readText().contains("READ_SMS"))
+    fun noLabManifestOverlay() {
+        org.junit.Assert.assertTrue(!File("src/lab/AndroidManifest.xml").exists())
+        org.junit.Assert.assertTrue(!File("build.gradle.kts").readText().contains("src/lab/AndroidManifest.xml"))
+    }
+
+    /**
+     * Bridgey never becomes the default SMS app: it declares none of the components Android requires of
+     * one (SMS_DELIVER, WAP_PUSH_DELIVER, RESPOND_VIA_MESSAGE, a SENDTO handler for sms: or smsto:).
+     */
+    @Test
+    fun neverADefaultSmsHandler() {
+        val full = File("src/main/AndroidManifest.xml").readText()
+        // <queries> may name these intents to see the default SMS app (lookups only, no components); the rest of
+        // the manifest may not.
+        val queries = Regex("<queries>[\\s\\S]*?</queries>").find(full)?.value.orEmpty()
+        listOf("<activity", "<receiver", "<service", "<provider", "<intent-filter").forEach { org.junit.Assert.assertFalse(it, queries.contains(it)) }
+        val manifest = full.replace(queries, "")
+        listOf(
+            "android.provider.Telephony.SMS_DELIVER", "android.provider.Telephony.WAP_PUSH_DELIVER",
+            "android.intent.action.RESPOND_VIA_MESSAGE", "android.intent.action.SENDTO", "android.permission.BROADCAST_SMS",
+            "android:scheme=\"sms\"", "android:scheme=\"smsto\"", "android.permission.WRITE_SMS", "android.permission.RECEIVE_SMS",
+        ).forEach { org.junit.Assert.assertFalse(it, manifest.contains(it)) }
+        // The send results receiver only takes Bridgey's own PendingIntents.
+        org.junit.Assert.assertTrue(manifest.contains("""<receiver android:name=".sms.SmsResultReceiver" android:exported="false" />"""))
     }
 }

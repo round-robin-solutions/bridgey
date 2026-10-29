@@ -13,6 +13,8 @@ struct BridgeyApp: App {
 
     init() {
         LegacyPreferences.migrateIfNeeded()
+        // Popovers close on clicks in other apps; closed windows that stay on screen are taken off.
+        WindowWatchdog.shared.start()
         // Before BridgeySettings writes anything: a pending reset, then setup or the review banner.
         SetupCenter.shared.prepareLaunch()
         let settings = BridgeySettings()
@@ -33,6 +35,8 @@ struct BridgeyApp: App {
         QuickSendController.shared.attach(pairing: pairing)
         let updater = AppUpdater()
         self.updater = updater
+        // Update all: this Mac's version and update state for phones, their requests, and runs from here.
+        UpdateAllCoordinator.shared.configure(pairing: pairing, updater: updater)
         let settingsWindow = SettingsWindowController(discovery: discovery, pairing: pairing, settings: settings, updater: updater)
         self.settingsWindow = settingsWindow
         appDelegate.configure { [weak pairing] number in pairing?.sendCallWhenConnected(number, source: .link) }

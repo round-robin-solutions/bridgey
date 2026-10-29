@@ -23,6 +23,7 @@ import dev.bridgey.android.folders.utf8Length
 import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.Callable
+import java.util.concurrent.ExecutorCompletionService
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Future
 import org.json.JSONArray
@@ -336,6 +337,7 @@ class BrowseServer(
         .put("modified", item.modifiedMillis).put("mimeType", item.mimeType).put("width", item.width ?: JSONObject.NULL)
         .put("height", item.height ?: JSONObject.NULL).put("durationMs", item.durationMs ?: JSONObject.NULL).put("thumb", true)
         .put("location", item.location?.take(BrowseLimits.MAX_LOCATION_CHARS) ?: JSONObject.NULL)
+        .put("taken", item.sortMillis)
 
     private fun documentJson(item: DocumentItem): JSONObject = JSONObject()
         .put("ref", BrowseRefs.toJson(BrowseRef.Place(item.placeId, item.path, item.name))).put("name", item.name).put("size", item.size)
@@ -388,23 +390,32 @@ class BrowseServer(
             val key = item?.optString("key")?.takeIf(::isThumbnailKey) ?: return error(requestId, FolderCodes.INVALID_MESSAGE)
             key to BrowseRefs.parse(item.optJSONObject("ref"))
         }
-        val futures: List<Future<EncodedImage?>> = items.map { (_, ref) ->
-            env.mediaPool.submit(Callable {
-                if (flag.cancelled || ref == null) return@Callable null
-                val source = runCatching { resolve(ref) }.getOrNull()?.thumb ?: return@Callable null
-                runCatching { env.thumbnails.make(source, size, BrowseLimits.THUMB_MAX_BYTES, preview = false, cancel = flag) }.getOrNull()
+        // Made in the order asked (visible items first), sent in the order they are ready: a slow item (a 50 MP
+        // photo, a video's first frame) no longer holds back the ones after it. Askers match thumbnails by key.
+        val completion = ExecutorCompletionService<Pair<Int, EncodedImage?>>(env.mediaPool)
+        val futures: List<Future<Pair<Int, EncodedImage?>>> = items.mapIndexed { index, (_, ref) ->
+            completion.submit(Callable {
+                if (flag.cancelled || ref == null) return@Callable index to null
+                val source = runCatching { resolve(ref) }.getOrNull()?.thumb ?: return@Callable index to null
+                index to runCatching { env.thumbnails.make(source, size, BrowseLimits.THUMB_MAX_BYTES, preview = false, cancel = flag) }.getOrNull()
                     ?.takeIf { it.bytes.size <= BrowseLimits.THUMB_MAX_BYTES }
             })
         }
         flag.onCancel { futures.forEach { it.cancel(false) } }
         val packer = ThumbnailBatcher(requestId) { batch -> if (!flag.cancelled) sendLow(BrowseKinds.MEDIA_THUMBNAILS_BATCH, batch) }
-        for ((index, future) in futures.withIndex()) {
+        var remaining = futures.size
+        var ready = completion.take()
+        while (true) {
             if (flag.cancelled) return
-            val image = runCatching { future.get() }.getOrNull()
+            val (index, image) = runCatching { ready.get() }.getOrNull() ?: return
             val key = items[index].first
             if (image == null) packer.missing(key) else packer.add(key, image)
-            // Latency first: what is ready goes out before waiting on a slow one.
-            if (index + 1 < futures.size && !futures[index + 1].isDone) packer.flush(done = false)
+            if (--remaining == 0) break
+            // Latency first: what is ready goes out before waiting for the next one.
+            ready = completion.poll() ?: run {
+                packer.flush(done = false)
+                completion.take()
+            }
         }
         if (!flag.cancelled) packer.flush(done = true)
     }

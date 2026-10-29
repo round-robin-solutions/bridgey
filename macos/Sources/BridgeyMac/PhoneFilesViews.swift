@@ -176,11 +176,12 @@ private struct PhoneFilesToolbar: View {
                 .help(L10n.text("phonefiles.sort.help", fallback: "Sort"))
             }
             Button {
-                quickLook(model.selectedEntries.filter(PhoneFilesText.quickLookable))
+                model.togglePreview()
             } label: { Image(systemName: "eye") }
                 .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
-                .disabled(!model.selectedEntries.contains(where: PhoneFilesText.quickLookable))
-                .help(L10n.text("phonefiles.quickLook", fallback: "Quick Look (Space)"))
+                .disabled(!model.selectedEntries.contains(where: { !$0.isDirectory }))
+                .help(L10n.text("phonefiles.preview.help", fallback: "Preview (Space)"))
+                .accessibilityLabel(L10n.text("phonefiles.preview", fallback: "Preview"))
             if let url = model.selectedEntries.count == 1 ? model.savedURL(model.selectedEntries[0]) : nil {
                 Button(L10n.text("phonefiles.showInFinder", fallback: "Show in Finder")) { showInFinder(url) }
                     .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
@@ -244,6 +245,7 @@ private struct PhoneFilesContent: View {
     let quickLook: ([PhoneFileEntry]) -> Void
     let showInFinder: (URL) -> Void
     @Environment(\.brand) private var c
+    @Environment(\.snapshotRendering) private var snapshot
 
     var body: some View {
         if model.phone == nil {
@@ -288,7 +290,11 @@ private struct PhoneFilesContent: View {
         } else {
             switch model.section {
             case .media:
-                PhoneMediaGrid(model: model, promises: promises, quickLook: quickLook, showInFinder: showInFinder, now: model.displayNow ?? Date())
+                if snapshot {
+                    PhoneMediaGrid(model: model, promises: promises, quickLook: quickLook, showInFinder: showInFinder, now: model.displayNow ?? Date())
+                } else {
+                    PhoneMediaCollection(model: model, promises: promises, quickLook: quickLook, showInFinder: showInFinder)
+                }
             case .files, .recent, .folders:
                 PhoneFileList(model: model, promises: promises, quickLook: quickLook, showInFinder: showInFinder, now: model.displayNow ?? Date())
             }
@@ -494,7 +500,7 @@ struct PhoneMediaGrid: View {
         var title: String?
         var seen = Set<String>()
         for entry in entries {
-            let day = entry.modified.map { PhoneFilesText.day($0, now: now) } ?? L10n.text("phonefiles.day.unknown", fallback: "Earlier")
+            let day = entry.dayDate.map { PhoneFilesText.day($0, now: now) } ?? L10n.text("phonefiles.day.unknown", fallback: "Earlier")
             if day != title, let title, !current.isEmpty {
                 groups.append(Group(title: seen.contains(title) ? title + " " : title, entries: current))
                 seen.insert(title)
@@ -535,9 +541,9 @@ private struct MediaCell: View {
 
     var body: some View {
         let selected = model.selection.contains(entry.id)
+        // A square as wide as the column; the thumbnail is cropped into it whatever its shape.
         PhoneThumbnailView(box: model.thumbnails.box(for: entry), symbol: PhoneFilesText.symbol(entry), corner: 6)
-            .aspectRatio(1, contentMode: .fill)
-            .frame(minWidth: 0, maxWidth: .infinity)
+            .aspectRatio(1, contentMode: .fit)
             .overlay(alignment: .bottomTrailing) {
                 if let duration = PhoneFilesText.duration(entry.durationMs) {
                     HStack(spacing: 3) {
@@ -585,7 +591,9 @@ private struct MediaCell: View {
     }
 }
 
-/// A thumbnail: the tint (or a neutral surface) first, then the image fading in by opacity.
+/// A thumbnail: the tint (or a neutral surface) first, then the image fading in by opacity. It takes the size
+/// it is offered: the image fills that frame and is cropped to it, so a tall screenshot or a wide video never
+/// sizes or overflows its cell.
 struct PhoneThumbnailView: View {
     @ObservedObject var box: ThumbnailBox
     let symbol: String
@@ -594,31 +602,60 @@ struct PhoneThumbnailView: View {
     @Environment(\.brandReduceMotion) private var reduce
 
     var body: some View {
-        ZStack {
-            placeholder
-            if let image = box.image {
-                Image(decorative: image.image, scale: 1)
-                    .resizable()
-                    .interpolation(.medium)
-                    .scaledToFill()
-                    .transition(.opacity)
+        placeholder
+            .overlay {
+                if let image = box.image {
+                    Image(decorative: image.image, scale: 1)
+                        .resizable()
+                        .interpolation(.medium)
+                        .scaledToFill()
+                        .transition(.opacity)
+                }
             }
-        }
-        .animation(box.arrived && !reduce ? BrandMotion.effects : nil, value: box.image != nil)
-        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-        .contentShape(Rectangle())
+            .animation(box.arrived && !reduce ? BrandMotion.effects : nil, value: box.image != nil)
+            .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+            .contentShape(Rectangle())
     }
 
     @ViewBuilder private var placeholder: some View {
-        if let tint = box.tint {
-            Color(hex: tint)
-        } else {
-            ZStack {
-                c.s3
-                Image(systemName: symbol)
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(c.on2.opacity(0.6))
+        switch box.image == nil ? box.state : .loaded {
+        case .unavailable:
+            fallback(symbol: symbol, color: c.on2, text: L10n.text("phonefiles.thumb.none", fallback: "No preview"))
+        case .failed:
+            fallback(symbol: "exclamationmark.triangle", color: c.warn, text: L10n.text("phonefiles.thumb.failed", fallback: "Couldn't load"))
+        case .waiting, .loaded:
+            if let tint = box.tint {
+                Color(hex: tint)
+            } else {
+                ZStack {
+                    c.s3
+                    Image(systemName: symbol)
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(c.on2.opacity(0.6))
+                }
             }
+        }
+    }
+
+    /// The phone has no picture, or it never came: a clear mark instead of a placeholder that never fills.
+    /// Small cells (file list rows) show the mark alone.
+    private func fallback(symbol: String, color: Color, text: String) -> some View {
+        GeometryReader { proxy in
+            ZStack {
+                c.s2
+                VStack(spacing: 6) {
+                    Image(systemName: symbol)
+                        .font(.system(size: proxy.size.width < 60 ? 14 : 20, weight: .regular))
+                        .foregroundStyle(color)
+                    if proxy.size.width >= 60 {
+                        Text(text)
+                            .font(BrandFont.body(10, .medium))
+                            .foregroundStyle(c.on2)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .accessibilityLabel(text)
         }
     }
 }
@@ -938,11 +975,15 @@ private struct PhoneFilesStatusStrip: View {
 
 // MARK: - Preview
 
+/// The viewer: Space or a double click on a photo or video shows it over the grid at once (the thumbnail, then
+/// the 1600 px preview), arrows move through the listing, Space or Escape go back. Videos play after their
+/// original downloads (with progress and Cancel); Quick Look opens the original too.
 struct PhonePreviewOverlay: View {
     @ObservedObject var model: PhoneFilesModel
     let quickLook: ([PhoneFileEntry]) -> Void
     let showInFinder: (URL) -> Void
     @State private var player: AVPlayer?
+    @State private var playerEntry: String?
     @Environment(\.brand) private var c
     @Environment(\.snapshotRendering) private var snapshot
 
@@ -951,34 +992,8 @@ struct PhonePreviewOverlay: View {
             VStack(spacing: 0) {
                 header(state)
                 ZStack {
-                    if let player, !snapshot {
-                        VideoPlayer(player: player)
-                    } else if let image = model.previewImage {
-                        Image(decorative: image.image, scale: 1)
-                            .resizable()
-                            .interpolation(.high)
-                            .scaledToFit()
-                            .padding(24)
-                    } else if let error = state.error {
-                        PhoneFilesMessage(symbol: "photo", title: L10n.text("phonefiles.preview.none", fallback: "No preview"),
-                                          detail: PhoneFilesText.error(error, phone: model.phoneName))
-                    } else if !state.entry.hasThumbnail {
-                        PhoneFilesMessage(symbol: PhoneFilesText.symbol(state.entry), title: state.entry.name,
-                                          detail: PhoneFilesText.kind(state.entry) + ", " + PhoneFilesText.size(state.entry.size))
-                    } else {
-                        ProgressView().controlSize(.small)
-                    }
-                    if state.entry.isVideo, player == nil, model.previewImage != nil {
-                        Button { play(state.entry) } label: {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 26, weight: .bold))
-                                .foregroundStyle(BrandPalette.midnight)
-                                .frame(width: 64, height: 64)
-                                .background(Circle().fill(BrandPalette.aurora))
-                        }
-                        .buttonStyle(PressScaleStyle())
-                        .help(L10n.text("phonefiles.play", fallback: "Play"))
-                    }
+                    content(state)
+                    sideButtons(state)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if let progress = state.originalProgress {
@@ -988,16 +1003,85 @@ struct PhonePreviewOverlay: View {
                             .foregroundStyle(c.on2)
                         UpdateProgressBar(progress: progress.phase == .transferring ? progress.fraction : nil)
                             .frame(width: 220)
+                        Button(L10n.text("action.cancel", fallback: "Cancel")) { model.cancel(activity: "ql-" + state.entry.id) }
+                            .buttonStyle(PillButtonStyle(kind: .neutral, height: 24))
                     }
                     .padding(.bottom, 14)
                 }
             }
             .background(c.bg.opacity(0.97))
-            .onDisappear {
-                player?.pause()
-                player = nil
+            .onChange(of: state.entry.id) { _ in stopPlayer() }
+            .onDisappear { stopPlayer() }
+        }
+    }
+
+    @ViewBuilder private func content(_ state: PhonePreviewState) -> some View {
+        if let player, playerEntry == state.entry.id, !snapshot {
+            PhoneVideoPlayer(player: player)
+                .padding(24)
+        } else {
+            ZStack {
+                if let image = model.previewImage {
+                    Image(decorative: image.image, scale: 1)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .padding(24)
+                        .accessibilityLabel(state.entry.name)
+                } else if let error = state.error {
+                    PhoneFilesMessage(symbol: "photo", title: L10n.text("phonefiles.preview.none", fallback: "No preview"),
+                                      detail: PhoneFilesText.error(error, phone: model.phoneName),
+                                      button: PhoneFilesText.isTransient(error) ? L10n.text("phonefiles.retry", fallback: "Try again") : nil,
+                                      action: model.retryPreview)
+                } else if !state.entry.hasThumbnail {
+                    PhoneFilesMessage(symbol: PhoneFilesText.symbol(state.entry), title: state.entry.name,
+                                      detail: PhoneFilesText.kind(state.entry) + ", " + PhoneFilesText.size(state.entry.size))
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+                if state.entry.isVideo, model.previewImage != nil, !model.isFetchingOriginal(state.entry) {
+                    Button { play(state.entry) } label: {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 26, weight: .bold))
+                            .foregroundStyle(BrandPalette.midnight)
+                            .frame(width: 64, height: 64)
+                            .background(Circle().fill(BrandPalette.aurora))
+                    }
+                    .buttonStyle(PressScaleStyle())
+                    .help(L10n.text("phonefiles.play", fallback: "Play"))
+                    .accessibilityLabel(L10n.text("phonefiles.play", fallback: "Play"))
+                }
             }
         }
+    }
+
+    /// Previous and next, like the arrow keys.
+    @ViewBuilder private func sideButtons(_ state: PhonePreviewState) -> some View {
+        let entries = model.currentEntries
+        let index = entries.firstIndex { $0.id == state.entry.id }
+        HStack {
+            if let index, entries[..<index].contains(where: { !$0.isDirectory }) {
+                sideButton("chevron.left", help: L10n.text("phonefiles.previous", fallback: "Previous")) { model.showAdjacent(-1) }
+            }
+            Spacer(minLength: 0)
+            if let index, entries[(index + 1)...].contains(where: { !$0.isDirectory }) {
+                sideButton("chevron.right", help: L10n.text("phonefiles.next", fallback: "Next")) { model.showAdjacent(1) }
+            }
+        }
+        .padding(.horizontal, 12)
+    }
+
+    private func sideButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(c.on)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(c.s2.opacity(0.9)))
+        }
+        .buttonStyle(PressScaleStyle())
+        .help(help)
+        .accessibilityLabel(help)
     }
 
     private func header(_ state: PhonePreviewState) -> some View {
@@ -1007,6 +1091,7 @@ struct PhonePreviewOverlay: View {
             }
             .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
             .help(L10n.text("action.close", fallback: "Close"))
+            .accessibilityLabel(L10n.text("action.close", fallback: "Close"))
             VStack(alignment: .leading, spacing: 1) {
                 Text(state.entry.name)
                     .font(BrandFont.body(14, .semibold))
@@ -1023,6 +1108,7 @@ struct PhonePreviewOverlay: View {
             if PhoneFilesText.quickLookable(state.entry) {
                 Button(L10n.text("phonefiles.quickLook.short", fallback: "Quick Look")) { quickLook([state.entry]) }
                     .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
+                    .help(L10n.text("phonefiles.quickLook.help", fallback: "Open the original in Quick Look (Command Y)"))
             }
             if let url = model.savedURL(state.entry) {
                 Button(L10n.text("phonefiles.showInFinder", fallback: "Show in Finder")) { showInFinder(url) }
@@ -1047,10 +1133,44 @@ struct PhonePreviewOverlay: View {
     }
 
     private func play(_ entry: PhoneFileEntry) {
-        model.fetchOriginal(entry) { url in
+        model.loadOriginal(entry) { (result: Result<URL, PhoneFilesError>) in
+            guard case let .success(url) = result, model.preview?.entry.id == entry.id else { return }
+            stopPlayer()
             let next = AVPlayer(url: url)
             player = next
+            playerEntry = entry.id
             next.play()
         }
+    }
+
+    private func stopPlayer() {
+        player?.pause()
+        player = nil
+        playerEntry = nil
+    }
+}
+
+/// Video playback with AppKit's AVPlayerView. SwiftUI's VideoPlayer lives in _AVKit_SwiftUI, which needs AVKit
+/// loaded; nothing else in the app links AVKit, so pressing Play aborted the app on macOS 27 ("failed to demangle
+/// superclass of VideoPlayerView", 2026-10-28). Using AVPlayerView here links AVKit itself.
+struct PhoneVideoPlayer: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.controlsStyle = .inline
+        view.showsFullScreenToggleButton = true
+        view.videoGravity = .resizeAspect
+        view.player = player
+        return view
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        if view.player !== player { view.player = player }
+    }
+
+    static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
+        view.player?.pause()
+        view.player = nil
     }
 }

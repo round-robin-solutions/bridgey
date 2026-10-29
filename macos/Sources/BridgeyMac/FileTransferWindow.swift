@@ -73,7 +73,7 @@ private struct FileTransferView: View {
                 }
                 Spacer()
                 Button(L10n.text("history.entry", fallback: "History")) { TransferHistoryWindowController.show(pairing: pairing) }
-                Button("Close") { NSApp.keyWindow?.close() }
+                Button("Close") { BridgeyWindows.close(NSApp.keyWindow) }
             }
         }
         .padding(24)

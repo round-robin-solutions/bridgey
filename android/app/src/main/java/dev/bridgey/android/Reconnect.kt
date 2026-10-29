@@ -21,6 +21,13 @@ object ReconnectPolicy {
     /** After the fast phase the device has been away for a while: one attempt every 10 minutes. */
     const val SLOW_DELAY_MILLIS = 600_000L
 
+    /**
+     * A trusted device last connected longer ago than this is away: a launch or network change tries it
+     * once and then keeps to the slow delay, and discovery restarts are not run for it. NSD seeing it or
+     * "Retry now" still starts a fast phase. Mirrors the Mac's `awayAfter`.
+     */
+    const val AWAY_AFTER_MILLIS = 3_600_000L
+
     /** After this many failed attempts the device shows "Can't reach" rather than "Reconnecting". */
     const val STRUGGLING_AFTER_ATTEMPTS = 4
 
@@ -283,17 +290,18 @@ class ReconnectSchedule(private val delayFor: (Int, Long) -> Long = ReconnectPol
 
     fun ids(): Set<String> = entries.keys.toSet()
 
-    fun disconnected(id: String, nowMillis: Long) {
+    /** [phaseStartMillis] earlier than [nowMillis] puts the episode that far into its phase. */
+    fun disconnected(id: String, nowMillis: Long, phaseStartMillis: Long = nowMillis) {
         if (id in entries) return
-        entries[id] = ReconnectEntry(0, nowMillis, nowMillis + delayFor(0, 0))
+        entries[id] = ReconnectEntry(0, phaseStartMillis, nowMillis + delayFor(0, 0))
     }
 
     fun connected(id: String) {
         entries.remove(id)
     }
 
-    fun reset(id: String, nowMillis: Long) {
-        entries[id] = ReconnectEntry(0, nowMillis, nowMillis)
+    fun reset(id: String, nowMillis: Long, phaseStartMillis: Long = nowMillis) {
+        entries[id] = ReconnectEntry(0, phaseStartMillis, nowMillis)
     }
 
     fun resetAll(nowMillis: Long) = entries.keys.toList().forEach { reset(it, nowMillis) }
@@ -386,9 +394,11 @@ data class ReconnectDisplay(
     val lastSeenMillis: Long?,
     /** Several attempts failed: "Can't reach" rather than "Reconnecting". */
     val struggling: Boolean,
+    /** The user disconnected it on this phone: nothing is retried until they connect again. */
+    val disconnectedByUser: Boolean = false,
 )
 
-/** What NSD shows for one trusted device right now. */
+/** What NSD shows for one device with an advertised id right now (trusted or not). */
 data class LivePeer(val deviceId: String, val addresses: List<String>, val port: Int)
 
 /**
@@ -422,7 +432,8 @@ class ReconnectEngine(
         if (!isTrusted(id)) return
         if (seenNow) addressBook.markSeen(id, clock.wallMillis())
         synchronized(this) {
-            schedule.disconnected(id, clock.elapsedMillis())
+            val now = clock.elapsedMillis()
+            schedule.disconnected(id, now, phaseStartLocked(id, now))
             armLocked()
         }
         onChange()
@@ -483,14 +494,32 @@ class ReconnectEngine(
         onChange()
     }
 
-    /** A network change, Doze exit or screen on: every listed device is tried now, with the fast delays again. */
+    /**
+     * A launch, network change, Doze exit or screen on: every listed device is tried now, with the fast
+     * delays again, except a device that is away ([ReconnectPolicy.AWAY_AFTER_MILLIS]), which is tried
+     * now and then keeps to the slow delay.
+     */
     fun resetAll(ids: Collection<String>) {
         synchronized(this) {
             val now = clock.elapsedMillis()
-            ids.filter { isTrusted(it) && !isConnected(it) }.forEach { schedule.reset(it, now) }
+            ids.filter { isTrusted(it) && !isConnected(it) }.forEach { schedule.reset(it, now, phaseStartLocked(it, now)) }
             armLocked()
         }
         onChange()
+    }
+
+    /** Not connected for longer than [ReconnectPolicy.AWAY_AFTER_MILLIS] (a device never connected is not away). */
+    fun isAway(id: String): Boolean {
+        if (isConnected(id)) return false
+        val last = addressBook.lastConnected(id) ?: return false
+        return clock.wallMillis() - last >= ReconnectPolicy.AWAY_AFTER_MILLIS
+    }
+
+    /** Where a new episode starts on the monotonic clock: now, or for an away device, as long ago as it was last connected. */
+    private fun phaseStartLocked(id: String, nowElapsed: Long): Long {
+        if (!isAway(id)) return nowElapsed
+        val awayFor = clock.wallMillis() - (addressBook.lastConnected(id) ?: return nowElapsed)
+        return nowElapsed - awayFor
     }
 
     /** "Retry now" and "Look for devices again": dial every known address at once. */
@@ -510,8 +539,9 @@ class ReconnectEngine(
 
     fun display(id: String): ReconnectDisplay? {
         if (!isTrusted(id) || isConnected(id)) return null
-        val attempts = synchronized(this) { schedule.entry(id)?.attempts ?: 0 }
-        return ReconnectDisplay(addressBook.lastConnected(id), attempts >= ReconnectPolicy.STRUGGLING_AFTER_ATTEMPTS)
+        val (attempts, away) = synchronized(this) { (schedule.entry(id)?.attempts ?: 0) to (isAway(id) && livePeers.none { it.deviceId == id }) }
+        // Away and not in NSD: "Can't reach" at once, not "Reconnecting" through ten slow minutes.
+        return ReconnectDisplay(addressBook.lastConnected(id), away || attempts >= ReconnectPolicy.STRUGGLING_AFTER_ATTEMPTS)
     }
 
     @Synchronized fun entry(id: String): ReconnectEntry? = schedule.entry(id)
@@ -524,10 +554,13 @@ class ReconnectEngine(
             ?.let { peer -> peer.addresses.mapNotNull { host -> normalizedHost(host)?.let { KnownAddress(it, peer.port, AddressSource.DISCOVERY, now) } } }
             .orEmpty()
         // NSD just saw the live addresses on a local network, so they are always worth a try; the
-        // remembered ones only on a network this phone is on now.
+        // remembered ones only on a network this phone is on now, and not when NSD now shows that
+        // address for another device (DHCP moved it, or the device was reset and has a new identity).
         val networks = networks()
         val seen = HashSet<String>()
-        return live.filter { seen.add(it.host) } + addressBook.addresses(id).filter { seen.add(it.host) && isDialable(it.host, networks) }
+        val elsewhere = livePeers.filter { it.deviceId != id }.flatMap { peer -> peer.addresses.mapNotNull(::normalizedHost) }.toSet()
+        return live.filter { seen.add(it.host) } +
+            addressBook.addresses(id).filter { seen.add(it.host) && it.host !in elsewhere && isDialable(it.host, networks) }
     }
 
     /** One timer for every device: it fires at the earliest due attempt of a device with no dial in flight. */

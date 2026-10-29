@@ -8,7 +8,8 @@ import org.junit.Test
  * Pins the Settings section order Rahul agreed, mirrored by the macOS sidebar. Remote control
  * (2026-10-26) sits after Media and quick actions, the other "control the Mac" section. Since the
  * Settings pages (2026-10-26) the home shows This phone as a header card and the other sections as
- * rows in three groups: Devices, Features, App.
+ * rows in three groups: Devices, Features, App. Text messages (2026-10-27) follows Notifications; on the
+ * Mac it is a card on the Notifications pane.
  */
 class SettingsSectionOrderTest {
     @Test
@@ -19,6 +20,7 @@ class SettingsSectionOrderTest {
                 SettingsSection.DEVICES,
                 SettingsSection.CLIPBOARD,
                 SettingsSection.NOTIFICATIONS,
+                SettingsSection.MESSAGES,
                 SettingsSection.CALLS,
                 SettingsSection.FILES,
                 SettingsSection.MEDIA,
@@ -40,6 +42,7 @@ class SettingsSectionOrderTest {
                 SettingsGroup.FEATURES to listOf(
                     SettingsSection.CLIPBOARD,
                     SettingsSection.NOTIFICATIONS,
+                    SettingsSection.MESSAGES,
                     SettingsSection.CALLS,
                     SettingsSection.FILES,
                     SettingsSection.MEDIA,
