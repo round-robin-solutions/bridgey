@@ -342,6 +342,19 @@ class SetupScreenshotTest {
 
     @Test @Config(qualifiers = "+night") fun codesLinkPickerDark() = codesLinkPicker()
 
+    /** Settings > General on a Google Pixel: App battery usage, Adaptive Battery, Pause app activity if unused. */
+    private fun pixelChecklist() = capture("oem-checklist-pixel") {
+        SettingsScreen(
+            state = settings.copy(batteryExempt = false, setup = SetupSettingsState(oem = OemBattery.checklist("Google", "google"))),
+            actions = SettingsActions(),
+            section = SettingsSection.GENERAL,
+        )
+    }
+
+    @Test fun pixelChecklistLight() = pixelChecklist()
+
+    @Test @Config(qualifiers = "+night") fun pixelChecklistDark() = pixelChecklist()
+
     private fun obtainium() = capture("obtainium") { SettingsScreen(state = settings, actions = SettingsActions(), section = SettingsSection.ABOUT) }
 
     @Test fun obtainiumLight() = obtainium()

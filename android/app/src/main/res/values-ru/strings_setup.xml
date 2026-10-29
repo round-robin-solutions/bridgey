@@ -156,15 +156,21 @@
     <string name="oem_title">Чтобы Bridgey работал на %1$s</string>
     <string name="oem_intro">Этот телефон закрывает фоновые приложения сверх обычных настроек батареи Android. Измените это один раз и проверьте снова после обновления системы.</string>
     <string name="oem_source">Шаги по dontkillmyapp.com</string>
+    <string name="oem_intro_pixel">Android может ограничить или приостановить приложение, которое вы давно не открывали. Измените это один раз и проверьте снова после обновления системы.</string>
+    <string name="oem_source_pixel">Шаги из справки Pixel</string>
     <string name="oem_vendor_oneplus">OnePlus</string>
     <string name="oem_vendor_coloros">Oppo и Realme (ColorOS)</string>
     <string name="oem_vendor_xiaomi">Xiaomi, Redmi и Poco (HyperOS и MIUI)</string>
     <string name="oem_vendor_samsung">Samsung (One UI)</string>
     <string name="oem_vendor_vivo">Vivo и iQOO</string>
+    <string name="oem_vendor_pixel">Google Pixel</string>
     <string name="oem_step_auto_start">Автозапуск</string>
     <string name="oem_step_background">Работа в фоне</string>
     <string name="oem_step_battery">Оптимизация батареи</string>
     <string name="oem_step_never_sleeping">Приложения, которые не усыпляются</string>
+    <string name="oem_step_app_battery_usage">Расход заряда приложением</string>
+    <string name="oem_step_adaptive_battery">Адаптивное энергопотребление</string>
+    <string name="oem_step_pause_if_unused">Приостановить работу в неактивный период</string>
     <string name="oem_oneplus_auto_start">Настройки, Приложения, Автозапуск: включите Bridgey.</string>
     <string name="oem_oneplus_background">О приложении, Батарея: разрешите работу в фоне.</string>
     <string name="oem_oneplus_battery">Батарея, Оптимизация батареи: для Bridgey выберите «Не оптимизировать». В разделе «Расширенная оптимизация» отключите «Глубокую оптимизацию» и «Оптимизацию в режиме сна».</string>
@@ -180,6 +186,9 @@
     <string name="oem_vivo_auto_start">i Manager, Диспетчер приложений, Автозапуск: включите Bridgey.</string>
     <string name="oem_vivo_background">Батарея, Энергопотребление в фоне: разрешите Bridgey.</string>
     <string name="oem_vivo_battery">О приложении, Батарея: выберите «Не ограничивать работу в фоне».</string>
+    <string name="oem_pixel_app_battery_usage">Настройки, Приложения, Bridgey, Расход заряда батареи приложениями: нажмите «Разрешить использование в фоновом режиме» и выберите «Без ограничений».</string>
+    <string name="oem_pixel_adaptive_battery">Настройки, Батарея, Режим энергосбережения, Адаптивное энергопотребление. «Без ограничений» уже выводит Bridgey из-под него, так что его можно не отключать. Если уведомления всё равно приходят с задержкой, выключите его.</string>
+    <string name="oem_pixel_pause_if_unused">Настройки, Приложения, Bridgey, Настройки неиспользуемых приложений: выключите «Приостановить работу в неактивный период». В некоторых версиях это «Остановить работу приложения при простое».</string>
 
     <!-- Настройки, О приложении -->
     <string name="obtainium_title">Добавить в Obtainium</string>
