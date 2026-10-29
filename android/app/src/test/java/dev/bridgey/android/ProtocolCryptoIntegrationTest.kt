@@ -76,6 +76,52 @@ class ProtocolCryptoIntegrationTest {
         assertNull(Crypto.decrypt(key, vector.required("aesNonce"), Base64.getEncoder().encodeToString(tampered)))
     }
 
+    @Test
+    fun androidMatchesSharedProtocol2CommitmentCodeAndEnvelopeVectors() {
+        val a = keyPair(vector.required("privateKeyA"), vector.required("publicKeyA"))
+        val b = keyPair(vector.required("privateKeyB"), vector.required("publicKeyB"))
+        val sessionId = vector.required("sessionId")
+        val publicA = vector.required("publicKeyA")
+        val publicB = vector.required("publicKeyB")
+
+        val commitment = SessionSecurity.commitment(sessionId, publicA)
+        assertEquals(vector.required("expectedCommitmentA"), commitment)
+        assertTrue(SessionSecurity.commitmentMatches(commitment, sessionId, publicA))
+        assertFalse(SessionSecurity.commitmentMatches(commitment, sessionId, publicB))
+        assertFalse(SessionSecurity.commitmentMatches(commitment, sessionId + "x", publicA))
+
+        // A is the initiator: both ends name A's key first.
+        val fromA = Crypto.pairingMaterial(a, publicB, sessionId, sasKeys = publicA to publicB)
+        val fromB = Crypto.pairingMaterial(b, publicA, sessionId, sasKeys = publicA to publicB)
+        assertEquals(vector.required("expectedSasCodeV2"), fromA.code)
+        assertEquals(fromA.code, fromB.code)
+        assertArrayEquals(Base64.getDecoder().decode(vector.required("expectedKey")), fromA.key)
+        assertTrue("the protocol 2 code is not the protocol 1 code", fromA.code != vector.required("expectedCode"))
+
+        val envelopeKey = SessionSecurity.envelopeKey(fromA.key)
+        assertArrayEquals(Base64.getDecoder().decode(vector.required("expectedEnvelopeKey")), envelopeKey)
+        val message = Message(
+            kind = "clipboard.update",
+            sessionId = sessionId,
+            messageId = vector.required("envelopeMessageId"),
+            nonce = vector.required("aesNonce"),
+            ciphertext = vector.required("aesCiphertext"),
+            sequence = vector.required("envelopeSequence").toLong(),
+        )
+        val tag = SessionSecurity.tag(envelopeKey, vector.required("deviceId"), message)
+        assertEquals(vector.required("expectedEnvelopeTag"), tag)
+        val tagged = message.copy(tag = tag)
+        assertTrue(SessionSecurity.tagMatches(envelopeKey, vector.required("deviceId"), tagged))
+        // Replay under a new messageId, a relabelled kind, a reflection to its sender, or no tag: all fail.
+        assertFalse(SessionSecurity.tagMatches(envelopeKey, vector.required("deviceId"), tagged.copy(messageId = "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5b")))
+        assertFalse(SessionSecurity.tagMatches(envelopeKey, vector.required("deviceId"), tagged.copy(kind = "clipboard.rich")))
+        assertFalse(SessionSecurity.tagMatches(envelopeKey, "mac-fixture-device", tagged))
+        assertFalse(SessionSecurity.tagMatches(envelopeKey, vector.required("deviceId"), message))
+        assertFalse(SessionSecurity.tagMatches(envelopeKey, vector.required("deviceId"), tagged.copy(sequence = 8)))
+        // The tag survives the wire: encode, strict decode, verify.
+        assertTrue(SessionSecurity.tagMatches(envelopeKey, vector.required("deviceId"), Message.decode(tagged.encode())))
+    }
+
     private fun keyPair(privateKey: String, publicKey: String): KeyPair {
         val parameters = AlgorithmParameters.getInstance("EC").apply {
             init(ECGenParameterSpec("secp256r1"))

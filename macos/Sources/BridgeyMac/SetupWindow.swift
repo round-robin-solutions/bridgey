@@ -18,8 +18,13 @@ struct SetupActions {
     var requestFromPage: (SetupPermission) -> Void = { _ in }
     /// Allow all: each permission in turn, coming back to the page after each.
     var allowAll: ([SetupPermission]) -> Void = { _ in }
-    var confirmPairing: () -> Void = {}
+    /// The pair step: Codes match and Don't match for the prompt with this token, Cancel or Close, Try again, and
+    /// whether the step is on screen (it keeps pairing from the phone allowed while it is).
+    var confirmPairing: (String) -> Void = { _ in }
+    var rejectPairing: (String) -> Void = { _ in }
     var cancelPairing: () -> Void = {}
+    var retryPairing: () -> Void = {}
+    var holdPairingArmed: (Bool) -> Void = { _ in }
     var openSettings: () -> Void = {}
     var start: () -> Void = {}
     /// Leave setup without finishing (Leave in "Leave setup?", or Escape on the first screen).
@@ -365,7 +370,9 @@ private struct SetupQuickStepView: View {
                         SetupWhyLine(label: L10n.setup("permission.why", fallback: "Why:"), text: why)
                         SetupWhyLine(label: L10n.setup("permission.without", fallback: "Without it:"), text: without)
                     }
-                    if isDone {
+                    if isDone, step == .pairPhone, let device = model.trustedDevices.first {
+                        SetupPairedBadge(name: device.name)
+                    } else if isDone {
                         SetupDoneBadge(text: doneText)
                     } else if let status, status.system == .denied {
                         Text(L10n.setup("setup.step.denied", fallback: "Not allowed. Open System Settings to allow it."))
@@ -484,36 +491,65 @@ private struct SetupProgressDots: View {
     }
 }
 
-/// Pair a phone: the nearby list from Settings > Devices, and the code check while pairing.
+/// Pair a phone: the nearby list from Settings > Devices, then the pairing flow in its place (PairingViews.swift).
+/// While the step is open the phone may start pairing too (the coordinator holds Allow pairing on).
 private struct SetupPairing: View {
     let model: SettingsModel
     let actions: SettingsActions
     let setup: SetupActions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            switch model.pairingFlow {
+            case .idle, .connected:
+                PairNewCard(model: model, actions: actions)
+                SetupPairFromPhoneLine()
+            default:
+                SettingsCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        PairingFlowContent(state: model.pairingFlow, actions: PairingFlowActions(
+                            confirm: setup.confirmPairing, reject: setup.rejectPairing, cancel: setup.cancelPairing,
+                            retry: setup.retryPairing, openLocalNetworkSettings: { setup.allow(.localNetwork) }
+                        ), codeSize: 40)
+                    }
+                    .padding(.vertical, 12)
+                }
+            }
+        }
+        .onAppear { setup.holdPairingArmed(true) }
+        .onDisappear { setup.holdPairingArmed(false) }
+    }
+}
+
+private struct SetupPairFromPhoneLine: View {
     @Environment(\.brand) private var c
 
     var body: some View {
-        if case let .verification(name, code) = model.state {
-            SettingsCard(footnote: L10n.text("panel.verify.detail", fallback: "Confirm only if both devices show the same code.")) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(String(format: L10n.text("panel.verify", fallback: "Verify %@"), name))
-                        .font(BrandFont.body(13, .semibold))
-                        .foregroundStyle(c.on)
-                    Text(code)
-                        .font(BrandFont.heading(30))
-                        .foregroundStyle(c.on)
-                        .monospacedDigit()
-                        .textSelection(.enabled)
-                    HStack(spacing: 10) {
-                        Button(L10n.text("action.cancel", fallback: "Cancel"), action: setup.cancelPairing)
-                            .buttonStyle(PillButtonStyle(kind: .outline, height: 30))
-                        Button(L10n.text("panel.verify.match", fallback: "Codes Match"), action: setup.confirmPairing)
-                            .buttonStyle(PillButtonStyle(kind: .gradient, height: 30))
-                    }
-                }
-                .padding(.vertical, 12)
-            }
-        } else {
-            PairNewCard(model: model, actions: actions)
+        HStack(spacing: 8) {
+            Image(systemName: "lock.open")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(c.tgi)
+                .accessibilityHidden(true)
+            Text(L10n.setup("setup.pair.fromPhone", fallback: "You can also start pairing on the phone while this page is open."))
+                .font(BrandFont.body(12))
+                .foregroundStyle(c.on2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 4)
+    }
+}
+
+/// Paired: the badge and the next step.
+private struct SetupPairedBadge: View {
+    let name: String
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SetupDoneBadge(text: String(format: L10n.setup("setup.pair.done", fallback: "Paired with %@"), name))
+            Text(L10n.setup("setup.pair.next", fallback: "Click Next to continue."))
+                .font(BrandFont.body(13))
+                .foregroundStyle(c.on2)
         }
     }
 }
@@ -998,7 +1034,7 @@ private struct SetupQuestionView: View {
 
     @ViewBuilder private var pairing: some View {
         if let device = model.trustedDevices.first {
-            SetupDoneBadge(text: String(format: L10n.setup("setup.pair.done", fallback: "Paired with %@"), device.name))
+            SetupPairedBadge(name: device.name)
         } else {
             SetupPairing(model: model, actions: actions, setup: setup)
         }

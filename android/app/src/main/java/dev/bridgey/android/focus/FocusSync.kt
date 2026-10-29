@@ -131,9 +131,9 @@ class FocusSync(
         return handBack()
     }
 
-    /** A Mac's focus.state. */
+    /** A Mac's focus.state; only a connected Mac that advertised focus_sync_draft1 ([peers]) counts. */
     @Synchronized fun remote(deviceId: String, active: Boolean): FocusApply {
-        if (!followOn()) return FocusApply.IGNORED
+        if (!followOn() || deviceId !in peers()) return FocusApply.IGNORED
         remoteActive[deviceId] = active
         val wanted = remoteActive.values.any { it }
         return if (wanted) turnOn() else handBack()

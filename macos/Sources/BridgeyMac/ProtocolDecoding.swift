@@ -183,6 +183,13 @@ func decodeProtocolMessage(_ data: Data) throws -> PairingMessage {
         guard let integer = jsonInteger(value) else { throw PairingError.invalidMessage }
         sequence = Int64(integer)
     }
+    var protocolVersion: Int64?
+    switch object["protocolVersion"] {
+    case nil, is NSNull: protocolVersion = nil
+    case let value:
+        guard let integer = jsonInteger(value) else { throw PairingError.invalidMessage }
+        protocolVersion = Int64(integer)
+    }
     return PairingMessage(
         kind: kind,
         sessionId: sessionId,
@@ -197,8 +204,19 @@ func decodeProtocolMessage(_ data: Data) throws -> PairingMessage {
         ciphertext: try optional("ciphertext"),
         transferId: try optional("transferId"),
         sequence: sequence,
-        targetDeviceId: try optional("targetDeviceId")
+        targetDeviceId: try optional("targetDeviceId"),
+        commitment: try optional("commitment"),
+        protocolVersion: protocolVersion,
+        tag: try optional("tag"),
+        reason: try boundedReason(optional("reason"))
     )
+}
+
+/// `reason` in pairing.cancel is at most 32 bytes; a longer one closes the session like any bad envelope field.
+private func boundedReason(_ value: String?) throws -> String? {
+    guard let value else { return nil }
+    guard value.utf8.count <= 32 else { throw PairingError.invalidMessage }
+    return value
 }
 
 /// Splits the byte stream of one connection into frames. A frame ends at LF; one CR before the LF is

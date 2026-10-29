@@ -9,12 +9,34 @@ import Carbon
 import UserNotifications
 import UniformTypeIdentifiers
 
+/// The pairing flow as the UI draws it (Android has the same states in PairingCoordinator.kt).
 enum PairingState: Equatable {
     case idle
     case connecting(String)
-    case verification(peerName: String, code: String)
+    /// The other device is not accepting pairings right now; this Mac retries every 3 s for two minutes.
+    case waitingForAllow(String)
+    case verification(PairingPrompt)
+    /// A prompted pairing finished; cleared by Close or the next pairing.
+    case paired(deviceID: String, peerName: String)
     case connected(deviceID: String, peerName: String)
-    case failed(String)
+    case failed(PairingFailure, peerName: String, detail: String? = nil)
+}
+
+/// The code prompt. `token` names the pairing it belongs to: Codes match and Don't match act only on that one.
+struct PairingPrompt: Equatable {
+    var peerName: String
+    var code: String
+    var token: String = ""
+    var localConfirmed = false
+    var remoteConfirmed = false
+}
+
+/// A device that tried to pair while this Mac was not accepting pairings (shown for two minutes).
+struct PairingRequest: Equatable {
+    let deviceID: String
+    let peerName: String
+    /// It runs an older Bridgey (no committed pairing): allowing would not help, it needs an update.
+    let oldVersion: Bool
 }
 
 struct RemoteBatteryStatus: Equatable {
@@ -123,7 +145,7 @@ private struct NotificationActionCommandPayload: Codable {
     let replyText: String?
 }
 
-private struct FileOfferPayload: Codable {
+struct FileOfferPayload: Codable {
     let transferId: String
     let name: String
     let mimeType: String
@@ -220,8 +242,14 @@ final class PairingCoordinator: ObservableObject {
     @Published private(set) var state: PairingState = .idle {
         didSet { refreshAutoClipboard() }
     }
-    /// The pairing in progress only: connecting, verification or failed, else idle. Owns the prompt.
+    /// The pairing in progress only: connecting, waiting for Allow pairing, verification, paired or failed, else idle.
+    /// Owns the prompt.
     @Published private(set) var pairingFlow: PairingState = .idle
+    /// Allow pairing: whether committed offers are answered now, the seconds left on the button's two minutes (0 when
+    /// off or only held by an open pairing screen), and a device that tried while they were not.
+    @Published private(set) var pairingArmed = false
+    @Published private(set) var armedRemainingSeconds = 0
+    @Published private(set) var pairingRequest: PairingRequest?
     /// Every connected phone with its own features, battery and ringing state, in connection order.
     @Published private(set) var connectedPhones: [PhoneConnection] = []
     /// The phone outgoing actions aim at (nil: the latest connection).
@@ -297,6 +325,18 @@ final class PairingCoordinator: ObservableObject {
     private var identity: MacIdentity?
     private let pairingStore: MacPairingStore
     private let trustRegistry: MacTrustRegistry
+    private let protocolPins = ProtocolPins()
+    private var inboundPairingLimiter = InboundPairingLimiter()
+    private var arming = PairingArming()
+    private var sleepObserver: NSObjectProtocol?
+    private var armingTicker: Timer?
+    private var pairingRequestExpiry: DispatchWorkItem?
+    /// A request card the user dismissed stays hidden while that device keeps retrying (two minutes).
+    private var dismissedRequest: (deviceID: String, until: TimeInterval)?
+    /// WaitingForAllow on this Mac: when the two minutes started (monotonic) and the next dial.
+    private var allowWait: (startedAt: TimeInterval, retry: DispatchWorkItem?)?
+    /// What Try again restarts: the peer of the last pairing.
+    private var lastPairingPeer: PairingPeer?
     private var listener: NWListener?
     /// Multi-device sessions: pending (handshaking or pairing) and one per phone.
     private lazy var registry = SessionRegistry<Session>(localDeviceID: deviceID)
@@ -364,6 +404,7 @@ final class PairingCoordinator: ObservableObject {
     private let liveCodeLifetime: TimeInterval = 10 * 60
     private let codeClipboard = CodeClipboard()
     private let companionAdvertiser = CompanionLinkAdvertiser()
+    private var lastCodesAdvertiseAt = Date.distantPast
     private var remoteNotificationCategories: [String: UNNotificationCategory] = [:]
     private var incomingFiles: [String: IncomingFileTransfer] = [:]
     private var outgoingFiles: [String: OutgoingFileTransfer] = [:]
@@ -412,6 +453,13 @@ final class PairingCoordinator: ObservableObject {
         self.deviceID = deviceID
         self.deviceName = deviceName
         self.settings = settings
+        defer {
+            sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.pairingSystemWillSleep() }
+            }
+        }
         let notificationHistoryStore = NotificationHistoryStore()
         self.notificationHistoryStore = notificationHistoryStore
         activity = ActivityLog(store: ActivityStore())
@@ -475,6 +523,7 @@ final class PairingCoordinator: ObservableObject {
         folders.loadJournals()
         folderReceiver.loadJournals()
         quickActions.available = { [weak self] in self?.isFeatureAvailable($0) == true }
+        quickActions.availableFor = { [weak self] feature, id in self?.isFeatureAvailable(feature, for: id) == true }
         quickActions.send = { [weak self] in self?.sendQuickPayload(kind: $0, payload: $1) == true }
         quickActions.onActivity = { [weak self] kind in self?.recordConnectedActivity(kind) }
         quickActions.openRightAway = { [weak self] in self?.settings.openLinksRightAway == true }
@@ -665,14 +714,12 @@ final class PairingCoordinator: ObservableObject {
         guard identity != nil else { return }
         diagnostics.record(category: "pairing", event: "connection_started")
         guard let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
-            failPairing(.couldNotConnect, detail: "Invalid peer port")
+            failPairing(.couldNotConnect, peerName: peerName, detail: "Invalid peer port")
             return
         }
-        if let previous = pairingSession {
-            pairingSession = nil
-            previous.send(PairingMessage(kind: "pairing.cancel", sessionId: previous.id))
-            previous.close()
-        }
+        endAllowWait()
+        endPairingSession(reason: .cancelled)
+        lastPairingPeer = PairingPeer(dialled: true, host: host, port: port, peerName: peerName, deviceID: nil)
         pairingFlow = .connecting(peerName)
         publish()
         BridgeyLog.pairing.notice("pairing started peer=\(peerName, privacy: .private)")
@@ -700,25 +747,134 @@ final class PairingCoordinator: ObservableObject {
         current.id = UUID().uuidString.lowercased()
         current.privateKey = P256.KeyAgreement.PrivateKey()
         current.localEphemeralKey = current.privateKey!.publicKey.x963Representation.base64EncodedString()
+        current.tagSender = deviceID
+        // A first pairing commits to its key and reveals it after the answer (protocol 2); a reconnect to a
+        // trusted phone sends the key, because that phone's pinned identity signature authenticates it.
+        // A background reconnect never commits (it can never become a code prompt), and goes out only to a phone that
+        // is still trusted: one forgotten since the reconnect was scheduled gets no offer at all.
+        let backgroundTrusted = dialDeviceID.map { trustedIdentityKey($0) != nil } ?? false
+        current.committed = PairingRules.diallerCommits(userStarted: dialDeviceID == nil, targetTrusted: dialDeviceID != nil)
+        let offerAllowed = dialDeviceID == nil || PairingRules.backgroundDialAllowed(targetTrusted: backgroundTrusted)
         registry.addPending(current, initiatedLocally: true)
         scheduleConnectionTimeout(for: current)
         configure(current) { [weak self, weak current] in
             guard let self, let current, current.privateKey != nil else { return }
+            guard offerAllowed else {
+                BridgeyLog.reconnect.notice("dial dropped: no longer trusted")
+                current.dropReason = "not_trusted"
+                current.close()
+                return
+            }
             current.send(PairingMessage(
                 kind: "pairing.offer",
                 sessionId: current.id,
                 deviceId: self.deviceID,
                 deviceName: self.deviceName,
-                publicKey: current.localEphemeralKey,
-                targetDeviceId: current.dialDeviceID
+                publicKey: current.committed ? nil : current.localEphemeralKey,
+                targetDeviceId: current.dialDeviceID,
+                commitment: current.committed
+                    ? SessionSecurity.commitment(sessionID: current.id, publicKey: current.localEphemeralKey) : nil,
+                protocolVersion: SessionSecurity.protocolVersion
             ))
         }
         return current
     }
 
-    func confirm() {
-        guard let current = pairingSession, current.pairingKey != nil, !current.localConfirmed else { return }
+    /// Codes match, for the prompt with this token only (a prompt replaced meanwhile is never confirmed by mistake).
+    func confirm(token: String) {
+        guard let current = pairingSession, PairingRules.promptMatches(sessionToken: current.token, requested: token),
+              current.pairingKey != nil, !current.localConfirmed else { return }
         confirm(current)
+    }
+
+    /// Don't match: tells the other device (`mismatch`) and shows MISMATCH_LOCAL. Nothing is stored.
+    func reject(token: String) {
+        guard let current = pairingSession, PairingRules.promptMatches(sessionToken: current.token, requested: token) else { return }
+        BridgeyLog.pairing.notice("codes rejected by the user")
+        endPairingSession(reason: .mismatch)
+        failPairing(.mismatchLocal, peerName: current.peerName)
+    }
+
+    /// Try again on a failure card: the dialler dials the same address again; the end that was dialled dials the
+    /// other device where discovery sees it now. Not found: back to the nearby list.
+    func retryPairing() {
+        guard let peer = lastPairingPeer else {
+            cancel()
+            return
+        }
+        if peer.dialled, let host = peer.host, let port = peer.port {
+            pair(host: host, port: port, peerName: peer.peerName)
+            return
+        }
+        if let id = peer.deviceID?.lowercased(),
+           let found = lastPeers.first(where: { $0.deviceIDHint?.lowercased() == id }),
+           let host = found.host, let port = found.port {
+            pair(host: host, port: port, peerName: peer.peerName)
+            return
+        }
+        cancel()
+    }
+
+    /// Allow pairing: committed offers are answered for two minutes (a second tap starts them again).
+    func armPairing() {
+        arming.arm()
+        if pairingRequest?.oldVersion == false { clearPairingRequest() }
+        dismissedRequest = nil
+        refreshArming()
+    }
+
+    func disarmPairing() {
+        arming.disarm()
+        refreshArming()
+    }
+
+    /// Allow pairing does not survive sleep.
+    private func pairingSystemWillSleep() {
+        arming.systemWillSleep()
+        refreshArming()
+    }
+
+    /// A pairing screen (setup's pair step) keeps pairing allowed while it is open.
+    func holdPairingArmed(_ on: Bool) {
+        arming.hold(on)
+        refreshArming()
+    }
+
+    func dismissPairingRequest() {
+        if let request = pairingRequest { dismissedRequest = (request.deviceID.lowercased(), systemUptimeClock() + PairingArming.duration) }
+        clearPairingRequest()
+    }
+
+    private func refreshArming() {
+        let remaining = arming.remainingSeconds
+        if armedRemainingSeconds != remaining { armedRemainingSeconds = remaining }
+        if pairingArmed != arming.isArmed { pairingArmed = arming.isArmed }
+        if remaining > 0, armingTicker == nil {
+            armingTicker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.refreshArming() }
+            }
+        } else if remaining == 0 {
+            armingTicker?.invalidate()
+            armingTicker = nil
+        }
+    }
+
+    /// "<name> wants to pair", for two minutes, unless the user dismissed this device's card.
+    private func showPairingRequest(_ request: PairingRequest) {
+        if let dismissed = dismissedRequest, dismissed.deviceID == request.deviceID.lowercased(), systemUptimeClock() < dismissed.until {
+            return
+        }
+        if pairingRequest != request { pairingRequest = request }
+        pairingRequestExpiry?.cancel()
+        let expiry = DispatchWorkItem { [weak self] in self?.clearPairingRequest() }
+        pairingRequestExpiry = expiry
+        DispatchQueue.main.asyncAfter(deadline: .now() + PairingArming.duration, execute: expiry)
+    }
+
+    private func clearPairingRequest() {
+        pairingRequestExpiry?.cancel()
+        pairingRequestExpiry = nil
+        if pairingRequest != nil { pairingRequest = nil }
     }
 
     private func confirm(_ current: Session) {
@@ -742,25 +898,33 @@ final class PairingCoordinator: ObservableObject {
             ),
             signature: identity.sign(authTranscript(current))
         ))
+        publishPrompt(current)
         completeIfConfirmed(current)
     }
 
-    /// Cancels the pairing in progress (or clears its failure). Connected phones stay connected.
+    /// Cancels the pairing in progress (`cancelled`), or closes its failure or success card. Connected phones stay connected.
     func cancel() {
-        if let current = pairingSession {
-            pairingSession = nil
-            current.send(PairingMessage(kind: "pairing.cancel", sessionId: current.id))
-            current.close()
-        }
+        endAllowWait()
+        endPairingSession(reason: .cancelled)
         pairingFlow = .idle
         publish()
     }
 
-    /// Disconnect (panel, Settings): clears a pairing failure, else disconnects the selected phone.
+    /// Ends the pairing on screen: tells the other device why and closes. Its onFailure then finds no pairing to fail.
+    private func endPairingSession(reason: PairingCancelReason) {
+        guard let current = pairingSession else { return }
+        pairingSession = nil
+        current.sendThenClose(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: reason.rawValue))
+    }
+
+    /// Disconnect (panel, Settings): clears a pairing failure or success, else disconnects the selected phone.
     func dismiss() {
-        if case .failed = pairingFlow {
+        switch pairingFlow {
+        case .failed, .paired:
             cancel()
             return
+        default:
+            break
         }
         guard let id = registry.target(selected: selectedDeviceID) else {
             cancel()
@@ -793,6 +957,7 @@ final class PairingCoordinator: ObservableObject {
         transferHistory.forget(deviceID: deviceID)
         clearClipboardCache()
         trustRegistry.remove(deviceID: deviceID)
+        protocolPins.remove(deviceID)
         trustedDeviceIDs.remove(deviceID)
         settings.removeDevice(deviceID)
         batteryAlerts.forget(deviceID)
@@ -830,6 +995,7 @@ final class PairingCoordinator: ObservableObject {
     /// reconnect starts.
     private func deviceDisconnected(_ id: String, reason: String) {
         cancelTransfers(for: id)
+        focusSync.forget(id)
         remoteInput.disconnected(deviceID: id)
         macActions.disconnected(deviceID: id)
         camera.disconnected(id)
@@ -864,11 +1030,46 @@ final class PairingCoordinator: ObservableObject {
     }
 
     /// Shows `reason` for the user's pairing; never touches connected phones.
-    private func failPairing(_ reason: PairingFailure, detail: String? = nil) {
+    private func failPairing(_ reason: PairingFailure, peerName: String? = nil, detail: String? = nil) {
+        let name = peerName ?? pairingSession?.peerName ?? lastPairingPeer?.peerName ?? "Android device"
+        endAllowWait()
         pairingSession = nil
-        pairingFlow = .failed(detail.map { "\($0). \(reason.message)" } ?? reason.message)
+        pairingFlow = .failed(reason, peerName: name, detail: detail)
         diagnostics.record(category: "pairing", event: "failed", outcome: reason.rawValue)
         publish()
+    }
+
+    /// The other device answered `not_armed`: dial it again every 3 s on a fresh connection for up to two minutes,
+    /// until someone taps Allow pairing there (the answer then arrives and the code appears).
+    private func waitForAllow(after current: Session) {
+        guard let endpoint = current.endpoint, let port = NWEndpoint.Port(rawValue: UInt16(clamping: endpoint.port)) else {
+            failPairing(.couldNotConnect, peerName: current.peerName)
+            return
+        }
+        let now = systemUptimeClock()
+        let startedAt = allowWait?.startedAt ?? now
+        guard now - startedAt < PairingArming.duration else {
+            failPairing(.notAllowed, peerName: current.peerName)
+            return
+        }
+        pairingSession = nil
+        allowWait?.retry?.cancel()
+        let peerName = current.peerName
+        let retry = DispatchWorkItem { [weak self] in
+            guard let self, self.allowWait != nil, self.pairingSession == nil else { return }
+            self.pairingSession = self.dial(host: endpoint.host, port: port, peerName: peerName, deviceID: nil)
+        }
+        allowWait = (startedAt, retry)
+        if pairingFlow != .waitingForAllow(peerName) {
+            pairingFlow = .waitingForAllow(peerName)
+            publish()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: retry)
+    }
+
+    private func endAllowWait() {
+        allowWait?.retry?.cancel()
+        allowWait = nil
     }
 
     func updateDeviceName(_ value: String) {
@@ -884,9 +1085,17 @@ final class PairingCoordinator: ObservableObject {
         sendCall(value)
     }
 
-    func sendCallWhenConnected(_ value: String) {
+    func sendCallWhenConnected(_ value: String, source: CallRequestSource) {
         guard let number = normalizedPhoneNumber(value) else {
             setTransientCallStatus("Phone link does not contain a valid number")
+            return
+        }
+        if source.needsConfirmation {
+            // Asked once the Service or the link handler has returned, so the other app does not wait on it.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.confirmCall(number) else { return }
+                self.sendCallWhenConnected(number, source: .bridgey)
+            }
             return
         }
         pendingCallNumber = number
@@ -903,6 +1112,17 @@ final class PairingCoordinator: ObservableObject {
         }
         pendingCallExpiryWorkItem = expiry
         DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: expiry)
+    }
+
+    /// Asks on this Mac before a call another app started goes to the phone.
+    private func confirmCall(_ number: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = callConfirmationTitle(number: number, phoneName: session?.peerName)
+        alert.informativeText = L10n.text("call.confirm.detail", fallback: "Another app asked Bridgey to place this call.")
+        alert.addButton(withTitle: L10n.text("call.confirm.call", fallback: "Call"))
+        alert.addButton(withTitle: L10n.text("action.cancel", fallback: "Cancel"))
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     func sendCall(_ value: String) {
@@ -1090,6 +1310,7 @@ final class PairingCoordinator: ObservableObject {
         clipboardCache.removePartials()
         clipboardCache.enforceLimits()
         clipboardInbox.progress = ClipboardPasteProgressPanel()
+        clipboardInbox.eagerLimit = { [weak self] in self?.settings.clipboardEagerLimit ?? 0 }
         clipboardInbox.protectedOfferIDs = { [weak self] in
             self?.clipboardOutbox.current.map { [$0.offer.offerId] } ?? []
         }
@@ -1258,7 +1479,8 @@ final class PairingCoordinator: ObservableObject {
               let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
               let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
               let payload = try? JSONDecoder().decode(ClipboardErrorPayload.self, from: plaintext),
-              payload.version == 1 else { return }
+              payload.version == 1,
+              clipboardInbox.isTransfer(payload.transferId, from: current.remoteDeviceID) else { return }
         clipboardInbox.handleError(payload)
     }
 
@@ -1276,7 +1498,8 @@ final class PairingCoordinator: ObservableObject {
             if let transferID = message.transferId { sendTransferControl(kind: "files.cancel", transferID: transferID, to: current) }
             return true
         }
-        guard clipboardOffersEnabledLocally(current) else {
+        // Only the phone whose clip is on this Mac's pasteboard sends its data.
+        guard clipboardOffersEnabledLocally(current), clipboardInbox.current?.deviceID == current.remoteDeviceID else {
             sendTransferControl(kind: "files.cancel", transferID: offer.transferId, to: current)
             return true
         }
@@ -1773,7 +1996,9 @@ final class PairingCoordinator: ObservableObject {
         switch state {
         case .idle: stateName = "idle"
         case .connecting: stateName = "connecting"
+        case .waitingForAllow: stateName = "waiting_for_allow"
         case .verification: stateName = "verification"
+        case .paired: stateName = "paired"
         case .connected: stateName = "connected"
         case .failed: stateName = "failed"
         }
@@ -1941,6 +2166,16 @@ final class PairingCoordinator: ObservableObject {
         fileTransferStatus = "Transfer cancelled"
     }
 
+    /// Frames of a single-file transfer count only from the phone it belongs to.
+    private func transferOwned(_ transferID: String, by current: Session) -> Bool {
+        transferBelongs(owner: transferDevices[transferID], to: current.remoteDeviceID)
+    }
+
+    /// Another phone's transfer. Unknown IDs (already finished) are not, so their answers stay idempotent.
+    private func transferIsForeign(_ transferID: String, to current: Session) -> Bool {
+        transferDevices[transferID].map { $0 != current.remoteDeviceID } ?? false
+    }
+
     /// files.cancel goes to the phone the transfer belongs to.
     private func sendFileCancel(_ transferID: String) {
         guard let current = transferDevices[transferID].flatMap({ registry.session(for: $0) }) ?? session else { return }
@@ -2060,6 +2295,15 @@ final class PairingCoordinator: ObservableObject {
         // Where the phone connected from: once it authenticates, the next reconnect can dial it there.
         current.remoteHost = endpointHost(connection.endpoint)
         BridgeyLog.transport.notice("inbound connection address=\(current.remoteHost.map(addressTag) ?? "unknown", privacy: .public)")
+        // Connections that have not authenticated yet are capped, in all and per address.
+        let pendingHosts = registry.pendingSessions.filter { !$0.initiatedLocally }.map(\.remoteHost)
+        guard admitsPendingConnection(pendingHosts: pendingHosts, host: current.remoteHost) else {
+            BridgeyLog.transport.error("inbound connection refused: too many unauthenticated connections")
+            diagnostics.record(category: "transport", event: "inbound_refused", outcome: "pending_limit")
+            connection.cancel()
+            return
+        }
+        current.tagSender = deviceID
         registry.addPending(current, initiatedLocally: false)
         scheduleConnectionTimeout(for: current)
         configure(current, onReady: {})
@@ -2067,8 +2311,13 @@ final class PairingCoordinator: ObservableObject {
 
     private func configure(_ current: Session, onReady: @escaping () -> Void) {
         current.onMessage = { [weak self, weak current] message in
-            guard let self, let current else { return }
-            self.receive(message, in: current)
+            guard let self, let current, !current.ended, !current.closing else { return }
+            if self.admitFrame(message, in: current) {
+                self.receive(message, in: current)
+            } else if current.droppedFrames >= 16 {
+                current.dropReason = "unauthenticated_frames"
+                current.close()
+            }
         }
         current.onFailure = { [weak self, weak current] in
             guard let self, let current, !current.ended else { return }
@@ -2080,7 +2329,11 @@ final class PairingCoordinator: ObservableObject {
             if let id = self.registry.remove(current) {
                 self.deviceDisconnected(id, reason: reason)
             } else if self.pairingSession === current {
-                self.failPairing(current.failure ?? .connectionLost)
+                if current.awaitingAllow {
+                    self.waitForAllow(after: current)
+                } else {
+                    self.failPairing(current.failure ?? self.endedWithoutReason(current))
+                }
             } else if let dialed = current.dialDeviceID, !current.authenticated {
                 // A reconnect that never authenticated: the schedule tries again.
                 BridgeyLog.reconnect.notice("dial failed peer=\(shortDeviceID(dialed), privacy: .public) reason=\(reason, privacy: .public)")
@@ -2093,6 +2346,7 @@ final class PairingCoordinator: ObservableObject {
                 switch newState {
                 case .ready:
                     BridgeyLog.transport.info("socket ready outbound=\(current.initiatedLocally, privacy: .public)")
+                    current.socketReady = true
                     current.receive()
                     onReady()
                 case let .failed(error):
@@ -2137,7 +2391,7 @@ final class PairingCoordinator: ObservableObject {
                     publishHealth()
                 }
             case "pairing.offer":
-                guard !current.initiatedLocally, current.pairingKey == nil else { return }
+                guard PairingRules.acceptsOffer(current.position) else { return }
                 // A reconnect meant for another device (it dialled an address that is now ours):
                 // close without a pairing prompt.
                 if let target = message.targetDeviceId, target.lowercased() != deviceID.lowercased() {
@@ -2145,28 +2399,75 @@ final class PairingCoordinator: ObservableObject {
                     current.close()
                     return
                 }
-                guard let publicKey = message.publicKey else { throw PairingError.invalidMessage }
+                let remoteProtocol = message.protocolVersion ?? 1
+                let revealed = message.publicKey
+                guard revealed != nil || (message.commitment != nil && remoteProtocol >= SessionSecurity.protocolVersion) else {
+                    throw PairingError.invalidMessage
+                }
                 current.id = message.sessionId
-                current.peerName = message.deviceName ?? "Android device"
+                current.peerName = sanitizedPeerName(message.deviceName, fallback: "Android device")
                 guard let remoteDeviceID = message.deviceId else { throw PairingError.invalidMessage }
                 current.remoteDeviceID = remoteDeviceID
-                current.remoteEphemeralKey = publicKey
+                current.remoteProtocol = remoteProtocol
+                // Refusals come before the answer and cost nothing; every answered offer that can reach a code costs a
+                // slot, even one that never reveals.
+                switch PairingRules.inboundOffer(trusted: trustedIdentityKey(remoteDeviceID) != nil, committed: revealed == nil,
+                                                 remoteProtocol: remoteProtocol, armed: arming.isArmed) {
+                case let .refuse(reason):
+                    refuseOffer(current, reason: reason)
+                    return
+                case let .answer(chargesLimiter):
+                    if chargesLimiter, !inboundPairingLimiter.tryAcquire() {
+                        refuseOffer(current, reason: .rateLimited)
+                        return
+                    }
+                }
                 let key = P256.KeyAgreement.PrivateKey()
                 current.privateKey = key
                 current.localEphemeralKey = key.publicKey.x963Representation.base64EncodedString()
-                let material = try pairingMaterial(privateKey: key, remoteKey: publicKey, sessionID: current.id)
-                current.code = material.code
-                current.pairingKey = material.key
-                current.send(PairingMessage(
+                let answer = PairingMessage(
                     kind: "pairing.answer",
                     sessionId: current.id,
                     deviceId: deviceID,
                     deviceName: deviceName,
-                    publicKey: current.localEphemeralKey
-                ))
+                    publicKey: current.localEphemeralKey,
+                    protocolVersion: SessionSecurity.protocolVersion
+                )
+                guard let publicKey = revealed else {
+                    // Protocol 2 first pairing: answer first; the key and the code come with pairing.reveal.
+                    current.remoteCommitment = message.commitment
+                    current.send(answer)
+                    return
+                }
+                current.remoteEphemeralKey = publicKey
+                applyPairingMaterial(try pairingMaterial(privateKey: key, remoteKey: publicKey, sessionID: current.id), to: current)
+                current.send(answer)
+                authenticateOrPrompt(current)
+            case "pairing.reveal":
+                guard PairingRules.acceptsReveal(current.position), let commitment = current.remoteCommitment else { return }
+                guard message.sessionId == current.id, let key = current.privateKey else { return }
+                guard let publicKey = message.publicKey,
+                      SessionSecurity.commitmentMatches(commitment, sessionID: current.id, publicKey: publicKey) else {
+                    current.failure = .codeRejected
+                    throw PairingError.invalidMessage
+                }
+                current.remoteEphemeralKey = publicKey
+                applyPairingMaterial(
+                    try pairingMaterial(
+                        privateKey: key,
+                        remoteKey: publicKey,
+                        sessionID: current.id,
+                        sasKeys: (initiator: publicKey, responder: current.localEphemeralKey)
+                    ),
+                    to: current
+                )
                 authenticateOrPrompt(current)
             case "pairing.answer":
-                guard current.pairingKey == nil else { return }
+                guard PairingRules.acceptsAnswer(current.position) else {
+                    // An answer to the phone-dialled side would stand in for the reveal with a key chosen afterwards.
+                    if !current.initiatedLocally { throw PairingError.invalidMessage }
+                    return
+                }
                 // A reconnect reached some other device at the old address: never prompt to pair it.
                 if let expected = current.dialDeviceID, expected.lowercased() != message.deviceId?.lowercased() {
                     current.dropReason = "wrong_device"
@@ -2177,12 +2478,23 @@ final class PairingCoordinator: ObservableObject {
                       let key = current.privateKey,
                       let publicKey = message.publicKey,
                       let remoteDeviceID = message.deviceId else { throw PairingError.invalidMessage }
-                current.peerName = message.deviceName ?? current.peerName
+                current.peerName = sanitizedPeerName(message.deviceName, fallback: current.peerName)
                 current.remoteDeviceID = remoteDeviceID
                 current.remoteEphemeralKey = publicKey
-                let material = try pairingMaterial(privateKey: key, remoteKey: publicKey, sessionID: current.id)
-                current.code = material.code
-                current.pairingKey = material.key
+                // Allow pairing was tapped there: this retry got its answer.
+                if pairingSession === current { endAllowWait() }
+                current.remoteProtocol = message.protocolVersion ?? 1
+                if current.committed && current.remoteProtocol < SessionSecurity.protocolVersion {
+                    throw PairingError.invalidMessage
+                }
+                let sasKeys = current.committed ? (initiator: current.localEphemeralKey, responder: publicKey) : nil
+                applyPairingMaterial(
+                    try pairingMaterial(privateKey: key, remoteKey: publicKey, sessionID: current.id, sasKeys: sasKeys),
+                    to: current
+                )
+                if current.committed {
+                    current.send(PairingMessage(kind: "pairing.reveal", sessionId: current.id, publicKey: current.localEphemeralKey))
+                }
                 authenticateOrPrompt(current)
             case "pairing.confirm":
                 guard message.sessionId == current.id, current.pairingKey != nil,
@@ -2208,11 +2520,21 @@ final class PairingCoordinator: ObservableObject {
                 current.failure = nil
                 current.remoteIdentityKey = identityKey
                 current.remoteConfirmed = true
+                publishPrompt(current)
                 completeIfConfirmed(current)
             case "pairing.cancel":
                 // Only ever ends the session it arrived on: never another phone's.
                 guard message.sessionId == current.id || current.id.isEmpty else { return }
-                current.failure = .cancelledRemote
+                let reason = PairingCancelReason(wire: message.reason)
+                BridgeyLog.pairing.notice("pairing cancelled by peer reason=\(reason.rawValue, privacy: .public)")
+                if reason == .notArmed, pairingSession === current, current.initiatedLocally, current.pairingKey == nil {
+                    current.awaitingAllow = true
+                } else {
+                    current.failure = PairingRules.failure(
+                        forCancel: reason, localConfirmed: current.localConfirmed, remoteConfirmed: current.remoteConfirmed
+                    ) ?? .cancelledRemote
+                }
+                current.dropReason = "pairing_cancelled_\(reason.rawValue)"
                 current.close()
             case "features.update":
                 guard registry.isActive(current),
@@ -2480,7 +2802,9 @@ final class PairingCoordinator: ObservableObject {
                       Data(base64Encoded: offer.sha256)?.count == 32 else {
                     throw PairingError.invalidMessage
                 }
-                guard incomingFiles[offer.transferId] == nil else { throw PairingError.invalidMessage }
+                // A transfer ID already in use, or another phone's, is not taken over.
+                guard incomingFiles[offer.transferId] == nil, outgoingFiles[offer.transferId] == nil,
+                      transferDevices[offer.transferId].map({ $0 == current.remoteDeviceID }) ?? true else { throw PairingError.invalidMessage }
                 // A file inside a folder coming to this Mac (4.6): the folder session checks it against the manifest.
                 if (try? JSONDecoder().decode(FolderFileProbe.self, from: plaintext))?.folderTransferId != nil {
                     if !folderReceiver.fileOffer(plaintext, from: current.remoteDeviceID) {
@@ -2488,10 +2812,24 @@ final class PairingCoordinator: ObservableObject {
                     }
                     return
                 }
-                if let requestID = offer.cameraRequestId, camera.matches(requestID, from: current.remoteDeviceID) {
+                let phoneID = current.remoteDeviceID
+                let access = settings.receiveDirectoryAccess()
+                let admission = incomingFileAdmission(
+                    size: offer.size,
+                    phoneActive: incomingFiles.keys.filter { transferDevices[$0] == phoneID }.count,
+                    totalActive: incomingFiles.count,
+                    freeBytes: FolderReceiveSession.freeBytes(access.url) ?? FolderReceiveSession.freeBytes(access.url.deletingLastPathComponent()),
+                    reservedBytes: incomingFiles.values.reduce(0) { $0 + max(0, $1.expectedSize - $1.receivedSize) }
+                )
+                guard admission == .accept, let transfer = try? IncomingFileTransfer(offer: offer, directoryAccess: access) else {
+                    if admission == .noSpace { fileTransferStatus = "Not enough free space on this Mac" }
+                    current.send(PairingMessage(kind: "files.rejected", sessionId: current.id, transferId: offer.transferId))
+                    BridgeyLog.files.notice("file refused transfer=\(String(offer.transferId.prefix(8)), privacy: .public) reason=\(String(describing: admission), privacy: .public)")
+                    return
+                }
+                if let requestID = offer.cameraRequestId, camera.matches(requestID, from: phoneID) {
                     cameraTransfers[offer.transferId] = requestID
                 }
-                let transfer = try IncomingFileTransfer(offer: offer, directoryAccess: settings.receiveDirectoryAccess())
                 incomingFiles[offer.transferId] = transfer
                 transferDevices[offer.transferId] = current.remoteDeviceID
                 beginFileTransferUI()
@@ -2505,7 +2843,8 @@ final class PairingCoordinator: ObservableObject {
                 BridgeyLog.line(BridgeyLog.files, LogLines.file(BridgeyLog.policy, event: "accepted", transfer: offer.transferId, name: transfer.displayName, extra: "size=\(offer.size)"))
             case "files.chunk":
                 if clipboardInbox.owns(message.transferId) {
-                    guard registry.isActive(current), message.sessionId == current.id,
+                    guard clipboardInbox.isTransfer(message.transferId, from: current.remoteDeviceID),
+                          registry.isActive(current), message.sessionId == current.id,
                           let messageID = message.messageId, current.acceptMessageID(messageID),
                           let transferID = message.transferId, let sequence = message.sequence,
                           let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
@@ -2525,6 +2864,7 @@ final class PairingCoordinator: ObservableObject {
                 if let transferID = message.transferId,
                    incomingFiles[transferID] == nil,
                    cancelledTransferIDs.contains(transferID) { return }
+                if let transferID = message.transferId, incomingFiles[transferID] != nil, !transferOwned(transferID, by: current) { return }
                 guard registry.isActive(current),
                       message.sessionId == current.id,
                       let messageID = message.messageId,
@@ -2544,7 +2884,8 @@ final class PairingCoordinator: ObservableObject {
                 }
             case "files.complete":
                 if clipboardInbox.owns(message.transferId) {
-                    guard registry.isActive(current), message.sessionId == current.id,
+                    guard clipboardInbox.isTransfer(message.transferId, from: current.remoteDeviceID),
+                          registry.isActive(current), message.sessionId == current.id,
                           let messageID = message.messageId, current.acceptMessageID(messageID),
                           let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
                           let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
@@ -2564,6 +2905,7 @@ final class PairingCoordinator: ObservableObject {
                     throw PairingError.invalidMessage
                 }
                 if folderReceiver.fileComplete(completion.transferId, sha256: completion.sha256, from: current.remoteDeviceID) { return }
+                if incomingFiles[completion.transferId] != nil, !transferOwned(completion.transferId, by: current) { return }
                 guard let transfer = incomingFiles.removeValue(forKey: completion.transferId) else {
                     if cancelledTransferIDs.contains(completion.transferId) { return }
                     throw PairingError.invalidMessage
@@ -2598,13 +2940,14 @@ final class PairingCoordinator: ObservableObject {
                 }
             case "files.accept":
                 if clipboardOutbox.owns(message.transferId), let transferID = message.transferId {
-                    clipboardOutbox.handleAccept(transferID)
+                    if clipboardOutbox.serves(transferID, to: current.remoteDeviceID) { clipboardOutbox.handleAccept(transferID) }
                     return
                 }
                 if folders.receiveFile(kind: message.kind, transferID: message.transferId, sequence: nil, from: current.remoteDeviceID) { return }
                 if let transferID = message.transferId,
                    outgoingFiles[transferID] == nil,
                    cancelledTransferIDs.contains(transferID) { return }
+                if let transferID = message.transferId, outgoingFiles[transferID] != nil, !transferOwned(transferID, by: current) { return }
                 guard registry.isActive(current),
                       message.sessionId == current.id,
                       let transferID = message.transferId,
@@ -2648,11 +2991,11 @@ final class PairingCoordinator: ObservableObject {
                 )
             case "files.rejected":
                 if clipboardOutbox.owns(message.transferId), let transferID = message.transferId {
-                    clipboardOutbox.handleCancel(transferID)
+                    if clipboardOutbox.serves(transferID, to: current.remoteDeviceID) { clipboardOutbox.handleCancel(transferID) }
                     return
                 }
                 if folders.receiveFile(kind: message.kind, transferID: message.transferId, sequence: nil, from: current.remoteDeviceID) { return }
-                guard let transferID = message.transferId,
+                guard let transferID = message.transferId, transferOwned(transferID, by: current),
                       let transfer = outgoingFiles.removeValue(forKey: transferID) else { return }
                 transfer.cancel()
                 markTransferCancelled(transferID)
@@ -2662,11 +3005,11 @@ final class PairingCoordinator: ObservableObject {
                 finishQueuedFile(transferID)
             case "files.complete.ack":
                 if clipboardOutbox.owns(message.transferId), let transferID = message.transferId {
-                    clipboardOutbox.handleCompleteAck(transferID)
+                    if clipboardOutbox.serves(transferID, to: current.remoteDeviceID) { clipboardOutbox.handleCompleteAck(transferID) }
                     return
                 }
                 if folders.receiveFile(kind: message.kind, transferID: message.transferId, sequence: nil, from: current.remoteDeviceID) { return }
-                guard let transferID = message.transferId,
+                guard let transferID = message.transferId, transferOwned(transferID, by: current),
                       let transfer = outgoingFiles.removeValue(forKey: transferID) else { return }
                 let source = outgoingFileSources.removeValue(forKey: transferID)
                 recordFileHistory(transferID, direction: .sent, outcome: .completed, name: transfer.displayName, bytes: transfer.offer.size,
@@ -2681,13 +3024,14 @@ final class PairingCoordinator: ObservableObject {
             case "files.cancel":
                 guard let transferID = message.transferId else { return }
                 if clipboardInbox.owns(transferID) || clipboardOutbox.owns(transferID) {
-                    clipboardInbox.handleCancel(transferID: transferID)
-                    clipboardOutbox.handleCancel(transferID)
+                    if clipboardInbox.isTransfer(transferID, from: current.remoteDeviceID) { clipboardInbox.handleCancel(transferID: transferID) }
+                    if clipboardOutbox.serves(transferID, to: current.remoteDeviceID) { clipboardOutbox.handleCancel(transferID) }
                     current.send(PairingMessage(kind: "files.cancel.ack", sessionId: current.id, transferId: transferID))
                     return
                 }
                 if folders.receiveFile(kind: message.kind, transferID: transferID, sequence: nil, from: current.remoteDeviceID) { return }
                 if folderReceiver.fileCancelled(transferID, from: current.remoteDeviceID) { return }
+                guard !transferIsForeign(transferID, to: current) else { return }
                 if let incoming = incomingFiles[transferID] {
                     recordFileHistory(transferID, direction: .received, outcome: .cancelled, name: incoming.displayName, bytes: incoming.receivedSize,
                                       localURL: nil, phoneID: current.remoteDeviceID)
@@ -2705,14 +3049,14 @@ final class PairingCoordinator: ObservableObject {
                 finishQueuedFile(transferID)
             case "files.cancel.ack":
                 if clipboardInbox.owns(message.transferId) || clipboardOutbox.owns(message.transferId) { return }
-                if let transferID = message.transferId {
+                if let transferID = message.transferId, !transferIsForeign(transferID, to: current) {
                     markFileTransferFinished(id: transferID, status: "Transfer cancelled")
                 }
             case "files.chunk.ack":
                 if folders.receiveFile(kind: message.kind, transferID: message.transferId, sequence: message.sequence, from: current.remoteDeviceID) { return }
                 if let transferID = message.transferId, let sequence = message.sequence {
-                    outgoingFiles[transferID]?.acknowledge(sequence: sequence)
-                    clipboardOutbox.handleChunkAck(transferID, sequence: sequence)
+                    if transferOwned(transferID, by: current) { outgoingFiles[transferID]?.acknowledge(sequence: sequence) }
+                    if clipboardOutbox.serves(transferID, to: current.remoteDeviceID) { clipboardOutbox.handleChunkAck(transferID, sequence: sequence) }
                 }
             case let kind where BrowseKind.answerKinds.contains(kind):
                 try receiveBrowseMessage(message, in: current)
@@ -2797,7 +3141,8 @@ final class PairingCoordinator: ObservableObject {
         macActions.disconnected(deviceID: id)
         if pairingSession === current {
             pairingSession = nil
-            pairingFlow = .idle
+            // A pairing the user confirmed says so; a reconnect the user started just connects.
+            pairingFlow = current.token != nil ? .paired(deviceID: id, peerName: current.peerName) : .idle
         }
         publish()
         diagnostics.record(category: "pairing", event: "connected")
@@ -2944,21 +3289,126 @@ final class PairingCoordinator: ObservableObject {
         fileTransfers = Dictionary(uniqueKeysWithValues: (active + Array(history)).map { ($0.id, $0) })
     }
 
-    private func authenticateOrPrompt(_ current: Session) {
-        if trustedIdentityKey(current.remoteDeviceID) != nil {
-            confirm(current)
-            return
+    /// Only pairing frames reach `receive` before authentication; after it, frames must belong to this session and, on
+    /// protocol 2, carry a valid envelope tag from the phone. An authenticated session takes no pairing frame but a
+    /// tagged pairing.cancel, and a tagged cancel before authentication must verify once this end has the key.
+    private func admitFrame(_ message: PairingMessage, in current: Session) -> Bool {
+        let authenticated = registry.isActive(current)
+        let reason: String
+        if SessionSecurity.allowedBeforeAuthentication(message.kind) {
+            let tagValid = message.kind == "pairing.cancel" && current.envelopeKey.map {
+                SessionSecurity.tagMatches(envelopeKey: $0, senderDeviceID: current.remoteDeviceID, message: message)
+            } == true
+            if PairingRules.admitsPairingFrame(kind: message.kind, authenticated: authenticated, hasEnvelopeKey: current.envelopeKey != nil,
+                                               tagged: message.tag != nil, tagValid: tagValid) {
+                return true
+            }
+            reason = authenticated ? "pairing_after_authentication" : "bad_tag"
+        } else if !authenticated || message.sessionId != current.id {
+            reason = "unauthenticated"
+        } else if let key = current.envelopeKey,
+                  !SessionSecurity.tagMatches(envelopeKey: key, senderDeviceID: current.remoteDeviceID, message: message) {
+            reason = "bad_tag"
+        } else {
+            return true
         }
-        // A new phone needs the code prompt, which belongs to one pairing at a time.
-        if let existing = pairingSession, existing !== current, existing.code != nil, !existing.ended {
-            BridgeyLog.pairing.notice("rejected: another pairing is waiting for confirmation")
-            current.send(PairingMessage(kind: "pairing.cancel", sessionId: current.id))
+        if current.droppedFrames == 0 {
+            BridgeyLog.transport.error("frame dropped kind=\(String(message.kind.prefix(32)), privacy: .public) reason=\(reason, privacy: .public)")
+            diagnostics.record(category: "protocol", event: "frame_dropped", outcome: reason)
+        }
+        current.droppedFrames += 1
+        return false
+    }
+
+    /// Session key in place: protocol 2 on both ends also turns on envelope tags.
+    private func applyPairingMaterial(_ material: (code: String, key: Data), to current: Session) {
+        current.code = material.code
+        current.pairingKey = material.key
+        if current.remoteProtocol >= SessionSecurity.protocolVersion {
+            current.envelopeKey = SessionSecurity.envelopeKey(sessionKey: material.key)
+        }
+    }
+
+    private func authenticateOrPrompt(_ current: Session) {
+        // A phone that once spoke protocol 2 keeps it: a session without envelope tags is a downgrade.
+        if current.envelopeKey == nil && protocolPins.pinned(current.remoteDeviceID) >= SessionSecurity.protocolVersion {
+            BridgeyLog.pairing.error("protocol downgrade refused")
+            current.failure = .invalid
+            current.dropReason = "protocol_downgrade"
             current.close()
             return
         }
+        // Only a plain reconnect skips the prompt. A committed pairing from a trusted ID (the other end forgot this Mac)
+        // prompts on both ends; pairing.confirm still has to match the pinned identity key.
+        if PairingRules.autoConfirms(trusted: trustedIdentityKey(current.remoteDeviceID) != nil, current.position) {
+            confirm(current)
+            return
+        }
+        // A first pairing needs the dialler's commitment (protocol 2 on both ends); without it the code proves nothing.
+        guard PairingRules.mayPromptUntrusted(current.position) else {
+            BridgeyLog.pairing.error("pairing without a key commitment refused")
+            current.failure = .invalid
+            current.dropReason = current.initiatedLocally ? "wrong_device" : "pairing_needs_protocol_2"
+            current.sendThenClose(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: PairingCancelReason.notTrusted.rawValue))
+            return
+        }
+        // The busy check, taking the prompt and publishing it happen in this one main-actor step, so two pairings
+        // can never both reach the screen. A pairing this Mac started keeps the prompt even before its code is ready,
+        // and so does one waiting for Allow pairing on the other device. Other phones were rate limited at the offer.
+        let ownPairing = pairingSession.map { $0 !== current && !$0.ended && ($0.code != nil || $0.initiatedLocally) } ?? false
+        let waitingForAllow = allowWait != nil && pairingSession !== current
+        if ownPairing || waitingForAllow {
+            BridgeyLog.pairing.notice("rejected: another pairing is waiting for confirmation")
+            current.sendThenClose(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: PairingCancelReason.busy.rawValue))
+            return
+        }
         pairingSession = current
-        pairingFlow = .verification(peerName: current.peerName, code: current.code!)
+        if !current.initiatedLocally {
+            lastPairingPeer = PairingPeer(dialled: false, host: nil, port: nil, peerName: current.peerName, deviceID: current.remoteDeviceID)
+        }
+        current.token = UUID().uuidString.lowercased()
+        current.promptedAt = systemUptimeClock()
+        publishPrompt(current)
+    }
+
+    /// The code prompt for the pairing on screen, with who has confirmed so far.
+    private func publishPrompt(_ current: Session) {
+        guard pairingSession === current, let token = current.token, let code = current.code, !current.authenticated else { return }
+        let prompt = PairingPrompt(peerName: current.peerName, code: code, token: token,
+                                   localConfirmed: current.localConfirmed, remoteConfirmed: current.remoteConfirmed)
+        guard pairingFlow != .verification(prompt) else { return }
+        pairingFlow = .verification(prompt)
         publish()
+    }
+
+    /// Refuses an offer before answering it: the other device learns why, nothing is charged, and an unarmed refusal
+    /// shows "<name> wants to pair" here.
+    private func refuseOffer(_ current: Session, reason: PairingCancelReason) {
+        BridgeyLog.pairing.notice("offer refused reason=\(reason.rawValue, privacy: .public)")
+        diagnostics.record(category: "pairing", event: "inbound_refused", outcome: reason.rawValue)
+        current.dropReason = "pairing_refused"
+        current.sendThenClose(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: reason.rawValue))
+        let request = PairingRequest(deviceID: current.remoteDeviceID, peerName: current.peerName, oldVersion: reason == .needsProtocol2)
+        switch reason {
+        case .notArmed:
+            showPairingRequest(request)
+        case .needsProtocol2:
+            // Armed and free: the user is pairing from the phone right now, so say why it cannot work here.
+            if arming.isArmed && pairingSession == nil && allowWait == nil {
+                lastPairingPeer = PairingPeer(dialled: false, host: nil, port: nil, peerName: current.peerName, deviceID: current.remoteDeviceID)
+                failPairing(.oldVersion, peerName: current.peerName)
+            } else if !arming.isArmed {
+                showPairingRequest(request)
+            }
+        default:
+            break
+        }
+    }
+
+    /// Why the user's pairing ended when nothing said why: a committed offer that got no answer at all (an older
+    /// Bridgey closes on it), or a lost connection.
+    private func endedWithoutReason(_ current: Session) -> PairingFailure {
+        current.initiatedLocally && current.committed && current.socketReady && current.pairingKey == nil ? .noAnswer : .connectionLost
     }
 
     private func authTranscript(_ current: Session) -> Data {
@@ -3174,18 +3624,30 @@ final class PairingCoordinator: ObservableObject {
         }
     }
 
-    /// A pending session gets 20 s for the handshake, or two minutes while its code is on screen.
+    /// A pending session gets 20 s for the handshake, or two minutes while its code is on screen. When the code's two
+    /// minutes run out, the other device learns it (`timeout`) and each end says who did not confirm.
     private func scheduleConnectionTimeout(for current: Session, after delay: TimeInterval = 20) {
         current.connectionTimeout?.cancel()
         let timeout = DispatchWorkItem { [weak self, weak current] in
             guard let self, let current, !current.ended, !self.registry.isActive(current) else { return }
-            let awaitingCode = current.code != nil && self.trustedIdentityKey(current.remoteDeviceID) == nil
-            if awaitingCode && Date().timeIntervalSince(current.createdAt) < 120 {
-                self.scheduleConnectionTimeout(for: current, after: 5)
+            if let promptedAt = current.promptedAt {
+                let left = PairingArming.duration - (systemUptimeClock() - promptedAt)
+                if left > 0 {
+                    self.scheduleConnectionTimeout(for: current, after: min(5, left))
+                    return
+                }
+                BridgeyLog.pairing.notice("code not confirmed in time")
+                current.failure = PairingRules.timeoutFailure(localConfirmed: current.localConfirmed, remoteConfirmed: current.remoteConfirmed)
+                current.dropReason = "pairing_timeout"
+                current.sendThenClose(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: PairingCancelReason.timeout.rawValue))
                 return
             }
             BridgeyLog.transport.notice("pending session timed out")
-            current.failure = .timeout
+            if !current.socketReady {
+                current.failure = .couldNotConnect
+            } else {
+                current.failure = current.initiatedLocally && current.committed && current.pairingKey == nil ? .noAnswer : .timeout
+            }
             current.dropReason = "handshake_timeout"
             current.close()
         }
@@ -3498,7 +3960,9 @@ final class PairingCoordinator: ObservableObject {
               let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
               let nonce = message.nonce, let ciphertext = message.ciphertext,
               let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
-              let active = decodeFocusState(data) else { return }
+              let active = decodeFocusState(data),
+              // Only a phone that advertised focus_sync_draft1 in its features.update is followed.
+              registry.state(for: current.remoteDeviceID)?.remoteFocusSync == true else { return }
         focusSync.received(active: active, from: current.remoteDeviceID)
     }
 
@@ -3651,8 +4115,11 @@ final class PairingCoordinator: ObservableObject {
             if status == .allowed { codeLinkStatus = nil }
             publish()
         case "codes.advertise":
-            guard settings.isEnabled(.notifications, for: phoneID),
+            // Codes from messages must be on here, and the Bluetooth advertisement starts at most every 10 seconds.
+            guard settings.isEnabled(.notifications, for: phoneID), settings.codesEnabled,
+                  Date().timeIntervalSince(lastCodesAdvertiseAt) >= 10,
                   let raw = payload["serviceUuid"] as? String, let uuid = UUID(uuidString: raw) else { return }
+            lastCodesAdvertiseAt = Date()
             let waiting = L10n.text("codes.link.advertising", fallback: "Waiting for the phone. Tap Allow there.")
             codeLinkStatus = waiting
             DispatchQueue.main.asyncAfter(deadline: .now() + CompanionLinkAdvertiser.duration + 30) { [weak self] in
@@ -4118,6 +4585,7 @@ final class PairingCoordinator: ObservableObject {
 
     private func saveTrust(_ current: Session) {
         guard let identityKey = current.remoteIdentityKey else { return }
+        if current.envelopeKey != nil { protocolPins.pin(current.remoteDeviceID, version: SessionSecurity.protocolVersion) }
         if trustRegistry.remember(
             deviceID: current.remoteDeviceID,
             name: current.peerName,
@@ -4337,8 +4805,36 @@ private final class Session {
     var privateKey: P256.KeyAgreement.PrivateKey?
     var code: String?
     var pairingKey: Data?
+    /// Protocol 2: this end sent a commitment instead of its key (a first pairing it started).
+    var committed = false
+    /// Protocol 2: the initiator's commitment, until pairing.reveal opens it.
+    var remoteCommitment: String?
+    var remoteProtocol: Int64 = 1
+    /// Protocol 2 on both ends: the key for envelope tags, and this Mac's ID they are made with.
+    var envelopeKey: Data?
+    var tagSender = ""
+    /// Frames dropped for arriving before authentication or with a bad tag; the session closes at 16.
+    var droppedFrames = 0
+    /// sendThenClose ran: the last word is going out and nothing more is read.
+    var closing = false
+    var position: PairingPosition {
+        PairingPosition(
+            initiatedLocally: initiatedLocally,
+            committed: committed,
+            holdsRemoteCommitment: remoteCommitment != nil,
+            hasSessionKey: pairingKey != nil
+        )
+    }
     var localConfirmed = false
     var remoteConfirmed = false
+    /// Set when the code prompt shows: the prompt's token (Codes match and Don't match name it) and when it showed
+    /// (monotonic), for the two-minute timer.
+    var token: String?
+    var promptedAt: TimeInterval?
+    /// The socket connected (a dial that never did "could not connect"; one that did and got no answer "did not answer").
+    var socketReady = false
+    /// The other device answered `not_armed`: dial it again instead of failing.
+    var awaitingAllow = false
     /// Authenticated and registered as its phone's session.
     var authenticated = false
     /// onFailure ran (or the session was closed on purpose): ignore later callbacks.
@@ -4370,15 +4866,24 @@ private final class Session {
         self.peerName = peerName
     }
 
+    /// Protocol 2: every frame but pairing ones carries the envelope tag; pairing.cancel does too once there is a key.
+    private func framed(_ message: PairingMessage) -> PairingMessage {
+        guard let envelopeKey,
+              !SessionSecurity.allowedBeforeAuthentication(message.kind) || message.kind == "pairing.cancel" else { return message }
+        var tagged = message
+        tagged.tag = SessionSecurity.tag(envelopeKey: envelopeKey, senderDeviceID: tagSender, message: message)
+        return tagged
+    }
+
     func send(_ message: PairingMessage) {
-        guard let encoded = try? JSONEncoder().encode(message) else { return }
+        guard let encoded = try? JSONEncoder().encode(framed(message)) else { return }
         connection.send(content: encoded + Data([0x0A]), completion: .contentProcessed { error in
             if let error { BridgeyLog.transport.error("send failed kind=\(message.kind, privacy: .public) error=\(String(describing: error), privacy: .public)") }
         })
     }
 
     func sendAndWait(_ message: PairingMessage) -> Bool {
-        guard let encoded = try? JSONEncoder().encode(message) else { return false }
+        guard let encoded = try? JSONEncoder().encode(framed(message)) else { return false }
         let semaphore = DispatchSemaphore(value: 0)
         var succeeded = false
         connection.send(content: encoded + Data([0x0A]), completion: .contentProcessed { error in
@@ -4428,6 +4933,14 @@ private final class Session {
 
     func close() { connection.cancel() }
 
+    /// A pairing.cancel (or any last word) that must reach the phone: a plain close drops a send still queued, so
+    /// the connection closes once this has gone out. Nothing more is read from the session meanwhile.
+    func sendThenClose(_ message: PairingMessage) {
+        closing = true
+        guard let encoded = try? JSONEncoder().encode(framed(message)) else { return close() }
+        sendFinalAndCancel(connection, encoded + Data([0x0A]))
+    }
+
     func acceptMessageID(_ id: String) -> Bool { seenMessageIDs.accept(id) }
 }
 
@@ -4447,9 +4960,27 @@ struct PairingMessage: Codable {
     var sequence: Int64? = nil
     /// On a reconnect offer: the trusted device it is meant for. Any other device declines quietly.
     var targetDeviceId: String? = nil
+    /// Protocol 2 first pairing: SHA-256 commitment to the offer's ephemeral key, revealed in pairing.reveal.
+    var commitment: String? = nil
+    /// In pairing.offer and pairing.answer: the highest protocol version the sender speaks (absent means 1).
+    var protocolVersion: Int64? = nil
+    /// Protocol 2: HMAC over the envelope, see SessionSecurity.tag.
+    var tag: String? = nil
+    /// In pairing.cancel: why, one of PairingCancelReason (absent from older peers).
+    var reason: String? = nil
 }
 
 enum PairingError: Error { case invalidMessage, cancelled }
+
+/// The device of the last pairing, for Try again: where this Mac dialled it, or its ID when it dialled this Mac.
+struct PairingPeer: Equatable {
+    /// This Mac dialled (true) or was dialled (false).
+    var dialled: Bool
+    var host: String?
+    var port: Int?
+    var peerName: String
+    var deviceID: String?
+}
 
 private final class FileCancellationToken: @unchecked Sendable {
     private let lock = NSLock()
@@ -4610,6 +5141,72 @@ private final class MacTransferProgress {
     }
 }
 
+/// The longest name a received file gets, in UTF-8 bytes: 255 (APFS) less room for " 10000" and ".bridgey-part".
+let maximumReceivedNameBytes = 255 - " 10000".utf8.count - ".bridgey-part".utf8.count
+
+/// NUL and other control characters, and the marks and overrides that reorder text (a name that
+/// shows as "photo.exe.jpg" but ends in ".exe" in fact).
+private func isDroppedFromReceivedName(_ scalar: Unicode.Scalar) -> Bool {
+    if scalar.properties.generalCategory == .control { return true }
+    switch scalar.value {
+    case 0x061C, 0x200E, 0x200F, 0x202A...0x202E, 0x2066...0x2069: return true
+    default: return false
+    }
+}
+
+/// A name from the phone made safe to create in the receive folder: the last path component only,
+/// without the characters above, ":" as "_", never empty, "." or "..", and at most
+/// `maximumReceivedNameBytes` long with its extension kept.
+func receivedFileName(_ name: String) -> String {
+    let leaf = name.split(separator: "/", omittingEmptySubsequences: true).last.map(String.init) ?? ""
+    var scalars = String.UnicodeScalarView()
+    for scalar in leaf.unicodeScalars where !isDroppedFromReceivedName(scalar) {
+        scalars.append(scalar == ":" ? "_" : scalar)
+    }
+    let value = String(scalars).trimmingCharacters(in: .whitespaces)
+    guard !value.isEmpty, value != ".", value != ".." else { return "file" }
+    guard value.utf8.count > maximumReceivedNameBytes else { return value }
+    let pathExtension = (value as NSString).pathExtension
+    let suffix = pathExtension.isEmpty || pathExtension.utf8.count > 16 ? "" : "." + pathExtension
+    var stem = ""
+    for character in value.dropLast(suffix.isEmpty ? 0 : pathExtension.count + 1) {
+        guard stem.utf8.count + String(character).utf8.count + suffix.utf8.count <= maximumReceivedNameBytes else { break }
+        stem.append(character)
+    }
+    let trimmed = stem.trimmingCharacters(in: .whitespaces)
+    return (trimmed.isEmpty ? "file" : trimmed) + suffix
+}
+
+/// The file lands directly in `directory`, never beside or above it.
+func receivedFileIsContained(_ url: URL, in directory: URL) -> Bool {
+    url.standardizedFileURL.deletingLastPathComponent().path == directory.standardizedFileURL.path
+}
+
+/// A transfer's control and data frames are taken only from the phone it belongs to.
+func transferBelongs(owner: String?, to deviceID: String) -> Bool {
+    owner != nil && owner == deviceID
+}
+
+enum IncomingFileAdmission: Equatable {
+    case accept, busy, noSpace
+}
+
+enum IncomingFileLimits {
+    static let perPhone = 4
+    static let total = 8
+    /// Left free on the disk, as for folders.
+    static let spaceMargin: Int64 = 64 * 1024 * 1024
+}
+
+/// Whether a single file from a phone can start: at most 4 at once per phone and 8 in all, and room
+/// for it, for what the running ones still have to write and for the margin. Unknown free space
+/// does not block.
+func incomingFileAdmission(size: Int64, phoneActive: Int, totalActive: Int, freeBytes: Int64?, reservedBytes: Int64) -> IncomingFileAdmission {
+    guard phoneActive < IncomingFileLimits.perPhone, totalActive < IncomingFileLimits.total else { return .busy }
+    if let freeBytes, freeBytes - reservedBytes < size + IncomingFileLimits.spaceMargin { return .noSpace }
+    return .accept
+}
+
 /// Finder-style collision handling: "name.ext", then "name 2.ext", "name 3.ext", and so on.
 /// A name whose partial file is still being received counts as taken.
 func uniqueReceivedFileURL(_ requested: URL) -> URL {
@@ -4628,7 +5225,7 @@ func uniqueReceivedFileURL(_ requested: URL) -> URL {
     return requested.deletingLastPathComponent().appendingPathComponent(UUID().uuidString)
 }
 
-private final class IncomingFileTransfer {
+final class IncomingFileTransfer {
     let displayName: String
     let expectedSize: Int64
     private let expectedHash: String
@@ -4647,11 +5244,12 @@ private final class IncomingFileTransfer {
         expectedSize = offer.size
         expectedHash = offer.sha256
         self.directoryAccess = directoryAccess
-        let sanitized = Self.sanitize(offer.name)
+        let sanitized = receivedFileName(offer.name)
         displayName = sanitized
         let directory = directoryAccess.url
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         finalURL = uniqueReceivedFileURL(directory.appendingPathComponent(sanitized))
+        guard receivedFileIsContained(finalURL, in: directory) else { throw PairingError.invalidMessage }
         partialURL = finalURL.appendingPathExtension("bridgey-part")
         FileManager.default.createFile(atPath: partialURL.path, contents: nil)
         handle = try FileHandle(forWritingTo: partialURL)
@@ -4676,6 +5274,7 @@ private final class IncomingFileTransfer {
             try? FileManager.default.removeItem(at: partialURL)
             throw PairingError.invalidMessage
         }
+        FinderMetadata.quarantine(partialURL)
         try FileManager.default.moveItem(at: partialURL, to: finalURL)
         return finalURL
     }
@@ -4701,13 +5300,6 @@ private final class IncomingFileTransfer {
     func cancel() {
         try? handle.close()
         try? FileManager.default.removeItem(at: partialURL)
-    }
-
-    private static func sanitize(_ name: String) -> String {
-        let leaf = (name as NSString).lastPathComponent
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: ":", with: "_")
-        return String(leaf.prefix(255)).isEmpty ? "file" : String(leaf.prefix(255))
     }
 
     private static func formatBytes(_ bytes: Int64) -> String {

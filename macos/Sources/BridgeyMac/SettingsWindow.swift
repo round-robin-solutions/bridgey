@@ -73,6 +73,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 struct SettingsModel {
     var deviceName = "Mac"
     var state: PairingState = .idle
+    /// The pairing in progress only (setup's pair step draws it).
+    var pairingFlow: PairingState = .idle
     /// Connected phones; more than one shows as a count.
     var connectedCount = 0
     var trustedDevices: [TrustedDeviceInfo] = []
@@ -451,9 +453,10 @@ func connectionText(_ model: SettingsModel) -> String {
     }
     return switch model.state {
     case let .connected(_, name): String(format: L10n.text("thisMac.connected", fallback: "Connected to %@"), name)
-    case let .connecting(name), let .verification(name, _): String(format: L10n.text("panel.connecting", fallback: "Connecting to %@"), name)
+    case let .connecting(name), let .waitingForAllow(name): String(format: L10n.text("panel.connecting", fallback: "Connecting to %@"), name)
+    case let .verification(prompt): String(format: L10n.text("panel.connecting", fallback: "Connecting to %@"), prompt.peerName)
     case .failed: L10n.text("thisMac.failed", fallback: "Couldn\u{2019}t connect")
-    case .idle: L10n.text("thisMac.idle", fallback: "Not connected")
+    case .idle, .paired: L10n.text("thisMac.idle", fallback: "Not connected")
     }
 }
 
@@ -1557,6 +1560,7 @@ struct LiveSettingsView: View {
         var model = SettingsModel()
         model.deviceName = settings.deviceName
         model.state = pairing.state
+        model.pairingFlow = pairing.pairingFlow
         model.connectedCount = pairing.connectedPhones.count
         model.trustedDevices = pairing.trustedDevices
         model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, connected: pairing.connectedPhones,

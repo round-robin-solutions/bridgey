@@ -347,7 +347,8 @@ final class PhoneThumbnailCache: @unchecked Sendable {
 
     /// Decodes WebP, JPEG, HEIC or PNG, downsampled so the longest edge is at most `maxPixel`.
     static func decode(_ data: Data, maxPixel: Int) -> CGImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              imageSourceFitsPixelLimit(source) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
@@ -356,4 +357,28 @@ final class PhoneThumbnailCache: @unchecked Sendable {
         ]
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
+}
+
+/// Images from a phone above this many pixels are never decoded: a small file can claim a huge canvas.
+let maximumDecodedImagePixels = 100_000_000
+
+/// The first image's size from its header, before anything is decoded: known and at most
+/// `maximumDecodedImagePixels`.
+func imageSourceFitsPixelLimit(_ source: CGImageSource) -> Bool {
+    guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, [kCGImageSourceShouldCache: false] as CFDictionary) as? [CFString: Any],
+          let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+          let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+          width > 0, height > 0 else { return false }
+    let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
+    return !overflow && pixels <= maximumDecodedImagePixels
+}
+
+func imageDataFitsPixelLimit(_ data: Data) -> Bool {
+    guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else { return false }
+    return imageSourceFitsPixelLimit(source)
+}
+
+func imageFileFitsPixelLimit(_ url: URL) -> Bool {
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return false }
+    return imageSourceFitsPixelLimit(source)
 }

@@ -27,6 +27,9 @@ final class QuickActions: ObservableObject {
     @Published private(set) var receivedLink: String?
     @Published private(set) var status: String?
     var available: (BridgeyFeature) -> Bool = { _ in false }
+    /// The feature is on for this device here and on the device itself: links from a phone are
+    /// checked against that phone, not the selected one.
+    var availableFor: (BridgeyFeature, String) -> Bool = { _, _ in false }
     var send: (String, [String: Any]) -> Bool = { _, _ in false }
     /// Tells the activity stream that a link was delivered or received (never the address).
     var onActivity: (ActivityKind) -> Void = { _ in }
@@ -83,7 +86,7 @@ final class QuickActions: ObservableObject {
         } else if kind == "quick.request" {
             let link = (payload["value"] as? String).flatMap(validatedWebLink)
             let action = payload["action"] as? String
-            let usable = available(.links) && payload["feature"] as? String == "links" && link != nil
+            let usable = availableFor(.links, deviceID) && payload["feature"] as? String == "links" && link != nil
             // "Open on Mac" from the phone: opened at once only when this Mac allows it, at most
             // one link per phone every 3 seconds; otherwise it waits like an offer.
             if usable, action == "open", openRightAway(), let link, let url = URL(string: link) {

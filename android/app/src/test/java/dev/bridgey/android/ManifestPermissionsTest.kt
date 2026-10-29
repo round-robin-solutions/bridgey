@@ -46,6 +46,26 @@ class ManifestPermissionsTest {
         )
     }
 
+    /** No backup and, on Android 12+, no device-to-device transfer of the device ID, trust or keys. */
+    @Test
+    fun noDataLeavesInBackupsOrDeviceTransfers() {
+        val manifest = File("src/main/AndroidManifest.xml").readText()
+        org.junit.Assert.assertTrue(manifest.contains("""android:allowBackup="false""""))
+        org.junit.Assert.assertTrue(manifest.contains("""android:dataExtractionRules="@xml/data_extraction_rules""""))
+        org.junit.Assert.assertTrue(manifest.contains("""android:fullBackupContent="@xml/backup_rules""""))
+        val rules = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(File("src/main/res/xml/data_extraction_rules.xml")).documentElement
+        val domains = listOf("root", "file", "database", "sharedpref", "external", "device_root", "device_file", "device_database", "device_sharedpref")
+        listOf("cloud-backup", "device-transfer").forEach { section ->
+            val element = rules.getElementsByTagName(section).item(0) as org.w3c.dom.Element
+            assertEquals("$section includes nothing", 0, element.getElementsByTagName("include").length)
+            val excludes = element.getElementsByTagName("exclude")
+            val excluded = (0 until excludes.length).map { excludes.item(it) as org.w3c.dom.Element }
+                .filter { it.getAttribute("path") == "." }.map { it.getAttribute("domain") }.toSet()
+            assertEquals("$section excludes every domain", domains.toSet(), excluded)
+        }
+    }
+
     /** Glance's WorkManager would add RECEIVE_BOOT_COMPLETED to the APK; the main manifest removes it. */
     @Test
     fun widgetLibraryDoesNotAddBootPermission() {
