@@ -328,6 +328,7 @@ final class PairingCoordinator: ObservableObject {
     private let protocolPins = ProtocolPins()
     private var inboundPairingLimiter = InboundPairingLimiter()
     private var arming = PairingArming()
+    private var sleepObserver: NSObjectProtocol?
     private var armingTicker: Timer?
     private var pairingRequestExpiry: DispatchWorkItem?
     /// A request card the user dismissed stays hidden while that device keeps retrying (two minutes).
@@ -452,6 +453,13 @@ final class PairingCoordinator: ObservableObject {
         self.deviceID = deviceID
         self.deviceName = deviceName
         self.settings = settings
+        defer {
+            sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.pairingSystemWillSleep() }
+            }
+        }
         let notificationHistoryStore = NotificationHistoryStore()
         self.notificationHistoryStore = notificationHistoryStore
         activity = ActivityLog(store: ActivityStore())
@@ -742,11 +750,21 @@ final class PairingCoordinator: ObservableObject {
         current.tagSender = deviceID
         // A first pairing commits to its key and reveals it after the answer (protocol 2); a reconnect to a
         // trusted phone sends the key, because that phone's pinned identity signature authenticates it.
-        current.committed = dialDeviceID.map { trustedIdentityKey($0) == nil } ?? true
+        // A background reconnect never commits (it can never become a code prompt), and goes out only to a phone that
+        // is still trusted: one forgotten since the reconnect was scheduled gets no offer at all.
+        let backgroundTrusted = dialDeviceID.map { trustedIdentityKey($0) != nil } ?? false
+        current.committed = PairingRules.diallerCommits(userStarted: dialDeviceID == nil, targetTrusted: dialDeviceID != nil)
+        let offerAllowed = dialDeviceID == nil || PairingRules.backgroundDialAllowed(targetTrusted: backgroundTrusted)
         registry.addPending(current, initiatedLocally: true)
         scheduleConnectionTimeout(for: current)
         configure(current) { [weak self, weak current] in
             guard let self, let current, current.privateKey != nil else { return }
+            guard offerAllowed else {
+                BridgeyLog.reconnect.notice("dial dropped: no longer trusted")
+                current.dropReason = "not_trusted"
+                current.close()
+                return
+            }
             current.send(PairingMessage(
                 kind: "pairing.offer",
                 sessionId: current.id,
@@ -807,6 +825,12 @@ final class PairingCoordinator: ObservableObject {
 
     func disarmPairing() {
         arming.disarm()
+        refreshArming()
+    }
+
+    /// Allow pairing does not survive sleep.
+    private func pairingSystemWillSleep() {
+        arming.systemWillSleep()
         refreshArming()
     }
 

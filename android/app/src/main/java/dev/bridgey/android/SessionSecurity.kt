@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
+import kotlinx.coroutines.launch
 
 /**
  * Protocol 2 session security (v0.10 security review, docs/security-review-0.10.md):
@@ -183,17 +184,47 @@ internal object PairingRules {
     }
 
     /**
-     * What a received pairing.cancel means for this end's pairing. Null for `not_armed`: the dialler waits for Allow
-     * pairing and retries instead of failing. [prompted]: this end showed the code (a timeout maps with its own flags).
+     * Whether this end's dial commits to its key (a first pairing). Only a pairing the user started can: a background
+     * reconnect never commits, so it can never turn into a code prompt (for example after the device was forgotten).
      */
-    fun cancelFailure(reason: String?, localConfirmed: Boolean, remoteConfirmed: Boolean, prompted: Boolean): PairingFailure? =
+    fun diallerCommits(userStarted: Boolean, targetTrusted: Boolean) = userStarted && !targetTrusted
+
+    /**
+     * Whether a device the user disconnected keeps a finished handshake closed. A pairing the user went through on
+     * purpose (the code was shown, or the user started it) wins and lifts the hold; a reconnect of its own does not.
+     */
+    fun heldBlocksCompletion(held: Boolean, deliberate: Boolean) = held && !deliberate
+
+    /** A background reconnect goes out only to a device that is still trusted; otherwise it closes before any offer. */
+    fun backgroundDialAllowed(targetTrusted: Boolean) = targetTrusted
+
+    /**
+     * Whether this dialler is still before the other end's answer: nothing answered, no session key, no code shown.
+     * Only then can `not_armed` be true, and only then may a dropped attempt be retried while waiting for Allow pairing.
+     */
+    fun beforeAnswer(answered: Boolean, hasSessionKey: Boolean, prompted: Boolean) = !answered && !hasSessionKey && !prompted
+
+    /**
+     * What a received pairing.cancel means for this end's pairing. Null for `not_armed` before the answer: the dialler
+     * waits for Allow pairing and retries instead of failing. A `not_armed` after the answer or the code is a lie (an
+     * end that answered was armed), so it reads as cancelled and is never retried. [prompted]: this end showed the
+     * code (a timeout maps with its own flags).
+     */
+    fun cancelFailure(
+        reason: String?,
+        localConfirmed: Boolean,
+        remoteConfirmed: Boolean,
+        prompted: Boolean,
+        answered: Boolean = false,
+        hasSessionKey: Boolean = false,
+    ): PairingFailure? =
         when (PairingCancelReason.normalized(reason)) {
             PairingCancelReason.MISMATCH -> PairingFailure.MISMATCH_REMOTE
             PairingCancelReason.TIMEOUT -> if (prompted) timeoutFailure(localConfirmed, remoteConfirmed) else PairingFailure.TIMEOUT
             PairingCancelReason.BUSY -> PairingFailure.BUSY
             PairingCancelReason.RATE_LIMITED -> PairingFailure.RATE_LIMITED
             PairingCancelReason.NEEDS_PROTOCOL_2 -> PairingFailure.OLD_VERSION
-            PairingCancelReason.NOT_ARMED -> null
+            PairingCancelReason.NOT_ARMED -> if (beforeAnswer(answered, hasSessionKey, prompted)) null else PairingFailure.CANCELLED_REMOTE
             else -> PairingFailure.CANCELLED_REMOTE
         }
 
@@ -340,5 +371,24 @@ internal class InboundPairingLimiter(
     private companion object {
         const val MINUTE_MILLIS = 60_000L
         const val HOUR_MILLIS = 3_600_000L
+    }
+}
+
+/**
+ * A pending session's own deadline, apart from its reads: a peer that trickles bytes without ever ending a frame
+ * keeps the read busy, so this checks [expired] every [pollMillis] until [settled] and runs [onExpire] once.
+ */
+internal fun kotlinx.coroutines.CoroutineScope.launchPendingWatchdog(
+    settled: () -> Boolean,
+    expired: () -> Boolean,
+    onExpire: () -> Unit,
+    pollMillis: Long = 1_000L,
+): kotlinx.coroutines.Job = launch {
+    while (!settled()) {
+        if (expired()) {
+            onExpire()
+            return@launch
+        }
+        kotlinx.coroutines.delay(pollMillis)
     }
 }

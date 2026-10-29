@@ -135,6 +135,13 @@ enum PairingRules {
     /// match the code it already saw from this end.
     static func mayPromptUntrusted(_ p: PairingPosition) -> Bool { p.initiatedLocally ? p.committed : p.holdsRemoteCommitment }
 
+    /// Whether this end's dial commits to its key (a first pairing). Only a pairing the user started can: a background
+    /// reconnect never commits, so it can never turn into a code prompt (for example after the phone was forgotten).
+    static func diallerCommits(userStarted: Bool, targetTrusted: Bool) -> Bool { userStarted && !targetTrusted }
+
+    /// A background reconnect goes out only to a phone that is still trusted; otherwise it closes before any offer.
+    static func backgroundDialAllowed(targetTrusted: Bool) -> Bool { targetTrusted }
+
     /// An answered offer from a device that is not trusted costs one `InboundPairingLimiter` slot, whether or not it ever
     /// reaches the code, so an attacker cannot try codes faster by giving up before the reveal. A committed offer from a
     /// trusted ID (a one-sided Forget re-pair) shows a code too, so it costs a slot as well.
@@ -219,6 +226,10 @@ enum PairingCancelReason: String, CaseIterable {
 typealias MonotonicClock = () -> TimeInterval
 let systemUptimeClock: MonotonicClock = { ProcessInfo.processInfo.systemUptime }
 
+/// Monotonic seconds that keep counting while the Mac sleeps (CLOCK_MONOTONIC on macOS, unlike `systemUptime`), so
+/// two minutes of Allow pairing cannot outlast a night of sleep.
+let continuousClock: MonotonicClock = { TimeInterval(clock_gettime_nsec_np(CLOCK_MONOTONIC)) / 1_000_000_000 }
+
 /// Whether this end answers committed offers now. Allow pairing arms it for two minutes (again from the start on each
 /// tap); a pairing screen that is open holds it on until it closes.
 struct PairingArming {
@@ -227,9 +238,12 @@ struct PairingArming {
     private var armedUntil: TimeInterval?
     private(set) var held = false
 
-    init(now: @escaping MonotonicClock = systemUptimeClock) { self.now = now }
+    init(now: @escaping MonotonicClock = continuousClock) { self.now = now }
 
     mutating func arm() { armedUntil = now() + Self.duration }
+
+    /// The Mac is going to sleep: Allow pairing ends (an open pairing screen still holds it on when it wakes).
+    mutating func systemWillSleep() { armedUntil = nil }
     mutating func disarm() { armedUntil = nil }
     mutating func hold(_ on: Bool) { held = on }
 

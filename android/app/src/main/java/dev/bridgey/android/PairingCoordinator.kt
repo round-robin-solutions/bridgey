@@ -2846,8 +2846,15 @@ class PairingCoordinator(
             current.expectedDeviceId = dialDeviceId ?: reconnectTo
             // A first pairing commits to its key and reveals it after the answer (protocol 2); a reconnect to a
             // trusted device sends the key, because that device's pinned identity signature authenticates it.
-            current.committed = if (manual) reconnectTo == null else dialDeviceId == null || trust.identityKey(dialDeviceId) == null
-            current.send(
+            val backgroundTrusted = dialDeviceId?.let { trust.identityKey(it) != null } ?: false
+            if (!manual && !PairingRules.backgroundDialAllowed(backgroundTrusted)) {
+                // Forgotten since this reconnect was scheduled: no offer, no pairing.
+                BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT dial dropped: no longer trusted peer=${dialDeviceId?.take(8)}")
+                current.dropReason = "not_trusted"
+                current.close()
+            }
+            current.committed = PairingRules.diallerCommits(userStarted = manual, targetTrusted = !manual || reconnectTo != null)
+            if (!current.closed) current.send(
                 Message(
                     kind = "pairing.offer",
                     sessionId = current.id,
@@ -2860,6 +2867,15 @@ class PairingCoordinator(
                 ),
             )
         }
+        // Its own timer as well as the read loop's checks: bytes that never end a frame keep the read waiting.
+        val watchdog = scope.launchPendingWatchdog(
+            settled = { current.closed || registry.isActive(current) },
+            expired = { pendingExpired(current, SystemClock.elapsedRealtime()) },
+            onExpire = {
+                expire(current)
+                current.close()
+            },
+        )
         val result = runCatching {
             while (true) {
                 try {
@@ -2910,6 +2926,7 @@ class PairingCoordinator(
                 }
             }
         }
+        watchdog.cancel()
         // Why it ended: set on purpose (heartbeat, replaced, user), else from the socket.
         val reason = current.dropReason ?: result.exceptionOrNull()?.let(::socketDropReason) ?: if (current.closed) "closed" else "closed_by_peer"
         current.close()
@@ -2942,8 +2959,10 @@ class PairingCoordinator(
         } else {
             PairingFailure.CONNECTION_LOST
         }
+        // Waiting for Allow pairing only ever applies before the other end answered; later it is a plain failure.
+        val beforeAnswer = PairingRules.beforeAnswer(current.answered, current.pairingKey != null, current.prompted)
         when {
-            target != null && current.remoteCancelReason == PairingCancelReason.NOT_ARMED -> {
+            target != null && beforeAnswer && current.remoteCancelReason == PairingCancelReason.NOT_ARMED -> {
                 if (!pairingSlot.releaseIf(current)) return
                 scheduleAllowRetry(target)
             }
@@ -2953,7 +2972,8 @@ class PairingCoordinator(
                 startPairing(target.copy(forceCommit = true), waiting = false)
             }
             // While waiting for Allow pairing, an attempt that got no answer or dropped just tries again.
-            target != null && waiting && failure in setOf(PairingFailure.NO_ANSWER, PairingFailure.CONNECTION_LOST, PairingFailure.TIMEOUT) -> {
+            target != null && waiting && beforeAnswer &&
+                failure in setOf(PairingFailure.NO_ANSWER, PairingFailure.CONNECTION_LOST, PairingFailure.TIMEOUT) -> {
                 if (!pairingSlot.releaseIf(current)) return
                 scheduleAllowRetry(target)
             }
@@ -3178,7 +3198,10 @@ class PairingCoordinator(
                 if (message.sessionId != current.id && current.id.isNotEmpty()) return
                 val reason = PairingCancelReason.normalized(message.reason)
                 current.remoteCancelReason = reason
-                current.failure = PairingRules.cancelFailure(reason, current.localConfirmed, current.remoteConfirmed, current.prompted)
+                current.failure = PairingRules.cancelFailure(
+                    reason, current.localConfirmed, current.remoteConfirmed, current.prompted,
+                    answered = current.answered, hasSessionKey = current.pairingKey != null,
+                )
                 BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING cancelled by peer reason=$reason")
                 current.dropReason = "cancelled_remote"
                 current.close()
@@ -3898,7 +3921,9 @@ class PairingCoordinator(
 
     @Synchronized private fun completeIfConfirmed(current: Session) {
         if (!current.localConfirmed || !current.remoteConfirmed || current.authenticated) return
-        if (held.isHeld(current.remoteDeviceId)) {
+        val deliberate = current.prompted || current.target != null
+        if (deliberate) held.release(current.remoteDeviceId)
+        if (PairingRules.heldBlocksCompletion(held.isHeld(current.remoteDeviceId), deliberate)) {
             // Disconnected by the user on this phone: its own reconnect closes until the user connects again.
             current.dropReason = "user_disconnect"
             dialFinished(current)

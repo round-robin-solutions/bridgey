@@ -228,3 +228,40 @@ final class PairingRound3Tests: XCTestCase {
         XCTAssertEqual(pairingCountdownText(-3), "0:00")
     }
 }
+
+/// Fixes from the review of the merged 0.10 branch.
+final class PairingRound4Tests: XCTestCase {
+    /// Attack: forget a phone, then answer the Mac's still-scheduled background reconnect and hope it becomes a pairing.
+    func testABackgroundReconnectNeverCommitsAndStopsOnceForgotten() {
+        XCTAssertFalse(PairingRules.diallerCommits(userStarted: false, targetTrusted: true))
+        XCTAssertFalse(PairingRules.diallerCommits(userStarted: false, targetTrusted: false))
+        XCTAssertTrue(PairingRules.diallerCommits(userStarted: true, targetTrusted: false))
+        XCTAssertFalse(PairingRules.backgroundDialAllowed(targetTrusted: false))
+        XCTAssertTrue(PairingRules.backgroundDialAllowed(targetTrusted: true))
+        let uncommitted = PairingPosition(initiatedLocally: true, committed: false, holdsRemoteCommitment: false, hasSessionKey: true)
+        XCTAssertFalse(PairingRules.mayPromptUntrusted(uncommitted))
+    }
+
+    /// Allow pairing does not outlast sleep: it ends on the sleep notice, and its clock counts sleep anyway.
+    func testAllowPairingEndsWhenTheMacSleeps() {
+        var now: TimeInterval = 1_000
+        var arming = PairingArming(now: { now })
+        arming.arm()
+        now += 30
+        XCTAssertTrue(arming.isArmed)
+        arming.systemWillSleep()
+        XCTAssertFalse(arming.isArmed)
+        XCTAssertEqual(arming.remainingSeconds, 0)
+        // An open pairing screen still holds it on.
+        arming.hold(true)
+        arming.systemWillSleep()
+        XCTAssertTrue(arming.isArmed)
+    }
+
+    func testTheArmingClockCountsSleep() {
+        // CLOCK_MONOTONIC on macOS keeps counting while asleep; systemUptime does not.
+        let reference = TimeInterval(clock_gettime_nsec_np(CLOCK_MONOTONIC)) / 1_000_000_000
+        XCTAssertEqual(continuousClock(), reference, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(continuousClock(), ProcessInfo.processInfo.systemUptime - 1)
+    }
+}
