@@ -47,6 +47,11 @@
     <string name="perm_continue">Продолжить</string>
     <string name="perm_notification_access_name">Доступ к уведомлениям</string>
     <string name="perm_notification_access_why">Показывает уведомления и звонки телефона на вашем Mac.</string>
+    <string name="perm_notification_access_why_restricted">Показывает уведомления и звонки телефона на вашем Mac. В Android 13 и новее приложению, установленному из файла или браузера, сначала может понадобиться «Разрешить доступ к настройкам» в разделе «О приложении».</string>
+    <string name="restricted_hint_title">Возможно, Android блокирует это</string>
+    <string name="restricted_hint_body">В Android 13 и новее приложение, установленное из файла или браузера, не может включить «%1$s», пока вы не разрешите доступ к настройкам.</string>
+    <string name="restricted_hint_steps">1. Нажмите «О приложении».\n2. Нажмите на три точки вверху справа, затем «Разрешить доступ к настройкам».\n3. Вернитесь сюда и снова нажмите «Разрешить».</string>
+    <string name="restricted_hint_open">О приложении</string>
     <string name="perm_notification_access_without">На Mac не будет уведомлений, звонков и кодов с телефона.</string>
     <string name="perm_post_notifications_name">Уведомления</string>
     <string name="perm_post_notifications_why">Bridgey показывает передачи, поиск телефона, запросы на звонок и показ экрана.</string>

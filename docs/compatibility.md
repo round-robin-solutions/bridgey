@@ -78,6 +78,27 @@ The app supports Android 8.0 (API 26, `minSdk`) and up. It is built for Android 
 | 15 | 35 | Android hides the text of notifications it thinks hold a code unless the phone is linked to the Mac (see below). |
 | 16 | 36 | As Android 15. |
 
+### Restricted settings (Android 13 and later)
+
+An app installed from a file or a browser cannot turn on Notification access or Accessibility until the
+person opens App info, taps More (the three dots) and chooses **Allow restricted settings**
+([Android Help](https://support.google.com/android/answer/12623953)). The system dialog says "Restricted
+setting. For your security, this setting is currently unavailable" (the Settings app's own strings, in
+[AOSP](https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/main/res/values/strings.xml)).
+Community guides report that on some phones the More menu shows only after Android has blocked the
+switch once; Google's page does not say so.
+
+Since 0.10, setup helps with this:
+
+- The Notification access "why" text says so on Android 13 and later.
+- Android does not tell an app it was blocked, so Bridgey guesses: on setup's Notification access step or
+  Permissions page, when Allow opened Android's screen and Bridgey is back with nothing granted, a card says
+  Android may be blocking it, lists the three steps and has an **Open App info** button.
+- Accessibility has no row yet. When phone control ships
+  ([screen-control-decision.md](screen-control-decision.md)) it joins the same card.
+- Not tested on a phone where Android really blocks the switch. The card's trigger and copy are covered by
+  unit tests, and its layout by the setup screenshots.
+
 ## Pairing with other Bridgey versions
 
 Decided on 2026-10-27: 0.10 pairs only the safer way, with no fallback.

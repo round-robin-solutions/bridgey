@@ -324,6 +324,12 @@ General > "Stay connected while the phone sleeps". Many phones add their own lim
 [compatibility](compatibility.md#phone-makers-and-skins). On OnePlus, open App info > Battery usage and
 allow background activity.
 
+**Notification access will not turn on (Android 13 and later).** An app installed from a file or a
+browser is blocked from this switch until you allow restricted settings. Setup shows the steps when it
+sees this; you can also do them yourself: Settings > Apps > Bridgey, tap the three dots at the top right,
+tap **Allow restricted settings**, then turn on notification access again. On some phones the three
+dots appear only after Android has blocked the switch once, so tap **Allow** in Bridgey first.
+
 **Phone notifications do not appear on the Mac.** Check Notification forwarding is on, Bridgey has
 notification access on the phone ("Needs notification access" means it does not), the app is chosen
 under Notification apps, and the Mac allows Bridgey notifications.

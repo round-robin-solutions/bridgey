@@ -461,6 +461,7 @@ internal fun SetupRoute(
                 actions.requestBatteryExemption()
             },
             openOemStep = { OemBattery.open(context, it) },
+            openAppInfo = { runCatching { context.startActivity(OemBattery.appDetails(context.packageName)) } },
             openPage = { page -> SettingsSection.entries.firstOrNull { it.name == page }?.let(onOpenSection) },
             allowPermission = { kind -> SetupQuestions.permission(kind)?.let { allow(listOf(it)) } },
             allowAll = { allow(SetupFlow.neededPermissions(flow, currentFacts())) },

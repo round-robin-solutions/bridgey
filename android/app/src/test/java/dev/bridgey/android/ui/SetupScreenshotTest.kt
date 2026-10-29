@@ -355,6 +355,28 @@ class SetupScreenshotTest {
 
     @Test @Config(qualifiers = "+night") fun pixelChecklistDark() = pixelChecklist()
 
+    /** Setup's Permissions page: Notification access was asked and is still off, so the restricted settings hint shows. */
+    private fun permissionsRestricted() = questions(
+        "setup-permissions-restricted",
+        go(atSwitches, SetupEvent.Continue, SetupEvent.Asked(setOf(PermissionKind.NOTIFICATION_ACCESS))),
+        facts = facts(granted = setOf(PermissionKind.POST_NOTIFICATIONS)),
+    )
+
+    @Test fun permissionsRestrictedLight() = permissionsRestricted()
+
+    @Test @Config(qualifiers = "+night") fun permissionsRestrictedDark() = permissionsRestricted()
+
+    /** The quick path's Notification access step after Allow, back with nothing granted. */
+    private fun quickNotificationsRestricted() = setup(
+        "setup-quick-notifications-restricted",
+        flow(SetupEvent.ChooseQuick, SetupEvent.Next, SetupEvent.Asked(setOf(PermissionKind.NOTIFICATION_ACCESS))),
+        settings = settings.copy(notificationAccessEnabled = false), paired = listOf("Personal Mac"),
+    )
+
+    @Test fun quickNotificationsRestrictedLight() = quickNotificationsRestricted()
+
+    @Test @Config(qualifiers = "+night") fun quickNotificationsRestrictedDark() = quickNotificationsRestricted()
+
     private fun obtainium() = capture("obtainium") { SettingsScreen(state = settings, actions = SettingsActions(), section = SettingsSection.ABOUT) }
 
     @Test fun obtainiumLight() = obtainium()

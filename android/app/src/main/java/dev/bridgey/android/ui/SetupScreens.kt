@@ -52,6 +52,7 @@ import dev.bridgey.android.setup.OemChecklist
 import dev.bridgey.android.setup.OemStep
 import dev.bridgey.android.setup.PermissionKind
 import dev.bridgey.android.setup.QuickStep
+import dev.bridgey.android.setup.RestrictedSettings
 import dev.bridgey.android.setup.SetupFacts
 import dev.bridgey.android.setup.SetupEvent
 import dev.bridgey.android.setup.SetupPath
@@ -107,6 +108,8 @@ class SetupActions(
     val allowNotificationAccess: () -> Unit = {},
     val allowBattery: () -> Unit = {},
     val openOemStep: (OemStep) -> Unit = {},
+    /** Bridgey's App info (the three dots there hold Allow restricted settings). */
+    val openAppInfo: () -> Unit = {},
     /** More options and Change in Settings: a Settings page (a [SettingsSection] name), above setup; Back returns here. */
     val openPage: (String) -> Unit = {},
     /** Allow on a permissions row: its system dialog or screen; the page refreshes when Bridgey is back. */
@@ -310,7 +313,8 @@ private fun QuickStepPage(step: QuickStep, state: SetupUiState, actions: SetupAc
     }
     val (why, without) = when (step) {
         QuickStep.PAIR -> stringResource(R.string.setup_pair_why) to stringResource(R.string.setup_pair_without)
-        QuickStep.NOTIFICATION_ACCESS -> permissionWhy(PermissionKind.NOTIFICATION_ACCESS) to permissionWithout(PermissionKind.NOTIFICATION_ACCESS)
+        QuickStep.NOTIFICATION_ACCESS ->
+            permissionWhy(PermissionKind.NOTIFICATION_ACCESS, sdkInt = state.facts.sdkInt) to permissionWithout(PermissionKind.NOTIFICATION_ACCESS)
         QuickStep.BATTERY -> permissionWhy(PermissionKind.BATTERY) to permissionWithout(PermissionKind.BATTERY)
     }
     val (icon, tint) = when (step) {
@@ -320,7 +324,11 @@ private fun QuickStepPage(step: QuickStep, state: SetupUiState, actions: SetupAc
     }
     val allow: (() -> Unit)? = when (step) {
         QuickStep.PAIR -> null
-        QuickStep.NOTIFICATION_ACCESS -> actions.allowNotificationAccess
+        // Allow was tapped: if Bridgey is back with nothing granted, Android may be blocking it (restricted settings).
+        QuickStep.NOTIFICATION_ACCESS -> ({
+            actions.event(SetupEvent.Asked(setOf(PermissionKind.NOTIFICATION_ACCESS)))
+            actions.allowNotificationAccess()
+        })
         QuickStep.BATTERY -> actions.allowBattery
     }
     if (step == QuickStep.PAIR) HoldPairing(actions)
@@ -347,7 +355,11 @@ private fun QuickStepPage(step: QuickStep, state: SetupUiState, actions: SetupAc
             QuickStep.BATTERY -> state.oem?.let { checklist ->
                 item(key = "oem") { OemChecklistCard(checklist, actions.openOemStep, actions.settings.openUrl, Modifier.padding(top = 16.dp)) }
             }
-            QuickStep.NOTIFICATION_ACCESS -> Unit
+            QuickStep.NOTIFICATION_ACCESS -> if (RestrictedSettings.mayBeBlocked(PermissionKind.NOTIFICATION_ACCESS, state.facts.sdkInt, PermissionKind.NOTIFICATION_ACCESS in state.flow.asked, done)) {
+                item(key = "restricted") {
+                    RestrictedSettingsHint(PermissionKind.NOTIFICATION_ACCESS, actions.openAppInfo, Modifier.padding(horizontal = 16.dp, vertical = 16.dp))
+                }
+            }
         }
     }
 }

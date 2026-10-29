@@ -48,6 +48,11 @@
     <string name="perm_continue">Continue</string>
     <string name="perm_notification_access_name">Notification access</string>
     <string name="perm_notification_access_why">Shows your phone\'s notifications and calls on your Mac.</string>
+    <string name="perm_notification_access_why_restricted">Shows your phone\'s notifications and calls on your Mac. On Android 13 and later, an app installed from a file or a browser may need Allow restricted settings in App info first.</string>
+    <string name="restricted_hint_title">Android may be blocking this</string>
+    <string name="restricted_hint_body">On Android 13 and later, an app installed from a file or a browser cannot turn on %1$s until you allow restricted settings.</string>
+    <string name="restricted_hint_steps">1. Tap Open App info.\n2. Tap the three dots at the top right, then Allow restricted settings.\n3. Come back here and tap Allow again.</string>
+    <string name="restricted_hint_open">Open App info</string>
     <string name="perm_notification_access_without">No phone notifications, call alerts or codes on the Mac.</string>
     <string name="perm_post_notifications_name">Notifications</string>
     <string name="perm_post_notifications_why">Lets Bridgey show transfers, find-my-phone, call prompts and screen sharing.</string>

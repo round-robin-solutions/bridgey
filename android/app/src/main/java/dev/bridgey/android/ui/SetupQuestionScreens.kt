@@ -66,6 +66,7 @@ import dev.bridgey.android.setup.Answers
 import dev.bridgey.android.setup.PermissionKind
 import dev.bridgey.android.setup.SetupFeatures
 import dev.bridgey.android.setup.SetupBundles
+import dev.bridgey.android.setup.RestrictedSettings
 import dev.bridgey.android.setup.SetupEvent
 import dev.bridgey.android.setup.SetupFlow
 import dev.bridgey.android.setup.SetupQuestion
@@ -491,12 +492,19 @@ private fun PermissionsPage(state: SetupUiState, actions: SetupActions) {
                             },
                         )
                     }
-                    Text(permissionWhy(permission.kind, textMessages = SetupFeatures.feature("messages")?.let { SetupFeatures.isOn(it, onNow) } == true), style = BridgeyType.itemBody, color = colors.onSurface)
+                    Text(
+                        permissionWhy(permission.kind, textMessages = SetupFeatures.feature("messages")?.let { SetupFeatures.isOn(it, onNow) } == true, sdkInt = state.facts.sdkInt),
+                        style = BridgeyType.itemBody, color = colors.onSurface,
+                    )
                     Text(
                         if (featureNames.isEmpty()) stringResource(R.string.setup_permissions_needed_connection)
                         else stringResource(R.string.setup_permissions_needed_for, featureNames.joinToString(", ")),
                         style = BridgeyType.itemBody, color = colors.onSurfaceVariant,
                     )
+                    // Asked, back and still not allowed: on Android 13 and later that can be a restricted setting.
+                    if (RestrictedSettings.mayBeBlocked(permission.kind, state.facts.sdkInt, asked = current == PermissionStatus.REFUSED, granted = current == PermissionStatus.ALLOWED)) {
+                        RestrictedSettingsHint(permission.kind, actions.openAppInfo, Modifier.padding(top = 4.dp))
+                    }
                     if (current != PermissionStatus.ALLOWED) {
                         Row(Modifier.fillMaxWidth()) {
                             Spacer(Modifier.weight(1f))
