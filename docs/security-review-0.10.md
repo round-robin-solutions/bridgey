@@ -162,6 +162,32 @@ are broadcast to local processes for Finder's "Where from" (`FinderMetadata.swif
 browsers do; the Bluetooth companion link can be started by any app through `MainActivity`'s
 intent, but the system dialog still needs the user.
 
+## Pairing: further review rounds
+
+The pairing fix (H1) was reviewed four more times by fresh reviewers, each fix with a test named
+after the attack (`SessionSecurityTest`, `PairingRound4Test` on Android; `SessionSecurityTests`,
+`PairingRound3Tests`, `PairingRound4Tests` on the Mac).
+
+| Round | Finding | Fix |
+| --- | --- | --- |
+| 2 | An answer sent to the dialled end in place of the reveal was taken, with a key chosen afterwards | Pairing frames only in order: the dialled end takes the offer and the reveal, the dialler the answer |
+| 2 | Offers that never revealed cost nothing | Every answered offer from an untrusted device takes a slot (3 a minute) |
+| 2 | A reconnect dial answered under a trusted ID in other letter case reached a protocol 1 code | A code prompt needs the dialler's commitment |
+| 3 | After a one-sided Forget, a committed pairing under a trusted ID confirmed without a code | Only a plain reconnect confirms by itself; committed pairings prompt on both ends and pay a slot |
+| 3 | Dialling both devices gave silent tries, about 1.3% a day | Committed offers are answered only while pairing is allowed (Allow pairing for two minutes, or a pairing screen open); otherwise `not_armed` and a "wants to pair" card. Backstop: 3 a minute and 10 an hour |
+| 3 | The code on screen and the session Confirm acted on could differ (Android) | Prompt claimed, checked and shown in one step; Confirm and Don't match carry the prompt's token |
+| 3 | Mac limiter on wall-clock time; pairing frames taken after authentication; untagged cancels | Monotonic clock; after authentication only a tagged `pairing.cancel` is taken |
+| 3 | Protocol 1 or substituted-key offers charged the limiter; Android kept malformed offers open | Refused first with `needs_protocol_2` or `not_trusted`; malformed offers close |
+| 4 | The phone honoured `not_armed` after the code was shown, and dialled again | Only before the answer; later it is a cancel |
+| 4 | A byte trickle kept an Android handshake open past its deadline | Each pending connection has its own timer |
+| 4 | A background reconnect could become a committed pairing after a Forget (both apps) | Background dials never commit, and stop if the device is no longer trusted |
+| 4 | Allow pairing on the Mac survived sleep | Ends on sleep; its clock counts sleep |
+| 4 | Pairing again with a Mac the user had disconnected closed after both codes (merge with per-Mac Disconnect) | A deliberate pairing lifts the disconnect hold |
+
+`pairing.cancel` now says why (`reason`), so each screen can say what happened and what to do.
+Compatibility, decided on 2026-10-27: no protocol 1 first pairing, see
+[compatibility.md](compatibility.md#pairing-with-other-bridgey-versions).
+
 ## Checked and found sound
 
 - **Identity and trust:** Android Keystore P-256 signing key, not exportable; trust in private
