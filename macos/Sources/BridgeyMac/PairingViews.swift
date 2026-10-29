@@ -41,7 +41,7 @@ enum PairingCopy {
     static var close: String { L10n.text("action.close", fallback: "Close") }
     static var cancel: String { L10n.text("action.cancel", fallback: "Cancel") }
     static var done: String { L10n.text("action.done", fallback: "Done") }
-    static func request(_ name: String) -> String { String(format: L10n.text("pairing.request.title", fallback: "%@ wants to pair."), name) }
+    static func request(_ name: String) -> String { String(format: L10n.text("pairing.request.title", fallback: "%@ wants to pair"), name) }
     static var requestDetail: String { L10n.text("pairing.request.detail", fallback: "Allow it only if you are pairing it now.") }
     static var allow: String { L10n.text("pairing.allow", fallback: "Allow pairing") }
     static var allowPrompt: String { L10n.text("pairing.allow.prompt", fallback: "Pairing from a phone?") }
@@ -278,7 +278,7 @@ struct AllowPairingRow: View {
     }
 }
 
-/// "<name> wants to pair.": a device tried while this Mac was not accepting pairings. An older Bridgey cannot pair at
+/// "<name> wants to pair": a device tried while this Mac was not accepting pairings. An older Bridgey cannot pair at
 /// all, so its card says to update it instead of offering Allow pairing.
 struct PairingRequestContent: View {
     let request: PairingRequest

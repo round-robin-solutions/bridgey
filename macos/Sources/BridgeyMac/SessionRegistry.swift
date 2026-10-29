@@ -90,7 +90,7 @@ enum PairingFailure: String, Equatable, CaseIterable {
         case .noAnswer:
             String(format: L10n.text("pairing.failure.noAnswer", fallback: "%@ did not answer. If it runs an older Bridgey, update it to 0.10 or newer, then pair again."), name)
         case .notAllowed:
-            String(format: L10n.text("pairing.failure.notAllowed", fallback: "%@ did not allow pairing in time. Tap Allow pairing there, then try again."), name)
+            String(format: L10n.text("pairing.failure.notAllowed", fallback: "%@ did not allow pairing in time. Open Bridgey there and tap Allow pairing, then try again."), name)
         case .rateLimited:
             String(format: L10n.text("pairing.failure.rateLimited", fallback: "%@ is refusing pairing for a minute after several attempts. Try again soon."), name)
         }

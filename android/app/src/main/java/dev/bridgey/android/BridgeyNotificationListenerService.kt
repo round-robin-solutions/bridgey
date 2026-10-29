@@ -326,7 +326,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
             val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
             val text = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim().orEmpty()
             // The same tokens as when it was forwarded: they are derived from the notification and the action's place.
-            val actions = storeActions(notificationId, notificationActionCandidates(notification, null, false))
+            val actions = storeActions(notificationId, notificationActionCandidates(notification, null, false), isCall = false)
             val threadId = if (provider.canRead) {
                 runCatching {
                     dev.bridgey.android.sms.matchNotificationThreadAnyTime(title, text, sbn.postTime, notification.`when`, provider::recentInbox)
@@ -357,7 +357,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         val candidates = notification.actions.orEmpty().toList() + Notification.WearableExtender(notification).actions
         val action = candidates.firstOrNull { it.semanticAction == Notification.Action.SEMANTIC_ACTION_MARK_AS_READ && it.actionIntent != null } ?: return null
         val token = notificationActionToken(notificationId, HIDDEN_MARK_READ_INDEX)
-        storedActions[token] = StoredNotificationAction(notificationId, action.actionIntent, emptyArray(), null)
+        storedActions[token] = StoredNotificationAction(notificationId, action.actionIntent, emptyArray(), null, isCall = false)
         actionTokensByNotificationId[notificationId] = actionTokensByNotificationId[notificationId].orEmpty() + token
         while (storedActions.size > MAX_STORED_ACTIONS) storedActions.remove(storedActions.keys.first())
         return token
