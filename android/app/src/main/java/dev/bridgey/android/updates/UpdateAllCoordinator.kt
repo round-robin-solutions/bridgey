@@ -101,6 +101,10 @@ class UpdateAllCoordinator(
     /** The run whose end was handled, so it is handled once. */
     @Volatile private var endedRunId: String? = null
 
+    /** When this process started Update all: the automatic rules first wait for paired Macs to reconnect. */
+    private val startedAt = clock()
+    @Volatile private var settleLookScheduled = false
+
     init {
         updater.automatic = ::autoEnabled
         val saved = preferences.getString(KEY_RUN, null)?.let { text ->
@@ -264,9 +268,31 @@ class UpdateAllCoordinator(
 
     /** Looks again: maybe starts the automatic run. Main thread. */
     private fun evaluate() {
+        if (settlingAfterStart()) {
+            refreshAuto()
+            return
+        }
         controller.evaluate(autoFacts())
         refreshAuto()
         if (controller.pending) startHeartbeat()
+    }
+
+    /**
+     * Just started: wait for paired Macs to reconnect and report (at most a minute), so an automatic run
+     * found at start includes them. Looks again when the minute is over.
+     */
+    private fun settlingAfterStart(): Boolean {
+        val now = clock()
+        val ready = pairing.connections.value.filter { it.state.updateStatus != null }.map { it.deviceId }.toSet()
+        if (!AutoUpdateRules.settling(startedAt, now, pairing.trustedDevices.value.map { it.id }, ready)) return false
+        if (!settleLookScheduled) {
+            settleLookScheduled = true
+            scope.launch {
+                delay((AUTO_LAUNCH_SETTLE_MILLIS - (now - startedAt)).coerceAtLeast(1_000L))
+                evaluate()
+            }
+        }
+        return true
     }
 
     /** While the automatic update waits (someone busy, Later, a yield), look again every minute. */

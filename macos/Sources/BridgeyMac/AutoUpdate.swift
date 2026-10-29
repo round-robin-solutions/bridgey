@@ -38,6 +38,16 @@ enum AutoUpdateRules {
     /// did not answer or refused keeps reporting the build, and must not be asked again every few seconds).
     static let retryAfter: TimeInterval = 60 * 60
 
+    /// Right after launch the rules wait this long for paired devices to reconnect, so a run that starts
+    /// at launch does not leave them out as "not connected".
+    static let launchSettle: TimeInterval = 60
+
+    /// Just launched, and a paired device has not reconnected and sent its update status yet.
+    static func settling(launchedAt: Date, now: Date, paired: [String], ready: Set<String>) -> Bool {
+        guard now >= launchedAt, now.timeIntervalSince(launchedAt) < launchSettle else { return false }
+        return paired.contains { !ready.contains($0) }
+    }
+
     /// On by default for Beta and Nightly, off for Stable.
     static func defaultOn(_ channel: UpdateChannel) -> Bool { channel != .stable }
 

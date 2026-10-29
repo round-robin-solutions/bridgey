@@ -42,6 +42,9 @@ const val AUTO_YIELD_MILLIS = 15L * 60 * 1000
 /** After accepting another device's start, this device does not start its own run for this long. */
 const val AUTO_PEER_REQUEST_MILLIS = 10L * 60 * 1000
 
+/** Right after the app starts, the rules wait this long for paired Macs to reconnect and report. */
+const val AUTO_LAUNCH_SETTLE_MILLIS = 60_000L
+
 /**
  * After an automatic run for a build ends, another automatic run for that same build waits this long.
  * Without it a device that does not answer, or refuses for its rate, would be started again every few
@@ -50,6 +53,15 @@ const val AUTO_PEER_REQUEST_MILLIS = 10L * 60 * 1000
 const val AUTO_RETRY_MILLIS = 60L * 60 * 1000
 
 object AutoUpdateRules {
+    /**
+     * Just started, and a paired device has not reconnected and sent its update status yet: an automatic
+     * run found now would leave it out as "not connected", so the rules wait (at most a minute).
+     */
+    fun settling(startedAt: Long, now: Long, paired: Collection<String>, ready: Set<String>): Boolean {
+        if (now < startedAt || now - startedAt >= AUTO_LAUNCH_SETTLE_MILLIS) return false
+        return paired.any { it !in ready }
+    }
+
     /** On by default for Beta and Nightly, off for Stable. */
     fun defaultOn(channel: WireChannel): Boolean = channel != WireChannel.STABLE
 

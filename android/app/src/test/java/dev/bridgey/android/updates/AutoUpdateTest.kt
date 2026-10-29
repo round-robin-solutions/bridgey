@@ -59,6 +59,14 @@ class AutoUpdateTest {
         assertEquals(listOf(true, true, true, true), channels.map { AutoUpdateRules.enabled(true, it) })
     }
 
+    @Test fun atStartItWaitsAMinuteForPairedMacsToReconnect() {
+        val t0 = 1_793_091_600_000L
+        assertTrue(AutoUpdateRules.settling(t0, t0 + 5_000, listOf("mac"), emptySet()))
+        assertFalse(AutoUpdateRules.settling(t0, t0 + 5_000, listOf("mac"), setOf("mac")))
+        assertFalse("a Mac that stays away is left out after a minute", AutoUpdateRules.settling(t0, t0 + 60_000, listOf("mac"), emptySet()))
+        assertFalse(AutoUpdateRules.settling(t0, t0 + 5_000, emptyList(), emptySet()))
+    }
+
     @Test fun checksEvery30MinutesOn6HoursOnStableAndDailyOff() {
         assertEquals(30L * 60_000, AutoUpdateRules.checkInterval(true, WireChannel.BETA))
         assertEquals(30L * 60_000, AutoUpdateRules.checkInterval(true, WireChannel.NIGHTLY))

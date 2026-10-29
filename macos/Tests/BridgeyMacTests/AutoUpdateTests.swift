@@ -75,6 +75,14 @@ final class AutoUpdateTests: XCTestCase {
         XCTAssertTrue(AutoUpdateRules.checkDue(lastCheck: t0, now: t0.addingTimeInterval(-60), interval: 1800), "a clock that went back")
     }
 
+    func testAtLaunchItWaitsAMinuteForPairedPhonesToReconnect() {
+        XCTAssertTrue(AutoUpdateRules.settling(launchedAt: t0, now: t0.addingTimeInterval(5), paired: [highPhone], ready: []))
+        XCTAssertFalse(AutoUpdateRules.settling(launchedAt: t0, now: t0.addingTimeInterval(5), paired: [highPhone], ready: [highPhone]))
+        XCTAssertFalse(AutoUpdateRules.settling(launchedAt: t0, now: t0.addingTimeInterval(60), paired: [highPhone], ready: []),
+                       "a phone that stays away is left out after a minute")
+        XCTAssertFalse(AutoUpdateRules.settling(launchedAt: t0, now: t0.addingTimeInterval(5), paired: [], ready: []))
+    }
+
     func testWakeAndNetworkChecksAreRateLimited() {
         XCTAssertTrue(AutoUpdateRules.eventCheckAllowed(lastCheck: nil, lastEventCheck: nil, now: t0))
         XCTAssertFalse(AutoUpdateRules.eventCheckAllowed(lastCheck: t0, lastEventCheck: nil, now: t0.addingTimeInterval(599)))

@@ -128,6 +128,8 @@ final class AutoUpdateCoordinator: ObservableObject {
     private var lastScheduledCheck: Date?
     private var checkWaiters: [(Bool) -> Void] = []
     private var lastHoldLogged: String?
+    private let launchedAt = Date()
+    private var settleLookScheduled = false
     /// The last run whose end was counted (each run once).
     private var endedRunID: String?
     private var evaluateQueued = false
@@ -306,6 +308,7 @@ final class AutoUpdateCoordinator: ObservableObject {
 
     func evaluate() {
         guard let facts = facts(now: clock()) else { return }
+        if settlingAfterLaunch(facts.now) { return }
         let step = AutoUpdatePolicy.decide(facts, memory: memory)
         if step.memory != memory {
             memory = step.memory
@@ -319,6 +322,23 @@ final class AutoUpdateCoordinator: ObservableObject {
         if case let .start(_, refreshBefore) = step.decision {
             updateAll?.startAll(auto: true, refreshBefore: refreshBefore)
         }
+    }
+
+    /// Just launched: wait for paired phones to reconnect and report (at most a minute), so an automatic
+    /// run found at launch includes them. Looks again when the minute is over.
+    private func settlingAfterLaunch(_ now: Date) -> Bool {
+        guard let pairing else { return false }
+        let ready = Set(pairing.connectedPhones.filter { !$0.state.remoteUpdates || $0.state.updateStatus != nil }
+            .filter(\.state.featureStateReceived).map(\.id))
+        guard AutoUpdateRules.settling(launchedAt: launchedAt, now: now, paired: pairing.trustedDevices.map(\.id), ready: ready) else { return false }
+        if !settleLookScheduled {
+            settleLookScheduled = true
+            let delay = max(1, AutoUpdateRules.launchSettle - now.timeIntervalSince(launchedAt))
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                MainActor.assumeIsolated { self?.evaluate() }
+            }
+        }
+        return true
     }
 
     // MARK: The run
