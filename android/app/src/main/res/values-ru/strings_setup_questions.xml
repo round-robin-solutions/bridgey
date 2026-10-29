@@ -98,8 +98,9 @@
 
     <string name="setup_q_updates_summary">Обновления</string>
     <string name="setup_a_updates_steady">Надёжные</string>
-    <string name="setup_a_updates_early">Пораньше</string>
-    <string name="setup_a_updates_newest">Самые новые, каждый день</string>
+    <string name="setup_a_updates_early">Пораньше, все устройства обновляются автоматически</string>
+    <string name="setup_a_updates_newest">Самые новые, каждый день, все устройства обновляются автоматически</string>
+    <string name="setup_q_updates_auto_summary">Обновлять все устройства автоматически</string>
 
 
     <string name="setup_switches_title">Что-нибудь ещё?</string>

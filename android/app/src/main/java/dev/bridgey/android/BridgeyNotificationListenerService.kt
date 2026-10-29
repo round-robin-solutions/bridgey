@@ -598,6 +598,9 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
             activeService?.get()?.applyApplicationFilter(packageName, enabled)
         }
 
+        /** A call card Bridgey forwards is showing (Update all devices automatically waits). Main thread. */
+        fun callCardsShowing(): Boolean = activeService?.get()?.callLifecycle?.trackedIds?.isNotEmpty() == true
+
         // A new transport session starts with an empty Mac call card, so resend current calls.
         fun resendActiveCalls() {
             activeService?.get()?.mainHandler?.post {

@@ -50,9 +50,24 @@ enum class ActivityKind(val key: String, val category: ActivityCategory, val mer
     FOLDER_SENT("folder_sent", ActivityCategory.FILES),
     FOLDER_RECEIVED("folder_received", ActivityCategory.FILES),
     FOLDER_INCOMPLETE("folder_incomplete", ActivityCategory.FILES),
+
+    /**
+     * Update all devices automatically (keys shared with the Mac; older readers drop unknown kinds). The
+     * content is a short token: the version for done, the busy key for waiting, the skip reason for
+     * skipped, the run failure for failed. deviceId null means this phone.
+     */
+    UPDATE_AUTO_DONE("update_auto_done", ActivityCategory.OTHER),
+    UPDATE_AUTO_WAITING("update_auto_waiting", ActivityCategory.OTHER),
+    UPDATE_AUTO_SKIPPED("update_auto_skipped", ActivityCategory.OTHER),
+    UPDATE_AUTO_STARTED_BY("update_auto_started_by", ActivityCategory.OTHER),
+    UPDATE_AUTO_FAILED("update_auto_failed", ActivityCategory.OTHER),
     ;
 
     val isFolder: Boolean get() = this == FOLDER_SENT || this == FOLDER_RECEIVED || this == FOLDER_INCOMPLETE
+
+    /** Update all devices automatically: a version, a busy key, a skip reason or a failure in [ActivityItem.content]. */
+    val isAutoUpdate: Boolean
+        get() = this == UPDATE_AUTO_DONE || this == UPDATE_AUTO_WAITING || this == UPDATE_AUTO_SKIPPED || this == UPDATE_AUTO_STARTED_BY || this == UPDATE_AUTO_FAILED
 
     /** Clipboard offers: what moved (text, image or file), how many and how big. */
     val isClipOffer: Boolean get() = this == CLIP_OFFER_SENT || this == CLIP_OFFER_RECEIVED || this == CLIP_PASTED || this == CLIP_PASTE_FAILED
@@ -92,7 +107,7 @@ data class ActivityItem(
     val atMillis: Long,
     /** Clipboard offers: total size in bytes. */
     val bytes: Long? = null,
-    /** Clipboard offers: "text", "image" or "file". */
+    /** Clipboard offers: "text", "image" or "file". Automatic updates: a version or a short key ([ActivityKind.isAutoUpdate]). */
     val content: String? = null,
     /** Folders: how many files were saved (or sent). */
     val fileCount: Int? = null,
@@ -137,6 +152,16 @@ object FolderDetail {
 
 /** The content kinds a clipboard offer item can record. */
 internal val ClipContents = setOf("text", "image", "file")
+
+/** An automatic update's token: a version name ("0.10.0-rr.1-beta.11") or a key ("call", "remote_off"). Never free text. */
+private val AutoUpdateContent = Regex("^[A-Za-z0-9._+-]{1,64}$")
+
+/** The content an item of [kind] may keep. */
+internal fun cleanContent(kind: ActivityKind, content: String?): String? = when {
+    kind.isClipOffer -> content?.takeIf { it in ClipContents }
+    kind.isAutoUpdate -> content?.takeIf { AutoUpdateContent.matches(it) }
+    else -> null
+}
 
 /** One line, whitespace collapsed, at most [ActivityHistory.MAX_PREVIEW_LENGTH] characters ending with an ellipsis when cut. */
 fun clipboardPreview(text: String?): String? {
@@ -190,7 +215,7 @@ object ActivityHistory {
         val cleanPreview = if (kind.carriesPreview && !isSensitive) clipboardPreview(preview) else null
         val cleanApp = if (kind.carriesAppName) appName?.trim()?.take(MAX_NAME_LENGTH)?.ifBlank { null } else null
         val cleanBytes = if (kind.isClipOffer || kind.isFolder) bytes?.coerceAtLeast(0) else null
-        val cleanContent = if (kind.isClipOffer) content?.takeIf { it in ClipContents } else null
+        val cleanContent = cleanContent(kind, content)
         val cleanCount = if (kind.isClipOffer) itemCount.coerceIn(1, 9_999) else 1
         if (kind.isClipOffer && kind.mergeWindowMillis > 0) {
             val newest = items.firstOrNull()
@@ -286,7 +311,7 @@ object ActivityHistory {
                 count = value.optInt("count", 1).coerceIn(1, 9_999),
                 atMillis = value.optLong("at", 0L),
                 bytes = if ((kind.isClipOffer || kind.isFolder) && !value.isNull("bytes") && value.has("bytes")) value.optLong("bytes", -1L).takeIf { it >= 0 } else null,
-                content = if (kind.isClipOffer && !value.isNull("content")) value.optString("content").takeIf { it in ClipContents } else null,
+                content = if (!value.isNull("content") && value.has("content")) cleanContent(kind, value.optString("content")) else null,
                 fileCount = if (kind.isFolder && value.has("fileCount") && !value.isNull("fileCount")) value.optInt("fileCount", -1).takeIf { it >= 0 } else null,
                 destination = if (kind.isFolder && value.has("destination") && !value.isNull("destination")) {
                     value.optString("destination").take(MAX_DESTINATION_LENGTH).ifBlank { null }

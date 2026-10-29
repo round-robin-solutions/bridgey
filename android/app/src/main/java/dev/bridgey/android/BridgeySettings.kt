@@ -112,6 +112,12 @@ data class BridgeySettingsState(
      * starts Bridgey's own update from this phone's channel, with its own checks (docs/rr-edition.md).
      */
     val updatesRemoteStart: Boolean = true,
+    /**
+     * Updates > Update all devices automatically, as the person set it, or null when they never did:
+     * then it follows the release channel (on for Beta and Nightly, off for Stable, see
+     * [dev.bridgey.android.updates.AutoUpdateRules.enabled]). A choice they made sticks across channel changes.
+     */
+    val updatesAutoAll: Boolean? = null,
     /** Text messages > Send replies as SMS: answers to SMS notifications skip the messaging app's own reply. Off by default. */
     val smsReplyAsSms: Boolean = false,
 ) {
@@ -264,6 +270,12 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(updatesRemoteStart = enabled)
     }
 
+    /** The person's own choice for Update all devices automatically: from now on it no longer follows the channel. */
+    fun setUpdatesAutoAll(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_UPDATES_AUTO_ALL, enabled).apply()
+        mutableState.value = mutableState.value.copy(updatesAutoAll = enabled)
+    }
+
     fun setFocusFollow(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_FOCUS_FOLLOW, enabled).apply()
         mutableState.value = mutableState.value.copy(focusFollow = enabled)
@@ -385,6 +397,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             focusShare = preferences.getBoolean(KEY_FOCUS_SHARE, false),
             focusFollow = preferences.getBoolean(KEY_FOCUS_FOLLOW, false),
             updatesRemoteStart = preferences.getBoolean(KEY_UPDATES_REMOTE_START, true),
+            updatesAutoAll = if (preferences.contains(KEY_UPDATES_AUTO_ALL)) preferences.getBoolean(KEY_UPDATES_AUTO_ALL, false) else null,
             smsReplyAsSms = preferences.getBoolean(KEY_SMS_REPLY_AS_SMS, false),
         )
     }
@@ -410,6 +423,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         private const val KEY_FOCUS_SHARE = "focus.share"
         private const val KEY_FOCUS_FOLLOW = "focus.follow"
         private const val KEY_UPDATES_REMOTE_START = "updates.remote_start"
+        private const val KEY_UPDATES_AUTO_ALL = "updates.auto_all"
         private const val KEY_SMS_REPLY_AS_SMS = "sms.reply_as_sms"
     }
 }

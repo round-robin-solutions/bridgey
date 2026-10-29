@@ -95,8 +95,12 @@ data class UpdatePlan(
 
 private val HAS_UPDATE = setOf(UpdateState.AVAILABLE, UpdateState.DOWNLOADING, UpdateState.READY, UpdateState.NEEDS_USER, UpdateState.INSTALLING)
 
-/** What one tap of Update all will do, for [local] (this device's own status) and every paired peer. */
-fun planUpdateAll(local: UpdateStatus, localName: String, peers: List<PeerUpdateInfo>, now: Long): UpdatePlan {
+/**
+ * What one tap of Update all will do, for [local] (this device's own status) and every paired peer.
+ * [refreshBefore] (automatic and command-line runs): a peer that reported "up to date" from a check
+ * older than this is asked to check again, because this device has just found a newer build.
+ */
+fun planUpdateAll(local: UpdateStatus, localName: String, peers: List<PeerUpdateInfo>, now: Long, refreshBefore: Long? = null): UpdatePlan {
     val targets = mutableListOf<PlanTarget>()
     val skipped = mutableListOf<PlanSkip>()
     val upToDate = mutableListOf<String>()
@@ -112,7 +116,7 @@ fun planUpdateAll(local: UpdateStatus, localName: String, peers: List<PeerUpdate
             !status.remoteStart -> skip(UpdateSkipReason.REMOTE_OFF)
             status.state in HAS_UPDATE || status.state == UpdateState.FAILED ->
                 targets += PlanTarget(peer.deviceId, peer.name, status.app, status.build, status.target, status.targetBuild, status.channel, status.platform)
-            status.checkedAt <= 0 || now - status.checkedAt >= UPDATE_STALE_CHECK_MILLIS ->
+            status.checkedAt <= 0 || now - status.checkedAt >= UPDATE_STALE_CHECK_MILLIS || (refreshBefore != null && status.checkedAt < refreshBefore) ->
                 targets += PlanTarget(peer.deviceId, peer.name, status.app, status.build, null, null, status.channel, status.platform)
             else -> upToDate += peer.name
         }
@@ -240,7 +244,16 @@ data class UpdateRun(
     val restartAt: Long? = null,
     /** Later was chosen: this device stays ready until the person installs. */
     val later: Boolean = false,
+    /** Started by Update all devices automatically, not by a tap here: peers are told so, and the countdown is 60 seconds. */
+    val auto: Boolean = false,
+    /** Someone is busy (a call, a screen share, ...): this device's restart waits. Not saved. */
+    val hold: UpdateBusy? = null,
+    /** While held: the next look (every few minutes in an automatic run, at once otherwise). */
+    val holdCheckAt: Long? = null,
 ) {
+    /** How long this device's restart counts down: 60 seconds in an automatic run, 10 otherwise. */
+    val countdownMillis: Long get() = if (auto) AUTO_COUNTDOWN_MILLIS else UPDATE_COUNTDOWN_MILLIS
+
     val peers: List<RunItem> get() = items.filterNot { it.isLocal }
     val local: RunItem? get() = items.firstOrNull { it.isLocal }
 
@@ -278,7 +291,8 @@ class UpdateRunMachine(private val clock: () -> Long, private val effects: Updat
     var run: UpdateRun? = initial
         private set
 
-    @Synchronized fun start(plan: UpdatePlan, runId: String): UpdateRun {
+    /** [auto]: nobody tapped Update all (Update all devices automatically started it). */
+    @Synchronized fun start(plan: UpdatePlan, runId: String, auto: Boolean = false): UpdateRun {
         val now = clock()
         val items = plan.targets.map { target ->
             RunItem(
@@ -286,7 +300,7 @@ class UpdateRunMachine(private val clock: () -> Long, private val effects: Updat
                 startedAt = now, stepSince = now,
             )
         }
-        run = UpdateRun(runId, now, items)
+        run = UpdateRun(runId, now, items, auto = auto)
         items.filterNot { it.isLocal }.forEach { sendStart(it.deviceId, retry = false) }
         if (items.any { it.isLocal }) {
             update(LOCAL_DEVICE_ID) { it.copy(step = RunStep.DOWNLOADING, stepSince = now) }
@@ -405,6 +419,22 @@ class UpdateRunMachine(private val clock: () -> Long, private val effects: Updat
         advance()
     }
 
+    /**
+     * What the person is doing on any device, each tick. Busy holds this device's restart at once (and
+     * stops a countdown); it goes on when nobody is busy at the next look, every few minutes in an
+     * automatic run and at once otherwise.
+     */
+    @Synchronized fun busy(busy: UpdateBusy?) {
+        val current = run ?: return
+        val now = clock()
+        if (busy != null) {
+            run = current.copy(hold = busy, holdCheckAt = now + if (current.auto) AUTO_RECHECK_MILLIS else 0L, restartAt = null)
+        } else if (current.hold != null && now >= (current.holdCheckAt ?: now)) {
+            run = current.copy(hold = null, holdCheckAt = null)
+            advance()
+        }
+    }
+
     /** Later: this device's restart waits until the person installs it. */
     @Synchronized fun later() {
         val current = run ?: return
@@ -419,7 +449,7 @@ class UpdateRunMachine(private val clock: () -> Long, private val effects: Updat
     private fun sendStart(deviceId: String, retry: Boolean) {
         val requestId = effects.newRequestId()
         step(deviceId, RunStep.STARTING) { it.copy(requestId = requestId) }
-        if (!effects.sendStart(deviceId, UpdateStart(requestId, retry))) {
+        if (!effects.sendStart(deviceId, UpdateStart(requestId, retry, auto = run?.auto == true && !retry))) {
             step(deviceId, RunStep.FAILED) { it.copy(failure = RunFailure.LOST_CONNECTION) }
         }
     }
@@ -430,8 +460,9 @@ class UpdateRunMachine(private val clock: () -> Long, private val effects: Updat
         val local = current.local ?: return
         val now = clock()
         when {
+            current.hold != null -> Unit
             local.step == RunStep.READY && !current.later && current.peersSettled && current.restartAt == null ->
-                run = current.copy(restartAt = now + UPDATE_COUNTDOWN_MILLIS)
+                run = current.copy(restartAt = now + current.countdownMillis)
             local.step == RunStep.READY && current.restartAt != null && now >= current.restartAt -> {
                 run = current.copy(restartAt = null)
                 step(LOCAL_DEVICE_ID, RunStep.INSTALLING)
@@ -457,6 +488,8 @@ class UpdateRunMachine(private val clock: () -> Long, private val effects: Updat
 
 /** The run in one line (the capsule on Home and the Updates page), most urgent first. */
 sealed interface RunSummary {
+    /** This device's restart waits because someone is busy (a call, a screen share, ...). */
+    data class Held(val busy: UpdateBusy) : RunSummary
     data class Countdown(val seconds: Int) : RunSummary
     data object Restarting : RunSummary
     data class Slow(val name: String, val minutes: Long) : RunSummary
@@ -470,6 +503,7 @@ sealed interface RunSummary {
 }
 
 fun summarizeRun(run: UpdateRun, now: Long): RunSummary {
+    run.hold?.let { busy -> if (run.local?.step == RunStep.READY && !run.later && run.peersSettled) return RunSummary.Held(busy) }
     run.restartAt?.let { return RunSummary.Countdown(maxOf(0L, (it - now + 999) / 1000).toInt()) }
     if (run.local?.step == RunStep.INSTALLING) return RunSummary.Restarting
     val slow = run.items.filter { it.step.active && now - it.startedAt >= UPDATE_SLOW_AFTER_MILLIS }.minByOrNull { it.startedAt }
@@ -498,6 +532,7 @@ fun UpdateRun.toJson(): JSONObject = JSONObject().apply {
     put("startedAt", startedAt)
     restartAt?.let { put("restartAt", it) }
     put("later", later)
+    if (auto) put("auto", true)
     put("items", JSONArray().apply {
         items.forEach { item ->
             put(JSONObject().apply {
@@ -566,5 +601,5 @@ fun restoreUpdateRun(json: JSONObject, installedApp: String, installedBuild: Lon
             else -> item
         }
     }
-    UpdateRun(json.getString("id"), startedAt, items, restartAt = null, later = json.optBoolean("later", false))
+    UpdateRun(json.getString("id"), startedAt, items, restartAt = null, later = json.optBoolean("later", false), auto = json.optBoolean("auto", false))
 }.getOrNull()

@@ -186,6 +186,7 @@ internal fun setupFacts(context: Context, settings: SettingsState, paired: Boole
         put(SetupSetting.SHOW_PREVIEWS, settings.showPreviews.toString())
         put(SetupSetting.LOGGING_CONNECTION, settings.logging.connection.toString())
         put(SetupSetting.UPDATE_CHANNEL, settings.update.channel.name)
+        put(SetupSetting.AUTO_UPDATES, settings.updateAll.auto.on.toString())
         put(SetupSetting.BATTERY_EXEMPTION, settings.batteryExempt.toString())
         put(SetupSetting.KEEP_WIFI_AWAKE, settings.keepWifiAwake.toString())
         put(SetupSetting.REDUCE_MOTION, settings.reduceMotion.toString())
@@ -252,6 +253,7 @@ internal fun applySetupChange(
         SetupSetting.REDUCE_MOTION -> uiPreferences.setReduceMotion(on)
         SetupSetting.LOGGING_CONNECTION -> settings.setLogging(settings.state.value.logging.copy(connection = on))
         SetupSetting.UPDATE_CHANNEL -> UpdateChannel.entries.firstOrNull { it.name == change.value }?.let(updater::setChannel)
+        SetupSetting.AUTO_UPDATES -> settings.setUpdatesAutoAll(on)
         SetupSetting.KEEP_WIFI_AWAKE -> settings.setKeepWifiAwake(on)
         SetupSetting.HIDDEN_NOTIFICATION_APPS -> {
             // Only the apps the question listed: picked ones stay on the phone, the others are sent again.
