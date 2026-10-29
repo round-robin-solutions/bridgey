@@ -138,6 +138,80 @@ class PairingCoordinatorNotArmedTest {
         }
     }
 
+    /** The fake Mac's long-term identity, as AndroidIdentity keeps the phone's. */
+    private val macIdentity = java.security.KeyPairGenerator.getInstance("EC").apply { initialize(java.security.spec.ECGenParameterSpec("secp256r1")) }.generateKeyPair()
+    private val macIdentityKey = Crypto.encodePublicKey(macIdentity)
+
+    /**
+     * The fake Mac as the dialled end of a committed first pairing, through to both confirmations. Returns once the
+     * phone has sent its pairing.confirm and the Mac has sent its own.
+     */
+    private fun pairAsDialledMac(pairing: PairingCoordinator, peer: Peer, offer: JSONObject, phoneId: String) {
+        val sessionId = offer.getString("sessionId")
+        val mine = Crypto.generateKeyPair()
+        val minePublic = Crypto.encodePublicKey(mine)
+        peer.write(
+            JSONObject().put("kind", "pairing.answer").put("sessionId", sessionId).put("deviceId", macId)
+                .put("deviceName", "Fake Mac").put("publicKey", minePublic).put("protocolVersion", 2),
+        )
+        val reveal = peer.read()
+        assertEquals("pairing.reveal", reveal.getString("kind"))
+        val phonePublic = reveal.getString("publicKey")
+        assertTrue(SessionSecurity.commitmentMatches(offer.getString("commitment"), sessionId, phonePublic))
+        val material = Crypto.pairingMaterial(mine, phonePublic, sessionId, sasKeys = phonePublic to minePublic)
+        assertTrue("the code is shown", waitFor(5_000) { pairing.pairingFlow.value is PairingState.Verification })
+        val shown = pairing.pairingFlow.value as PairingState.Verification
+        assertEquals(material.code, shown.code)
+        pairing.confirm(shown.token)
+        val phoneConfirm = peer.read()
+        assertEquals("pairing.confirm", phoneConfirm.getString("kind"))
+        // The phone dialled: its transcript lists phone, Mac, then the phone's and the Mac's ephemeral keys.
+        val transcript = listOf("bridgey-auth-v1", sessionId, phoneId, macId, phonePublic, minePublic).joinToString("\u0000").toByteArray()
+        val signature = java.security.Signature.getInstance("SHA256withECDSA").apply {
+            initSign(macIdentity.private)
+            update(transcript)
+        }.sign()
+        peer.write(
+            JSONObject().put("kind", "pairing.confirm").put("sessionId", sessionId).put("deviceId", macId)
+                .put("identityKey", macIdentityKey)
+                .put("proof", Crypto.confirmationProof(material.key, sessionId, macId, macIdentityKey))
+                .put("signature", java.util.Base64.getEncoder().encodeToString(signature)),
+        )
+    }
+
+    /** Review bug 5: pairing again with a Mac the user disconnected on this phone finishes and stays connected. */
+    @Test
+    fun aDeliberatePairingWithADisconnectedMacFinishesAndStaysConnected() {
+        ServerSocket(0, 8, loopback).use { server ->
+            val context = ApplicationProvider.getApplicationContext<Application>()
+            val phoneId = UUID.randomUUID().toString()
+            val freePort = ServerSocket(0, 1, loopback).use { it.localPort }
+            val pairing = PairingCoordinator(context, phoneId, "Test phone", port = freePort, settings = BridgeySettings(context, "Test phone"))
+
+            pairing.pair(loopback.hostAddress!!, server.localPort, "Fake Mac")
+            val (first, offer) = nextBridgeyDial(server, 10_000) ?: error("no dial")
+            pairAsDialledMac(pairing, first, offer, phoneId)
+            assertTrue("paired", waitFor(5_000) { pairing.pairingFlow.value is PairingState.Paired })
+            assertTrue(waitFor(5_000) { pairing.connections.value.any { it.deviceId == macId } })
+
+            // The user disconnects the Mac on its device page: it is held.
+            pairing.disconnectByUser(macId)
+            assertTrue(waitFor(5_000) { pairing.connections.value.none { it.deviceId == macId } })
+            first.socket.close()
+            pairing.dismiss()
+
+            // The user pairs with it again on purpose.
+            pairing.pair(loopback.hostAddress!!, server.localPort, "Fake Mac")
+            val (second, again) = nextBridgeyDial(server, 10_000) ?: error("no second dial")
+            assertTrue("a pairing the user started commits", again.has("commitment"))
+            pairAsDialledMac(pairing, second, again, phoneId)
+            assertTrue("paired again, not connection lost: ${pairing.pairingFlow.value}", waitFor(5_000) { pairing.pairingFlow.value is PairingState.Paired })
+            Thread.sleep(1_000)
+            assertTrue("still connected after the pairing", pairing.connections.value.any { it.deviceId == macId })
+            second.socket.close()
+        }
+    }
+
     /** Follow-up: a cancel and an answer in one write: nothing after the cancel is read, so no code ever shows. */
     @Test
     fun framesAfterACancelInTheSameWriteAreNeverRead() {

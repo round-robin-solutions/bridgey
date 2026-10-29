@@ -184,6 +184,9 @@ after the attack (`SessionSecurityTest`, `PairingRound4Test` on Android; `Sessio
 | 4 | Allow pairing on the Mac survived sleep | Ends on sleep; its clock counts sleep |
 | 4 | Pairing again with a Mac the user had disconnected closed after both codes (merge with per-Mac Disconnect) | A deliberate pairing lifts the disconnect hold |
 
+| 4 | Android kept reading after a cancel, so a cancel and an answer in one write could flash a code for a dead session | Reading stops once a frame closed the session |
+| live | The Mac closed refused connections before their `pairing.cancel` went out, so the phone never learned why | The cancel is sent as the final message and the connection closes after it |
+
 `pairing.cancel` now says why (`reason`), so each screen can say what happened and what to do.
 Compatibility, decided on 2026-10-27: no protocol 1 first pairing, see
 [compatibility.md](compatibility.md#pairing-with-other-bridgey-versions).
@@ -242,12 +245,27 @@ Mac `PairingCoordinator.receive` over a socket pair (neither has one), a two-dev
 middle simulation, and a decoder fuzz for the Mac payloads the reviewers listed
 (`RemoteNotificationPayload`, `FileOfferPayload`, `ClipboardFetchPayload`, `codes.*`).
 
+## Live pairing test
+
+On 2026-10-29, the Android debug build on an Android 16 emulator (`bridgey-api36`) against a
+protocol 2 fake Mac (scratch harness, matching the shared vectors) passed 16 of 17 scenarios: not
+allowed then Allow pairing, the code on both ends, waiting, confirmed on the Mac first, paired,
+Don't match on either side, an older Bridgey (allowed and not), the answer-instead-of-reveal
+attack, the phone dialling the Mac through Bonjour, `not_armed` after the code (cancelled, no
+redial), and the timeout. The one that did not pass, pairing again after Disconnect, failed in the
+harness (a battery prompt hid the device page, so Disconnect was never tapped); the fix is covered by
+`PairingCoordinatorNotArmedTest`, which drives the real coordinator and fails without it. A throwaway Mac build (own bundle ID, port and Bonjour type) probed by
+a fake phone refused an older Bridgey with `needs_protocol_2`, refused a committed offer with
+`not_armed` while not allowed, dropped unauthenticated control frames and capped connections from
+one address. Screenshots are in the Round Robin workspace under
+`outputs/bridgey/design/build-pairing-ux/`.
+
 ## Checks run
 
 - Android: `:app:lintDebug :core:discovery:lintDebug :app:testDebugUnitTest
   :core:discovery:testDebugUnitTest :app:assembleDebug assembleRelease` on rr-dev-1.
-- Mac: `swift test -Xswiftc -warnings-as-errors --skip MacTrustRegistryTests` (770 tests, 0
-  failures) and `./build-app.sh` on the personal Mac (macOS 27.0.1, M4).
+- Mac: `swift test -Xswiftc -warnings-as-errors --skip MacTrustRegistryTests` (982 tests, 0
+  failures, twice) and `./build-app.sh` on the personal Mac (macOS 27.0.1, M4).
 - Python: `python3 -m unittest discover -s scripts/rr/tests`; `protocol/tools/contract.py --check`;
   `node --test` in `services/otp-proxy`.
 - Two-device pairing between an 0.10 phone and an 0.10 Mac was not run on hardware in this
