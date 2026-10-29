@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Network
 
 /// Protocol 2 session security (v0.10 security review, docs/security-review-0.10.md):
 ///
@@ -306,4 +307,13 @@ struct InboundPairingLimiter {
         starts.append(time)
         return true
     }
+}
+
+/// Sends `data` as the connection's last message and cancels the connection once it has gone out: cancelling right
+/// after a send can drop the send, so a refusal's reason never reached the phone. Cancels anyway after `timeout`.
+func sendFinalAndCancel(_ connection: NWConnection, _ data: Data, timeout: TimeInterval = 2) {
+    connection.send(content: data, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in
+        connection.cancel()
+    })
+    DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { connection.cancel() }
 }

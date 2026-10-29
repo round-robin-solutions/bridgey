@@ -914,8 +914,7 @@ final class PairingCoordinator: ObservableObject {
     private func endPairingSession(reason: PairingCancelReason) {
         guard let current = pairingSession else { return }
         pairingSession = nil
-        current.send(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: reason.rawValue))
-        current.close()
+        current.sendThenClose(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: reason.rawValue))
     }
 
     /// Disconnect (panel, Settings): clears a pairing failure or success, else disconnects the selected phone.
@@ -2312,7 +2311,7 @@ final class PairingCoordinator: ObservableObject {
 
     private func configure(_ current: Session, onReady: @escaping () -> Void) {
         current.onMessage = { [weak self, weak current] message in
-            guard let self, let current, !current.ended else { return }
+            guard let self, let current, !current.ended, !current.closing else { return }
             if self.admitFrame(message, in: current) {
                 self.receive(message, in: current)
             } else if current.droppedFrames >= 16 {
@@ -3350,8 +3349,7 @@ final class PairingCoordinator: ObservableObject {
             BridgeyLog.pairing.error("pairing without a key commitment refused")
             current.failure = .invalid
             current.dropReason = current.initiatedLocally ? "wrong_device" : "pairing_needs_protocol_2"
-            current.send(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: PairingCancelReason.notTrusted.rawValue))
-            current.close()
+            current.sendThenClose(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: PairingCancelReason.notTrusted.rawValue))
             return
         }
         // The busy check, taking the prompt and publishing it happen in this one main-actor step, so two pairings
@@ -3361,8 +3359,7 @@ final class PairingCoordinator: ObservableObject {
         let waitingForAllow = allowWait != nil && pairingSession !== current
         if ownPairing || waitingForAllow {
             BridgeyLog.pairing.notice("rejected: another pairing is waiting for confirmation")
-            current.send(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: PairingCancelReason.busy.rawValue))
-            current.close()
+            current.sendThenClose(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: PairingCancelReason.busy.rawValue))
             return
         }
         pairingSession = current
@@ -3389,9 +3386,8 @@ final class PairingCoordinator: ObservableObject {
     private func refuseOffer(_ current: Session, reason: PairingCancelReason) {
         BridgeyLog.pairing.notice("offer refused reason=\(reason.rawValue, privacy: .public)")
         diagnostics.record(category: "pairing", event: "inbound_refused", outcome: reason.rawValue)
-        current.send(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: reason.rawValue))
         current.dropReason = "pairing_refused"
-        current.close()
+        current.sendThenClose(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: reason.rawValue))
         let request = PairingRequest(deviceID: current.remoteDeviceID, peerName: current.peerName, oldVersion: reason == .needsProtocol2)
         switch reason {
         case .notArmed:
@@ -3642,9 +3638,8 @@ final class PairingCoordinator: ObservableObject {
                 }
                 BridgeyLog.pairing.notice("code not confirmed in time")
                 current.failure = PairingRules.timeoutFailure(localConfirmed: current.localConfirmed, remoteConfirmed: current.remoteConfirmed)
-                current.send(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: PairingCancelReason.timeout.rawValue))
                 current.dropReason = "pairing_timeout"
-                current.close()
+                current.sendThenClose(PairingMessage(kind: "pairing.cancel", sessionId: current.id, reason: PairingCancelReason.timeout.rawValue))
                 return
             }
             BridgeyLog.transport.notice("pending session timed out")
@@ -4820,6 +4815,8 @@ private final class Session {
     var tagSender = ""
     /// Frames dropped for arriving before authentication or with a bad tag; the session closes at 16.
     var droppedFrames = 0
+    /// sendThenClose ran: the last word is going out and nothing more is read.
+    var closing = false
     var position: PairingPosition {
         PairingPosition(
             initiatedLocally: initiatedLocally,
@@ -4935,6 +4932,14 @@ private final class Session {
     }
 
     func close() { connection.cancel() }
+
+    /// A pairing.cancel (or any last word) that must reach the phone: a plain close drops a send still queued, so
+    /// the connection closes once this has gone out. Nothing more is read from the session meanwhile.
+    func sendThenClose(_ message: PairingMessage) {
+        closing = true
+        guard let encoded = try? JSONEncoder().encode(framed(message)) else { return close() }
+        sendFinalAndCancel(connection, encoded + Data([0x0A]))
+    }
 
     func acceptMessageID(_ id: String) -> Bool { seenMessageIDs.accept(id) }
 }

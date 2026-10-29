@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import XCTest
 @testable import BridgeyMac
 
@@ -264,4 +265,50 @@ final class PairingRound4Tests: XCTestCase {
         XCTAssertEqual(continuousClock(), reference, accuracy: 1)
         XCTAssertGreaterThanOrEqual(continuousClock(), ProcessInfo.processInfo.systemUptime - 1)
     }
+}
+
+/// Found by the live probe of a throwaway Mac build: a refusal's pairing.cancel was cancelled with its connection
+/// before it went out, so the phone never learned why (older Bridgey, not allowed, busy, codes did not match).
+final class PairingLastWordTests: XCTestCase {
+    func testTheLastMessageArrivesBeforeTheConnectionCloses() throws {
+        let listener = try NWListener(using: .tcp, on: .any)
+        let received = expectation(description: "the cancel arrives, then the connection ends")
+        let buffer = ReceivedBytes()
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .main)
+            func read() {
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { data, _, complete, error in
+                    if let data { buffer.append(data) }
+                    if complete || error != nil {
+                        received.fulfill()
+                    } else {
+                        read()
+                    }
+                }
+            }
+            read()
+        }
+        let ready = expectation(description: "listening")
+        listener.stateUpdateHandler = { if case .ready = $0 { ready.fulfill() } }
+        listener.start(queue: .main)
+        wait(for: [ready], timeout: 5)
+        let port = try XCTUnwrap(listener.port)
+        let client = NWConnection(host: "127.0.0.1", port: port, using: .tcp)
+        client.stateUpdateHandler = { state in
+            if case .ready = state {
+                sendFinalAndCancel(client, Data("{\"kind\":\"pairing.cancel\",\"sessionId\":\"s\",\"reason\":\"not_armed\"}\n".utf8))
+            }
+        }
+        client.start(queue: .main)
+        wait(for: [received], timeout: 5)
+        XCTAssertEqual(String(decoding: buffer.data, as: UTF8.self), "{\"kind\":\"pairing.cancel\",\"sessionId\":\"s\",\"reason\":\"not_armed\"}\n")
+        listener.cancel()
+    }
+}
+
+private final class ReceivedBytes: @unchecked Sendable {
+    private let lock = NSLock()
+    private var bytes = Data()
+    var data: Data { lock.withLock { bytes } }
+    func append(_ more: Data) { lock.withLock { bytes.append(more) } }
 }

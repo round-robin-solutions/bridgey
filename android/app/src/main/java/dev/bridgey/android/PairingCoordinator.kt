@@ -2879,11 +2879,15 @@ class PairingCoordinator(
         val result = runCatching {
             while (true) {
                 try {
+                    if (current.closed) break
                     val line = current.input.readProtocolLine() ?: break
                     current.lastReceivedAtMillis = SystemClock.elapsedRealtime()
                     val message = Message.decode(line)
                     if (admitFrame(current, message)) {
                         receive(current, message)
+                        // A frame that ended the session (a cancel) is the last one read: frames already buffered
+                        // behind it, such as an answer in the same write, never reach a dead session.
+                        if (current.closed) break
                     } else if (current.droppedFrames >= MAX_DROPPED_FRAMES) {
                         current.dropReason = "unauthenticated_frames"
                         break
