@@ -236,6 +236,8 @@ enum ActivityText {
             return clipTitle(item, device: device, showPreviews: showPreviews)
         case .folderSent, .folderReceived, .folderIncomplete:
             return folderTitle(item, device: device)
+        case .updateAutoDone, .updateAutoWaiting, .updateAutoSkipped, .updateAutoStartedBy, .updateAutoFailed:
+            return AutoUpdateText.activityTitle(item)
         }
     }
 
@@ -373,6 +375,7 @@ enum ActivityText {
         case .clipPasted: return L10n.text("stream.clip.pasted.detail", fallback: "Moved when you pasted")
         case .clipPasteFailed: return L10n.text("stream.clip.failed.detail", fallback: "Copy it again and paste")
         case .folderSent, .folderReceived, .folderIncomplete: return folderDetail(item)
+        case .updateAutoWaiting, .updateAutoSkipped, .updateAutoFailed: return AutoUpdateText.activityDetail
         default: break
         }
         guard item.kind.category == .clipboard else { return nil }

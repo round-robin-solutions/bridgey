@@ -49,6 +49,16 @@ enum ActivityKind: String, CaseIterable, Codable {
     case folderReceived = "folder_received"
     /// A folder transfer ended before every file arrived.
     case folderIncomplete = "folder_incomplete"
+    /// Update all devices automatically: this device runs the new version (`content`: the version).
+    case updateAutoDone = "update_auto_done"
+    /// An automatic update waits (`content`: the busy key; the device where, or this one).
+    case updateAutoWaiting = "update_auto_waiting"
+    /// A device left out of an automatic run (`content`: the skip reason).
+    case updateAutoSkipped = "update_auto_skipped"
+    /// Another device started this device's update automatically (the device that started it).
+    case updateAutoStartedBy = "update_auto_started_by"
+    /// A device did not finish an automatic run (`content`: the failure).
+    case updateAutoFailed = "update_auto_failed"
 
     var category: ActivityCategory {
         switch self {
@@ -76,6 +86,9 @@ enum ActivityKind: String, CaseIterable, Codable {
     var carriesPreview: Bool { self == .clipboardSent || self == .clipboardReceived || self == .callShown }
     var carriesAppName: Bool { self == .notificationsShown }
     var isFolder: Bool { self == .folderSent || self == .folderReceived || self == .folderIncomplete }
+    var isAutoUpdate: Bool {
+        [.updateAutoDone, .updateAutoWaiting, .updateAutoSkipped, .updateAutoStartedBy, .updateAutoFailed].contains(self)
+    }
 }
 
 /// One stream item. These fields are the whole record, in memory and on disk.
@@ -289,6 +302,8 @@ enum ActivityHistory {
     private static func cleanContentValue(_ value: String?, kind: ActivityKind) -> String? {
         if kind.isClipOffer { return ["text", "image", "file"].contains(value ?? "") ? value : nil }
         if kind.isFolder { return clean(value, limit: FolderActivityDetail.maximumLength) }
+        // A version name, or a short key (busy activity, skip reason, failure).
+        if kind.isAutoUpdate { return clean(value, limit: 64) }
         return nil
     }
 

@@ -104,8 +104,6 @@
 "setup.a.media.music" = "Apple Music";
 "setup.a.media.spotify" = "Spotify";
 "setup.a.no" = "Нет";
-"setup.a.updates.early" = "Пораньше";
-"setup.a.updates.newest" = "Самые новые, каждый день";
 "setup.a.updates.steady" = "Надёжные";
 "setup.a.yes" = "Да";
 "setup.advanced.detail" = "Выберите, что нужно, ответьте на пару коротких вопросов и включите что-то ещё.";
@@ -239,3 +237,5 @@
 "setup.a.messages.no" = "Нет, каждый раз загружать с телефона";
 "setup.bundle.messages" = "Читайте SMS с телефона и отвечайте на них здесь.";
 "reset.item.textMessages" = "SMS, сохранённые на этом Mac (на телефоне они остаются)";
+"setup.a.updates.earlyAuto" = "Пораньше, все устройства обновляются сами";
+"setup.a.updates.newestAuto" = "Самые новые, каждый день, все устройства обновляются сами";

@@ -104,8 +104,6 @@
 "setup.a.media.music" = "Apple Music";
 "setup.a.media.spotify" = "Spotify";
 "setup.a.no" = "No";
-"setup.a.updates.early" = "Early";
-"setup.a.updates.newest" = "Newest every day";
 "setup.a.updates.steady" = "Steady";
 "setup.a.yes" = "Yes";
 "setup.advanced.detail" = "Pick what you want, answer a few short questions, and switch on anything else.";
@@ -239,3 +237,5 @@
 "setup.a.messages.no" = "No, load them from the phone each time";
 "setup.bundle.messages" = "Read and answer your phone’s texts here.";
 "reset.item.textMessages" = "Text messages kept on this Mac (your phone keeps them)";
+"setup.a.updates.earlyAuto" = "Early, all devices update automatically";
+"setup.a.updates.newestAuto" = "Newest every day, all devices update automatically";

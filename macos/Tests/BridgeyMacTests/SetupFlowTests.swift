@@ -275,7 +275,7 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertTrue(bluetooth.needed(SetupEffective(facts: SetupFacts(), overlay: [.featureNotifications: "true", .featureMessages: "true", .codesEnabled: "false"])))
         XCTAssertFalse(bluetooth.needed(SetupEffective(facts: SetupFacts(), overlay: [.featureNotifications: "false", .featureMessages: "true"])))
         XCTAssertEqual(SetupFeatures.feature("mac_actions")?.on, [.on(.featureMacActions), .on(.macActionsGrant), .set(.macActionSwitches, "lock,sleep,volume")])
-        XCTAssertEqual(SetupQuestions.typedOnly["updates"]?[SetupAnswerKey.newest], [.set(.updateChannel, "nightly")])
+        XCTAssertEqual(SetupQuestions.typedOnly["updates"]?[SetupAnswerKey.newest], [.set(.updateChannel, "nightly"), .on(.updatesAutoAll)])
         XCTAssertEqual(SetupQuestions.need(.accessibility)?.offWhenRefused.first, .off(.featureRemoteInput))
     }
 
