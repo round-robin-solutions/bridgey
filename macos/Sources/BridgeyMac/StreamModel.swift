@@ -69,10 +69,10 @@ func deviceRings(
     let connectedNames = Dictionary(connected.map { ($0.id, $0.name) }, uniquingKeysWith: { $1 })
     var connectingName: String?
     switch pairing {
-    case let .connecting(name):
+    case let .connecting(name), let .waitingForAllow(name):
         connectingName = name
-    case let .verification(name, _):
-        connectingName = name
+    case let .verification(prompt):
+        connectingName = prompt.peerName
     default:
         break
     }
@@ -117,6 +117,24 @@ func deviceRings(
     return rings.enumerated()
         .sorted { (order($0.element), $0.offset) < (order($1.element), $1.offset) }
         .map(\.element)
+}
+
+/// The pairing code as it is read: six digits grouped 3 + 3 ("482 913").
+func formattedPairingCode(_ code: String) -> String {
+    let digits = code.filter(\.isNumber)
+    guard digits.count == 6 else { return code }
+    return "\(digits.prefix(3)) \(digits.suffix(3))"
+}
+
+/// What VoiceOver says for the code: digit by digit ("4 8 2 9 1 3").
+func pairingCodeSpokenLabel(_ code: String) -> String {
+    code.filter(\.isNumber).map(String.init).joined(separator: " ")
+}
+
+/// Allow pairing's countdown: "1:58".
+func pairingCountdownText(_ seconds: Int) -> String {
+    let value = max(0, seconds)
+    return String(format: "%d:%02d", value / 60, value % 60)
 }
 
 enum DaySection: Int, Comparable {

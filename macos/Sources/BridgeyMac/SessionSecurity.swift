@@ -135,9 +135,111 @@ enum PairingRules {
     /// match the code it already saw from this end.
     static func mayPromptUntrusted(_ p: PairingPosition) -> Bool { p.initiatedLocally ? p.committed : p.holdsRemoteCommitment }
 
-    /// An offer from a device that is not trusted costs one `InboundPairingLimiter` slot when it is answered, whether
-    /// or not it ever reaches the code, so an attacker cannot try codes faster by giving up before the reveal.
-    static func chargesInboundAttempt(initiatedLocally: Bool, trusted: Bool) -> Bool { !initiatedLocally && !trusted }
+    /// An answered offer from a device that is not trusted costs one `InboundPairingLimiter` slot, whether or not it ever
+    /// reaches the code, so an attacker cannot try codes faster by giving up before the reveal. A committed offer from a
+    /// trusted ID (a one-sided Forget re-pair) shows a code too, so it costs a slot as well.
+    static func chargesInboundAttempt(initiatedLocally: Bool, trusted: Bool, committedOffer: Bool) -> Bool {
+        !initiatedLocally && (!trusted || committedOffer)
+    }
+
+    /// Only a plain reconnect confirms without a prompt: a trusted device and no commitment either way. A committed
+    /// pairing from a trusted ID prompts on both ends; pairing.confirm still checks the pinned identity key.
+    static func autoConfirms(trusted: Bool, _ p: PairingPosition) -> Bool { trusted && !p.committed && !p.holdsRemoteCommitment }
+
+    /// What the dialled end does with an offer, before it answers. Refusals cost no limiter slot.
+    /// - No commitment: a trusted device reconnects; an untrusted one is refused (an older Bridgey, or a device that
+    ///   forgot this one), because a code from an uncommitted offer can be ground by a man in the middle.
+    /// - A commitment: answered only while pairing is armed here.
+    static func inboundOffer(trusted: Bool, committed: Bool, remoteProtocol: Int64, armed: Bool) -> InboundOfferDecision {
+        if !committed {
+            if trusted { return .answer(chargesLimiter: false) }
+            return .refuse(remoteProtocol < SessionSecurity.protocolVersion ? .needsProtocol2 : .notTrusted)
+        }
+        guard armed else { return .refuse(.notArmed) }
+        return .answer(chargesLimiter: chargesInboundAttempt(initiatedLocally: false, trusted: trusted, committedOffer: true))
+    }
+
+    /// Pairing frames on a session. After authentication only pairing.cancel is taken, and with an envelope key only
+    /// with a valid tag. Before it, a tagged cancel must verify when this end has an envelope key; untagged ones are taken.
+    static func admitsPairingFrame(kind: String, authenticated: Bool, hasEnvelopeKey: Bool, tagged: Bool, tagValid: Bool) -> Bool {
+        let cancel = kind == "pairing.cancel"
+        if authenticated { return cancel && (!hasEnvelopeKey || tagValid) }
+        if cancel && tagged && hasEnvelopeKey { return tagValid }
+        return true
+    }
+
+    /// The code prompt's buttons act only on the pairing whose prompt the user saw.
+    static func promptMatches(sessionToken: String?, requested: String) -> Bool {
+        guard let sessionToken, !requested.isEmpty else { return false }
+        return sessionToken == requested
+    }
+
+    /// The two-minute code timer ran out: say who did not confirm.
+    static func timeoutFailure(localConfirmed: Bool, remoteConfirmed: Bool) -> PairingFailure {
+        switch (localConfirmed, remoteConfirmed) {
+        case (true, false): .timeoutRemote
+        case (false, true): .timeoutLocal
+        default: .timeoutNeither
+        }
+    }
+
+    /// What a received pairing.cancel means for this end's pairing. Nil: not a failure (`not_armed`: wait for Allow
+    /// pairing on the other device and try again).
+    static func failure(forCancel reason: PairingCancelReason, localConfirmed: Bool, remoteConfirmed: Bool) -> PairingFailure? {
+        switch reason {
+        case .mismatch: .mismatchRemote
+        case .cancelled: .cancelledRemote
+        case .timeout: timeoutFailure(localConfirmed: localConfirmed, remoteConfirmed: remoteConfirmed)
+        case .busy: .busy
+        case .rateLimited: .rateLimited
+        case .notArmed: nil
+        // This end only sends uncommitted offers to devices it trusts, so these two mean something else went wrong.
+        case .needsProtocol2, .notTrusted: .invalid
+        }
+    }
+}
+
+enum InboundOfferDecision: Equatable {
+    case answer(chargesLimiter: Bool)
+    case refuse(PairingCancelReason)
+}
+
+/// Why a pairing.cancel was sent (`reason`, protocol 2). An unknown or absent reason reads as `cancelled`.
+enum PairingCancelReason: String, CaseIterable {
+    case mismatch, cancelled, timeout, busy
+    case rateLimited = "rate_limited"
+    case notArmed = "not_armed"
+    case needsProtocol2 = "needs_protocol_2"
+    case notTrusted = "not_trusted"
+
+    init(wire: String?) { self = wire.flatMap(Self.init(rawValue:)) ?? .cancelled }
+}
+
+/// Monotonic seconds (they do not jump when the wall clock is changed), injectable in tests.
+typealias MonotonicClock = () -> TimeInterval
+let systemUptimeClock: MonotonicClock = { ProcessInfo.processInfo.systemUptime }
+
+/// Whether this end answers committed offers now. Allow pairing arms it for two minutes (again from the start on each
+/// tap); a pairing screen that is open holds it on until it closes.
+struct PairingArming {
+    static let duration: TimeInterval = 120
+    private let now: MonotonicClock
+    private var armedUntil: TimeInterval?
+    private(set) var held = false
+
+    init(now: @escaping MonotonicClock = systemUptimeClock) { self.now = now }
+
+    mutating func arm() { armedUntil = now() + Self.duration }
+    mutating func disarm() { armedUntil = nil }
+    mutating func hold(_ on: Bool) { held = on }
+
+    var isArmed: Bool { held || remainingSeconds > 0 }
+
+    /// Whole seconds left on Allow pairing (0 when not armed by it), for the countdown.
+    var remainingSeconds: Int {
+        guard let armedUntil else { return 0 }
+        return max(0, Int((armedUntil - now()).rounded(.up)))
+    }
 }
 
 /// A peer-supplied device name made safe to show: no control or bidi characters, at most 64 characters.
@@ -165,22 +267,29 @@ func admitsPendingConnection(pendingHosts: [String?], host: String?, maxTotal: I
     pendingHosts.count < maxTotal && (host == nil || pendingHosts.filter { $0 == host }.count < maxPerHost)
 }
 
-/// Pairing prompts started by another device: at most `limit` per `window`. Each prompt is a fresh random
-/// code, so this keeps a device on the network from cycling through codes until one matches.
+/// Pairing prompts started by another device: at most `limit` per `window` and `hourlyLimit` per hour, on monotonic
+/// time. Each prompt is a fresh random code, so this keeps a device on the network from cycling through codes until one
+/// matches.
 struct InboundPairingLimiter {
     let limit: Int
     let window: TimeInterval
-    private var starts: [Date] = []
+    let hourlyLimit: Int
+    static let hour: TimeInterval = 3_600
+    private let now: MonotonicClock
+    private var starts: [TimeInterval] = []
 
-    init(limit: Int = 3, window: TimeInterval = 60) {
+    init(limit: Int = 3, window: TimeInterval = 60, hourlyLimit: Int = 10, now: @escaping MonotonicClock = systemUptimeClock) {
         self.limit = limit
         self.window = window
+        self.hourlyLimit = hourlyLimit
+        self.now = now
     }
 
-    mutating func tryAcquire(now: Date = Date()) -> Bool {
-        starts.removeAll { now.timeIntervalSince($0) >= window }
-        guard starts.count < limit else { return false }
-        starts.append(now)
+    mutating func tryAcquire() -> Bool {
+        let time = now()
+        starts.removeAll { time - $0 >= Self.hour }
+        guard starts.count < hourlyLimit, starts.filter({ time - $0 < window }).count < limit else { return false }
+        starts.append(time)
         return true
     }
 }

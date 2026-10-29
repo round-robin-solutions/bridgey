@@ -48,15 +48,16 @@ final class SessionSecurityTests: XCTestCase {
 
     /// Attack: answer committed offers one after another and give up before each reveal, to try codes for free.
     func testAnsweredOffersThatNeverRevealStillUseUpPairingAttempts() {
-        var limiter = InboundPairingLimiter()
-        let start = Date(timeIntervalSince1970: 1_000)
+        let clock = FakeClock()
+        var limiter = InboundPairingLimiter(now: clock.read)
         var answered = 0
-        for attempt in 0..<10 where PairingRules.chargesInboundAttempt(initiatedLocally: false, trusted: false) {
-            if limiter.tryAcquire(now: start + Double(attempt)) { answered += 1 }
+        for _ in 0..<10 where PairingRules.chargesInboundAttempt(initiatedLocally: false, trusted: false, committedOffer: true) {
+            if limiter.tryAcquire() { answered += 1 }
+            clock.advance(1)
         }
         XCTAssertEqual(answered, 3)
-        XCTAssertFalse(PairingRules.chargesInboundAttempt(initiatedLocally: false, trusted: true))
-        XCTAssertFalse(PairingRules.chargesInboundAttempt(initiatedLocally: true, trusted: false))
+        XCTAssertFalse(PairingRules.chargesInboundAttempt(initiatedLocally: false, trusted: true, committedOffer: false))
+        XCTAssertFalse(PairingRules.chargesInboundAttempt(initiatedLocally: true, trusted: false, committedOffer: true))
     }
 
     /// Attack: answer a reconnect dial under a trusted ID in different letter case, hoping for a code prompt.
@@ -81,15 +82,19 @@ final class SessionSecurityTests: XCTestCase {
     }
 
     func testInboundPairingPromptsAreLimitedPerMinute() {
-        var limiter = InboundPairingLimiter(limit: 3, window: 60)
-        let start = Date(timeIntervalSince1970: 1_000)
-        XCTAssertTrue(limiter.tryAcquire(now: start))
-        XCTAssertTrue(limiter.tryAcquire(now: start + 1))
-        XCTAssertTrue(limiter.tryAcquire(now: start + 2))
-        XCTAssertFalse(limiter.tryAcquire(now: start + 3))
-        XCTAssertFalse(limiter.tryAcquire(now: start + 59.9))
-        XCTAssertTrue(limiter.tryAcquire(now: start + 60))
-        XCTAssertFalse(limiter.tryAcquire(now: start + 60.1))
+        let clock = FakeClock()
+        var limiter = InboundPairingLimiter(limit: 3, window: 60, now: clock.read)
+        let attempt = { (at: TimeInterval) -> Bool in
+            clock.set(1_000 + at)
+            return limiter.tryAcquire()
+        }
+        XCTAssertTrue(attempt(0))
+        XCTAssertTrue(attempt(1))
+        XCTAssertTrue(attempt(2))
+        XCTAssertFalse(attempt(3))
+        XCTAssertFalse(attempt(59.9))
+        XCTAssertTrue(attempt(60))
+        XCTAssertFalse(attempt(60.1))
     }
 
     func testPeerNamesLoseControlAndBidiCharactersAndAreBounded() {
