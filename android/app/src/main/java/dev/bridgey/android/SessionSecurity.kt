@@ -125,10 +125,177 @@ internal object PairingRules {
     fun mayPromptUntrusted(p: PairingPosition) = if (p.initiatedLocally) p.committed else p.holdsRemoteCommitment
 
     /**
-     * An offer from a device that is not trusted costs one [InboundPairingLimiter] slot when it is answered, whether
-     * or not it ever reaches the code, so an attacker cannot try codes faster by giving up before the reveal.
+     * An answered offer costs one [InboundPairingLimiter] slot, whether or not it ever reaches the code, so an attacker
+     * cannot try codes faster by giving up before the reveal. Only a plain reconnect from a trusted device is free: a
+     * committed offer under a trusted device ID (a one-sided Forget) is a new pairing and pays like any other.
      */
-    fun chargesInboundAttempt(initiatedLocally: Boolean, trusted: Boolean) = !initiatedLocally && !trusted
+    fun chargesInboundAttempt(initiatedLocally: Boolean, trusted: Boolean, committedOffer: Boolean) =
+        !initiatedLocally && (!trusted || committedOffer)
+
+    /**
+     * Confirm without a prompt only on a plain reconnect: the device is trusted and neither end committed. A committed
+     * pairing under a trusted ID prompts on both ends; pairing.confirm still checks the pinned identity key.
+     */
+    fun autoConfirms(p: PairingPosition, trusted: Boolean) = trusted && !p.committed && !p.holdsRemoteCommitment
+
+    /**
+     * What the dialled end does with a pairing.offer, before it answers or charges the limiter. Malformed (no device
+     * ID, or neither a key nor a commitment, or a commitment from protocol 1) closes the connection. An offer without
+     * a commitment from a device this end does not trust is refused: an older Bridgey ([OfferVerdict.NEEDS_PROTOCOL_2])
+     * or a protocol 2 device that still trusts this end after a one-sided Forget ([OfferVerdict.NOT_TRUSTED]). A
+     * committed offer is answered only while pairing is armed here.
+     */
+    fun offerVerdict(deviceId: String?, publicKey: String?, commitment: String?, protocolVersion: Long, trusted: Boolean, armed: Boolean): OfferVerdict {
+        if (deviceId.isNullOrEmpty() || (publicKey == null && commitment == null)) return OfferVerdict.MALFORMED
+        val committed = publicKey == null
+        if (committed && protocolVersion < SessionSecurity.PROTOCOL_VERSION) return OfferVerdict.MALFORMED
+        if (!committed && !trusted) {
+            return if (protocolVersion < SessionSecurity.PROTOCOL_VERSION) OfferVerdict.NEEDS_PROTOCOL_2 else OfferVerdict.NOT_TRUSTED
+        }
+        if (committed && !armed) return OfferVerdict.NOT_ARMED
+        return OfferVerdict.ANSWER
+    }
+
+    /**
+     * Which frames reach the session. Before authentication only pairing frames do; a pairing.cancel that carries a
+     * tag must verify when this end already has the envelope key. After authentication every pairing frame is dropped
+     * except pairing.cancel on this session, and that one needs a valid tag when the session has an envelope key.
+     * Other frames need an authenticated session and, on protocol 2, a valid tag.
+     */
+    fun admitFrame(kind: String, authenticated: Boolean, sameSession: Boolean, hasEnvelopeKey: Boolean, tagged: Boolean, tagValid: () -> Boolean): FrameVerdict {
+        if (SessionSecurity.allowedBeforeAuthentication(kind)) {
+            if (!authenticated) {
+                return if (kind == CANCEL && tagged && hasEnvelopeKey && !tagValid()) FrameVerdict.BAD_TAG else FrameVerdict.ADMIT
+            }
+            if (kind != CANCEL) return FrameVerdict.PAIRING_AFTER_AUTHENTICATION
+            if (!sameSession) return FrameVerdict.UNAUTHENTICATED
+            return if (hasEnvelopeKey && !tagValid()) FrameVerdict.BAD_TAG else FrameVerdict.ADMIT
+        }
+        if (!authenticated || !sameSession) return FrameVerdict.UNAUTHENTICATED
+        return if (hasEnvelopeKey && !tagValid()) FrameVerdict.BAD_TAG else FrameVerdict.ADMIT
+    }
+
+    /** The 120 s code timer ran out: who did not confirm, from this end's flags. */
+    fun timeoutFailure(localConfirmed: Boolean, remoteConfirmed: Boolean): PairingFailure = when {
+        localConfirmed && !remoteConfirmed -> PairingFailure.TIMEOUT_REMOTE
+        remoteConfirmed && !localConfirmed -> PairingFailure.TIMEOUT_LOCAL
+        else -> PairingFailure.TIMEOUT_NEITHER
+    }
+
+    /**
+     * What a received pairing.cancel means for this end's pairing. Null for `not_armed`: the dialler waits for Allow
+     * pairing and retries instead of failing. [prompted]: this end showed the code (a timeout maps with its own flags).
+     */
+    fun cancelFailure(reason: String?, localConfirmed: Boolean, remoteConfirmed: Boolean, prompted: Boolean): PairingFailure? =
+        when (PairingCancelReason.normalized(reason)) {
+            PairingCancelReason.MISMATCH -> PairingFailure.MISMATCH_REMOTE
+            PairingCancelReason.TIMEOUT -> if (prompted) timeoutFailure(localConfirmed, remoteConfirmed) else PairingFailure.TIMEOUT
+            PairingCancelReason.BUSY -> PairingFailure.BUSY
+            PairingCancelReason.RATE_LIMITED -> PairingFailure.RATE_LIMITED
+            PairingCancelReason.NEEDS_PROTOCOL_2 -> PairingFailure.OLD_VERSION
+            PairingCancelReason.NOT_ARMED -> null
+            else -> PairingFailure.CANCELLED_REMOTE
+        }
+
+    private const val CANCEL = "pairing.cancel"
+}
+
+/** What the dialled end does with a pairing.offer; see [PairingRules.offerVerdict]. */
+internal enum class OfferVerdict { MALFORMED, NEEDS_PROTOCOL_2, NOT_TRUSTED, NOT_ARMED, ANSWER }
+
+/** Whether a frame reaches the session; see [PairingRules.admitFrame]. */
+internal enum class FrameVerdict { ADMIT, UNAUTHENTICATED, BAD_TAG, PAIRING_AFTER_AUTHENTICATION }
+
+/** Why a pairing.cancel was sent (its `reason`, at most 32 bytes). Unknown or absent reads as [CANCELLED]. */
+internal object PairingCancelReason {
+    const val MISMATCH = "mismatch"
+    const val CANCELLED = "cancelled"
+    const val TIMEOUT = "timeout"
+    const val BUSY = "busy"
+    const val RATE_LIMITED = "rate_limited"
+    const val NOT_ARMED = "not_armed"
+    const val NEEDS_PROTOCOL_2 = "needs_protocol_2"
+    const val NOT_TRUSTED = "not_trusted"
+    private val known = setOf(MISMATCH, CANCELLED, TIMEOUT, BUSY, RATE_LIMITED, NOT_ARMED, NEEDS_PROTOCOL_2, NOT_TRUSTED)
+
+    fun normalized(reason: String?): String = reason?.takeIf { it in known } ?: CANCELLED
+}
+
+/**
+ * Whether this end answers committed offers: armed for [windowMillis] by Allow pairing (each call restarts the
+ * window), and held on while a pairing screen is visible. [clock] is monotonic (elapsedRealtime), so changing the
+ * wall clock cannot stretch the window.
+ */
+internal class PairingArming(private val clock: () -> Long, private val windowMillis: Long = 120_000L) {
+    private var armedUntil: Long? = null
+    private var holds = 0
+
+    @Synchronized fun arm() {
+        armedUntil = clock() + windowMillis
+    }
+
+    @Synchronized fun disarm() {
+        armedUntil = null
+    }
+
+    /** A pairing screen appeared (true) or went away (false). Screens nest, so holds count. */
+    @Synchronized fun hold(on: Boolean) {
+        holds = if (on) holds + 1 else (holds - 1).coerceAtLeast(0)
+    }
+
+    @Synchronized fun held(): Boolean = holds > 0
+
+    @Synchronized fun isArmed(): Boolean = holds > 0 || remainingMillis() > 0
+
+    /** Seconds left on Allow pairing's window, rounded up; 0 when it is not running (a held screen has no countdown). */
+    @Synchronized fun remainingSeconds(): Int = ((remainingMillis() + 999) / 1_000).toInt()
+
+    private fun remainingMillis(): Long {
+        val until = armedUntil ?: return 0
+        val left = until - clock()
+        if (left <= 0) armedUntil = null
+        return left.coerceAtLeast(0)
+    }
+}
+
+/**
+ * The one pairing that owns the code prompt. Claiming it (the busy check, the assignment and the published state)
+ * happens in one step, and the prompt's buttons act only on the session whose random token they were shown with,
+ * so a second pairing that arrives while the first prompt is on screen can never be confirmed by its button.
+ */
+internal class PairingSlot<S : Any> {
+    @Volatile var current: S? = null
+        private set
+
+    @Synchronized fun set(session: S?) {
+        current = session
+    }
+
+    /** [session] takes the prompt unless another live pairing holds it ([busy]); [then] runs inside the same step. */
+    @Synchronized fun claim(session: S, busy: (S) -> Boolean, then: () -> Unit): Boolean {
+        val existing = current
+        if (existing != null && existing !== session && busy(existing)) return false
+        current = session
+        then()
+        return true
+    }
+
+    /** The session the prompt with [token] belongs to, if it still owns the prompt. */
+    @Synchronized fun withToken(token: String, tokenOf: (S) -> String): S? = current?.takeIf { tokenOf(it) == token }
+
+    /** As [withToken], and the prompt is released. */
+    @Synchronized fun takeWithToken(token: String, tokenOf: (S) -> String): S? = withToken(token, tokenOf)?.also { current = null }
+
+    /** Releases the prompt if [session] still holds it; [then] runs inside the same step. */
+    @Synchronized fun releaseIf(session: S, then: () -> Unit = {}): Boolean {
+        if (current !== session) return false
+        current = null
+        then()
+        return true
+    }
+
+    /** Runs [block] in the slot's step, for state that must change together with the owner. */
+    @Synchronized fun <T> locked(block: () -> T): T = block()
 }
 
 /** A peer-supplied device name made safe to show: no control or bidi characters, at most 64 characters. */
@@ -151,16 +318,27 @@ internal fun admitsPendingConnection(pendingHosts: List<String?>, host: String?,
     pendingHosts.size < maxTotal && (host == null || pendingHosts.count { it == host } < maxPerHost)
 
 /**
- * Pairing prompts started by another device: at most [limit] per [windowMillis]. Each prompt is a fresh random
- * code, so this keeps a device on the network from cycling through codes until one matches.
+ * Answered pairing offers from other devices: at most [perMinute] a minute and [perHour] an hour, on [clock]
+ * (monotonic). Each answer is a fresh random code, so this keeps a device on the network from cycling through codes
+ * until one matches; the hourly cap bounds a patient attacker.
  */
-internal class InboundPairingLimiter(private val limit: Int = 3, private val windowMillis: Long = 60_000L) {
+internal class InboundPairingLimiter(
+    private val clock: () -> Long,
+    private val perMinute: Int = 3,
+    private val perHour: Int = 10,
+) {
     private val starts = ArrayDeque<Long>()
 
-    @Synchronized fun tryAcquire(nowMillis: Long): Boolean {
-        while (starts.isNotEmpty() && nowMillis - starts.first() >= windowMillis) starts.removeFirst()
-        if (starts.size >= limit) return false
+    @Synchronized fun tryAcquire(nowMillis: Long = clock()): Boolean {
+        while (starts.isNotEmpty() && nowMillis - starts.first() >= HOUR_MILLIS) starts.removeFirst()
+        if (starts.size >= perHour) return false
+        if (starts.count { nowMillis - it < MINUTE_MILLIS } >= perMinute) return false
         starts.addLast(nowMillis)
         return true
+    }
+
+    private companion object {
+        const val MINUTE_MILLIS = 60_000L
+        const val HOUR_MILLIS = 3_600_000L
     }
 }
