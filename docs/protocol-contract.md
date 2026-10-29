@@ -70,10 +70,10 @@ the tables at the end of this page are generated from it with
    validation is dropped (or answered with that feature's error message). A payload that fails
    decryption closes the session for `upstream-v1` messages and for folders, places, browsing and settings sync, as in
    upstream; clipboard offers, codes, remote input, the automation drafts (Mac actions, Focus sync,
-   phone camera) and Update all drop it and keep the session.
+   phone camera), Update all, screen sharing and text messages drop it and keep the session.
 9. **Replay.** Encrypted messages with a `messageId` go through one per-session window of the last
-   256 accepted IDs (oldest evicted first); a repeated ID is not executed again. Quick actions and
-   remote input use a sequence high-water mark instead, so their volume cannot push other IDs out of
+   256 accepted IDs (oldest evicted first); a repeated ID is not executed again. Quick actions,
+   remote input and screen sharing streams use a sequence high-water mark instead, so their volume cannot push other IDs out of
    the window; `actions.run` passes the window and then its own per-session sequence. Nothing is replayable across sessions because every session has its own key.
 10. **Major versions.** Anything that changes framing, authentication or required behaviour for all
     peers is a new protocol version, negotiated before use (the future `core.hello` design in
@@ -94,8 +94,12 @@ the tables at the end of this page are generated from it with
   `quick.request`, `codes.status`, remote input, Files 2.0 browse refs, and the automation drafts:
   `focus.state` on both, `actions.catalog`, `actions.result` and `camera.request` on the phone,
   `actions.run` and `camera.status` on the Mac, with each sending platform's own encoding checked
-  against the same plaintext; and Update all: `updates.status`, `updates.start` and `updates.result` on
-  both, which also write the same plaintext for the vectors marked `write`). `mac_actions_draft1` and `camera_draft1` are switches in the apps but
+  against the same plaintext; Update all: `updates.status`, `updates.start` and `updates.result` on
+  both, which also write the same plaintext for the vectors marked `write`; screen sharing:
+  `screen.request` and the Mac's stream messages on the phone, `screen.status`, the phone's stream
+  messages and the binary `screen.frame` header on the Mac; and Text messages: the `sms.*` requests
+  and `sms.send` on the phone, `sms.status`, a page's message object, `sms.send_status`,
+  `sms.mark_read_result` and `sms.blocked_numbers_result` on the Mac). `mac_actions_draft1` and `camera_draft1` are switches in the apps but
   draft keys on the wire: the vectors pin them once, under the draft keys, and like every draft key
   they read `true` only for JSON `true`. (`remote_input_draft1` predates the shared draft list: a
   non-boolean value still closes the session.) Settings sync (v0.10): both decode `settings.snapshot` and `settings.update` payloads alike
@@ -145,6 +149,8 @@ the tables at the end of this page are generated from it with
 | `focus_sync_draft1` | edition-draft | no | false |
 | `camera_draft1` | edition-draft | no | false |
 | `updates_draft1` | edition-draft | no | false |
+| `screen_draft1` | edition-draft | no | false |
+| `sms_draft1` | edition-draft | no | false |
 | `settings_sync_draft1` | edition-draft | no | false |
 
 ### Envelope fields
@@ -168,7 +174,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-102 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+128 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -358,6 +364,8 @@ Idempotent.
 - `actions`: array of at most 4 {actionToken (at most 64), title (at most 64), allowsReply}
 - `smsDefaultApp`: boolean, edition extension (sms_codes_draft1)
 - `redacted`: boolean, edition extension, only with smsDefaultApp true
+- `smsReply`: boolean, edition extension (sms_draft1), only to a Mac that shows the key: the phone answers this notification by sms.send with notificationId
+- `smsThreadId`: integer, optional, edition extension (sms_draft1): the conversation the message belongs to, when the phone found it
 
 Content is sensitive and never logged.
 
@@ -374,7 +382,7 @@ Content is sensitive and never logged.
 
 - `notificationId`: string, at most 512
 - `actionToken`: string, at most 64
-- `reply`: string, optional, at most 4,096
+- `replyText`: string, optional, at most 4,096
 
 Android runs only tokens it retained for the still active notification.
 
@@ -490,7 +498,7 @@ Browse lane.
 - `version`: integer, 1
 - `requestId`: string, echoes the request
 - `kind`: string, echoes the request
-- `items`: array of {ref, name, size, modified (Unix ms), mimeType, width, height, durationMs (null when unknown), thumb (boolean), location (display path, at most 128 characters)}
+- `items`: array of {ref, name, size, modified (Unix ms), mimeType, width, height, durationMs (null when unknown), thumb (boolean), location (display path, at most 128 characters), taken (Unix ms the gallery sorts by: date taken, else added; optional, for day headers)}
 - `nextCursor`: string or null
 - `access`: full | partial | none (photo and video access; none returns no media items)
 - `indexing`: boolean, the document index is refreshing
@@ -517,7 +525,7 @@ Media lane: 4 active and 60 per 10 s, else busy. Answers are low priority: sent 
 - `missing`: array of keys without a thumbnail
 - `done`: boolean, true on the last batch
 
-In the order asked; as many thumbnails as fit in each batch. 45,056 bytes of plaintext keep the frame under the 65,536-byte limit after AES-GCM and base64.
+In the order they are ready (made in the order asked, visible items first); askers match thumbnails by key. As many as fit in each batch. 45,056 bytes of plaintext keep the frame under the 65,536-byte limit after AES-GCM and base64.
 
 `media.preview`
 
@@ -877,6 +885,293 @@ Update yourself now from your own channel. It names no version, URL, file or cha
 - `reason`: with refused: disabled | rate_limited | manual | not_applied | busy; senders read anything else as other
 
 accepted also when an update was already running. Progress follows as updates.status.
+
+#### `screen.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `screen.request` | edition-draft | mac-to-phone | screen_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.status` | edition-draft | phone-to-mac | screen_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.start` | edition-draft | phone-to-mac | screen_draft1 | yes | sequence | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.started` | edition-draft | mac-to-phone | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.frame` | edition-draft | phone-to-mac | screen_draft1 | yes | sequence | 32,808 B | sessionId, nonce, ciphertext | android, macos |
+| `screen.ack` | edition-draft | mac-to-phone | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.stats` | edition-draft | phone-to-mac | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.stop` | edition-draft | either | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+
+`screen.request`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+
+Answered by `screen.status`, `screen.start`.
+
+Phone screen on the Mac. One open request per phone, at most one every 3 seconds; it expires after 2 minutes. The phone always needs a tap and Android's consent; it answers screen.status and, once the person confirms, screen.start with the requestId. A malformed request is dropped without an answer.
+
+`screen.status`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `status`: waiting | declined | busy | disabled | failed; the Mac drops an unknown status
+
+`screen.start`
+
+- `version`: integer, 1
+- `streamId`: string, UUID chosen by the phone, used once
+- `sequence`: integer, 1 to 2^53-1, the phone's stream sequence (1 here)
+- `requestId`: optional string, UUID of the Mac's screen.request this answers
+- `codec`: h264
+- `width`: integer, even, 16 to 4096
+- `height`: integer, even, 16 to 4096
+- `fps`: integer, 1 to 60
+- `bitrate`: integer, bits a second, 100000 to 50000000
+
+Answered by `screen.started`, `screen.stop`.
+
+The Mac refuses with screen.stop (disabled, invalid). It ignores a start whose streamId is one of the last 16 that ended.
+
+`screen.started`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer, the Mac's stream sequence
+
+The phone sends frames only after it and stops with timeout after 5 seconds without it.
+
+`screen.frame`
+
+- `(raw)`: 40-byte big-endian header (version 1, flags: bit 0 key frame, bit 1 starts with SPS and PPS, bit 2 last part; part 0 to 63; 16-byte stream ID; sequence 1 to 2^53-1; frame 1 to 2^32-1; capture time 0 to 2^63-1 microseconds) then 1 to 32768 bytes of H.264 Annex B
+
+One part of one access unit; parts in order, part 0 starts with a start code, at most 64 parts. Not in the messageId window: the header sequence is the replay guard. An undecryptable or malformed frame is dropped and the session stays.
+
+`screen.ack`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer
+- `frame`: integer, 1 to 2^32-1, newest frame received completely and decoded
+- `decodeMs`: integer, 0 to 60000
+- `keyframe`: optional boolean, true asks for a key frame (at most one a second)
+
+Paces the phone: at most 6 frames and max(64 KiB, 250 ms at the bit rate) unacknowledged.
+
+`screen.stats`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer
+- `latencyMs`: integer, 0 to 60000
+- `rttMs`: integer, 0 to 60000
+- `bitrate`: integer, 0 to 50000000
+- `sentBitrate`: integer, 0 to 50000000
+- `fps`: integer, 0 to 120
+- `dropped`: integer, 0 to 1000
+
+Once a second while streaming; shown in the Mac window.
+
+`screen.stop`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer
+- `reason`: user | closed | ended | screen_off | disabled | invalid | timeout | failed; an unknown reason reads as failed
+
+Either side ends the stream. A Mac refusing a start sends it with the start's streamId and its own sequence 1.
+
+#### `sms.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `sms.status` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.changed` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.threads` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.threads_page` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.messages` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.messages_page` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.sync` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.sync_page` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.send` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.send_status` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.attachment` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.attachment_data` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.contacts` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.contacts_result` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 16,384 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.mark_read` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.mark_read_result` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.blocked_numbers` | edition-draft | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.blocked_numbers_result` | edition-draft | phone-to-mac | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+
+`sms.status`
+
+- `version`: integer, 1
+- `read`: boolean, READ_SMS allowed
+- `send`: boolean, SEND_SMS allowed
+- `contacts`: boolean, READ_CONTACTS allowed
+- `sims`: array of at most 4 {subId (integer), slot (0 to 3), label (at most 64)}; empty when the phone cannot list them; an invalid entry is dropped
+- `cursor`: {sms, mms}: integers, the newest _id in each SMS provider table
+
+Sent after each features.update that shows the key on both sides, and when a permission or the SIM list changes.
+
+`sms.changed`
+
+- `version`: integer, 1
+- `cursor`: {sms, mms}: integers, the newest _id in each SMS provider table
+
+The SMS provider changed (a ContentObserver, only while a Mac shows the key), at most one every 2 seconds. The Mac asks sms.sync when the cursor is ahead of its own and refreshes an open conversation.
+
+`sms.threads`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `before`: integer, optional, Unix ms, exclusive (absent: the newest)
+- `limit`: integer, 1 to 50
+
+Answered by `sms.threads_page`.
+
+`sms.threads_page`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `threads`: array, newest first, of {threadId, participants (1 to 10 {address (at most 64), name (optional, at most 128)}), snippet (at most 160), date (Unix ms), unread (integer), subId (optional)}
+- `more`: boolean
+- `error`: optional: disabled | permission (threads is then empty)
+
+The phone stops adding entries before the plaintext limit and sets more.
+
+`sms.messages`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `threadId`: integer, at least 1
+- `before`: optional {date (Unix ms), id}, exclusive, ordered by date then id (absent: the newest)
+- `limit`: integer, 1 to 100
+
+Answered by `sms.messages_page`.
+
+`sms.messages_page`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `threadId`: integer
+- `messages`: array, newest first, of {id (s<n> or m<n>, at most 24), threadId, direction: in | out, status: received | pending | sent | delivered | failed (an unknown status reads as received or sent), date (Unix ms), address (at most 64; the other side, empty for an outgoing MMS), body (at most 4,000 UTF-16 units), truncated (optional boolean), subId (optional integer), read (optional boolean, default true), parts (optional, at most 8 images {partId (p<n>), mimeType image/*, size?})}; an invalid message is dropped
+- `more`: boolean
+- `error`: optional: disabled | permission | not_found
+
+`sms.sync`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `since`: {sms, mms}: integers, the newest _id in each SMS provider table, from the Mac's cache
+- `limit`: integer, 1 to 200
+
+Answered by `sms.sync_page`.
+
+`sms.sync_page`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `messages`: array of messages newer than since (any order; the Mac sorts), as in sms.messages_page
+- `cursor`: {sms, mms}: integers, the newest _id in each SMS provider table: where the next sms.sync starts
+- `more`: boolean
+- `reset`: boolean: since is ahead of the phone or over 1,000 messages behind; the Mac drops its cache and loads the threads again
+- `error`: optional: disabled | permission
+
+Each table is read in _id order, so the cursor never skips a message.
+
+`sms.send`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `body`: string, 1 to 2,000 UTF-16 units, not only spaces
+- `threadId`: integer, one of threadId, address and notificationId
+- `address`: string, a phone number: + and 2 to 20 digits once spaces, dashes, dots and brackets are removed
+- `notificationId`: string, at most 512: answers an SMS notification that carried smsReply
+- `subId`: integer, optional: the SIM to send from (default: the thread's last SIM, else the phone's default)
+
+Answered by `sms.send_status`.
+
+One recipient only: a conversation with several people is refused (group). Emergency numbers are refused (invalid). At most one per second and 30 in 10 minutes per Mac. Bridgey never becomes the default SMS app; Android writes the sent message to the SMS provider. A reply to a notification goes through the messaging app's own reply when it has one, unless the phone's Send replies as SMS is on.
+
+`sms.send_status`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `status`: sending | sent | delivered | failed | refused; the Mac drops an unknown status
+- `reason`: with failed or refused: disabled | permission | invalid | group | no_sim | rate_limited | not_found | radio_off | no_service | failed (an unknown or missing reason reads as failed)
+- `via`: optional: sms (SmsManager) | app (the messaging app's reply)
+
+Several per request: sending, then sent or failed, then delivered when the network reports it.
+
+`sms.attachment`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `partId`: string, p<n>
+
+Answered by `sms.attachment_data`.
+
+Read-only MMS images. At most 4 open requests per Mac.
+
+`sms.attachment_data`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `partId`: string
+- `mimeType`: image/jpeg
+- `width`: integer
+- `height`: integer
+- `data`: string, base64 JPEG of at most 28,672 bytes, scaled down on the phone
+- `error`: optional: not_found | unsupported | permission (no image fields)
+
+The Mac keeps images in memory only.
+
+`sms.contacts`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `query`: string, 1 to 64 UTF-16 units
+
+Answered by `sms.contacts_result`.
+
+`sms.contacts_result`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `contacts`: array of at most 20 {name (at most 128), address (at most 64), label (optional, at most 32)}
+- `error`: optional: permission (contacts is then empty)
+
+`sms.mark_read`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `threadIds`: array of 1 to 50 integers, each at least 1 (repeats count once)
+
+Answered by `sms.mark_read_result`.
+
+Read on the Mac: the phone runs the messaging app's own Mark as read (Notification.Action SEMANTIC_ACTION_MARK_AS_READ) on each notification it still shows for those conversations. Bridgey never writes to the SMS provider; a conversation without a notification stays unread on the phone.
+
+`sms.mark_read_result`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `results`: array of at most 50 {threadId (integer), result: marked | not_shown | no_action | failed (an unknown result reads as failed)}; an invalid entry is dropped
+- `error`: optional: disabled (results is then empty)
+
+`sms.blocked_numbers`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `address`: string, optional, the number to block as in sms.send (shown to the person, never written by Bridgey)
+
+Answered by `sms.blocked_numbers_result`.
+
+Opens Android's own Blocked numbers screen (TelecomManager.createManageBlockedNumbersIntent): at once when Bridgey is in front, otherwise through a Bridgey notification the person taps. Only the default dialer or SMS app may write the blocked list, so the person adds the number there.
+
+`sms.blocked_numbers_result`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `result`: opened | notified | unavailable (an unknown result reads as unavailable)
 
 #### `places.*`
 

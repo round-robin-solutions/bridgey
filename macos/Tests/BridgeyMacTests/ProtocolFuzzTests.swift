@@ -29,7 +29,8 @@ final class ProtocolFuzzTests: XCTestCase {
             .map { $0.trimmingCharacters(in: .whitespaces) }
         for group in ["featuresUpdate", "batteryUpdate", "clipboardRich", "clipboardOffer", "remoteInput", "browseRef",
                       "focusState", "actionsCatalog", "actionsRun", "actionsResult", "cameraRequest", "cameraStatus",
-                      "updatesStatus", "updatesStart", "updatesResult"] {
+                      "updatesStatus", "updatesStart", "updatesResult",
+                      "screenRequest", "screenStatus", "screenStream"] {
             for vector in vectors[group] as! [[String: Any]] {
                 if let raw = vector["plaintextString"] as? String { samples.append(Data(raw.utf8)) }
                 else if let object = vector["plaintext"], let data = try? JSONSerialization.data(withJSONObject: object, options: .fragmentsAllowed) { samples.append(data) }
@@ -192,6 +193,48 @@ final class ProtocolFuzzTests: XCTestCase {
                 XCTAssertNotNil(UUID(uuidString: request.requestID))
             }
             if UpdateStartResult.decode(payload) != nil { XCTAssertLessThanOrEqual(payload.count, UpdateLimits.resultBytes) }
+            // Screen sharing (v0.9).
+            if let status = decodeScreenStatus(payload) {
+                XCTAssertLessThanOrEqual(payload.count, 512)
+                XCTAssertNotNil(UUID(uuidString: status.requestID))
+            }
+            if let start = ScreenStart.decode(payload) {
+                XCTAssertLessThanOrEqual(payload.count, 1024)
+                XCTAssertTrue(ScreenLimits.dimensions.contains(start.width) && ScreenLimits.dimensions.contains(start.height))
+                XCTAssertTrue((1...ScreenLimits.maximumSequence).contains(start.sequence))
+            }
+            if let stats = ScreenStats.decode(payload) { XCTAssertTrue((0...120).contains(stats.fps)) }
+            if ScreenStop.decode(payload) != nil { XCTAssertLessThanOrEqual(payload.count, 512) }
+        }
+    }
+
+    /// screen.frame plaintexts: random bytes, and valid headers with random flips, never crash and what is
+    /// accepted stays within the header's limits; the assembler keeps at most one unfinished frame.
+    func testScreenFramesNeverCrashAndStayInBounds() {
+        let stream = "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60"
+        property("screen frames") {
+            var assembler = ScreenFrameAssembler()
+            for _ in 0..<(1 + random.next(below: 40)) {
+                var data: Data
+                if random.next(below: 3) == 0 {
+                    data = random.bytes(Int(random.next(below: 33_000)))
+                } else {
+                    let payload = Data([0, 0, 1]) + random.bytes(Int(random.next(below: 2_000)))
+                    data = ScreenFramePart(streamID: stream, sequence: Int(1 + random.next(below: 1_000)), frame: UInt32(1 + random.next(below: 50)),
+                                           part: Int(random.next(below: 70)), key: random.next(below: 2) == 0, parameterSets: false,
+                                           last: random.next(below: 2) == 0, captureMicros: Int64(random.next(below: 1 << 40)), payload: payload).encoded()
+                    for _ in 0..<random.next(below: 4) where !data.isEmpty { data[Int(random.next(below: UInt64(data.count)))] = UInt8(truncatingIfNeeded: random.next()) }
+                }
+                guard let part = ScreenFramePart.decode(data) else { continue }
+                XCTAssertTrue(part.part < ScreenLimits.maximumParts)
+                XCTAssertTrue((1...ScreenLimits.maximumSequence).contains(part.sequence))
+                XCTAssertGreaterThanOrEqual(part.frame, 1)
+                XCTAssertTrue((1...ScreenLimits.maximumPartPayload).contains(part.payload.count))
+                if case let .complete(frame) = assembler.add(part) {
+                    XCTAssertLessThanOrEqual(frame.data.count, ScreenLimits.maximumParts * ScreenLimits.maximumPartPayload)
+                }
+                _ = AnnexB.avcc(part.payload)
+            }
         }
     }
 

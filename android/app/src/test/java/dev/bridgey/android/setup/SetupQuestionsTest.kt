@@ -90,7 +90,10 @@ class SetupQuestionsTest {
     @Test
     fun runtimePermissionsShareOneDialogAndSpecialAccessHasItsOwnScreen() {
         val runtime = SetupQuestions.permissions.filter { it.runtime }.map { it.kind }.toSet()
-        assertEquals(setOf(PermissionKind.POST_NOTIFICATIONS, PermissionKind.PHONE_CALLS, PermissionKind.PHOTOS, PermissionKind.CAMERA), runtime)
+        assertEquals(
+            setOf(PermissionKind.POST_NOTIFICATIONS, PermissionKind.PHONE_CALLS, PermissionKind.PHOTOS, PermissionKind.CAMERA, PermissionKind.SMS, PermissionKind.CONTACTS),
+            runtime,
+        )
     }
 
     @Test

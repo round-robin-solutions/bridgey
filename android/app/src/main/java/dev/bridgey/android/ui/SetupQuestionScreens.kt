@@ -489,7 +489,7 @@ private fun PermissionsPage(state: SetupUiState, actions: SetupActions) {
                             },
                         )
                     }
-                    Text(permissionWhy(permission.kind), style = BridgeyType.itemBody, color = colors.onSurface)
+                    Text(permissionWhy(permission.kind, textMessages = SetupFeatures.feature("messages")?.let { SetupFeatures.isOn(it, onNow) } == true), style = BridgeyType.itemBody, color = colors.onSurface)
                     Text(
                         if (featureNames.isEmpty()) stringResource(R.string.setup_permissions_needed_connection)
                         else stringResource(R.string.setup_permissions_needed_for, featureNames.joinToString(", ")),

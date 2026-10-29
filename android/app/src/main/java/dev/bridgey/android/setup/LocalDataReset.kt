@@ -112,6 +112,8 @@ enum class ResetItem(val key: String, val targets: List<ResetTarget>) {
             ResetTarget.Preferences("bridgey.attach"),
             // v0.9: which Mac each home screen widget controls.
             ResetTarget.Preferences("bridgey.widgets"),
+            // Text messages: which permissions it has asked for (to tell a refusal for good apart).
+            ResetTarget.Preferences("bridgey.sms.asked"),
         ),
     ),
     UPDATE_CHANNEL("channel", listOf(ResetTarget.Preferences("bridgey.updates"))),

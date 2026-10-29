@@ -110,13 +110,23 @@ object MediaAccessRules {
         else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
     }
 
-    /** Full: photos and videos. Partial: the user's selection, or only one of the two kinds. */
+    /**
+     * Partial only means the photos the person chose (Android 14+: READ_MEDIA_VISUAL_USER_SELECTED without
+     * READ_MEDIA_IMAGES), since the Mac and the attach sheet then say "Showing the photos you chose". All
+     * photos (READ_MEDIA_IMAGES, as Send a fresh screenshot asks for) is full even before videos are allowed.
+     */
     fun access(sdk: Int, granted: (String) -> Boolean): MediaAccess = when {
         sdk < 33 -> if (granted(Manifest.permission.READ_EXTERNAL_STORAGE)) MediaAccess.FULL else MediaAccess.NONE
-        granted(Manifest.permission.READ_MEDIA_IMAGES) && granted(Manifest.permission.READ_MEDIA_VIDEO) -> MediaAccess.FULL
-        granted(Manifest.permission.READ_MEDIA_IMAGES) || granted(Manifest.permission.READ_MEDIA_VIDEO) -> MediaAccess.PARTIAL
+        granted(Manifest.permission.READ_MEDIA_IMAGES) -> MediaAccess.FULL
         sdk >= 34 && granted(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) -> MediaAccess.PARTIAL
+        granted(Manifest.permission.READ_MEDIA_VIDEO) -> MediaAccess.FULL
         else -> MediaAccess.NONE
+    }
+
+    /** Everything Files needs: all photos and all videos (setup keeps asking until both are allowed). */
+    fun complete(sdk: Int, granted: (String) -> Boolean): Boolean = when {
+        sdk < 33 -> granted(Manifest.permission.READ_EXTERNAL_STORAGE)
+        else -> granted(Manifest.permission.READ_MEDIA_IMAGES) && granted(Manifest.permission.READ_MEDIA_VIDEO)
     }
 }
 

@@ -36,16 +36,25 @@ enum PhoneFilesWindowController {
         window.setContentSize(PhoneFilesWindowView.size)
         window.setFrameAutosaveName("BridgeyPhoneFilesWindow")
         if window.frame.origin == .zero { window.center() }
+        // Space shows the selection in the viewer at once (the preview image, no download), as Photos does;
+        // Quick Look of the original is a button in the viewer, Command Y, and the item's menu.
         window.onSpace = { [weak window] in
-            guard let window else { return }
-            if window.toggleQuickLook() { return }
-            let entries = model.preview.map { [$0.entry] } ?? model.selectedEntries
-            quickLook(entries.filter(PhoneFilesText.quickLookable), model: model, window: window)
+            if window?.toggleQuickLook() == true { return }
+            model.togglePreview()
         }
         window.onEscape = {
             guard model.preview != nil else { return false }
             model.closePreview()
             return true
+        }
+        window.onArrow = { step in
+            guard model.preview != nil else { return false }
+            model.showAdjacent(step)
+            return true
+        }
+        window.onQuickLook = { [weak window] in
+            let entries = model.preview.map { [$0.entry] } ?? model.selectedEntries
+            quickLook(entries.filter(PhoneFilesText.quickLookable), model: model, window: window)
         }
         closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
             MainActor.assumeIsolated {
@@ -64,16 +73,19 @@ enum PhoneFilesWindowController {
         window.makeKeyAndOrderFront(nil)
     }
 
-    /// Downloads the originals into the private preview folder (once per cache key), then opens Quick Look.
+    /// Downloads the originals into the private preview folder (once per cache key), then opens Quick Look on the
+    /// ones that arrived. A failure shows in the status strip; pressing again while it downloads joins that download.
     private static func quickLook(_ entries: [PhoneFileEntry], model: PhoneFilesModel, window: PhoneFilesNSWindow?) {
+        let entries = Array(entries.prefix(20))
         guard !entries.isEmpty else { return }
         var urls = [URL?](repeating: nil, count: entries.count)
         var remaining = entries.count
         for (index, entry) in entries.enumerated() {
-            model.fetchOriginal(entry) { url in
-                urls[index] = url
+            model.loadOriginal(entry) { (result: Result<URL, PhoneFilesError>) in
+                if case let .success(url) = result { urls[index] = url }
                 remaining -= 1
-                if remaining == 0 { window?.showQuickLook(urls.compactMap { $0 }) }
+                guard remaining == 0, window?.isVisible == true else { return }
+                window?.showQuickLook(urls.compactMap { $0 })
             }
         }
     }

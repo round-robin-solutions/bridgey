@@ -36,6 +36,8 @@ class LocalDataResetTest {
         "bridgey.attach",
         // v0.9 automation: each Mac's saved list of Mac actions, and the widgets' Macs.
         "bridgey.mac_actions", "bridgey.widgets",
+        // Text messages: which permissions it asked for.
+        "bridgey.sms.asked",
         // v0.10 settings sync: records, switches and choices; first-connect answers.
         "bridgey.sync", "bridgey.sync.answers",
     )
@@ -110,7 +112,7 @@ class LocalDataResetTest {
         assertState(
             setOf(
                 "bridgey.settings", "bridgey.ui", "bridgey.remote", "bridgey.screenshot", "bridgey.attach", "bridgey.widgets", "bridgey.updates",
-                "bridgey.places", "bridgey.setup", "bridgey_onboarding", "bridgey.sync",
+                "bridgey.places", "bridgey.setup", "bridgey_onboarding", "bridgey.sms.asked", "bridgey.sync",
             ),
             emptySet(),
         )

@@ -247,6 +247,227 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
         ]
     }
 
+    // MARK: Screen sharing (v0.9)
+
+    /// The request this Mac writes is the plaintext the phone reads.
+    func testScreenRequestAsTheMacWritesIt() throws {
+        var checked = 0
+        try each("screenRequest") { vector in
+            guard vector["mac"] as? Bool == true else { return true }
+            checked += 1
+            let plaintext = try XCTUnwrap(vector["plaintext"] as? [String: Any])
+            return NSDictionary(dictionary: screenRequestPayload(plaintext["requestId"] as! String)).isEqual(to: plaintext)
+        }
+        XCTAssertGreaterThanOrEqual(checked, 1)
+    }
+
+    func testScreenStatus() throws {
+        try each("screenStatus") { vector in
+            let result: Any = decodeScreenStatus(plaintext(vector)).map { ["requestId": $0.requestID, "status": $0.status.rawValue] } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// The phone's stream messages (and either side's stop) as this Mac reads them.
+    func testScreenStreamAsTheMacReadsIt() throws {
+        var checked = 0
+        try each("screenStream") { vector in
+            guard ["mac", "both"].contains(vector["decoder"] as? String) else { return true }
+            checked += 1
+            let data = plaintext(vector)
+            let result: Any
+            switch vector["kind"] as? String {
+            case "screen.start":
+                result = ScreenStart.decode(data).map { start -> [String: Any] in
+                    ["streamId": start.streamID, "sequence": start.sequence, "requestId": start.requestID ?? NSNull(), "codec": start.codec,
+                     "width": start.width, "height": start.height, "fps": start.fps, "bitrate": start.bitrate]
+                } ?? "reject"
+            case "screen.stats":
+                result = ScreenStats.decode(data).map { stats -> [String: Any] in
+                    ["streamId": stats.streamID, "sequence": stats.sequence, "latencyMs": stats.latencyMs, "rttMs": stats.rttMs,
+                     "bitrate": stats.bitrate, "sentBitrate": stats.sentBitrate, "fps": stats.fps, "dropped": stats.dropped]
+                } ?? "reject"
+            case "screen.stop":
+                result = ScreenStop.decode(data).map { ["streamId": $0.streamID, "sequence": $0.sequence, "reason": $0.reason.rawValue] as [String: Any] } ?? "reject"
+            default:
+                return false
+            }
+            return Self.same(result, vector["expect"])
+        }
+        XCTAssertGreaterThanOrEqual(checked, 30)
+    }
+
+    /// What this Mac writes on a stream (started, ack, stop) is exactly the plaintext the phone reads.
+    func testScreenStreamAsTheMacWritesIt() throws {
+        var checked = 0
+        try each("screenStream") { vector in
+            guard vector["mac"] as? Bool == true else { return true }
+            checked += 1
+            let p = try XCTUnwrap(vector["plaintext"] as? [String: Any])
+            let stream = p["streamId"] as! String, sequence = p["sequence"] as! Int
+            let written: [String: Any]
+            switch vector["kind"] as? String {
+            case "screen.started": written = screenStartedPayload(streamID: stream, sequence: sequence)
+            case "screen.ack":
+                written = screenAckPayload(streamID: stream, sequence: sequence, frame: UInt32(p["frame"] as! Int),
+                                           decodeMs: p["decodeMs"] as! Int, keyframe: p["keyframe"] as? Bool ?? false)
+            case "screen.stop":
+                written = screenStopPayload(streamID: stream, sequence: sequence, reason: ScreenStopReason(rawValue: p["reason"] as! String)!)
+            default: return false
+            }
+            return NSDictionary(dictionary: written).isEqual(to: p)
+        }
+        XCTAssertGreaterThanOrEqual(checked, 8)
+    }
+
+    /// The binary frame header.
+    func testScreenFrame() throws {
+        try each("screenFrame") { vector in
+            var data = try XCTUnwrap(Self.hex(vector["plaintextHex"] as? String ?? ""))
+            if let total = vector["padTo"] as? Int { data.append(Data(count: total - data.count)) }
+            let result: Any = ScreenFramePart.decode(data).map { part -> [String: Any] in
+                var fields: [String: Any] = ["streamId": part.streamID, "sequence": part.sequence, "frame": Int(part.frame), "part": part.part,
+                                             "key": part.key, "parameterSets": part.parameterSets, "last": part.last,
+                                             "captureMicros": part.captureMicros]
+                if vector["padTo"] != nil { fields["payloadLength"] = part.payload.count } else { fields["payloadHex"] = Self.hexString(part.payload) }
+                return fields
+            } ?? "reject"
+            guard Self.same(result, vector["expect"]) else { return false }
+            // What the phone writes (vectors marked android) is exactly what the header encoder produces too.
+            if vector["android"] as? Bool == true, let part = ScreenFramePart.decode(data) { return part.encoded() == data }
+            return true
+        }
+    }
+
+    private static func hex(_ text: String) -> Data? {
+        var data = Data(capacity: text.count / 2)
+        var index = text.startIndex
+        while index < text.endIndex {
+            let next = text.index(index, offsetBy: 2, limitedBy: text.endIndex) ?? text.endIndex
+            guard let byte = UInt8(text[index..<next], radix: 16) else { return nil }
+            data.append(byte)
+            index = next
+        }
+        return data
+    }
+
+    private static func hexString(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
+    /// Text messages: the Mac reads the phone's sms.status.
+    func testSmsStatus() throws {
+        try each("smsStatus") { vector in
+            let result: Any = decodeSmsStatus(plaintext(vector)).map { status -> [String: Any] in
+                ["read": status.read, "send": status.send, "contacts": status.contacts,
+                 "sims": status.sims.map { ["subId": $0.subId, "slot": $0.slot, "label": $0.label] },
+                 "cursor": ["sms": status.cursor.sms, "mms": status.cursor.mms]]
+            } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// Text messages: one message object of a page, as the Mac reads it (an invalid one is dropped).
+    func testSmsMessage() throws {
+        try each("smsMessage") { vector in
+            let value = try? JSONSerialization.jsonObject(with: plaintext(vector), options: [.fragmentsAllowed])
+            let result: Any = decodeSmsMessage(value).map { message -> [String: Any] in
+                ["id": message.id, "threadId": message.threadId, "direction": message.direction.rawValue, "status": message.status.rawValue,
+                 "date": message.date, "address": message.address, "body": message.body, "truncated": message.truncated,
+                 "subId": message.subId ?? NSNull(), "read": message.read,
+                 "parts": message.parts.map { ["partId": $0.partId, "mimeType": $0.mimeType, "size": $0.size ?? NSNull()] as [String: Any] }]
+            } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// Text messages: the Mac reads the phone's sms.send_status.
+    func testSmsSendStatus() throws {
+        try each("smsSendStatus") { vector in
+            let result: Any = decodeSmsSendStatus(plaintext(vector)).map { status -> [String: Any] in
+                ["requestId": status.requestID, "status": status.status.rawValue,
+                 "reason": status.reason?.rawValue ?? NSNull(), "via": status.via ?? NSNull()]
+            } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// Text messages: every request the phone accepts, the Mac writes the same way from the decoded values.
+    func testSmsRequestsAsTheMacWritesThem() throws {
+        var checked = 0
+        try each("smsRequest") { vector in
+            guard let expect = vector["expect"] as? [String: Any] else { return true }
+            checked += 1
+            let id = expect["requestId"] as! String
+            let written: [String: Any]?
+            switch vector["kind"] as! String {
+            case SmsKinds.threads: written = SmsRequests.threads(id, before: expect["before"] as? Int, limit: expect["limit"] as! Int)
+            case SmsKinds.messages:
+                let before = (expect["before"] as? [String: Any]).map {
+                    SmsMessage(id: $0["id"] as! String, threadId: expect["threadId"] as! Int, direction: .incoming, status: .received,
+                               date: $0["date"] as! Int, address: "", body: "")
+                }
+                written = SmsRequests.messages(id, threadId: expect["threadId"] as! Int, before: before, limit: expect["limit"] as! Int)
+            case SmsKinds.sync:
+                let since = expect["since"] as! [String: Int]
+                written = SmsRequests.sync(id, since: SmsCursor(sms: since["sms"]!, mms: since["mms"]!), limit: expect["limit"] as! Int)
+            case SmsKinds.attachment: written = SmsRequests.attachment(id, partID: expect["partId"] as! String)
+            case SmsKinds.contacts: written = SmsRequests.contacts(id, query: expect["query"] as! String)
+            case SmsKinds.markRead: written = SmsRequests.markRead(id, threadIds: expect["threadIds"] as! [Int])
+            case SmsKinds.blockedNumbers: written = SmsRequests.blockedNumbers(id, address: expect["address"] as? String)
+            default: return false
+            }
+            guard var written else { return false }
+            for key in expect.keys where written[key] == nil { written[key] = NSNull() }
+            written.removeValue(forKey: "version")
+            return NSDictionary(dictionary: written).isEqual(to: expect)
+        }
+        XCTAssertGreaterThanOrEqual(checked, 17)
+    }
+
+    /// Text messages: the Mac reads the phone's sms.mark_read_result.
+    func testSmsMarkReadResult() throws {
+        try each("smsMarkReadResult") { vector in
+            let result: Any = decodeSmsMarkReadResult(plaintext(vector)).map { decoded -> [String: Any] in
+                ["requestId": decoded.requestID,
+                 "results": decoded.results.map { ["threadId": $0.threadId, "result": $0.outcome.rawValue] as [String: Any] },
+                 "error": decoded.error ?? NSNull()]
+            } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// Text messages: the Mac reads the phone's sms.blocked_numbers_result.
+    func testSmsBlockedNumbersResult() throws {
+        try each("smsBlockedNumbersResult") { vector in
+            let result: Any = decodeSmsBlockedNumbersResult(plaintext(vector)).map { ["requestId": $0.requestID, "result": $0.outcome.rawValue] } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// Text messages: sends the phone accepts are what the Mac writes; malformed bodies and numbers never leave the Mac.
+    func testSmsSendAsTheMacWritesIt() throws {
+        try each("smsSend") { vector in
+            guard let expect = vector["expect"] as? [String: Any] else {
+                // A rejected send: the Mac's own encoder refuses the same body or number when it can tell.
+                guard let plaintext = vector["plaintext"] as? [String: Any], let body = plaintext["body"] as? String else { return true }
+                if !SmsRequests.isSendableBody(body) { return SmsRequests.send(Self.requestID, body: body, to: .thread(1)) == nil }
+                if let address = plaintext["address"] as? String, plaintext["threadId"] == nil, plaintext["notificationId"] == nil {
+                    return SmsRequests.send(Self.requestID, body: body, to: .address(address)) == nil
+                }
+                return true
+            }
+            let target: SmsRequests.Target
+            if let thread = expect["threadId"] as? Int { target = .thread(thread) }
+            else if let address = expect["address"] as? String { target = .address(address) }
+            else { target = .notification(expect["notificationId"] as! String) }
+            guard var written = SmsRequests.send(expect["requestId"] as! String, body: expect["body"] as! String, to: target,
+                                                 subId: expect["subId"] as? Int) else { return false }
+            written.removeValue(forKey: "version")
+            for key in ["threadId", "address", "notificationId", "subId"] where written[key] == nil { written[key] = NSNull() }
+            return NSDictionary(dictionary: written).isEqual(to: expect)
+        }
+    }
+
+    private static let requestID = "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293"
+
     /// The Mac is the remote control host: it accepts exactly what the phone may send.
     func testRemoteInputAsTheHostReadsIt() throws {
         try each("remoteInput") { vector in

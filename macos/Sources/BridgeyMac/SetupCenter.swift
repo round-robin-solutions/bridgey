@@ -166,7 +166,7 @@ final class SetupCenter: ObservableObject {
 
     private func closeSetupWindow() {
         closingSetup = true
-        setupWindow?.close()
+        BridgeyWindows.close(setupWindow)
         closingSetup = false
         stopPolling()
     }
@@ -265,6 +265,8 @@ final class SetupCenter: ObservableObject {
         case .codesEnabled: settings.setCodesEnabled(on)
         case .codesEngine: CodeEngine(rawValue: change.value).map(settings.setCodesEngine)
         case .notificationHistory: settings.setNotificationHistoryEnabled(on)
+        case .featureMessages: pairing.setTextMessagesEnabled(on)
+        case .smsKeepOnMac: pairing.setTextMessagesKeepOnMac(on)
         case .focusShare: pairing.focusSync.update { $0.share = on }
         case .focusFollow: pairing.focusSync.update { $0.follow = on }
         case .featureCalls: settings.setGlobal(.calls, enabled: on)
@@ -286,6 +288,7 @@ final class SetupCenter: ObservableObject {
         case .remoteGrant:
             for device in pairing.trustedDevices { settings.setForDevice(device.id, feature: .remoteInput, enabled: on) }
             pairing.remoteInput.policyChanged()
+        case .featureScreen: pairing.phoneScreen.setEnabled(on)
         case .featureMacActions: settings.setGlobal(.macActions, enabled: on)
         case .macActionsGrant:
             for device in pairing.trustedDevices { settings.setForDevice(device.id, feature: .macActions, enabled: on) }
@@ -387,7 +390,7 @@ final class SetupCenter: ObservableObject {
 
     func showWhatsNew(reviewSetup: Bool) {
         let content = WhatsNewContent.make(version: Self.currentVersion, notes: currentNotes, reviewSetup: reviewSetup)
-        whatsNewWindow?.close()
+        BridgeyWindows.close(whatsNewWindow)
         let view = BrandRoot(reduceMotion: settings?.reduceMotion ?? false) {
             WhatsNewView(
                 content: content,
@@ -414,7 +417,7 @@ final class SetupCenter: ObservableObject {
     }
 
     private func closeWhatsNew() {
-        whatsNewWindow?.close()
+        BridgeyWindows.close(whatsNewWindow)
         whatsNewWindow = nil
     }
 
@@ -430,6 +433,7 @@ final class SetupCenter: ObservableObject {
             notifications: settings.globalFeatures[.notifications] != false,
             calls: settings.globalFeatures[.calls] != false,
             codes: settings.codesEnabled,
+            messages: settings.smsEnabled,
             remoteControl: settings.globalFeatures[.remoteInput] == true,
             media: settings.globalFeatures[.media] == true,
             mediaPlayer: pairing?.mediaController.player ?? .off,
@@ -586,6 +590,8 @@ final class SetupCenter: ObservableObject {
             // v0.9: the Mac actions log and the connection health counters.
             pairing?.macActions.audit.clear()
             pairing?.clearConnectionHealth()
+            // Text messages kept on this Mac, in memory and on disk.
+            pairing?.textMessages.deleteAll()
             reset.perform(.activity)
         case .caches:
             pairing?.codeModel.remove()
@@ -701,7 +707,7 @@ enum BrandSheet {
         let dismiss: () -> Void = { [weak sheet] in
             guard !dismissed, let sheet else { return }
             dismissed = true
-            if let parent = sheet.sheetParent { parent.endSheet(sheet) } else { sheet.close() }
+            if let parent = sheet.sheetParent { parent.endSheet(sheet) } else { BridgeyWindows.close(sheet) }
         }
         let host = NSHostingController(rootView: BrandRoot(reduceMotion: reduceMotion) { content(dismiss) })
         host.sizingOptions = .preferredContentSize

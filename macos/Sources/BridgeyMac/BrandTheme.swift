@@ -174,6 +174,13 @@ enum BrandFont {
 
     static var isAvailable: Bool { !graphicsFonts.isEmpty }
 
+    /// The same fonts for AppKit views (the Phone files grid draws its cells with layers).
+    static func nsBody(_ size: CGFloat, _ weight: Weight = .regular) -> NSFont {
+        if let graphicsFont = graphicsFonts[weight.rawValue] { return CTFontCreateWithGraphicsFont(graphicsFont, size, nil, nil) as NSFont }
+        let system: NSFont.Weight = weight == .semibold ? .semibold : weight == .medium ? .medium : .regular
+        return NSFont.systemFont(ofSize: size, weight: system)
+    }
+
     private static let graphicsFonts: [String: CGFont] = {
         var fonts: [String: CGFont] = [:]
         for directory in candidateDirectories {

@@ -40,6 +40,16 @@
     <!-- Take photos for the Mac (on by default, asked for on the camera screen the first time):
          the camera a Mac asked for, opened only by a tap on the phone. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Share screen with Macs (off by default): the screen sharing service runs as a mediaProjection
+         foreground service, after the person confirms in Android's own dialog, every time. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- Text messages (off by default, asked for only when it is turned on): reads conversations for the
+         Mac, sends the texts written there, and shows names. Bridgey never becomes the default SMS app:
+         it declares no SMS_DELIVER, WAP_PUSH_DELIVER or RESPOND_VIA_MESSAGE handler. The hidden Code
+         reader test (lab builds) also reads the inbox. -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <!-- The widget's Glance library brings WorkManager, which asks to start at boot. Bridgey's widget
          redraws when the app starts, so that permission is removed from the merged manifest. -->
@@ -52,6 +62,21 @@
     <queries>
         <intent>
             <action android:name="android.telecom.InCallService" />
+        </intent>
+        <!-- Text messages, Block on phone: Android's own Blocked numbers screen (sms/BlockedNumbers.kt). -->
+        <intent>
+            <action android:name="android.telecom.action.MANAGE_BLOCKED_NUMBERS" />
+        </intent>
+        <!-- Text messages and Codes: seeing the default SMS app. Telephony.Sms.getDefaultSmsPackage only
+             returns an app Bridgey may see; without these it returned null after every update until Bridgey
+             happened to interact with the app (seen live on Android 16), so SMS notifications were not
+             recognised. These are lookups, not handlers: Bridgey still never becomes the SMS app. -->
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="smsto" />
+        </intent>
+        <intent>
+            <action android:name="android.provider.Telephony.SMS_DELIVER" />
         </intent>
         <!-- Setup asks which of these already have a Mac app (setup/SetupQuestions.kt MacTwinApps). -->
         <package android:name="com.whatsapp" />
@@ -131,8 +156,28 @@
             android:excludeFromRecents="true"
             android:exported="false"
             android:taskAffinity="${applicationId}.camera" />
+        <!-- Share screen with Macs: opens Android's capture dialog; a fresh consent every time. -->
+        <activity
+            android:name=".screen.ScreenConsentActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="false"
+            android:taskAffinity="${applicationId}.screen"
+            android:theme="@style/Theme.Bridgey.Transparent" />
+        <service
+            android:name=".screen.ScreenShareService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+        <receiver android:name=".screen.ScreenActionReceiver" android:exported="false" />
+        <service android:name=".screen.ScreenShareTileService" android:exported="true"
+            android:label="@string/tile_screen_label" android:icon="@drawable/ic_action_screen"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
+        </service>
         <activity android:name=".ConfirmCallActivity" android:exported="false"
             android:excludeFromRecents="true" android:noHistory="true" android:taskAffinity="" />
+        <!-- Text messages: sent and delivered results of Bridgey's own SMS (its PendingIntents only). -->
+        <receiver android:name=".sms.SmsResultReceiver" android:exported="false" />
         <service
             android:name=".BridgeyConnectionService"
             android:exported="false"

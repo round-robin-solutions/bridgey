@@ -42,10 +42,17 @@ final class LoopbackPhone: FolderTransport, PhoneFilesHost {
         MainActor.assumeIsolated { self.sent.append(Sent(kind: kind, payload: nil, transferID: transferID, sequence: nil)) }
     }
 
+    /// Requests the Mac cancelled with media.cancel: their answers still on the way are dropped, as on the phone.
+    private var cancelledRequests = Set<String>()
+
     private func record(kind: String, payload: Data, transferID: String?, sequence: Int64?) {
         sent.append(Sent(kind: kind, payload: payload, transferID: transferID, sequence: sequence))
+        if kind == BrowseKind.mediaCancel, let cancel = try? JSONDecoder().decode(MediaCancelPayload.self, from: payload) {
+            cancelledRequests.insert(cancel.requestId)
+        }
         guard let server else { return }
         let answers = server(kind, payload)
+        let requestID = (try? JSONDecoder().decode(BrowseRequestProbe.self, from: payload))?.requestId
         guard let link else {
             for (answerKind, data) in answers { controller?.handle(kind: answerKind, payload: data, from: phoneID) }
             return
@@ -57,7 +64,7 @@ final class LoopbackPhone: FolderTransport, PhoneFilesHost {
             let deliverAt = at.addingTimeInterval(link.latency)
             let delay = max(0, deliverAt.timeIntervalSinceNow)
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self else { return }
+                guard let self, !(requestID.map(self.cancelledRequests.contains) ?? false) else { return }
                 self.controller?.handle(kind: answerKind, payload: data, from: self.phoneID)
             }
         }

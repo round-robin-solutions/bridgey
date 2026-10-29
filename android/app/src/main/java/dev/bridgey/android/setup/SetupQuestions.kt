@@ -64,10 +64,16 @@ enum class SetupSetting(val default: String) {
     FEATURE_MAC_ACTIONS("true"),
     FEATURE_MEDIA("true"),
     FEATURE_CAMERA("true"),
+    /** Share screen with Macs: off by default on every install, even those from before 0.10. */
+    FEATURE_SCREEN("false"),
     FEATURE_LINKS("true"),
     FEATURE_FIND_DEVICE("true"),
     FEATURE_PING("true"),
     FEATURE_BATTERY("true"),
+    /** Text messages: off by default on every install. */
+    FEATURE_SMS("false"),
+    /** Text messages > Send replies as SMS. */
+    SMS_REPLY_AS_SMS("false"),
     SHOW_PREVIEWS("true"),
     /** Privacy > Logging > Connection. */
     LOGGING_CONNECTION("true"),
@@ -118,6 +124,8 @@ data class SetupFacts(
     val codesLinkApplies: Boolean = false,
     /** Installed apps that also have a Mac app (package to name), for the duplicates question. */
     val duplicateApps: List<Pair<String, String>> = emptyList(),
+    /** Two SIM slots: Text messages asks to list the SIMs (Phone and calls). */
+    val dualSim: Boolean = false,
 ) {
     fun value(setting: SetupSetting): String = current[setting] ?: setting.default
 }
@@ -149,12 +157,14 @@ object SetupFeatures {
     val all: List<SetupFeature> = listOf(
         SetupFeature("clipboard", R.string.feature_clipboard, R.string.feature_clipboard_detail, listOf(SetupSetting.FEATURE_CLIPBOARD), "CLIPBOARD"),
         SetupFeature("notifications", R.string.settings_notifications, R.string.settings_notifications_detail, listOf(SetupSetting.FEATURE_NOTIFICATIONS), "NOTIFICATIONS"),
+        SetupFeature("messages", R.string.feature_sms, R.string.feature_sms_detail, listOf(SetupSetting.FEATURE_SMS), "MESSAGES"),
         SetupFeature("calls", R.string.feature_calls, R.string.settings_calls_detail, listOf(SetupSetting.FEATURE_CALLS), "CALLS"),
         SetupFeature("files", R.string.feature_files, R.string.feature_files_detail, listOf(SetupSetting.FEATURE_FILES), "FILES"),
         SetupFeature("remote", R.string.settings_remote_control, R.string.settings_remote_detail, listOf(SetupSetting.FEATURE_REMOTE_INPUT), "REMOTE_CONTROL"),
         SetupFeature("media", R.string.feature_media, R.string.settings_media_detail, listOf(SetupSetting.FEATURE_MEDIA), "MEDIA"),
         SetupFeature("mac_actions", R.string.feature_mac_actions, R.string.settings_mac_actions_detail, listOf(SetupSetting.FEATURE_MAC_ACTIONS), "MEDIA"),
         SetupFeature("camera", R.string.feature_camera, R.string.settings_camera_detail, listOf(SetupSetting.FEATURE_CAMERA), "MEDIA"),
+        SetupFeature("screen", R.string.feature_screen, R.string.settings_screen_detail, listOf(SetupSetting.FEATURE_SCREEN), "MEDIA"),
         SetupFeature("links", R.string.feature_links, R.string.feature_links_detail, listOf(SetupSetting.FEATURE_LINKS), "MEDIA"),
         SetupFeature("find", R.string.feature_find, R.string.settings_find_detail, listOf(SetupSetting.FEATURE_FIND_DEVICE), "MEDIA"),
         SetupFeature("ping", R.string.feature_ping, R.string.settings_ping_detail, listOf(SetupSetting.FEATURE_PING), "MEDIA"),
@@ -206,6 +216,9 @@ object Answers {
     const val NONE = "none"
     /** The duplicates question: "picked:" then the packages, comma separated. */
     const val PICKED = "picked:"
+    /** Text messages: replies through the messaging app, or as plain SMS (Android only). */
+    const val APP = "app"
+    const val SMS = "sms"
 }
 
 /** The permission a chosen feature needs; refused or skipped, [offWhenRefused] goes back off. */
@@ -258,6 +271,15 @@ object SetupQuestions {
             asks = { it.paired && it.facts.codesLinkApplies && !it.facts.granted.contains(PermissionKind.COMPANION_LINK) },
         ),
         SetupQuestion(
+            id = "messages", section = SetupSection.NOTIFICATIONS, feature = "messages",
+            title = R.string.setup_q_messages_title, context = R.string.setup_q_messages_context, summary = R.string.setup_q_messages_summary,
+            answers = listOf(
+                SetupAnswer(Answers.APP, R.string.setup_a_messages_app, R.string.setup_a_messages_app_detail, listOf(on(SetupSetting.FEATURE_SMS), off(SetupSetting.SMS_REPLY_AS_SMS))),
+                SetupAnswer(Answers.SMS, R.string.setup_a_messages_sms, R.string.setup_a_messages_sms_detail, listOf(on(SetupSetting.FEATURE_SMS), on(SetupSetting.SMS_REPLY_AS_SMS))),
+            ),
+            settingsPage = "MESSAGES", covers = setOf(SetupSetting.FEATURE_SMS, SetupSetting.SMS_REPLY_AS_SMS),
+        ),
+        SetupQuestion(
             id = "calls", section = SetupSection.CALLS, feature = "calls",
             title = R.string.setup_q_calls_title, context = R.string.setup_q_calls_context, summary = R.string.setup_q_calls_summary,
             answers = listOf(
@@ -285,6 +307,15 @@ object SetupQuestions {
             ),
             settingsPage = "REMOTE_CONTROL", covers = setOf(SetupSetting.REMOTE_VOLUME_KEYS),
         ),
+        SetupQuestion(
+            id = "screen", section = SetupSection.CAMERA_FOCUS, feature = "screen",
+            title = R.string.setup_q_screen_title, context = R.string.setup_q_screen_context, summary = R.string.setup_q_screen_summary,
+            answers = listOf(
+                SetupAnswer(Answers.YES, R.string.setup_a_screen_yes, R.string.setup_a_screen_yes_detail, listOf(on(SetupSetting.FEATURE_SCREEN))),
+                SetupAnswer(Answers.NO, R.string.setup_a_no, changes = listOf(off(SetupSetting.FEATURE_SCREEN))),
+            ),
+            settingsPage = "MEDIA", covers = setOf(SetupSetting.FEATURE_SCREEN),
+        ),
     )
 
     /**
@@ -304,15 +335,25 @@ object SetupQuestions {
     val permissions: List<SetupPermission> = listOf(
         SetupPermission(PermissionKind.NOTIFICATION_ACCESS, listOf("notifications"), { it.on(SetupSetting.FEATURE_NOTIFICATIONS) },
             listOf(off(SetupSetting.FEATURE_NOTIFICATIONS)), runtime = false),
-        SetupPermission(PermissionKind.POST_NOTIFICATIONS, listOf("files", "calls", "find"),
-            { e -> e.facts.sdkInt >= 33 && listOf(SetupSetting.FEATURE_FILES, SetupSetting.FEATURE_CALLS, SetupSetting.FEATURE_FIND_DEVICE).any(e::on) }, runtime = true),
-        SetupPermission(PermissionKind.PHONE_CALLS, listOf("calls"), { it.on(SetupSetting.FEATURE_CALLS) && it.on(SetupSetting.DIRECT_CALLS) },
+        // Screen sharing needs it for the ongoing "being shared" notification with Stop; Android shows its own
+        // consent dialog for every share, which is not a permission and is never asked here.
+        SetupPermission(PermissionKind.POST_NOTIFICATIONS, listOf("files", "calls", "find", "screen"),
+            { e -> e.facts.sdkInt >= 33 && listOf(SetupSetting.FEATURE_FILES, SetupSetting.FEATURE_CALLS, SetupSetting.FEATURE_FIND_DEVICE, SetupSetting.FEATURE_SCREEN).any(e::on) },
+            listOf(off(SetupSetting.FEATURE_SCREEN)), runtime = true),
+        SetupPermission(PermissionKind.PHONE_CALLS, listOf("calls", "messages"),
+            { (it.on(SetupSetting.FEATURE_CALLS) && it.on(SetupSetting.DIRECT_CALLS)) || (it.on(SetupSetting.FEATURE_SMS) && it.facts.dualSim) },
             listOf(off(SetupSetting.DIRECT_CALLS)), runtime = true),
         SetupPermission(PermissionKind.PHOTOS, listOf("files"), { it.on(SetupSetting.FEATURE_FILES) && it.on(SetupSetting.ALLOW_BROWSE) }, runtime = true),
         SetupPermission(PermissionKind.CAMERA, listOf("camera"), { it.on(SetupSetting.FEATURE_CAMERA) }, listOf(off(SetupSetting.FEATURE_CAMERA)), runtime = true),
-        SetupPermission(PermissionKind.COMPANION_LINK, listOf("notifications"), { it.on(SetupSetting.FEATURE_NOTIFICATIONS) && it.on(SetupSetting.CODES_LINK) },
+        // The same link serves codes and Text messages: Android 15 shows a linked listener who sent an SMS,
+        // so a reply from a notification finds its conversation. One link for both; never a second.
+        SetupPermission(PermissionKind.COMPANION_LINK, listOf("notifications", "messages"),
+            { e -> e.on(SetupSetting.FEATURE_NOTIFICATIONS) && (e.on(SetupSetting.CODES_LINK) || (e.on(SetupSetting.FEATURE_SMS) && e.facts.codesLinkApplies)) },
             listOf(off(SetupSetting.CODES_LINK)), runtime = false),
         SetupPermission(PermissionKind.DO_NOT_DISTURB, listOf("notifications"), { it.on(SetupSetting.FOCUS_FOLLOW) }, listOf(off(SetupSetting.FOCUS_FOLLOW)), runtime = false),
+        // Text messages stays off without SMS access; without contacts it shows numbers instead of names.
+        SetupPermission(PermissionKind.SMS, listOf("messages"), { it.on(SetupSetting.FEATURE_SMS) }, listOf(off(SetupSetting.FEATURE_SMS)), runtime = true),
+        SetupPermission(PermissionKind.CONTACTS, listOf("messages"), { it.on(SetupSetting.FEATURE_SMS) }, runtime = true),
         SetupPermission(PermissionKind.BATTERY, emptyList(), { e -> SetupFeatures.all.any { SetupFeatures.isOn(it, e) } },
             runtime = false),
     )
@@ -377,7 +418,7 @@ object SetupQuestions {
 
 /**
  * "What brought you here?": one tap picks a bundle. Each is named exactly as its Settings page, so
- * setup and Settings use the same words; the Mac has the same five. [answers] are keyed by feature
+ * setup and Settings use the same words; the Mac has the same six. [answers] are keyed by feature
  * or follow-up id; [Answers.PICK] picks a feature and still asks its follow-up.
  */
 data class SetupBundle(val id: String, @StringRes val title: Int, @StringRes val detail: Int, val answers: Map<String, String>)
@@ -386,9 +427,10 @@ object SetupBundles {
     val all: List<SetupBundle> = listOf(
         SetupBundle("clipboard", R.string.feature_clipboard, R.string.setup_bundle_clipboard, mapOf("clipboard" to Answers.PICK)),
         SetupBundle("notifications", R.string.settings_notifications, R.string.setup_bundle_notifications, mapOf("notifications" to Answers.PICK)),
+        SetupBundle("messages", R.string.feature_sms, R.string.setup_bundle_messages, mapOf("messages" to Answers.PICK)),
         SetupBundle("calls", R.string.feature_calls, R.string.setup_bundle_calls, mapOf("calls" to Answers.PICK)),
         SetupBundle("files", R.string.feature_files, R.string.setup_bundle_files, mapOf("files" to Answers.PICK)),
-        SetupBundle("remote", R.string.settings_remote_control, R.string.setup_bundle_remote, mapOf("remote" to Answers.PICK, "mac_actions" to Answers.PICK)),
+        SetupBundle("remote", R.string.settings_remote_control, R.string.setup_bundle_remote_screen, mapOf("remote" to Answers.PICK, "mac_actions" to Answers.PICK, "screen" to Answers.PICK)),
     )
 
     /**

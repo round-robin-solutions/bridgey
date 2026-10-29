@@ -210,4 +210,16 @@ final class NotificationCallTests: XCTestCase {
             actions: []
         )
     }
+
+    /// Rahul's phone sent every call of 2026-10-28 as f50c2274: the dialer's one notification.
+    func testAnotherCallerOnAGoingCardIsANewCall() {
+        let first = RemoteCallStatus(notificationID: "f50c2274", deviceID: "phone", applicationName: "Phone",
+                                     caller: "Rtr. Kamakshi Aggarwal", detail: "", type: "ongoing", actions: [])
+        XCTAssertTrue(isNewCallOnSameNotification(previous: first, pendingRemoval: true, caller: "Ghazal"))
+        XCTAssertFalse(isNewCallOnSameNotification(previous: first, pendingRemoval: true, caller: "Rtr. Kamakshi Aggarwal "),
+                       "the same call re-posted during the grace keeps its card")
+        XCTAssertFalse(isNewCallOnSameNotification(previous: first, pendingRemoval: false, caller: "Ghazal"),
+                       "a live call whose title changes (a contact name resolving) is the same call")
+        XCTAssertFalse(isNewCallOnSameNotification(previous: first, pendingRemoval: true, caller: ""))
+    }
 }

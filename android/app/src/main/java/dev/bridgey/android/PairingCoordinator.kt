@@ -196,6 +196,26 @@ class PairingCoordinator(
     /** Phone camera to Mac (draft `camera_draft1`): each Mac's open photo request. */
     val camera = dev.bridgey.android.camera.CameraRequests(System::currentTimeMillis)
 
+    /** Text messages (draft `sms_draft1`): the Macs' conversation, sync and send requests. */
+    val sms = dev.bridgey.android.sms.SmsServer(
+        provider = dev.bridgey.android.sms.SmsProvider(appContext),
+        sender = dev.bridgey.android.sms.SmsSender(appContext),
+        scope = scope,
+        localEnabled = { id -> settings.isEnabled(BridgeyFeature.SMS, id) },
+        peers = { registry.connectedIds().filter { isFeatureAvailable(BridgeyFeature.SMS, it) } },
+        send = ::sendSmsPayload,
+        replyAsSms = { settings.state.value.smsReplyAsSms },
+        performAppReply = { notificationId, token, text -> BridgeyNotificationListenerService.perform(notificationId, token, text) },
+        performMarkRead = { notificationId, token -> BridgeyNotificationListenerService.perform(notificationId, token, null) },
+        refreshNotificationTargets = { BridgeyNotificationListenerService.refreshSmsTargets() },
+        openBlockedNumbers = { address -> openBlockedNumbers(address) },
+    )
+
+    /** Set by the application: opens Android's Blocked numbers screen, or a notification that opens it. */
+    @Volatile var openBlockedNumbers: (address: String?) -> dev.bridgey.android.sms.BlockedNumbersResult = { dev.bridgey.android.sms.BlockedNumbersResult.UNAVAILABLE }
+
+    /** Macs that last heard this phone's Text messages status (the feature on at both ends). */
+    private val smsPeers = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     /**
      * Settings sync (draft `settings_sync_draft1`): settings and feature switches shared with each Mac whose
      * switches allow it. The application attaches this phone's settings; [receiveSettingsMessage] feeds it.
@@ -220,6 +240,16 @@ class PairingCoordinator(
     /** Set by the application: a request ended without a photo (expired, Mac gone, feature off). */
     @Volatile var cameraEnded: (dev.bridgey.android.camera.CameraRequest) -> Unit = {}
 
+    /** Phone screen to Mac (draft `screen_draft1`): each Mac's open "Phone screen" request. */
+    val screenRequests = dev.bridgey.android.screen.ScreenRequests(System::currentTimeMillis)
+
+    /**
+     * Set by the application (the screen share hub): a Mac's request was accepted and answered `waiting`;
+     * ask the person. Also told when a request ends unanswered, about stream messages, and when screen
+     * sharing becomes unavailable with a Mac.
+     */
+    @Volatile var screenListener: ScreenListener? = null
+
     /** Camera photos being sent: transfer ID to request ID, and what to do when the transfer ends. */
     private val cameraTransfers = ConcurrentHashMap<String, String>()
     private val cameraTransferDone = ConcurrentHashMap<String, (Boolean) -> Unit>()
@@ -235,6 +265,7 @@ class PairingCoordinator(
      * dialled before; the session registry keeps one socket when both dial at once.
      */
     private val reconnectClock = AndroidReconnectClock()
+    private val held = HeldDevices()
     internal val reconnect = ReconnectEngine(KnownAddressBook(SharedPreferencesAddressBookStore(context.applicationContext)), reconnectClock)
     private val linkDebouncer = EventDebouncer(reconnectClock) { reasons -> linkChanged(reasons) }
 
@@ -398,7 +429,7 @@ class PairingCoordinator(
     var remoteInputListener: ((deviceId: String, kind: String, payload: ByteArray) -> Unit)? = null
 
     init {
-        reconnect.isTrusted = { reconnecting && it in trust.trustedDeviceIds.value }
+        reconnect.isTrusted = { reconnecting && it in trust.trustedDeviceIds.value && !held.isHeld(it) }
         reconnect.isConnected = { registry.session(it) != null }
         reconnect.networks = { localNetworks() }
         reconnect.dial = ::dialTrusted
@@ -445,6 +476,8 @@ class PairingCoordinator(
                 registry.connectedIds().forEach { id -> registry.session(id)?.let(::sendFeatureState) }
                 focusSettingsChanged(it.focusShare, it.focusFollow)
                 registry.connectedIds().filter { id -> !isFeatureAvailable(BridgeyFeature.CAMERA, id) }.forEach(::endCameraRequest)
+                registry.connectedIds().forEach(::screenPolicyChanged)
+                smsAvailabilityChanged()
             }
         }
     }
@@ -522,6 +555,9 @@ class PairingCoordinator(
     private fun disconnectedTrustedIds(): List<String> =
         trust.trustedDeviceIds.value.filter { registry.session(it) == null }.sorted()
 
+    /** Disconnected trusted devices that are not away: the ones periodic discovery restarts are for. */
+    private fun recentlyDroppedTrustedIds(): List<String> = disconnectedTrustedIds().filterNot(reconnect::isAway)
+
     private fun trustedName(id: String): String =
         trust.trustedDevices.value.firstOrNull { it.id == id }?.name
             ?: lastPeers.firstOrNull { it.deviceIdHint == id }?.deviceNameHint
@@ -570,11 +606,19 @@ class PairingCoordinator(
     /** "Retry now" on a disconnected device: every known address at once. */
     fun retryNow(deviceId: String) {
         BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT retry now peer=${deviceId.take(8)}")
+        held.release(deviceId)
         reconnect.dialEverywhere(deviceId, "retry_now")
     }
 
     private fun publishReconnectStates() {
-        val states = trust.trustedDeviceIds.value.mapNotNull { id -> reconnect.display(id)?.let { id to it } }.toMap()
+        val states = trust.trustedDeviceIds.value.mapNotNull { id ->
+            val display = if (held.isHeld(id) && registry.session(id) == null) {
+                ReconnectDisplay(reconnect.addressBook.lastConnected(id), struggling = false, disconnectedByUser = true)
+            } else {
+                reconnect.display(id)
+            }
+            display?.let { id to it }
+        }.toMap()
         if (mutableReconnectStates.value != states) mutableReconnectStates.value = states
     }
 
@@ -620,13 +664,13 @@ class PairingCoordinator(
             discoveryRestartTask = null
             val start = discoveryWindowStart ?: return
             val now = SystemClock.elapsedRealtime()
-            if (!reconnecting || disconnectedTrustedIds().isEmpty() || now - start >= ReconnectPolicy.DISCOVERY_RESTART_WINDOW_MILLIS) return
+            if (!reconnecting || recentlyDroppedTrustedIds().isEmpty() || now - start >= ReconnectPolicy.DISCOVERY_RESTART_WINDOW_MILLIS) return
             val next = maxOf(lastDiscoveryRestart + ReconnectPolicy.DISCOVERY_RESTART_INTERVAL_MILLIS, now + 30_000)
             discoveryRestartTask = reconnectClock.schedule(next - now) {
                 val due = synchronized(discoveryLock) {
                     discoveryRestartTask = null
                     val windowStart = discoveryWindowStart
-                    reconnecting && windowStart != null && disconnectedTrustedIds().isNotEmpty() &&
+                    reconnecting && windowStart != null && recentlyDroppedTrustedIds().isNotEmpty() &&
                         SystemClock.elapsedRealtime() - windowStart < ReconnectPolicy.DISCOVERY_RESTART_WINDOW_MILLIS
                 }
                 if (due) {
@@ -736,6 +780,17 @@ class PairingCoordinator(
     /** Clears a pairing failure, as [cancel]. */
     fun dismiss() = cancel()
 
+    /**
+     * The user disconnected [deviceId] on its device page: it stays disconnected (no redial, and its
+     * own reconnects are closed) until the user taps Connect, which goes through [retryNow].
+     */
+    fun disconnectByUser(deviceId: String) {
+        BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT disconnected by user peer=${deviceId.take(8)}")
+        held.hold(deviceId)
+        disconnect(deviceId)
+        publishReconnectStates()
+    }
+
     /** Disconnects one device; the others stay connected. The link comes back through the normal reconnect, as before. */
     fun disconnect(deviceId: String) {
         val current = registry.session(deviceId) ?: return
@@ -746,6 +801,7 @@ class PairingCoordinator(
     }
 
     fun forget(deviceId: String) {
+        held.release(deviceId)
         folderJournals.deleteForPeer(deviceId).forEach { record -> record.header.oneOffTree?.let(placesStore::releaseOneOff) }
         folderSender.forget(deviceId)
         mutableFileTransfers.update { transfers -> transfers.filterValues { it.kind != TransferKind.FOLDER || it.active || it.deviceId != deviceId } }
@@ -1696,6 +1752,124 @@ class PairingCoordinator(
         cameraTransferDone.remove(transferId)?.invoke(sent)
     }
 
+    // MARK: Phone screen to Mac (draft screen_draft1, docs/protocol.md "Phone screen to Mac")
+
+    /** What the screen share hub hears from the sessions. */
+    interface ScreenListener {
+        /** A request was accepted (answered `waiting`); ask the person. */
+        fun requested(request: dev.bridgey.android.screen.ScreenRequest)
+
+        /** A request ended without an answer from the person (expired, Mac gone, feature off). */
+        fun requestEnded(request: dev.bridgey.android.screen.ScreenRequest)
+
+        /** screen.started, screen.ack or screen.stop from a Mac. */
+        fun message(deviceId: String, message: dev.bridgey.android.screen.ScreenMacMessage)
+
+        /** The Mac's session ended. */
+        fun disconnected(deviceId: String)
+
+        /** The switch changed here ([localOn]) or on the Mac ([remoteOn]) for a connected Mac. */
+        fun policy(deviceId: String, localOn: Boolean, remoteOn: Boolean)
+
+        /** True while this phone shares its screen with any Mac. */
+        fun sharing(): Boolean
+    }
+
+    /** screen.request from a Mac: through the message ID window, bounded, then one open request per Mac. */
+    private fun receiveScreenRequest(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        val deviceId = current.remoteDeviceId
+        val listener = screenListener
+        val decision = screenRequests.receive(
+            deviceId, current.peerName, data,
+            enabled = settings.isEnabled(BridgeyFeature.SCREEN, deviceId), sharing = listener?.sharing() == true,
+        )
+        when (decision) {
+            dev.bridgey.android.screen.ScreenRequestDecision.Drop -> Unit
+            is dev.bridgey.android.screen.ScreenRequestDecision.Refuse -> sendScreenStatus(deviceId, decision.requestId, decision.status)
+            is dev.bridgey.android.screen.ScreenRequestDecision.Accept -> {
+                val request = decision.request
+                diagnostics.record("remote", "screen_request", device = deviceId)
+                sendScreenStatus(deviceId, request.requestId, dev.bridgey.android.screen.ScreenStatus.WAITING)
+                scope.launch {
+                    delay(dev.bridgey.android.screen.ScreenLimits.REQUEST_LIFETIME_MILLIS)
+                    if (screenRequests.finish(deviceId, request.requestId)) screenListener?.requestEnded(request)
+                }
+                listener?.requested(request)
+            }
+        }
+    }
+
+    /**
+     * screen.started, screen.ack and screen.stop: decrypted here, outside the message ID window (the stream's
+     * own sequence guards replays). Malformed or undecryptable ones are dropped and the session stays.
+     */
+    private fun receiveScreenStream(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        val decoded = dev.bridgey.android.screen.decodeScreenMacMessage(message.kind, data) ?: return
+        screenListener?.message(current.remoteDeviceId, decoded)
+    }
+
+    /** screen.status to the Mac that asked. */
+    fun sendScreenStatus(deviceId: String, requestId: String, status: dev.bridgey.android.screen.ScreenStatus): Boolean {
+        val current = registry.session(deviceId) ?: return false
+        if (current.pairingKey == null) return false
+        val data = dev.bridgey.android.screen.screenStatusPayload(requestId, status).toString().toByteArray(Charsets.UTF_8)
+        scope.launch { sendEncrypted(current, dev.bridgey.android.screen.ScreenKinds.STATUS, data) }
+        return true
+    }
+
+    /**
+     * The way a stream reaches [deviceId]'s current session, or null when it is not connected or screen sharing
+     * is not available with it. Bound to that session: after a reconnect the stream's sends fail and it ends.
+     * Blocking; call it off the main thread.
+     */
+    fun screenLink(deviceId: String): dev.bridgey.android.screen.ScreenLink? {
+        val current = registry.session(deviceId) ?: return null
+        if (current.pairingKey == null || !isFeatureAvailable(BridgeyFeature.SCREEN, deviceId)) return null
+        return object : dev.bridgey.android.screen.ScreenLink {
+            override fun sendJson(kind: String, payload: JSONObject): Boolean =
+                sendEncrypted(current, kind, payload.toString().toByteArray(Charsets.UTF_8))
+
+            override fun sendFrame(plaintext: ByteArray): Boolean {
+                if (!registry.isActive(current)) return false
+                val sessionKey = current.pairingKey ?: return false
+                val encrypted = Crypto.encrypt(sessionKey, plaintext)
+                return current.sendStream(
+                    Message(kind = dev.bridgey.android.screen.ScreenKinds.FRAME, sessionId = current.id, nonce = encrypted.nonce, ciphertext = encrypted.ciphertext),
+                )
+            }
+        }
+    }
+
+    /** The request is answered by the person (shared or declined): its notification and timer no longer matter. */
+    fun finishScreenRequest(deviceId: String, requestId: String): Boolean = screenRequests.finish(deviceId, requestId)
+
+    /** The connected Macs this phone may share with now, by device ID with their names. */
+    fun screenTargets(): List<Pair<String, String>> =
+        registry.connectedIds().filter { isFeatureAvailable(BridgeyFeature.SCREEN, it) }
+            .mapNotNull { id -> registry.session(id)?.let { id to it.peerName } }
+
+    /** The selected Mac when screen sharing is available with it, else the only Mac it is available with. */
+    fun screenTarget(): Pair<String, String>? {
+        val targets = screenTargets()
+        val selected = registry.target(selectedDeviceId)
+        return targets.firstOrNull { it.first == selected } ?: targets.singleOrNull()
+    }
+
+    private fun screenPolicyChanged(deviceId: String) {
+        val localOn = settings.isEnabled(BridgeyFeature.SCREEN, deviceId)
+        val remoteOn = registry.state(deviceId)?.remoteFeatures?.get(BridgeyFeature.SCREEN) == true
+        if (!localOn || !remoteOn) screenRequests.ended(deviceId)?.let { screenListener?.requestEnded(it) }
+        screenListener?.policy(deviceId, localOn, remoteOn)
+    }
+
     /** actions.run to one Mac, only while its latest map shows mac_actions_draft1. */
     private fun sendActionsPayload(deviceId: String, kind: String, payload: JSONObject): Boolean {
         val current = registry.session(deviceId) ?: return false
@@ -1771,6 +1945,8 @@ class PairingCoordinator(
         callType: String? = null,
         smsDefaultApp: Boolean = false,
         redacted: Boolean? = null,
+        smsReply: Boolean = false,
+        smsThreadId: Long? = null,
     ): List<DeviceConnection> {
         val targets = broadcastTargets(BridgeyFeature.NOTIFICATIONS)
         if (targets.isEmpty()) return emptyList()
@@ -1800,11 +1976,18 @@ class PairingCoordinator(
                         .put("allowsReply", action.allowsReply))
                 }
             })
-            .toString()
-            .toByteArray()
+        val plain = payload.toString().toByteArray()
+        // Text messages (sms_draft1): only a Mac that shows the key hears that it can reply by SMS.
+        val withSms = if (smsDefaultApp && smsReply) {
+            JSONObject(payload.toString()).put("smsReply", true).apply { smsThreadId?.takeIf { it >= 1 }?.let { put("smsThreadId", it) } }
+                .toString().toByteArray()
+        } else {
+            plain
+        }
         scope.launch {
             targets.forEach { current ->
-                if (sendEncrypted(current, "notifications.post", payload)) {
+                val body = if (withSms !== plain && isFeatureAvailable(BridgeyFeature.SMS, current.remoteDeviceId)) withSms else plain
+                if (sendEncrypted(current, "notifications.post", body)) {
                     // Text messages can carry codes: their content never reaches the log, whatever Logging says.
                     BridgeyLogging.line(
                         LogLines.notification(
@@ -2413,7 +2596,10 @@ class PairingCoordinator(
         focusSync.sessionEnded(deviceId)
         settingsSync.sessionEnded(deviceId)
         endCameraRequest(deviceId)
+        screenRequests.ended(deviceId)?.let { screenListener?.requestEnded(it) }
+        screenListener?.disconnected(deviceId)
         updates?.disconnected(deviceId)
+        if (smsPeers.remove(deviceId)) sms.peerGone(deviceId)
         health.disconnected(deviceId, reason, System.currentTimeMillis())
         // The power state at the moment of the drop: Doze, screen, saver, standby bucket, exemption.
         diagnostics.record("transport", "disconnected", reason, device = deviceId, detail = PowerFacts.summary(appContext))
@@ -2657,6 +2843,11 @@ class PairingCoordinator(
             "focus.state" -> receiveFocusMessage(current, message)
             "updates.status", "updates.start", "updates.result" -> receiveUpdatesMessage(current, message)
             "camera.request" -> receiveCameraMessage(current, message)
+            "screen.request" -> receiveScreenRequest(current, message)
+            "screen.started", "screen.ack", "screen.stop" -> receiveScreenStream(current, message)
+            // Every kind in SmsKinds.fromMac (SmsProtocolTest checks this line lists them all).
+            "sms.threads", "sms.messages", "sms.sync", "sms.send", "sms.attachment", "sms.contacts",
+            "sms.mark_read", "sms.blocked_numbers" -> receiveSmsMessage(current, message)
             "settings.snapshot", "settings.update", "settings.ack", "settings.error" -> receiveSettingsMessage(current, message)
             "notifications.action" -> receiveNotificationAction(current, message)
             "calls.request" -> receiveCallRequest(current, message)
@@ -3256,6 +3447,14 @@ class PairingCoordinator(
 
     @Synchronized private fun completeIfConfirmed(current: Session) {
         if (!current.localConfirmed || !current.remoteConfirmed || current.authenticated) return
+        if (held.isHeld(current.remoteDeviceId)) {
+            // Disconnected by the user on this phone: its own reconnect closes until the user connects again.
+            current.dropReason = "user_disconnect"
+            dialFinished(current)
+            current.close()
+            publish()
+            return
+        }
         trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!)
         when (val admission = registry.authenticate(current, current.remoteDeviceId, current.peerName)) {
             SessionRegistry.Admission.Rejected -> {
@@ -3391,10 +3590,18 @@ class PairingCoordinator(
         // Focus sync: a Mac that understands it hears this phone's Do Not Disturb once per map.
         if (drafts[dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY] == true && focusSync.advertised()) focusSync.peerReady(deviceId)
         if (!isFeatureAvailable(BridgeyFeature.CAMERA, deviceId)) endCameraRequest(deviceId)
+        screenPolicyChanged(deviceId)
         // Settings sync: the snapshot goes once both sides show the key; sync stops when either turns it off.
         settingsSync.peerChanged(deviceId)
         // Update all: a device that understands it hears this phone's version and update state once per map.
         if (drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true) updates?.peerReady(deviceId)
+        // Text messages: each map that shows the key on both sides is answered with the status.
+        if (isFeatureAvailable(BridgeyFeature.SMS, deviceId)) {
+            smsPeers.add(deviceId)
+            sms.peerReady(deviceId)
+        } else if (smsPeers.remove(deviceId)) {
+            sms.peerGone(deviceId)
+        }
     }
 
     // MARK: Update all (draft updates_draft1)
@@ -3456,6 +3663,53 @@ class PairingCoordinator(
                 host?.resultReceived(deviceId, result)
             }
         }
+    }
+
+    // MARK: Text messages (draft sms_draft1)
+
+    /** This phone's switch changed: Macs that now have the feature at both ends hear the status; the others stop. */
+    private fun smsAvailabilityChanged() {
+        val available = registry.connectedIds().filter { isFeatureAvailable(BridgeyFeature.SMS, it) }.toSet()
+        available.filter(smsPeers::add).forEach(sms::peerReady)
+        smsPeers.filter { it !in available }.forEach { id ->
+            smsPeers.remove(id)
+            sms.peerGone(id)
+        }
+        sms.refresh()
+    }
+
+    /** Permissions or SIMs may have changed (the app came to the front): the Macs hear a changed status. */
+    fun smsPermissionsChanged() = sms.refresh()
+
+    /** sms.* to one Mac, only while its latest map shows sms_draft1. Pages and images use the media lane. */
+    private fun sendSmsPayload(deviceId: String, kind: String, payload: JSONObject): Boolean {
+        val current = registry.session(deviceId) ?: return false
+        if (current.pairingKey == null || registry.state(deviceId)?.remoteFeatures?.get(BridgeyFeature.SMS) != true) return false
+        val data = payload.toString().toByteArray(Charsets.UTF_8)
+        fun write(): Boolean = when (kind) {
+            dev.bridgey.android.sms.SmsKinds.THREADS_PAGE, dev.bridgey.android.sms.SmsKinds.MESSAGES_PAGE,
+            dev.bridgey.android.sms.SmsKinds.SYNC_PAGE, dev.bridgey.android.sms.SmsKinds.ATTACHMENT_DATA -> sendEncryptedLow(current, kind, data)
+            else -> sendEncrypted(current, kind, data)
+        }
+        // Sent and delivered results arrive in a broadcast on the main thread, where a socket write
+        // throws NetworkOnMainThreadException (seen on the emulator): those go out from the IO scope.
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            scope.launch { write() }
+            return true
+        }
+        return write()
+    }
+
+    /** sms.* requests from a Mac: decrypted and replay-checked here; malformed or undecryptable ones are dropped. */
+    private fun receiveSmsMessage(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        // A Mac that asks while the switch is off here hears the map again (and the request is refused).
+        if (!settings.isEnabled(BridgeyFeature.SMS, current.remoteDeviceId)) sendFeatureState(current)
+        sms.receive(current.remoteDeviceId, message.kind, data)
     }
 
     // MARK: Codes from messages (draft sms_codes_draft1)
@@ -3707,6 +3961,13 @@ class PairingCoordinator(
                 urgentSenders.decrementAndGet()
             }
         }
+
+        /**
+         * Screen frames (draft screen_draft1): written in turn with everything else, but not counted as an urgent
+         * sender, so the media lane is not held back while a stream runs. The stream paces itself on the Mac's
+         * acks, so at most a quarter of a second of video waits in the socket.
+         */
+        fun sendStream(message: Message): Boolean = write(message)
 
         /**
          * Media-lane answers (thumbnails, previews, ranges): written only while no other message waits for the

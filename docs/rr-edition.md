@@ -26,9 +26,11 @@ upstream clients.
 | macOS design | SwiftUI defaults | Direction B "Stream": 360 pt menu-bar panel with device chips, live cards, activity stream, quick actions and send bar; Settings window with a sidebar (Round Robin theme, bundled Space Grotesk and Inter) |
 | macOS activity stream | none | The same private, local history on the Mac (see below) |
 | Remote control | planned for 0.7 | Phone as touchpad, keyboard and presentation remote for the Mac, through the draft `remote_input_draft1` (see below) |
+| Phone screen on the Mac | planned for 0.9 | View-only prototype: the Mac shows the phone's screen in a window, H.264 from MediaProjection to VideoToolbox over the session, off by default on both sides (draft `screen_draft1`, see below and [screen-sharing.md](screen-sharing.md)) |
 | Files 2.0 | planned for 0.8 | Folders both ways; Mac "Phone files" window (photos and videos, recent documents, granted folders) with instant thumbnails, Quick Look, drag out and in; Android attach sheet; Mac send sheet, Tray, menu-bar drops and send optimisation; Finder metadata and transfer history (drafts `folders_draft1`, `places_draft1`, `files_browse_draft1`, `folders_receive_draft1`; see [files-browse.md](files-browse.md)) |
 | Settings sync | none | On by default, one switch to turn it off (and one per device): feature switches and shared preferences stay the same on paired devices; a phone with two Macs carries changes between them. Permissions, per-device grants, pairing and folders never sync; a device that differs shows "Different on <device>" with Apply to all, and every change from another device is in the activity stream (draft `settings_sync_draft1`, see [folders-and-settings-sync.md](folders-and-settings-sync.md) 8.4) |
 | Codes from text messages | none | Opt-in: the Mac shows "Code 482913 from HDFC Bank" with Copy code, read on the Mac by a small downloaded model (default) or, if chosen, through Round Robin's relay to Cloudflare Workers AI; a companion link lets Android 15+ show Bridgey the codes (draft `sms_codes_draft1`, see below) |
+| Text messages | notification replies only | Opt-in, off by default: SMS conversations on the Mac (Messages window with conversations, new messages to a contact or number, delivery status, the SIM per conversation, MMS images read only) and a Reply field on every text message notification; incremental sync over the encrypted session, no cloud (draft `sms_draft1`, see below and [sms-call-policy.md](sms-call-policy.md)) |
 
 Unchanged on purpose: the wire protocol, the Bonjour service type `_bridgey._tcp`, the default
 port 42458, and the Kotlin and Swift package names. Because the port is the
@@ -184,6 +186,23 @@ sides until turned on, and only works between two edition devices.
   `permission_required`, the pane shows the grant as needed with Open System Settings, and
   Bridgey has to be switched off and on again in that list.
 
+### Phone screen on the Mac (draft protocol, prototype)
+
+The Mac can show the phone's screen in a window, view only, through the draft `screen_draft1`
+(protocol and security review in `docs/protocol.md`; transport, pacing and measurements in
+[screen-sharing.md](screen-sharing.md)). Off on both sides until turned on.
+
+- **Android:** Settings > Media and quick actions > Share screen with Macs (per Mac, like the other
+  features). Start from the Mac's device page (Share screen), the Share screen Quick Settings tile,
+  or the "MacBook Air wants to see your screen" notification with Share and Not now. Android's own
+  dialog asks every time. While it runs: "Your screen is being shared with MacBook Air" with Stop;
+  locking the phone stops it.
+- **Mac:** Settings > Remote control > Show phone screens. Phone Screen is in the panel's File menu
+  and the device menu. The window keeps the phone's shape, follows rotation, shows latency, Mb/s and
+  frames a second, and closing it stops the share. Nothing is recorded or saved.
+- **Control** from the Mac is not built; the options and the recommendation are in
+  [screen-control-decision.md](screen-control-decision.md).
+
 ### Codes from text messages (draft protocol)
 
 When a one-time code arrives by SMS, the Mac can show it as "Code 482913 from HDFC Bank" with
@@ -237,10 +256,44 @@ When a one-time code arrives by SMS, the Mac can show it as "Code 482913 from HD
   code" messages are shown one at a time to confirm (screenshots blocked). The report has totals
   only (right, wrong, missed, false alarms, latency, by script and sender kind, how many SMS
   notifications Android hid during the test) and exports as JSON without any message, code or
-  sender. `READ_SMS` is declared only in non-stable builds (`src/lab/AndroidManifest.xml`, applied
-  by `build.gradle.kts` when the version is not `x.y.z-rr.N`), asked for only at Start, and Bridgey
-  asks Android to drop it at the next restart when the test ends (Restart Bridgey button), with the
-  manual path shown.
+  sender. The test itself is only in non-stable builds. It uses the `READ_SMS` declaration that
+  Text messages brought to every build (below), asks for it only at Start, and when the test ends
+  asks Android to drop it at the next restart (Restart Bridgey button), with the manual path shown,
+  unless Text messages is on for a Mac.
+
+### Text messages (draft protocol)
+
+Rahul, 2026-10-27, on the v0.9 "SMS conversations evaluation": "Worth it. I want to be able to
+reply directly from notifications. And then something pushbullet here maybe?" The wire format is
+the draft `sms_draft1` in `docs/protocol.md`; the permission and Play position is in
+[sms-call-policy.md](sms-call-policy.md).
+
+- **Off until chosen, on both devices.** Phone: Settings > Text messages (or the Text messages
+  bundle and question in setup), per Mac like the other features. Mac: Settings > Text messages, a
+  page of its own like the phone's. The phone asks for SMS, contacts and, on dual-SIM phones, phone
+  state on the Permissions page only when the feature is turned on; refusing SMS leaves it off. On
+  Android 15 and later, with notifications on too, the same page asks for the phone-to-Mac link that
+  Codes from messages uses ("Lets Bridgey see who sent a text, so replies go to the right
+  conversation"); one link serves both, and a phone that already has it is not asked again.
+  "Send replies as SMS" is off for everyone (Rahul, 2026-10-27).
+- **Reply from the notification.** Every text message notification on the Mac gets one Reply field.
+  The phone sends the reply through the messaging app's own reply when it has one (RCS and chat
+  features keep working), otherwise as an SMS from the SIM the conversation last used. "Send replies
+  as SMS" on the phone always uses SMS, for messaging apps whose reply does not send.
+- **Messages window on the Mac.** Conversation list with search, unread marks and the SIM on
+  dual-SIM phones; a conversation with day separators, delivery status (sending, sent, delivered,
+  failed with Retry) and MMS images (read only, fetched when shown); a composer with a SIM picker;
+  New message to a contact (searched on the phone) or a number. Group conversations are read only
+  on the Mac. A message that looks like it has a one-time code offers Copy code, read with the
+  engine chosen under Codes from messages.
+- **Efficient sync.** A new Mac starts from the phone's newest message and loads only the newest
+  conversations; older conversations and messages load when scrolled to. After that it asks only
+  for messages newer than its cursor, when the phone says something changed (at most every 2
+  seconds). Pages stay under 40 KiB.
+- **Privacy.** Nothing leaves the paired devices. The Mac's cache (200 conversations, 200 messages
+  each, per phone) is a 0600 file in Application Support, or memory only if "Keep conversations on
+  this Mac" is off; images stay in memory. It is deleted when Text messages is turned off on either
+  device, when the phone is forgotten and from Reset. Bodies, numbers and names are never logged.
 
 ### On-device code model
 

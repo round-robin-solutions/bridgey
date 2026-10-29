@@ -73,7 +73,7 @@ f("frame of 65,536 bytes with CRLF", None, {"kind":"pairing.offer","sessionId":S
 features_all = {"clipboard":True,"files":True,"notifications":True,"battery":True,"find_device":True,"ping":True,"links":True,"media":True,"calls":True,"remote_input_draft1":False}
 drafts_none = {"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False,"folders_receive_draft1":False,"files_browse_draft1":False,
                "mac_actions_draft1":False,"links_open_draft1":False,"focus_sync_draft1":False,"camera_draft1":False,
-               "updates_draft1":False,"settings_sync_draft1":False}
+               "updates_draft1":False,"screen_draft1":False,"sms_draft1":False,"settings_sync_draft1":False}
 feat = []
 def fe(name, plaintext, expect, raw=False):
     feat.append({"name": name, ("plaintextString" if raw else "plaintext"): plaintext, "expect": expect})
@@ -94,13 +94,23 @@ fe("Update all: an edition phone with updates_draft1", {"version":1,"features":{
    {"features":features_all,"drafts":{**drafts_none,"files_browse_draft1":True,"updates_draft1":True}})
 fe("updates_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"updates_draft1":"true"}},
    {"features":features_all,"drafts":drafts_none})
+# Screen sharing (v0.9, docs/protocol.md "Phone screen to Mac"): a draft key, true only for JSON true.
+fe("v0.9 phone and Mac with screen sharing on", {"version":1,"features":{**features_all,"camera_draft1":True,"screen_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"camera_draft1":True,"screen_draft1":True}})
+fe("screen_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"screen_draft1":"true"}},
+   {"features":features_all,"drafts":drafts_none})
+# Text messages (sms_draft1): a plain draft key on both platforms.
+fe("Mac and phone with Text messages on", {"version":1,"features":{**features_all,"sms_codes_draft1":True,"sms_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"sms_codes_draft1":True,"sms_draft1":True}})
+fe("sms_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"sms_draft1":"true"}},
+   {"features":features_all,"drafts":drafts_none})
 # Settings sync (v0.10): settings_sync_draft1 is a draft key on both sides, true only for JSON true.
 fe("v0.10 device with settings sync on", {"version":1,"features":{**features_all,"settings_sync_draft1":True}},
    {"features":features_all,"drafts":{**drafts_none,"settings_sync_draft1":True}})
 fe("settings sync key that is not a boolean counts as false", {"version":1,"features":{**features_all,"settings_sync_draft1":"true"}},
    {"features":features_all,"drafts":drafts_none})
-fe("v0.10 device with Update all and settings sync", {"version":1,"features":{**features_all,"updates_draft1":True,"settings_sync_draft1":True}},
-   {"features":features_all,"drafts":{**drafts_none,"updates_draft1":True,"settings_sync_draft1":True}})
+fe("v0.10 device with Update all, screen sharing, Text messages and settings sync", {"version":1,"features":{**features_all,"updates_draft1":True,"screen_draft1":True,"sms_draft1":True,"settings_sync_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"updates_draft1":True,"screen_draft1":True,"sms_draft1":True,"settings_sync_draft1":True}})
 fe("first-slice Mac (folders_draft1 only, no Files 2.0 keys)", {"version":1,"features":{**features_all,"folders_draft1":True,"places_draft1":False}},
    {"features":features_all,"drafts":{**drafts_none,"folders_draft1":True}})
 legacy = {"clipboard":True,"files":False,"notifications":True,"battery":True,"find_device":False}
@@ -425,6 +435,152 @@ cs("version 2", {"version":2,"requestId":R1,"status":"opened"}, "reject")
 cs("over 512 bytes", sized('{"version":1,"requestId":"%s","status":"opened","pad":"' % R1, 513), "reject", raw=True)
 cs("lenient JSON", "{version:1,requestId:'%s',status:'opened'}" % R1, "reject", raw=True)
 
+# Screen sharing (v0.9, docs/protocol.md "Phone screen to Mac"). screenRequest is decoded by the phone, screenStatus by the
+# Mac. screenStream holds the JSON stream messages, each with "kind" and "decoder" ("mac", "android" or "both").
+# screenFrame is the binary frame plaintext, decoded by the Mac; vectors with "android": true are what the phone writes.
+ST = "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60"
+screq = []
+def sq(name, p, expect, raw=False, mac=False):
+    v = {"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect}
+    if mac: v["mac"] = True
+    screq.append(v)
+sq("ask to see the screen", {"version":1,"requestId":R1}, {"requestId":R1}, mac=True)
+sq("an uppercase request ID is read lowercased", {"version":1,"requestId":R1.upper()}, {"requestId":R1})
+sq("unknown fields are ignored", {"version":1,"requestId":R1,"control":True}, {"requestId":R1})
+sq("requestId not a UUID", {"version":1,"requestId":"screen-1"}, "reject")
+sq("requestId missing", {"version":1}, "reject")
+sq("requestId as a number", {"version":1,"requestId":5}, "reject")
+sq("version 2", {"version":2,"requestId":R1}, "reject")
+sq("version missing", {"requestId":R1}, "reject")
+sq("exactly 512 bytes", sized('{"version":1,"requestId":"%s","pad":"' % R1, 512), {"requestId":R1}, raw=True)
+sq("over 512 bytes", sized('{"version":1,"requestId":"%s","pad":"' % R1, 513), "reject", raw=True)
+sq("lenient JSON", "{version:1,requestId:'%s'}" % R1, "reject", raw=True)
+
+scstat = []
+def ss(name, p, expect, raw=False, android=None):
+    v = {"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect}
+    if android: v["android"] = android
+    scstat.append(v)
+for status in ["waiting","declined","busy","disabled","failed"]:
+    ss(status, {"version":1,"requestId":R1,"status":status}, {"requestId":R1,"status":status}, android=status)
+ss("unknown status", {"version":1,"requestId":R1,"status":"opened"}, "reject")
+ss("status missing", {"version":1,"requestId":R1}, "reject")
+ss("requestId not a UUID", {"version":1,"requestId":"x","status":"waiting"}, "reject")
+ss("version 2", {"version":2,"requestId":R1,"status":"waiting"}, "reject")
+ss("over 512 bytes", sized('{"version":1,"requestId":"%s","status":"busy","pad":"' % R1, 513), "reject", raw=True)
+ss("lenient JSON", "{version:1,requestId:'%s',status:'busy'}" % R1, "reject", raw=True)
+
+sstream = []
+def sm(name, kind, fields, expect, decoder, android=False, mac=False, raw=None, base=True):
+    p = {"version":1,"streamId":ST,"sequence":3} if base else {}
+    p.update(fields or {})
+    v = {"name":name, "kind":kind, "decoder":decoder}
+    if raw is not None: v["plaintextString"] = raw
+    else: v["plaintext"] = p
+    v["expect"] = expect
+    if android: v["android"] = True
+    if mac: v["mac"] = True
+    sstream.append(v)
+start = {"codec":"h264","width":720,"height":1600,"fps":30,"bitrate":4000000}
+def sx(**kw):
+    e = {"streamId":ST,"sequence":3,"requestId":None,"codec":"h264","width":720,"height":1600,"fps":30,"bitrate":4000000}
+    e.update(kw); return e
+sm("start", "screen.start", {**start, "sequence":1}, sx(sequence=1), "mac", android=True, base=True)
+sm("start answering a request", "screen.start", {**start, "requestId":R1}, sx(requestId=R1), "mac", android=True)
+sm("start with an uppercase stream ID reads lowercased", "screen.start", {**start, "streamId":ST.upper()}, sx(), "mac")
+sm("start at the smallest size and rate", "screen.start", {**start, "width":16,"height":16,"fps":1,"bitrate":100000}, sx(width=16,height=16,fps=1,bitrate=100000), "mac")
+sm("start at the largest size and rate", "screen.start", {**start, "width":4096,"height":4096,"fps":60,"bitrate":50000000}, sx(width=4096,height=4096,fps=60,bitrate=50000000), "mac")
+sm("start with unknown fields", "screen.start", {**start, "hdr":True}, sx(), "mac")
+sm("start with codec h265", "screen.start", {**start, "codec":"h265"}, "reject", "mac")
+sm("start with an odd width", "screen.start", {**start, "width":721}, "reject", "mac")
+sm("start with width 4098", "screen.start", {**start, "width":4098}, "reject", "mac")
+sm("start with height 14", "screen.start", {**start, "height":14}, "reject", "mac")
+sm("start at 61 fps", "screen.start", {**start, "fps":61}, "reject", "mac")
+sm("start at 0 fps", "screen.start", {**start, "fps":0}, "reject", "mac")
+sm("start with a bit rate under 100 kb/s", "screen.start", {**start, "bitrate":99999}, "reject", "mac")
+sm("start with width as a string", "screen.start", {**start, "width":"720"}, "reject", "mac")
+sm("start with width written as 720.0", "screen.start", None, sx(), "mac",
+   raw='{"version":1,"streamId":"%s","sequence":3,"codec":"h264","width":720.0,"height":1600,"fps":30,"bitrate":4000000}' % ST)
+sm("start with a requestId that is not a UUID", "screen.start", {**start, "requestId":"r1"}, "reject", "mac")
+sm("start without codec", "screen.start", {k:v for k,v in start.items() if k != "codec"}, "reject", "mac")
+sm("start over 1 KiB", "screen.start", None, "reject", "mac",
+   raw=sized('{"version":1,"streamId":"%s","sequence":3,"codec":"h264","width":720,"height":1600,"fps":30,"bitrate":4000000,"pad":"' % ST, 1025))
+sm("start of exactly 1 KiB", "screen.start", None, sx(), "mac",
+   raw=sized('{"version":1,"streamId":"%s","sequence":3,"codec":"h264","width":720,"height":1600,"fps":30,"bitrate":4000000,"pad":"' % ST, 1024))
+sm("started", "screen.started", {}, {"streamId":ST,"sequence":3}, "android", mac=True)
+sm("started with a stream ID that is not a UUID", "screen.started", {"streamId":"s1"}, "reject", "android")
+sm("started with sequence 0", "screen.started", {"sequence":0}, "reject", "android")
+sm("started with sequence 2^53", "screen.started", {"sequence":9007199254740992}, "reject", "android")
+sm("started with the largest sequence", "screen.started", {"sequence":9007199254740991}, {"streamId":ST,"sequence":9007199254740991}, "android")
+sm("started without sequence", "screen.started", None, "reject", "android", raw='{"version":1,"streamId":"%s"}' % ST)
+sm("started version 2", "screen.started", {"version":2}, "reject", "android")
+sm("ack", "screen.ack", {"frame":42,"decodeMs":3}, {"streamId":ST,"sequence":3,"frame":42,"decodeMs":3,"keyframe":False}, "android", mac=True)
+sm("ack asking for a key frame", "screen.ack", {"frame":42,"decodeMs":0,"keyframe":True}, {"streamId":ST,"sequence":3,"frame":42,"decodeMs":0,"keyframe":True}, "android", mac=True)
+sm("ack with keyframe false", "screen.ack", {"frame":1,"decodeMs":0,"keyframe":False}, {"streamId":ST,"sequence":3,"frame":1,"decodeMs":0,"keyframe":False}, "android")
+sm("ack of the largest frame number", "screen.ack", {"frame":4294967295,"decodeMs":60000}, {"streamId":ST,"sequence":3,"frame":4294967295,"decodeMs":60000,"keyframe":False}, "android")
+sm("ack of frame 0", "screen.ack", {"frame":0,"decodeMs":1}, "reject", "android")
+sm("ack of frame 2^32", "screen.ack", {"frame":4294967296,"decodeMs":1}, "reject", "android")
+sm("ack with decodeMs 60001", "screen.ack", {"frame":1,"decodeMs":60001}, "reject", "android")
+sm("ack with a negative decodeMs", "screen.ack", {"frame":1,"decodeMs":-1}, "reject", "android")
+sm("ack with keyframe as a string", "screen.ack", {"frame":1,"decodeMs":1,"keyframe":"true"}, "reject", "android")
+sm("ack without frame", "screen.ack", {"decodeMs":1}, "reject", "android")
+stats = {"latencyMs":48,"rttMs":6,"bitrate":4000000,"sentBitrate":2100000,"fps":30,"dropped":0}
+sm("stats", "screen.stats", stats, {"streamId":ST,"sequence":3,**stats}, "mac", android=True)
+sm("stats at the limits", "screen.stats", {"latencyMs":60000,"rttMs":60000,"bitrate":50000000,"sentBitrate":50000000,"fps":120,"dropped":1000},
+   {"streamId":ST,"sequence":3,"latencyMs":60000,"rttMs":60000,"bitrate":50000000,"sentBitrate":50000000,"fps":120,"dropped":1000}, "mac")
+sm("stats with fps 121", "screen.stats", {**stats, "fps":121}, "reject", "mac")
+sm("stats with a negative latency", "screen.stats", {**stats, "latencyMs":-5}, "reject", "mac")
+sm("stats without dropped", "screen.stats", {k:v for k,v in stats.items() if k != "dropped"}, "reject", "mac")
+for reason in ["user","ended","screen_off","disabled","timeout","failed"]:
+    sm("stop by the phone, " + reason, "screen.stop", {"reason":reason}, {"streamId":ST,"sequence":3,"reason":reason}, "both", android=True)
+for reason in ["closed","disabled","invalid","timeout","failed"]:
+    sm("stop by the Mac, " + reason, "screen.stop", {"reason":reason}, {"streamId":ST,"sequence":3,"reason":reason}, "both", mac=True)
+sm("stop with an unknown reason reads as failed", "screen.stop", {"reason":"bored"}, {"streamId":ST,"sequence":3,"reason":"failed"}, "both")
+sm("stop without a reason reads as failed", "screen.stop", {}, {"streamId":ST,"sequence":3,"reason":"failed"}, "both")
+sm("stop over 512 bytes", "screen.stop", None, "reject", "both",
+   raw=sized('{"version":1,"streamId":"%s","sequence":3,"reason":"user","pad":"' % ST, 513))
+sm("stop with a stream ID that is not a UUID", "screen.stop", {"streamId":"x","reason":"user"}, "reject", "both")
+sm("stop lenient JSON", "screen.stop", None, "reject", "both", raw="{version:1,streamId:'%s',sequence:3,reason:'user'}" % ST)
+
+import uuid as _uuid
+sframe = []
+def header(flags, part, seq, frame, capture, version=1, stream=ST):
+    return (bytes([version, flags]) + part.to_bytes(2, "big") + _uuid.UUID(stream).bytes + seq.to_bytes(8, "big")
+            + frame.to_bytes(4, "big") + capture.to_bytes(8, "big"))
+SPS_PPS_IDR = bytes.fromhex("0000000167640028acd940780227e5c044000003000400000300c83c60c658") + bytes.fromhex("0000000168ebe3cb22c0") + bytes.fromhex("0000000165888400")
+P_SLICE = bytes.fromhex("00000001419a2a")
+def sf(name, plaintext, expect, android=False, pad_to=None):
+    v = {"name":name, "plaintextHex": plaintext.hex()}
+    if pad_to: v["padTo"] = pad_to
+    v["expect"] = expect
+    if android: v["android"] = True
+    sframe.append(v)
+def fx(flags, part, seq, frame, capture, payload):
+    return {"streamId":ST,"sequence":seq,"frame":frame,"part":part,"key":bool(flags & 1),"parameterSets":bool(flags & 2),"last":bool(flags & 4),
+            "captureMicros":capture,"payloadHex":payload.hex()}
+sf("key frame with SPS and PPS in one part", header(7,0,2,1,1000000) + SPS_PPS_IDR, fx(7,0,2,1,1000000,SPS_PPS_IDR), android=True)
+sf("P frame in one part", header(4,0,5,4,1100000) + P_SLICE, fx(4,0,5,4,1100000,P_SLICE), android=True)
+sf("first part of a split frame", header(3,0,6,5,1133333) + SPS_PPS_IDR[:20], fx(3,0,6,5,1133333,SPS_PPS_IDR[:20]), android=True)
+sf("middle part needs no start code", header(3,1,7,5,1133333) + bytes.fromhex("aabbcc"), fx(3,1,7,5,1133333,bytes.fromhex("aabbcc")), android=True)
+sf("three-byte start code", header(4,0,8,6,1166666) + bytes.fromhex("000001419a"), fx(4,0,8,6,1166666,bytes.fromhex("000001419a")))
+sf("reserved flag bits are ignored", header(0xF4,0,9,7,1) + P_SLICE, fx(4,0,9,7,1,P_SLICE))
+sf("largest sequence, frame, part and capture time", header(0,63,9007199254740991,4294967295,9223372036854775807) + b"\x01",
+   fx(0,63,9007199254740991,4294967295,9223372036854775807,b"\x01"))
+sf("capture time 2^63", header(4,0,2,1,9223372036854775808) + P_SLICE, "reject")
+sf("payload of 32,768 bytes", header(0,1,10,8,1) + b"\x00", {"streamId":ST,"sequence":10,"frame":8,"part":1,"key":False,"parameterSets":False,"last":False,"captureMicros":1,"payloadLength":32768}, pad_to=40+32768)
+sf("payload of 32,769 bytes", header(0,1,10,8,1) + b"\x00", "reject", pad_to=40+32769)
+sf("header only, no payload", header(4,0,2,1,1), "reject")
+sf("shorter than the header", header(4,0,2,1,1)[:39], "reject")
+sf("version 2", header(4,0,2,1,1,version=2) + P_SLICE, "reject")
+sf("version 0", header(4,0,2,1,1,version=0) + P_SLICE, "reject")
+sf("part 64", header(4,64,2,1,1) + b"\x01", "reject")
+sf("sequence 0", header(4,0,0,1,1) + P_SLICE, "reject")
+sf("sequence 2^53", header(4,0,9007199254740992,1,1) + P_SLICE, "reject")
+sf("frame 0", header(4,0,2,0,1) + P_SLICE, "reject")
+sf("part 0 without a start code", header(4,0,2,1,1) + bytes.fromhex("419a2a"), "reject")
+sf("part 0 with a broken start code", header(4,0,2,1,1) + bytes.fromhex("00000201419a"), "reject")
+
+
 # Update all (docs/protocol.md "Update all"). Both platforms decode every group. 'write': true means both platforms' encoders
 # also write exactly that plaintext from the expected value (key order aside).
 R2 = "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f"
@@ -515,6 +671,209 @@ ur("unknown status", {"version":1,"requestId":R2,"status":"maybe"}, "reject")
 ur("requestId not a UUID", {"version":1,"requestId":"x","status":"accepted"}, "reject")
 ur("version 2", {"version":2,"requestId":R2,"status":"accepted"}, "reject")
 ur("over 512 bytes", sized('{"version":1,"requestId":"%s","status":"accepted","pad":"' % R2, 513), "reject", raw=True)
+
+# Text messages (sms_draft1, docs/protocol.md "Text messages"). smsRequest, smsSend: decoded by the phone. smsStatus,
+# smsMessage, smsSendStatus: decoded by the Mac. Expected values are normalised: absent optionals are null.
+R2 = "5b6c7d8e-9f01-4a2b-8c3d-4e5f60718293"
+smsreq = []
+def sms_q(name, kind, p, expect, raw=False): smsreq.append({"name":name, "kind":kind, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+sms_q("threads, newest", "sms.threads", {"version":1,"requestId":R2,"limit":30}, {"requestId":R2,"limit":30,"before":None})
+sms_q("threads, older page", "sms.threads", {"version":1,"requestId":R2.upper(),"limit":50,"before":1761500000000}, {"requestId":R2,"limit":50,"before":1761500000000})
+sms_q("threads, null before is absent", "sms.threads", {"version":1,"requestId":R2,"limit":1,"before":None}, {"requestId":R2,"limit":1,"before":None})
+sms_q("threads, limit 0", "sms.threads", {"version":1,"requestId":R2,"limit":0}, "reject")
+sms_q("threads, limit 51", "sms.threads", {"version":1,"requestId":R2,"limit":51}, "reject")
+sms_q("threads, negative before", "sms.threads", {"version":1,"requestId":R2,"limit":5,"before":-1}, "reject")
+sms_q("threads, limit written as 30.0", "sms.threads", '{"version":1,"requestId":"%s","limit":30.0}' % R2, {"requestId":R2,"limit":30,"before":None}, raw=True)
+sms_q("messages, newest", "sms.messages", {"version":1,"requestId":R2,"threadId":12,"limit":50}, {"requestId":R2,"threadId":12,"limit":50,"before":None})
+sms_q("messages, older page", "sms.messages", {"version":1,"requestId":R2,"threadId":12,"limit":100,"before":{"date":1761500000000,"id":"m45"}},
+   {"requestId":R2,"threadId":12,"limit":100,"before":{"date":1761500000000,"id":"m45"}})
+sms_q("messages, before id not a message id", "sms.messages", {"version":1,"requestId":R2,"threadId":12,"limit":5,"before":{"date":1,"id":"x45"}}, "reject")
+sms_q("messages, before without date", "sms.messages", {"version":1,"requestId":R2,"threadId":12,"limit":5,"before":{"id":"s1"}}, "reject")
+sms_q("messages, threadId 0", "sms.messages", {"version":1,"requestId":R2,"threadId":0,"limit":5}, "reject")
+sms_q("messages, threadId missing", "sms.messages", {"version":1,"requestId":R2,"limit":5}, "reject")
+sms_q("messages, limit 101", "sms.messages", {"version":1,"requestId":R2,"threadId":3,"limit":101}, "reject")
+sms_q("sync", "sms.sync", {"version":1,"requestId":R2,"since":{"sms":1200,"mms":45},"limit":100}, {"requestId":R2,"since":{"sms":1200,"mms":45},"limit":100})
+sms_q("sync from zero", "sms.sync", {"version":1,"requestId":R2,"since":{"sms":0,"mms":0},"limit":200}, {"requestId":R2,"since":{"sms":0,"mms":0},"limit":200})
+sms_q("sync, since missing", "sms.sync", {"version":1,"requestId":R2,"limit":100}, "reject")
+sms_q("sync, mms missing", "sms.sync", {"version":1,"requestId":R2,"since":{"sms":1},"limit":100}, "reject")
+sms_q("sync, negative cursor", "sms.sync", {"version":1,"requestId":R2,"since":{"sms":-1,"mms":0},"limit":100}, "reject")
+sms_q("sync, limit 201", "sms.sync", {"version":1,"requestId":R2,"since":{"sms":1,"mms":0},"limit":201}, "reject")
+sms_q("attachment", "sms.attachment", {"version":1,"requestId":R2,"partId":"p77"}, {"requestId":R2,"partId":"p77"})
+sms_q("attachment, not a part id", "sms.attachment", {"version":1,"requestId":R2,"partId":"../77"}, "reject")
+sms_q("attachment, part id of 21 characters", "sms.attachment", {"version":1,"requestId":R2,"partId":"p"+"1"*20}, "reject")
+sms_q("contacts", "sms.contacts", {"version":1,"requestId":R2,"query":"  Anna "}, {"requestId":R2,"query":"Anna"})
+sms_q("contacts, unicode", "sms.contacts", {"version":1,"requestId":R2,"query":"Аня"}, {"requestId":R2,"query":"Аня"})
+sms_q("contacts, only spaces", "sms.contacts", {"version":1,"requestId":R2,"query":"   "}, "reject")
+sms_q("contacts, 65 characters", "sms.contacts", {"version":1,"requestId":R2,"query":"a"*65}, "reject")
+sms_q("requestId not a UUID", "sms.threads", {"version":1,"requestId":"page-1","limit":5}, "reject")
+sms_q("version 2", "sms.threads", {"version":2,"requestId":R2,"limit":5}, "reject")
+sms_q("version missing", "sms.sync", {"requestId":R2,"since":{"sms":1,"mms":0},"limit":100}, "reject")
+sms_q("unknown fields are ignored", "sms.threads", {"version":1,"requestId":R2,"limit":5,"filter":"unread"}, {"requestId":R2,"limit":5,"before":None})
+sms_q("over 1 KiB", "sms.threads", sized('{"version":1,"requestId":"%s","limit":5,"pad":"' % R2, 1025), "reject", raw=True)
+sms_q("exactly 1 KiB", "sms.threads", sized('{"version":1,"requestId":"%s","limit":5,"pad":"' % R2, 1024), {"requestId":R2,"limit":5,"before":None}, raw=True)
+sms_q("lenient JSON", "sms.threads", "{version:1,requestId:'%s',limit:5}" % R2, "reject", raw=True)
+# Managing conversations from the Mac: mark read through the phone's notification action, and Android's Blocked numbers screen.
+sms_q("mark read, one conversation", "sms.mark_read", {"version":1,"requestId":R2,"threadIds":[12]}, {"requestId":R2,"threadIds":[12]})
+sms_q("mark read, several, repeats count once", "sms.mark_read", {"version":1,"requestId":R2.upper(),"threadIds":[12,7,12,3]}, {"requestId":R2,"threadIds":[12,7,3]})
+sms_q("mark read, 50 conversations", "sms.mark_read", {"version":1,"requestId":R2,"threadIds":list(range(1,51))}, {"requestId":R2,"threadIds":list(range(1,51))})
+sms_q("mark read, 51 conversations", "sms.mark_read", {"version":1,"requestId":R2,"threadIds":list(range(1,52))}, "reject")
+sms_q("mark read, none", "sms.mark_read", {"version":1,"requestId":R2,"threadIds":[]}, "reject")
+sms_q("mark read, threadId 0", "sms.mark_read", {"version":1,"requestId":R2,"threadIds":[4,0]}, "reject")
+sms_q("mark read, threadId as a string", "sms.mark_read", {"version":1,"requestId":R2,"threadIds":["4"]}, "reject")
+sms_q("mark read, threadIds not an array", "sms.mark_read", {"version":1,"requestId":R2,"threadIds":4}, "reject")
+sms_q("mark read, threadIds missing", "sms.mark_read", {"version":1,"requestId":R2}, "reject")
+sms_q("blocked numbers", "sms.blocked_numbers", {"version":1,"requestId":R2}, {"requestId":R2,"address":None})
+sms_q("blocked numbers with the number", "sms.blocked_numbers", {"version":1,"requestId":R2,"address":"+91 98765-43210"}, {"requestId":R2,"address":"+919876543210"})
+sms_q("blocked numbers, null number is absent", "sms.blocked_numbers", {"version":1,"requestId":R2,"address":None}, {"requestId":R2,"address":None})
+sms_q("blocked numbers, a sender name is not a number", "sms.blocked_numbers", {"version":1,"requestId":R2,"address":"HDFCBK"}, "reject")
+sms_q("blocked numbers, number as a number", "sms.blocked_numbers", {"version":1,"requestId":R2,"address":5550100}, "reject")
+
+smssend = []
+def sms_s(name, p, expect, raw=False): smssend.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+def sx(body, threadId=None, address=None, notificationId=None, subId=None):
+    return {"requestId":R2,"body":body,"threadId":threadId,"address":address,"notificationId":notificationId,"subId":subId}
+sms_s("to a conversation", {"version":1,"requestId":R2,"body":"On my way","threadId":12}, sx("On my way", threadId=12))
+sms_s("to a conversation from a chosen SIM", {"version":1,"requestId":R2,"body":"Ok","threadId":12,"subId":2}, sx("Ok", threadId=12, subId=2))
+sms_s("to a new number", {"version":1,"requestId":R2,"body":"Hello","address":"+91 98765-43210"}, sx("Hello", address="+919876543210"))
+sms_s("number with brackets and dots", {"version":1,"requestId":R2,"body":"Hi","address":"(022) 555.0101"}, sx("Hi", address="0225550101"))
+sms_s("a reply to a notification", {"version":1,"requestId":R2,"body":"Thanks!","notificationId":"a1b2"}, sx("Thanks!", notificationId="a1b2"))
+sms_s("body keeps its spaces and lines", {"version":1,"requestId":R2,"body":"  two\nlines ","threadId":1}, sx("  two\nlines ", threadId=1))
+sms_s("body of 2,000 units", {"version":1,"requestId":R2,"body":"a"*2000,"threadId":1}, sx("a"*2000, threadId=1))
+sms_s("body of 2,001 units", {"version":1,"requestId":R2,"body":"a"*2001,"threadId":1}, "reject")
+sms_s("emoji count as two units", {"version":1,"requestId":R2,"body":"\U0001F600"*1000,"threadId":1}, sx("\U0001F600"*1000, threadId=1))
+sms_s("1,001 emoji", {"version":1,"requestId":R2,"body":"\U0001F600"*1001,"threadId":1}, "reject")
+sms_s("empty body", {"version":1,"requestId":R2,"body":"","threadId":1}, "reject")
+sms_s("body of spaces", {"version":1,"requestId":R2,"body":" \n ","threadId":1}, "reject")
+sms_s("no target", {"version":1,"requestId":R2,"body":"Hi"}, "reject")
+sms_s("two targets", {"version":1,"requestId":R2,"body":"Hi","threadId":1,"address":"+15550100"}, "reject")
+sms_s("null targets count as absent", {"version":1,"requestId":R2,"body":"Hi","threadId":None,"address":"5550100","notificationId":None}, sx("Hi", address="5550100"))
+sms_s("letters in the number", {"version":1,"requestId":R2,"body":"Hi","address":"HDFCBK"}, "reject")
+sms_s("plus in the middle", {"version":1,"requestId":R2,"body":"Hi","address":"55+50100"}, "reject")
+sms_s("one digit", {"version":1,"requestId":R2,"body":"Hi","address":"5"}, "reject")
+sms_s("21 digits", {"version":1,"requestId":R2,"body":"Hi","address":"1"*21}, "reject")
+sms_s("threadId 0", {"version":1,"requestId":R2,"body":"Hi","threadId":0}, "reject")
+sms_s("empty notificationId", {"version":1,"requestId":R2,"body":"Hi","notificationId":""}, "reject")
+sms_s("notificationId of 513", {"version":1,"requestId":R2,"body":"Hi","notificationId":"n"*513}, "reject")
+sms_s("subId as a string", {"version":1,"requestId":R2,"body":"Hi","threadId":1,"subId":"2"}, "reject")
+sms_s("negative subId", {"version":1,"requestId":R2,"body":"Hi","threadId":1,"subId":-1}, "reject")
+sms_s("null subId is absent", {"version":1,"requestId":R2,"body":"Hi","threadId":1,"subId":None}, sx("Hi", threadId=1))
+sms_s("requestId not a UUID", {"version":1,"requestId":"send-1","body":"Hi","threadId":1}, "reject")
+sms_s("version 2", {"version":2,"requestId":R2,"body":"Hi","threadId":1}, "reject")
+sms_s("over 8 KiB", sized('{"version":1,"requestId":"%s","body":"Hi","threadId":1,"pad":"' % R2, 8193), "reject", raw=True)
+sms_s("lenient JSON", "{version:1,requestId:'%s',body:'Hi',threadId:1}" % R2, "reject", raw=True)
+
+smsstatus = []
+def sms_st(name, p, expect, raw=False): smsstatus.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+SIM1 = {"subId":1,"slot":0,"label":"Jio"}
+SIM2 = {"subId":2,"slot":1,"label":"Airtel"}
+sms_st("dual SIM, everything allowed", {"version":1,"read":True,"send":True,"contacts":True,"sims":[SIM1,SIM2],"cursor":{"sms":1200,"mms":45}},
+   {"read":True,"send":True,"contacts":True,"sims":[SIM1,SIM2],"cursor":{"sms":1200,"mms":45}})
+sms_st("nothing allowed yet, no SIM list", {"version":1,"read":False,"send":False,"contacts":False,"sims":[],"cursor":{"sms":0,"mms":0}},
+   {"read":False,"send":False,"contacts":False,"sims":[],"cursor":{"sms":0,"mms":0}})
+sms_st("sims missing reads as none", {"version":1,"read":True,"send":False,"contacts":False,"cursor":{"sms":3,"mms":0}},
+   {"read":True,"send":False,"contacts":False,"sims":[],"cursor":{"sms":3,"mms":0}})
+sms_st("more than 4 SIM entries", {"version":1,"read":True,"send":True,"contacts":True,"sims":[{"subId":"1","slot":0,"label":"x"},{"subId":3,"slot":4,"label":"x"},{"subId":4,"slot":0,"label":"l"*65},{"subId":5,"slot":1},SIM2],"cursor":{"sms":1,"mms":1}},
+   "reject")
+sms_st("invalid SIM entries are dropped", {"version":1,"read":True,"send":True,"contacts":True,"sims":[{"subId":"1","slot":0,"label":"x"},{"subId":3,"slot":4,"label":"x"},{"subId":5,"slot":1},SIM2],"cursor":{"sms":1,"mms":1}},
+   {"read":True,"send":True,"contacts":True,"sims":[SIM2],"cursor":{"sms":1,"mms":1}})
+sms_st("unicode SIM label", {"version":1,"read":True,"send":True,"contacts":True,"sims":[{"subId":7,"slot":0,"label":"МТС"}],"cursor":{"sms":1,"mms":0}},
+   {"read":True,"send":True,"contacts":True,"sims":[{"subId":7,"slot":0,"label":"МТС"}],"cursor":{"sms":1,"mms":0}})
+sms_st("read as a number", {"version":1,"read":1,"send":True,"contacts":True,"sims":[],"cursor":{"sms":1,"mms":0}}, "reject")
+sms_st("cursor missing", {"version":1,"read":True,"send":True,"contacts":True,"sims":[]}, "reject")
+sms_st("negative cursor", {"version":1,"read":True,"send":True,"contacts":True,"sims":[],"cursor":{"sms":-5,"mms":0}}, "reject")
+sms_st("version 2", {"version":2,"read":True,"send":True,"contacts":True,"sims":[],"cursor":{"sms":1,"mms":0}}, "reject")
+sms_st("over 2 KiB", sized('{"version":1,"read":true,"send":true,"contacts":true,"sims":[],"cursor":{"sms":1,"mms":0},"pad":"', 2049), "reject", raw=True)
+sms_st("lenient JSON", "{version:1,read:true,send:true,contacts:true,sims:[],cursor:{sms:1,mms:0}}", "reject", raw=True)
+
+smsmsg = []
+def sms_m(name, p, expect, raw=False): smsmsg.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+def mx(id="s101", threadId=12, direction="in", status="received", date=1761500000000, address="+919876543210", body="See you at 6",
+       truncated=False, subId=None, read=True, parts=None):
+    return {"id":id,"threadId":threadId,"direction":direction,"status":status,"date":date,"address":address,"body":body,
+            "truncated":truncated,"subId":subId,"read":read,"parts":parts or []}
+base = {"id":"s101","threadId":12,"direction":"in","status":"received","date":1761500000000,"address":"+919876543210","body":"See you at 6"}
+sms_m("received SMS", base, mx())
+sms_m("unread, on SIM 2", {**base,"read":False,"subId":2}, mx(read=False, subId=2))
+sms_m("sent and delivered", {**base,"id":"s102","direction":"out","status":"delivered"}, mx(id="s102", direction="out", status="delivered"))
+for status in ["pending","sent","failed"]:
+    sms_m("outgoing " + status, {**base,"direction":"out","status":status}, mx(direction="out", status=status))
+sms_m("unknown status, incoming, reads as received", {**base,"status":"seen"}, mx())
+sms_m("unknown status, outgoing, reads as sent", {**base,"direction":"out","status":"seen"}, mx(direction="out", status="sent"))
+sms_m("status missing reads as the direction's default", {k:v for k,v in base.items() if k != "status"}, mx())
+sms_m("MMS with an image", {**base,"id":"m45","body":"","parts":[{"partId":"p77","mimeType":"image/jpeg","size":120034}]},
+   mx(id="m45", body="", parts=[{"partId":"p77","mimeType":"image/jpeg","size":120034}]))
+sms_m("outgoing MMS has no address", {**base,"id":"m46","direction":"out","status":"sent","address":"","parts":[{"partId":"p78","mimeType":"image/png"}]},
+   mx(id="m46", direction="out", status="sent", address="", parts=[{"partId":"p78","mimeType":"image/png","size":None}]))
+sms_m("parts that are not images or not valid are dropped", {**base,"id":"m47","parts":[{"partId":"p1","mimeType":"text/plain"},{"partId":"q2","mimeType":"image/gif"},
+   {"partId":"p3","mimeType":"image/gif","size":-4},"p4",{"partId":"p5","mimeType":"image/jpeg"}]},
+   mx(id="m47", parts=[{"partId":"p3","mimeType":"image/gif","size":None},{"partId":"p5","mimeType":"image/jpeg","size":None}]))
+sms_m("only the first 8 images", {**base,"id":"m48","parts":[{"partId":"p%d" % i,"mimeType":"image/jpeg"} for i in range(10)]},
+   mx(id="m48", parts=[{"partId":"p%d" % i,"mimeType":"image/jpeg","size":None} for i in range(8)]))
+sms_m("cut body", {**base,"body":"b"*4000,"truncated":True}, mx(body="b"*4000, truncated=True))
+sms_m("body of 4,001 units", {**base,"body":"b"*4001}, "reject")
+sms_m("negative subId reads as none", {**base,"subId":-1}, mx())
+sms_m("read not a boolean reads as read", {**base,"read":0}, mx())
+sms_m("truncated not a boolean reads as false", {**base,"truncated":"yes"}, mx())
+sms_m("unknown fields are ignored", {**base,"reactions":["+1"]}, mx())
+sms_m("id of another kind", {**base,"id":"x101"}, "reject")
+sms_m("id of 21 characters", {**base,"id":"s"+"1"*20}, "reject")
+sms_m("threadId 0", {**base,"threadId":0}, "reject")
+sms_m("direction both", {**base,"direction":"both"}, "reject")
+sms_m("date missing", {k:v for k,v in base.items() if k != "date"}, "reject")
+sms_m("date as a string", {**base,"date":"1761500000000"}, "reject")
+sms_m("address missing", {k:v for k,v in base.items() if k != "address"}, "reject")
+sms_m("address of 65", {**base,"address":"1"*65}, "reject")
+sms_m("body as a number", {**base,"body":5}, "reject")
+sms_m("not an object", ["s101"], "reject")
+
+smssent = []
+def sms_d(name, p, expect, raw=False): smssent.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+def dx(status, reason=None, via=None): return {"requestId":R2,"status":status,"reason":reason,"via":via}
+sms_d("sending", {"version":1,"requestId":R2,"status":"sending","via":"sms"}, dx("sending", via="sms"))
+sms_d("sent through the messaging app", {"version":1,"requestId":R2.upper(),"status":"sent","via":"app"}, dx("sent", via="app"))
+sms_d("delivered", {"version":1,"requestId":R2,"status":"delivered","via":"sms"}, dx("delivered", via="sms"))
+for reason in ["disabled","permission","invalid","group","no_sim","rate_limited","not_found"]:
+    sms_d("refused " + reason, {"version":1,"requestId":R2,"status":"refused","reason":reason}, dx("refused", reason))
+for reason in ["radio_off","no_service","failed"]:
+    sms_d("failed " + reason, {"version":1,"requestId":R2,"status":"failed","reason":reason,"via":"sms"}, dx("failed", reason, "sms"))
+sms_d("an unknown reason reads as failed", {"version":1,"requestId":R2,"status":"failed","reason":"cosmic_rays"}, dx("failed", "failed"))
+sms_d("a missing reason reads as failed", {"version":1,"requestId":R2,"status":"refused"}, dx("refused", "failed"))
+sms_d("a reason on sent is ignored", {"version":1,"requestId":R2,"status":"sent","reason":"group"}, dx("sent"))
+sms_d("an unknown via is ignored", {"version":1,"requestId":R2,"status":"sent","via":"pigeon"}, dx("sent"))
+sms_d("unknown status", {"version":1,"requestId":R2,"status":"read"}, "reject")
+sms_d("status missing", {"version":1,"requestId":R2}, "reject")
+sms_d("requestId not a UUID", {"version":1,"requestId":"send-1","status":"sent"}, "reject")
+sms_d("version 2", {"version":2,"requestId":R2,"status":"sent"}, "reject")
+sms_d("over 1 KiB", sized('{"version":1,"requestId":"%s","status":"sent","pad":"' % R2, 1025), "reject", raw=True)
+sms_d("lenient JSON", "{version:1,requestId:'%s',status:'sent'}" % R2, "reject", raw=True)
+
+smsmark = []
+def sms_mr(name, p, expect, raw=False): smsmark.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+def mrx(results, error=None): return {"requestId":R2,"results":[{"threadId":t,"result":r} for t, r in results],"error":error}
+sms_mr("every result", {"version":1,"requestId":R2,"results":[{"threadId":12,"result":"marked"},{"threadId":7,"result":"not_shown"},{"threadId":3,"result":"no_action"},{"threadId":9,"result":"failed"}]},
+   mrx([(12,"marked"),(7,"not_shown"),(3,"no_action"),(9,"failed")]))
+sms_mr("disabled on the phone", {"version":1,"requestId":R2.upper(),"results":[],"error":"disabled"}, mrx([], "disabled"))
+sms_mr("results missing reads as none", {"version":1,"requestId":R2,"error":"disabled"}, mrx([], "disabled"))
+sms_mr("an unknown result reads as failed", {"version":1,"requestId":R2,"results":[{"threadId":12,"result":"snoozed"}]}, mrx([(12,"failed")]))
+sms_mr("invalid entries are dropped", {"version":1,"requestId":R2,"results":[{"threadId":0,"result":"marked"},{"threadId":"5","result":"marked"},{"threadId":6},"x",{"threadId":8,"result":"marked"}]},
+   mrx([(8,"marked")]))
+sms_mr("an unknown error is ignored", {"version":1,"requestId":R2,"results":[{"threadId":1,"result":"marked"}],"error":"x"*40}, mrx([(1,"marked")]))
+sms_mr("results not an array", {"version":1,"requestId":R2,"results":{"threadId":1,"result":"marked"}}, "reject")
+sms_mr("more than 50 entries", {"version":1,"requestId":R2,"results":[{"threadId":i,"result":"marked"} for i in range(1,52)]}, "reject")
+sms_mr("requestId not a UUID", {"version":1,"requestId":"mark-1","results":[]}, "reject")
+sms_mr("version 2", {"version":2,"requestId":R2,"results":[]}, "reject")
+sms_mr("over 4 KiB", sized('{"version":1,"requestId":"%s","results":[],"pad":"' % R2, 4097), "reject", raw=True)
+sms_mr("lenient JSON", "{version:1,requestId:'%s',results:[]}" % R2, "reject", raw=True)
+
+smsblock = []
+def sms_b(name, p, expect, raw=False): smsblock.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+for outcome in ["opened","notified","unavailable"]:
+    sms_b(outcome, {"version":1,"requestId":R2,"result":outcome}, {"requestId":R2,"result":outcome})
+sms_b("an unknown result reads as unavailable", {"version":1,"requestId":R2.upper(),"result":"blocked"}, {"requestId":R2,"result":"unavailable"})
+sms_b("result missing", {"version":1,"requestId":R2}, "reject")
+sms_b("requestId not a UUID", {"version":1,"requestId":"block-1","result":"opened"}, "reject")
+sms_b("version 2", {"version":2,"requestId":R2,"result":"opened"}, "reject")
+sms_b("over 1 KiB", sized('{"version":1,"requestId":"%s","result":"opened","pad":"' % R2, 1025), "reject", raw=True)
 
 # Settings sync (settings_sync_draft1, docs/folders-and-settings-sync.md sections 4.9, 8 and 8.4). settingsPayload: a
 # settings.snapshot or settings.update plaintext as the receiver reads it. expect is {records, waiting, skipped} (the
@@ -664,7 +1023,7 @@ ss("same changedAt as now still moves forward", rec(True,5000,1,DB), 5000, rec(N
 ss("Apply to all from a chosen value", rec(True,1792900000000,7,DA), 1792900005000, rec(None,1792900005000,8,DA))
 
 out = {
-  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect, and 'write': true means both platforms also write exactly that plaintext from the expected value. In actionsRun, value null is absent and 'other' is present but not an integer. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, waiting, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins when an update arrives (local, remote or equal); settingsSnapshot says what a snapshot record does (adopt, different or same); settingsAsker says which side asks on a first connect (local, remote or none); settingsStamp is the record a local edit or Apply to all makes from current at now by device (value null: the new value is the edit's own).",
+  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect, and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page), smsSendStatus, smsMarkReadResult and smsBlockedNumbersResult by the Mac (the phone also writes exactly the expected plaintext for each valid one); requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, waiting, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins when an update arrives (local, remote or equal); settingsSnapshot says what a snapshot record does (adopt, different or same); settingsAsker says which side asks on a first connect (local, remote or none); settingsStamp is the record a local edit or Apply to all makes from current at now by device (value null: the new value is the edit's own).",
   "sessionId": S,
   "frames": frames,
   "featuresUpdate": feat,
@@ -682,6 +1041,17 @@ out = {
   "updatesStatus": st,
   "updatesStart": ustart,
   "updatesResult": uresult,
+  "screenRequest": screq,
+  "screenStatus": scstat,
+  "screenStream": sstream,
+  "screenFrame": sframe,
+  "smsRequest": smsreq,
+  "smsSend": smssend,
+  "smsStatus": smsstatus,
+  "smsMessage": smsmsg,
+  "smsSendStatus": smssent,
+  "smsMarkReadResult": smsmark,
+  "smsBlockedNumbersResult": smsblock,
   "settingsPayload": spay,
   "settingsMerge": smerge,
   "settingsSnapshot": ssnap,
@@ -689,4 +1059,7 @@ out = {
   "settingsStamp": sstamp,
 }
 open(OUT,'w').write(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
-print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat), len(st), len(ustart), len(uresult), len(spay), len(smerge), len(ssnap), len(sasker), len(sstamp))
+print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat), len(st), len(ustart), len(uresult),
+      len(screq), len(scstat), len(sstream), len(sframe),
+      len(smsreq), len(smssend), len(smsstatus), len(smsmsg), len(smssent), len(smsmark), len(smsblock),
+      len(spay), len(smerge), len(ssnap), len(sasker), len(sstamp))

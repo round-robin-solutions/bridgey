@@ -132,7 +132,7 @@ class SetupFlowTest {
     @Test
     fun callsAndRemoteControl() {
         val walk = start(fresh(), SetupBundles.answers(setOf("calls", "remote"), emptyMap())).toTheEnd()
-        assertEquals(listOf(SetupScreen.Intro, q("calls"), q("remote_volume_keys"), SetupScreen.Switches, SetupScreen.Permissions, SetupScreen.Summary), walk.steps)
+        assertEquals(listOf(SetupScreen.Intro, q("calls"), q("remote_volume_keys"), q("screen"), SetupScreen.Switches, SetupScreen.Permissions, SetupScreen.Summary), walk.steps)
         assertEquals("true", walk.facts.value(SetupSetting.FEATURE_MAC_ACTIONS))
     }
 
@@ -168,7 +168,9 @@ class SetupFlowTest {
             assertTrue("${bundle.id}: ${walk.steps}", walk.steps.size in 4..8)
         }
         val everything = start(fresh(paired = false, codes = true, apps = true), SetupBundles.answers(SetupBundles.all.map { it.id }.toSet(), emptyMap())).toTheEnd()
-        assertTrue(everything.steps.toString(), everything.steps.size <= 10)
+        // Every bundle at once: the start, pairing, one card per follow-up (clipboard, notification apps, text messages,
+        // calls, files, remote volume keys, screen), then switches, permissions and the summary: 12 since text messages.
+        assertTrue(everything.steps.toString(), everything.steps.size <= 12)
     }
 
     @Test

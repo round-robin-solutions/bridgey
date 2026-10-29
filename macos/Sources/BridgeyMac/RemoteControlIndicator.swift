@@ -34,7 +34,7 @@ final class RemoteControlIndicator: RemoteControlIndicating {
     }
 
     func hide() {
-        pill?.orderOut(nil)
+        BridgeyWindows.orderOut(pill)
         pill = nil
         stopHotKey = nil
         hideLaser()
@@ -63,7 +63,7 @@ final class RemoteControlIndicator: RemoteControlIndicating {
     }
 
     func hideLaser() {
-        laser?.orderOut(nil)
+        BridgeyWindows.orderOut(laser)
         laserDisplay = nil
     }
 
