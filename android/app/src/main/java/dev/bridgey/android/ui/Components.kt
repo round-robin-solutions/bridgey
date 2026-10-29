@@ -174,13 +174,17 @@ fun groupShape(index: Int, count: Int, outer: Dp = 24.dp, inner: Dp = 6.dp): Sha
     else -> RoundedCornerShape(inner)
 }
 
+/**
+ * Rows drawn as one group. [content] only lists the rows (a plain lambda, not composable), so the list is built in
+ * the same recomposition that draws it: a row that appears or goes while the page is open (a feature turned on, a
+ * sync status line) shows at once. With a composable content lambda the list could change in the lambda's own
+ * recomposition without the group drawing it again.
+ */
 @Composable
-fun RowGroup(modifier: Modifier = Modifier, content: @Composable GroupScope.() -> Unit) {
-    val scope = remember { GroupScope() }
-    scope.rows.clear()
-    scope.content()
+fun RowGroup(modifier: Modifier = Modifier, content: GroupScope.() -> Unit) {
+    val rows = GroupScope().apply(content).rows
     Column(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        scope.rows.forEachIndexed { index, row -> row(groupShape(index, scope.rows.size)) }
+        rows.forEachIndexed { index, row -> row(groupShape(index, rows.size)) }
     }
 }
 
