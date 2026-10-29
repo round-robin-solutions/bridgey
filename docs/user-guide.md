@@ -228,9 +228,9 @@ Bridgey updates itself. Open **Settings > Updates** on either device.
 | **Nightly** | Built from every change. Expect rough edges. |
 
 Switching to a steadier channel never downgrades; it waits for that channel's next newer build.
-The apps check daily, and **Check now** checks at once. Nothing updates unless someone asked: you tap
-**Install** (the Mac shows each step with **Install**, **Later** and **Skip**), or **Update all** on a
-paired device. On Android 12 and later an update you started usually finishes without a second tap;
+The apps check daily, and **Check now** checks at once. An update installs when you tap **Install**
+(the Mac shows each step with **Install**, **Later** and **Skip**), when you use **Update all** on a
+paired device, or by itself with **Update all devices automatically** (below). On Android 12 and later an update you started usually finishes without a second tap;
 when Android still wants one, Bridgey shows "Tap to finish updating Bridgey".
 On Android the download must match its published checksum and be signed with the same certificate as the
 installed app. On the Mac the update must carry a valid EdDSA signature. Details are in
@@ -255,6 +255,27 @@ Each device stays on its own channel and only installs its own signed update. If
 on its old version, Bridgey says "Update didn't apply" and does not try that version again by itself.
 To stop other devices from starting updates on one device, turn off **Let paired devices start updates
 on this device** in its Settings > Updates.
+
+### Update all devices automatically
+
+With **Update all devices automatically** on (Settings > Updates; on by default for Beta and Nightly,
+off for Stable), a new version reaches every connected device without a tap. Your devices check every
+30 minutes on Beta and Nightly (every 6 hours on Stable) and when they wake up. When one finds a new
+version, the other connected devices update first and it restarts last.
+
+- It waits while you are on a call, sharing your screen, using remote control, sending or receiving
+  files, downloading from Phone files, or in setup or pairing, on any of your connected devices, and
+  looks again every few minutes.
+- A short notice says what is updating. Bridgey restarts after 60 seconds; choose **Later** to put it
+  off for an hour. After three Laters it waits until you step away (the Mac idle or locked, or the
+  phone's screen off while it charges).
+- A device updated this way says "Started automatically by" the device that started it, and the
+  activity stream lists what happened, for example "Updated automatically to 0.10.0-rr.1-beta.11"
+  or "Waiting: call in progress".
+- Settings > Updates shows what it is doing now and how the last automatic update went.
+
+On a Mac you can also start it from Terminal: `"/Applications/Bridgey by Round Robin.app/Contents/MacOS/BridgeyMac" --update-all`
+checks now, updates the connected phones and then the Mac, and prints what it did.
 
 ## Permissions
 
