@@ -99,6 +99,17 @@ data class BridgeySettingsState(
      * files_browse_draft1.
      */
     val allowBrowseFromOtherDevices: Boolean = true,
+    /**
+     * Files > Include hidden files when sending folders: dotfiles and dot-folders that are not system files. Off by
+     * default, as on the Mac (`settings.folders.includeHidden`). Applies to folders this phone sends and to folders a
+     * Mac downloads from it.
+     */
+    val folderIncludeHidden: Boolean = false,
+    /**
+     * Files > Include system files when sending folders: `.DS_Store`, `._*`, `Thumbs.db` and the rest of
+     * [dev.bridgey.android.folders.SystemFiles]. Off by default, as on the Mac (`settings.folders.includeSystem`).
+     */
+    val folderIncludeSystem: Boolean = false,
     /** The Save to… sheet's recent destinations, newest first. On this phone only. */
     val recentFolderDestinations: List<FolderDestination> = emptyList(),
     /** Privacy > Logging: what reaches Logcat and exported diagnostics. On this phone only. */
@@ -118,6 +129,10 @@ data class BridgeySettingsState(
     /** What a folder transfer to this phone reads when it decides. */
     val folderReceiveSettings: FolderReceiveSettings
         get() = FolderReceiveSettings(folderMode, folderConflict, folderDefaultPlace, allowReplaceFromOtherDevices)
+
+    /** What a folder this phone sends (or a Mac downloads) skips. */
+    val folderScanOptions: dev.bridgey.android.folders.FolderScanOptions
+        get() = dev.bridgey.android.folders.FolderScanOptions(folderIncludeHidden, folderIncludeSystem)
 }
 
 /** Automatic clipboard is on for a device when global and the per-device switch both allow it. */
@@ -293,6 +308,16 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(folderDefaultPlace = value)
     }
 
+    fun setFolderIncludeHidden(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_FOLDER_INCLUDE_HIDDEN, enabled).apply()
+        mutableState.value = mutableState.value.copy(folderIncludeHidden = enabled)
+    }
+
+    fun setFolderIncludeSystem(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_FOLDER_INCLUDE_SYSTEM, enabled).apply()
+        mutableState.value = mutableState.value.copy(folderIncludeSystem = enabled)
+    }
+
     fun setAllowReplaceFromOtherDevices(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_FOLDER_ALLOW_REPLACE, enabled).apply()
         mutableState.value = mutableState.value.copy(allowReplaceFromOtherDevices = enabled)
@@ -379,6 +404,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             folderConflict = ConflictPolicy.fromWire(preferences.getString(KEY_FOLDER_CONFLICT, null)) ?: ConflictPolicy.ASK,
             folderDefaultPlace = preferences.getString(KEY_FOLDER_DEFAULT_PLACE, null)?.takeIf(::isPlaceId) ?: DEFAULT_PLACE_ID,
             allowReplaceFromOtherDevices = preferences.getBoolean(KEY_FOLDER_ALLOW_REPLACE, false),
+            folderIncludeHidden = preferences.getBoolean(KEY_FOLDER_INCLUDE_HIDDEN, false),
+            folderIncludeSystem = preferences.getBoolean(KEY_FOLDER_INCLUDE_SYSTEM, false),
             allowBrowseFromOtherDevices = preferences.getBoolean(KEY_FILES_ALLOW_BROWSE, true),
             recentFolderDestinations = decodeDestinations(preferences.getString(KEY_FOLDER_RECENT, null)),
             logging = loggingPolicyFrom { key, default -> preferences.getBoolean(key, default) },
@@ -405,6 +432,9 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         private const val KEY_FOLDER_CONFLICT = "files.folder_conflict"
         private const val KEY_FOLDER_DEFAULT_PLACE = "files.folder_default_place"
         private const val KEY_FOLDER_ALLOW_REPLACE = "files.folder_allow_replace"
+        // Same meaning and defaults as the Mac's `settings.folders.includeHidden` and `.includeSystem`.
+        internal const val KEY_FOLDER_INCLUDE_HIDDEN = "files.folder_include_hidden"
+        internal const val KEY_FOLDER_INCLUDE_SYSTEM = "files.folder_include_system"
         private const val KEY_FILES_ALLOW_BROWSE = "files.allow_browse"
         private const val KEY_FOLDER_RECENT = "files.folder_recent"
         private const val KEY_FOCUS_SHARE = "focus.share"

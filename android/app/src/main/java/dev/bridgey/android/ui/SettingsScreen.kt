@@ -474,6 +474,7 @@ private fun FilesPage(state: SettingsState, actions: SettingsActions, listState:
                 }
                 if (filesOn && state.folders.supported) {
                     Note(stringResource(if (state.folders.allowBrowse) R.string.settings_folders_note_browse else R.string.settings_folders_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp))
+                    Note(stringResource(R.string.settings_folder_send_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp))
                 }
             }
         }

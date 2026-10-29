@@ -71,6 +71,8 @@ class Bridge {
 
 /** The phone's sender wired to the Android receiver (as the Mac), one device "mac-1". */
 class SendHarness(journalDir: java.io.File, receiverJournalDir: java.io.File) {
+    /** Settings > Files > Include hidden files and Include system files, as the sender reads them. */
+    var scanOptions = FolderScanOptions()
     val bridge = Bridge()
     val clock = FakeClock()
     val scheduler = FakeScheduler(clock)
@@ -157,6 +159,7 @@ class SendHarness(journalDir: java.io.File, receiverJournalDir: java.io.File) {
         prepare = { it() },
         openUri = { uri -> openers[uri]?.invoke() ?: throw java.io.IOException("no such uri") },
         clock = clock::read,
+        scanOptions = { scanOptions },
     )
 
     /** Journaled sources after a "restart": test URIs to contents. */
@@ -226,6 +229,67 @@ class FolderSendTest {
         assertTrue(h.bridge.counts.getValue("files.chunk") >= 2_000_000 / (24 * 1024))
         // The sender journal is gone once the folder ended.
         assertTrue(h.sendJournals.all().isEmpty())
+    }
+
+    @Test
+    fun hiddenFilesAreSentOnlyWhenTheOptionIsOn() {
+        val h = harness()
+        h.scanOptions = FolderScanOptions(includeHidden = true)
+        h.sender.send("mac-1", "MacBook Pro", photos())
+        h.run()
+        val end = h.finished.single()
+        assertEquals(FolderEnd.COMPLETE, end.end)
+        assertEquals(5, end.filesDone)
+        // .env is a user dotfile: it comes with the option. .DS_Store is system clutter: it needs its own option.
+        assertNotNull(h.mac.pictures.find("Photos/.env"))
+        assertNull(h.mac.pictures.find("Photos/.DS_Store"))
+        assertEquals(0, end.skipped.hidden)
+        assertEquals(1, end.skipped.system)
+    }
+
+    @Test
+    fun systemFilesAreSentOnlyWhenTheirOptionIsOn() {
+        val h = harness()
+        h.scanOptions = FolderScanOptions(includeHidden = false, includeSystem = true)
+        h.sender.send("mac-1", "MacBook Pro", photos())
+        h.run()
+        val end = h.finished.single()
+        assertEquals(FolderEnd.COMPLETE, end.end)
+        assertNotNull(h.mac.pictures.find("Photos/.DS_Store"))
+        assertNull(h.mac.pictures.find("Photos/.env"))
+        assertEquals(1, end.skipped.hidden)
+        assertEquals(0, end.skipped.system)
+    }
+
+    @Test
+    fun bothOptionsOnSendEverything() {
+        val h = harness()
+        h.scanOptions = FolderScanOptions(includeHidden = true, includeSystem = true)
+        h.sender.send("mac-1", "MacBook Pro", photos())
+        h.run()
+        val end = h.finished.single()
+        assertEquals(6, end.filesDone)
+        assertNotNull(h.mac.pictures.find("Photos/.DS_Store"))
+        assertNotNull(h.mac.pictures.find("Photos/.env"))
+        assertEquals(0, end.skipped.hidden + end.skipped.system)
+    }
+
+    @Test
+    fun aDownloadFollowsTheSameOptionsInsideFolders() {
+        val h = harness()
+        fun folder() = MemoryNode("Repo").apply {
+            file("readme.md", ByteArray(10))
+            file(".gitignore", ByteArray(10))
+            file(".DS_Store", ByteArray(10))
+        }
+        // Off by default, as on the Mac: only the ordinary file.
+        assertEquals(1, h.sender.download("mac-1", "MacBook Pro", UUID.randomUUID().toString(), listOf(folder())).fileCount)
+        h.scanOptions = FolderScanOptions(includeHidden = true)
+        assertEquals(2, h.sender.download("mac-1", "MacBook Pro", UUID.randomUUID().toString(), listOf(folder())).fileCount)
+        h.scanOptions = FolderScanOptions(includeHidden = true, includeSystem = true)
+        assertEquals(3, h.sender.download("mac-1", "MacBook Pro", UUID.randomUUID().toString(), listOf(folder())).fileCount)
+        h.scanOptions = FolderScanOptions(includeHidden = false, includeSystem = true)
+        assertEquals(2, h.sender.download("mac-1", "MacBook Pro", UUID.randomUUID().toString(), listOf(folder())).fileCount)
     }
 
     @Test
@@ -398,11 +462,41 @@ class FolderSendTest {
         assertNull(scan.problem)
         val many = MemoryNode("Many").apply { repeat(FolderLimits.MAX_FILES + 1) { file("f$it", ByteArray(0)) } }
         assertEquals(FolderCodes.LIMIT_EXCEEDED, FolderScanner.scanFolder(many).problem)
-        // Download items keep a picked hidden file but still skip system clutter inside folders.
-        val items = FolderScanner.scanItems(listOf(MemoryNode(".env", ByteArray(1)), MemoryNode("dir").apply { file(".DS_Store", ByteArray(1)) }))
+        // Download items keep a picked hidden item; inside folders the options decide, both off by default.
+        val items = FolderScanner.scanItems(
+            listOf(MemoryNode(".env", ByteArray(1)), MemoryNode("dir").apply { file(".DS_Store", ByteArray(1)); file(".hidden", ByteArray(1)) }),
+        )
         assertEquals(listOf(".env", "dir"), items.entries.map { it.path })
         assertTrue(items.into)
         assertEquals(1, items.skipped.system)
+        assertEquals(1, items.skipped.hidden)
+    }
+
+    @Test
+    fun scannerOptionsMirrorTheMacsHiddenAndSystemRules() {
+        fun tree() = MemoryNode("Repo").apply {
+            file("a.txt", ByteArray(1))
+            file(".gitignore", ByteArray(1))
+            file(".DS_Store", ByteArray(1))
+            file("._a.txt", ByteArray(1))
+            file("Thumbs.db", ByteArray(1))
+            dir(".config").apply { file("x", ByteArray(1)) }
+        }
+        val defaults = FolderScanner.scanFolder(tree())
+        assertEquals(FolderScanOptions(includeHidden = false, includeSystem = false), FolderScanOptions())
+        assertEquals(listOf("a.txt"), defaults.entries.map { it.path })
+        // Hidden: .gitignore and .config (a skipped folder takes its files with it); system: .DS_Store, ._ and Thumbs.db.
+        assertEquals(2, defaults.skipped.hidden)
+        assertEquals(3, defaults.skipped.system)
+        val hidden = FolderScanner.scanFolder(tree(), FolderScanOptions(includeHidden = true))
+        assertEquals(listOf(".config", ".config/x", ".gitignore", "a.txt"), hidden.entries.map { it.path }.sorted())
+        assertEquals(3, hidden.skipped.system)
+        val system = FolderScanner.scanFolder(tree(), FolderScanOptions(includeSystem = true))
+        assertEquals(listOf(".DS_Store", "._a.txt", "Thumbs.db", "a.txt"), system.entries.map { it.path }.sorted())
+        assertEquals(2, system.skipped.hidden)
+        val both = FolderScanner.scanFolder(tree(), FolderScanOptions(includeHidden = true, includeSystem = true))
+        assertEquals(7, both.entries.size)
+        assertEquals(0, both.skipped.hidden + both.skipped.system)
     }
 }
 

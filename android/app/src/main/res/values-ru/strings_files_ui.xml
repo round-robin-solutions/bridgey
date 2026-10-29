@@ -47,6 +47,11 @@
         <item quantity="other">Отправить %1$d · %2$s</item>
     </plurals>
 
+    <string name="settings_folder_hidden">Включать скрытые файлы при отправке папок</string>
+    <string name="settings_folder_hidden_detail">Файлы и папки, чьи имена начинаются с точки, например .gitignore или .config.</string>
+    <string name="settings_folder_system">Включать системные файлы при отправке папок</string>
+    <string name="settings_folder_system_detail">Служебные файлы системы, например .DS_Store, файлы ._ и Thumbs.db.</string>
+    <string name="settings_folder_send_note">Это относится к папкам, которые отправляет этот телефон, и к папкам, которые Mac скачивает с него.</string>
     <string name="settings_allow_browse">Разрешить другим устройствам просматривать телефон</string>
     <string name="settings_allow_browse_detail">Связанные устройства с включённой передачей файлов видят ваши папки, недавние документы и разрешённые фото и видео и могут их скачивать. Изменить они ничего не могут</string>
     <string name="settings_folders_note_browse">Для папок нужен Android 10 или новее. Когда просмотр включён, связанные устройства видят и могут скачивать содержимое ваших папок; менять файлы они могут только с вашего разрешения.</string>

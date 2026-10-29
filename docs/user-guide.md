@@ -118,6 +118,11 @@ Anything marked sensitive (for example by a password manager) is not sent.
   send can be retried once the devices reconnect.
 - **Where they land:** Android saves to `Download/Bridgey`. The Mac saves to `Downloads/Bridgey` by
   default; change it in Settings > Files (Received files). A file never replaces an existing one.
+- **Hidden files in folders:** a folder skips hidden files (names that start with a dot, such as
+  `.gitignore`) and system clutter (`.DS_Store`, `._` files, `Thumbs.db`). Two switches in Settings >
+  Files on the phone and on the Mac, "Include hidden files when sending folders" and "Include system
+  files when sending folders", turn each on; both are off by default. On the phone they also apply
+  when a Mac downloads a folder from it.
 
 ## Notifications
 

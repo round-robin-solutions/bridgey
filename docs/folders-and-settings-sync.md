@@ -215,7 +215,8 @@ sync mark, so it is clear they change the other device too.
 | Default folder | Place picker (default `Download/Bridgey`) | Existing "Received files" folder | No |
 | When a folder already exists | Ask each time / Merge / Replace files / Save as new folder | Same | Yes |
 | Places | List: label, storage, "Access lost" state; **Add folder…**; **Remove**; rename the label; `Download/Bridgey` row with **Allow full access** until granted | Not in the first build (comes with phone to Mac) | No |
-| Include hidden files when sending folders | Later (phone to Mac) | Switch, off | No |
+| Include hidden files when sending folders | Switch, off (0.10) | Switch, off | No |
+| Include system files when sending folders | Switch, off (0.10) | Switch, off | No |
 
 **General:** "Sync settings with paired devices" (on). Detail: "Keeps folder, clipboard,
 preview and motion preferences the same on your devices. Names, folders and update channels
@@ -914,6 +915,12 @@ the Received files folder plus folders added in Settings (bookmarks). Journal in
   launch at login, update channel, every feature switch and per-device feature override,
   notification app filters, phone links, shortcuts, the Mac's media player, "Include hidden
   files", the last destination, and the sync switches themselves.
+- "Include hidden files" and "Include system files" are the same two switches on both devices (bool,
+  default off, same names and help text; the phone applies them to folders it sends and to folders a Mac
+  downloads). They are stored as `settings.folders.includeHidden` and `settings.folders.includeSystem` on
+  the Mac and `files.folder_include_hidden` and `files.folder_include_system` on the phone. They are not
+  synced in schema 1; if they join, the keys are `files.folder_include_hidden` and
+  `files.folder_include_system`, bool, default false, with no migration.
 - The `clipboard.*` keys are reserved now; a platform implements them once automatic clipboard
   ships there.
 

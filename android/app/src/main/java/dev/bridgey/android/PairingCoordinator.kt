@@ -464,6 +464,7 @@ class PairingCoordinator(
         prepare = { task -> scope.launch { task() } },
         openUri = { uri -> appContext.contentResolver.openInputStream(Uri.parse(uri)) ?: throw java.io.IOException("open failed") },
         log = { BridgeyLogging.i(LogCategory.FILES, it) },
+        scanOptions = { settings.state.value.folderScanOptions },
     )
 
     /** Files 2.0: browse servers, one per device session; thumbnails and previews on a small pool. */

@@ -377,6 +377,20 @@ class SetupScreenshotTest {
 
     @Test @Config(qualifiers = "+night") fun quickNotificationsRestrictedDark() = quickNotificationsRestricted()
 
+    /** Settings > Files with the two new switches, scrolled down to them. */
+    private fun filesHidden() = capture("settings-files-hidden") {
+        SettingsScreen(
+            state = settings,
+            actions = SettingsActions(),
+            listState = androidx.compose.foundation.lazy.LazyListState(firstVisibleItemIndex = 0, firstVisibleItemScrollOffset = 1100),
+            section = SettingsSection.FILES,
+        )
+    }
+
+    @Test fun filesHiddenLight() = filesHidden()
+
+    @Test @Config(qualifiers = "+night") fun filesHiddenDark() = filesHidden()
+
     private fun obtainium() = capture("obtainium") { SettingsScreen(state = settings, actions = SettingsActions(), section = SettingsSection.ABOUT) }
 
     @Test fun obtainiumLight() = obtainium()

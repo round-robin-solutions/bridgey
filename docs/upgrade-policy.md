@@ -179,6 +179,7 @@ Commits are on `rr/main`; "Beta N" is the first edition tag `v0.6.0-rr.1-beta.N`
 | | | `files.folder_destination`, `files.folder_conflict`, `files.folder_default_place`, `files.folder_allow_replace`, `files.folder_recent` (JSON) | Beta 10 (af501f7) | `beta.10/` |
 | | | `clipboard.screenshot.enabled`, `logging.*` (9 switches) | Beta 11 (3ba3f65, 1c83719) | `beta.11/`, `beta.13/` |
 | | | `files.allow_browse` (on by default; "Allow other devices to change files here" keeps `files.folder_allow_replace`) | 0.8.0-rr.1 (3118376) | `shared_prefs/0.8.0-rr.1/` |
+| | | `files.folder_include_hidden`, `files.folder_include_system` (both off by default, as the Mac's `folders.includeHidden` and `folders.includeSystem`; a missing key reads off) | 0.10.0-rr.1 | Name pinned in `StorageNamesTest` |
 | | | v0.9 automation: features `mac_actions_draft1` and `camera_draft1` in `global.*` and `device.*` (both on by default), `focus.share`, `focus.follow` | Merged after 0.8.0-rr.1-beta.1 (8c62f61, 08b2a15, bb5f5ca) | `shared_prefs/automation/` |
 | Appearance and privacy | SharedPreferences `bridgey.ui` | `show_activity_previews`, `reduce_motion` (Beta 2, 6030623 and a992670); `qs_tile_added` (Beta 4, deac2c5); `battery_prompt_shown` (Beta 8, 129147d) | Beta 2 | `bridgey.ui.xml` |
 | Updates | SharedPreferences `bridgey.updates` | `channel`, `last_checked_at`, `snoozed_version_code`, `snoozed_until`, `notified_version_code` (Beta 1, 696a99d); `skipped_version_code` (Beta 11, 182a07b) | Beta 1 | `bridgey.updates.xml` |
