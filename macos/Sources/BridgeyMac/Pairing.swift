@@ -2581,6 +2581,7 @@ final class PairingCoordinator: ObservableObject {
                 let clipboardFiles = draftKeys[clipboardFilesFeatureKey] == true
                 let phoneID = current.remoteDeviceID
                 current.fastTransfers = draftKeys[filesFastFeatureKey] == true
+                BridgeyLog.transport.notice("fast transfers=\(current.fastTransfers, privacy: .public) peerKey=\(draftKeys[filesFastFeatureKey] == true, privacy: .public) protocol2=\(current.envelopeKey != nil, privacy: .public)")
                 registry.update(phoneID) { link in
                     link.remoteFeatures = features
                     link.featureStateReceived = true

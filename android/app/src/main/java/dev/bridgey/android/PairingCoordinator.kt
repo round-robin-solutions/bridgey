@@ -4221,6 +4221,7 @@ class PairingCoordinator(
         val drafts = decoded.drafts
         val deviceId = current.remoteDeviceId
         current.peerFast = drafts[FILES_FAST_FEATURE_KEY] == true
+        BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT fast transfers=${current.fastTransfers} peerKey=${current.peerFast} protocol2=${current.envelopeKey != null}")
         registry.update(deviceId) { state ->
             state.copy(
                 remoteFeatures = received,
