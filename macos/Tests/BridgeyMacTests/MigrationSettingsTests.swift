@@ -93,6 +93,8 @@ final class MigrationSettingsTests: XCTestCase {
         XCTAssertEqual(settings.folderIncludeSystem, release >= 10, label, file: file, line: line)
         // Beta 11: ringing and Privacy > Logging.
         XCTAssertEqual(settings.ringForIncomingCalls, release < 11, label, file: file, line: line)
+        // 0.10: calls from other apps; no older release stored it, so every snapshot asks.
+        XCTAssertEqual(settings.otherAppCallPolicy, .ask, label, file: file, line: line)
         var logging = LoggingPolicy()
         if release >= 11 {
             logging.connection = false
