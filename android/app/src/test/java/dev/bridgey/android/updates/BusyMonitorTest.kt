@@ -65,6 +65,8 @@ class BusyMonitorTest {
 
     @Test fun pairingAndSetup() {
         assertEquals(setOf(UpdateBusy.SETUP), busy(BusySignals(pairing = PairingState.Connecting("Work Mac"))))
+        assertEquals(setOf(UpdateBusy.SETUP), busy(BusySignals(pairing = PairingState.WaitingForAllow("Work Mac"))))
+        assertEquals("Allow pairing is on", setOf(UpdateBusy.SETUP), busy(BusySignals(pairingArmed = true)))
         assertEquals(setOf(UpdateBusy.SETUP), busy(BusySignals(pairing = PairingState.Verification("Work Mac", "123456"))))
         assertEquals(setOf(UpdateBusy.SETUP), busy(BusySignals(setupShowing = true)))
         assertEquals(emptySet<UpdateBusy>(), busy(BusySignals(pairing = PairingState.Connected("w", "Work Mac"))))

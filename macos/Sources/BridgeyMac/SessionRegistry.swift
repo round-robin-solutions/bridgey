@@ -41,32 +41,65 @@ struct PhoneConnection: Identifiable, Equatable {
     let state: PhoneLinkState
 }
 
-/// Why a pairing attempt ended; the panel shows `message`.
-enum PairingFailure: String, Equatable {
+/// Why a pairing attempt ended; the panel shows `message(peerName:)`. Android has the same reasons in
+/// PairingCoordinator.kt, with the same words.
+enum PairingFailure: String, Equatable, CaseIterable {
     case couldNotConnect, timeout, cancelledRemote, codeRejected, identityChanged, connectionLost, busy, invalid, localNetworkDenied
+    /// The other device tapped Don't match / this Mac did.
+    case mismatchRemote, mismatchLocal
+    /// The code timer ran out: this end confirmed and the other did not, the other did and this did not, or neither.
+    case timeoutRemote, timeoutLocal, timeoutNeither
+    /// The other device runs a Bridgey without committed pairing (before 0.10), or never answered a committed offer.
+    case oldVersion, noAnswer
+    /// The other device was not accepting pairings and Allow pairing was not tapped there within two minutes.
+    case notAllowed
+    case rateLimited
 
-    var message: String {
+    func message(peerName name: String) -> String {
         switch self {
         case .couldNotConnect:
             L10n.text("pairing.failure.connect", fallback: "Could not reach the device. Check that both are on the same Wi-Fi and Bridgey is open.")
         case .timeout:
             L10n.text("pairing.failure.timeout", fallback: "Pairing timed out. Start again and confirm the code on both devices within two minutes.")
         case .cancelledRemote:
-            L10n.text("pairing.failure.cancelled", fallback: "Pairing was cancelled on the other device, or its code was rejected there.")
+            String(format: L10n.text("pairing.failure.cancelledOn", fallback: "Pairing was cancelled on %@."), name)
         case .codeRejected:
             L10n.text("pairing.failure.rejected", fallback: "The devices could not verify each other. Check that the codes match and try again.")
         case .identityChanged:
             L10n.text("pairing.failure.identity", fallback: "This device\u{2019}s identity changed. Forget it on both devices, then pair again.")
         case .connectionLost:
-            L10n.text("pairing.failure.lost", fallback: "The connection was lost before pairing finished. Try again.")
+            String(format: L10n.text("pairing.failure.lostWith", fallback: "The connection to %@ was lost. Check both are on the same Wi-Fi, then try again."), name)
         case .busy:
-            L10n.text("pairing.failure.busy", fallback: "Another pairing is waiting for confirmation. Finish or cancel it first.")
+            String(format: L10n.text("pairing.failure.busyWith", fallback: "%@ is pairing with another device. Finish or cancel that first, then try again."), name)
         case .invalid:
             L10n.text("pairing.failure.invalid", fallback: "The other device sent something unexpected. Update Bridgey on both devices and try again.")
         case .localNetworkDenied:
             "Local Network access is off. Enable Bridgey in System Settings \u{2192} Privacy & Security \u{2192} Local Network."
+        case .mismatchRemote:
+            String(format: L10n.text("pairing.failure.mismatchRemote", fallback: "%@ said the codes don\u{2019}t match. Nothing was paired. Try again and check both screens show the same code."), name)
+        case .mismatchLocal:
+            String(format: L10n.text("pairing.failure.mismatchLocal", fallback: "Nothing was paired. If the codes really differed, another device may be pretending to be %@. Try again."), name)
+        case .timeoutRemote:
+            String(format: L10n.text("pairing.failure.timeoutRemote", fallback: "%@ did not tap Codes match in time."), name)
+        case .timeoutLocal:
+            L10n.text("pairing.failure.timeoutLocal", fallback: "Codes match was not tapped here in time.")
+        case .timeoutNeither:
+            L10n.text("pairing.failure.timeoutNeither", fallback: "Neither device confirmed the code in time.")
+        case .oldVersion:
+            pairingOldVersionText(name)
+        case .noAnswer:
+            String(format: L10n.text("pairing.failure.noAnswer", fallback: "%@ did not answer. If it runs an older Bridgey, update it to 0.10 or newer, then pair again."), name)
+        case .notAllowed:
+            String(format: L10n.text("pairing.failure.notAllowed", fallback: "%@ did not allow pairing in time. Open Bridgey there and tap Allow pairing, then try again."), name)
+        case .rateLimited:
+            String(format: L10n.text("pairing.failure.rateLimited", fallback: "%@ is refusing pairing for a minute after several attempts. Try again soon."), name)
         }
     }
+}
+
+/// OLD_VERSION, on the failure card and on the request card of an unarmed refusal.
+func pairingOldVersionText(_ name: String) -> String {
+    String(format: L10n.text("pairing.failure.oldVersion", fallback: "%@ runs an older Bridgey. Update it to 0.10 or newer, then pair again."), name)
 }
 
 /// Sessions keyed the way multi-device needs them: unauthenticated or pairing sessions on their
@@ -213,8 +246,10 @@ func connectionSummary(_ connections: [PhoneConnection], pairing: PairingState) 
     switch connections.count {
     case 0:
         switch pairing {
-        case let .connecting(name), let .verification(name, _):
+        case let .connecting(name), let .waitingForAllow(name):
             return String(format: L10n.text("panel.connecting", fallback: "Connecting to %@"), name)
+        case let .verification(prompt):
+            return String(format: L10n.text("panel.connecting", fallback: "Connecting to %@"), prompt.peerName)
         case .failed: return L10n.text("thisMac.failed", fallback: "Couldn\u{2019}t connect")
         default: return L10n.text("thisMac.idle", fallback: "Not connected")
         }

@@ -220,7 +220,7 @@ struct LocalDataReset {
     static let identityKeys = ["deviceID", "settings.codes.installId"]
     /// Upstream's pre-file trust records, imported once by MacTrustRegistry.
     static let trustKeys = ["trustedDeviceIDs"]
-    static let trustPrefixes = ["trusted."]
+    static let trustPrefixes = ["trusted.", "protocolPin."]
     static let addressPrefixes = ["reconnect."]
     /// Update all keeps its last run and the version that did not apply (UpdateAllProtocol.swift) as records,
     /// and automatic updates their waits and Laters, their last run and an accepted automatic start.

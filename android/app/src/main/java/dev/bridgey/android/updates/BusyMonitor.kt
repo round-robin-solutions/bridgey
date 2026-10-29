@@ -46,6 +46,8 @@ data class BusySignals(
     /** Clipboard items being fetched from a Mac right now. */
     val clipFetches: Int = 0,
     val pairing: PairingState = PairingState.Idle,
+    /** Allow pairing is on (the button's two minutes, or a pairing screen holding it open). */
+    val pairingArmed: Boolean = false,
     /** The setup screens are open. */
     val setupShowing: Boolean = false,
 )
@@ -68,7 +70,9 @@ object BusyRules {
         val active = signals.transfers.filter { it.active }
         if (active.any(::phoneFilesDownload)) add(UpdateBusy.PHONE_FILES)
         if (active.any { !phoneFilesDownload(it) } || signals.clipFetches > 0) add(UpdateBusy.TRANSFER)
-        if (signals.pairing is PairingState.Connecting || signals.pairing is PairingState.Verification || signals.setupShowing) add(UpdateBusy.SETUP)
+        val pairingGoesOn = signals.pairing is PairingState.Connecting || signals.pairing is PairingState.WaitingForAllow ||
+            signals.pairing is PairingState.Verification
+        if (pairingGoesOn || signals.pairingArmed || signals.setupShowing) add(UpdateBusy.SETUP)
     }
 
     // Android 11 and 13 modes, by value so the rule reads the same on every SDK.
@@ -82,6 +86,8 @@ class BusySources(
     val transfers: StateFlow<Map<String, FileTransferState>>,
     val clipFetches: StateFlow<List<*>>,
     val pairing: StateFlow<PairingState>,
+    /** Allow pairing is on. */
+    val pairingArmed: StateFlow<Boolean> = MutableStateFlow(false),
     val setupShowing: StateFlow<Boolean>,
     val screen: () -> StateFlow<ScreenShareState>?,
     val remote: () -> StateFlow<RemoteSessionState>?,
@@ -113,8 +119,9 @@ class BusyMonitor(context: Context, private val scope: CoroutineScope, private v
         refreshCalls()
         val screen: Flow<ScreenShareState.Phase> = sources.screen()?.let { flow -> flow.mapPhase() } ?: flowOf(ScreenShareState.Phase.IDLE)
         val remote: Flow<RemoteSessionState> = sources.remote() ?: flowOf(RemoteSessionState.Idle)
-        val own = combine(sources.transfers, sources.clipFetches, sources.pairing, sources.setupShowing) { transfers, fetches, pairing, setup ->
-            BusySignals(transfers = transfers.values, clipFetches = fetches.size, pairing = pairing, setupShowing = setup)
+        val pairing = combine(sources.pairing, sources.pairingArmed) { flow, armed -> flow to armed }
+        val own = combine(sources.transfers, sources.clipFetches, pairing, sources.setupShowing) { transfers, fetches, (flow, armed), setup ->
+            BusySignals(transfers = transfers.values, clipFetches = fetches.size, pairing = flow, pairingArmed = armed, setupShowing = setup)
         }
         job = scope.launch {
             combine(own, screen, remote, call) { signals, phase, session, calls ->

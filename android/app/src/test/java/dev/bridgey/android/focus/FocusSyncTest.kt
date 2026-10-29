@@ -113,8 +113,17 @@ class FocusSyncTest {
         assertTrue(quiet.active)
     }
 
+    @Test fun aMacThatDidNotAdvertiseFocusSyncIsNotFollowed() {
+        follow = true
+        assertEquals(FocusApply.IGNORED, sync.remote("mac-b", true))
+        assertTrue(quiet.sets.isEmpty())
+        peers += "mac-b"
+        assertEquals(FocusApply.TURNED_ON, sync.remote("mac-b", true))
+    }
+
     @Test fun anyFollowedMacKeepsItOn() {
         follow = true
+        peers += "mac-b"
         sync.remote("mac-a", true)
         sync.remote("mac-b", true)
         assertEquals(FocusApply.NO_CHANGE, sync.remote("mac-a", false))

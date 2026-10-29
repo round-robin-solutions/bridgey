@@ -498,7 +498,8 @@ signature checks, and a device whose "Let paired devices start updates" is off i
   network change, at most once every 10 minutes for those.
 - **Waits for the person.** It does not start while any connected device reports a call (ringing or
   ongoing), a screen share, remote control, a file or folder transfer, a Phone files download, or
-  setup or pairing on screen; it looks again every 5 minutes and adds "Waiting: call in progress" to
+  setup or pairing going on (a code on screen, waiting for the other device to allow pairing, or Allow
+  pairing on); it looks again every 5 minutes and adds "Waiting: call in progress" to
   the activity stream once per wait. A device asked by an automatic start refuses (`busy`) while its
   own person is busy. A call that starts during this device's countdown stops the countdown at once.
 - **Notice and Later.** When the run starts, a short notice appears (Mac: a panel in the top-right

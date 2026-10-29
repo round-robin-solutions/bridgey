@@ -229,8 +229,71 @@ final class ClipboardTransferTests: XCTestCase {
         let cached = try XCTUnwrap(cache.cachedFile(offerID: clip.offerId, index: 0))
         XCTAssertTrue(cached.path.hasPrefix(cacheRoot.path))
         XCTAssertEqual(try Data(contentsOf: cached), data)
+        XCTAssertTrue(FinderMetadata.isQuarantined(cached), "a file from the phone is marked as downloaded")
         XCTAssertEqual(sent, ["accept", "complete.ack"])
         XCTAssertFalse(cache.isHandedOut(offerID: clip.offerId, index: 0))
+    }
+
+    @MainActor private func push(_ inbox: ClipboardInbox, _ clip: ClipboardOffer, index: Int) -> Bool {
+        let transferID = UUID().uuidString.lowercased()
+        return inbox.handleTransferOffer(ClipboardTransferOffer(transferId: transferID, name: "image.png", mimeType: "image/png",
+                                                                size: clip.items[index].size, sha256: nil, offerId: clip.offerId, index: index),
+                                         outerTransferID: transferID)
+    }
+
+    @MainActor func testUnrequestedPushesStayWithinTheEagerLimit() {
+        let inbox = makeInbox()
+        inbox.eagerLimit = { 100 }
+        let clip = offer((0..<3).map { ClipboardOfferItem(index: $0, kind: .image, mime: "image/png", name: nil, size: 60, sha256: nil, inline: nil) })
+        inbox.accept(clip, deviceID: "phone", peerName: "OnePlus 11")
+        XCTAssertTrue(push(inbox, clip, index: 0))
+        XCTAssertFalse(push(inbox, clip, index: 1), "60 + 60 is over the 100-byte limit")
+        XCTAssertEqual(sent, ["accept", "cancel"])
+        inbox.eagerLimit = { 0 }
+        inbox.accept(offer(clip.items), deviceID: "phone", peerName: "OnePlus 11")
+        sent = []
+        XCTAssertFalse(push(inbox, inbox.current!.offer, index: 0), "Ask when pasting: nothing is pushed")
+        XCTAssertEqual(sent, ["cancel"])
+    }
+
+    @MainActor func testUnrequestedPushesStayUnderTheTransferCapAndTheFreeSpace() {
+        let inbox = makeInbox()
+        inbox.eagerLimit = { 1_000_000 }
+        let count = ClipboardOfferLimits.maximumConcurrentTransfers + 1
+        let clip = offer((0..<count).map { ClipboardOfferItem(index: $0, kind: .image, mime: "image/png", name: nil, size: 10, sha256: nil, inline: nil) })
+        inbox.accept(clip, deviceID: "phone", peerName: "OnePlus 11")
+        for index in 0..<(count - 1) { XCTAssertTrue(push(inbox, clip, index: index), "\(index)") }
+        XCTAssertFalse(push(inbox, clip, index: count - 1), "four transfers at once at most")
+
+        inbox.accept(offer(clip.items), deviceID: "phone", peerName: "OnePlus 11")
+        inbox.freeBytes = { FolderReceiveSession.spaceMargin + 9 }
+        XCTAssertFalse(push(inbox, inbox.current!.offer, index: 0), "no room on the disk")
+        inbox.freeBytes = { FolderReceiveSession.spaceMargin + 10 }
+        XCTAssertTrue(push(inbox, inbox.current!.offer, index: 0))
+    }
+
+    @MainActor func testUnrequestedPushesCountTowardTheCacheCap() throws {
+        cache = ClipboardCache(root: cacheRoot, maximumBytes: 100)
+        let inbox = makeInbox()
+        let clip = offer([
+            ClipboardOfferItem(index: 0, kind: .image, mime: "image/png", name: nil, size: 30, sha256: nil, inline: nil),
+            ClipboardOfferItem(index: 1, kind: .image, mime: "image/png", name: nil, size: 80, sha256: nil, inline: nil),
+        ])
+        inbox.accept(clip, deviceID: "phone", peerName: "OnePlus 11")
+        XCTAssertTrue(push(inbox, clip, index: 0))
+        XCTAssertFalse(push(inbox, clip, index: 1), "30 on its way and 80 more is over the 100-byte cache")
+    }
+
+    @MainActor func testTransfersBelongToThePhoneWhoseClipIsHere() {
+        let inbox = makeInbox()
+        let clip = offer([ClipboardOfferItem(index: 0, kind: .image, mime: "image/png", name: nil, size: 10, sha256: nil, inline: nil)])
+        inbox.accept(clip, deviceID: "phone", peerName: "OnePlus 11")
+        let transferID = UUID().uuidString.lowercased()
+        XCTAssertTrue(inbox.handleTransferOffer(ClipboardTransferOffer(transferId: transferID, name: "image.png", mimeType: "image/png", size: 10,
+                                                                       sha256: nil, offerId: clip.offerId, index: 0), outerTransferID: transferID))
+        XCTAssertTrue(inbox.isTransfer(transferID, from: "phone"))
+        XCTAssertFalse(inbox.isTransfer(transferID, from: "other-phone"))
+        XCTAssertFalse(inbox.isTransfer(UUID().uuidString.lowercased(), from: "phone"))
     }
 
     @MainActor func testPushesForUnknownOrSupersededOffersAreDeclined() {

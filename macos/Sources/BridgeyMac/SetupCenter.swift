@@ -174,11 +174,6 @@ final class SetupCenter: ObservableObject {
         setupOpen = false
     }
 
-    fileprivate func setupWindowClosed() {
-        stopPolling()
-        setupOpen = false
-    }
-
     /// While the permissions page shows, its statuses follow System Settings live.
     private var pollTimer: Timer?
 
@@ -197,14 +192,25 @@ final class SetupCenter: ObservableObject {
         pollTimer = nil
     }
 
+    /// The window is going: polling stops, and the pair step no longer holds pairing allowed (SwiftUI may not send
+    /// onDisappear for a closing window).
+    fileprivate func setupWindowWillClose() {
+        stopPolling()
+        pairing?.holdPairingArmed(false)
+        setupOpen = false
+    }
+
     var setupActions: SetupActions {
         var actions = SetupActions()
         actions.dispatch = { [weak self] event, facts in self?.send(event, facts: facts) }
         actions.allow = { [weak self] in self?.manage($0) }
         actions.requestFromPage = { [weak self] in self?.requestFromPage($0) }
         actions.allowAll = { [weak self] in self?.allowAll($0) }
-        actions.confirmPairing = { [weak self] in self?.pairing?.confirm() }
+        actions.confirmPairing = { [weak self] in self?.pairing?.confirm(token: $0) }
+        actions.rejectPairing = { [weak self] in self?.pairing?.reject(token: $0) }
         actions.cancelPairing = { [weak self] in self?.pairing?.cancel() }
+        actions.retryPairing = { [weak self] in self?.pairing?.retryPairing() }
+        actions.holdPairingArmed = { [weak self] in self?.pairing?.holdPairingArmed($0) }
         actions.openSettings = { [weak self] in self?.finishSetup(openSettings: true) }
         actions.start = { [weak self] in self?.finishSetup(openSettings: false) }
         actions.leave = { [weak self] in self?.leaveSetup() }
@@ -697,7 +703,7 @@ final class SetupWindowDelegate: NSObject, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) { center?.setupWindowResignedKey() }
 
-    func windowWillClose(_ notification: Notification) { center?.setupWindowClosed() }
+    func windowWillClose(_ notification: Notification) { center?.setupWindowWillClose() }
 }
 
 // MARK: - Sheets

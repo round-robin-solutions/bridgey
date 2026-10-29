@@ -174,6 +174,19 @@ internal class ClipboardCache(
         root.deleteRecursively()
     }
 
+    /** [bytes] more fit under the size cap once every offer outside [keep] could be evicted. */
+    @Synchronized
+    fun canHold(bytes: Long, keep: Set<String>): Boolean {
+        val kept = keep.mapTo(HashSet(), String::lowercase)
+        val keptBytes = root.listFiles()?.filter { it.isDirectory && it.name in kept }?.sumOf(::size) ?: 0L
+        return keptBytes + bytes <= maxBytes
+    }
+
+    /** Free bytes on the volume the cache lives on; null when unknown. */
+    fun freeBytes(): Long? = runCatching {
+        generateSequence(root) { it.parentFile }.first(File::exists).usableSpace
+    }.getOrNull()?.takeIf { it > 0 }
+
     fun totalBytes(): Long = root.listFiles()?.filter(File::isDirectory)?.sumOf(::size) ?: 0L
 
     private fun receivedAt(dir: File): Long {

@@ -409,9 +409,15 @@ final class AutoUpdateTests: XCTestCase {
         let finished = FileTransferRow(id: "d", name: "b.jpg", status: "", active: false)
         XCTAssertEqual(MacBusyMonitor.busy(call: false, screen: false, remote: false, transfers: [finished], pairing: .idle, setupOpen: false), [])
         XCTAssertEqual(MacBusyMonitor.busy(call: true, screen: true, remote: true, transfers: [transfer, phoneFiles],
-                                           pairing: .verification(peerName: "x", code: "1"), setupOpen: false),
+                                           pairing: .verification(PairingPrompt(peerName: "x", code: "1")), setupOpen: false),
                        [.call, .screenShare, .remoteControl, .transfer, .phoneFiles, .setup])
-        XCTAssertEqual(MacBusyMonitor.busy(call: false, screen: false, remote: false, transfers: [], pairing: .failed("x"), setupOpen: true), [.setup])
+        XCTAssertEqual(MacBusyMonitor.busy(call: false, screen: false, remote: false, transfers: [], pairing: .waitingForAllow("x"), setupOpen: false), [.setup])
+        XCTAssertEqual(MacBusyMonitor.busy(call: false, screen: false, remote: false, transfers: [], pairing: .idle, pairingArmed: true, setupOpen: false),
+                       [.setup], "Allow pairing is on")
+        XCTAssertEqual(MacBusyMonitor.busy(call: false, screen: false, remote: false, transfers: [], pairing: .paired(deviceID: "d", peerName: "x"),
+                                           setupOpen: true), [.setup])
+        XCTAssertEqual(MacBusyMonitor.busy(call: false, screen: false, remote: false, transfers: [], pairing: .paired(deviceID: "d", peerName: "x"),
+                                           setupOpen: false), [])
         XCTAssertEqual(UpdateBusy.mostImportant([.transfer, .call, .setup]), .call)
     }
 

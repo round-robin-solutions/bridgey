@@ -25,9 +25,10 @@ final class MacBusyMonitor: ObservableObject {
             pairing.remoteInput.$active.map { $0 != nil }.removeDuplicates(),
             pairing.$fileTransfers.map { Array($0.values) }
         )
-        Publishers.CombineLatest3(session, pairing.$pairingFlow, setup.$setupOpen)
-            .map { session, flow, setupOpen in
-                Self.busy(call: session.0, screen: session.1, remote: session.2, transfers: session.3, pairing: flow, setupOpen: setupOpen)
+        Publishers.CombineLatest4(session, pairing.$pairingFlow, pairing.$pairingArmed, setup.$setupOpen)
+            .map { session, flow, armed, setupOpen in
+                Self.busy(call: session.0, screen: session.1, remote: session.2, transfers: session.3, pairing: flow,
+                          pairingArmed: armed, setupOpen: setupOpen)
             }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
@@ -36,8 +37,10 @@ final class MacBusyMonitor: ObservableObject {
     }
 
     /// A call card (ringing or in a call), the phone's screen shown here, remote control, a transfer
-    /// (a folder coming from the phone is a Phone files download), or setup and pairing.
-    nonisolated static func busy(call: Bool, screen: Bool, remote: Bool, transfers: [FileTransferRow], pairing: PairingState, setupOpen: Bool) -> Set<UpdateBusy> {
+    /// (a folder coming from the phone is a Phone files download), or setup and pairing (Allow pairing on,
+    /// waiting for the phone to allow, or a code on screen).
+    nonisolated static func busy(call: Bool, screen: Bool, remote: Bool, transfers: [FileTransferRow], pairing: PairingState,
+                                 pairingArmed: Bool = false, setupOpen: Bool) -> Set<UpdateBusy> {
         var active: Set<UpdateBusy> = []
         if call { active.insert(.call) }
         if screen { active.insert(.screenShare) }
@@ -46,10 +49,10 @@ final class MacBusyMonitor: ObservableObject {
             active.insert(row.folder?.incoming == true ? .phoneFiles : .transfer)
         }
         switch pairing {
-        case .connecting, .verification: active.insert(.setup)
+        case .connecting, .waitingForAllow, .verification: active.insert(.setup)
         default: break
         }
-        if setupOpen { active.insert(.setup) }
+        if setupOpen || pairingArmed { active.insert(.setup) }
         return active
     }
 }

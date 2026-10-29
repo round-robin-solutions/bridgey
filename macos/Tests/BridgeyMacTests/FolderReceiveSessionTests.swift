@@ -85,6 +85,9 @@ final class FolderReceiveSessionTests: XCTestCase {
         let saved = destination.appendingPathComponent("Photos")
         XCTAssertEqual(treeContents(saved), treeContents(source))
         XCTAssertEqual(FinderMetadata.whereFroms(saved.appendingPathComponent("2019/b.jpg")), ["Bridgey: OnePlus 11"])
+        XCTAssertTrue(FinderMetadata.isQuarantined(saved), "the folder is marked as downloaded")
+        XCTAssertTrue(FinderMetadata.isQuarantined(saved.appendingPathComponent("a.txt")))
+        XCTAssertTrue(FinderMetadata.isQuarantined(saved.appendingPathComponent("2019/Beach/c.jpg")))
         XCTAssertEqual(run.progress?.savedURLs.map(\.lastPathComponent), ["Photos"])
         // No part files left behind.
         XCTAssertFalse(treeContents(destination).keys.contains { $0.hasSuffix(".bridgey-part") })

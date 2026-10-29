@@ -266,6 +266,7 @@ class BridgeyApplication : Application() {
                 transfers = pairing.fileTransfers,
                 clipFetches = pairing.clipboardInbox.progress,
                 pairing = pairing.pairingFlow,
+                pairingArmed = pairing.pairingArmed,
                 setupShowing = setupShowing,
                 // Built after Update all; read when the monitor starts.
                 screen = { if (::screenShare.isInitialized) screenShare.state else null },
