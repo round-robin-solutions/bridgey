@@ -125,7 +125,7 @@ final class SessionRegistryTests: XCTestCase {
             PhoneConnection(id: phoneA, name: "OnePlus 11", state: PhoneLinkState()),
             PhoneConnection(id: phoneZ, name: "Pixel 9", state: PhoneLinkState()),
         ]
-        let rings = deviceRings(trusted: trusted, peers: [], connected: connected, pairing: .verification(peerName: "Galaxy", code: "123456"))
+        let rings = deviceRings(trusted: trusted, peers: [], connected: connected, pairing: .verification(PairingPrompt(peerName: "Galaxy", code: "123456")))
         XCTAssertEqual(rings.filter { $0.state == .connected }.count, 2)
         XCTAssertEqual(connectionSummary(connected, pairing: .idle), "Connected to 2 devices")
         XCTAssertEqual(connectionSummary(Array(connected.prefix(1)), pairing: .idle), "Connected to OnePlus 11")

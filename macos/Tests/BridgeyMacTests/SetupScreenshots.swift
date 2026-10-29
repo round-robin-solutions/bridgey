@@ -100,7 +100,8 @@ final class SetupScreenshots: XCTestCase {
         flow.send(.skip)
         try setup("setup-quick-pair", flow: flow, model: firstRunModel)
         var code = firstRunModel
-        code.state = .verification(peerName: "OnePlus 11", code: "482 913")
+        code.state = .verification(PairingPrompt(peerName: "OnePlus 11", code: "482913", token: "t"))
+        code.pairingFlow = code.state
         try setup("setup-quick-pair-code", flow: flow, model: code)
         try setup("setup-quick-pair-done", flow: flow, model: pairedModel)
 

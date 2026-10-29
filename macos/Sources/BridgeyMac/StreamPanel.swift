@@ -24,8 +24,11 @@ struct PanelModel {
     /// Once after an update from before v0.10 setup: "See what's new and review your setup".
     var showsSetupReview = false
     var state: PairingState = .idle
-    /// The pairing in progress only; drives the verification and failure cards.
+    /// The pairing in progress only; drives the pairing card (PairingViews.swift).
     var pairingFlow: PairingState = .idle
+    /// Allow pairing: seconds left (0: off), and a device that tried to pair while it was off.
+    var pairingArmedSeconds = 0
+    var pairingRequest: PairingRequest?
     var rings: [DeviceRing] = []
     var battery: RemoteBatteryStatus?
     /// Each connected phone's own battery, by device id.
@@ -107,8 +110,14 @@ struct PanelActions {
     var disconnect: () -> Void = {}
     var disconnectDevice: (String) -> Void = { _ in }
     var selectDevice: (String) -> Void = { _ in }
-    var confirm: () -> Void = {}
+    /// The code prompt's buttons name the prompt they belong to (its token).
+    var confirm: (String) -> Void = { _ in }
+    var reject: (String) -> Void = { _ in }
     var cancel: () -> Void = {}
+    var retryPairing: () -> Void = {}
+    var allowPairing: () -> Void = {}
+    var stopAllowingPairing: () -> Void = {}
+    var dismissPairingRequest: () -> Void = {}
     var openLocalNetworkSettings: () -> Void = {}
     var sendClipboard: () -> Void = {}
     var dropFiles: ([URL]) -> Bool = { _ in false }
@@ -240,25 +249,41 @@ struct StreamPanelView: View {
 
     @ViewBuilder private var stateCard: some View {
         switch model.pairingFlow {
-        case let .connecting(name):
-            StatusCard(
-                symbol: "lock.shield",
-                title: String(format: L10n.text("panel.connecting", fallback: "Connecting to %@"), name),
-                detail: L10n.text("panel.connecting.detail", fallback: "Setting up a secure session")
-            )
+        case .idle, .connected:
+            if let request = model.pairingRequest {
+                CardShell {
+                    PairingRequestContent(request: request, onAllow: actions.allowPairing, onDismiss: actions.dismissPairingRequest)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+            }
+        default:
+            CardShell {
+                PairingFlowContent(state: model.pairingFlow, actions: PairingFlowActions(
+                    confirm: actions.confirm, reject: actions.reject, cancel: actions.cancel, retry: actions.retryPairing,
+                    openLocalNetworkSettings: actions.openLocalNetworkSettings
+                ))
+            }
             .padding(.horizontal, 12)
             .padding(.top, 12)
-        case let .verification(name, code):
-            VerificationCard(name: name, code: code, actions: actions)
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-        case let .failed(message):
-            FailureCard(message: message, actions: actions)
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-        case .idle, .connected:
-            EmptyView()
         }
+        if showsAllowPairing {
+            AllowPairingRow(armedSeconds: model.pairingArmedSeconds, onAllow: actions.allowPairing, onStop: actions.stopAllowingPairing)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+        }
+    }
+
+    /// Allow pairing shows while it runs, and otherwise when pairing from a phone is likely: a device nearby that is not
+    /// paired, or nothing paired yet. Not during a pairing, nor over a request card (that has its own Allow).
+    private var showsAllowPairing: Bool {
+        switch model.pairingFlow {
+        case .idle, .connected: break
+        default: return false
+        }
+        if model.pairingArmedSeconds > 0 { return true }
+        guard model.pairingRequest == nil else { return false }
+        return model.rings.contains { !$0.trusted } || !model.rings.contains { $0.trusted }
     }
 
     private var footer: some View {
@@ -623,75 +648,6 @@ private struct SearchingCard: View {
             Button(L10n.text("panel.lookAgain", fallback: "Look for devices again"), action: onLookAgain)
                 .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
                 .disabled(rediscovering)
-        }
-    }
-}
-
-private struct StatusCard: View {
-    let symbol: String
-    let title: String
-    let detail: String
-
-    var body: some View {
-        CardShell {
-            HStack(spacing: 10) {
-                IconTile(symbol: symbol, tint: .blue, size: 32, corner: 10)
-                CardText(title: title, detail: detail)
-            }
-        }
-    }
-}
-
-private struct VerificationCard: View {
-    let name: String
-    let code: String
-    let actions: PanelActions
-    @Environment(\.brand) private var c
-
-    var body: some View {
-        CardShell {
-            Text(String(format: L10n.text("panel.verify", fallback: "Verify %@"), name))
-                .font(BrandFont.body(13, .semibold))
-                .foregroundStyle(c.on)
-            Text(code)
-                .font(BrandFont.heading(32))
-                .monospacedDigit()
-                .kerning(2)
-                .foregroundStyle(c.on)
-                .textSelection(.enabled)
-            Text(L10n.text("panel.verify.detail", fallback: "Confirm only if the same code appears on both devices."))
-                .font(BrandFont.body(12))
-                .foregroundStyle(c.on2)
-            HStack(spacing: 8) {
-                Spacer()
-                Button(L10n.text("action.cancel", fallback: "Cancel"), action: actions.cancel)
-                    .buttonStyle(PillButtonStyle(kind: .outline))
-                Button(L10n.text("panel.verify.match", fallback: "Codes Match"), action: actions.confirm)
-                    .buttonStyle(PillButtonStyle(kind: .gradient))
-            }
-        }
-    }
-}
-
-private struct FailureCard: View {
-    let message: String
-    let actions: PanelActions
-
-    var body: some View {
-        CardShell {
-            HStack(alignment: .top, spacing: 10) {
-                IconTile(symbol: "exclamationmark.triangle.fill", tint: .purple, size: 32, corner: 10)
-                CardText(title: L10n.text("panel.pairingFailed", fallback: "Pairing failed"), detail: message, detailLines: 4)
-            }
-            HStack(spacing: 8) {
-                Spacer()
-                Button(L10n.text("action.dismiss", fallback: "Dismiss"), action: actions.cancel)
-                    .buttonStyle(PillButtonStyle(kind: .outline))
-                if message.contains("Local Network") {
-                    Button(L10n.text("panel.localNetwork", fallback: "Open Settings"), action: actions.openLocalNetworkSettings)
-                        .buttonStyle(PillButtonStyle(kind: .tonal))
-                }
-            }
         }
     }
 }
@@ -1504,6 +1460,8 @@ struct BridgeyPanel: View {
         model.showsSetupReview = setupCenter.showsReviewBanner
         model.state = pairing.state
         model.pairingFlow = pairing.pairingFlow
+        model.pairingArmedSeconds = pairing.armedRemainingSeconds
+        model.pairingRequest = pairing.pairingRequest
         model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, connected: pairing.connectedPhones,
                                   pairing: pairing.pairingFlow, reconnecting: pairing.reconnectStates)
         model.rediscovering = pairing.isRediscovering
@@ -1566,8 +1524,13 @@ struct BridgeyPanel: View {
         actions.disconnect = { pairing.dismiss() }
         actions.disconnectDevice = { pairing.disconnect(deviceID: $0) }
         actions.selectDevice = { pairing.selectDevice($0) }
-        actions.confirm = { pairing.confirm() }
+        actions.confirm = { pairing.confirm(token: $0) }
+        actions.reject = { pairing.reject(token: $0) }
         actions.cancel = { pairing.cancel() }
+        actions.retryPairing = { pairing.retryPairing() }
+        actions.allowPairing = { pairing.armPairing() }
+        actions.stopAllowingPairing = { pairing.disarmPairing() }
+        actions.dismissPairingRequest = { pairing.dismissPairingRequest() }
         actions.openLocalNetworkSettings = {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork") {
                 NSWorkspace.shared.open(url)

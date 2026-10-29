@@ -35,6 +35,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,6 +72,9 @@ import dev.bridgey.android.ui.HomeActions
 import dev.bridgey.android.ui.HomeScreen
 import dev.bridgey.android.ui.HomeState
 import dev.bridgey.android.ui.LiveActions
+import dev.bridgey.android.ui.PairingReadyCard
+import dev.bridgey.android.ui.PairingSheet
+import dev.bridgey.android.ui.PairingSheetActions
 import dev.bridgey.android.ui.LiveCard
 import dev.bridgey.android.ui.lastSeenText
 import dev.bridgey.android.ui.LocalShowPreviews
@@ -448,10 +453,11 @@ class MainActivity : ComponentActivity() {
     private fun Intent.toSharedContent(): SharedContent? {
         if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return null
 
+        // Only another app's content URIs: never file:// paths or Bridgey's own providers (its keys, its cache).
         val streams = when (action) {
             Intent.ACTION_SEND_MULTIPLE -> streamUris()
             else -> listOfNotNull(streamUri())
-        }.distinct()
+        }.distinct().filter { isShareableStream(it.scheme, it.authority, packageName) }
         val sharedText = getCharSequenceExtra(Intent.EXTRA_TEXT)
             ?.toString()
             ?.takeIf { it.isNotBlank() && streams.isEmpty() }
@@ -659,6 +665,8 @@ private fun BridgeyApp(
     val peers by discovery.peers.collectAsStateWithLifecycle()
     val pairingState by pairing.state.collectAsStateWithLifecycle()
     val pairingFlow by pairing.pairingFlow.collectAsStateWithLifecycle()
+    val pairingRequest by pairing.pairingRequest.collectAsStateWithLifecycle()
+    val armedSeconds by pairing.armedRemainingSeconds.collectAsStateWithLifecycle()
     val connections by pairing.connections.collectAsStateWithLifecycle()
     val fileTransfers by pairing.fileTransfers.collectAsStateWithLifecycle()
     val phoneRinging by pairing.phoneRinging.collectAsStateWithLifecycle()
@@ -793,6 +801,8 @@ private fun BridgeyApp(
         setRemoteStart = settings::setUpdatesRemoteStart,
     )
     val homeLive = buildList {
+        // A Mac asked to pair while this phone was not taking pairings, or Allow pairing is counting down.
+        pairingRequest?.let { add(LiveCard.PairingRequest(it)) } ?: armedSeconds.takeIf { it > 0 }?.let { add(LiveCard.PairingReady(it)) }
         if (updateAllState.offered) add(LiveCard.UpdateAll(updateAllState))
         reconnectCard(target)?.let(::add)
         if (phoneRinging && connected != null) add(LiveCard.Ringing(connected.peerName))
@@ -812,6 +822,9 @@ private fun BridgeyApp(
         media = { action, value -> pairing.quickActions.request(BridgeyFeature.MEDIA, action, value) },
         retryDevice = pairing::retryNow,
         answerFolder = folderUi.showQuestion,
+        allowPairing = pairing::armPairing,
+        dismissPairingRequest = pairing::dismissPairingRequest,
+        stopPairing = pairing::disarmPairing,
         updateAll = updateAllActions,
     )
     // Files 2.0: the in-app attach sheet is the main way to send; the system pickers are its Browse… fallback.
@@ -910,7 +923,7 @@ private fun BridgeyApp(
                         openSettings = { stack.push(Route.Settings) },
                         selectRing = { ring -> pickedTarget = ring.deviceId; pairing.selectDevice(ring.deviceId) },
                         openDevice = { ring -> ring.deviceId?.let { stack.push(Route.Device(it)) } },
-                        pairRing = { ring -> ring.peer?.host?.let { pairing.pair(it, ring.peer.port ?: 42_458, ring.peer.deviceNameHint) } ?: run { pairDialog = true } },
+                        pairRing = { ring -> ring.peer?.host?.let { pairing.pair(it, ring.peer.port ?: 42_458, ring.peer.deviceNameHint, ring.peer.deviceIdHint) } ?: run { pairDialog = true } },
                         addDevice = { pairDialog = true },
                         pickTarget = { pickedTarget = it; pairing.selectDevice(it) },
                         sendClipboard = {
@@ -1041,6 +1054,7 @@ private fun BridgeyApp(
                         connections.size == 1 -> stringResource(R.string.settings_status_connected, connections.single().peerName)
                         else -> when (val s = pairingFlow) {
                             is PairingState.Connecting -> stringResource(R.string.settings_status_connecting, s.peerName)
+                            is PairingState.WaitingForAllow -> stringResource(R.string.settings_status_connecting, s.peerName)
                             is PairingState.Verification -> stringResource(R.string.settings_status_connecting, s.peerName)
                             else -> stringResource(R.string.settings_status_not_connected)
                         }
@@ -1214,8 +1228,16 @@ private fun BridgeyApp(
                                 dev.bridgey.android.ui.SetupNearbyMac(peer.key, peer.deviceNameHint, trustedDevices.any { it.id == peer.deviceIdHint })
                             },
                             onPair = { mac ->
-                                peers.firstOrNull { it.key == mac.key }?.let { peer -> peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint) } }
+                                peers.firstOrNull { it.key == mac.key }?.let { peer -> peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint, peer.deviceIdHint) } }
                             },
+                            pairingReady = SetupPairing(
+                                request = pairingRequest,
+                                armedSeconds = armedSeconds,
+                                hold = pairing::holdPairingArmed,
+                                allow = pairing::armPairing,
+                                dismiss = pairing::dismissPairingRequest,
+                                stop = pairing::disarmPairing,
+                            ),
                             onAddDevice = { pairDialog = true },
                             onLookForDevices = pairing::lookForDevices,
                             onOpenNotificationAccess = onOpenNotificationAccessSettings,
@@ -1336,7 +1358,7 @@ private fun BridgeyApp(
     AttachSheetHost(attach)
 
     // Asked once, after the first connection, while Android may still pause Bridgey in Doze.
-    if (!batteryExempt && !batteryPromptShown && !showOnboarding && connections.isNotEmpty() && pairingFlow !is PairingState.Verification) {
+    if (!batteryExempt && !batteryPromptShown && !showOnboarding && connections.isNotEmpty() && pairingFlow == PairingState.Idle) {
         AlertDialog(
             onDismissRequest = uiPreferences::setBatteryPromptShown,
             title = { Text(stringResource(R.string.battery_prompt_title)) },
@@ -1369,9 +1391,15 @@ private fun BridgeyApp(
             peers = peers,
             trustedIds = trustedDevices.mapTo(HashSet()) { it.id },
             connectedIds = connections.mapTo(HashSet()) { it.deviceId },
+            request = pairingRequest,
+            armedSeconds = armedSeconds,
+            onHold = pairing::holdPairingArmed,
+            onAllow = pairing::armPairing,
+            onNotNow = pairing::dismissPairingRequest,
+            onStop = pairing::disarmPairing,
             onPair = { peer ->
                 pairDialog = false
-                peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint) }
+                peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint, peer.deviceIdHint) }
             },
             onDismiss = { pairDialog = false },
         )
@@ -1393,27 +1421,17 @@ private fun BridgeyApp(
     }
 
     // The pairing flow only: connected devices never hide or replace the prompt.
-    when (val state = pairingFlow) {
-        is PairingState.Verification -> AlertDialog(
-            onDismissRequest = pairing::cancel,
-            title = { Text("Verify this device") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Check that this code also appears on ${state.peerName}.")
-                    Text(state.code, style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
-                }
-            },
-            confirmButton = { Button(onClick = pairing::confirm) { Text("Codes match") } },
-            dismissButton = { TextButton(onClick = pairing::cancel) { Text("Cancel") } },
-        )
-        is PairingState.Failed -> AlertDialog(
-            onDismissRequest = pairing::cancel,
-            title = { Text("Pairing failed") },
-            text = { Text(state.message) },
-            confirmButton = { Button(onClick = pairing::cancel) { Text("OK") } },
-        )
-        else -> Unit
-    }
+    PairingSheet(
+        pairingFlow,
+        PairingSheetActions(
+            confirm = pairing::confirm,
+            reject = pairing::reject,
+            cancel = pairing::cancel,
+            // The dialled end retries by finding the device nearby; when it is not there, the nearby list opens.
+            retry = { if (!pairing.retryPairing()) pairDialog = true },
+            dismiss = pairing::dismiss,
+        ),
+    )
 
     ScreenshotAccessDialog(screenshotAccess)
 
@@ -1493,21 +1511,34 @@ private fun BridgeyApp(
 
 /** Add: devices on this Wi-Fi, to pair or reconnect. */
 @Composable
-private fun PairDialog(
+internal fun PairDialog(
     peers: List<DiscoveredPeer>,
     trustedIds: Set<String>,
     connectedIds: Set<String>,
     onPair: (DiscoveredPeer) -> Unit,
     onDismiss: () -> Unit,
+    request: PairingRequest? = null,
+    armedSeconds: Int = 0,
+    onHold: (Boolean) -> Unit = {},
+    onAllow: () -> Unit = {},
+    onNotNow: () -> Unit = {},
+    onStop: () -> Unit = {},
 ) {
     val colors = BridgeyTheme.colors
     val visible = peers.filter { it.deviceIdHint == null || it.deviceIdHint !in connectedIds }
+    // While this screen is open a Mac can start pairing from its side too.
+    val hold by rememberUpdatedState(onHold)
+    DisposableEffect(Unit) {
+        hold(true)
+        onDispose { hold(false) }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.pair_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.pair_body), style = BridgeyType.bodyText, color = colors.onSurfaceVariant)
+                PairingReadyCard(request, armedSeconds, onAllow, onNotNow, onStop, Modifier.padding(top = 4.dp))
                 if (visible.isEmpty()) {
                     Text(stringResource(R.string.pair_searching), style = BridgeyType.bodyText, modifier = Modifier.padding(top = 8.dp))
                 }
@@ -1569,6 +1600,14 @@ private fun rediscoverMessage(context: android.content.Context, result: Rediscov
 }
 
 /** The snackbar line for a Mac action status, or null when the screen already shows it. */
+/** A shared stream Bridgey may read: a content URI from another app, not a file path or one of Bridgey's own providers. */
+internal fun isShareableStream(scheme: String?, authority: String?, applicationId: String): Boolean {
+    if (!scheme.equals(android.content.ContentResolver.SCHEME_CONTENT, ignoreCase = true) || authority.isNullOrEmpty()) return false
+    val owner = authority.substringAfterLast('@').lowercase()
+    val id = applicationId.lowercase()
+    return owner != id && !owner.startsWith("$id.")
+}
+
 internal fun macActionMessage(
     context: android.content.Context,
     status: dev.bridgey.android.actions.MacActionStatus,

@@ -393,6 +393,7 @@ final class FolderReceiveSession: @unchecked Sendable {
             return failCurrent(incoming, FolderCode.verificationFailed, closed: true)
         }
         let target = incoming.parent.appendingPathComponent(incoming.finalName)
+        FinderMetadata.quarantine(incoming.partURL)
         // Replace swaps atomically over the old file, only now that the new one is verified; everything else
         // refuses to overwrite.
         let moved = incoming.replaces
@@ -637,6 +638,7 @@ final class FolderReceiveSession: @unchecked Sendable {
                 listings[directory.path] = siblings
                 listings[created.path] = [:]
                 root = created
+                FinderMetadata.quarantine(created)
                 if let whereFrom = plan.whereFrom { FinderMetadata.setWhereFrom(created, whereFrom) }
             }
         }
@@ -725,6 +727,7 @@ final class FolderReceiveSession: @unchecked Sendable {
                     listings[parent.path] = siblings
                     listings[url.path] = [:]
                     createdFolders += 1
+                    if parentPath.isEmpty, offer.isInto { FinderMetadata.quarantine(url) }
                     if let whereFrom = plan.whereFrom, parentPath.isEmpty, offer.isInto { FinderMetadata.setWhereFrom(url, whereFrom) }
                 }
                 dirURLs[entry.path] = url

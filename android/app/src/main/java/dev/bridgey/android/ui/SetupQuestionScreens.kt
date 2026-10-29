@@ -293,6 +293,7 @@ private fun QuestionPage(question: SetupQuestion, state: SetupUiState, actions: 
     val flow = state.flow
     val given = flow.answers[question.id]
     val effective = SetupFlow.effective(flow, state.facts)
+    if (question.id == "pair") HoldPairing(actions)
     QuestionFrame(
         state, actions,
         footer = {
@@ -327,6 +328,7 @@ private fun LazyListScope.pairQuestion(state: SetupUiState, actions: SetupAction
     if (state.pairedNames.isNotEmpty()) {
         item(key = "paired") { StatusPill(stringResource(R.string.setup_pair_done, state.pairedNames.first()), BridgeyIcons.Check, Tint.GREEN) }
     }
+    item(key = "pair.ready") { SetupPairingReady(state, actions, Modifier.padding(bottom = 10.dp)) }
     item(key = "pair.nearby") {
         val colors = BridgeyTheme.colors
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

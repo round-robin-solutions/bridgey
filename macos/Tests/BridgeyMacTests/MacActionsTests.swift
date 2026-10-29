@@ -178,6 +178,20 @@ final class MacActionsTests: XCTestCase {
         XCTAssertEqual(run("volume_down")?["status"] as? String, "done")
     }
 
+    func testRefusalsAreAlwaysAnsweredButLoggedAtARateLimit() {
+        let logged = { self.host.audit.entries.reduce(0) { $0 + $1.times } }
+        allowed = false
+        for _ in 0..<25 { XCTAssertEqual(reason(run("screensaver")), "not_allowed") }
+        XCTAssertEqual(replies.count, 25)
+        XCTAssertEqual(logged(), 10, "a flood of refusals does not rewrite the log each time")
+        now = now.addingTimeInterval(2)
+        _ = run("screensaver")
+        XCTAssertEqual(logged(), 11)
+        allowed = true
+        XCTAssertEqual(run("screensaver")?["status"] as? String, "done")
+        XCTAssertEqual(logged(), 12, "what ran is always logged")
+    }
+
     func testLockNeedsAccessibility() {
         system.accessibilityTrusted = false
         XCTAssertEqual(reason(run("lock")), "permission_required")
@@ -337,6 +351,7 @@ final class OpenLinksRightAwayTests: XCTestCase {
         let actions = QuickActions()
         var sent: [[String: Any]] = []
         actions.available = { $0 == .links }
+        actions.availableFor = { feature, _ in feature == .links }
         actions.send = { _, payload in sent.append(payload); return true }
         actions.openRightAway = { openRightAway }
         actions.openURL = { opened($0); return true }
@@ -467,11 +482,19 @@ final class FocusSyncTests: XCTestCase {
     private var now = Date(timeIntervalSince1970: 1_000)
     private var sent: [Bool] = []
     private var ran: [String] = []
+    /// When false, a Shortcut keeps running until the test calls its completion.
+    private var runsFinishAtOnce = true
+    private var running: [() -> Void] = []
+    private var scheduled: [(delay: TimeInterval, work: () -> Void)] = []
 
     private func make(_ settings: FocusSyncSettings) -> FocusSync {
         let sync = FocusSync(defaults: nil, clock: { [unowned self] in self.now })
         sync.broadcast = { [unowned self] in self.sent.append($0) }
-        sync.runShortcut = { [unowned self] in self.ran.append($0) }
+        sync.runShortcut = { [unowned self] name, done in
+            self.ran.append(name)
+            if self.runsFinishAtOnce { done() } else { self.running.append(done) }
+        }
+        sync.schedule = { [unowned self] delay, work in self.scheduled.append((delay, work)) }
         sync.update { $0 = settings }
         sent = []
         ran = []
@@ -516,8 +539,30 @@ final class FocusSyncTests: XCTestCase {
         sync.received(active: true, from: "b")
         sync.received(active: false, from: "a")
         XCTAssertEqual(ran, ["On"])
+        now = now.addingTimeInterval(2)
         sync.received(active: false, from: "b")
         XCTAssertEqual(ran, ["On", "Off"])
+    }
+
+    func testOneShortcutAtATimeAtMostEveryTwoSecondsThenTheLatestState() {
+        runsFinishAtOnce = false
+        let sync = make(FocusSyncSettings(follow: true, onShortcut: "On", offShortcut: "Off"))
+        sync.received(active: true, from: "a")
+        for active in [false, true, false, true, false] { sync.received(active: active, from: "a") }
+        XCTAssertEqual(ran, ["On"], "nothing else starts while a Shortcut runs")
+        running.removeFirst()()
+        XCTAssertEqual(ran, ["On"], "the next run waits for the two seconds")
+        XCTAssertEqual(scheduled.count, 1)
+        XCTAssertEqual(scheduled.first?.delay ?? 0, 2, accuracy: 0.001)
+        sync.received(active: true, from: "a")
+        sync.received(active: false, from: "a")
+        XCTAssertEqual(scheduled.count, 1, "flips while waiting are coalesced")
+        now = now.addingTimeInterval(2)
+        scheduled.removeFirst().work()
+        XCTAssertEqual(ran, ["On", "Off"], "only the latest state runs")
+        running.removeFirst()()
+        XCTAssertTrue(scheduled.isEmpty)
+        XCTAssertEqual(sync.applied, false)
     }
 
     func testTurningFollowOffHandsTheFocusBack() {

@@ -129,6 +129,7 @@ final class UpdateLogicTests: XCTestCase {
         XCTAssertEqual(plist["CFBundleIdentifier"] as? String, Edition.identifier)
         let key = try XCTUnwrap(plist["SUPublicEDKey"] as? String)
         XCTAssertEqual(Data(base64Encoded: key)?.count, 32)
+        XCTAssertEqual(plist["SUVerifyUpdateBeforeExtraction"] as? Bool, true, "the EdDSA signature is checked before an update is unpacked")
         XCTAssertFalse(Edition.trustKeychainService.hasPrefix("dev.bridgey"))
         XCTAssertFalse(Edition.identityKeychainService.hasPrefix("dev.bridgey"))
     }

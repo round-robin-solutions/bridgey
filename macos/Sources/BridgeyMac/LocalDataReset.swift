@@ -223,7 +223,7 @@ struct LocalDataReset {
     /// Upstream's pre-file trust records, imported once by MacTrustRegistry.
     /// Settings sync's first-connect answers go with the trusted devices (Reset > Settings keeps them).
     static let trustKeys = ["trustedDeviceIDs", "sync.answers"]
-    static let trustPrefixes = ["trusted."]
+    static let trustPrefixes = ["trusted.", "protocolPin."]
     static let addressPrefixes = ["reconnect."]
     /// Update all keeps its last run and the version that did not apply (UpdateAllProtocol.swift) as records.
     static let recordKeys = ["settings.codes.model.acceptance", "legacyPreferencesMigrated", pendingKey,

@@ -104,7 +104,7 @@ final class DesignScreenshots: XCTestCase {
 
     private var pairingModel: PanelModel {
         var model = PanelModel()
-        model.state = .verification(peerName: "Galaxy S24", code: "482 913")
+        model.state = .verification(PairingPrompt(peerName: "Galaxy S24", code: "482913", token: "t"))
         model.pairingFlow = model.state
         model.rings = deviceRings(trusted: [], peers: [peer("33333333-3333-3333-3333-333333333333", "Galaxy S24")], state: model.state)
         model.now = now
@@ -113,7 +113,7 @@ final class DesignScreenshots: XCTestCase {
 
     private var failureModel: PanelModel {
         var model = PanelModel()
-        model.state = .failed("Bridgey needs Local Network access. Allow it in System Settings, then try again.")
+        model.state = .failed(.localNetworkDenied, peerName: "Galaxy S24")
         model.pairingFlow = model.state
         model.rings = deviceRings(trusted: trusted, peers: [], state: .idle)
         model.now = now

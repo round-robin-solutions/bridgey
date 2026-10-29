@@ -36,6 +36,8 @@ struct FocusSyncSettings: Codable, Equatable {
 @MainActor
 final class FocusSync: ObservableObject {
     static let echoWindow: TimeInterval = 10
+    /// At most one Shortcut run this often, and one at a time; the latest state wins.
+    static let minimumRunInterval: TimeInterval = 2
 
     @Published private(set) var settings: FocusSyncSettings
     /// The Mac's Focus as last reported by the filter or the Shortcuts action; nil until then.
@@ -45,9 +47,16 @@ final class FocusSync: ObservableObject {
 
     /// Sends `focus.state` to every phone that understands it.
     var broadcast: (Bool) -> Void = { _ in }
-    /// Runs a Shortcut by name; tests replace it.
-    var runShortcut: (String) -> Void = { name in
-        DispatchQueue.global(qos: .userInitiated).async { _ = ShortcutsCLI.run(name, timeout: 60) }
+    /// Runs a Shortcut by name and calls back on the main queue when it has finished; tests replace it.
+    var runShortcut: (String, @escaping () -> Void) -> Void = { name, done in
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = ShortcutsCLI.run(name, timeout: 60)
+            DispatchQueue.main.async(execute: done)
+        }
+    }
+    /// Runs work on the main queue after a delay; tests replace it.
+    var schedule: (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { work() }
     }
     var onSettingsChange: () -> Void = {}
 
@@ -55,6 +64,9 @@ final class FocusSync: ObservableObject {
     private let clock: () -> Date
     private var phoneStates: [String: Bool] = [:]
     private var suppressUntil = Date.distantPast
+    private var running = false
+    private var waiting = false
+    private var lastRunAt = Date.distantPast
 
     init(defaults: UserDefaults? = .standard, clock: @escaping () -> Date = Date.init) {
         self.defaults = defaults
@@ -74,7 +86,7 @@ final class FocusSync: ObservableObject {
         if let data = try? JSONEncoder().encode(next) { defaults?.set(data, forKey: "settings.focusSync") }
         if wasFollowing && !next.follow {
             // Hand the Focus back: undo what Bridgey turned on.
-            if applied == true, let off = next.offShortcut { runShortcut(off) }
+            if applied == true, let off = next.offShortcut { runShortcut(off) {} }
             applied = nil
             phoneStates.removeAll()
         }
@@ -97,14 +109,35 @@ final class FocusSync: ObservableObject {
     func received(active: Bool, from deviceID: String) {
         guard settings.follow else { return }
         phoneStates[deviceID] = active
+        applyLatest()
+    }
+
+    /// Runs the Shortcut for what the phones want now, unless one is running or ran under
+    /// `minimumRunInterval` ago; then the latest state is applied once that allows.
+    private func applyLatest() {
+        guard settings.follow, !running, !waiting else { return }
         let want = phoneStates.values.contains(true)
         guard want != applied else { return }
         guard let name = want ? settings.onShortcut : settings.offShortcut else { return }
+        let wait = lastRunAt.addingTimeInterval(Self.minimumRunInterval).timeIntervalSince(clock())
+        if wait > 0 {
+            waiting = true
+            schedule(wait) { [weak self] in
+                self?.waiting = false
+                self?.applyLatest()
+            }
+            return
+        }
         applied = want
         // The Focus filter will fire for our own change: do not send it back to the phones.
         suppressUntil = clock().addingTimeInterval(Self.echoWindow)
         localActive = want
-        runShortcut(name)
+        running = true
+        lastRunAt = clock()
+        runShortcut(name) { [weak self] in
+            self?.running = false
+            self?.applyLatest()
+        }
     }
 
     func forget(_ deviceID: String) {

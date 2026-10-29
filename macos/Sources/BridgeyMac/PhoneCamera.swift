@@ -53,7 +53,7 @@ final class PhoneCamera: ObservableObject {
 
     var send: (_ deviceID: String, _ payload: [String: Any]) -> Bool = { _, _ in false }
     var copyImage: (URL) -> Void = { url in
-        guard let image = NSImage(contentsOf: url) else { return }
+        guard imageFileFitsPixelLimit(url), let image = NSImage(contentsOf: url) else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.writeObjects([image, url as NSURL])

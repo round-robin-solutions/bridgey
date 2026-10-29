@@ -146,6 +146,8 @@
 "setup.more.done" = "Done";
 "setup.more.eyebrow" = "Settings";
 "setup.pair.done" = "Paired with %@";
+"setup.pair.fromPhone" = "You can also start pairing on the phone while this page is open.";
+"setup.pair.next" = "Click Next to continue.";
 "setup.pair.later" = "Pair later";
 "setup.pair.why" = "Pairing lets this Mac and your phone trust each other, once.";
 "setup.pair.without" = "Nothing moves between them until you pair.";

@@ -81,6 +81,9 @@ final class RemoteInputHost: ObservableObject {
     private var endedSessionIDs: [String] = []
     private var lastStartAt: [String: Date] = [:]
     private var ticker: DispatchWorkItem?
+    /// The screen is locked or another user is active: no session runs.
+    private var screenLocked = false
+    private var lockObservers: [NSObjectProtocol] = []
 
     init(
         injector: RemoteInputInjecting,
@@ -104,7 +107,7 @@ final class RemoteInputHost: ObservableObject {
 
     /// The app's host: CGEvents, the pill, the audit file and the real Accessibility check.
     static func live() -> RemoteInputHost {
-        RemoteInputHost(
+        let host = RemoteInputHost(
             injector: CGEventInjector(),
             indicator: RemoteControlIndicator(),
             audit: RemoteControlAuditLog(),
@@ -112,6 +115,31 @@ final class RemoteInputHost: ObservableObject {
             requestAccessibility: AccessibilityAccess.request,
             frontmostBundleID: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
         )
+        host.observeScreenLock()
+        return host
+    }
+
+    /// The screen locks, or the user switches to another account: the session ends.
+    private func observeScreenLock() {
+        let distributed = DistributedNotificationCenter.default()
+        let workspace = NSWorkspace.shared.notificationCenter
+        let watch: [(NotificationCenter, String, Bool)] = [
+            (distributed, "com.apple.screenIsLocked", true),
+            (distributed, "com.apple.screenIsUnlocked", false),
+            (workspace, NSWorkspace.sessionDidResignActiveNotification.rawValue, true),
+            (workspace, NSWorkspace.sessionDidBecomeActiveNotification.rawValue, false),
+        ]
+        for (center, name, locked) in watch {
+            let token = center.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.screenLockChanged(locked) }
+            }
+            lockObservers.append(token)
+        }
+    }
+
+    func screenLockChanged(_ locked: Bool) {
+        screenLocked = locked
+        if locked { end(.screenOff, notify: true) }
     }
 
     // MARK: Messages
@@ -165,6 +193,7 @@ final class RemoteInputHost: ObservableObject {
             end(.replaced, notify: false)
         }
         guard isAllowed(deviceID) else { return refuse(id, deviceID: deviceID, deviceName: deviceName, mode: mode, reason: .disabled) }
+        guard !screenLocked else { return refuse(id, deviceID: deviceID, deviceName: deviceName, mode: mode, reason: .screenOff) }
         guard accessibility() else {
             accessibilityTrusted = false
             return refuse(id, deviceID: deviceID, deviceName: deviceName, mode: mode, reason: .permissionRequired)
