@@ -918,9 +918,10 @@ the Received files folder plus folders added in Settings (bookmarks). Journal in
 - "Include hidden files" and "Include system files" are the same two switches on both devices (bool,
   default off, same names and help text; the phone applies them to folders it sends and to folders a Mac
   downloads). They are stored as `settings.folders.includeHidden` and `settings.folders.includeSystem` on
-  the Mac and `files.folder_include_hidden` and `files.folder_include_system` on the phone. They are not
-  synced in schema 1; if they join, the keys are `files.folder_include_hidden` and
-  `files.folder_include_system`, bool, default false, with no migration.
+  the Mac and `files.folder_include_hidden` and `files.folder_include_system` on the phone. They sync
+  under those two keys (bool, default false, no migration), appended to schema 1 after
+  `updates.auto_all` (0.10.0-rr.1); a build without them skips the keys. The Mac's call policy for other
+  apps (`settings.calls.otherApps`) is Mac-only and has no key.
 - The `clipboard.*` keys are reserved now; a platform implements them once automatic clipboard
   ships there.
 
@@ -971,7 +972,7 @@ T3 Code works" (a change made in Settings is saved to every connected device tha
 device that was offline or still differs shows it, with Apply to all). That replaces the earlier
 rule that sync never turns a feature on.
 
-**What syncs.** An allowlist of 24 schema 1 keys, the same on both platforms. A device that has no
+**What syncs.** An allowlist of 26 schema 1 keys, the same on both platforms. A device that has no
 such setting stores the record and relays it, so a phone carries a Mac-only setting between two
 Macs.
 
@@ -979,6 +980,8 @@ Macs.
 | --- | --- | --- | --- |
 | `files.folder_destination` | Files > Folders sent to this phone | Files > Folders from the phone (see below) | |
 | `files.folder_conflict` | Files > When a folder already exists | Same | |
+| `files.folder_include_hidden` | Files > Include hidden files when sending folders | Files > Include hidden files when sending folders | |
+| `files.folder_include_system` | Files > Include system files when sending folders | Files > Include system files when sending folders | |
 | `activity.previews` | Privacy > Show previews in activity | Privacy > Show previews | |
 | `display.reduce_motion` | General > Reduce motion | General > Reduce motion | |
 | `feature.clipboard`, `feature.files`, `feature.battery`, `feature.find_device`, `feature.ping`, `feature.links`, `feature.media` | The feature's switch | The feature's switch | |

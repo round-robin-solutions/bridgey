@@ -1464,3 +1464,5 @@
 "sync.name.screen" = "Показ экрана";
 "sync.name.sms" = "SMS";
 "sync.name.autoUpdateAll" = "Обновлять все устройства автоматически";
+"sync.name.folderHidden" = "Скрытые файлы в папках";
+"sync.name.folderSystem" = "Системные файлы в папках";

@@ -12961,6 +12961,18 @@
       "changedAt": 1792900000019,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_hidden": {
+      "value": true,
+      "changedAt": 1792900000020,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_system": {
+      "value": true,
+      "changedAt": 1792900000021,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     }
    },
@@ -13107,6 +13119,18 @@
      "updates.auto_all": {
       "value": true,
       "changedAt": 1792900000019,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_hidden": {
+      "value": true,
+      "changedAt": 1792900000020,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_system": {
+      "value": true,
+      "changedAt": 1792900000021,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
@@ -14070,6 +14094,66 @@
    }
   },
   {
+   "name": "files.folder_include_hidden off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "files.folder_include_hidden": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "files.folder_include_hidden": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0,
+    "first": false,
+    "new": false,
+    "answered": false
+   }
+  },
+  {
+   "name": "files.folder_include_system off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "files.folder_include_system": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "files.folder_include_system": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0,
+    "first": false,
+    "new": false,
+    "answered": false
+   }
+  },
+  {
    "name": "unknown key is skipped, the rest applies",
    "kind": "update",
    "plaintext": {
@@ -14802,7 +14886,7 @@
    }
   },
   {
-   "name": "32 records (8 unknown)",
+   "name": "32 records (6 unknown)",
    "kind": "snapshot",
    "plaintext": {
     "schema": 1,
@@ -14952,6 +15036,18 @@
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
+     "files.folder_include_hidden": {
+      "value": true,
+      "changedAt": 1792900000020,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_system": {
+      "value": true,
+      "changedAt": 1792900000021,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
      "x.k00": {
       "value": true,
       "changedAt": 1,
@@ -14983,18 +15079,6 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
      "x.k05": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k06": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k07": {
       "value": true,
       "changedAt": 1,
       "version": 1,
@@ -15147,10 +15231,22 @@
       "changedAt": 1792900000019,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_hidden": {
+      "value": true,
+      "changedAt": 1792900000020,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_system": {
+      "value": true,
+      "changedAt": 1792900000021,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
     "waiting": [],
-    "skipped": 8,
+    "skipped": 6,
     "first": false,
     "new": false,
     "answered": false
@@ -15307,6 +15403,18 @@
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
+     "files.folder_include_hidden": {
+      "value": true,
+      "changedAt": 1792900000020,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_system": {
+      "value": true,
+      "changedAt": 1792900000021,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
      "x.k00": {
       "value": true,
       "changedAt": 1,
@@ -15338,18 +15446,6 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
      "x.k05": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k06": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k07": {
       "value": true,
       "changedAt": 1,
       "version": 1,

@@ -57,7 +57,7 @@ class AndroidSyncPermissions(private val context: Context) : SyncPermissions {
 }
 
 /**
- * The phone's settings behind the 24 keys. `codes.enabled` and `updates.auto_all` (until it lands) have no setting on
+ * The phone's settings behind the 26 keys. `codes.enabled` and `updates.auto_all` (until it lands) have no setting on
  * the phone: they are stored and relayed so two Macs share them. Messages' pinned, muted, archived and read state is
  * per Mac and never syncs. Per-device overrides, grants, paths and the file access guards are not here, so they never
  * sync.
@@ -87,6 +87,14 @@ fun phoneSyncedSettings(settings: BridgeySettings, ui: UiPreferences, permission
     )
     result[SyncKey.REDUCE_MOTION] = switch(
         "reduce_motion", { ui.reduceMotion.value }, ui::setReduceMotion, stored = { ui.hasStored(UiPreferences.KEY_REDUCE_MOTION) },
+    )
+    result[SyncKey.FOLDER_INCLUDE_HIDDEN] = switch(
+        "folder_include_hidden", { state().folderIncludeHidden }, settings::setFolderIncludeHidden,
+        stored = { settings.hasStored(BridgeySettings.KEY_FOLDER_INCLUDE_HIDDEN) },
+    )
+    result[SyncKey.FOLDER_INCLUDE_SYSTEM] = switch(
+        "folder_include_system", { state().folderIncludeSystem }, settings::setFolderIncludeSystem,
+        stored = { settings.hasStored(BridgeySettings.KEY_FOLDER_INCLUDE_SYSTEM) },
     )
     SyncFeatureKeys.forEach { (key, feature) ->
         val waiting: () -> Boolean = when (key) {

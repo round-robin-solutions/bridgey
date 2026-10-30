@@ -49,7 +49,7 @@ class SyncSettingsActions(
 )
 
 /**
- * The settings Choose what syncs offers: the ones this phone has (22). Codes from messages is a Mac setting and Update all
+ * The settings Choose what syncs offers: the ones this phone has (24). Codes from messages is a Mac setting and Update all
  * devices automatically has no setting yet (rr/auto-update-all adds it): the phone only stores and relays those, as the
  * Mac does for Photos for the Mac.
  */
@@ -85,6 +85,8 @@ fun syncKeyName(context: Context, key: SyncKey): String = context.getString(
         SyncKey.SCREEN -> R.string.sync_name_screen
         SyncKey.SMS -> R.string.sync_name_sms
         SyncKey.AUTO_UPDATE_ALL -> R.string.sync_name_auto_update_all
+        SyncKey.FOLDER_INCLUDE_HIDDEN -> R.string.sync_name_folder_include_hidden
+        SyncKey.FOLDER_INCLUDE_SYSTEM -> R.string.sync_name_folder_include_system
     },
 )
 

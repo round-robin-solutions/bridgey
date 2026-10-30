@@ -1464,3 +1464,5 @@
 "sync.name.screen" = "Screen sharing";
 "sync.name.sms" = "Text messages";
 "sync.name.autoUpdateAll" = "Update all devices automatically";
+"sync.name.folderHidden" = "Hidden files in folders";
+"sync.name.folderSystem" = "System files in folders";

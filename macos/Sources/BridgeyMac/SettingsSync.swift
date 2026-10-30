@@ -83,6 +83,9 @@ enum SyncKey: String, CaseIterable, Comparable {
     case featureSms = "feature.sms"
     /// Update all devices automatically: no setting on the Mac yet (rr/auto-update-all); stored and relayed.
     case updatesAutoAll = "updates.auto_all"
+    /// Appended after the earlier keys. The same two switches as the phone's Files group.
+    case folderIncludeHidden = "files.folder_include_hidden"
+    case folderIncludeSystem = "files.folder_include_system"
 
     static func < (lhs: SyncKey, rhs: SyncKey) -> Bool {
         allCases.firstIndex(of: lhs)! < allCases.firstIndex(of: rhs)!
@@ -128,7 +131,7 @@ enum SyncKey: String, CaseIterable, Comparable {
     /// Turning it on shares more: a remote change that turns it on is announced with a banner.
     var sharesWhenOn: Bool {
         switch self {
-        case .folderDestination, .folderConflict, .activityPreviews, .reduceMotion: false
+        case .folderDestination, .folderConflict, .activityPreviews, .reduceMotion, .folderIncludeHidden, .folderIncludeSystem: false
         default: true
         }
     }
@@ -146,6 +149,8 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .focusFollow: "focus_follow"
         case .codesEnabled: "codes"
         case .updatesAutoAll: "auto_update_all"
+        case .folderIncludeHidden: "folder_include_hidden"
+        case .folderIncludeSystem: "folder_include_system"
         default: String(rawValue.dropFirst("feature.".count))
         }
     }
@@ -177,6 +182,8 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .featureScreen: L10n.text("sync.name.screen", fallback: "Screen sharing")
         case .featureSms: L10n.text("sync.name.sms", fallback: "Text messages")
         case .updatesAutoAll: L10n.text("sync.name.autoUpdateAll", fallback: "Update all devices automatically")
+        case .folderIncludeHidden: L10n.text("sync.name.folderHidden", fallback: "Hidden files in folders")
+        case .folderIncludeSystem: L10n.text("sync.name.folderSystem", fallback: "System files in folders")
         }
     }
 
@@ -342,6 +349,8 @@ func settingsSyncStoredValues(_ defaults: [String: Any]) -> [SyncKey: SyncValue]
     }
     bool(.activityPreviews, "settings.activity.previews")
     bool(.reduceMotion, "settings.reduceMotion")
+    bool(.folderIncludeHidden, "settings.folders.includeHidden")
+    bool(.folderIncludeSystem, "settings.folders.includeSystem")
     for key in SyncKey.allCases {
         if let feature = key.feature { bool(key, "settings.global.\(feature.rawValue)") }
     }
@@ -360,7 +369,7 @@ func settingsSyncStoredValues(_ defaults: [String: Any]) -> [SyncKey: SyncValue]
 // MARK: Payloads
 
 struct SettingsPayload: Equatable {
-    /// The records of the 24 keys; skipped entries are counted, never kept.
+    /// The records of the 26 keys; skipped entries are counted, never kept.
     var records: [SyncKey: SyncRecord]
     /// The keys the sender has on but waiting for a permission there, in schema order.
     var waiting: [SyncKey]
@@ -1051,6 +1060,8 @@ final class SettingsSyncController: ObservableObject {
         let changes: [AnyPublisher<Void, Never>] = [
             settings.$folderReceiveMode.map { _ in () }.eraseToAnyPublisher(),
             settings.$folderConflictPolicy.map { _ in () }.eraseToAnyPublisher(),
+            settings.$folderIncludeHidden.map { _ in () }.eraseToAnyPublisher(),
+            settings.$folderIncludeSystem.map { _ in () }.eraseToAnyPublisher(),
             settings.$showActivityPreviews.map { _ in () }.eraseToAnyPublisher(),
             settings.$reduceMotion.map { _ in () }.eraseToAnyPublisher(),
             settings.$globalFeatures.map { _ in () }.eraseToAnyPublisher(),
@@ -1094,6 +1105,8 @@ final class SettingsSyncController: ObservableObject {
             ),
             .activityPreviews: bool({ settings.showActivityPreviews }, settings.setShowActivityPreviews),
             .reduceMotion: bool({ settings.reduceMotion }, settings.setReduceMotion),
+            .folderIncludeHidden: bool({ settings.folderIncludeHidden }, settings.setFolderIncludeHidden),
+            .folderIncludeSystem: bool({ settings.folderIncludeSystem }, settings.setFolderIncludeSystem),
             // Only the global switch; which phone may use a feature stays a grant or override made on this Mac.
             .autoClipboard: bool({ settings.autoClipboardEnabled }, { settings.setAutoClipboard($0) }),
             .clipboardFiles: bool({ settings.clipboardFilesEnabled }, settings.setClipboardFilesEnabled),

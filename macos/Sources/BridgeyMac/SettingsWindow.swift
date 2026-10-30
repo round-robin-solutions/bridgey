@@ -805,10 +805,12 @@ private struct FilesPane: View {
         SettingsCard(footnote: L10n.text("settings.folders.note", fallback: "These are the defaults; the send sheet can change them for one folder. Links and Finder aliases are never sent.")) {
             SettingsToggle(title: L10n.text("settings.folders.hidden", fallback: "Include hidden files when sending folders"),
                            subtitle: L10n.text("settings.folders.hidden.detail", fallback: "Files and folders whose names start with a dot, such as .gitignore or .config."),
-                           divider: false, isOn: model.folderIncludeHidden, set: actions.setFolderIncludeHidden)
+                           divider: false, synced: model.syncs(.folderIncludeHidden), isOn: model.folderIncludeHidden, set: actions.setFolderIncludeHidden)
+            SyncStatusLine(key: .folderIncludeHidden, model: model, actions: actions)
             SettingsToggle(title: L10n.text("settings.folders.system", fallback: "Include system files when sending folders"),
                            subtitle: L10n.text("settings.folders.system.detail", fallback: "Clutter the system makes, such as .DS_Store, ._ files and Thumbs.db."),
-                           isOn: model.folderIncludeSystem, set: actions.setFolderIncludeSystem)
+                           synced: model.syncs(.folderIncludeSystem), isOn: model.folderIncludeSystem, set: actions.setFolderIncludeSystem)
+            SyncStatusLine(key: .folderIncludeSystem, model: model, actions: actions)
         }
         SettingsCard(footnote: L10n.text("settings.folders.receive.note", fallback: "Folders from your phone keep their structure. Received files get a Where from line in Finder.")) {
             SettingsRow(title: L10n.text("settings.folders.receive", fallback: "Folders sent to this Mac"),

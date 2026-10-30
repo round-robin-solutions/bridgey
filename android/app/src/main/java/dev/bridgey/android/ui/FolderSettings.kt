@@ -41,7 +41,7 @@ import dev.bridgey.android.folders.DestinationMode
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import dev.bridgey.android.ui.theme.BridgeyType
 
-/** Settings › Files rows for folders (3.6), after the File transfer switch. Phone only; not synced yet. */
+/** Settings › Files rows for folders (3.6), after the File transfer switch. Folder destination, conflict policy and the two hidden/system switches sync. */
 data class FolderSettingsState(
     val mode: DestinationMode = DestinationMode.SENDER_PICKS,
     val policy: ConflictPolicy = ConflictPolicy.ASK,
@@ -131,14 +131,18 @@ internal fun GroupScope.folderRows(
         SwitchRow(
             shape, stringResource(R.string.settings_folder_hidden), stringResource(R.string.settings_folder_hidden_detail),
             BridgeyIcons.Description, if (state.includeHidden) Tint.BLUE else Tint.NEUTRAL, state.includeHidden, actions.setIncludeHidden,
+            synced = sync.syncs(dev.bridgey.android.sync.SyncKey.FOLDER_INCLUDE_HIDDEN),
         )
     }
+    syncRows(dev.bridgey.android.sync.SyncKey.FOLDER_INCLUDE_HIDDEN, sync, syncActions)
     row { shape ->
         SwitchRow(
             shape, stringResource(R.string.settings_folder_system), stringResource(R.string.settings_folder_system_detail),
             BridgeyIcons.Settings, if (state.includeSystem) Tint.BLUE else Tint.NEUTRAL, state.includeSystem, actions.setIncludeSystem,
+            synced = sync.syncs(dev.bridgey.android.sync.SyncKey.FOLDER_INCLUDE_SYSTEM),
         )
     }
+    syncRows(dev.bridgey.android.sync.SyncKey.FOLDER_INCLUDE_SYSTEM, sync, syncActions)
     row { shape ->
         val detail = if (state.addedPlaces == 0) stringResource(R.string.settings_places_detail_none)
         else pluralStringResource(R.plurals.settings_places_detail, state.addedPlaces, state.addedPlaces)
