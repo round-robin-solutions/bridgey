@@ -256,6 +256,8 @@ enum ActivityText {
             return folderTitle(item, device: device)
         case .updateAutoDone, .updateAutoWaiting, .updateAutoSkipped, .updateAutoStartedBy, .updateAutoFailed:
             return AutoUpdateText.activityTitle(item)
+        case .settingsSynced:
+            return SettingsSyncDetail.title(device: device)
         }
     }
 
@@ -394,6 +396,7 @@ enum ActivityText {
         case .clipPasteFailed: return L10n.text("stream.clip.failed.detail", fallback: "Copy it again and paste")
         case .folderSent, .folderReceived, .folderIncomplete: return folderDetail(item)
         case .updateAutoWaiting, .updateAutoSkipped, .updateAutoFailed: return AutoUpdateText.activityDetail
+        case .settingsSynced: return SettingsSyncDetail.detail(item.content)
         default: break
         }
         guard item.kind.category == .clipboard else { return nil }

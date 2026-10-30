@@ -1105,6 +1105,7 @@ func activityVisual(_ kind: ActivityKind) -> (symbol: String, tint: TileTint) {
     case .updateAutoDone, .updateAutoStartedBy: ("arrow.down.circle", .purple)
     case .updateAutoWaiting: ("hourglass", .neutral)
     case .updateAutoSkipped, .updateAutoFailed: ("exclamationmark.circle", .neutral)
+    case .settingsSynced: ("arrow.triangle.2.circlepath", .neutral)
     }
 }
 

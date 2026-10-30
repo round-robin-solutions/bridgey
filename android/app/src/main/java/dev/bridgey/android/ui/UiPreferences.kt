@@ -46,7 +46,10 @@ class UiPreferences(context: Context) {
         mutableBatteryPromptShown.value = true
     }
 
-    private companion object {
+    /** Settings sync (8.4): the person stored [key] before, so the first sync stamp counts it as chosen. */
+    internal fun hasStored(key: String): Boolean = preferences.contains(key)
+
+    internal companion object {
         const val KEY_BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
         const val KEY_REDUCE_MOTION = "reduce_motion"
         const val KEY_SHOW_PREVIEWS = "show_activity_previews"

@@ -59,6 +59,9 @@ enum ActivityKind: String, CaseIterable, Codable {
     case updateAutoStartedBy = "update_auto_started_by"
     /// A device did not finish an automatic run (`content`: the failure).
     case updateAutoFailed = "update_auto_failed"
+    /// A paired phone changed synced settings here (settings_sync_draft1). The changes are tokens in
+    /// `content` ("previews=0,reduce_motion=1"), never free text.
+    case settingsSynced = "settings_synced"
 
     var category: ActivityCategory {
         switch self {
@@ -89,6 +92,7 @@ enum ActivityKind: String, CaseIterable, Codable {
     var isAutoUpdate: Bool {
         [.updateAutoDone, .updateAutoWaiting, .updateAutoSkipped, .updateAutoStartedBy, .updateAutoFailed].contains(self)
     }
+    var isSettingsSync: Bool { self == .settingsSynced }
 }
 
 /// One stream item. These fields are the whole record, in memory and on disk.
@@ -304,6 +308,7 @@ enum ActivityHistory {
         if kind.isFolder { return clean(value, limit: FolderActivityDetail.maximumLength) }
         // A version name, or a short key (busy activity, skip reason, failure).
         if kind.isAutoUpdate { return clean(value, limit: 64) }
+        if kind.isSettingsSync { return SettingsSyncDetail.clean(value) }
         return nil
     }
 

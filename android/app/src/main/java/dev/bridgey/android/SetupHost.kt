@@ -190,6 +190,7 @@ internal fun setupFacts(context: Context, settings: SettingsState, paired: Boole
         put(SetupSetting.BATTERY_EXEMPTION, settings.batteryExempt.toString())
         put(SetupSetting.KEEP_WIFI_AWAKE, settings.keepWifiAwake.toString())
         put(SetupSetting.REDUCE_MOTION, settings.reduceMotion.toString())
+        put(SetupSetting.SETTINGS_SYNC, settings.sync.switches.enabled.toString())
     }
     return SetupFacts(
         paired = paired,
@@ -221,6 +222,8 @@ internal fun applySetupChange(
     uiPreferences: dev.bridgey.android.ui.UiPreferences,
     remotePreferences: dev.bridgey.android.remote.RemoteInputPreferences,
     updater: AppUpdater,
+    /** Settings sync's main switch (the summary's "Settings stay the same on your devices"). */
+    setSettingsSync: (Boolean) -> Unit = {},
 ) {
     val on = change.value == "true"
     when (change.setting) {
@@ -255,6 +258,7 @@ internal fun applySetupChange(
         SetupSetting.UPDATE_CHANNEL -> UpdateChannel.entries.firstOrNull { it.name == change.value }?.let(updater::setChannel)
         SetupSetting.AUTO_UPDATES -> settings.setUpdatesAutoAll(on)
         SetupSetting.KEEP_WIFI_AWAKE -> settings.setKeepWifiAwake(on)
+        SetupSetting.SETTINGS_SYNC -> setSettingsSync(on)
         SetupSetting.HIDDEN_NOTIFICATION_APPS -> {
             // Only the apps the question listed: picked ones stay on the phone, the others are sent again.
             val hidden = change.value.split(',').filter { it.isNotEmpty() }.toSet()
@@ -353,6 +357,7 @@ internal fun SetupRoute(
                 SetupFlow.neededPermissions(current, now).filter { it.kind !in now.granted }.forEach { it.offWhenRefused.forEach(apply) }
             }
             is SetupEvent.SummarySwitch -> SetupFeatures.feature(event.feature)?.let { feature -> (if (event.on) feature.on else feature.off).forEach(apply) }
+            is SetupEvent.SummarySync -> apply(SettingChange(SetupSetting.SETTINGS_SYNC, event.on.toString()))
             else -> Unit
         }
         flow = SetupFlow.reduce(current, event, now)

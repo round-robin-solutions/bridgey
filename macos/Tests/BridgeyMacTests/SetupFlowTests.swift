@@ -240,6 +240,8 @@ final class SetupFlowTests: XCTestCase {
                 XCTAssertNotNil(SetupQuestions.byPermission[setting])
             case .moreOptions:
                 XCTAssertNotNil(SettingsPane(rawValue: place.place), "\(setting)")
+            case .summary:
+                XCTAssertTrue(SetupQuestions.bySummary.contains(setting), "\(setting)")
             }
         }
     }

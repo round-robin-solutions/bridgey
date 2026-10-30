@@ -331,6 +331,7 @@ final class SetupCenter: ObservableObject {
         case .updatesAutoAll: AutoUpdateCoordinator.shared.setEnabled(on)
         case .launchAtLogin: settings.setLaunchAtLogin(on)
         case .reduceMotion: settings.setReduceMotion(on)
+        case .settingsSync: pairing.settingsSync.setEnabled(on)
         case .pairing, .macNotifications, .accessibility, .deviceFeatures, .deviceAutoClipboard, .batteryAlerts,
              .clipboardEagerLimit, .shortcutClipboard, .codesAutoCopy, .codesModel, .codesPhoneLink, .focusShortcuts,
              .shortcutCall, .receiveFolder, .folderIncludeHidden, .folderIncludeSystem, .folderConflict, .tagReceivedFiles,

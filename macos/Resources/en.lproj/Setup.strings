@@ -241,3 +241,5 @@
 "reset.item.textMessages" = "Text messages kept on this Mac (your phone keeps them)";
 "setup.a.updates.earlyAuto" = "Early, all devices update automatically";
 "setup.a.updates.newestAuto" = "Newest every day, all devices update automatically";
+"setup.summary.sync" = "Settings stay the same on your devices";
+"setup.summary.sync.detail" = "Change what syncs any time in Settings > General.";

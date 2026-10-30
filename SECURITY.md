@@ -138,6 +138,22 @@ old items with a marker and tries to delete them. If the read is denied,
 nothing changes, no new identity is created, and the app asks again on the next
 launch. Details and test results: `docs/rr-mac-signing.md`.
 
+## Bridgey by Round Robin edition: settings sync
+
+Paired devices can keep settings and feature switches the same (v0.10, draft
+key `settings_sync_draft1`, on by default, one switch to turn it off and one per
+device). A paired device can therefore turn a feature on here. It cannot grant a
+permission or a consent, change a per-device grant (which phone may use Mac
+actions or remote control), read or change pairing data or secrets, open this
+phone's storage ("Allow other devices to change files here" and "Let other
+devices browse this phone" never sync), or change who may start updates here
+("Let paired devices start updates on this device" never syncs). The first time
+two devices sync, the new one asks before anything moves. Every change a device
+makes is listed in the activity stream with its name, a feature that needs a
+permission here also posts a notification, and more than 20 settings messages in
+10 seconds from one device are dropped. The full threat model is in
+`docs/folders-and-settings-sync.md`, section 8.5.
+
 ## Bridgey by Round Robin edition: Update all
 
 Update all lets one device ask the devices connected to it to update themselves (draft

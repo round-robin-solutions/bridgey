@@ -478,7 +478,75 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
         }
     }
 
+    /// Settings sync: both platforms keep the same records and skip the same entries.
+    func testSettingsPayload() throws {
+        try each("settingsPayload") { vector in
+            let result: Any
+            switch decodeSettingsPayload(plaintext(vector)) {
+            case .invalid: result = "invalid"
+            case let .unsupportedSchema(schema): result = ["unsupportedSchema": schema]
+            case let .payload(payload):
+                result = ["records": Dictionary(uniqueKeysWithValues: payload.records.map { ($0.key.rawValue, $0.value.json) }),
+                          "waiting": payload.waiting.map(\.rawValue), "skipped": payload.skipped,
+                          "first": payload.first, "new": payload.new, "answered": payload.answered] as [String: Any]
+            }
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// Settings sync: the same record wins on both platforms.
+    func testSettingsMerge() throws {
+        try each("settingsMerge") { vector in
+            guard let local = Self.syncRecord(vector["local"]), let remote = Self.syncRecord(vector["remote"]) else { return false }
+            let order = compareSyncRecords(remote, local)
+            return (order > 0 ? "remote" : order < 0 ? "local" : "equal") == vector["expect"] as? String
+        }
+    }
+
+    /// Settings sync: what a snapshot record does (adopt, different or same) on both platforms.
+    func testSettingsSnapshot() throws {
+        try each("settingsSnapshot") { vector in
+            guard let local = Self.syncRecord(vector["local"]), let remote = Self.syncRecord(vector["remote"]) else { return false }
+            return snapshotOutcome(local: local, remote: remote).rawValue == vector["expect"] as? String
+        }
+    }
+
+    /// Settings sync: both platforms pick the same asker on a first connect.
+    func testSettingsAsker() throws {
+        try each("settingsAsker") { vector in
+            guard let local = vector["local"] as? [String: Any], let remote = vector["remote"] as? [String: Any] else { return false }
+            let asker = settingsAsker(localFirst: local["first"] as? Bool == true, localNew: local["new"] as? Bool == true,
+                                      isPhone: local["phone"] as? Bool == true,
+                                      remoteFirst: remote["first"] as? Bool == true, remoteNew: remote["new"] as? Bool == true)
+            return asker.rawValue == vector["expect"] as? String
+        }
+    }
+
+    /// Settings sync: a local edit is stamped alike (fewer than five vectors, so not through `each`).
+    func testSettingsStamp() throws {
+        let list = try XCTUnwrap(vectors["settingsStamp"] as? [[String: Any]])
+        XCTAssertGreaterThanOrEqual(list.count, 4)
+        for vector in list {
+            let current = try XCTUnwrap(Self.syncRecord(vector["current"]))
+            let expect = try XCTUnwrap(vector["expect"] as? [String: Any])
+            let now = try XCTUnwrap(syncInteger(vector["now"]))
+            let stamped = stampLocalEdit(current, value: current.value, now: now, device: try XCTUnwrap(vector["device"] as? String))
+            XCTAssertEqual(stamped.stamp, SyncStamp(changedAt: try XCTUnwrap(syncInteger(expect["changedAt"])),
+                                                    version: try XCTUnwrap(syncInteger(expect["version"])),
+                                                    changedBy: try XCTUnwrap(expect["changedBy"] as? String)), vector["name"] as? String ?? "")
+        }
+    }
+
     // MARK: helpers
+
+    /// A record of any key: a boolean or string value with its stamp.
+    private static func syncRecord(_ raw: Any?) -> SyncRecord? {
+        guard let object = raw as? [String: Any],
+              let value = jsonBool(object["value"]).map(SyncValue.bool) ?? (object["value"] as? String).map(SyncValue.string),
+              let changedAt = syncInteger(object["changedAt"]), let version = syncInteger(object["version"]),
+              let changedBy = object["changedBy"] as? String else { return nil }
+        return SyncRecord(value: value, changedAt: changedAt, version: version, changedBy: changedBy)
+    }
 
     private func each(_ group: String, file: StaticString = #filePath, line: UInt = #line, _ check: ([String: Any]) throws -> Bool) throws {
         let list = try XCTUnwrap(vectors[group] as? [[String: Any]])

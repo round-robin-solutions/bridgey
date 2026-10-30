@@ -201,9 +201,12 @@ struct CodesCard: View {
                                : L10n.text("codes.toggle.unavailable", fallback: "Not available in this build"),
                            subtitleIsWarning: !toggleAvailable,
                            divider: false,
-                           isOn: model.codesEnabled,
+                           synced: model.syncs(.codesEnabled),
+                           isOn: model.codesEnabled || model.codesPendingSync,
                            set: setEnabled)
                 .disabled(!toggleAvailable && !model.codesEnabled)
+            // Turned on from another device: Allow runs this card's own consent step (cloud question or model download).
+            SyncStatusLine(key: .codesEnabled, model: model, actions: actions, allow: { setEnabled(true) })
             CodeEngineChoice(selected: model.codesEngine, cloudAvailable: model.codesAvailable, localAvailable: display.available,
                              size: display.size, select: selectEngine)
             if local {

@@ -174,13 +174,17 @@ fun groupShape(index: Int, count: Int, outer: Dp = 24.dp, inner: Dp = 6.dp): Sha
     else -> RoundedCornerShape(inner)
 }
 
+/**
+ * Rows drawn as one group. [content] only lists the rows (a plain lambda, not composable), so the list is built in
+ * the same recomposition that draws it: a row that appears or goes while the page is open (a feature turned on, a
+ * sync status line) shows at once. With a composable content lambda the list could change in the lambda's own
+ * recomposition without the group drawing it again.
+ */
 @Composable
-fun RowGroup(modifier: Modifier = Modifier, content: @Composable GroupScope.() -> Unit) {
-    val scope = remember { GroupScope() }
-    scope.rows.clear()
-    scope.content()
+fun RowGroup(modifier: Modifier = Modifier, content: GroupScope.() -> Unit) {
+    val rows = GroupScope().apply(content).rows
     Column(modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        scope.rows.forEachIndexed { index, row -> row(groupShape(index, scope.rows.size)) }
+        rows.forEachIndexed { index, row -> row(groupShape(index, rows.size)) }
     }
 }
 
@@ -209,6 +213,8 @@ fun ListRow(
     onClickLabel: String? = null,
     role: Role? = null,
     leading: (@Composable () -> Unit)? = null,
+    /** Settings sync: a small mark after the title says the setting is the same on paired devices. */
+    synced: Boolean = false,
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val colors = BridgeyTheme.colors
@@ -238,7 +244,14 @@ fun ListRow(
             }
         }
         Column(Modifier.weight(1f)) {
-            Text(title, style = if (compact) BridgeyType.itemTitle else BridgeyType.rowTitle, color = colors.onSurface)
+            if (synced) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, style = if (compact) BridgeyType.itemTitle else BridgeyType.rowTitle, color = colors.onSurface, modifier = Modifier.weight(1f, fill = false))
+                    SyncedMark()
+                }
+            } else {
+                Text(title, style = if (compact) BridgeyType.itemTitle else BridgeyType.rowTitle, color = colors.onSurface)
+            }
             if (detail != null) {
                 Text(
                     detail,
@@ -290,6 +303,7 @@ fun SwitchRow(
     enabled: Boolean = true,
     compact: Boolean = false,
     detailWarning: Boolean = false,
+    synced: Boolean = false,
 ) {
     ListRow(
         shape = shape,
@@ -299,6 +313,7 @@ fun SwitchRow(
         tint = tint,
         compact = compact,
         detailWarning = detailWarning,
+        synced = synced,
         modifier = Modifier.semantics(mergeDescendants = true) {},
         onClick = if (enabled) ({ onCheckedChange(!checked) }) else null,
         role = Role.Switch,

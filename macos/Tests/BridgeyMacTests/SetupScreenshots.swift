@@ -160,6 +160,8 @@ final class SetupScreenshots: XCTestCase {
         after.globalFeatures[.notifications] = false
         after.globalFeatures[.remoteInput] = false
         try setup("setup-summary", flow: flow, model: after)
+        // Settings sync (v0.10): the summary's "Settings stay the same on your devices" line.
+        try setup("settings-sync-setup-summary", flow: flow, model: after)
 
         var leaving = SetupFlow()
         leaving.send(.chooseAdvanced)

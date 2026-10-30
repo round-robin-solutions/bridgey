@@ -26,11 +26,14 @@ class SetupQuestionsTest {
                 Coverage.SWITCH -> assertTrue("$setting", SetupFeatures.all.any { setting in it.settings })
                 Coverage.PERMISSION -> assertNotNull("$setting", SetupQuestions.permission(PermissionKind.valueOf(where)))
                 Coverage.MORE_OPTIONS -> assertNotNull("$setting on $where", SettingsSection.entries.firstOrNull { it.name == where })
+                Coverage.SUMMARY -> assertTrue("$setting on the summary", setting in SetupSummary.settings)
             }
         }
         // Settings that left the path are under More options, not dropped.
         listOf(SetupSetting.CLIPBOARD_FILES, SetupSetting.FOCUS_FOLLOW, SetupSetting.FOLDER_MODE, SetupSetting.REDUCE_MOTION, SetupSetting.UPDATE_CHANNEL, SetupSetting.AUTO_UPDATES)
             .forEach { assertEquals(Coverage.MORE_OPTIONS, SetupQuestions.coverage.getValue(it).second) }
+        // Settings sync is on the summary (Rahul, 2026-10-27).
+        assertEquals("summary" to Coverage.SUMMARY, SetupQuestions.coverage.getValue(SetupSetting.SETTINGS_SYNC))
     }
 
     @Test
