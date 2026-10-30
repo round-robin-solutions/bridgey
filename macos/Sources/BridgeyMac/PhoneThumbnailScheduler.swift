@@ -521,6 +521,7 @@ final class PhoneThumbnailScheduler {
         case .failure(.timeout): return "timeout"
         case .failure(.notConnected): return "not_connected"
         case .failure(.notBrowsable): return "not_browsable"
+        case .failure(.interrupted): return "interrupted"
         case let .failure(.code(code)): return code
         }
     }

@@ -1027,6 +1027,7 @@ final class PairingCoordinator: ObservableObject {
         camera.disconnected(id)
         updatesPhoneDisconnected(id)
         phoneScreen.disconnected(id)
+        speedTest.phoneDisconnected(id)
         textMessages.disconnected(id)
         settingsSync.sessionEnded(id)
         var record = healthRecords[id] ?? DeviceHealthRecord()
@@ -1383,6 +1384,11 @@ final class PairingCoordinator: ObservableObject {
             sendCancel: { [weak self] in self?.sendTransferControl(kind: "files.cancel", transferID: $0, to: self?.outboxSession) },
             chunkSender: { [weak self] in
                 guard let self, let current = self.outboxSession, let key = current.pairingKey else { return nil }
+                if current.fastTransfers {
+                    return ClipboardChunkSender(fast: true) { chunk, sequence, transferID in
+                        current.sendFast(kind: FastFrame.chunkKind, id: transferID, sequence: sequence, plaintext: chunk)
+                    }
+                }
                 return ClipboardChunkSender { chunk, sequence, transferID in
                     guard let sealed = try? encrypt(chunk, key: key) else { return false }
                     return current.sendAndWait(PairingMessage(
@@ -2357,6 +2363,22 @@ final class PairingCoordinator: ObservableObject {
                 current.close()
             }
         }
+        current.onFast = { [weak self, weak current] payload in
+            guard let self, let current, !current.ended, !current.closing else { return }
+            self.receiveFast(payload, in: current)
+        }
+        current.onFastDropped = { [weak self, weak current] reason in
+            guard let self, let current, !current.ended, !current.closing else { return }
+            if current.droppedFrames == 0 {
+                BridgeyLog.transport.error("binary frame dropped reason=\(reason, privacy: .public)")
+                self.diagnostics.record(category: "protocol", event: "frame_dropped", outcome: reason)
+            }
+            current.droppedFrames += 1
+            if current.droppedFrames >= 16 {
+                current.dropReason = "unauthenticated_frames"
+                current.close()
+            }
+        }
         current.onFailure = { [weak self, weak current] in
             guard let self, let current, !current.ended else { return }
             current.ended = true
@@ -2611,6 +2633,8 @@ final class PairingCoordinator: ObservableObject {
                 }
                 let clipboardFiles = draftKeys[clipboardFilesFeatureKey] == true
                 let phoneID = current.remoteDeviceID
+                current.fastTransfers = draftKeys[filesFastFeatureKey] == true
+                BridgeyLog.transport.notice("fast transfers=\(current.fastTransfers, privacy: .public) peerKey=\(draftKeys[filesFastFeatureKey] == true, privacy: .public) protocol2=\(current.envelopeKey != nil, privacy: .public)")
                 registry.update(phoneID) { link in
                     link.remoteFeatures = features
                     link.featureStateReceived = true
@@ -2625,6 +2649,7 @@ final class PairingCoordinator: ObservableObject {
                     if !link.remoteUpdates { link.updateStatus = nil }
                     link.remoteScreen = draftKeys[screenFeatureKey] == true
                     link.remoteSms = draftKeys[smsFeatureKey] == true
+                    link.remoteFastTransfers = draftKeys[filesFastFeatureKey] == true
                     link.remoteSettingsSync = draftKeys[settingsSyncFeatureKey] == true
                     link.remoteConnect = draftKeys[connectFeatureKey] == true
                     if features[.battery] == false { link.battery = nil }
@@ -3140,6 +3165,8 @@ final class PairingCoordinator: ObservableObject {
                 receiveScreenStream(message, in: current)
             case let kind where kind.hasPrefix("sms."):
                 receiveTextMessage(message, in: current)
+            case let kind where kind.hasPrefix("speed."):
+                receiveSpeedMessage(message, in: current)
             case "settings.snapshot", "settings.update", "settings.ack", "settings.error":
                 try receiveSettingsMessage(message, in: current)
             case "connect.setup", "connect.setup.ack", "connect.addresses":
@@ -3152,6 +3179,68 @@ final class PairingCoordinator: ObservableObject {
             if current.failure == nil { current.failure = .invalid }
             current.close()
             diagnostics.record(category: "protocol", event: "message_rejected", outcome: "session_closed")
+        }
+    }
+
+    private var speedTest: SpeedTest { .shared }
+
+    /// speed.* (draft files_fast_draft1): checked like other encrypted messages; one that does not decrypt is dropped
+    /// and the session stays, as for the other drafts. Outer-only kinds (pings, acknowledgements, cancel) carry the
+    /// test ID as transferId.
+    private func receiveSpeedMessage(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id, current.fastTransfers else { return }
+        var plaintext: Data?
+        if let ciphertext = message.ciphertext {
+            guard let messageID = message.messageId, current.acceptMessageID(messageID), let nonce = message.nonce,
+                  let key = current.pairingKey, let opened = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return }
+            plaintext = opened
+        }
+        speedTest.receive(kind: message.kind, plaintext: plaintext, testId: message.transferId, sequence: message.sequence,
+                          from: current.remoteDeviceID)
+    }
+
+    /// A binary frame (draft files_fast_draft1) from an authenticated session. A file chunk goes where the same
+    /// chunk as JSON would go, with the larger size limit, and is acknowledged so the phone's window moves; test bytes
+    /// go to the speed test. A chunk for a transfer that is not this phone's closes the session, like JSON.
+    private func receiveFast(_ payload: FastFramePayload, in current: Session) {
+        guard registry.isActive(current) else { return }
+        if payload.kind == FastFrame.speedKind {
+            speedTest.receiveData(payload, from: current.remoteDeviceID)
+            return
+        }
+        let transferID = payload.id
+        let sequence = payload.sequence
+        func acknowledge() {
+            current.send(PairingMessage(kind: "files.chunk.ack", sessionId: current.id, transferId: transferID, sequence: sequence))
+        }
+        if clipboardInbox.owns(transferID) {
+            // Only the phone the clipboard transfer is with, as for JSON chunks.
+            guard clipboardInbox.isTransfer(transferID, from: current.remoteDeviceID) else { return }
+            if clipboardInbox.handleChunk(transferID: transferID, sequence: sequence, data: payload.plaintext,
+                                          maximumChunk: FastFrame.maximumPlaintext) {
+                acknowledge()
+            }
+            return
+        }
+        if folderReceiver.ownsFile(transferID) {
+            _ = folderReceiver.chunk(transferID, sequence: sequence, data: payload.plaintext, from: current.remoteDeviceID)
+            return
+        }
+        if incomingFiles[transferID] == nil, cancelledTransferIDs.contains(transferID) { return }
+        // Another phone's transfer is ignored, never cancelled: same order as JSON chunks.
+        if incomingFiles[transferID] != nil, !transferOwned(transferID, by: current) { return }
+        guard let transfer = incomingFiles[transferID],
+              (try? transfer.append(payload.plaintext, sequence: sequence, maximumChunk: FastFrame.maximumPlaintext)) != nil else {
+            if let transfer = incomingFiles.removeValue(forKey: transferID) { transfer.cancel() }
+            if current.failure == nil { current.failure = .invalid }
+            current.close()
+            diagnostics.record(category: "protocol", event: "message_rejected", outcome: "session_closed")
+            return
+        }
+        acknowledge()
+        if let progress = transfer.progressStatus() {
+            fileTransferStatus = "Receiving \(transfer.displayName): \(progress)"
+            updateFileTransfer(id: transferID, name: transfer.displayName, status: fileTransferStatus!, active: true)
         }
     }
 
@@ -3189,6 +3278,10 @@ final class PairingCoordinator: ObservableObject {
             }
         }
         current.authenticated = true
+        // Fast transfers only on protocol 2: binary frames are bound to the sender's ID like envelope tags.
+        if let key = current.pairingKey, current.envelopeKey != nil {
+            current.allowBinaryFrames(key: SessionSecurity.fastFrameKey(sessionKey: key), localDeviceID: current.tagSender, remoteDeviceID: current.remoteDeviceID)
+        }
         current.connectionTimeout?.cancel()
         dialFinished(current)
         saveTrust(current)
@@ -3268,6 +3361,8 @@ final class PairingCoordinator: ObservableObject {
         features[settingsSyncFeatureKey] = settingsSync.advertised(for: current.remoteDeviceID)
         // Draft, edition only: Connect anywhere, while its switch is on and the core runs.
         features[connectFeatureKey] = connectAdvertised
+        // Draft, edition only: binary chunk frames and a byte window (FastTransfer.swift). A capability, so always on.
+        features[filesFastFeatureKey] = FastTransferSettings.enabled
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
               let encrypted = try? encrypt(payload, key: key) else { return }
         current.send(PairingMessage(
@@ -5125,7 +5220,7 @@ extension PairingCoordinator: PhoneFilesHost {
 
 /// Folder messages to one phone over the session they started on. Safe from any queue: it only encrypts
 /// and hands the frame to the connection.
-private final class SessionFolderTransport: SequencedFolderTransport {
+private final class SessionFolderTransport: SequencedFolderTransport, FastFolderTransport {
     private let session: Session
     private let key: Data
 
@@ -5155,6 +5250,61 @@ private final class SessionFolderTransport: SequencedFolderTransport {
 
     func sendOuterSequenced(kind: String, transferID: String, sequence: Int64) {
         session.send(PairingMessage(kind: kind, sessionId: session.id, transferId: transferID, sequence: sequence))
+    }
+
+    var fastTransfers: Bool { session.fastTransfers }
+
+    func sendFastChunk(transferID: String, sequence: Int64, data: Data) -> Bool {
+        session.sendFast(kind: FastFrame.chunkKind, id: transferID, sequence: sequence, plaintext: data)
+    }
+}
+
+/// Speed test messages to one phone over its session (SpeedTest.swift). Safe from any thread.
+private final class SessionSpeedLink: SpeedTestLink {
+    private let session: Session
+    private let key: Data
+
+    init(session: Session, key: Data) {
+        self.session = session
+        self.key = key
+    }
+
+    func sendEncrypted(kind: String, payload: Data) -> Bool {
+        guard let sealed = try? encrypt(payload, key: key) else { return false }
+        session.send(PairingMessage(kind: kind, sessionId: session.id, messageId: UUID().uuidString.lowercased(),
+                                    nonce: sealed.nonce, ciphertext: sealed.ciphertext))
+        return true
+    }
+
+    func sendOuter(kind: String, testId: String, sequence: Int64?) {
+        session.send(PairingMessage(kind: kind, sessionId: session.id, transferId: testId, sequence: sequence))
+    }
+
+    func sendData(testId: String, sequence: Int64, plaintext: Data) -> Bool {
+        session.sendFast(kind: FastFrame.speedKind, id: testId, sequence: sequence, plaintext: plaintext)
+    }
+
+    var path: NWPath? { session.connection.currentPath }
+}
+
+extension PairingCoordinator: SpeedTestHost {
+    func speedLink(for phoneID: String) -> SpeedTestLink? {
+        guard let current = registry.session(for: phoneID), let key = current.pairingKey, !current.ended, current.fastTransfers else { return nil }
+        return SessionSpeedLink(session: current, key: key)
+    }
+
+    /// Settings > Developer and experimental: how files travel to each connected phone right now.
+    var transferPaths: [TransferPathRow] {
+        connectedPhones.map { phone in
+            let session = registry.session(for: phone.id)
+            return TransferPathRow(id: phone.id, name: phone.name, fast: session?.fastTransfers == true, tunnelRoute: session?.tunnel?.route)
+        }
+    }
+
+    /// Connected phones that advertise files_fast_draft1, while this Mac has fast transfers on.
+    var speedPhones: [(id: String, name: String)] {
+        guard FastTransferSettings.enabled else { return [] }
+        return connectedPhones.filter { $0.state.remoteFastTransfers }.map { ($0.id, $0.name) }
     }
 }
 
@@ -5225,14 +5375,46 @@ private final class Session {
     /// connect.setup: this side's contribution while an exchange is open.
     var connectContribution: Data?
     var onMessage: ((PairingMessage) -> Void)?
+    /// A decrypted binary frame (draft files_fast_draft1): a file chunk or speed test bytes.
+    var onFast: ((FastFramePayload) -> Void)?
     var onFailure: (() -> Void)?
+    /// Confined to `receiveQueue`.
     private var frames = ProtocolFrameReader()
+    /// Frames are split, decoded and decrypted here, off the main thread; the main thread only routes them.
+    private let receiveQueue = DispatchQueue(label: "in.roundrobin.bridgey.session.receive", qos: .userInitiated)
+    private let fastLock = NSLock()
+    private var binary: (key: Data, local: String, remote: String)?
+    private var peerFast = false
+    /// Binary frames already taken, by kind and ID (confined to `receiveQueue`).
+    private var fastReplay = FastReplayGuard()
     private var seenMessageIDs = ReplayWindow()
     var quickSequence = QuickRequestSequence()
 
     init(connection: NWConnection, peerName: String) {
         self.connection = connection
         self.peerName = peerName
+    }
+
+    /// The session is authenticated on protocol 2: binary frames are read from now on. They are sealed with the session
+    /// key and bound to the sending device's ID, as envelope tags are (FastTransfer.swift).
+    func allowBinaryFrames(key: Data, localDeviceID: String, remoteDeviceID: String) {
+        fastLock.withLock { binary = (key, localDeviceID, remoteDeviceID) }
+    }
+
+    private var binaryContext: (key: Data, local: String, remote: String)? { fastLock.withLock { binary } }
+
+    private var lastWindow: Int64?
+    /// Where the byte window ended for the last single file sent to this phone; the next one starts there.
+    var lastFastWindow: Int64? {
+        get { fastLock.withLock { lastWindow } }
+        set { fastLock.withLock { lastWindow = newValue } }
+    }
+
+    /// Fast transfers with this peer: the session is on protocol 2, its latest features.update shows `files_fast_draft1`
+    /// and this Mac has not turned them off (FastTransferSettings). Read by senders on any thread when a transfer starts.
+    var fastTransfers: Bool {
+        get { fastLock.withLock { peerFast && binary != nil } && FastTransferSettings.enabled }
+        set { fastLock.withLock { peerFast = newValue } }
     }
 
     /// Protocol 2: every frame but pairing ones carries the envelope tag; pairing.cancel does too once there is a key.
@@ -5263,44 +5445,115 @@ private final class Session {
         return semaphore.wait(timeout: .now() + 15) == .success && succeeded
     }
 
+    /// A binary frame (draft files_fast_draft1), encrypted on the calling thread. False before authentication or
+    /// for an invalid frame. Callers pace themselves with a TransferPacer.
+    @discardableResult
+    func sendFast(kind: UInt8, id: String, sequence: Int64, plaintext: Data) -> Bool {
+        guard let context = binaryContext,
+              let frame = try? sealFastFrame(kind: kind, id: id, sequence: sequence, plaintext: plaintext, key: context.key,
+                                             sender: context.local) else { return false }
+        connection.send(content: frame, completion: .contentProcessed { error in
+            if let error { BridgeyLog.transport.error("send failed kind=binary error=\(String(describing: error), privacy: .public)") }
+        })
+        return true
+    }
+
+    private enum Event {
+        case message(PairingMessage)
+        case fast(FastFramePayload)
+        /// A binary frame that failed its tag, was malformed inside or was replayed: dropped and counted.
+        case dropped(String)
+    }
+
+    /// A binary frame was dropped (FastTransfer.swift); the coordinator counts it with the frames dropped for bad tags.
+    var onFastDropped: ((String) -> Void)?
+
+    /// Until the session is authenticated, reads are 64 KiB and the next one starts only after the main thread has
+    /// handled the last batch, as before fast transfers, so an unauthenticated peer cannot queue work faster than the
+    /// main thread drops it. Once authenticated (binary frames allowed), reads are 1 MiB and start at once.
     func receive() {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, complete, error in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                if let data { self.frames.append(data) }
-                while true {
-                    do {
-                        guard let message = try self.frames.next() else { break }
-                        self.lastReceivedAt = Date()
-                        self.onMessage?(message)
-                    } catch {
-                        BridgeyLog.transport.error("invalid message error=\(String(describing: error), privacy: .public)")
-                        self.dropReason = self.frames.overLimit ? "frame_too_large" : "protocol_error"
-                        self.close()
-                        self.onFailure?()
-                        return
+        let authenticated = binaryContext != nil
+        connection.receive(minimumIncompleteLength: 1, maximumLength: authenticated ? 1 << 20 : 1 << 16) { [weak self] data, _, complete, error in
+            guard let self else { return }
+            self.receiveQueue.async { self.parse(data, ended: complete || error != nil, error: error) }
+        }
+    }
+
+    /// Set by `close()`: events already parsed are no longer delivered.
+    private var closed = false
+
+    /// On `receiveQueue`: frames are decoded (and binary ones decrypted) in arrival order and the main thread gets the
+    /// batch in the same order. A bad frame ends the batch and the session.
+    private func parse(_ data: Data?, ended: Bool, error: NWError?) {
+        if let data { frames.append(data) }
+        let context = binaryContext
+        frames.binaryAllowed = context != nil
+        var events: [Event] = []
+        var failure: String?
+        while true {
+            do {
+                guard let frame = try frames.nextFrame() else { break }
+                switch frame {
+                case let .message(message):
+                    events.append(.message(message))
+                case let .binary(kind, body):
+                    guard let context else { continue }
+                    // Like a frame with a bad envelope tag: a forged, damaged or reflected frame is dropped and counted,
+                    // whatever its kind (the kind is in the associated data).
+                    guard let payload = try? openFastFrameBody(kind: kind, body: body, key: context.key, sender: context.remote) else {
+                        events.append(.dropped("bad_binary_tag"))
+                        continue
                     }
-                }
-                guard !self.frames.overLimit else {
-                    BridgeyLog.transport.error("protocol frame exceeded size limit")
-                    self.dropReason = "frame_too_large"
-                    self.close()
-                    self.onFailure?()
-                    return
-                }
-                if complete || error != nil {
-                    if self.dropReason == nil {
-                        self.dropReason = error.map(connectionDropReason) ?? "closed_by_peer"
+                    // A genuine frame of a kind this version does not know is skipped, like an unknown message kind.
+                    guard kind == FastFrame.chunkKind || kind == FastFrame.speedKind else { continue }
+                    guard fastReplay.accept(payload) else {
+                        events.append(.dropped("binary_replay"))
+                        continue
                     }
-                    self.onFailure?()
-                } else {
-                    self.receive()
+                    events.append(.fast(payload))
                 }
+            } catch {
+                BridgeyLog.transport.error("invalid message error=\(String(describing: error), privacy: .public)")
+                failure = frames.overLimit ? "frame_too_large" : "protocol_error"
+                break
+            }
+        }
+        if failure == nil, frames.overLimit {
+            BridgeyLog.transport.error("protocol frame exceeded size limit")
+            failure = "frame_too_large"
+        }
+        let readAhead = context != nil
+        if failure == nil, !ended, readAhead { receive() }
+        DispatchQueue.main.async {
+            for event in events {
+                if self.closed { break }
+                // Dropped frames do not count as signs of life.
+                if case .dropped = event {} else { self.lastReceivedAt = Date() }
+                switch event {
+                case let .message(message): self.onMessage?(message)
+                case let .fast(payload): self.onFast?(payload)
+                case let .dropped(reason): self.onFastDropped?(reason)
+                }
+            }
+            if let failure {
+                self.dropReason = failure
+                self.close()
+                self.onFailure?()
+            } else if ended {
+                if self.dropReason == nil {
+                    self.dropReason = error.map(connectionDropReason) ?? "closed_by_peer"
+                }
+                self.onFailure?()
+            } else if !readAhead, !self.closed {
+                self.receive()
             }
         }
     }
 
-    func close() { connection.cancel() }
+    func close() {
+        closed = true
+        connection.cancel()
+    }
 
     /// A pairing.cancel (or any last word) that must reach the phone: a plain close drops a send still queued, so
     /// the connection closes once this has gone out. Nothing more is read from the session meanwhile.
@@ -5376,6 +5629,7 @@ private final class OutgoingFileTransfer {
         acknowledgement.lock()
         acknowledgement.broadcast()
         acknowledgement.unlock()
+        pacer.cancel()
     }
 
     func acknowledge(sequence: Int64) {
@@ -5383,7 +5637,11 @@ private final class OutgoingFileTransfer {
         acknowledgedSequence = max(acknowledgedSequence, sequence)
         acknowledgement.broadcast()
         acknowledgement.unlock()
+        pacer.acknowledged(transferID, through: sequence)
     }
+
+    /// Flow control for the fast path; the JSON path keeps its own 64-chunk window above.
+    private var pacer = TransferPacer(fast: false)
 
     private func waitForAcknowledgement(sequence: Int64) throws {
         acknowledgement.lock()
@@ -5424,6 +5682,8 @@ private final class OutgoingFileTransfer {
         status: @escaping @MainActor (String) -> Void,
         completion: @escaping @MainActor (Result<PairingMessage, Error>) -> Void
     ) {
+        let fast = session.fastTransfers
+        if fast { pacer = TransferPacer(fast: true, initialWindow: session.lastFastWindow) }
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let handle = try FileHandle(forReadingFrom: self.url)
@@ -5431,7 +5691,26 @@ private final class OutgoingFileTransfer {
                 var sent: Int64 = 0
                 var sequence: Int64 = 0
                 let progress = MacTransferProgress(totalBytes: self.offer.size)
-                while let chunk = try handle.read(upToCount: Self.chunkSize), !chunk.isEmpty {
+                if fast {
+                    // Binary frames of 256 KiB in a byte window that follows the link (FastTransfer.swift).
+                    let pacer = self.pacer
+                    while let chunk = try handle.read(upToCount: pacer.chunkSize), !chunk.isEmpty {
+                        guard !self.isCancelled else { throw PairingError.cancelled }
+                        try pacer.waitForRoom(chunk.count) { self.isCancelled }
+                        pacer.didSend(self.transferID, sequence: sequence, bytes: chunk.count)
+                        guard session.sendFast(kind: FastFrame.chunkKind, id: self.transferID, sequence: sequence, plaintext: chunk) else {
+                            throw PairingError.invalidMessage
+                        }
+                        sequence += 1
+                        sent += Int64(chunk.count)
+                        if let detail = progress.status(transferred: max(0, sent - pacer.unacknowledgedBytes)) {
+                            DispatchQueue.main.async { status("Sending \(self.displayName): \(detail)") }
+                        }
+                    }
+                    try pacer.waitForAll { self.isCancelled }
+                    session.lastFastWindow = pacer.windowBytes
+                }
+                while !fast, let chunk = try handle.read(upToCount: Self.chunkSize), !chunk.isEmpty {
                     guard !self.isCancelled else { throw PairingError.cancelled }
                     let sealed = try Self.encrypt(chunk, key: key)
                     guard session.sendAndWait(PairingMessage(
@@ -5452,7 +5731,7 @@ private final class OutgoingFileTransfer {
                         DispatchQueue.main.async { status("Sending \(self.displayName): \(detail)") }
                     }
                 }
-                if sequence > 0 { try self.waitForAcknowledgement(sequence: sequence - 1) }
+                if !fast, sequence > 0 { try self.waitForAcknowledgement(sequence: sequence - 1) }
                 guard !self.isCancelled else { throw PairingError.cancelled }
                 let completionData = try JSONEncoder().encode(FileCompletePayload(
                     transferId: self.transferID,
@@ -5494,8 +5773,7 @@ private final class MacTransferProgress {
         let elapsed = now - lastAt
         if !force && elapsed < 0.25 && transferred < totalBytes { return nil }
         if elapsed > 0 {
-            let sample = Double(max(0, transferred - lastBytes)) / elapsed
-            smoothed = smoothed == 0 ? sample : smoothed * 0.7 + sample * 0.3
+            smoothed = smoothedRate(smoothed, sample: Double(max(0, transferred - lastBytes)) / elapsed, elapsed: elapsed)
         }
         lastAt = now
         lastBytes = transferred
@@ -5624,9 +5902,10 @@ final class IncomingFileTransfer {
         handle = try FileHandle(forWritingTo: partialURL)
     }
 
-    func append(_ data: Data, sequence: Int64) throws {
+    /// `maximumChunk` is 24 KiB for JSON chunks and 1 MiB for binary ones (draft files_fast_draft1).
+    func append(_ data: Data, sequence: Int64, maximumChunk: Int = 24 * 1024) throws {
         guard sequence == nextSequence,
-              data.count <= 24 * 1024,
+              data.count <= maximumChunk,
               receivedSize + Int64(data.count) <= expectedSize else { throw PairingError.invalidMessage }
         try handle.write(contentsOf: data)
         hasher.update(data: data)
@@ -5653,8 +5932,8 @@ final class IncomingFileTransfer {
         let elapsed = now - lastProgressAt
         if !force && elapsed < 0.25 && receivedSize < expectedSize { return nil }
         if elapsed > 0 {
-            let sample = Double(max(0, receivedSize - lastProgressBytes)) / elapsed
-            smoothedBytesPerSecond = smoothedBytesPerSecond == 0 ? sample : smoothedBytesPerSecond * 0.7 + sample * 0.3
+            smoothedBytesPerSecond = smoothedRate(smoothedBytesPerSecond, sample: Double(max(0, receivedSize - lastProgressBytes)) / elapsed,
+                                                  elapsed: elapsed)
         }
         lastProgressAt = now
         lastProgressBytes = receivedSize

@@ -16,6 +16,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case permissions, reset
     /// Devices sub-page: Connect away from home (ConnectSettingsView.swift).
     case away
+    /// Hidden until the version in About is clicked five times (DeveloperMenu.swift); then the last sidebar item.
+    case developer
 
     var id: String { rawValue }
 
@@ -37,6 +39,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .about: L10n.text("settings.about", fallback: "About")
         case .permissions, .reset: subpageTitle
         case .away: L10n.text("settings.away", fallback: "Connect away from home")
+        case .developer: L10n.text("settings.developer", fallback: "Developer and experimental")
         }
     }
 
@@ -67,11 +70,15 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .permissions: "lock.shield"
         case .reset: "arrow.counterclockwise"
         case .away: "globe"
+        case .developer: "hammer"
         }
     }
 
     /// The sidebar list; This Mac is the compact header above it.
-    static let sidebarItems: [SettingsPane] = allCases.filter { $0 != .thisMac && $0.parentPane == nil }
+    static let sidebarItems: [SettingsPane] = allCases.filter { $0 != .thisMac && $0 != .developer && $0.parentPane == nil }
+
+    /// The sidebar with Developer and experimental at the end while it is on.
+    static func sidebar(developer: Bool) -> [SettingsPane] { developer ? sidebarItems + [.developer] : sidebarItems }
 }
 
 struct SettingsModel {
@@ -83,6 +90,12 @@ struct SettingsModel {
     var connectedCount = 0
     var trustedDevices: [TrustedDeviceInfo] = []
     var rings: [DeviceRing] = []
+    /// Connected phones that can run the speed test (they advertise files_fast_draft1).
+    var speedPhones: [SpeedPhone] = []
+    /// The hidden Developer and experimental pane is on (DeveloperMenu.swift); never synced.
+    var developerMenu = false
+    /// Developer pane: how files travel to each connected phone.
+    var transferPaths: [TransferPathRow] = []
     var globalFeatures: [BridgeyFeature: Bool] = [:]
     var deviceFeatures: [String: [BridgeyFeature: Bool]] = [:]
     var remoteFeatures: [BridgeyFeature: Bool] = [:]
@@ -311,6 +324,10 @@ struct SettingsActions {
     /// "On, waiting for permission": open where it is allowed.
     var allowPermission: (SyncKey) -> Void = { _ in }
     var setConnectAway: (Bool) -> Void = { _ in }
+    /// About > Version: counts toward the Developer and experimental pane, or opens it once on.
+    var versionTapped: () -> DeveloperMenu.Tap = { .counting }
+    /// Developer and experimental > Hide this pane.
+    var turnOffDeveloper: () -> Void = {}
     var resetConnectIdentity: () -> Void = {}
     /// Debug only (BridgeyConnectDebug): the control service URL and relay only.
     var setConnectControlURL: (String) -> Void = { _ in }
@@ -397,7 +414,7 @@ private struct SettingsSidebar: View {
             .frame(height: 44)
             ThisMacHeader(model: model, selected: pane == .thisMac) { select(.thisMac) }
                 .padding(.bottom, 8)
-            ForEach(SettingsPane.sidebarItems) { item in
+            ForEach(SettingsPane.sidebar(developer: model.developerMenu)) { item in
                 Button {
                     select(item)
                 } label: {
@@ -683,6 +700,7 @@ struct SettingsPaneView: View {
         case .permissions: PermissionsPane(model: model, actions: actions)
         case .reset: ResetPane(model: model, actions: actions)
         case .away: ConnectAwayPane(model: model, actions: actions)
+        case .developer: DeveloperPane(model: model, actions: actions)
         }
     }
 }
@@ -1520,6 +1538,8 @@ struct AboutPane: View {
     let model: SettingsModel
     let actions: SettingsActions
     @Environment(\.brand) private var c
+    /// "2 more clicks to open the developer pane", for a moment after each click near the end of the count.
+    @State private var tapNote: String?
 
     var body: some View {
         SettingsCard {
@@ -1529,6 +1549,13 @@ struct AboutPane: View {
                     Text(Edition.displayName).font(BrandFont.heading(17)).foregroundStyle(c.on)
                     Text(String(format: L10n.text("updates.version", fallback: "Version %@"), model.versionDescription))
                         .font(BrandFont.body(12)).foregroundStyle(c.on2)
+                        .contentShape(Rectangle())
+                        // Five clicks turn on the Developer and experimental pane; once on, a click opens it.
+                        .onTapGesture { versionTapped() }
+                        .accessibilityAddTraits(.isButton)
+                    if let tapNote {
+                        Text(tapNote).font(BrandFont.body(11)).foregroundStyle(c.pri)
+                    }
                 }
             }
             .padding(.vertical, 10)
@@ -1543,7 +1570,66 @@ struct AboutPane: View {
                         subtitle: L10n.text("about.network.detail", fallback: "Bridgey talks directly over your local network. Clipboard, files and notification content are encrypted in transit.")) { EmptyView() }
         }
         LicencesCard()
+    }
+
+    private func versionTapped() {
+        switch actions.versionTapped() {
+        case .counting:
+            tapNote = nil
+        case let .remaining(left):
+            tapNote = String(format: left == 1
+                ? L10n.text("developer.tapsLeft.one", fallback: "%d more click to open the developer pane")
+                : L10n.text("developer.tapsLeft", fallback: "%d more clicks to open the developer pane"), left)
+        case .unlocked:
+            tapNote = L10n.text("developer.on", fallback: "Developer and experimental pane is on")
+        case .open:
+            tapNote = nil
+        }
+    }
+}
+
+/// Developer and experimental (hidden, DeveloperMenu.swift): tests and facts for people chasing a problem, then the
+/// experiments Rahul turns on before they are ready for everyone, then the way to hide the pane again.
+struct DeveloperPane: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        SpeedTestCard(phones: model.speedPhones)
         PerfTestPanel()
+        SettingsCard(title: L10n.text("developer.transfers", fallback: "How files travel now")) {
+            if model.transferPaths.isEmpty {
+                SettingsRow(title: L10n.text("developer.noPhones", fallback: "No phone connected"), subtitle: nil, divider: false) { EmptyView() }
+            }
+            ForEach(Array(model.transferPaths.enumerated()), id: \.element.id) { index, path in
+                SettingsRow(title: path.name, subtitle: Self.describe(path), divider: index > 0) { EmptyView() }
+            }
+        }
+        SettingsCard(title: L10n.text("developer.experimental", fallback: "Experimental features")) {
+            SettingsRow(title: L10n.text("developer.experimental.empty", fallback: "Nothing to try right now. New experiments show up here before everyone gets them."),
+                        subtitle: nil, divider: false) { EmptyView() }
+        }
+        SettingsCard {
+            SettingsRow(title: L10n.text("developer.hide", fallback: "Hide this pane"),
+                        subtitle: L10n.text("developer.hide.detail", fallback: "Click the version in About five times to bring it back"), divider: false) {
+                Button(L10n.text("developer.hide.action", fallback: "Hide"), action: actions.turnOffDeveloper)
+                    .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+            }
+        }
+    }
+
+    static func describe(_ path: TransferPathRow) -> String {
+        let how = path.fast
+            ? L10n.text("developer.path.fast", fallback: "Fast transfers: 256 KiB binary frames")
+            : L10n.text("developer.path.json", fallback: "24 KiB chunks inside messages, as before fast transfers")
+        let route: String
+        switch path.tunnelRoute {
+        case nil: route = L10n.text("developer.route.local", fallback: "Local network")
+        case "relay": route = L10n.text("developer.route.relay", fallback: "Away from home, through a relay")
+        default: route = L10n.text("developer.route.direct", fallback: "Away from home, direct")
+        }
+        return "\(how). \(route)"
     }
 }
 
@@ -1682,6 +1768,9 @@ struct LiveSettingsView: View {
         model.trustedDevices = pairing.trustedDevices
         model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, connected: pairing.connectedPhones,
                                   pairing: pairing.pairingFlow, reconnecting: pairing.reconnectStates)
+        model.speedPhones = pairing.speedPhones.map { SpeedPhone(id: $0.id, name: $0.name) }
+        model.developerMenu = DeveloperMenu.shared.enabled || pane == .developer
+        model.transferPaths = model.developerMenu ? pairing.transferPaths : []
         model.rediscovering = pairing.isRediscovering
         model.rediscoverStatus = pairing.rediscoverStatus
         model.globalFeatures = settings.globalFeatures
@@ -1769,6 +1858,15 @@ struct LiveSettingsView: View {
 
     private var actions: SettingsActions {
         var actions = SettingsActions()
+        actions.versionTapped = {
+            let tap = DeveloperMenu.shared.tap()
+            if tap == .unlocked || tap == .open { pane = .developer }
+            return tap
+        }
+        actions.turnOffDeveloper = {
+            DeveloperMenu.shared.turnOff()
+            pane = .about
+        }
         actions.setDeviceName = { name in
             settings.setDeviceName(name)
             pairing.updateDeviceName(settings.deviceName)

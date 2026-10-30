@@ -108,7 +108,7 @@ predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
 `sms_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`, `updates_draft1`,
-`screen_draft1`, `connect_draft1`)
+`screen_draft1`, `connect_draft1`, `files_fast_draft1`)
 are optional booleans described in their own sections; a missing draft key means `false`.
 
 ## Pairing flow
@@ -554,7 +554,9 @@ file. Cancellation is idempotent and leaves the authenticated session usable.
 For Mac-to-Android transfers, Android sends cumulative `files.chunk.ack`
 messages and macOS keeps at most 64 chunks (1.5 MiB) unacknowledged. This bounds
 memory and cancellation latency without limiting throughput to one network
-round trip per chunk.
+round trip per chunk. Between peers with `files_fast_draft1`, chunks are binary
+frames of up to 1 MiB in a byte window instead; see
+[Fast transfers](#draft-fast-transfers-and-the-speed-test-files_fast_draft1).
 An offer repeats its transfer ID in the outer session message so a receiver
 whose local file policy is disabled can return `files.rejected` without
 decrypting or accepting the offer. It then resends `features.update` to repair
@@ -1568,7 +1570,9 @@ carry QUIC, never plain TCP:
 - STUN, TURN and QUIC share one socket, told apart by the first byte (RFC 9443), so QUIC does not
   grease the fixed bit.
 - Stream 0, the first client-initiated bidirectional stream, carries the newline JSON session of this
-  document unchanged, with its 65,536-byte frame limit. The QUIC client sends `pairing.offer`.
+  document unchanged, with its 65,536-byte frame limit. The core copies the stream's bytes without
+  looking at them, so binary frames of fast transfers (`files_fast_draft1`, up to about 1 MiB each)
+  travel inside it too; the limit is for JSON frames. The QUIC client sends `pairing.offer`.
 - **Channel binding.** On a tunnel, `pairing.confirm` signs this transcript instead of
   `bridgey-auth-v1` (NUL-separated, initiator = the side that sent `pairing.offer`):
 
@@ -1653,6 +1657,111 @@ one for that session. Relay credentials are TURN REST style:
 valid 2 hours. A node's warm relay username is `"<expiry>:w.<tag>"`, tag = base64url(HMAC-SHA256(secret,
 "bridgey-warm-v1" \0 nodeId \0 expiry)[0..9]), with the same credential rule, valid 12 hours. Vectors for all of
 this: `protocol/test-vectors/connect-v1.json` (`nodeAuthV2`, `turnWarm`).
+
+## Draft: fast transfers and the speed test (`files_fast_draft1`)
+
+**Draft, edition only.** Why and what it measured: [transfer-speed.md](transfer-speed.md). Peers without the key
+keep everything in [Files](#files-filesv1) above: 24 KiB chunks as base64 inside JSON and at most 64 chunks
+unacknowledged.
+
+### Negotiation
+
+`features.update` gains the boolean key `files_fast_draft1`. It is a capability, not a setting: both apps advertise
+it whenever they support it, and use it only on a protocol 2 session (envelope tags on, see
+[Pairing flow](#pairing-flow)); on a protocol 1 session every chunk stays JSON whatever the map says (the Mac can turn it off for a test with `defaults write in.roundrobin.bridgey
+transfers.fastOff -bool true`). Fast transfers are used with a peer only while its latest map shows the key `true`. A
+sender decides once, when a transfer starts, and keeps that form for the whole transfer; a peer that supports the key
+reads binary frames for the rest of the session even if a later map shows `false`.
+
+### Binary frames
+
+Binary frames travel on the session's byte stream wherever it runs: the TCP socket on the local network, or stream 0
+of a Connect anywhere tunnel (a tunnel session is always protocol 2). Once a session is authenticated on protocol 2, a client that supports the key also reads **binary frames** between
+JSON frames. A
+binary frame starts with the byte `0xB1`, which cannot start a JSON frame (`{` or whitespace) and is not a valid
+first byte of UTF-8 text, so a peer without the key would close the session instead of misreading it. Before
+authentication the byte is just an invalid JSON frame, as it always was. Integers are big-endian.
+
+| Bytes | Field | Rule |
+| --- | --- | --- |
+| 0 | marker | `0xB1` |
+| 1 | kind | `1` file chunk, `2` speed test bytes; another kind is skipped whole once its tag verifies, and the session stays |
+| 2 to 5 | length | of what follows, 1 to 1,048,677; anything else closes the session |
+| 6 | ID length | 1 to 64 |
+| 7 to 6+L | ID | printable ASCII (0x21 to 0x7E): the transfer ID exactly as in `files.offer`, or the test ID |
+| next 8 | sequence | 0 to 2^53-1 |
+| next 12 | nonce | AES-GCM, random per frame |
+| rest | ciphertext and tag | plaintext 1 to 1,048,576 bytes, then the 16-byte tag |
+
+**Authentication under protocol 2.** JSON frames carry an envelope tag; a binary frame needs none, because its
+AES-GCM tag already authenticates everything in it, under the frame key HMAC-SHA-256(session key,
+`bridgey-fast-frame-key-v2`) (kept apart from the session key, as the envelope key is), and the associated data binds what the
+envelope tag binds: it is length-prefixed exactly like the envelope tag input (each field a 4-byte big-endian length
+and its UTF-8 bytes) and holds `bridgey-fast-frame-v2`, the **sending device's ID**, the kind (decimal), the ID and the
+sequence (decimal). So a frame cannot be moved to another transfer, position or kind, nor reflected back to the device
+that sent it (its own ID is not the sender the receiver checks), and nobody without the session key can make one.
+The session key is fresh for every session, so a frame cannot be replayed into another one.
+
+**Replay.** Binary frames do not enter the `messageId` window. Each side remembers, per kind and ID, the highest
+sequence it took (for the 256 most recently used IDs, so a long transfer is never forgotten while short ones come and
+go) and drops a frame that does not raise it; file transfers additionally require the next sequence exactly, as JSON
+chunks always did, and only from the device the transfer is with.
+
+**Bad frames.** A binary frame of any kind that fails its tag, is malformed inside its body or is a replay is dropped
+and counted
+with the frames dropped for a bad envelope tag; 16 close the connection, as for JSON. A header with a length outside
+1 to 1,048,677 closes the session at once, because the stream can no longer be split into frames.
+
+### Files over binary frames
+
+Between two peers that show the key, **every** `files.chunk` (single files, folders, Phone files downloads and
+uploads, clipboard files) is a binary frame of kind 1 instead of the JSON message. Everything else about files stays:
+`files.offer`, `files.accept`, `files.complete` and the cancels are JSON as before.
+
+- **Chunks** are up to 1 MiB; senders use 256 KiB.
+- **Every chunk is acknowledged** with the existing outer `files.chunk.ack` (cumulative), in both directions and for
+  single files too (the Mac did not acknowledge single files from the phone before).
+- **The window is counted in bytes** and follows the link: it starts at 2 MiB, doubles while acknowledgements come back
+  within 20 ms of the lowest round trip seen in the last 10 seconds, grows by about a chunk per round trip up to 40 ms
+  over it, and shrinks to 70% (at most once per round trip) beyond that, between 512 KiB and 32 MiB. So a transfer
+  fills the link while at most about 40 ms of file data waits in front of a clipboard update, a notification or a call
+  (a delay-based controller in the spirit of LEDBAT, RFC 6817). A sender with nothing unacknowledged may always send
+  one chunk.
+- Receivers keep their limits: a chunk over 1 MiB, a gap in the sequence or more bytes than offered fail the file
+  exactly as before.
+
+### Speed test
+
+Settings > Developer and experimental > Transfer speed (hidden until the version is tapped five times) on both apps. Either side starts; one test at a time per device. All JSON
+plaintexts are UTF-8, `version: 1`, at most 1,024 bytes; test IDs are UUIDs and compare lowercased; an undecryptable or
+malformed speed message is dropped and the session stays.
+
+1. `speed.start` (encrypted) carries `testId`, `seconds` (2 to 15; the apps use 7) and `link`, the sender's own view of
+   its network: `platform`, `network` (`wifi`, `ethernet`, `hotspot` when the phone is the Mac's access point, or
+   `other`), and where readable `band` (`2.4`, `5`, `6`), `linkMbps` (transmit rate), `standard` (4 to 7 for Wi-Fi 4
+   to 7) and `widthMhz`, plus on phones `lockHeld` and `screenOn`. No network names, addresses or device names.
+2. The other side answers `speed.ready` (encrypted) with `status` `ready` (and its own `link`), `busy` or `disabled`
+   within 5 seconds.
+3. Ten outer-only `speed.ping` (`transferId` the test ID, `sequence` 1 to 10, 30 ms apart) are echoed at once as
+   `speed.pong`; the idle round trip is their median.
+4. The side that started sends binary frames of kind 2 (256 KiB of zeros, encrypted like file chunks) for `seconds`,
+   paced by the window above; the other side answers each with an outer-only `speed.ack` and drops the bytes. Then
+   `speed.turn` (encrypted, with what it measured), and the other side sends for `seconds` and finishes with
+   `speed.done` (encrypted, with its measurement).
+5. The side that started sends `speed.result` (encrypted): `forwardBytesPerSecond` (from it), `backBytesPerSecond`,
+   `roundTripMs` and `loadedRoundTripMs` (the acknowledgements' smoothed round trip while sending), so both apps show
+   the same result. Throughput counts acknowledged bytes after the first second.
+
+Either side may send the outer-only `speed.cancel` (`transferId` the test ID) to stop: Stop, 5 seconds without an
+acknowledgement or without test bytes, a disconnect or a failure. While a test runs the phone holds its Wi-Fi
+power-save lock (below), as for transfers.
+
+### Wi-Fi power saving on the phone
+
+While any transfer or a speed test runs, the phone holds a low-latency Wi-Fi lock (Android 10 and later), a
+high-performance one (Android 13 and older) and a partial wake lock, and lets them go two seconds after the last one
+ends. Android applies the low-latency lock only while the screen is on and Bridgey is in front, so with the screen off
+Wi-Fi power saving can still slow a transfer; the speed test reports `screenOn`.
 
 ## Compatibility
 

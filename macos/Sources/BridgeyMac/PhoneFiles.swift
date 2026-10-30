@@ -125,6 +125,8 @@ enum PhoneFilesError: Error, Equatable {
     case code(String)
     /// Cancelled by the caller.
     case cancelled
+    /// A download stopped when the phone disconnected (or its app restarted) and did not continue in time.
+    case interrupted
 }
 
 /// A running request or transfer that the caller can stop.

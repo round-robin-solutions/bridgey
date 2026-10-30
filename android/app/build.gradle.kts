@@ -120,6 +120,9 @@ tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     // Protocol fuzz tests: -Pfuzz=<cases per property> (or BRIDGEY_FUZZ_ITERATIONS) for long runs, -Pfuzz.seed to replay.
     (project.findProperty("fuzz") as String?)?.let { systemProperty("bridgey.fuzzIterations", it) }
     (project.findProperty("fuzz.seed") as String?)?.let { systemProperty("bridgey.fuzzSeed", it) }
+    // Transfer ceiling bench (FastTransferCeilingBench): -Pbench=1, optionally -Pbench.mb=<file size in MB>.
+    (project.findProperty("bench") as String?)?.let { systemProperty("bridgey.bench", it) }
+    (project.findProperty("bench.mb") as String?)?.let { systemProperty("bridgey.benchMb", it) }
     System.getenv("BRIDGEY_FUZZ_ITERATIONS")?.let { environment("BRIDGEY_FUZZ_ITERATIONS", it) }
     systemProperty("robolectric.pixelCopyRenderMode", "hardware")
     // ./gradlew :app:testDebugUnitTest -Pscreenshots=<dir> writes the screen PNGs to <dir>.

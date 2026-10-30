@@ -19,6 +19,7 @@ enum SessionSecurity {
     private static let commitLabel = "bridgey-commit-v2"
     private static let sasLabel = "bridgey-sas-v2"
     private static let envelopeLabel = "bridgey-envelope-v2"
+    private static let fastFrameKeyLabel = "bridgey-fast-frame-key-v2"
 
     /// Base64 SHA-256 over the label, the session ID and the initiator's ephemeral public key (base64 text).
     static func commitment(sessionID: String, publicKey: String) -> String {
@@ -42,6 +43,11 @@ enum SessionSecurity {
 
     static func envelopeKey(sessionKey: Data) -> Data {
         Data(HMAC<SHA256>.authenticationCode(for: Data(envelopeLabel.utf8), using: SymmetricKey(data: sessionKey)))
+    }
+
+    /// The AES-GCM key for binary frames (draft files_fast_draft1, FastTransfer.swift), kept apart from the session key.
+    static func fastFrameKey(sessionKey: Data) -> Data {
+        Data(HMAC<SHA256>.authenticationCode(for: Data(fastFrameKeyLabel.utf8), using: SymmetricKey(data: sessionKey)))
     }
 
     /// Base64 HMAC-SHA-256 over the sender's device ID and every envelope field of `message` except `tag`. An empty

@@ -6,6 +6,7 @@
 //!
 //! cargo run --example probe -- --id A --peer B --side 0 --secret <base64 32 bytes> \
 //!     --control ws://127.0.0.1:18450/v1/ws [--relay-only] [--address 10.0.0.2:42459] [--port 42459] [--state file] [--key file]
+//!     [--binary-mb 64]   both sides exchange 64 MiB of binary frames (as fast transfers send) instead of text lines
 
 use bridgey_connect::ffi;
 use bridgey_connect_proto::b64;
@@ -117,6 +118,9 @@ fn run_bridge(handle: u64, port: u16, token: &str, client: bool, tunnel: &str, s
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("bridge");
     stream.set_nodelay(true).ok();
     stream.write_all(format!("{token}\n").as_bytes()).unwrap();
+    if let Some(mb) = arg("--binary-mb").and_then(|m| m.parse::<usize>().ok()) {
+        return run_binary(stream, mb, client, tunnel, started);
+    }
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut line = String::new();
     if client {
@@ -164,4 +168,73 @@ fn run_bridge(handle: u64, port: u16, token: &str, client: bool, tunnel: &str, s
         }
     }
     println!("{}", json!({"probe": "bridge_closed", "tunnel": tunnel, "atMs": started.elapsed().as_millis() as u64}));
+}
+
+/// `--binary-mb N`: the session's bytes are not all text. Fast transfers (files_fast_draft1) put binary frames on the
+/// same stream: a 0xB1 marker, then up to 1 MiB of ciphertext that holds every byte value, newlines included. The QUIC
+/// client sends N MiB shaped like 256 KiB frames; the other side echoes every byte; the client checks that the echo is
+/// identical (SHA-256) and times it.
+fn run_binary(mut stream: TcpStream, mb: usize, client: bool, tunnel: &str, started: Instant) {
+    use ring::digest::{Context, SHA256};
+    use std::io::Read;
+    if !client {
+        let mut buf = vec![0u8; 1 << 20];
+        loop {
+            match stream.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    if stream.write_all(&buf[..n]).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+        println!("{}", json!({"probe": "binary_echo_closed", "tunnel": tunnel}));
+        return;
+    }
+    let total = mb << 20;
+    let mut frame = vec![0u8; 6 + 256 * 1024];
+    let mut writer = stream.try_clone().unwrap();
+    let sender = std::thread::spawn(move || {
+        let mut digest = Context::new(&SHA256);
+        let mut seed: u32 = 0x9E37_79B9;
+        let mut sent = 0;
+        while sent < total {
+            frame[0] = 0xB1;
+            frame[1] = 1;
+            let body = (frame.len() - 6) as u32;
+            frame[2..6].copy_from_slice(&body.to_be_bytes());
+            for byte in frame[6..].iter_mut() {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                *byte = seed as u8;
+            }
+            let take = frame.len().min(total - sent);
+            digest.update(&frame[..take]);
+            if writer.write_all(&frame[..take]).is_err() {
+                break;
+            }
+            sent += take;
+        }
+        digest.finish()
+    });
+    let begun = Instant::now();
+    let mut digest = Context::new(&SHA256);
+    let mut buf = vec![0u8; 1 << 20];
+    let mut received = 0;
+    while received < total {
+        match stream.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                digest.update(&buf[..n]);
+                received += n;
+            }
+        }
+    }
+    let seconds = begun.elapsed().as_secs_f64();
+    let sent = sender.join().unwrap();
+    let identical = received == total && digest.finish().as_ref() == sent.as_ref();
+    println!("{}", json!({"probe": "binary_echo", "tunnel": tunnel, "atMs": started.elapsed().as_millis() as u64, "bytes": received,
+        "identical": identical, "mbPerSecondEachWay": (received as f64 / 1e6 / seconds * 10.0).round() / 10.0}));
 }

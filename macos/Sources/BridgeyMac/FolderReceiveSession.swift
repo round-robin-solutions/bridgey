@@ -925,7 +925,7 @@ final class FolderReceiveSession: @unchecked Sendable {
             let elapsed = now.timeIntervalSince(sample.at)
             if elapsed >= Self.progressInterval {
                 let rate = Double(max(0, bytesDone - sample.bytes)) / elapsed
-                bytesPerSecond = bytesPerSecond == 0 ? rate : bytesPerSecond * 0.7 + rate * 0.3
+                bytesPerSecond = smoothedRate(bytesPerSecond, sample: rate, elapsed: elapsed)
                 speedSample = (now, bytesDone)
             }
         } else {
