@@ -1897,8 +1897,12 @@ impl Node {
         }
         // Even with every peer still connected as far as the app knows: a session that died while the phone slept is
         // often only noticed now, and its reconnect needs a control connection that works.
-        let quiet = self.rdv.lock().unwrap().as_ref().and_then(RdvClient::quiet_for).is_some_and(|q| q > RDV_QUIET_LIMIT);
-        if quiet {
+        let (quiet, fresh_attempt) = {
+            let rdv = self.rdv.lock().unwrap();
+            let client = rdv.as_ref();
+            (client.and_then(RdvClient::quiet_for).is_some_and(|q| q > RDV_QUIET_LIMIT), client.and_then(RdvClient::attempt_age).is_some_and(|a| a < Duration::from_secs(2)))
+        };
+        if quiet && !fresh_attempt {
             self.mark("rdv.refresh", None, Some("foreground"));
             self.restart_rdv();
         }

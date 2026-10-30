@@ -38,6 +38,8 @@ pub struct Shared {
     pub ids: Mutex<Vec<String>>,
     pub warm: Mutex<Option<WarmRequest>>,
     last_heard: Mutex<Option<Instant>>,
+    /// When the current connection attempt began.
+    attempt_at: Mutex<Option<Instant>>,
 }
 
 pub struct RdvClient {
@@ -65,6 +67,11 @@ impl RdvClient {
     /// How long since the service last sent anything (a frame or a pong); `None` before the first connection.
     pub fn quiet_for(&self) -> Option<Duration> {
         self.shared.last_heard.lock().unwrap().map(|t| t.elapsed())
+    }
+
+    /// How long ago the current (or last) connection attempt began.
+    pub fn attempt_age(&self) -> Option<Duration> {
+        self.shared.attempt_at.lock().unwrap().map(|t| t.elapsed())
     }
 }
 
@@ -162,19 +169,27 @@ async fn session(
         return "insecure_url".into();
     }
     let Ok(mut request) = url.into_client_request() else { return "insecure_url".into() };
+    *shared.attempt_at.lock().unwrap() = Some(Instant::now());
     let authority = request.uri().authority().map(|a| a.as_str().to_string()).unwrap_or_default();
     // The single flight: sign while DNS, TCP and TLS run (the keystore can take tens of milliseconds).
     let ts = now_ms();
     let mut cnonce = [0u8; 16];
     ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut cnonce).expect("random");
     let signing = signer(derive::auth_message_v2(&authority, ts, &cnonce, node));
-    let (transport, signature) = tokio::join!(
-        tokio::time::timeout(Duration::from_secs(10), transport(&request, events)),
-        tokio::time::timeout(Duration::from_secs(10), signing.map(|sig| {
-            let _ = events.send(RdvEvent::Timing("signed"));
-            sig
-        })),
-    );
+    // A refresh (foreground, network change) abandons an attempt still under way: it may be stuck on a network
+    // that is gone, waiting out TCP retransmits, while a fresh one would be up in a few round trips.
+    let (transport, signature) = tokio::select! {
+        joined = async {
+            tokio::join!(
+                tokio::time::timeout(Duration::from_secs(10), transport(&request, events)),
+                tokio::time::timeout(Duration::from_secs(10), signing.map(|sig| {
+                    let _ = events.send(RdvEvent::Timing("signed"));
+                    sig
+                })),
+            )
+        } => joined,
+        _ = kick.notified() => return "refresh".into(),
+    };
     let Ok(Some(stream)) = transport else { return "connect_failed".into() };
     let ids = shared.ids.lock().unwrap().clone();
     let warm = shared.warm.lock().unwrap().clone();
@@ -199,9 +214,12 @@ async fn session(
     }
     let config = WebSocketConfig::default().max_message_size(Some(rdv::MAX_FRAME_BYTES)).max_frame_size(Some(rdv::MAX_FRAME_BYTES));
     let upgrade = tokio_tungstenite::client_async_with_config(request, stream, Some(config));
-    let (mut ws, response) = match tokio::time::timeout(Duration::from_secs(10), upgrade).await {
-        Ok(Ok(pair)) => pair,
-        _ => return "connect_failed".into(),
+    let (mut ws, response) = tokio::select! {
+        upgraded = tokio::time::timeout(Duration::from_secs(10), upgrade) => match upgraded {
+            Ok(Ok(pair)) => pair,
+            _ => return "connect_failed".into(),
+        },
+        _ = kick.notified() => return "refresh".into(),
     };
     let _ = events.send(RdvEvent::Timing("upgrade"));
     let next = |text: Option<Result<WsMessage, _>>| -> Option<Msg> {
@@ -232,7 +250,11 @@ async fn session(
             return "send_failed".into();
         }
     }
-    let Ok(welcome) = tokio::time::timeout(Duration::from_secs(10), ws.next()).await else { return "timeout".into() };
+    let welcome = tokio::select! {
+        welcome = tokio::time::timeout(Duration::from_secs(10), ws.next()) => welcome,
+        _ = kick.notified() => return "refresh".into(),
+    };
+    let Ok(welcome) = welcome else { return "timeout".into() };
     let relays = match next(welcome) {
         Some(Msg::Welcome { relays, .. }) => relays.unwrap_or_default(),
         Some(Msg::Error { code, .. }) => return format!("refused_{code}"),
@@ -240,8 +262,7 @@ async fn session(
     };
     *shared.last_heard.lock().unwrap() = Some(Instant::now());
     let _ = events.send(RdvEvent::Connected { inline_ids: fast_ids, warm_inline, relays });
-    // A refresh asked for while this connection was being made is already answered by it.
-    let _ = kick.notified().now_or_never();
+
     let mut clean_intervals = 0u32;
     let mut ping = tokio::time::interval(Duration::from_secs(*keepalive));
     ping.tick().await;
