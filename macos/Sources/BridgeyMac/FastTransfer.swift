@@ -170,11 +170,13 @@ final class TransferPacer: @unchecked Sendable {
     private var cancelled = false
     private let now: () -> TimeInterval
 
-    init(fast: Bool, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+    /// `initialWindow`: where the window ended for the previous file to the same device, so a queue of files does
+    /// not start from 2 MiB each time (live test 2026-10-30: 200 files of 5 MB). Clamped to the window's limits.
+    init(fast: Bool, initialWindow: Int64? = nil, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.fast = fast
         chunkSize = fast ? FastFrame.chunkSize : 24 * 1024
-        window = fast ? Self.initialWindow : Int64(Self.legacyWindowChunks)
         minimumWindow = Int64(2 * FastFrame.chunkSize)
+        window = fast ? min(Self.maximumWindow, max(minimumWindow, initialWindow ?? Self.initialWindow)) : Int64(Self.legacyWindowChunks)
         self.now = now
     }
 

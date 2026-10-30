@@ -160,6 +160,30 @@ class FastTransferTest {
         assertThrows(FastFrameException::class.java) { sealFastFrame(1, "t", 0, ByteArray(FastFrame.MAXIMUM_PLAINTEXT + 1), key, "phone") }
     }
 
+    /** Live test 2026-10-30: the session reuses one frame buffer per sending thread and one body buffer per reader. */
+    @Test fun reusedBuffersGiveTheSameFramesAndPayloads() {
+        val nonce = ByteArray(12) { 7 }
+        val big = ByteArray(FastFrame.CHUNK_SIZE) { (it * 3).toByte() }
+        val buffer = ByteArray(fastFrameSize("t", big.size))
+        for ((sequence, length) in listOf(FastFrame.CHUNK_SIZE, 1, 5000, FastFrame.CHUNK_SIZE).withIndex()) {
+            val written = sealFastFrameInto(buffer, 1, "t", sequence.toLong(), big, key, "phone", 0, length, nonce)
+            assertArrayEquals(sealFastFrame(1, "t", sequence.toLong(), big, key, "phone", 0, length, nonce), buffer.copyOf(written))
+        }
+        assertThrows(FastFrameException::class.java) { sealFastFrameInto(ByteArray(100), 1, "t", 0, big, key, "phone") }
+        // Frames of different sizes through a reader that reuses its body buffer: each opens before the next read.
+        val stream = java.io.ByteArrayOutputStream()
+        val sizes = listOf(FastFrame.CHUNK_SIZE, 10, FastFrame.MAXIMUM_PLAINTEXT, 3, FastFrame.CHUNK_SIZE)
+        sizes.forEachIndexed { index, size -> stream.write(sealFastFrame(1, "t", index.toLong(), ByteArray(size) { (it + index).toByte() }, key, "phone")) }
+        val reader = ProtocolStreamReader(ByteArrayInputStream(stream.toByteArray()), reuseBinaryBuffer = true).apply { binaryAllowed = true }
+        sizes.forEachIndexed { index, size ->
+            val frame = reader.next() as ProtocolFrame.Binary
+            val payload = openFastFrameBody(frame.kind, frame.body, key, "phone", frame.size)
+            assertEquals(index.toLong(), payload.sequence)
+            assertArrayEquals(ByteArray(size) { (it + index).toByte() }, payload.plaintext)
+        }
+        assertNull(reader.next())
+    }
+
     @Test fun offsetAndLengthSealOnlyThatPart() {
         val buffer = ByteArray(100) { it.toByte() }
         val frame = sealFastFrame(FastFrame.CHUNK_KIND, "t", 0, buffer, key, "phone", 10, 20)
@@ -233,6 +257,20 @@ class FastTransferTest {
         // The oldest short transfer was forgotten; the most recent ones are not.
         assertTrue(guard.accept(FastFramePayload(1, "short-0", 0, ByteArray(0))))
         assertFalse(guard.accept(FastFramePayload(1, "short-299", 0, ByteArray(0))))
+    }
+
+    /** Live test 2026-10-30: the next file to the same device starts where the last one's window ended. */
+    @Test fun aPacerStartsFromTheLastFilesWindowWithinItsLimits() {
+        assertEquals(TransferPacer.INITIAL_WINDOW, TransferPacer(fast = true).window)
+        assertEquals(12L * 1024 * 1024, TransferPacer(fast = true, initialWindow = 12L * 1024 * 1024).window)
+        assertEquals(TransferPacer.MAXIMUM_WINDOW, TransferPacer(fast = true, initialWindow = Long.MAX_VALUE).window)
+        assertEquals(2L * FastFrame.CHUNK_SIZE, TransferPacer(fast = true, initialWindow = 1).window)
+        val pacer = TransferPacer(fast = true, initialWindow = 8L * 1024 * 1024)
+        repeat(32) {
+            assertTrue("chunk $it fits in 8 MiB", pacer.canSend(FastFrame.CHUNK_SIZE))
+            pacer.didSend("t", it.toLong(), FastFrame.CHUNK_SIZE)
+        }
+        assertFalse(pacer.canSend(FastFrame.CHUNK_SIZE))
     }
 
     @Test fun legacyPacerKeepsSixtyFourChunks() {

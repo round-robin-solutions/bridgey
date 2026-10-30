@@ -1,8 +1,8 @@
 # Transfer speed: fast transfers (`files_fast_draft1`)
 
 Status: built on `rr/fast-transfers` (October 2026), behind the draft key `files_fast_draft1`. Measured on the
-personal Mac (M4), on `rr-dev-1` and on the bridgey-api36 emulator. **Not yet measured on real Wi-Fi or on the
-OnePlus 11**, and not yet measured end to end with both apps on the emulator (section 6).
+personal Mac (M4), on `rr-dev-1` and with both apps on the bridgey-api36 emulator (Android 16, 4 cores, 2 GB) over
+`adb forward`. **Not yet measured on real Wi-Fi or on the OnePlus 11** (section 7).
 
 Rahul, 2026-10-29: Phone files downloads ran at about 1 to 3.5 MB/s; he expected 80 to 100 MB/s. This page explains
 why the old path was slow, what changed, what was measured, and what is still an estimate.
@@ -68,11 +68,42 @@ All rows are single runs (the emulator disk rows used a 300 MB file, the rest 1,
 of 9 to 17 from other agents' builds, so its numbers are lower bounds. The ART rows run the app's own classes from the
 debug APK with `app_process`, outside the app, so they include no UI, no Bridgey session and no MediaStore bookkeeping.
 
-### What the earlier session reported (not re-measured)
+### Both apps on the emulator (measured, 2026-10-30)
 
-The session that built the first version reported, for both apps on the emulator: 1 GB Mac to phone 5.5 MB/s before,
-11.4 MB/s after; Phone files download of 1 GB 9.1 MB/s before, 13.1 MB/s after. Those runs could not be repeated
-here (section 6), so they are kept only as the earlier session's report.
+The signed release APK (versionCode above every published beta, so it is never replaced from GitHub) on
+bridgey-api36, and a throwaway Mac build (own bundle ID, support folder and port) on the personal Mac, connected by
+`adb forward`, never through the emulator's own NAT. Files: 1,000 MB of random bytes; 200 files of 5 MB; for Phone
+files downloads a 1,000 MB video and 200 photos of 5 MB in the phone's gallery. Time runs from the request on the Mac
+to the last file verified (both apps hash every file), so it includes the sender's hashing pass. Every received file
+was checked: the 1 GB files matched SHA-256 on both sides. Phone app in the background unless noted.
+
+| Transfer | Fresh install, first runs | Later runs (another emulator boot) |
+| --- | --- | --- |
+| 1 GB Mac to phone | **283 MB/s** (3.5 s) | 109 to 176 MB/s (4 runs) |
+| 1 GB Phone files download (phone to Mac) | **133 MB/s** (7.5 s) | 77 MB/s (2 runs) |
+| 200 × 5 MB Mac to phone, as separate files | 38 MB/s | 39 to 47 MB/s |
+| 200 × 5 MB Mac to phone, as one folder | 46 MB/s | 59 to 91 MB/s |
+| 200 × 5 MB Phone files download | see below | see below |
+| In-app speed test, started on the phone | | phone to Mac 134.6 MB/s, Mac to phone 332.9 MB/s, round trip 2 ms idle, 34 ms loaded |
+| In-app speed test, started on the Mac | | Mac to phone 320.9 MB/s, phone to Mac 132.0 MB/s, round trip 2 ms idle, 27 ms loaded |
+
+The two columns differ by up to 2x with the same builds: the first emulator boot (by another session) ran faster than
+the later ones. Compare rows within one column only.
+
+**A/B on one emulator boot, Phone files download of 200 photos of 5 MB** (each figure one run of 2 × 100 files):
+
+| Build | Runs | Of which: preparing 100 files (hashing) |
+| --- | --- | --- |
+| Before this session's fixes (`fc56cb7`) | 47.3, 47.7, 48.4 MB/s | 2.0 to 2.4 s |
+| After (hashing four files at a time) | 59.7, 59.9, 67.0 MB/s | 0.5 to 0.9 s |
+
+**The app on screen costs half the speed on the emulator.** 200 × 5 MB Mac to phone ran at 25 to 26 MB/s with the
+phone app in front (three runs, steady) against 46 MB/s with it in the background; the phone's `RenderThread` took 41
+to 50% of the samples, all of it in the emulator's software graphics pipe. A phone with a real GPU will pay much less;
+not measured.
+
+The earlier session's 11 to 13 MB/s for 1 GB was not reproduced: the same kind of run measured 109 to 283 MB/s here.
+Its numbers are left out of the tables.
 
 ## 3. Root causes, by impact
 

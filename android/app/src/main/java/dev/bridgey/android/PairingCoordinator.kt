@@ -2614,7 +2614,7 @@ class PairingCoordinator(
             val sent = runCatching {
                 if (fast) {
                     // Binary frames of 256 KiB in a byte window that follows the link (FastTransfer.kt).
-                    val pacer = TransferPacer(fast = true)
+                    val pacer = TransferPacer(fast = true, initialWindow = connectedSession.lastFastWindow)
                     val job = coroutineContext[Job]
                     outgoingPacers[transferId] = pacer
                     try {
@@ -2636,6 +2636,7 @@ class PairingCoordinator(
                                 }
                             }
                             check(pacer.waitForAll { job?.isActive == false })
+                            connectedSession.lastFastWindow = pacer.window
                             updateFileTransfer(transferId, metadata.first, "Verifying ${metadata.first} on $peer…", true)
                         } ?: error("File unavailable")
                     } finally {
@@ -3010,7 +3011,7 @@ class PairingCoordinator(
                             // Like a frame with a bad envelope tag: a forged, damaged, reflected or replayed frame is
                             // dropped and counted, whatever its kind (the kind is in the associated data); 16 close the
                             // session. A genuine frame of a kind this version does not know is skipped.
-                            val payload = runCatching { openFastFrameBody(frame.kind, frame.body, context.key, context.remote) }.getOrNull()
+                            val payload = runCatching { openFastFrameBody(frame.kind, frame.body, context.key, context.remote, frame.size) }.getOrNull()
                             val known = frame.kind == FastFrame.CHUNK_KIND || frame.kind == FastFrame.SPEED_KIND
                             val reason = when {
                                 payload == null -> "bad_binary_tag"
@@ -4643,7 +4644,7 @@ class PairingCoordinator(
 
     private class Session(private val socket: Socket) {
         /** Frames of both kinds, read with the reader's own buffer (FastTransfer.kt). */
-        val frames = ProtocolStreamReader(socket.getInputStream())
+        val frames = ProtocolStreamReader(socket.getInputStream(), reuseBinaryBuffer = true)
         private val output = java.io.BufferedOutputStream(socket.getOutputStream(), 64 * 1024)
 
         /** This end's address of the socket, for the speed test's link facts (which interface carries the session). */
@@ -4660,6 +4661,9 @@ class PairingCoordinator(
 
         /** The peer's latest features.update shows files_fast_draft1. */
         @Volatile var peerFast = false
+
+        /** Where the byte window ended for the last single file sent to this device; the next one starts there. */
+        @Volatile var lastFastWindow: Long? = null
 
         /** Fast transfers with this peer (FastTransfer.kt), read by senders when a transfer starts. */
         val fastTransfers: Boolean get() = peerFast && binaryContext != null
@@ -4743,6 +4747,9 @@ class PairingCoordinator(
 
         private val writeLock = Any()
 
+        /** Each sending thread's frame buffer for [sendFast]. */
+        private val frameBuffers = ThreadLocal.withInitial { ByteArray(0) }
+
         /** Senders waiting for, or holding, the socket (everything but the media lane). */
         private val urgentSenders = java.util.concurrent.atomic.AtomicInteger(0)
         @Volatile private var lastChunkAtMillis = 0L
@@ -4786,13 +4793,16 @@ class PairingCoordinator(
          */
         fun sendFast(kind: Int, id: String, sequence: Long, plaintext: ByteArray, length: Int = plaintext.size): Boolean {
             val context = binaryContext ?: return false
-            val frame = runCatching { sealFastFrame(kind, id, sequence, plaintext, context.key, context.local, 0, length) }.getOrElse { return false }
+            // One frame buffer per sending thread, reused for every chunk (no 256 KiB garbage per chunk).
+            val needed = runCatching { fastFrameSize(id, length) }.getOrElse { return false }
+            val frame = frameBuffers.get()!!.let { if (it.size >= needed) it else ByteArray(maxOf(needed, FastFrame.CHUNK_SIZE + 1024)).also(frameBuffers::set) }
+            val frameLength = runCatching { sealFastFrameInto(frame, kind, id, sequence, plaintext, context.key, context.local, 0, length) }.getOrElse { return false }
             urgentSenders.incrementAndGet()
             try {
                 lastChunkAtMillis = SystemClock.elapsedRealtime()
                 return synchronized(writeLock) {
                     val result = runCatching {
-                        output.write(frame)
+                        output.write(frame, 0, frameLength)
                         output.flush()
                     }
                     result.exceptionOrNull()?.let { BridgeyLogging.w(LogCategory.CONNECTION, "TRANSPORT send failed kind=binary", it) }

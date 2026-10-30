@@ -165,7 +165,7 @@ class FastTransferCeilingBench {
                 runCatching {
                     server.accept().use { socket ->
                         socket.tcpNoDelay = true
-                        val frames = ProtocolStreamReader(socket.getInputStream()).apply { binaryAllowed = fast }
+                        val frames = ProtocolStreamReader(socket.getInputStream(), reuseBinaryBuffer = true).apply { binaryAllowed = fast }
                         val output = BufferedOutputStream(socket.getOutputStream(), 64 * 1024)
                         val file: OutputStream = if (disk) FileOutputStream(target) else OutputStream.nullOutputStream()
                         val digest = MessageDigest.getInstance("SHA-256")
@@ -176,7 +176,7 @@ class FastTransferCeilingBench {
                             while (received < total) {
                                 val (sequence, plaintext) = when (val frame = frames.next() ?: break) {
                                     is ProtocolFrame.Binary -> {
-                                        val payload = openFastFrameBody(frame.kind, frame.body, key, phone)
+                                        val payload = openFastFrameBody(frame.kind, frame.body, key, phone, frame.size)
                                         check(replay.accept(payload))
                                         payload.sequence to payload.plaintext
                                     }
@@ -218,6 +218,8 @@ class FastTransferCeilingBench {
             val started = System.nanoTime()
             FileInputStream(source).use { input ->
                 val buffer = ByteArray(pacer.chunkSize)
+                val frameBuffer = ByteArray(fastFrameSize(transferId, pacer.chunkSize))
+                var frameLength = 0
                 var sequence = 0L
                 while (true) {
                     val count = input.readFully(buffer)
@@ -225,7 +227,9 @@ class FastTransferCeilingBench {
                     check(pacer.waitForRoom(count, timeoutMillis = 30_000))
                     pacer.didSend(transferId, sequence, count)
                     val bytes = if (fast) {
-                        sealFastFrame(FastFrame.CHUNK_KIND, transferId, sequence, buffer, key, phone, 0, count)
+                        // As Session.sendFast: one reused frame buffer.
+                        frameLength = sealFastFrameInto(frameBuffer, FastFrame.CHUNK_KIND, transferId, sequence, buffer, key, phone, 0, count)
+                        frameBuffer
                     } else {
                         val sealed = Crypto.encrypt(key, buffer.copyOf(count))
                         val message = Message(kind = "files.chunk", sessionId = "s", messageId = UUID.randomUUID().toString(),
@@ -233,7 +237,7 @@ class FastTransferCeilingBench {
                         (message.copy(tag = SessionSecurity.tag(envelopeKey, phone, message)).encode() + "\n").toByteArray()
                     }
                     synchronized(writeLock) {
-                        output.write(bytes)
+                        output.write(bytes, 0, if (fast) frameLength else bytes.size)
                         output.flush()
                     }
                     sequence++

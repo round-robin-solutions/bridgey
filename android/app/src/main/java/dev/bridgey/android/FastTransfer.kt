@@ -76,13 +76,38 @@ internal fun sealFastFrame(
     length: Int = plaintext.size,
     nonce: ByteArray? = null,
 ): ByteArray {
+    val frame = ByteArray(fastFrameSize(id, length))
+    sealFastFrameInto(frame, kind, id, sequence, plaintext, key, sender, offset, length, nonce)
+    return frame
+}
+
+/** The whole frame's size for an [id] of printable ASCII and [length] plaintext bytes. */
+internal fun fastFrameSize(id: String, length: Int): Int = FastFrame.HEADER_BYTES + 1 + id.length + 8 + 12 + length + 16
+
+/**
+ * [sealFastFrame] into [frame] from its start, so a sender can reuse one buffer instead of allocating a frame per chunk
+ * (live test 2026-10-30: the phone's garbage collector used 30 to 60% of a core during every transfer). Returns the
+ * frame's length.
+ */
+internal fun sealFastFrameInto(
+    frame: ByteArray,
+    kind: Int,
+    id: String,
+    sequence: Long,
+    plaintext: ByteArray,
+    key: ByteArray,
+    sender: String,
+    offset: Int = 0,
+    length: Int = plaintext.size,
+    nonce: ByteArray? = null,
+): Int {
     val idBytes = id.toByteArray(Charsets.US_ASCII)
     if (!validFastId(idBytes) || sequence !in 0..FastFrame.MAXIMUM_SEQUENCE || length !in 1..FastFrame.MAXIMUM_PLAINTEXT) {
         throw FastFrameException("invalid frame")
     }
     val iv = nonce ?: ByteArray(12).also(fastRandom::nextBytes)
     val bodyLength = 1 + idBytes.size + 8 + 12 + length + 16
-    val frame = ByteArray(FastFrame.HEADER_BYTES + bodyLength)
+    if (frame.size < FastFrame.HEADER_BYTES + bodyLength) throw FastFrameException("buffer too small")
     val head = ByteBuffer.wrap(frame)
     head.put(FastFrame.MARKER).put(kind.toByte()).putInt(bodyLength).put(idBytes.size.toByte()).put(idBytes).putLong(sequence).put(iv)
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -90,30 +115,30 @@ internal fun sealFastFrame(
     cipher.updateAAD(fastFrameAssociatedData(sender, kind, id, sequence))
     val written = cipher.doFinal(plaintext, offset, length, frame, head.position())
     check(written == length + 16)
-    return frame
+    return FastFrame.HEADER_BYTES + bodyLength
 }
 
 /**
  * Reads and decrypts a frame body (what follows the 6-byte header) from [sender] (the other device's ID). A malformed
  * field or a failed tag is dropped and counted like a frame with a bad envelope tag (16 close the session).
  */
-internal fun openFastFrameBody(kind: Int, body: ByteArray, key: ByteArray, sender: String): FastFramePayload {
-    if (body.size > FastFrame.MAXIMUM_BODY || body.isEmpty()) throw FastFrameException("malformed")
+internal fun openFastFrameBody(kind: Int, body: ByteArray, key: ByteArray, sender: String, size: Int = body.size): FastFramePayload {
+    if (size > FastFrame.MAXIMUM_BODY || size <= 0 || size > body.size) throw FastFrameException("malformed")
     val idLength = body[0].toInt() and 0xFF
-    if (idLength !in 1..FastFrame.MAXIMUM_ID_BYTES || body.size < 1 + idLength + 8 + 12 + 16 + 1) throw FastFrameException("malformed")
+    if (idLength !in 1..FastFrame.MAXIMUM_ID_BYTES || size < 1 + idLength + 8 + 12 + 16 + 1) throw FastFrameException("malformed")
     val idBytes = body.copyOfRange(1, 1 + idLength)
     if (!validFastId(idBytes)) throw FastFrameException("malformed")
     val sequence = ByteBuffer.wrap(body, 1 + idLength, 8).long
     if (sequence !in 0..FastFrame.MAXIMUM_SEQUENCE) throw FastFrameException("malformed")
     val nonceStart = 1 + idLength + 8
     val cipherStart = nonceStart + 12
-    if (body.size - cipherStart - 16 > FastFrame.MAXIMUM_PLAINTEXT) throw FastFrameException("malformed")
+    if (size - cipherStart - 16 > FastFrame.MAXIMUM_PLAINTEXT) throw FastFrameException("malformed")
     val id = String(idBytes, Charsets.US_ASCII)
     val plaintext = try {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, body, nonceStart, 12))
         cipher.updateAAD(fastFrameAssociatedData(sender, kind, id, sequence))
-        cipher.doFinal(body, cipherStart, body.size - cipherStart)
+        cipher.doFinal(body, cipherStart, size - cipherStart)
     } catch (_: java.security.GeneralSecurityException) {
         throw FastFrameException("undecryptable")
     }
@@ -145,8 +170,8 @@ internal class FastReplayGuard(private val capacity: Int = 256) {
 internal sealed interface ProtocolFrame {
     class Json(val text: String) : ProtocolFrame
 
-    /** A binary frame, still encrypted. */
-    class Binary(val kind: Int, val body: ByteArray) : ProtocolFrame
+    /** A binary frame, still encrypted: the first [size] bytes of [body]. */
+    class Binary(val kind: Int, val body: ByteArray, val size: Int = body.size) : ProtocolFrame
 }
 
 /**
@@ -156,7 +181,16 @@ internal sealed interface ProtocolFrame {
  * starts with [FastFrame.MARKER] is binary. A socket timeout keeps everything read so far, so the heartbeat loop can
  * call [next] again.
  */
-internal class ProtocolStreamReader(private val input: InputStream, private val maxJsonBytes: Int = MAX_PROTOCOL_FRAME_BYTES) {
+internal class ProtocolStreamReader(
+    private val input: InputStream,
+    private val maxJsonBytes: Int = MAX_PROTOCOL_FRAME_BYTES,
+    /**
+     * Binary bodies go into one buffer that the next call reuses, instead of a new array per frame (the session's read
+     * loop opens each frame before reading the next). Off by default, for callers that keep frames.
+     */
+    private val reuseBinaryBuffer: Boolean = false,
+) {
+    private var bodyBuffer = ByteArray(0)
     @Volatile var binaryAllowed = false
     private var buffer = ByteArray(256 * 1024)
     private var start = 0
@@ -167,18 +201,19 @@ internal class ProtocolStreamReader(private val input: InputStream, private val 
     /** A binary body that is larger than what is buffered, filled across reads. */
     private var pendingKind = 0
     private var pendingBody: ByteArray? = null
+    private var pendingSize = 0
     private var pendingFilled = 0
 
     fun next(): ProtocolFrame? {
         while (true) {
             pendingBody?.let { body ->
-                val take = minOf(end - start, body.size - pendingFilled)
+                val take = minOf(end - start, pendingSize - pendingFilled)
                 System.arraycopy(buffer, start, body, pendingFilled, take)
                 start += take
                 pendingFilled += take
-                if (pendingFilled == body.size) {
+                if (pendingFilled == pendingSize) {
                     pendingBody = null
-                    return ProtocolFrame.Binary(pendingKind, body)
+                    return ProtocolFrame.Binary(pendingKind, body, pendingSize)
                 }
                 if (ended) throw EOFException("stream ended inside a frame")
                 if (start == end) {
@@ -186,12 +221,12 @@ internal class ProtocolStreamReader(private val input: InputStream, private val 
                     end = 0
                 }
                 // Large bodies read straight into the body array.
-                val count = input.read(body, pendingFilled, body.size - pendingFilled)
+                val count = input.read(body, pendingFilled, pendingSize - pendingFilled)
                 if (count < 0) throw EOFException("stream ended inside a frame")
                 pendingFilled += count
-                if (pendingFilled == body.size) {
+                if (pendingFilled == pendingSize) {
                     pendingBody = null
-                    return ProtocolFrame.Binary(pendingKind, body)
+                    return ProtocolFrame.Binary(pendingKind, body, pendingSize)
                 }
                 continue
             }
@@ -204,7 +239,13 @@ internal class ProtocolStreamReader(private val input: InputStream, private val 
                         start += FastFrame.HEADER_BYTES
                         searched = 0
                         pendingKind = kind
-                        pendingBody = ByteArray(length)
+                        pendingBody = if (reuseBinaryBuffer) {
+                            if (bodyBuffer.size < length) bodyBuffer = ByteArray(maxOf(length, FastFrame.CHUNK_SIZE + 1024))
+                            bodyBuffer
+                        } else {
+                            ByteArray(length)
+                        }
+                        pendingSize = length
                         pendingFilled = 0
                         continue
                     }
@@ -262,7 +303,15 @@ internal class ProtocolStreamReader(private val input: InputStream, private val 
  * above the lowest one seen, so a transfer fills the link without parking seconds of data in front of clipboard,
  * notifications and calls (a delay-based controller in the spirit of LEDBAT, RFC 6817). Thread-safe.
  */
-internal class TransferPacer(val fast: Boolean, private val now: () -> Long = System::nanoTime) {
+internal class TransferPacer(
+    val fast: Boolean,
+    /**
+     * Where the window ended for the previous file to the same device, so a queue of files does not start from 2 MiB
+     * each time (live test 2026-10-30: 200 files of 5 MB). Clamped to the window's limits.
+     */
+    initialWindow: Long? = null,
+    private val now: () -> Long = System::nanoTime,
+) {
     val chunkSize: Int = if (fast) FastFrame.CHUNK_SIZE else 24 * 1024
     private val lock = ReentrantLock()
     private val changed = lock.newCondition()
@@ -270,9 +319,9 @@ internal class TransferPacer(val fast: Boolean, private val now: () -> Long = Sy
     private val inFlight = HashMap<String, ArrayDeque<Sent>>()
     private var inFlightBytes = 0L
     private var inFlightChunks = 0
-    var window: Long = if (fast) INITIAL_WINDOW else LEGACY_WINDOW_CHUNKS.toLong()
-        private set
     private val minimumWindow = 2L * FastFrame.CHUNK_SIZE
+    var window: Long = if (fast) (initialWindow ?: INITIAL_WINDOW).coerceIn(minimumWindow, MAXIMUM_WINDOW) else LEGACY_WINDOW_CHUNKS.toLong()
+        private set
     private val baseRoundTrips = ArrayDeque<LongArray>()
     private var lastDecrease = 0L
     private var windowLimited = false

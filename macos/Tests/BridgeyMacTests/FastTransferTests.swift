@@ -188,6 +188,20 @@ final class FastTransferTests: XCTestCase {
     }
 
     /// Security review 2026-10-30: a long transfer stays remembered while 256 short ones come and go.
+    /// Live test 2026-10-30: the next file to the same phone starts where the last one's window ended.
+    func testAPacerStartsFromTheLastFilesWindowWithinItsLimits() {
+        XCTAssertEqual(TransferPacer(fast: true).windowBytes, TransferPacer.initialWindow)
+        XCTAssertEqual(TransferPacer(fast: true, initialWindow: 12 * 1024 * 1024).windowBytes, 12 * 1024 * 1024)
+        XCTAssertEqual(TransferPacer(fast: true, initialWindow: .max).windowBytes, TransferPacer.maximumWindow)
+        XCTAssertEqual(TransferPacer(fast: true, initialWindow: 1).windowBytes, Int64(2 * FastFrame.chunkSize))
+        let pacer = TransferPacer(fast: true, initialWindow: 8 * 1024 * 1024)
+        for sequence in 0..<32 {
+            XCTAssertTrue(pacer.canSend(FastFrame.chunkSize), "chunk \(sequence) fits in 8 MiB")
+            pacer.didSend("t", sequence: Int64(sequence), bytes: FastFrame.chunkSize)
+        }
+        XCTAssertFalse(pacer.canSend(FastFrame.chunkSize))
+    }
+
     func testReplayGuardForgetsTheLeastRecentlyUsedTransfer() {
         var guardWindow = FastReplayGuard()
         func frame(_ id: String, _ sequence: Int64) -> FastFramePayload { FastFramePayload(kind: 1, id: id, sequence: sequence, plaintext: Data()) }

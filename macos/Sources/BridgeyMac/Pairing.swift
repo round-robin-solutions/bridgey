@@ -5132,6 +5132,13 @@ private final class Session {
 
     private var binaryContext: (key: Data, local: String, remote: String)? { fastLock.withLock { binary } }
 
+    private var lastWindow: Int64?
+    /// Where the byte window ended for the last single file sent to this phone; the next one starts there.
+    var lastFastWindow: Int64? {
+        get { fastLock.withLock { lastWindow } }
+        set { fastLock.withLock { lastWindow = newValue } }
+    }
+
     /// Fast transfers with this peer: the session is on protocol 2, its latest features.update shows `files_fast_draft1`
     /// and this Mac has not turned them off (FastTransferSettings). Read by senders on any thread when a transfer starts.
     var fastTransfers: Bool {
@@ -5405,7 +5412,7 @@ private final class OutgoingFileTransfer {
         completion: @escaping @MainActor (Result<PairingMessage, Error>) -> Void
     ) {
         let fast = session.fastTransfers
-        if fast { pacer = TransferPacer(fast: true) }
+        if fast { pacer = TransferPacer(fast: true, initialWindow: session.lastFastWindow) }
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let handle = try FileHandle(forReadingFrom: self.url)
@@ -5430,6 +5437,7 @@ private final class OutgoingFileTransfer {
                         }
                     }
                     try pacer.waitForAll { self.isCancelled }
+                    session.lastFastWindow = pacer.windowBytes
                 }
                 while !fast, let chunk = try handle.read(upToCount: Self.chunkSize), !chunk.isEmpty {
                     guard !self.isCancelled else { throw PairingError.cancelled }
