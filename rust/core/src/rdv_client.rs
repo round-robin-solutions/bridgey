@@ -290,8 +290,11 @@ async fn session(
                 }
             }
             incoming = ws.next() => {
-                last_heard = tokio::time::Instant::now();
-                *shared.last_heard.lock().unwrap() = Some(Instant::now());
+                // Only a frame counts as hearing from the service; a close or an error does not.
+                if matches!(incoming, Some(Ok(_))) {
+                    last_heard = tokio::time::Instant::now();
+                    *shared.last_heard.lock().unwrap() = Some(Instant::now());
+                }
                 match incoming {
                     Some(Ok(WsMessage::Text(text))) => {
                         if let Some(msg) = Msg::parse(text.as_str()) {

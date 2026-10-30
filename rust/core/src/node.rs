@@ -1900,7 +1900,10 @@ impl Node {
         }
         // Even with every peer still connected as far as the app knows: a session that died while the phone slept is
         // often only noticed now, and its reconnect needs a control connection that works.
-        let quiet = self.rdv.lock().unwrap().as_ref().and_then(RdvClient::quiet_for).is_some_and(|q| q > RDV_QUIET_LIMIT);
+        // Quiet for a while, or lost since (the refresh also cuts a back-off wait short). Never the first attempt of a
+        // process (a cold start is still making it when the app comes to the front).
+        let heard = self.rdv.lock().unwrap().as_ref().and_then(RdvClient::quiet_for);
+        let quiet = heard.is_some_and(|q| q > RDV_QUIET_LIMIT) || (heard.is_some() && !self.rdv_connected.load(Ordering::Relaxed));
         // A second foreground right after the first leaves the attempt the first one started alone.
         let refreshed_just_now = {
             let mut last = self.last_refresh.lock().unwrap();
