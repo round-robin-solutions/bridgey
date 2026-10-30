@@ -248,6 +248,9 @@ final class ConnectAnywhere: ObservableObject {
             BridgeyLog.transport.notice("connect failed peer=\((event["peer"] as? String).map(shortDeviceID) ?? "", privacy: .public) reason=\(event["reason"] as? String ?? "", privacy: .public)")
         case "log":
             BridgeyLog.transport.notice("connect core \(event["msg"] as? String ?? "", privacy: .public)")
+        case "timing":
+            ConnectTiming.mark("core." + (event["step"] as? String ?? "?"), peer: event["peer"] as? String, detail: event["detail"] as? String,
+                               at: (event["at"] as? NSNumber)?.doubleValue ?? Date().timeIntervalSince1970 * 1000)
         default:
             break
         }

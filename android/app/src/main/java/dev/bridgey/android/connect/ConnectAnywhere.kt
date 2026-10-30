@@ -106,6 +106,7 @@ class ConnectAnywhere(
             mutableStatus.value = ConnectStatus.Unavailable
             return false
         }
+        ConnectTiming.mark("app.core_started")
         handle = reply.getLong("handle")
         udpPort = reply.optInt("udpPort")
         mutableStatus.value = if (controlUrl.isEmpty()) ConnectStatus.LocalOnly else ConnectStatus.Connecting
@@ -139,6 +140,7 @@ class ConnectAnywhere(
     }
 
     fun setPeers(peers: List<ConnectPeer>) {
+        ConnectTiming.mark("app.peers", detail = "${peers.size}_${peers.count { it.connected }}")
         val list = JSONArray(peers.map { peer ->
             JSONObject()
                 .put("id", peer.id)
@@ -211,6 +213,12 @@ class ConnectAnywhere(
                 }
             }
             "tunnel" -> openTunnel(event)
+            "timing" -> ConnectTiming.mark(
+                "core.${event.optString("step")}",
+                event.optString("peer").takeIf { it.isNotEmpty() && it != "null" },
+                event.optString("detail").takeIf { it.isNotEmpty() && it != "null" },
+                event.optLong("at", System.currentTimeMillis()),
+            )
             "route" -> onRoute(event.getString("tunnel"), ConnectRoute(event.getString("route"), event.optString("relay").takeIf { it.isNotEmpty() && it != "null" }), event.optLong("rttMs"))
             else -> {
                 // "log", the end of a tunnel and failed attempts: diagnostics only, never addresses.
@@ -246,6 +254,7 @@ class ConnectAnywhere(
                     }
                 }
             }.getOrNull() ?: return@Thread
+            ConnectTiming.mark("app.bridge_connected", info.peer)
             onTunnel(socket, info)
         }, "bridgey-connect-bridge").apply { isDaemon = true }.start()
     }

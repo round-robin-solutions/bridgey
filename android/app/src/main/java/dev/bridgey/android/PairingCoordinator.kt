@@ -2834,6 +2834,7 @@ class PairingCoordinator(
 
     /** One device's session ended: only its state, transfers and clipboard fetches go, and its reconnect starts. */
     private fun deviceDisconnected(deviceId: String, reason: String) {
+        dev.bridgey.android.connect.ConnectTiming.mark("app.disconnected", deviceId, reason)
         cancelTransfers(deviceId)
         clipboardSessionEnded(deviceId)
         if (phoneRingingFrom == deviceId) stopPhoneRinging()
@@ -4059,7 +4060,10 @@ class PairingCoordinator(
         }
         trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!)
         // The core resets its back-off for this peer only once a session on the tunnel authenticated.
-        current.tunnel?.let { tunnel -> connect?.tunnelAuthenticated(tunnel.tunnelId) }
+        current.tunnel?.let { tunnel ->
+            dev.bridgey.android.connect.ConnectTiming.mark("app.authenticated", current.remoteDeviceId, tunnel.route.route)
+            connect?.tunnelAuthenticated(tunnel.tunnelId)
+        }
         if (current.envelopeKey != null) trust.pinProtocol(current.remoteDeviceId, SessionSecurity.PROTOCOL_VERSION)
         when (val admission = registry.authenticate(current, current.remoteDeviceId, current.peerName)) {
             SessionRegistry.Admission.Rejected -> {

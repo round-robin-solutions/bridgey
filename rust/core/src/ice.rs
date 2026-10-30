@@ -75,6 +75,8 @@ struct Pair {
 /// What the agent reports to its owner.
 #[derive(Debug)]
 pub enum IceEvent {
+    /// The first pair passed a check (the waterfall's "first success").
+    FirstSuccess { route: Route },
     /// A pair was selected (first time or a move): the route and, for a relay, its ID.
     Selected { route: Route, relay: Option<String>, rtt: Duration },
     /// No pair works any more.
@@ -349,6 +351,8 @@ impl IceAgent {
             pair.last_ok = Some(Instant::now());
             if st.first_success.is_none() {
                 st.first_success = Some(Instant::now());
+                let (route, _) = Self::route(&st, &st.pairs[i]);
+                let _ = self.events.send(IceEvent::FirstSuccess { route });
             }
             // Inbound datagrams on a working pair belong to this connection.
             self.mux.map_path(path, self.vaddr);

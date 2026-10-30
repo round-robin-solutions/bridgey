@@ -106,6 +106,7 @@ class BridgeyApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        dev.bridgey.android.connect.ConnectTiming.mark("app.create")
         isPrimaryUser = getSystemService(UserManager::class.java).isSystemUser
         if (!isPrimaryUser) return
         val preferences = getSharedPreferences("bridgey", MODE_PRIVATE)

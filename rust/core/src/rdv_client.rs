@@ -20,6 +20,8 @@ pub type Signer = Arc<dyn Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = Option<Vec<
 
 #[derive(Debug)]
 pub enum RdvEvent {
+    /// A step of the connection finished (dns, tcp, tls, upgrade, challenge, signed), for the waterfall.
+    Timing(&'static str),
     Connected,
     Disconnected(String),
     Msg(Msg),
@@ -115,18 +117,8 @@ async fn session(
     if !allowed_url(url) {
         return "insecure_url".into();
     }
-    let config = WebSocketConfig::default().max_message_size(Some(rdv::MAX_FRAME_BYTES)).max_frame_size(Some(rdv::MAX_FRAME_BYTES));
-    let mut roots = rustls::RootCertStore::empty();
-    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let tls = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-        .with_safe_default_protocol_versions()
-        .expect("TLS versions")
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-    let connector = tokio_tungstenite::Connector::Rustls(Arc::new(tls));
-    let connect = tokio_tungstenite::connect_async_tls_with_config(url, Some(config), true, Some(connector));
-    let mut ws = match tokio::time::timeout(Duration::from_secs(10), connect).await {
-        Ok(Ok((ws, _))) => ws,
+    let mut ws = match tokio::time::timeout(Duration::from_secs(10), connect(url, events)).await {
+        Ok(Some(ws)) => ws,
         _ => return "connect_failed".into(),
     };
     let hello = Msg::Hello { v: rdv::PROTOCOL_VERSION, node: b64::url_encode(node), app: app.to_string(), keepalive: *keepalive as u32 };
@@ -141,9 +133,11 @@ async fn session(
     };
     let Ok(challenge) = tokio::time::timeout(Duration::from_secs(10), ws.next()).await else { return "timeout".into() };
     let Some(Msg::Challenge { nonce, pow }) = next(challenge) else { return "no_challenge".into() };
+    let _ = events.send(RdvEvent::Timing("challenge"));
     let Some(nonce) = b64::url_decode(&nonce).filter(|n| n.len() == 32) else { return "bad_challenge".into() };
     let message = bridgey_connect_proto::derive::auth_message(&nonce, node);
     let Some(signature) = signer(message).await else { return "sign_failed".into() };
+    let _ = events.send(RdvEvent::Timing("signed"));
     let solution = (pow > 0 && pow <= 24).then(|| b64::url_encode(&bridgey_connect_proto::derive::pow_solve(&nonce, node, pow)));
     let auth = Msg::Auth { sig: b64::url_encode(&signature), pow: solution };
     if ws.send(WsMessage::Text(auth.to_text().into())).await.is_err() {
@@ -200,6 +194,58 @@ async fn session(
             }
         }
     }
+}
+
+type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// DNS, TCP, TLS and the WebSocket upgrade as separate steps, each reported for the waterfall.
+async fn connect(url: &str, events: &mpsc::UnboundedSender<RdvEvent>) -> Option<Ws> {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let request = url.into_client_request().ok()?;
+    let host = request.uri().host()?.trim_matches(|c| c == '[' || c == ']').to_string();
+    let tls = request.uri().scheme_str() == Some("wss");
+    let port = request.uri().port_u16().unwrap_or(if tls { 443 } else { 80 });
+    let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.as_str(), port)).await.ok()?.collect();
+    let _ = events.send(RdvEvent::Timing("dns"));
+    let mut tcp = None;
+    for addr in addrs {
+        if let Ok(stream) = tokio::net::TcpStream::connect(addr).await {
+            tcp = Some(stream);
+            break;
+        }
+    }
+    let tcp = tcp?;
+    let _ = tcp.set_nodelay(true);
+    let _ = events.send(RdvEvent::Timing("tcp"));
+    let config = WebSocketConfig::default().max_message_size(Some(rdv::MAX_FRAME_BYTES)).max_frame_size(Some(rdv::MAX_FRAME_BYTES));
+    let stream = if tls {
+        let name = rustls::pki_types::ServerName::try_from(host).ok()?;
+        let tls = tokio_rustls::TlsConnector::from(tls_config()).connect(name, tcp).await.ok()?;
+        let _ = events.send(RdvEvent::Timing("tls"));
+        tokio_tungstenite::MaybeTlsStream::Rustls(tls)
+    } else {
+        tokio_tungstenite::MaybeTlsStream::Plain(tcp)
+    };
+    let (ws, _) = tokio_tungstenite::client_async_with_config(request, stream, Some(config)).await.ok()?;
+    let _ = events.send(RdvEvent::Timing("upgrade"));
+    Some(ws)
+}
+
+/// One TLS configuration per process, so reconnects can resume the TLS session.
+fn tls_config() -> Arc<rustls::ClientConfig> {
+    static CONFIG: std::sync::OnceLock<Arc<rustls::ClientConfig>> = std::sync::OnceLock::new();
+    CONFIG
+        .get_or_init(|| {
+            let mut roots = rustls::RootCertStore::empty();
+            roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            let tls = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .expect("TLS versions")
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            Arc::new(tls)
+        })
+        .clone()
 }
 
 #[cfg(test)]

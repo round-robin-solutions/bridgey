@@ -141,6 +141,8 @@ pub struct Node {
     bridge_port: u16,
     stopped: AtomicBool,
     last_presence: Mutex<String>,
+    /// When the node started, for the connection waterfall (`timing` events).
+    started: Instant,
 }
 
 fn now_ms() -> u64 {
@@ -204,6 +206,7 @@ impl Node {
             bridge_port,
             stopped: AtomicBool::new(false),
             last_presence: Mutex::new(String::new()),
+            started: Instant::now(),
         });
         tokio::spawn(node.clone().accept_loop());
         tokio::spawn(node.clone().bridge_loop(bridge));
@@ -221,12 +224,22 @@ impl Node {
         self.event(json!({"e": "log", "msg": msg}));
     }
 
+    /// One step of a connection, for the waterfall: milliseconds since the node started and the wall clock.
+    /// Never carries an address; `peer` is a paired device ID the app already knows.
+    fn mark(&self, step: &str, peer: Option<&str>, detail: Option<&str>) {
+        self.event(json!({"e": "timing", "step": step, "ms": self.started.elapsed().as_millis() as u64, "at": now_ms(), "peer": peer, "detail": detail}));
+    }
+
     pub fn udp_port(&self) -> u16 {
         self.mux.port()
     }
 
     pub fn bridge_port(&self) -> u16 {
         self.bridge_port
+    }
+
+    fn weak(self: &Arc<Self>) -> std::sync::Weak<Node> {
+        Arc::downgrade(self)
     }
 
     // region Rendezvous
@@ -333,7 +346,9 @@ impl Node {
 
     fn on_rdv(self: &Arc<Self>, event: RdvEvent) {
         match event {
+            RdvEvent::Timing(step) => self.mark(&format!("rdv.{step}"), None, None),
             RdvEvent::Connected => {
+                self.mark("rdv.welcome", None, None);
                 self.rdv_connected.store(true, Ordering::Relaxed);
                 self.rdv_failures.store(0, Ordering::Relaxed);
                 *self.rdv_since.lock().unwrap() = Some(Instant::now());
@@ -363,6 +378,7 @@ impl Node {
                     let ids = self.rdv_ids.lock().unwrap();
                     online.iter().filter_map(|rdv| ids.get(rdv).cloned()).collect()
                 };
+                self.mark("rdv.registered", None, Some(&peers.len().to_string()));
                 *self.online.lock().unwrap() = online.into_iter().collect();
                 self.publish_presence("online");
                 self.peers_seen_online(&peers);
@@ -381,6 +397,7 @@ impl Node {
                 if online {
                     let peer = self.rdv_ids.lock().unwrap().get(&rdv).cloned();
                     if let Some(peer) = peer {
+                        self.mark("presence.online", Some(&peer), None);
                         self.peers_seen_online(&[peer]);
                     }
                     self.connect_waiting("presence");
@@ -471,6 +488,7 @@ impl Node {
         if !self.racing.lock().unwrap().insert(peer.clone()) {
             return;
         }
+        self.mark("race.start", Some(&peer), Some(&reason));
         tokio::spawn(async move {
             let started = Instant::now();
             let relay_only = self.mux.relay_only.load(Ordering::Relaxed);
@@ -551,6 +569,7 @@ impl Node {
                         p.next_attempt = Instant::now() + Duration::from_secs(1);
                         drop(peers);
                         self.log(&format!("race {reason} won {} in {} ms", route.as_str(), started.elapsed().as_millis()));
+                        self.mark("race.won", Some(&peer), Some(route.as_str()));
                     }
                     None if better_than.is_none() => {
                         p.failures = p.failures.saturating_add(1);
@@ -559,6 +578,7 @@ impl Node {
                         let wait = u64::from_be_bytes(random_bytes::<8>()) % cap;
                         p.next_attempt = Instant::now() + Duration::from_millis(wait.max(500));
                         drop(peers);
+                        self.mark("race.failed", Some(&peer), None);
                         self.event(json!({"e": "connect.failed", "peer": peer, "reason": "unreachable"}));
                     }
                     None => {}
@@ -659,6 +679,7 @@ impl Node {
         let sid = b64::url_encode(&random_bytes::<16>());
         let Some(session) = self.new_session(&peer, sid.clone(), rdv.clone()) else { return };
         self.send_signal(&session, Signal::Offer(self.description(&session)));
+        self.mark("ice.offer.sent", Some(&peer), None);
         self.rdv_send(Msg::RelayRequest { rdv, sid: sid.clone(), side: session.side, rtts: None, need: Some("udp".into()), est_bytes: None, exclude: None });
         self.wait_for_tunnel(&session).await;
     }
@@ -719,6 +740,7 @@ impl Node {
                 if self.has_tunnel(&peer, Route::Relay) {
                     // Already connected: this is the other side's stale view; let it time out.
                 }
+                self.mark("ice.offer.received", Some(&peer), None);
                 let Some(session) = self.new_session(&peer, sid.clone(), rdv.clone()) else { return };
                 *session.last_remote_seq.lock().unwrap() = desc.seq;
                 self.apply_description(&session, &desc);
@@ -727,6 +749,7 @@ impl Node {
             }
             Signal::Answer(desc) => {
                 if let Some(session) = existing {
+                    self.mark("ice.answer.received", Some(&peer), None);
                     self.apply_description(&session, &desc);
                 }
             }
@@ -743,7 +766,7 @@ impl Node {
         }
     }
 
-    fn apply_description(&self, session: &Arc<IceSession>, desc: &Description) {
+    fn apply_description(self: &Arc<Self>, session: &Arc<IceSession>, desc: &Description) {
         *session.remote_cert.lock().unwrap() = Some(desc.cert.clone());
         session.agent.set_remote_credentials(&desc.ufrag, &desc.pwd);
         for cand in &desc.cands {
@@ -754,17 +777,20 @@ impl Node {
 
     fn on_grant(self: &Arc<Self>, sid: String, grant: RelayGrant) {
         let Some(session) = self.ice.lock().unwrap().get(&sid).cloned() else { return };
+        self.mark("relay.grant", Some(&session.peer), Some(&grant.id));
         let node = self.clone();
         tokio::spawn(async move {
             let Some((host, port)) = grant.urls.iter().find_map(|u| turn::parse_udp_url(u)) else { return };
             let Some(server) = tokio::net::lookup_host((host.as_str(), port)).await.ok().and_then(|mut it| it.next()) else { return };
             let server = addrs::canonical(server);
+            node.mark("relay.dns", Some(&session.peer), None);
             // Server-reflexive candidate from the relay's STUN (hole punching, spec 6.5).
             if !node.mux.relay_only.load(Ordering::Relaxed) {
                 if let Some((mapped, _)) = turn::reflexive(&node.mux, server).await {
                     let local = Local { via: Via::Direct, addr: mapped, kind: "srflx", pri: crate::ice::priority(crate::ice::TYPE_SRFLX, mapped.ip()), relay: None, net: None };
                     session.agent.add_local(local.clone());
                     node.trickle(&session, vec![local.candidate()]);
+                    node.mark("ice.srflx", Some(&session.peer), None);
                 }
             }
             // The relay waits 1 s for a direct pair, unless only the relay can work.
@@ -774,6 +800,7 @@ impl Node {
                 if session.agent.is_selected() {
                     return;
                 }
+                node.mark("relay.grace_over", Some(&session.peer), None);
             }
             let allocation = match node.allocation(server, &grant).await {
                 Ok(a) => a,
@@ -795,6 +822,7 @@ impl Node {
                 }
             };
             *session.allocation.lock().unwrap() = Some(allocation.clone());
+            node.mark("turn.allocated", Some(&session.peer), Some(&grant.id));
             let local = Local {
                 via: Via::Turn(server),
                 addr: allocation.relayed,
@@ -829,7 +857,7 @@ impl Node {
     }
 
     /// Our relay candidate reaches the peer's candidates through bound channels (permissions).
-    fn bind_relay_channels(&self, session: &Arc<IceSession>) {
+    fn bind_relay_channels(self: &Arc<Self>, session: &Arc<IceSession>) {
         let Some(allocation) = session.allocation.lock().unwrap().clone() else { return };
         let remotes: Vec<SocketAddr> = session.agent.remote_addresses().into_iter().filter(|a| a.is_ipv4() == allocation.relayed.is_ipv4()).collect();
         for remote in remotes {
@@ -837,8 +865,14 @@ impl Node {
                 continue;
             }
             let allocation = allocation.clone();
+            let node = self.weak();
+            let peer = session.peer.clone();
             tokio::spawn(async move {
-                let _ = allocation.bind(remote).await;
+                if allocation.bind(remote).await.is_ok() {
+                    if let Some(node) = node.upgrade() {
+                        node.mark("turn.bound", Some(&peer), None);
+                    }
+                }
             });
         }
     }
@@ -847,7 +881,9 @@ impl Node {
         let mut maintained = false;
         while let Some(event) = events.recv().await {
             match event {
+                IceEvent::FirstSuccess { route } => self.mark("ice.first_success", Some(&session.peer), Some(route.as_str())),
                 IceEvent::Selected { route, relay, rtt } => {
+                    self.mark("ice.selected", Some(&session.peer), Some(route.as_str()));
                     *session.route.lock().unwrap() = (route, relay.clone());
                     let tunnel = session.tunnel.lock().unwrap().clone();
                     match tunnel {
@@ -889,6 +925,7 @@ impl Node {
         let Ok(connecting) = self.endpoint.connect_with(config, session.agent.vaddr, "bridgey") else { return };
         match tokio::time::timeout(Duration::from_secs(8), connecting).await {
             Ok(Ok(conn)) => {
+                self.mark("quic.connected", Some(&session.peer), None);
                 let route_now = session.route.lock().unwrap().clone();
                 let _ = relay;
                 self.register_tunnel(conn, true, route_now.0, route_now.1, Some(session.peer.clone()), Some(session.clone()));
@@ -951,6 +988,7 @@ impl Node {
                         return;
                     }
                     let (route, relay) = session.route.lock().unwrap().clone();
+                    node.mark("quic.accepted", Some(&session.peer), None);
                     node.register_tunnel(conn, false, route, relay, Some(session.peer.clone()), Some(session));
                 } else {
                     let route = addrs::route_of(remote.ip());
@@ -998,6 +1036,7 @@ impl Node {
             ice: ice.as_ref().map(|s| s.agent.sid.clone()),
         });
         self.tunnels.lock().unwrap().insert(id.clone(), tunnel.clone());
+        self.mark("tunnel", peer.as_deref(), Some(route.as_str()));
         self.event(json!({
             "e": "tunnel",
             "tunnel": id,
@@ -1101,6 +1140,7 @@ impl Node {
             tunnel.conn.close(0u32.into(), b"no_stream");
             return;
         };
+        self.mark("bridge.stream", tunnel.peer.as_deref(), None);
         let (mut app_read, mut app_write) = socket.into_split();
         let upstream = async {
             let _ = tokio::io::copy(&mut app_read, &mut send).await;
@@ -1203,9 +1243,19 @@ impl Node {
         self.connect_waiting("foreground");
     }
 
+    /// Debug and live tests: every route but the relay is blocked (or unblocked). Only the UDP paths change, so
+    /// the control service connection stays up, as it would when a LAN goes away without a network change.
     pub fn set_relay_only(self: &Arc<Self>, on: bool) {
         self.mux.relay_only.store(on, Ordering::Relaxed);
-        self.network_changed("relay_only");
+        {
+            let mut peers = self.peers.lock().unwrap();
+            for p in peers.values_mut() {
+                p.failures = 0;
+                p.next_attempt = p.next_attempt.min(Instant::now());
+            }
+        }
+        self.upgrade_all("relay_only");
+        self.connect_waiting("relay_only");
     }
 
     pub fn connect(self: &Arc<Self>, peer: &str) {
@@ -1223,6 +1273,7 @@ impl Node {
             t.authenticated.store(true, Ordering::Relaxed);
             t.peer.clone()
         };
+        self.mark("tunnel.authenticated", peer.as_deref(), None);
         if let Some(peer) = peer {
             if let Some(p) = self.peers.lock().unwrap().get_mut(&peer) {
                 p.failures = 0;

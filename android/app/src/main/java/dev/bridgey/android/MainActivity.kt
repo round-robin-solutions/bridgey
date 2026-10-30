@@ -309,6 +309,7 @@ class MainActivity : ComponentActivity() {
         refreshPermissionState()
         if (::pairing.isInitialized) (application as BridgeyApplication).codeAccess.refresh()
         // Connect anywhere: the foreground is a moment to try a better route (spec 4.6).
+        dev.bridgey.android.connect.ConnectTiming.mark("app.foreground")
         if (::pairing.isInitialized) (application as BridgeyApplication).connect.takeIf { it.running }?.foreground()
         screenshotAccess.onResume()
         autoSendClipboardOnResume()

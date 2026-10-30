@@ -1019,6 +1019,7 @@ final class PairingCoordinator: ObservableObject {
     /// One phone's session ended: only its calls, transfers and clipboard fetches go, and its
     /// reconnect starts.
     private func deviceDisconnected(_ id: String, reason: String) {
+        ConnectTiming.mark("app.disconnected", peer: id, detail: reason)
         cancelTransfers(for: id)
         focusSync.forget(id)
         remoteInput.disconnected(deviceID: id)
@@ -3169,7 +3170,10 @@ final class PairingCoordinator: ObservableObject {
             return
         case let .accepted(replaced):
             // The core resets its back-off for this phone only once a session on the tunnel authenticated.
-            if let tunnel = current.tunnel { _ = connect.command(["c": "authenticated", "tunnel": tunnel.id]) }
+            if let tunnel = current.tunnel {
+                ConnectTiming.mark("app.authenticated", peer: id, detail: tunnel.route)
+                _ = connect.command(["c": "authenticated", "tunnel": tunnel.id])
+            }
             if let replaced {
                 BridgeyLog.transport.notice("duplicate session replaced peer=\(shortDeviceID(id), privacy: .public)")
                 diagnostics.record(category: "transport", event: "duplicate_replaced", device: id)
@@ -5857,7 +5861,9 @@ enum SmsPhoneDisplay: Equatable {
 
 /// Commands for live tests, as files in `/tmp/<bundle id>-control/` (each is deleted once read):
 /// `pair` ("host:port", dials that phone like a pairing the user started), `drop-lan` (closes every LAN
-/// session, refuses new ones and turns on relay only: the phone left home), `clipboard` (sends this Mac's
+/// session, refuses new ones and turns on relay only: the phone left home), `restore-lan` ("host:port": ends
+/// relay only and tunnel sessions, listens again and dials the trusted phone there over the LAN; the phone came
+/// home, so the next `drop-lan` can be timed again), `clipboard` (sends this Mac's
 /// clipboard), `send-file` (a path), and `autoconfirm` (kept: "Codes match" is pressed for any prompt). Every
 /// second the instance writes `status.json` with its sessions, so a test can time connects and failovers.
 extension PairingCoordinator {
@@ -5866,7 +5872,9 @@ extension PairingCoordinator {
     fileprivate func startTestControl() {
         guard TestInstance.enabled, testControlTimer == nil else { return }
         try? FileManager.default.createDirectory(at: testControlDirectory, withIntermediateDirectories: true)
-        testControlTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        // Five times a second, so a timed step (drop-lan) starts within 200 ms of the file appearing; its
+        // events.jsonl line has the exact moment.
+        testControlTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.testControlTick() }
         }
     }
@@ -5884,6 +5892,7 @@ extension PairingCoordinator {
             if parts.count == 2, let port = Int(parts[1]) { pair(host: String(parts[0]), port: port, peerName: "Test phone") }
         }
         if takeTestCommand("drop-lan") != nil {
+            ConnectTiming.mark("test.drop_lan")
             testLanBlocked = true
             connect.setRelayOnly(true)
             listener?.cancel()
@@ -5893,6 +5902,20 @@ extension PairingCoordinator {
                 current.close()
             }
             BridgeyLog.transport.notice("test: LAN dropped, relay only")
+        }
+        if let target = takeTestCommand("restore-lan") {
+            ConnectTiming.mark("test.restore_lan")
+            testLanBlocked = false
+            connect.setRelayOnly(false)
+            if listener == nil { startListener() }
+            for (_, current) in registry.broadcastTargets({ _, _ in true }) where current.tunnel != nil {
+                current.dropReason = "test_restore_lan"
+                current.close()
+            }
+            let parts = target.split(separator: ":")
+            if parts.count == 2, let port = UInt16(parts[1]).flatMap(NWEndpoint.Port.init(rawValue:)), let phone = trustedDeviceIDs.first {
+                dial(host: String(parts[0]), port: port, peerName: trustedName(phone), deviceID: phone)
+            }
         }
         if takeTestCommand("clipboard") != nil { sendClipboard() }
         if let path = takeTestCommand("send-file") { _ = sendDroppedFiles([URL(fileURLWithPath: path)], to: nil) }
