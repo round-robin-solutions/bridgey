@@ -304,7 +304,9 @@ impl IceAgent {
         if st.remote_pwd.is_none() {
             return true;
         }
-        if st.selected.is_none() && self.started.elapsed() > Duration::from_secs(15) {
+        // Fifteen seconds to find a path, counted from when checks could start (the answer can come late: an offer
+        // sent again after the other side's control connection came back is older than its checks).
+        if st.selected.is_none() && st.checks_started.is_some_and(|t| t.elapsed() > Duration::from_secs(15)) {
             st.closed = true;
             let _ = self.events.send(IceEvent::Failed("timeout"));
             return false;
