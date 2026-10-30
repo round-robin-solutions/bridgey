@@ -1,6 +1,11 @@
 {
  "description": "Fast transfers (draft files_fast_draft1, docs/protocol.md 'Fast transfers' and 'Speed test'). The key is bytes 0 to 31, base64 in 'keyBase64'; every frame is sent by 'senderDeviceId' and read by 'receiverDeviceId' (the associated data binds the sender). fastFrame: 'frameBase64' is one whole binary frame, header included; expect is the decoded kind, id, sequence and plaintext, 'skip' (an unknown kind whose tag verifies: dropped whole, the session stays) or 'reject' (a bad length closes the session; anything else is dropped and counted like a frame with a bad envelope tag, 16 close the session). 'write': true means both platforms also produce exactly these bytes from the expected fields with the nonce in 'nonceBase64'. 'zeroPadTo': N appends zero bytes until the frame is N bytes long. speedPayload: the JSON plaintext of a speed.* message of 'kind'; 'plaintext' is serialised by each platform's own encoder, 'plaintextString' is used byte for byte; absent optional values are null in expect; test IDs compare lowercased. speedVerdict: the plain-words verdict both apps show for the two links and the better direction's bytes a second; 'basis' says where the estimate comes from ('linkRates', 'typical' for Wi-Fi 6 when a rate is not readable, or 'none': no estimate, low and high 0).",
  "keyBase64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+ "frameKey": {
+  "description": "keyBase64 is the frame key itself. Apps derive it from the session key: HMAC-SHA-256(session key, 'bridgey-fast-frame-key-v2').",
+  "sessionKeyBase64": "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8=",
+  "frameKeyBase64": "2zTc6X2aouA9KEZUAcvj4Cew2No3zcBBY2ar6VSGLUE="
+ },
  "senderDeviceId": "7e57d00d-0000-4000-8000-0000000000aa",
  "receiverDeviceId": "7e57d00d-0000-4000-8000-0000000000bb",
  "fastFrame": [

@@ -33,7 +33,7 @@
       "feature": "files_fast_draft1",
       "when": "only on a protocol 2 session (envelope tags on): read once the session is authenticated; sent only to a peer whose latest features.update shows files_fast_draft1 true",
       "header": "1 byte marker 0xB1, 1 byte kind, 4 bytes body length (big-endian, 1 to 1048677); the marker cannot start a JSON frame or UTF-8 text",
-      "body": "1 byte ID length L (1 to 64), L bytes ID (printable ASCII: the transfer ID, or the speed test ID), 8 bytes sequence (big-endian, 0 to 2^53-1), 12 bytes AES-GCM nonce, ciphertext and 16-byte tag; plaintext 1 to 1048576 bytes",
+      "body": "1 byte ID length L (1 to 64), L bytes ID (printable ASCII: the transfer ID, or the speed test ID), 8 bytes sequence (big-endian, 0 to 2^53-1), 12 bytes AES-GCM nonce, ciphertext and 16-byte tag; plaintext 1 to 1048576 bytes. The AES-GCM key is HMAC-SHA-256(session key, bridgey-fast-frame-key-v2)",
       "associatedData": "length-prefixed like the protocol 2 envelope tag input: bridgey-fast-frame-v2, the sending device's ID, the kind (decimal), the ID, the sequence (decimal). The AES-GCM tag stands in for the envelope tag",
       "kinds": { "1": "files.chunk: the same chunk as the JSON files.chunk, up to 1 MiB; the receiver acknowledges each with files.chunk.ack", "2": "speed.data: speed test bytes, acknowledged with speed.ack and dropped" },
       "onUnknownKind": "once its tag verifies (the kind is in the associated data), skip the frame and keep the session; a failed tag is dropped and counted",

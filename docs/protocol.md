@@ -1549,11 +1549,13 @@ authentication the byte is just an invalid JSON frame, as it always was. Integer
 | rest | ciphertext and tag | plaintext 1 to 1,048,576 bytes, then the 16-byte tag |
 
 **Authentication under protocol 2.** JSON frames carry an envelope tag; a binary frame needs none, because its
-AES-GCM tag already authenticates everything in it with the session key, and the associated data binds what the
+AES-GCM tag already authenticates everything in it, under the frame key HMAC-SHA-256(session key,
+`bridgey-fast-frame-key-v2`) (kept apart from the session key, as the envelope key is), and the associated data binds what the
 envelope tag binds: it is length-prefixed exactly like the envelope tag input (each field a 4-byte big-endian length
 and its UTF-8 bytes) and holds `bridgey-fast-frame-v2`, the **sending device's ID**, the kind (decimal), the ID and the
 sequence (decimal). So a frame cannot be moved to another transfer, position or kind, nor reflected back to the device
 that sent it (its own ID is not the sender the receiver checks), and nobody without the session key can make one.
+The session key is fresh for every session, so a frame cannot be replayed into another one.
 
 **Replay.** Binary frames do not enter the `messageId` window. Each side remembers, per kind and ID, the highest
 sequence it took (for the 256 most recently used IDs, so a long transfer is never forgotten while short ones come and

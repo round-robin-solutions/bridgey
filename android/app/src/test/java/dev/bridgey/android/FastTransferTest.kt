@@ -45,6 +45,12 @@ class FastTransferVectorsTest {
         )
     }.getOrDefault("reject")
 
+    @Test fun frameKeyIsDerivedFromTheSessionKey() {
+        val vector = vectors.getJSONObject("frameKey")
+        val sessionKey = Base64.getDecoder().decode(vector.getString("sessionKeyBase64"))
+        assertArrayEquals(Base64.getDecoder().decode(vector.getString("frameKeyBase64")), SessionSecurity.fastFrameKey(sessionKey))
+    }
+
     @Test fun fastFrames() = each("fastFrame") { vector ->
         var frame = Base64.getDecoder().decode(vector.getString("frameBase64"))
         if (vector.has("zeroPadTo")) frame += ByteArray(vector.getInt("zeroPadTo") - frame.size)

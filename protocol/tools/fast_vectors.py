@@ -6,6 +6,8 @@ result; vectors with "write": true are also written byte for byte by both platfo
 fixed nonce. Needs the Python cryptography package (AES-GCM with a fixed nonce). Edit here, then run it.
 """
 import base64
+import hashlib
+import hmac
 import json
 import pathlib
 import struct
@@ -203,6 +205,10 @@ out = {
                    "verdict both apps show for the two links and the better direction's bytes a second; 'basis' says where the estimate comes from "
                    "('linkRates', 'typical' for Wi-Fi 6 when a rate is not readable, or 'none': no estimate, low and high 0).",
     "keyBase64": b64(KEY),
+    "frameKey": {"description": "keyBase64 is the frame key itself. Apps derive it from the session key: HMAC-SHA-256(session key, "
+                                "'bridgey-fast-frame-key-v2').",
+                 "sessionKeyBase64": b64(bytes(range(64, 96))),
+                 "frameKeyBase64": b64(hmac.new(bytes(range(64, 96)), b"bridgey-fast-frame-key-v2", hashlib.sha256).digest())},
     "senderDeviceId": SENDER,
     "receiverDeviceId": RECEIVER,
     "fastFrame": frames,

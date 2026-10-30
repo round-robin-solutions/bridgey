@@ -3234,7 +3234,7 @@ final class PairingCoordinator: ObservableObject {
         current.authenticated = true
         // Fast transfers only on protocol 2: binary frames are bound to the sender's ID like envelope tags.
         if let key = current.pairingKey, current.envelopeKey != nil {
-            current.allowBinaryFrames(key: key, localDeviceID: current.tagSender, remoteDeviceID: current.remoteDeviceID)
+            current.allowBinaryFrames(key: SessionSecurity.fastFrameKey(sessionKey: key), localDeviceID: current.tagSender, remoteDeviceID: current.remoteDeviceID)
         }
         current.connectionTimeout?.cancel()
         dialFinished(current)

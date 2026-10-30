@@ -37,6 +37,12 @@ final class FastTransferVectorsTests: XCTestCase {
         return ["kind": Int(payload.kind), "id": payload.id, "sequence": payload.sequence, "plaintextBase64": payload.plaintext.base64EncodedString()]
     }
 
+    func testFrameKeyIsDerivedFromTheSessionKey() throws {
+        let vector = try XCTUnwrap(vectors["frameKey"] as? [String: Any])
+        let sessionKey = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(vector["sessionKeyBase64"] as? String)))
+        XCTAssertEqual(SessionSecurity.fastFrameKey(sessionKey: sessionKey), Data(base64Encoded: try XCTUnwrap(vector["frameKeyBase64"] as? String)))
+    }
+
     func testFastFrames() throws {
         try each("fastFrame") { vector in
             var frame = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(vector["frameBase64"] as? String)))

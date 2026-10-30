@@ -110,7 +110,9 @@ class FastFrameSessionTest {
             val context = ApplicationProvider.getApplicationContext<Application>()
             val freePort = ServerSocket(0, 1, loopback).use { it.localPort }
             val pairing = PairingCoordinator(context, phoneId, "Test phone", port = freePort, settings = BridgeySettings(context, "Test phone"))
-            val (peer, key) = pair(pairing, server)
+            val (peer, sessionKey) = pair(pairing, server)
+            // Binary frames use their own key, derived from the session key.
+            val key = SessionSecurity.fastFrameKey(sessionKey)
             val testId = UUID.randomUUID().toString()
             val bytes = ByteArray(4096) { it.toByte() }
 
@@ -120,7 +122,9 @@ class FastFrameSessionTest {
             assertTrue("40 genuine frames keep the session", connected(pairing))
 
             // Forged (another key), reflected (sealed as the phone itself) and replayed (sequence 3 again): 15 drops.
-            repeat(5) { peer.writeBinary(sealFastFrame(FastFrame.SPEED_KIND, testId, 100L + it, bytes, ByteArray(32) { 9 }, macId)) }
+            repeat(4) { peer.writeBinary(sealFastFrame(FastFrame.SPEED_KIND, testId, 100L + it, bytes, ByteArray(32) { 9 }, macId)) }
+            // Sealed with the session key itself instead of the derived frame key: forged too.
+            peer.writeBinary(sealFastFrame(FastFrame.SPEED_KIND, testId, 104L, bytes, sessionKey, macId))
             repeat(5) { peer.writeBinary(sealFastFrame(FastFrame.SPEED_KIND, testId, 200L + it, bytes, key, phoneId)) }
             repeat(5) { peer.writeBinary(sealFastFrame(FastFrame.SPEED_KIND, testId, 3, bytes, key, macId)) }
             Thread.sleep(500)
@@ -225,7 +229,7 @@ class FastFrameSessionTest {
             while (true) {
                 when (val frame = peer.frames.next() ?: error("closed")) {
                     is ProtocolFrame.Binary -> {
-                        val payload = openFastFrameBody(frame.kind, frame.body, key, phoneId)
+                        val payload = openFastFrameBody(frame.kind, frame.body, SessionSecurity.fastFrameKey(key), phoneId)
                         chunks += true to payload.plaintext.size
                         received.write(payload.plaintext)
                         peer.sendTagged(key, Message(kind = "files.chunk.ack", sessionId = session, transferId = payload.id, sequence = payload.sequence))

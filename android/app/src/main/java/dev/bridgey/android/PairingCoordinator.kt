@@ -4171,7 +4171,9 @@ class PairingCoordinator(
         // Fast transfers only on protocol 2: binary frames are bound to the sender's ID like envelope tags. Allowed
         // before the session becomes active, so the reader is ready before anything can tell the peer about them.
         val sessionKey = current.pairingKey
-        if (sessionKey != null && current.envelopeKey != null) current.allowBinaryFrames(sessionKey, current.tagSender, current.remoteDeviceId)
+        if (sessionKey != null && current.envelopeKey != null) {
+            current.allowBinaryFrames(SessionSecurity.fastFrameKey(sessionKey), current.tagSender, current.remoteDeviceId)
+        }
         when (val admission = registry.authenticate(current, current.remoteDeviceId, current.peerName)) {
             SessionRegistry.Admission.Rejected -> {
                 // A live session for this device wins the duplicate rule; this socket closes quietly.
