@@ -124,6 +124,8 @@ pub struct Node {
     rdv_connected: AtomicBool,
     /// Control service connection attempts that failed in a row since the last success.
     rdv_failures: AtomicU32,
+    /// When the control service connection last came up (presence follows within moments).
+    rdv_since: Mutex<Option<Instant>>,
     online: Mutex<HashSet<String>>,
     rdv_ids: Mutex<HashMap<String, String>>,
     tunnels: Mutex<HashMap<String, Arc<Tunnel>>>,
@@ -188,6 +190,7 @@ impl Node {
             rdv: Mutex::new(None),
             rdv_connected: AtomicBool::new(false),
             rdv_failures: AtomicU32::new(0),
+            rdv_since: Mutex::new(None),
             online: Mutex::new(HashSet::new()),
             rdv_ids: Mutex::new(HashMap::new()),
             tunnels: Mutex::new(HashMap::new()),
@@ -333,6 +336,7 @@ impl Node {
             RdvEvent::Connected => {
                 self.rdv_connected.store(true, Ordering::Relaxed);
                 self.rdv_failures.store(0, Ordering::Relaxed);
+                *self.rdv_since.lock().unwrap() = Some(Instant::now());
                 self.register();
                 self.publish_presence("online");
             }
@@ -496,10 +500,30 @@ impl Node {
                 }
             }
             let wants_ice = better_than.map(|b| b > Route::Direct).unwrap_or(true) || relay_only;
-            if wants_ice && better_than.is_none() && self.rdv_connected.load(Ordering::Relaxed) && self.peer_online(&peer) {
+            if wants_ice && better_than.is_none() && self.rdv.lock().unwrap().is_some() {
+                // ICE joins the race as soon as the control service is up and reports the peer online, so a race
+                // that starts while the presence connection is still coming up (app start, network change) does
+                // not have to fail and back off before the relay is tried.
                 let node = self.clone();
                 let peer = peer.clone();
-                attempts.spawn(async move { node.offer_ice(peer).await });
+                attempts.spawn(async move {
+                    for _ in 0..80 {
+                        if node.has_tunnel(&peer, Route::Relay) {
+                            return;
+                        }
+                        if node.rdv_connected.load(Ordering::Relaxed) {
+                            if node.peer_online(&peer) {
+                                node.offer_ice(peer).await;
+                                return;
+                            }
+                            let settled = node.rdv_since.lock().unwrap().map(|t| t.elapsed() > Duration::from_secs(2)).unwrap_or(true);
+                            if settled {
+                                return;
+                            }
+                        }
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                });
             }
             let deadline = tokio::time::sleep(Duration::from_secs(12));
             tokio::pin!(deadline);
