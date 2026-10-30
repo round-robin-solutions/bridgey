@@ -181,7 +181,7 @@ this branch. The personal Mac was busy throughout (load average 8 to 11, another
 | Measure | Before: median | Before: p95 | After: median | After: p95 |
 | --- | --- | --- | --- | --- |
 | **A. Cold start** (process start to the phone's session on the relay) | 2.35 s | 3.29 s | **1.01 s** | 1.65 s |
-| **B. Failover** (LAN dropped to the session on the relay on both devices) | 1.49 s | 1.53 s | **0.59 s** | 0.62 s |
+| **B. Failover** (LAN dropped to the session on the relay on both devices) | 1.49 s | 1.53 s | **0.61 s** | 0.66 s |
 | **C. Warm reconnect** (foreground to the session back) | no session within 40 s in 5 of 5 runs | | see below | |
 
 How the harness differs from the 2026-10-30 beta measurements (3.4 s for B, about 4 s for A): the LAN drop is
@@ -212,13 +212,19 @@ after runs above 1.5 s are that, plus one run whose QUIC handshake lost a packet
 
 | Step | Before | After |
 | --- | --- | --- |
-| Both sides see the drop | -9 (phone), 2 (Mac) | -9, 1 |
+| Both sides see the drop | -9 (phone), 2 (Mac) | -9, 2 |
 | Race and offer | 33 (phone), 36 (Mac): after the re-registration answered, which ended the 1.5 s grace | -3 (phone), 2 (Mac): at once |
 | Relay ready | grant 72 to 100, allocation 223 (Mac), the phone's after the 1 s grace (1,221 when used) | already allocated (warm) |
-| First pair answers | 641 (Mac), 668 (phone) | 176 (phone), 228 (Mac) |
-| Pair selected | 1,028 / 1,114 | 176 / 228 |
-| QUIC up | 1,269 (Mac) / 1,335 (phone) | 382 / 442 |
-| Session authenticated | 1,430 (Mac) / **1,492** (phone) | 534 / **592** |
+| First pair answers | 641 (Mac), 668 (phone) | 184 (phone), 232 (Mac) |
+| Pair selected | 1,028 / 1,114 | 184 / 232 |
+| QUIC up | 1,269 (Mac) / 1,335 (phone) | 392 / 456 |
+| Session authenticated | 1,430 (Mac) / **1,492** (phone) | 550 / **612** |
+
+The final B set (20 of 20 between 0.59 and 0.76 s) ran on the last build. Two earlier sets on intermediate builds
+had clusters of three or four runs at 2.4 to 13 s while the personal Mac's load average was 16 to 24: the pair
+was selected in about 0.3 s as usual, then QUIC and the session waited out retransmit timers, which points at lost
+packets on the way (the emulator's user-mode network under load is the likely place, but that was not proven);
+a third set on the same code at load 8.8 had none, as did the final one.
 
 After the drop: one signal each way (about 40 ms each through the control service), one relay round trip for the
 check, one for QUIC and one and a half for the Bridgey handshake (the relay round trip between the two devices is

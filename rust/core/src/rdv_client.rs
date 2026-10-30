@@ -38,8 +38,6 @@ pub struct Shared {
     pub ids: Mutex<Vec<String>>,
     pub warm: Mutex<Option<WarmRequest>>,
     last_heard: Mutex<Option<Instant>>,
-    /// When the current connection attempt began.
-    attempt_at: Mutex<Option<Instant>>,
 }
 
 pub struct RdvClient {
@@ -67,11 +65,6 @@ impl RdvClient {
     /// How long since the service last sent anything (a frame or a pong); `None` before the first connection.
     pub fn quiet_for(&self) -> Option<Duration> {
         self.shared.last_heard.lock().unwrap().map(|t| t.elapsed())
-    }
-
-    /// How long ago the current (or last) connection attempt began.
-    pub fn attempt_age(&self) -> Option<Duration> {
-        self.shared.attempt_at.lock().unwrap().map(|t| t.elapsed())
     }
 }
 
@@ -169,7 +162,6 @@ async fn session(
         return "insecure_url".into();
     }
     let Ok(mut request) = url.into_client_request() else { return "insecure_url".into() };
-    *shared.attempt_at.lock().unwrap() = Some(Instant::now());
     let authority = request.uri().authority().map(|a| a.as_str().to_string()).unwrap_or_default();
     // The single flight: sign while DNS, TCP and TLS run (the keystore can take tens of milliseconds).
     let ts = now_ms();

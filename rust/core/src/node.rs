@@ -223,6 +223,8 @@ pub struct Node {
     warm: Mutex<Warm>,
     /// Each relay's realm and nonce, so an allocation there carries credentials at once.
     realms: Mutex<HashMap<SocketAddr, Realm>>,
+    /// When foreground last asked for a fresh control connection.
+    last_refresh: Mutex<Option<Instant>>,
 }
 
 fn now_ms() -> u64 {
@@ -292,6 +294,7 @@ impl Node {
             rdv_changed: tokio::sync::Notify::new(),
             warm: Mutex::new(Warm::default()),
             realms: Mutex::new(HashMap::new()),
+            last_refresh: Mutex::new(None),
         });
         node.restore_state();
         tokio::spawn(node.clone().accept_loop());
@@ -1897,12 +1900,17 @@ impl Node {
         }
         // Even with every peer still connected as far as the app knows: a session that died while the phone slept is
         // often only noticed now, and its reconnect needs a control connection that works.
-        let (quiet, fresh_attempt) = {
-            let rdv = self.rdv.lock().unwrap();
-            let client = rdv.as_ref();
-            (client.and_then(RdvClient::quiet_for).is_some_and(|q| q > RDV_QUIET_LIMIT), client.and_then(RdvClient::attempt_age).is_some_and(|a| a < Duration::from_secs(2)))
+        let quiet = self.rdv.lock().unwrap().as_ref().and_then(RdvClient::quiet_for).is_some_and(|q| q > RDV_QUIET_LIMIT);
+        // A second foreground right after the first leaves the attempt the first one started alone.
+        let refreshed_just_now = {
+            let mut last = self.last_refresh.lock().unwrap();
+            let recent = last.is_some_and(|t| t.elapsed() < Duration::from_secs(2));
+            if quiet && !recent {
+                *last = Some(Instant::now());
+            }
+            recent
         };
-        if quiet && !fresh_attempt {
+        if quiet && !refreshed_just_now {
             self.mark("rdv.refresh", None, Some("foreground"));
             self.restart_rdv();
         }
