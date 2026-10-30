@@ -19,6 +19,8 @@ data class UpdateGateFacts(
     val notApplied: NotApplied?,
     /** The newest build the last check offered, or null when none is known. */
     val offeredBuild: Long?,
+    /** What the person is doing here: an automatic start (updates.start auto) waits for them. */
+    val personBusy: UpdateBusy? = null,
 )
 
 /** A version that did not apply: this device installed it and came back on its old build. */
@@ -47,7 +49,7 @@ class UpdateStartGate(private val clock: () -> Long) {
             history.addLast(now)
             return UpdateRefusal.NOT_APPLIED
         }
-        if (facts.busy) {
+        if (facts.busy || AutoStartRule.refusesBusy(start, facts.personBusy)) {
             history.addLast(now)
             return UpdateRefusal.BUSY
         }

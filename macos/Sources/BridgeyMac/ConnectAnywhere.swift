@@ -40,7 +40,7 @@ struct ConnectPeer: Equatable {
 /*
  * Connect anywhere on this Mac (docs/connect-anywhere.md): starts and stops the core with the setting,
  * signs the control service's challenge with the node key, keeps the core's list of paired devices
- * current and hands each tunnel to the pairing coordinator. Off by default ("off until chosen").
+ * current and hands each tunnel to the pairing coordinator. On until chosen (Rahul, 2026-10-30, an exception to "off until chosen").
  */
 @MainActor
 final class ConnectAnywhere: ObservableObject {

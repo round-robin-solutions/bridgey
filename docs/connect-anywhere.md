@@ -16,7 +16,7 @@ behind an opt-in switch. The transfer engine (section 8) is not part of it.
 | Rust core `bridgey-connect` | One UDP socket shared by STUN, TURN and QUIC (RFC 9443); TURN client over UDP (Allocate, Refresh, ChannelBind, shared per relay); ICE agent with host, server-reflexive and relay candidates, nomination with a 300 ms window, keep-alive checks every 5 s, failover after 3 missed checks and upgrades after 3 good ones; QUIC (quinn 0.11, rustls ring, TLS 1.3, Ed25519 certificates both ways, pins, exporter); the route race (learned LAN and VPN addresses 2 at a time 150 ms apart, ICE through the control service in parallel); upgrades every minute, on network change and on foreground; the rendezvous client with keystore-signed node auth and adaptive keep-alive; a loopback bridge that hands each tunnel's stream 0 to the app with a one-time token | `rust/core` |
 | Control service `bridgey-rendezvous` | Node auth (P-256, optional proof of work), presence, sealed signal forwarding, relay grants with TURN REST credentials (one relay per session for both sides), rate limits, health endpoints, one TOML settings file | `rust/rendezvous`, `server/rendezvous` |
 | Relay | coturn 4.18.0 pinned by digest, the section 9.7 settings rendered from the environment into a tmpfs, compose stack | `server/relay` |
-| Android and Mac | "Connect away from home" (off until chosen) in setup (question and bundle) and Settings; tunnel sessions run the unchanged session with `bridgey-auth-v2`; `connect.setup` and `connect.addresses`; pair secrets per device; route on the device page; a 3 s ping probe after network changes for quick failover | `android/.../connect`, `macos/.../Connect*.swift` |
+| Android and Mac | "Connect away from home" (on by default since 0.10.0-rr.1, see below; it was off until chosen before) in setup (question and bundle) and Settings; tunnel sessions run the unchanged session with `bridgey-auth-v2`; `connect.setup` and `connect.addresses`; pair secrets per device; route on the device page; a 3 s ping probe after network changes for quick failover | `android/.../connect`, `macos/.../Connect*.swift` |
 | Protocol | Draft key `connect_draft1` (instead of the `capabilities` array, per the contract's draft rule), `connect.setup`, `connect.setup.ack`, `connect.addresses`; in-band ICE and `connect.route` listed as designed | `protocol/messages.json`, `docs/protocol.md` |
 | Vectors | `connect-v1.json` from the Rust core (pair secret, pair check, rendezvous IDs, signal key, sealing, node auth, TURN credentials, transcript), checked by Rust, Python, Android and the Mac; `connectSetup` and `connectAddresses` in `protocol-v1.json` | `protocol/test-vectors` |
 
@@ -86,6 +86,16 @@ pairing, settings sync, calmer reconnects) and fitted to it:
   started before the control service was up instead of the race failing first.
 - **Settings sync.** "Connect away from home" syncs as a feature switch (`connect.away`, after
   rr/main's keys); older builds skip it.
+- **On by default (Rahul, 2026-10-30).** An exception to "off until chosen": a fresh install, and
+  an existing one where nobody ever set the switch, has it on. An explicit off stays off, and a
+  value synced from another device counts as a choice. Like `updates.auto_all`, a default nobody
+  chose is never sent as a choice and never shows as "Different on" between two devices that both
+  have it. While it is on, Bridgey keeps a connection to the control service at
+  `connect.roundrobin.in`, and uses a Round Robin relay only when the devices cannot reach each
+  other on the same Wi-Fi (or a private network or a direct route). The relay and the control
+  service see only ciphertext (section 5.4). To turn it off: Settings > Devices > Connect away from
+  home, on the phone or the Mac; with settings sync on, the other devices follow. Setup lists it
+  as on in the summary with its switch, and "Get started quickly" leaves it on.
 - **Route on the device row.** "Same Wi-Fi", "Relay (Singapore)", "Tailscale" and the other route
   names from section 4 ("Direct", "Private network").
 - **Service out of reach.** After two failed connections in a row to the control service the

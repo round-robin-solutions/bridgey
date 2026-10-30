@@ -93,8 +93,14 @@ all pairings.
 ## Privacy defaults
 
 There is no telemetry, advertising identifier, account, or remote analytics.
-LAN features communicate directly between paired devices. The one exception is
-opt-in: "Codes from messages" set to the cloud option on the Mac sends the
+LAN features communicate directly between paired devices. "Connect away from
+home" (draft `connect_draft1`, on by default since 0.10.0-rr.1; turn it off in
+Settings > Devices > Connect away from home, and an explicit off stays off)
+keeps a connection to the Round Robin control service at `connect.roundrobin.in`
+and uses a Round Robin relay only when the devices cannot reach each other on
+the same Wi-Fi. The relay and the control service see only ciphertext: public
+addresses, timing and volume, never device names, identity keys or content
+(`docs/connect-anywhere.md`, section 5.4). The other exception is opt-in: "Codes from messages" set to the cloud option on the Mac sends the
 message text (at most 600 characters) and its sender to a Round Robin Cloudflare
 Worker that asks Workers AI for the code; the worker keeps no logs. Sensitive
 OS access requires explicit permission. Global and per-device switches gate
@@ -187,3 +193,20 @@ Update all lets one device ask the devices connected to it to update themselves 
   reports "needs you"; nothing is bypassed.
 - **The device you are using keeps the say.** Its own restart waits through a countdown with Later;
   a device that was asked by another restarts without asking, because the person asked from there.
+- **Update all devices automatically** (on by default for Beta and Nightly, off for Stable) starts
+  the same run without a click when a device's own check finds a newer build. It changes nothing in
+  what a start can do: still no URL, version or file, the same checks on each device, the same
+  switch and rate limits. The start carries `auto: true`, and a device refuses an automatic start
+  while its person is busy (a call, a screen share, remote control, a transfer, setup or pairing), so
+  an automatic run cannot interrupt a call. What a device is doing travels to its paired devices as
+  one word in `updates.status` (`busy`: call, screen_share, ...), never who is calling or what is
+  sent; paired devices already see call cards and transfers. Only one device starts a run when
+  several find the same build (lowest device ID), and none starts while a run is going, so devices
+  cannot ping-pong starts.
+- **The command line (`BridgeyMac --update-all`) accepts only the user running Bridgey.** The running
+  app listens on a Unix socket in its Application Support folder: the folder is 0700 and the socket
+  0600, so other users cannot reach it, and every connection's user is checked again with
+  `getpeereid` and refused when it differs. It is deliberately not a URL scheme (a web page could open
+  one) or a distributed notification (any process on the Mac can post one). The request is "check
+  now, then Update all" and names nothing to install, so it can do no more than clicking Update all
+  in that user's own session; it still waits for anyone busy.

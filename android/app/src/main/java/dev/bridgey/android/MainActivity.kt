@@ -688,6 +688,7 @@ private fun BridgeyApp(
     val updateState by updater.state.collectAsStateWithLifecycle()
     val updateRun by updateAll.state.collectAsStateWithLifecycle()
     val updateOverview by updateAll.overview.collectAsStateWithLifecycle()
+    val autoUpdate by updateAll.auto.collectAsStateWithLifecycle()
     var updateAllSheet by rememberSaveable { mutableStateOf(false) }
     val activity by activityLog.items.collectAsStateWithLifecycle()
     val reduceMotion by uiPreferences.reduceMotion.collectAsStateWithLifecycle()
@@ -710,6 +711,13 @@ private fun BridgeyApp(
     val stack = rememberBackStack(if (showOnboarding) listOf(Route.Home, Route.Setup) else listOf(Route.Home))
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
+    // Setup on screen: Update all devices automatically waits (busy "setup") while Bridgey is in front with it.
+    val setupOpen = Route.Setup in stack.entries
+    androidx.lifecycle.compose.LifecycleStartEffect(setupOpen) {
+        val app = context.applicationContext as BridgeyApplication
+        app.setupShowing.value = setupOpen
+        onStopOrDispose { app.setupShowing.value = false }
+    }
 
     // Time moves on: "Now" becomes a time, Today becomes Yesterday.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -794,6 +802,7 @@ private fun BridgeyApp(
         now = updateRun.now,
         devices = updateOverview.devices,
         remoteStart = settingsState.updatesRemoteStart,
+        auto = autoUpdate,
     )
     val updateAllActions = dev.bridgey.android.ui.UpdateAllActions(
         open = { updateAllSheet = true },
@@ -803,6 +812,7 @@ private fun BridgeyApp(
         dismiss = updateAll::dismiss,
         close = { updateAllSheet = false },
         setRemoteStart = settings::setUpdatesRemoteStart,
+        setAuto = settings::setUpdatesAutoAll,
     )
     val homeLive = buildList {
         // A Mac asked to pair while this phone was not taking pairings, or Allow pairing is counting down.

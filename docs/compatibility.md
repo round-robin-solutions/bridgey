@@ -13,7 +13,7 @@ Automated checks (Android lint and unit tests on Ubuntu, Swift tests and the app
 runners, see [releasing and CI](rr-edition.md#with-rr-ci)) run on every push. They catch code
 errors, not device behaviour, so they never move a row to Tested.
 
-Last updated: 2026-10-27.
+Last updated: 2026-10-29.
 
 ## Matrix
 
@@ -78,6 +78,27 @@ The app supports Android 8.0 (API 26, `minSdk`) and up. It is built for Android 
 | 15 | 35 | Android hides the text of notifications it thinks hold a code unless the phone is linked to the Mac (see below). |
 | 16 | 36 | As Android 15. |
 
+### Restricted settings (Android 13 and later)
+
+An app installed from a file or a browser cannot turn on Notification access or Accessibility until the
+person opens App info, taps More (the three dots) and chooses **Allow restricted settings**
+([Android Help](https://support.google.com/android/answer/12623953)). The system dialog says "Restricted
+setting. For your security, this setting is currently unavailable" (the Settings app's own strings, in
+[AOSP](https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/main/res/values/strings.xml)).
+Community guides report that on some phones the More menu shows only after Android has blocked the
+switch once; Google's page does not say so.
+
+Since 0.10, setup helps with this:
+
+- The Notification access "why" text says so on Android 13 and later.
+- Android does not tell an app it was blocked, so Bridgey guesses: on setup's Notification access step or
+  Permissions page, when Allow opened Android's screen and Bridgey is back with nothing granted, a card says
+  Android may be blocking it, lists the three steps and has an **Open App info** button.
+- Accessibility has no row yet. When phone control ships
+  ([screen-control-decision.md](screen-control-decision.md)) it joins the same card.
+- Not tested on a phone where Android really blocks the switch. The card's trigger and copy are covered by
+  unit tests, and its layout by the setup screenshots.
+
 ## Pairing with other Bridgey versions
 
 Decided on 2026-10-27: 0.10 pairs only the safer way, with no fallback.
@@ -96,16 +117,34 @@ Why: the older pairing code can be forced to match by someone on the same Wi-Fi 
 
 Only the OnePlus 11 has been tried. The rest is what public sources report, checked against the
 in-app checklist (Settings > General, "Keep Bridgey running", from `setup/OemBattery.kt`). The
-checklist appears on OnePlus, Oppo and Realme, Xiaomi, Redmi and Poco, Samsung, and Vivo and iQOO.
+checklist appears on OnePlus, Oppo and Realme, Xiaomi, Redmi and Poco, Samsung, Vivo and iQOO, and (since
+0.10) Google Pixel, which is found by the manufacturer name "Google".
 
 | Maker | Status | What stops Bridgey | In-app checklist |
 | --- | --- | --- | --- |
 | OnePlus (OxygenOS) | Tested live on OnePlus 11, Android 16 | Swiping from Recents can kill the app. Deep optimisation and Sleep standby optimisation (Battery, Battery optimisation, Advanced optimisation) cut the network while the phone sleeps. Firmware updates can reset the battery choice. A OnePlus 13 was reported to drop a notification listener and not rebind it. ([dontkillmyapp](https://dontkillmyapp.com/oneplus), [faceclaw #55](https://github.com/jimrandomh/faceclaw/pull/55)) | Auto launch, background activity, battery optimisation, and since 0.10 Deep and Sleep standby optimisation. Lock in Recents is not listed. |
 | Samsung (One UI) | Not tested | Apps unused for about 3 days become Sleeping apps and 16 days Deep sleeping apps, with background work and notifications limited. Never sleeping apps exempts Bridgey. Samsung may re-add apps to the lists after an update. ([Samsung developers](https://developer.samsung.com/mobile/app-management.html), [dontkillmyapp](https://dontkillmyapp.com/samsung)) | Unrestricted battery, Put unused apps to sleep off, Never sleeping apps, and since 0.10 removing Bridgey from Sleeping and Deep sleeping apps. Auto-disable unused apps and Adaptive battery are not listed. |
 | Xiaomi, Redmi, Poco (MIUI, HyperOS) | Not tested | Background work usually fails on default settings. Autostart must be on and Battery saver set to No restrictions; locking the app in Recents keeps it through Clear all. MIUI is reported to not rebind notification listeners after a kill. ([dontkillmyapp](https://dontkillmyapp.com/xiaomi), [ListenBrainz #772](https://github.com/metabrainz/listenbrainz-android/issues/772)) | Autostart, No restrictions, battery optimisation and lock in Recents. "Pause app activity if unused" is not listed. |
-| Google Pixel | Not tested | Close to stock Android: Doze, Adaptive battery and a Background restriction the user can set by accident. Unused apps are hibernated after months. ([dontkillmyapp](https://dontkillmyapp.com/google), [Android hibernation](https://developer.android.com/topic/performance/app-hibernation)) | No checklist on Pixel. Android's own battery optimisation step in setup covers the main case. |
+| Google Pixel | Not tested | Close to stock Android: Doze, Adaptive Battery and a Background restriction the user can set by accident. A rarely opened app is paused ("Pause app activity if unused") after months. ([dontkillmyapp](https://dontkillmyapp.com/google), [Android hibernation](https://developer.android.com/topic/performance/app-hibernation)) | Since 0.10: App battery usage set to Unrestricted, Adaptive Battery, and Pause app activity if unused off, for Android 14 to 16. Sources and wording are in [Pixel steps](#pixel-steps). Android's own battery optimisation step in setup still comes first. |
 | Oppo and Realme (ColorOS), Vivo and iQOO | Not tested | Aggressive background limits; check battery, auto launch and notification access. | Have their own checklists. |
 | Motorola, Nothing, Honor, Huawei | Not tested | Honor (MagicOS) is reported to not rebind notification listeners after an update. ([ListenBrainz #772](https://github.com/metabrainz/listenbrainz-android/issues/772)) | No checklist. |
+
+### Pixel steps
+
+The in-app Pixel checklist (Settings > General, "Keep Bridgey running on Google Pixel") has three steps,
+for the Android 14 to 16 Pixel Settings app. Each was checked on 2026-10-29 against Google's own
+documentation and the Settings app's source strings. No step has been run on a Pixel yet.
+
+| Step in the app | What the app tells the person | Checked against |
+| --- | --- | --- |
+| App battery usage | Settings, Apps, Bridgey, App battery usage: tap Allow background usage, then choose Unrestricted. | Pixel Phone Help gives the path (Settings, Apps, See all apps, the app, App battery usage, Allow background usage) and recommends Optimized, so Unrestricted is the same page one choice over ([Keep Adaptive Battery and battery optimization on](https://support.google.com/pixelphone/answer/7015477)). The labels "Allow background usage", Unrestricted, Optimized and Restricted are the Settings app's own strings ([AOSP `strings.xml`](https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/main/res/values/strings.xml)). Android 14 QPR1 showed three choices on one screen; from QPR2 the page has the "Allow background usage" row you tap to reach them ([9to5Google](https://9to5google.com/2024/03/15/android-14-qpr2-app-battery-usage/)). |
+| Adaptive Battery | Settings, Battery, Battery Saver, Adaptive Battery. Unrestricted already keeps Bridgey out of it, so it can stay on. If notifications still arrive late, turn it off. | Pixel Help puts Use Adaptive Battery under Battery, Battery Saver, Adaptive Battery (same page as above) and recommends keeping it on, and says that an app with battery optimisation turned off "can run more while you're not using it, even when Adaptive Battery is on". Android's App Standby page says apps on the Doze exemption list are exempt from the standby-bucket limits ([App Standby](https://developer.android.com/topic/performance/appstandby)). Some third-party guides give Battery, Adaptive preferences for Android 11 to 13; the app uses the Pixel Help path. |
+| Pause app activity if unused | Settings, Apps, Bridgey, Unused app settings: turn off Pause app activity if unused. Some versions call it Manage app if unused. | Pixel Help, "Manage unused apps on your Android device": App info, Unused apps, turn off Pause app activity if unused ([page](https://support.google.com/pixelphone/answer/13627979)). Android documents hibernation after a few months without use ([App hibernation](https://developer.android.com/topic/performance/app-hibernation)). The Settings app has both labels: "Pause app activity if unused" and the newer "Manage app if unused" ([AOSP `strings.xml`](https://android.googlesource.com/platform/packages/apps/Settings/+/refs/heads/main/res/values/strings.xml)). |
+
+The first step opens Bridgey's App info, where App battery usage is the next row. The second opens
+Android's Battery Saver page. The third opens App info. If a screen cannot open, App info opens instead.
+The Adaptive Battery wording is a judgement call: Google recommends leaving it on, so the step does not ask
+to turn it off.
 
 What Bridgey already does: the connection service is a `connectedDevice` foreground service
 (Android 15's six-hour limit applies only to `dataSync` and `mediaProcessing`,

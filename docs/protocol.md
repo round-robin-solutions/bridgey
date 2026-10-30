@@ -858,8 +858,8 @@ message is dropped and the session stays.
 
 | Message | Direction | Max plaintext | Fields |
 | --- | --- | --- | --- |
-| `updates.status` | either | 1,024 B | `platform` (`android` \| `macos`), `edition` (1 to 32 UTF-8 bytes, `rr` for this edition), `app` (installed version name, 1 to 64 UTF-8 bytes), `build` (installed build number, 1 to 2^53-1), `channel` (`stable` \| `beta` \| `nightly`), `state`, optional `target` (version on offer, 1 to 64 UTF-8 bytes) and `targetBuild` (1 to 2^53-1), optional `progress` (0 to 100, with `downloading`), optional `reason`, `remoteStart` (boolean), `checkedAt` (Unix ms of the last successful check, 0 for never) |
-| `updates.start` | either | 512 B | `requestId` (UUID), optional `retry` (boolean, default false) |
+| `updates.status` | either | 1,024 B | `platform` (`android` \| `macos`), `edition` (1 to 32 UTF-8 bytes, `rr` for this edition), `app` (installed version name, 1 to 64 UTF-8 bytes), `build` (installed build number, 1 to 2^53-1), `channel` (`stable` \| `beta` \| `nightly`), `state`, optional `target` (version on offer, 1 to 64 UTF-8 bytes) and `targetBuild` (1 to 2^53-1), optional `progress` (0 to 100, with `downloading`), optional `reason`, `remoteStart` (boolean), `checkedAt` (Unix ms of the last successful check, 0 for never), optional `auto` (boolean, default false), optional `busy` (string) |
+| `updates.start` | either | 512 B | `requestId` (UUID), optional `retry` (boolean, default false), optional `auto` (boolean, default false) |
 | `updates.result` | either | 512 B | `requestId` (echoes the start), `status` (`accepted` \| `refused`), `reason` with `refused` |
 
 `state` is one of:
@@ -883,6 +883,14 @@ started again on its old build.
 `remoteStart` is the device's own "Let paired devices start updates on this device" switch (on by
 default), and false when its updater cannot run.
 
+`auto` (optional, written only when true) is the device's own "Update all devices automatically"
+switch, true only while its updater can run. `busy` (optional, written only when set) says what the
+person is doing on that device, so an automatic run waits: `call` (ringing or in a call), `screen_share`,
+`remote_control`, `transfer` (a file or folder going either way), `phone_files` (a Mac downloading from
+Phone files) or `setup` (setup or pairing on screen, Allow pairing on, or waiting for the other device to allow pairing). A receiver reads an unknown `busy` as `other`,
+which still counts as busy, and drops a status whose `auto` is not a boolean or whose `busy` is not a
+string. Builds without these fields ignore them.
+
 **When a status is sent.** Once after each `features.update` that shows the key on both sides, then
 whenever any field but `progress` changes, and while downloading at most once a second.
 
@@ -897,13 +905,21 @@ this message. The receiver answers exactly one `updates.result`:
 - `refused` with `reason`: `disabled` (its switch is off), `rate_limited` (more than one start every
   30 seconds or five an hour from that device), `manual` (its updater cannot run), `not_applied`
   (the last version it tried did not apply and `retry` is not true), `busy` (its updater cannot
-  start a check right now). A sender reads an unknown reason as `other`.
+  start a check right now, or an `auto` start found its person busy). A sender reads an unknown
+  reason as `other`.
 - `accepted`: it updates. If an update is already running it carries on, and still answers
-  `accepted`. Progress follows as `updates.status`.
+  `accepted`; a device running its own Update all keeps its own order and installs itself last.
+  Progress follows as `updates.status`.
 
 `retry: true` is set only when the person taps Retry for that device. Without it, a device whose
 last attempt did not apply refuses, so a version that failed is never installed again on its own,
 even when another device asks.
+
+`auto: true` means nobody tapped Update all: the sender's "Update all devices automatically" or its
+command line started the run. The receiver refuses it with `busy` while its person is busy (any of the
+`busy` activities above), says which device started it ("Started automatically by Work Mac"), and
+otherwise behaves as for any start. A start without `auto` is never refused for that reason. Retry is
+always sent without `auto`.
 
 **Order and results (the device running Update all).** It starts every connected peer that will
 update at once, downloads its own update meanwhile, and installs its own last, after each peer has
@@ -912,7 +928,21 @@ waits through a 10-second countdown with **Later**; a peer that was asked instal
 without asking. A peer that drops while `ready` or `installing` is restarting; when it reconnects,
 its first `updates.status` decides: `build` at or above the `targetBuild` it was installing means
 done, the same `build` as before means "Update didn't apply" (never retried on its own). A peer
-whose current step has run for 3 minutes is marked as taking longer than usual.
+whose current step has run for 3 minutes is marked as taking longer than usual. In an automatic run
+the countdown is 60 seconds. In any run, the device's own restart waits while any connected device
+reports `busy` (a call above all): a countdown in progress stops, and starts again from the beginning
+once nobody is busy (looked at every 5 minutes in an automatic run).
+
+**Automatic runs (Update all devices automatically).** These rules live in each app
+(`AutoUpdate.kt`, `AutoUpdate.swift`); the wire only carries `auto` and `busy`. A device with the
+setting on starts Update all by itself when its own check finds a newer build. Only one device starts
+when several find it: the one with the lowest device ID among itself and the connected devices whose
+status shows `auto`. The others wait for its `updates.start`; one that still has its own update after
+15 minutes starts its own run. The lowest one also runs for a connected device with `auto` that reports
+a newer build (`available`, `downloading` or `ready`) and allows remote starts. A device never starts a
+run while one is going, or within 10 minutes of accepting another device's start while that update is
+under way. An automatic run also asks each device that reported `current` from a check older than the
+moment this device found the build to check again (a target with no known version).
 
 ### Phone screen to Mac (`screen_draft1`)
 
@@ -1297,8 +1327,9 @@ one; an unsupported schema is answered `settings.error` `{schema, code, maxSchem
 (`unsupported_schema`), and a payload that fails validation `invalid_message`.
 
 As built in v0.10 ([section 8.4](folders-and-settings-sync.md#84-as-built-v010-2026-10-27)):
-24 keys sync, feature switches included (`feature.<key>`, `clipboard.automatic`,
-`clipboard.files`, `focus.share`, `focus.follow`, `codes.enabled`) next to the four preferences;
+26 keys sync, feature switches included (`feature.<key>`, `clipboard.automatic`,
+`clipboard.files`, `focus.share`, `focus.follow`, `codes.enabled`) next to the four preferences and
+the two folder switches `files.folder_include_hidden` and `files.folder_include_system`;
 per-device grants and overrides, permissions, pairing, paths and the file access guards never
 sync. Live updates apply when they win by the rule above and are relayed to the device's other
 peers, so a phone with two Macs carries one Mac's change to the other. A snapshot never overwrites

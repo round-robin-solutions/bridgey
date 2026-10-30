@@ -98,12 +98,13 @@
 
     <string name="setup_q_updates_summary">Обновления</string>
     <string name="setup_a_updates_steady">Надёжные</string>
-    <string name="setup_a_updates_early">Пораньше</string>
-    <string name="setup_a_updates_newest">Самые новые, каждый день</string>
+    <string name="setup_a_updates_early">Пораньше, все устройства обновляются автоматически</string>
+    <string name="setup_a_updates_newest">Самые новые, каждый день, все устройства обновляются автоматически</string>
+    <string name="setup_q_updates_auto_summary">Обновлять все устройства автоматически</string>
 
 
     <string name="setup_switches_title">Что-нибудь ещё?</string>
-    <string name="setup_switches_context">Всё здесь выключено, пока вы не включите.</string>
+    <string name="setup_switches_context">Включите то, что нужно. «Связь вне дома» уже включена, чтобы устройства оставались на связи без общей Wi-Fi.</string>
     <string name="setup_switches_details">Подробности в настройках</string>
     <string name="setup_continue">Продолжить</string>
     <string name="setup_permissions_title">Разрешите то, что нужно</string>

@@ -117,6 +117,8 @@ enum class ResetItem(val key: String, val targets: List<ResetTarget>) {
         ),
     ),
     UPDATE_CHANNEL("channel", listOf(ResetTarget.Preferences("bridgey.updates"))),
+    /** Update all's saved run and Update all devices automatically's records (Later, waits, the last automatic run). */
+    UPDATE_RECORDS("update_records", listOf(ResetTarget.Preferences("bridgey.updates.run"))),
     FOLDER_PLACES("places", listOf(ResetTarget.Live(ResetHook.RELEASE_FOLDER_GRANTS), ResetTarget.Preferences("bridgey.places"))),
     SETUP("setup", listOf(ResetTarget.Preferences(SetupStore.PREFERENCES), ResetTarget.Preferences(SetupStore.LEGACY_ONBOARDING_PREFERENCES))),
     TRUSTED_DEVICES(
@@ -199,7 +201,10 @@ class LocalDataReset(private val environment: ResetEnvironment) {
             ResetChoice.SETTINGS -> listOf(ResetItem.FEATURE_SETTINGS, ResetItem.APP_PREFERENCES, ResetItem.UPDATE_CHANNEL, ResetItem.FOLDER_PLACES, ResetItem.SETUP)
             ResetChoice.EVERYTHING -> (
                 items(ResetChoice.ACTIVITY_AND_LOGS) + items(ResetChoice.MODELS_AND_CACHES) + items(ResetChoice.SETTINGS) +
-                    listOf(ResetItem.TRUSTED_DEVICES, ResetItem.IDENTITY, ResetItem.RECONNECT_ADDRESSES, ResetItem.CODES_LINK, ResetItem.WHATS_NEW)
+                    listOf(
+                        ResetItem.TRUSTED_DEVICES, ResetItem.IDENTITY, ResetItem.RECONNECT_ADDRESSES, ResetItem.CODES_LINK, ResetItem.WHATS_NEW,
+                        ResetItem.UPDATE_RECORDS,
+                    )
                 )
         }
 

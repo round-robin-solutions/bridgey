@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.bridgey.android.updates.AutoUpdateController
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -40,6 +41,8 @@ class LocalDataResetTest {
         "bridgey.sms.asked",
         // v0.10 settings sync: records, switches and choices; first-connect answers.
         "bridgey.sync", "bridgey.sync.answers",
+        // Update all's saved run and Update all devices automatically's records: only Everything clears them.
+        "bridgey.updates.run",
     )
 
     /** Every file and directory, relative to its root. */
@@ -132,6 +135,23 @@ class LocalDataResetTest {
         assertEquals(ResetHook.DISCONNECT, hooks.first())
         assertEquals(ResetHook.entries.toSet(), hooks.toSet())
         assertTrue(LocalDataReset.needsRestart(ResetChoice.EVERYTHING))
+    }
+
+    @Test
+    fun onlyEverythingClearsTheAutomaticUpdateRecords() {
+        // What Update all and Update all devices automatically keep: the saved run, Laters and waits, the last
+        // automatic run, the run already handled, the "updated automatically" marker and the build it finished.
+        val keys = listOf(
+            "run", AutoUpdateController.KEY_MEMORY, AutoUpdateController.KEY_LAST_RUN, AutoUpdateController.KEY_ENDED_RUN,
+            AutoUpdateController.KEY_MARKER, AutoUpdateController.KEY_DONE_BUILD,
+        )
+        val records = context.getSharedPreferences("bridgey.updates.run", Context.MODE_PRIVATE)
+        records.edit().apply { keys.forEach { putString(it, "{}") } }.commit()
+        reset(ResetChoice.SETTINGS)
+        assertEquals(keys.toSet(), records.all.keys intersect keys.toSet())
+        reset(ResetChoice.EVERYTHING)
+        assertTrue(records.all.isEmpty())
+        assertTrue(ResetItem.UPDATE_RECORDS in LocalDataReset.items(ResetChoice.EVERYTHING))
     }
 
     @Test

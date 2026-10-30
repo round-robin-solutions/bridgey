@@ -5,6 +5,7 @@ import dev.bridgey.android.AppUpdater
 import dev.bridgey.android.BridgeySettings
 import dev.bridgey.android.PairingCoordinator
 import dev.bridgey.android.R
+import dev.bridgey.android.activity.ActivityKind
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -45,9 +46,11 @@ data class UpdateOverview(val plan: UpdatePlan, val devices: List<DeviceUpdateRo
 data class UpdateAllState(val run: UpdateRun? = null, val now: Long = 0L)
 
 /**
- * Update all on the phone: tells every Mac that understands it this phone's version and update
- * state, answers a Mac's updates.start through [UpdateStartGate] and this phone's own updater, and
- * runs Update all from here (every connected Mac first, this phone last, after a countdown).
+ * Update all on the phone: tells every Mac that understands it this phone's version, update state,
+ * whether it updates automatically and what the person is doing; answers a Mac's updates.start
+ * through [UpdateStartGate] and this phone's own updater; runs Update all from here (every connected
+ * Mac first, this phone last, after a countdown); and runs it by itself with Update all devices
+ * automatically ([AutoUpdateController]).
  */
 class UpdateAllCoordinator(
     private val context: Context,
@@ -56,6 +59,15 @@ class UpdateAllCoordinator(
     private val updater: AppUpdater,
     private val settings: BridgeySettings,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** What the person is doing on this phone; empty when nothing. */
+    private val busy: StateFlow<Set<UpdateBusy>> = MutableStateFlow(emptySet()),
+    /** Reads the call signals again now (each second of a run, so a call that starts holds the restart at once). */
+    private val refreshBusy: () -> Unit = {},
+    /** The screen is off and the phone charges. */
+    private val idle: () -> Boolean = { false },
+    /** An activity stream entry: kind, device ID (null: this phone), device name, content. */
+    private val record: (ActivityKind, String?, String, String?) -> Unit = { _, _, _, _ -> },
+    private val notifier: AutoUpdateNotifier? = null,
 ) : UpdatesPeerHost {
     private val gate = UpdateStartGate(clock)
     private val preferences = context.getSharedPreferences("bridgey.updates.run", Context.MODE_PRIVATE)
@@ -63,6 +75,7 @@ class UpdateAllCoordinator(
     private val mutableState = MutableStateFlow(UpdateAllState(now = clock()))
     val state: StateFlow<UpdateAllState> = mutableState.asStateFlow()
     private var ticker: Job? = null
+    private var heartbeat: Job? = null
 
     /** The status last sent to each device, without its progress, and when progress last went. */
     private val lastSent = mutableMapOf<String, UpdateStatus>()
@@ -70,7 +83,30 @@ class UpdateAllCoordinator(
 
     private val localName: String get() = context.getString(R.string.update_all_this_phone)
 
+    private val store = object : AutoStore {
+        override fun read(key: String): String? = preferences.getString(key, null)
+        override fun write(key: String, value: String?) {
+            preferences.edit().apply { if (value == null) remove(key) else putString(key, value) }.apply()
+        }
+    }
+    private val controller = AutoUpdateController(clock, store, AutoEffects())
+    private val mutableAuto = MutableStateFlow(AutoUpdateView())
+
+    /** Update all devices automatically, as Settings > Updates draws it. */
+    val auto: StateFlow<AutoUpdateView> = mutableAuto.asStateFlow()
+
+    /** Who was busy at the last look during a run (null: nobody), for "Waiting: … on Work Mac". */
+    @Volatile private var runBusy: Pair<UpdateBusy, String?>? = null
+
+    /** The run whose end was handled, so it is handled once. */
+    @Volatile private var endedRunId: String? = null
+
+    /** When this process started Update all: the automatic rules first wait for paired Macs to reconnect. */
+    private val startedAt = clock()
+    @Volatile private var settleLookScheduled = false
+
     init {
+        updater.automatic = ::autoEnabled
         val saved = preferences.getString(KEY_RUN, null)?.let { text ->
             runCatching { JSONObject(text) }.getOrNull()?.let {
                 restoreUpdateRun(it, updater.installedVersionName, updater.installedVersionCode, clock())
@@ -78,6 +114,8 @@ class UpdateAllCoordinator(
         }
         machine = UpdateRunMachine(clock, Effects(), saved)
         if (saved == null) preferences.edit().remove(KEY_RUN).apply()
+        controller.settleMarker(updater.installedVersionCode, updater.installedVersionName, localName)
+        saved?.let { controller.restored(it, updater.installedVersionCode, updater.installedVersionName, localName) }
         publish()
     }
 
@@ -87,12 +125,16 @@ class UpdateAllCoordinator(
 
     fun start() {
         scope.launch {
-            // This phone's status goes to every Mac that understands it whenever it changes.
-            combine(updater.state, settings.state.map { it.updatesRemoteStart }.distinctUntilChanged()) { _, remoteStart -> updater.wireStatus(remoteStart) }
+            // This phone's status goes to every Mac that understands it whenever it changes: the
+            // updater, the remote start and automatic switches, the channel, and what the person is doing.
+            val switches = settings.state.map { it.updatesRemoteStart to it.updatesAutoAll }.distinctUntilChanged()
+            combine(updater.state, switches, busy) { _, _, _ -> localStatus() }
                 .collect { status ->
                     broadcast(status)
                     machine.onLocalStatus(status)
+                    lookBusy()
                     publish()
+                    evaluate()
                 }
         }
         if (machine.run?.finished == false) startTicker()
@@ -100,11 +142,11 @@ class UpdateAllCoordinator(
 
     fun currentPlan(): UpdatePlan = currentOverview().plan
 
-    private fun currentOverview(): UpdateOverview {
+    private fun planPeers(): List<PeerUpdateInfo> {
         val connections = pairing.connections.value.associateBy { it.deviceId }
         val trusted = pairing.trustedDevices.value
         val ids = (trusted.map { it.id } + connections.keys).distinct()
-        val peers = ids.map { id ->
+        return ids.map { id ->
             val connection = connections[id]
             PeerUpdateInfo(
                 deviceId = id,
@@ -114,7 +156,11 @@ class UpdateAllCoordinator(
                 status = connection?.state?.updateStatus,
             )
         }
-        val local = updater.wireStatus(settings.state.value.updatesRemoteStart)
+    }
+
+    private fun currentOverview(): UpdateOverview {
+        val peers = planPeers()
+        val local = localStatus()
         return UpdateOverview(planUpdateAll(local, localName, peers, clock()), deviceUpdateRows(local, localName, peers))
     }
 
@@ -124,6 +170,7 @@ class UpdateAllCoordinator(
         val plan = currentPlan()
         if (plan.targets.isEmpty()) return
         machine.start(plan, UUID.randomUUID().toString())
+        lookBusy()
         publish()
         startTicker()
     }
@@ -134,11 +181,19 @@ class UpdateAllCoordinator(
         startTicker()
     }
 
-    /** Later during this phone's countdown: the update waits, verified, for Install in Settings > Updates. */
+    /**
+     * Later during this phone's countdown (or while it waits for someone): the update waits, verified,
+     * for Install in Settings > Updates. In an automatic run it also puts the automatic update off for
+     * an hour, and after three Laters until the phone is idle.
+     */
     fun later() {
+        val run = machine.run ?: return
+        // With the setting on, Later in any run puts the automatic update of this build off too.
+        if (!run.finished && autoEnabled()) controller.later(AutoUpdatePolicy.target(autoFacts()))
         machine.later()
         updater.laterAfterRun()
         publish()
+        evaluate()
     }
 
     fun dismiss() {
@@ -146,10 +201,158 @@ class UpdateAllCoordinator(
         publish()
     }
 
+    /**
+     * The screen came on or off, or the network changed: checks the channel when one is due
+     * (automatic updates on, rate limited), and looks again (idle may have changed).
+     */
+    fun deviceEvent(event: String) {
+        scope.launch {
+            if (event == EVENT_SCREEN_ON || event == EVENT_NETWORK) updater.checkOnEvent()
+            evaluate()
+        }
+    }
+
+    /** Charging started or stopped. */
+    fun idleChanged() {
+        scope.launch { evaluate() }
+    }
+
+    // MARK: Update all devices automatically
+
+    /** The setting: the person's choice, or the channel's default. */
+    private fun autoSetting(): Boolean = AutoUpdateRules.enabled(settings.state.value.updatesAutoAll, wireChannel())
+
+    /** The setting is on and this build's updater can run. */
+    private fun autoEnabled(): Boolean = updater.canUpdate && autoSetting()
+
+    private fun wireChannel(): WireChannel = WireChannel.fromWire(updater.state.value.channel.key) ?: WireChannel.STABLE
+
+    private fun localBusy(): UpdateBusy? = UpdateBusy.mostImportant(busy.value)
+
+    /** This phone's updates.status. */
+    private fun localStatus(): UpdateStatus = updater.wireStatus(settings.state.value.updatesRemoteStart, autoEnabled(), localBusy())
+
+    private fun peerName(deviceId: String): String =
+        pairing.trustedDevices.value.firstOrNull { it.id == deviceId }?.name
+            ?: pairing.connections.value.firstOrNull { it.deviceId == deviceId }?.peerName
+            ?: deviceId
+
+    /** Connected devices that support Update all and have sent their status. */
+    private fun autoPeers(): List<AutoPeer> = pairing.connections.value.mapNotNull { connection ->
+        val status = connection.state.updateStatus?.takeIf { connection.state.remoteUpdates } ?: return@mapNotNull null
+        AutoPeer(connection.deviceId, peerName(connection.deviceId), status)
+    }
+
+    private fun autoFacts(): AutoFacts {
+        val now = clock()
+        val local = localStatus()
+        return AutoFacts(
+            now = now,
+            enabled = autoEnabled(),
+            localId = pairing.deviceId,
+            localName = localName,
+            local = local,
+            localBusy = localBusy(),
+            peers = autoPeers(),
+            runActive = machine.run?.finished == false,
+            updatingForPeer = updatingForPeer(local, now),
+            idle = runCatching(idle).getOrDefault(false),
+        )
+    }
+
+    /** Another device's start was accepted a short while ago and this phone's updater is still on it. */
+    private fun updatingForPeer(local: UpdateStatus, now: Long): Boolean {
+        val at = controller.peerStartAt ?: return false
+        return now >= at && now - at < AUTO_PEER_REQUEST_MILLIS && local.state in UPDATING_STATES
+    }
+
+    /** Looks again: maybe starts the automatic run. Main thread. */
+    private fun evaluate() {
+        if (settlingAfterStart()) {
+            refreshAuto()
+            return
+        }
+        controller.evaluate(autoFacts())
+        refreshAuto()
+        if (controller.pending) startHeartbeat()
+    }
+
+    /**
+     * Just started: wait for paired Macs to reconnect and report (at most a minute), so an automatic run
+     * found at start includes them. Looks again when the minute is over.
+     */
+    private fun settlingAfterStart(): Boolean {
+        val now = clock()
+        val ready = pairing.connections.value.filter { it.state.updateStatus != null }.map { it.deviceId }.toSet()
+        if (!AutoUpdateRules.settling(startedAt, now, pairing.trustedDevices.value.map { it.id }, ready)) return false
+        if (!settleLookScheduled) {
+            settleLookScheduled = true
+            scope.launch {
+                delay((AUTO_LAUNCH_SETTLE_MILLIS - (now - startedAt)).coerceAtLeast(1_000L))
+                evaluate()
+            }
+        }
+        return true
+    }
+
+    /** While the automatic update waits (someone busy, Later, a yield), look again every minute. */
+    private fun startHeartbeat() {
+        if (heartbeat?.isActive == true) return
+        heartbeat = scope.launch {
+            while (true) {
+                delay(HEARTBEAT_MILLIS)
+                evaluate()
+                if (!controller.pending) break
+            }
+        }
+    }
+
+    /** During a run: who is busy on any device holds this phone's restart. */
+    private fun lookBusy() {
+        val run = machine.run?.takeIf { !it.finished } ?: return
+        val facts = autoFacts()
+        val who = AutoUpdatePolicy.busy(facts)
+        runBusy = who
+        machine.busy(who?.first)
+        controller.runLook(machine.run ?: run, who, facts.peers, localName)
+    }
+
+    private fun refreshAuto() {
+        val enabled = autoEnabled()
+        mutableAuto.value = AutoUpdateView(
+            supported = updater.canUpdate,
+            on = autoSetting(),
+            channel = wireChannel(),
+            condition = if (enabled) autoCondition(controller.decision, machine.run, runBusy, clock()) else null,
+            lastRun = controller.lastRun,
+        )
+    }
+
+    private inner class AutoEffects : AutoUpdateController.Effects {
+        override fun startRun(refreshBefore: Long): UpdatePlan? {
+            if (machine.run?.finished == false) return null
+            val plan = planUpdateAll(localStatus(), localName, planPeers(), clock(), refreshBefore)
+            if (plan.targets.isEmpty() || !plan.visible) return null
+            machine.start(plan, UUID.randomUUID().toString(), auto = true)
+            publish()
+            startTicker()
+            // The updater may already hold this build, verified: its state does not change, so the run hears it now.
+            scope.launch {
+                machine.onLocalStatus(localStatus())
+                publish()
+            }
+            return plan
+        }
+
+        override fun record(kind: ActivityKind, deviceId: String?, deviceName: String, content: String?) {
+            this@UpdateAllCoordinator.record(kind, deviceId, deviceName, content)
+        }
+    }
+
     // MARK: UpdatesPeerHost
 
     override fun peerReady(deviceId: String) {
-        val status = updater.wireStatus(settings.state.value.updatesRemoteStart)
+        val status = localStatus()
         synchronized(lastSent) { lastSent.remove(deviceId) }
         send(deviceId, status, force = true)
     }
@@ -157,6 +360,11 @@ class UpdateAllCoordinator(
     override fun statusReceived(deviceId: String, status: UpdateStatus) {
         machine.onStatus(deviceId, status)
         publish()
+        scope.launch {
+            lookBusy()
+            publish()
+            evaluate()
+        }
     }
 
     override fun startReceived(deviceId: String, start: UpdateStart): UpdateRefusal? {
@@ -170,12 +378,20 @@ class UpdateAllCoordinator(
                 busy = false,
                 notApplied = updateState.notApplied,
                 offeredBuild = updateState.available?.versionCode,
+                personBusy = localBusy(),
             ),
         )
     }
 
     override fun startAccepted(deviceId: String, start: UpdateStart) {
-        scope.launch { updater.startFromPeer(start.retry) }
+        scope.launch {
+            val name = peerName(deviceId)
+            controller.peerStartAccepted(deviceId, name, start, updater.installedVersionCode)
+            if (start.auto) notifier?.startedBy(name)
+            // This phone's own run is going: it installs this phone's update last, after its countdown.
+            if (machine.run?.finished == false) return@launch
+            updater.startFromPeer(start.retry)
+        }
     }
 
     override fun resultReceived(deviceId: String, result: UpdateResult) {
@@ -190,6 +406,7 @@ class UpdateAllCoordinator(
         }
         machine.onDisconnected(deviceId)
         publish()
+        scope.launch { evaluate() }
     }
 
     // MARK: Sending this phone's status
@@ -223,6 +440,8 @@ class UpdateAllCoordinator(
         ticker = scope.launch {
             while (true) {
                 delay(TICK_MILLIS)
+                refreshBusy()
+                lookBusy()
                 machine.tick()
                 publish()
                 val run = machine.run
@@ -233,12 +452,21 @@ class UpdateAllCoordinator(
 
     private fun publish() {
         val run = machine.run
-        mutableState.value = UpdateAllState(run, clock())
+        val now = clock()
+        mutableState.value = UpdateAllState(run, now)
         if (run == null) {
             preferences.edit().remove(KEY_RUN).apply()
         } else {
             preferences.edit().putString(KEY_RUN, run.toJson().toString()).apply()
         }
+        notifier?.show(AutoNotice.of(run, now))
+        if (run != null && run.finished && endedRunId != run.id) {
+            endedRunId = run.id
+            controller.runEnded(run, AutoUpdatePolicy.target(autoFacts()))
+            // A run ended: the automatic update looks again (Later, a retry, or a newer build).
+            scope.launch { evaluate() }
+        }
+        refreshAuto()
     }
 
     private inner class Effects : UpdateRunEffects {
@@ -259,5 +487,17 @@ class UpdateAllCoordinator(
         private const val KEY_RUN = "run"
         private const val TICK_MILLIS = 1_000L
         private const val PROGRESS_INTERVAL_MILLIS = 1_000L
+
+        /** While the automatic update waits, it looks again this often. */
+        private const val HEARTBEAT_MILLIS = 60_000L
+
+        /** This phone's updater is working on another device's start. */
+        private val UPDATING_STATES = setOf(
+            UpdateState.CHECKING, UpdateState.AVAILABLE, UpdateState.DOWNLOADING, UpdateState.READY, UpdateState.INSTALLING, UpdateState.NEEDS_USER,
+        )
+
+        const val EVENT_SCREEN_ON = "screen_on"
+        const val EVENT_SCREEN_OFF = "screen_off"
+        const val EVENT_NETWORK = "network"
     }
 }

@@ -3,9 +3,12 @@ import Foundation
 import Sparkle
 
 /// Supplies the user's channel to Sparkle. Reads UserDefaults on each call so it
-/// is safe on whatever thread Sparkle asks from.
+/// is safe on whatever thread Sparkle asks from. Also reports how each check ended, so automatic
+/// updates and the command line know when "check now" is done (Sparkle calls these on the main thread).
 final class UpdateChannelDelegate: NSObject, SPUUpdaterDelegate {
     private let defaults: UserDefaults
+    /// A check ended: true when it found a newer build.
+    var onCheckEnded: (_ found: Bool) -> Void = { _ in }
 
     init(defaults: UserDefaults) {
         self.defaults = defaults
@@ -14,6 +17,12 @@ final class UpdateChannelDelegate: NSObject, SPUUpdaterDelegate {
     func allowedChannels(for updater: SPUUpdater) -> Set<String> {
         UpdateChannel.stored(in: defaults).sparkleChannels
     }
+
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) { onCheckEnded(true) }
+
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) { onCheckEnded(false) }
+
+    func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) { onCheckEnded(false) }
 }
 
 /// Sparkle user driver that draws nothing itself: it turns Sparkle's callbacks into an
@@ -262,6 +271,10 @@ final class AppUpdater: ObservableObject {
     @Published private(set) var failureReason: PeerUpdateReason?
     /// The last version handed to Sparkle that did not apply (this Mac relaunched on its old build).
     @Published private(set) var notApplied: UpdateAttemptStore.Attempt?
+    /// The last check started by waking up or a network change (automatic updates rate-limit these).
+    private(set) var lastEventCheck: Date?
+    /// Every check's end, in order: automatic updates and the command line wait on it.
+    var onCheckEnded: (_ found: Bool) -> Void = { _ in }
 
     /// Sparkle only runs inside a built .app that carries a feed URL (not under `swift run`).
     let isAvailable: Bool
@@ -304,6 +317,7 @@ final class AppUpdater: ObservableObject {
             self.attempts.offered(build: build)
             self.notApplied = self.attempts.notApplied
         }
+        channelDelegate.onCheckEnded = { [weak self] found in self?.onCheckEnded(found) }
         attempts.launched(installedBuild: buildNumber, now: Date())
         notApplied = attempts.notApplied
         guard isAvailable else { return }
@@ -342,6 +356,16 @@ final class AppUpdater: ObservableObject {
     func checkForUpdates() {
         guard isAvailable, updater.canCheckForUpdates else { return }
         updater.checkForUpdates()
+    }
+
+    /// A quiet check (automatic updates, the command line, waking up): nothing shows unless it finds a
+    /// build, which then appears as usual. Returns false when Sparkle cannot check now (one is running).
+    @discardableResult
+    func checkInBackground(event: Bool = false) -> Bool {
+        guard isAvailable, updater.canCheckForUpdates, !flow.isBusy else { return false }
+        if event { lastEventCheck = Date() }
+        updater.checkForUpdatesInBackground()
+        return true
     }
 
     var flowActions: UpdateFlowActions {
@@ -394,10 +418,10 @@ final class AppUpdater: ObservableObject {
     }
 
     /// What this Mac reports in `updates.status`.
-    func localInputs(remoteStartAllowed: Bool) -> LocalUpdateInputs {
+    func localInputs(remoteStartAllowed: Bool, auto: Bool = false, busy: UpdateBusy? = nil) -> LocalUpdateInputs {
         LocalUpdateInputs(available: isAvailable, app: shortVersion, build: buildNumber, channel: channel, flow: flow, deferral: deferral,
                           offeredBuild: offeredBuild, failureReason: failureReason, lastCheck: lastCheck,
-                          remoteStartAllowed: remoteStartAllowed, notApplied: notApplied)
+                          remoteStartAllowed: remoteStartAllowed, notApplied: notApplied, auto: auto, busy: busy)
     }
 
     func later() {

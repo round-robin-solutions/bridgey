@@ -37,6 +37,7 @@ struct UpdatesPane: View {
                 set: actions.setAutomaticallyChecks
             )
             .disabled(!model.updatesAvailable)
+            AutoUpdateSettingsRows(display: model.autoUpdate, set: actions.setAutoUpdate)
             SettingsToggle(
                 title: L10n.text("updates.remoteStart", fallback: "Let paired devices start updates on this Mac"),
                 subtitle: L10n.text("updates.remoteStart.detail", fallback: "Only starts Bridgey\u{2019}s own signed update from this Mac\u{2019}s channel."),

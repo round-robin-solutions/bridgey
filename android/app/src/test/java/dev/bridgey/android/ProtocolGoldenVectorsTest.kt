@@ -475,7 +475,7 @@ class ProtocolGoldenVectorsTest {
 
     @Test fun updatesStart() = each("updatesStart") { vector ->
         val decoded = dev.bridgey.android.updates.decodeUpdateStart(plaintext(vector))
-        val result: Any = decoded?.let { mapOf("requestId" to it.requestId, "retry" to it.retry) } ?: "reject"
+        val result: Any = decoded?.let { mapOf("requestId" to it.requestId, "retry" to it.retry, "auto" to it.auto) } ?: "reject"
         val written = !vector.optBoolean("write") ||
             (decoded != null && normalize(dev.bridgey.android.updates.updateStartPayload(decoded)) == normalize(vector.get("plaintext")))
         written && result == normalize(vector.get("expect"))
@@ -493,6 +493,7 @@ class ProtocolGoldenVectorsTest {
         "platform" to status.platform.wire, "edition" to status.edition, "app" to status.app, "build" to status.build,
         "channel" to status.channel.wire, "state" to status.state.wire, "target" to status.target, "targetBuild" to status.targetBuild,
         "progress" to status.progress?.toLong(), "reason" to status.reason?.wire, "remoteStart" to status.remoteStart, "checkedAt" to status.checkedAt,
+        "auto" to status.auto, "busy" to status.busy?.wire,
     )
 
     private fun each(group: String, check: (JSONObject) -> Boolean) {

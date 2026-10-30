@@ -1102,6 +1102,9 @@ func activityVisual(_ kind: ActivityKind) -> (symbol: String, tint: TileTint) {
     case .clipPasteFailed: ("exclamationmark.circle", .neutral)
     case .folderSent, .folderReceived: ("folder", .green)
     case .folderIncomplete: ("folder.badge.questionmark", .neutral)
+    case .updateAutoDone, .updateAutoStartedBy: ("arrow.down.circle", .purple)
+    case .updateAutoWaiting: ("hourglass", .neutral)
+    case .updateAutoSkipped, .updateAutoFailed: ("exclamationmark.circle", .neutral)
     case .settingsSynced: ("arrow.triangle.2.circlepath", .neutral)
     }
 }

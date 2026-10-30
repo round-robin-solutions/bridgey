@@ -146,6 +146,28 @@ class SetupFlowTest {
     }
 
     @Test
+    fun connectAwayFromHomeIsOnByDefaultInTheSummaryAndAfterTheEssentials() {
+        // A fresh install: every other feature off, Connect away from home never set (on until chosen).
+        val facts = fresh().copy(current = allOff - SetupSetting.CONNECT_AWAY)
+        assertEquals("true", facts.value(SetupSetting.CONNECT_AWAY))
+        val walk = start(facts, emptyMap()).toTheEnd()
+        val away = SetupSummary.items(walk.state, walk.facts).filterIsInstance<SummaryItem.FeatureOn>().single()
+        assertEquals("away", away.feature.id)
+        assertTrue(away.on)
+        // Nothing in the run set it: it stays unset, so it keeps following the default.
+        assertNull(SetupFlow.overlay(walk.state)[SetupSetting.CONNECT_AWAY])
+        // Its summary switch turns it off, as a choice.
+        val off = run(SetupEvent.SummarySwitch("away", on = false), from = walk.state)
+        assertFalse(SetupSummary.items(off, walk.facts).filterIsInstance<SummaryItem.FeatureOn>().single().on)
+        assertEquals("false", SetupFlow.overlay(off)[SetupSetting.CONNECT_AWAY])
+        // Get started quickly never touches it, so it stays on.
+        assertTrue(SetupBundles.essentialChanges(Effective(facts)).none { it.setting == SetupSetting.CONNECT_AWAY })
+        // An explicit off from before stays off: the summary does not list it.
+        val chosenOff = fresh()
+        assertTrue(SetupSummary.items(start(chosenOff, emptyMap()).toTheEnd().state, chosenOff).none { it is SummaryItem.FeatureOn })
+    }
+
+    @Test
     fun theSummarySaysSettingsStayTheSameAndItsSwitchTurnsSyncOff() {
         val walk = start(fresh(), SetupBundles.answers(setOf("clipboard"), emptyMap())).toTheEnd()
         assertEquals(SummaryItem.Sync(on = true), SetupSummary.items(walk.state, walk.facts).filterIsInstance<SummaryItem.Sync>().single())
@@ -183,6 +205,24 @@ class SetupFlowTest {
         assertFalse(q("clipboard") in walk.steps)
         assertFalse(q("codes") in walk.steps)
         assertEquals(false, walk.state.switches["media"])
+    }
+
+    @Test
+    fun theAutomaticUpdatesAnswerWinsOverTheChannelsDefault() {
+        val early = start(fresh(), SetupTyped.match("beta, but no automatic updates"))
+        assertEquals("BETA", early.facts.value(SetupSetting.UPDATE_CHANNEL))
+        assertEquals("false", early.facts.value(SetupSetting.AUTO_UPDATES))
+        val newest = start(fresh(), mapOf("updates" to Answers.NEWEST))
+        assertEquals("true", newest.facts.value(SetupSetting.AUTO_UPDATES))
+        val steady = start(fresh(), mapOf("updates" to Answers.STEADY, "updates_auto" to Answers.YES))
+        assertEquals("STABLE", steady.facts.value(SetupSetting.UPDATE_CHANNEL))
+        assertEquals("true", steady.facts.value(SetupSetting.AUTO_UPDATES))
+        // Both show on the summary as choices.
+        assertEquals(2, SetupSummary.items(early.state, early.facts).filterIsInstance<SummaryItem.Chosen>().size)
+        assertEquals(
+            listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "BETA"), SettingChange(SetupSetting.AUTO_UPDATES, "false")),
+            SetupFlow.startChanges(mapOf("updates" to Answers.EARLY, "updates_auto" to Answers.NO)),
+        )
     }
 
     @Test
