@@ -173,6 +173,8 @@ const ICE_STALE_SELECTED: Duration = Duration::from_secs(10);
 const ICE_STALE: Duration = Duration::from_secs(25);
 /// Offers that cross within this long are glare (signals through the control service take one of its round trips).
 const GLARE_WINDOW: Duration = Duration::from_secs(1);
+/// Copy buffer of the loopback bridge, each way.
+const BRIDGE_BUFFER: usize = 256 * 1024;
 
 impl IceSession {
     fn pending(&self) -> bool {
@@ -1775,11 +1777,14 @@ impl Node {
         self.mark("bridge.stream", tunnel.peer.as_deref(), None);
         let (mut app_read, mut app_write) = socket.into_split();
         let upstream = async {
-            let _ = tokio::io::copy(&mut app_read, &mut send).await;
+            // Large buffers both ways: tokio's default 8 KiB copy turns a file transfer into many small stream writes.
+            let mut app_read = tokio::io::BufReader::with_capacity(BRIDGE_BUFFER, &mut app_read);
+            let _ = tokio::io::copy_buf(&mut app_read, &mut send).await;
             let _ = send.finish();
         };
         let downstream = async {
-            let _ = tokio::io::copy(&mut recv, &mut app_write).await;
+            let mut recv = tokio::io::BufReader::with_capacity(BRIDGE_BUFFER, &mut recv);
+            let _ = tokio::io::copy_buf(&mut recv, &mut app_write).await;
             let _ = app_write.shutdown().await;
         };
         tokio::select! {

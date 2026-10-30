@@ -115,7 +115,7 @@ impl Mux {
         std_sock.set_nonblocking(true)?;
         let sock = tokio::net::UdpSocket::from_std(std_sock)?;
         let local = sock.local_addr()?;
-        let (quic_tx, quic_rx) = mpsc::channel(2_048);
+        let (quic_tx, quic_rx) = mpsc::channel(QUIC_QUEUE);
         let mux = Arc::new(Mux {
             v6: local.is_ipv6(),
             sock,
@@ -434,11 +434,19 @@ impl Mux {
     }
 }
 
+const SOCKET_BUFFER: usize = 4 << 20;
+/// Datagrams waiting for QUIC: a full window of 1,200-byte packets (16 MiB) fits.
+const QUIC_QUEUE: usize = 16_384;
+
 fn bind_socket(port: u16) -> io::Result<std::net::UdpSocket> {
     use socket2::{Domain, Protocol, Socket, Type};
     match Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP)) {
         Ok(socket) => {
             socket.set_only_v6(false)?;
+            // Room for a burst at full speed (the defaults, around 200 KB, drop packets a QUIC window sends at once).
+            // The OS caps these at its own maximum; less is not an error.
+            let _ = socket.set_recv_buffer_size(SOCKET_BUFFER);
+            let _ = socket.set_send_buffer_size(SOCKET_BUFFER);
             socket.bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port).into())?;
             Ok(socket.into())
         }
@@ -470,16 +478,27 @@ impl quinn::AsyncUdpSocket for Mux {
 
     fn poll_recv(&self, cx: &mut Context, bufs: &mut [IoSliceMut<'_>], meta: &mut [quinn::udp::RecvMeta]) -> Poll<io::Result<usize>> {
         let mut rx = self.quic_rx.lock().unwrap();
-        match rx.poll_recv(cx) {
-            Poll::Ready(Some(datagram)) => {
-                let len = datagram.data.len().min(bufs[0].len());
-                bufs[0][..len].copy_from_slice(&datagram.data[..len]);
-                meta[0] = quinn::udp::RecvMeta { addr: datagram.src, len, stride: len, ecn: None, dst_ip: None };
-                Poll::Ready(Ok(1))
-            }
-            Poll::Ready(None) => Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "mux closed"))),
-            Poll::Pending => Poll::Pending,
+        // As many waiting datagrams as quinn has buffers for, in one call (one wake-up per batch, not per packet).
+        let mut filled = 0;
+        while filled < bufs.len().min(meta.len()) {
+            let next = if filled == 0 {
+                match rx.poll_recv(cx) {
+                    Poll::Ready(Some(d)) => d,
+                    Poll::Ready(None) => return Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "mux closed"))),
+                    Poll::Pending => return Poll::Pending,
+                }
+            } else {
+                match rx.try_recv() {
+                    Ok(d) => d,
+                    Err(_) => break,
+                }
+            };
+            let len = next.data.len().min(bufs[filled].len());
+            bufs[filled][..len].copy_from_slice(&next.data[..len]);
+            meta[filled] = quinn::udp::RecvMeta { addr: next.src, len, stride: len, ecn: None, dst_ip: None };
+            filled += 1;
         }
+        Poll::Ready(Ok(filled))
     }
 
     fn local_addr(&self) -> io::Result<SocketAddr> {
