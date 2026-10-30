@@ -41,6 +41,22 @@ final class ConnectStore {
 
     private var fileURL: URL { directory.appendingPathComponent(Self.fileName) }
 
+    /// The core's own state between runs (`connect-core-state.json`, 0600): relay round trips and the warm relay,
+    /// never a credential (docs/connect-anywhere-latency.md). Kept apart from the secrets above.
+    static let coreStateFileName = "connect-core-state.json"
+    private var coreStateURL: URL { directory.appendingPathComponent(Self.coreStateFileName) }
+
+    func coreState() -> [String: Any]? {
+        guard let data = try? PairingFile.readIfPresent(coreStateURL), data.count <= 16_384 else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    func setCoreState(_ state: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: state), data.count <= 16_384 else { return }
+        try? PairingFile.prepareDirectory(directory)
+        try? PairingFile.writeAtomically(data, to: coreStateURL)
+    }
+
     private func load() {
         do {
             try PairingFile.prepareDirectory(directory)
@@ -80,6 +96,8 @@ final class ConnectStore {
         let key = P256.Signing.PrivateKey()
         file.nodeKey = key.rawRepresentation.base64EncodedString()
         save()
+        // The saved warm relay belonged to the old key; the service would not give it back to the new one.
+        unlink(coreStateURL.path)
         return key
     }
 
@@ -115,5 +133,6 @@ final class ConnectStore {
     func deleteAll() {
         file = File()
         unlink(fileURL.path)
+        unlink(coreStateURL.path)
     }
 }

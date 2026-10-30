@@ -5,7 +5,7 @@
 //! the other side echoes them. Output is one JSON line per event or measurement.
 //!
 //! cargo run --example probe -- --id A --peer B --side 0 --secret <base64 32 bytes> \
-//!     --control ws://127.0.0.1:18450/v1/ws [--relay-only] [--address 10.0.0.2:42459] [--port 42459]
+//!     --control ws://127.0.0.1:18450/v1/ws [--relay-only] [--address 10.0.0.2:42459] [--port 42459] [--state file] [--key file]
 
 use bridgey_connect::ffi;
 use bridgey_connect_proto::b64;
@@ -26,8 +26,19 @@ fn flag(name: &str) -> bool {
 
 fn main() {
     let rng = ring::rand::SystemRandom::new();
-    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).expect("key");
-    let key = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng).expect("key");
+    // --key <file>: the same node key every run, as an app keeps it (a fresh one otherwise).
+    let saved = arg("--key").and_then(|p| std::fs::read(p).ok());
+    let pkcs8 = match saved {
+        Some(bytes) => bytes,
+        None => {
+            let fresh = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).expect("key").as_ref().to_vec();
+            if let Some(path) = arg("--key") {
+                let _ = std::fs::write(path, &fresh);
+            }
+            fresh
+        }
+    };
+    let key = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &pkcs8, &rng).expect("key");
     let port: u16 = arg("--port").and_then(|p| p.parse().ok()).unwrap_or(0);
     let config = json!({
         "port": port,
@@ -35,6 +46,7 @@ fn main() {
         "app": "bridgey-probe/0.1",
         "nodeKey": b64::url_encode(key.public_key().as_ref()),
         "relayOnly": flag("--relay-only"),
+        "state": arg("--state").and_then(|p| std::fs::read_to_string(p).ok()).and_then(|t| serde_json::from_str::<Value>(&t).ok()),
     });
     let started = Instant::now();
     let reply: Value = serde_json::from_str(&ffi::start(&config.to_string())).unwrap();
@@ -70,6 +82,13 @@ fn main() {
                 let data = b64::std_decode(event["data"].as_str().unwrap()).unwrap();
                 let sig = key.sign(&rng, &data).unwrap();
                 ffi::command(handle, &json!({"c": "sign.result", "id": event["id"], "sig": b64::std_encode(sig.as_ref())}).to_string());
+            }
+            // What an app keeps between runs (--state <file>): the next start reuses it.
+            "state" => {
+                if let Some(path) = arg("--state") {
+                    let _ = std::fs::write(path, event["state"].to_string());
+                }
+                println!("{}", json!({"probe": "event", "atMs": started.elapsed().as_millis() as u64, "event": {"e": "log", "msg": "state saved"}}));
             }
             "tunnel" => {
                 println!("{}", json!({"probe": "tunnel", "atMs": started.elapsed().as_millis() as u64, "event": event}));

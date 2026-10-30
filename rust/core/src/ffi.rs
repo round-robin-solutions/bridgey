@@ -85,7 +85,7 @@ pub fn command(id: u64, json_text: &str) -> String {
                 json!({"ok": true}).to_string()
             }
             "network" => {
-                node.network_changed(cmd.get("reason").and_then(Value::as_str).unwrap_or("network"));
+                node.network_changed(cmd.get("reason").and_then(Value::as_str).unwrap_or("network"), cmd.get("metered").and_then(Value::as_bool));
                 json!({"ok": true}).to_string()
             }
             "foreground" => {

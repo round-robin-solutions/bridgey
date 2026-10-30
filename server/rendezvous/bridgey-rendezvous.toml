@@ -7,6 +7,8 @@ listen = "0.0.0.0:8080"
 # connect.roundrobin.in is served through the host nginx on rr-web, which sets X-Real-IP.
 trust_proxy = true
 environment = "production"
+# What clients sign in a single-flight sign-in (hello in the upgrade request); nginx forwards another Host.
+public_host = "connect.roundrobin.in"
 
 [limits]
 max_ids = 64
@@ -19,6 +21,8 @@ connections_per_ip = 32
 max_connections = 20000
 pow_bits = 0
 grant_lifetime_s = 7200
+# A node's own (warm) relay credentials; it renews them in their last hour.
+warm_grant_lifetime_s = 43200
 auth_timeout_s = 10
 
 # Relay pool (section 9.1). Penalties steer India to bom first and keep sxb (the build server) last.

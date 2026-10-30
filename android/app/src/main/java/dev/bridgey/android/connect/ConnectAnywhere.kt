@@ -71,6 +71,10 @@ sealed interface ConnectStatus {
 class ConnectAnywhere(
     private val nodeKey: ConnectNodeKey,
     private val appVersion: String,
+    /** The core's own state between runs (relay round trips, the warm relay; no credentials). No backup. */
+    private val stateFile: java.io.File? = null,
+    /** The current network costs per byte (mobile data): no relay allocation is kept warm there. */
+    private val metered: () -> Boolean = { false },
 ) {
     @Volatile private var handle: Long = 0
     @Volatile private var events: Thread? = null
@@ -100,6 +104,9 @@ class ConnectAnywhere(
             .put("app", "bridgey-rr/$appVersion android")
             .put("nodeKey", nodeKey.publicKey())
             .put("relayOnly", relayOnly)
+            // A warm relay with a keep-alive every 25 s only off mobile data: there each one would wake the radio.
+            .put("relayKeepaliveS", if (runCatching(metered).getOrDefault(true)) 0 else RELAY_KEEPALIVE_SECONDS)
+        readState()?.let { config.put("state", it) }
         val reply = runCatching { JSONObject(ConnectCore.nativeStart(config.toString()) ?: "{}") }.getOrNull()
         if (reply?.optBoolean("ok") != true) {
             BridgeyLogging.w(LogCategory.CONNECTION, "CONNECT start failed: ${reply?.optString("error")}")
@@ -164,8 +171,28 @@ class ConnectAnywhere(
         command(JSONObject().put("c", "connect").put("peer", deviceId))
     }
 
-        fun networkChanged(reason: String) {
-        command(JSONObject().put("c", "network").put("reason", reason))
+    fun networkChanged(reason: String) {
+        command(JSONObject().put("c", "network").put("reason", reason).put("metered", runCatching(metered).getOrDefault(true)))
+    }
+
+    /** Forgets the core's saved state (Reset away-from-home identity). */
+    fun forgetState() {
+        runCatching { stateFile?.delete() }
+    }
+
+    private fun readState(): JSONObject? = runCatching {
+        stateFile?.takeIf { it.isFile && it.length() in 1..MAX_STATE_BYTES }?.readText()?.let(::JSONObject)
+    }.getOrNull()
+
+    private fun writeState(state: JSONObject) {
+        val file = stateFile ?: return
+        runCatching {
+            val text = state.toString()
+            if (text.length > MAX_STATE_BYTES) return
+            val temporary = java.io.File(file.parentFile, file.name + ".tmp")
+            temporary.writeText(text)
+            if (!temporary.renameTo(file)) temporary.delete()
+        }
     }
 
     fun foreground() {
@@ -213,6 +240,7 @@ class ConnectAnywhere(
                 }
             }
             "tunnel" -> openTunnel(event)
+            "state" -> event.optJSONObject("state")?.let(::writeState)
             "timing" -> ConnectTiming.mark(
                 "core.${event.optString("step")}",
                 event.optString("peer").takeIf { it.isNotEmpty() && it != "null" },
@@ -226,6 +254,11 @@ class ConnectAnywhere(
                 BridgeyLogging.i(LogCategory.CONNECTION, "CONNECT ${event.optString("e")} $detail")
             }
         }
+    }
+
+    private companion object {
+        const val RELAY_KEEPALIVE_SECONDS = 25
+        const val MAX_STATE_BYTES = 16_384L
     }
 
     private fun openTunnel(event: JSONObject) {

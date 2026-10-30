@@ -4471,7 +4471,7 @@ class PairingCoordinator(
     }
 
     /**
-     * After a network change: every session must answer a ping within 3 s or it is dropped, so a
+     * After a network change: every session must answer a ping within 1.5 s or it is dropped, so a
      * device that moved away is found on another route at once instead of after 30 s of silence.
      */
     private fun probeSessions(reason: String) {
@@ -4688,7 +4688,8 @@ class PairingCoordinator(
             dev.bridgey.android.folders.FolderKinds.ENTRY_FAILED, dev.bridgey.android.folders.FolderKinds.RESULT,
         )
         const val REMOTE_INPUT_MAX_BYTES = 2_048
-        const val NETWORK_PROBE_MILLIS = 3_000L
+        /** Long enough for a ping over a relay with a transfer queued ahead of it, short enough to fail over quickly. */
+        const val NETWORK_PROBE_MILLIS = 1_500L
         val CONNECT_NETWORK_EVENTS = setOf("network_available", "network_lost", "local_network_available", "local_network_lost", "debug_relay_only")
         const val TUNNEL_HEARTBEAT_INTERVAL_MILLIS = 25_000L
         const val TUNNEL_HEARTBEAT_TIMEOUT_MILLIS = 75_000L

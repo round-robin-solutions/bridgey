@@ -113,6 +113,20 @@ pub fn auth_message(nonce: &[u8], node_public_key: &[u8]) -> Vec<u8> {
     out
 }
 
+/// What a node signs for the single-flight sign-in (hello in the WebSocket upgrade, no challenge):
+/// `"bridgey-rdv-auth-v2\0" || host || "\0" || ts (8 bytes, big-endian Unix ms) || cnonce || node`.
+/// The service takes it once (it remembers `cnonce` per node) and only within two minutes of `ts`.
+pub fn auth_message_v2(host: &str, ts_ms: u64, cnonce: &[u8], node_public_key: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(21 + host.len() + 1 + 8 + cnonce.len() + node_public_key.len());
+    out.extend_from_slice(b"bridgey-rdv-auth-v2\0");
+    out.extend_from_slice(host.as_bytes());
+    out.push(0);
+    out.extend_from_slice(&ts_ms.to_be_bytes());
+    out.extend_from_slice(cnonce);
+    out.extend_from_slice(node_public_key);
+    out
+}
+
 /// Proof of work: `SHA-256("bridgey-pow-v1" || nonce || node || solution)` starts with `bits` zero bits.
 pub fn pow_ok(nonce: &[u8], node_public_key: &[u8], solution: &[u8], bits: u32) -> bool {
     if bits == 0 {

@@ -23,6 +23,12 @@ pub const TYPE_PRFLX: u32 = 100;
 pub const TYPE_SRFLX: u32 = 90;
 pub const TYPE_RELAY: u32 = 2;
 
+/// Pairs that involve a relay wait this long after checks start, so a direct pair that works (a LAN answers
+/// in a few milliseconds) is found first; then both lanes run side by side (happy eyeballs).
+pub const RELAY_HEAD_START: Duration = Duration::from_millis(50);
+/// First retransmit of a connectivity check.
+const CHECK_RTO: Duration = Duration::from_millis(100);
+
 pub fn priority(type_pref: u32, ip: IpAddr) -> u32 {
     let local_pref: u32 = if ip.is_ipv6() { 65_535 } else { 65_000 };
     (type_pref << 24) + (local_pref << 8) + 255
@@ -92,6 +98,8 @@ struct State {
     selected: Option<Path>,
     nominating: bool,
     first_success: Option<Instant>,
+    /// When the remote credentials arrived and checks could start (the relay head start counts from here).
+    checks_started: Option<Instant>,
     closed: bool,
 }
 
@@ -137,6 +145,7 @@ impl IceAgent {
                 selected: None,
                 nominating: false,
                 first_success: None,
+                checks_started: None,
                 closed: false,
             }),
             events,
@@ -185,6 +194,7 @@ impl IceAgent {
         let mut st = self.state.lock().unwrap();
         st.remote_ufrag = Some(ufrag.to_string());
         st.remote_pwd = Some(pwd.to_string());
+        st.checks_started.get_or_insert_with(Instant::now);
     }
 
     pub fn locals(&self) -> Vec<Local> {
@@ -227,7 +237,8 @@ impl IceAgent {
         }
         let (g, d) = if self.controlling { (local.pri, remote.pri) } else { (remote.pri, local.pri) };
         let pri = (1u64 << 32) * u64::from(g.min(d)) + 2 * u64::from(g.max(d)) + u64::from(g > d);
-        let frozen = matches!(local.via, Via::Turn(server) if !self.mux.has_channel(server, remote.addr));
+        // A relay pair waits for the permission (or channel) that lets its datagrams through.
+        let frozen = matches!(local.via, Via::Turn(server) if !self.mux.can_send(server, remote.addr));
         st.pairs.push(Pair { local: li, remote: ri, pri, state: if frozen { PairState::Frozen } else { PairState::Waiting }, streak: 0, misses: 0, last_ok: None });
         st.pairs.sort_by_key(|p| std::cmp::Reverse(p.pri));
         if frozen {
@@ -239,10 +250,11 @@ impl IceAgent {
         }
     }
 
-    /// The owner binds the channel (it holds the allocation); pairs on it are checked afterwards.
+    /// The owner installs the permission or binds the channel (it holds the allocation); pairs on it are
+    /// checked afterwards.
     async fn unfreeze_after_bind(self: Arc<Self>, server: SocketAddr, peer: SocketAddr) {
-        for _ in 0..40 {
-            if self.mux.has_channel(server, peer) {
+        for _ in 0..200 {
+            if self.mux.can_send(server, peer) {
                 let mut st = self.state.lock().unwrap();
                 let indices: Vec<usize> = (0..st.pairs.len())
                     .filter(|&i| {
@@ -255,8 +267,13 @@ impl IceAgent {
                 }
                 return;
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
+    }
+
+    /// The pair goes through a relay on either end.
+    fn relayed(st: &State, pair: &Pair) -> bool {
+        st.locals[pair.local].kind == "relay" || st.remotes[pair.remote].kind == "relay"
     }
 
     fn path(st: &State, pair: &Pair) -> Path {
@@ -275,7 +292,8 @@ impl IceAgent {
         (addrs::route_of(remote.addr.ip()), None)
     }
 
-    /// Runs every 25 ms: starts the next check, nominates, and ends the agent on timeout.
+    /// Runs every 25 ms: starts the next check in each lane (direct and relayed), nominates, and ends the agent
+    /// on timeout.
     fn tick(self: &Arc<Self>) -> bool {
         let mut st = self.state.lock().unwrap();
         if st.closed {
@@ -289,15 +307,23 @@ impl IceAgent {
             let _ = self.events.send(IceEvent::Failed("timeout"));
             return false;
         }
-        if let Some(i) = st.pairs.iter().position(|p| p.state == PairState::Waiting) {
-            st.pairs[i].state = PairState::InProgress;
-            let agent = self.clone();
-            let index = i;
-            let pair = st.pairs[i].clone();
-            let path = Self::path(&st, &pair);
-            tokio::spawn(async move { agent.check(index, path, false).await });
+        // The head start is for direct pairs still being checked; with none (relay only, or all failed) it is moot.
+        let direct_pending = st.pairs.iter().any(|p| !Self::relayed(&st, p) && matches!(p.state, PairState::Waiting | PairState::InProgress));
+        let relay_open = st.checks_started.is_some_and(|t| t.elapsed() >= RELAY_HEAD_START || !direct_pending);
+        for relayed in [false, true] {
+            if relayed && !relay_open {
+                continue;
+            }
+            if let Some(i) = st.pairs.iter().position(|p| p.state == PairState::Waiting && Self::relayed(&st, p) == relayed) {
+                st.pairs[i].state = PairState::InProgress;
+                let agent = self.clone();
+                let path = Self::path(&st, &st.pairs[i]);
+                tokio::spawn(async move { agent.check(i, path, false).await });
+            }
         }
-        if self.controlling && st.selected.is_none() && !st.nominating {
+        // Until a pair is selected the controlling side nominates aggressively (every check carries
+        // USE-CANDIDATE and the first that answers is selected); this regular nomination is for later moves.
+        if self.controlling && st.selected.is_none() && !st.nominating && st.first_success.is_none() {
             if let Some(first) = st.first_success {
                 let best_succeeded = st.pairs.iter().position(|p| p.state == PairState::Succeeded);
                 let pending_better = st.pairs.iter().take_while(|p| p.state != PairState::Succeeded).any(|p| matches!(p.state, PairState::Waiting | PairState::InProgress | PairState::Frozen));
@@ -323,7 +349,9 @@ impl IceAgent {
         m.add(stun::ATTR_PRIORITY, priority(TYPE_PRFLX, IpAddr::from([0, 0, 0, 0])).to_be_bytes().to_vec());
         let role = if self.controlling { stun::ATTR_ICE_CONTROLLING } else { stun::ATTR_ICE_CONTROLLED };
         m.add(role, self.tiebreaker.to_be_bytes().to_vec());
-        if nominate {
+        // Aggressive nomination before the first selection (RFC 5245 8.1.1.2): the first pair that answers is the
+        // path, with no extra round trip; better pairs found later move QUIC by regular nomination.
+        if nominate || (self.controlling && st.selected.is_none()) {
             m.add(stun::ATTR_USE_CANDIDATE, Vec::new());
         }
         Some((m.encode(Some(remote_pwd.as_bytes()), true), m.txid))
@@ -337,7 +365,7 @@ impl IceAgent {
             (bytes, txid, st.remote_pwd.clone().unwrap_or_default())
         };
         let started = Instant::now();
-        let answer = self.mux.transact(path, &bytes, txid, 6, false).await;
+        let answer = self.mux.transact_rto(path, &bytes, txid, 6, false, CHECK_RTO).await;
         let ok = matches!(&answer, Some((reply, _)) if reply.class == stun::SUCCESS && reply.verify(pwd.as_bytes()));
         let rtt = started.elapsed();
         let mut st = self.state.lock().unwrap();
@@ -356,7 +384,8 @@ impl IceAgent {
             }
             // Inbound datagrams on a working pair belong to this connection.
             self.mux.map_path(path, self.vaddr);
-            if nominate {
+            let aggressive = self.controlling && st.selected.is_none();
+            if nominate || aggressive {
                 st.nominating = false;
                 self.select(&mut st, i, rtt);
             }
@@ -424,7 +453,13 @@ impl IceAgent {
             tokio::spawn(async move { agent.check(i, path, false).await });
         }
         self.mux.map_path(path, self.vaddr);
-        if nominated {
+        // With aggressive nomination several pairs arrive nominated: keep the best one, and follow any move once
+        // the current pair has been quiet for a while (the controlling side replaced a pair that failed).
+        let follow = match st.selected.and_then(|sel| st.pairs.iter().find(|p| Self::path(&st, p) == sel)) {
+            None => true,
+            Some(current) => st.pairs[i].pri > current.pri || current.last_ok.is_none_or(|t| t.elapsed() > Duration::from_secs(5)),
+        };
+        if nominated && follow {
             self.select(&mut st, i, Duration::ZERO);
         } else if st.selected.is_none() && !self.controlling {
             // Until the controlling side nominates, answer QUIC on the pair that reached us.
@@ -438,11 +473,15 @@ impl IceAgent {
             return;
         }
         let mut since_upgrade_scan = Duration::ZERO;
+        // Right after the first selection (often the relay, which answers first when a direct pair is slow to open)
+        // better pairs are tried at 1, 2, 4 and 8 s, so QUIC moves to a direct path within seconds.
+        let mut early = [1u64, 1, 2, 4].into_iter();
         loop {
             // A check every 15 s matches the QUIC keep-alive on NATed paths: a radio wake-up shared by both,
             // and 3 misses (45 s) end a pair, as spec 4.6 says. Network changes restart the race at once.
-            tokio::time::sleep(Duration::from_secs(15)).await;
-            since_upgrade_scan += Duration::from_secs(15);
+            let wait = Duration::from_secs(early.next().unwrap_or(15));
+            tokio::time::sleep(wait).await;
+            since_upgrade_scan += wait;
             let (selected_path, better) = {
                 let st = self.state.lock().unwrap();
                 if st.closed {
@@ -524,5 +563,72 @@ impl Drop for IceAgent {
     fn drop(&mut self) {
         self.mux.unregister_ice(&self.local_ufrag);
         self.mux.forget_virtual(self.vaddr);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn host(mux: &Mux) -> Local {
+        let addr = SocketAddr::new(IpAddr::from([127, 0, 0, 1]), mux.port());
+        Local { via: Via::Direct, addr, kind: "host", pri: priority(TYPE_HOST_LAN, addr.ip()), relay: None, net: Some("lan") }
+    }
+
+    /// Two agents on loopback: the controlling side selects the first pair that answers, with no separate
+    /// nomination round trip (aggressive nomination), and the controlled side follows it.
+    #[tokio::test]
+    async fn aggressive_nomination_selects_on_first_success() {
+        let mux_a = Mux::bind(0).unwrap();
+        let mux_b = Mux::bind(0).unwrap();
+        let (a, mut events_a) = IceAgent::new(mux_a.clone(), "sid-a".into(), true);
+        let (b, mut events_b) = IceAgent::new(mux_b.clone(), "sid-b".into(), false);
+        a.add_local(host(&mux_a));
+        b.add_local(host(&mux_b));
+        a.set_remote_credentials(&b.local_ufrag, &b.local_pwd);
+        b.set_remote_credentials(&a.local_ufrag, &a.local_pwd);
+        a.add_remote(&host(&mux_b).candidate());
+        b.add_remote(&host(&mux_a).candidate());
+        let started = Instant::now();
+        let selected = |events: &mut mpsc::UnboundedReceiver<IceEvent>| {
+            let mut events = std::mem::replace(events, mpsc::unbounded_channel().1);
+            async move {
+                loop {
+                    match events.recv().await {
+                        Some(IceEvent::Selected { route, .. }) => return route,
+                        Some(_) => continue,
+                        None => panic!("agent ended"),
+                    }
+                }
+            }
+        };
+        let route_a = tokio::time::timeout(Duration::from_secs(2), selected(&mut events_a)).await.expect("A selects");
+        let route_b = tokio::time::timeout(Duration::from_secs(2), selected(&mut events_b)).await.expect("B follows");
+        assert_eq!((route_a, route_b), (Route::Lan, Route::Lan));
+        // Ticks are 25 ms; a direct pair needs no head start, and no 300 ms nomination window is waited out.
+        assert!(started.elapsed() < Duration::from_millis(250), "took {:?}", started.elapsed());
+        assert!(a.is_selected() && b.is_selected());
+    }
+
+    #[test]
+    fn relay_pairs_are_their_own_lane() {
+        let st = State {
+            remote_ufrag: None,
+            remote_pwd: None,
+            locals: vec![
+                Local { via: Via::Direct, addr: "192.0.2.1:1".parse().unwrap(), kind: "host", pri: 1, relay: None, net: None },
+                Local { via: Via::Turn("198.51.100.1:3478".parse().unwrap()), addr: "198.51.100.1:61000".parse().unwrap(), kind: "relay", pri: 1, relay: None, net: None },
+            ],
+            remotes: vec![Remote { addr: "192.0.2.2:1".parse().unwrap(), kind: "srflx".into(), pri: 1, relay: None }],
+            pairs: Vec::new(),
+            selected: None,
+            nominating: false,
+            first_success: None,
+            checks_started: None,
+            closed: false,
+        };
+        let pair = |local| Pair { local, remote: 0, pri: 0, state: PairState::Waiting, streak: 0, misses: 0, last_ok: None };
+        assert!(!IceAgent::relayed(&st, &pair(0)));
+        assert!(IceAgent::relayed(&st, &pair(1)));
     }
 }

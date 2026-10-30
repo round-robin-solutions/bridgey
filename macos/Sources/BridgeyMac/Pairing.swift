@@ -3896,14 +3896,14 @@ final class PairingCoordinator: ObservableObject {
     }
 
     /// The network changed while Connect anywhere runs: tell the core, and drop every session that
-    /// does not answer a ping within 3 s, so a phone that left this network reconnects at once.
+    /// does not answer a ping within 1.5 s, so a phone that left this network reconnects at once.
     private func probeAfterNetworkChange(_ reason: String) {
         guard connect.running else { return }
         connect.network(reason)
         let sent = Date()
         for (_, current) in registry.broadcastTargets({ _, _ in true }) {
             current.send(PairingMessage(kind: "heartbeat.ping", sessionId: current.id, messageId: UUID().uuidString.lowercased()))
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self, weak current] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self, weak current] in
                 guard let self, let current, self.registry.isActive(current), current.lastReceivedAt < sent else { return }
                 BridgeyLog.transport.notice("no answer after \(reason, privacy: .public) peer=\(shortDeviceID(current.remoteDeviceID), privacy: .public)")
                 current.dropReason = "network_changed"

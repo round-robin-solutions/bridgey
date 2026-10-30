@@ -72,6 +72,24 @@ class ConnectVectorsTest(unittest.TestCase):
         tag = hmac.new(r["secret"].encode(), username.encode(), hashlib.sha1).digest()
         self.assertEqual(base64.b64encode(tag).decode(), r["credential"])
 
+    def test_node_auth_v2(self):
+        # The single-flight sign-in (hello in the upgrade request): host, 8-byte big-endian ms timestamp, cnonce, node.
+        a = VECTORS["nodeAuthV2"]
+        node = b64url_decode(a["nodeUrl"])
+        message = b"bridgey-rdv-auth-v2\0" + a["host"].encode() + b"\0" + a["ts"].to_bytes(8, "big") + b64(a["cnonce"]) + node
+        self.assertEqual(len(b64(a["cnonce"])), 16)
+        self.assertEqual(base64.b64encode(message).decode(), a["message"])
+
+    def test_warm_relay_username(self):
+        # A node's warm relay username: only the service (it holds the secret) can tie it to the node.
+        w = VECTORS["turnWarm"]
+        expiry = str(w["expiry"])
+        tag = hmac.new(w["secret"].encode(), b"bridgey-warm-v1\0" + w["nodeIdUrl"].encode() + b"\0" + expiry.encode(), hashlib.sha256).digest()[:9]
+        username = f"{expiry}:w.{b64url(tag)}"
+        self.assertEqual(username, w["username"])
+        credential = hmac.new(w["secret"].encode(), username.encode(), hashlib.sha1).digest()
+        self.assertEqual(base64.b64encode(credential).decode(), w["credential"])
+
     def test_sealed_signal(self):
         try:
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM

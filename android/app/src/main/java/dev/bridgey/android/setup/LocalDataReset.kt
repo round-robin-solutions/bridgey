@@ -131,7 +131,15 @@ enum class ResetItem(val key: String, val targets: List<ResetTarget>) {
         "identity",
         listOf(ResetTarget.Preferences("bridgey"), ResetTarget.KeystoreAlias(LocalDataReset.IDENTITY_ALIAS)),
     ),
-    RECONNECT_ADDRESSES("reconnect", listOf(ResetTarget.Preferences("bridgey.reconnect"))),
+    RECONNECT_ADDRESSES(
+        "reconnect",
+        listOf(
+            ResetTarget.Preferences("bridgey.reconnect"),
+            // Connect anywhere's relay round trips and warm relay (docs/connect-anywhere-latency.md).
+            ResetTarget.Path(ResetRoot.NO_BACKUP, "connect-core-state.json"),
+            ResetTarget.Path(ResetRoot.NO_BACKUP, "connect-core-state.json.tmp"),
+        ),
+    ),
     CODES_LINK("codes", listOf(ResetTarget.Live(ResetHook.REMOVE_COMPANION_LINK), ResetTarget.Preferences("bridgey_codes"))),
     WHATS_NEW("whats_new", listOf(ResetTarget.Preferences(SetupStore.WHATS_NEW_PREFERENCES))),
 }

@@ -144,7 +144,12 @@ class BridgeyApplication : Application() {
         // keeps dialling every trusted device that is not connected at its known addresses.
         networkWatcher = NetworkWatcher(this, onRecoveryEvent = pairing::linkEvent, onObservation = pairing::observe)
         pairing.restartDiscovery = discovery::restart
-        connect = dev.bridgey.android.connect.ConnectAnywhere(dev.bridgey.android.connect.ConnectNodeKey(), BuildConfig.VERSION_NAME)
+        connect = dev.bridgey.android.connect.ConnectAnywhere(
+            dev.bridgey.android.connect.ConnectNodeKey(),
+            BuildConfig.VERSION_NAME,
+            stateFile = File(noBackupFilesDir, "connect-core-state.json"),
+            metered = { getSystemService(android.net.ConnectivityManager::class.java).isActiveNetworkMetered },
+        )
         pairing.attachConnect(connect)
         applicationScope.launch {
             settings.state.map { it.connectAway }.distinctUntilChanged().collect { updateConnect() }
@@ -407,6 +412,7 @@ class BridgeyApplication : Application() {
     fun resetConnectIdentity() {
         val wasRunning = connect.running
         connect.stop()
+        connect.forgetState()
         dev.bridgey.android.connect.ConnectNodeKey().reset()
         if (wasRunning) updateConnect()
         pairing.resetConnectIdentity()

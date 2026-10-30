@@ -50,6 +50,7 @@ class LocalDataResetTest {
         ResetRoot.NO_BACKUP to "folder-transfers/abc.journal",
         ResetRoot.NO_BACKUP to "folder-sends/def.plan",
         ResetRoot.NO_BACKUP to "document-index.json",
+        ResetRoot.NO_BACKUP to "connect-core-state.json",
         ResetRoot.CACHE to "diagnostics/Bridgey-Diagnostics.json",
         ResetRoot.CACHE to "updates/bridgey-610.apk",
         ResetRoot.CACHE to "perf-test/bench.bin",

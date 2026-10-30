@@ -12,8 +12,9 @@ use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use axum::serve::ListenerExt;
 use axum::{Json, Router};
-use bridgey_connect_proto::rdv::{self, Limits, Msg};
+use bridgey_connect_proto::rdv::{self, FastHello, Limits, Msg, WarmRequest};
 use bridgey_connect_proto::{b64, derive};
 use config::Config;
 use futures_util::StreamExt;
@@ -31,6 +32,20 @@ struct App {
     trust_proxy: bool,
     limits: config::Limits,
     environment: String,
+    public_host: Option<String>,
+    /// Single-flight sign-ins already taken: (node ID, cnonce) until their window ends, so none is taken twice.
+    seen_hellos: Mutex<HashMap<(String, String), u64>>,
+}
+
+/// At most this many single-flight sign-ins are remembered; past it, they fall back to the challenge.
+const MAX_SEEN_HELLOS: usize = 200_000;
+
+/// A node that signed in with its upgrade request: who it is and what it asked for in the same flight.
+struct FastSignIn {
+    node_id: String,
+    keepalive: u32,
+    ids: Option<Vec<String>>,
+    warm: Option<WarmRequest>,
 }
 
 const DEFAULT_CONFIG: &str = "/etc/bridgey/bridgey-rendezvous.toml";
@@ -81,6 +96,8 @@ async fn main() {
         trust_proxy: config.server.trust_proxy,
         limits: config.limits.clone(),
         environment: config.server.environment.clone(),
+        public_host: config.server.public_host.clone(),
+        seen_hellos: Mutex::new(HashMap::new()),
         hub: Mutex::new(Hub::new(config, secrets)),
         per_ip: Mutex::new(HashMap::new()),
     });
@@ -90,7 +107,11 @@ async fn main() {
         .route("/v1/status", get(status))
         .route("/v1/ws", get(upgrade))
         .with_state(app);
-    let listener = tokio::net::TcpListener::bind(listen).await.unwrap_or_else(|e| fail(&format!("cannot listen on {listen}: {e}")));
+    // No Nagle: signals are small frames, and one sent while the previous is unacknowledged would otherwise wait for the
+    // peer's delayed acknowledgement (about 40 ms on Linux) on every hop.
+    let listener = tokio::net::TcpListener::bind(listen).await.unwrap_or_else(|e| fail(&format!("cannot listen on {listen}: {e}"))).tap_io(|tcp| {
+        let _ = tcp.set_nodelay(true);
+    });
     eprintln!("bridgey-rendezvous {} listening on {listen}", env!("CARGO_PKG_VERSION"));
     axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(async {
@@ -147,8 +168,12 @@ async fn upgrade(State(app): State<Arc<App>>, ConnectInfo(peer): ConnectInfo<Soc
         }
         *count += 1;
     }
-    ws.max_message_size(rdv::MAX_FRAME_BYTES).max_frame_size(rdv::MAX_FRAME_BYTES).on_upgrade(move |socket| async move {
-        session(app.clone(), socket).await;
+    // The single-flight sign-in: a valid hello in the upgrade request skips the hello, challenge and auth frames.
+    // Anything wrong with it (an old clock, a reused nonce) only means the client signs in the usual way.
+    let fast = headers.get(rdv::HELLO_HEADER).and_then(|v| v.to_str().ok()).and_then(|v| fast_sign_in(&app, &headers, v));
+    let accepted = fast.is_some();
+    let mut response = ws.max_message_size(rdv::MAX_FRAME_BYTES).max_frame_size(rdv::MAX_FRAME_BYTES).on_upgrade(move |socket| async move {
+        session(app.clone(), socket, fast).await;
         let mut per_ip = app.per_ip.lock().unwrap();
         if let Some(count) = per_ip.get_mut(&ip) {
             *count -= 1;
@@ -156,7 +181,55 @@ async fn upgrade(State(app): State<Arc<App>>, ConnectInfo(peer): ConnectInfo<Soc
                 per_ip.remove(&ip);
             }
         }
-    })
+    });
+    if accepted {
+        response.headers_mut().insert(rdv::WELCOME_HEADER, axum::http::HeaderValue::from_static("1"));
+    }
+    response
+}
+
+/// Checks a [FastHello]: the node key, the signature over this service's host, the time window and a nonce
+/// not seen before. `None` for anything else.
+fn fast_sign_in(app: &App, headers: &HeaderMap, value: &str) -> Option<FastSignIn> {
+    if value.len() > rdv::MAX_FRAME_BYTES {
+        return None;
+    }
+    let hello: FastHello = serde_json::from_slice(&b64::url_decode(value)?).ok()?;
+    let node_key = b64::url_decode(&hello.node).filter(|k| k.len() == 65 && k[0] == 4)?;
+    let cnonce = b64::url_decode(&hello.cnonce).filter(|n| n.len() == 16)?;
+    if hello.v != rdv::PROTOCOL_VERSION || app.limits.pow_bits > 0 {
+        return None;
+    }
+    let now = hub::unix_ms();
+    if hello.ts.abs_diff(now) > rdv::FAST_HELLO_WINDOW_MS {
+        return None;
+    }
+    let host = match &app.public_host {
+        Some(host) => host.clone(),
+        None => headers.get(axum::http::header::HOST)?.to_str().ok()?.to_string(),
+    };
+    let signature = b64::url_decode(&hello.sig)?;
+    let key = ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_ASN1, &node_key);
+    if key.verify(&derive::auth_message_v2(&host, hello.ts, &cnonce, &node_key), &signature).is_err() {
+        app.hub.lock().unwrap().counters.rejected_auth += 1;
+        return None;
+    }
+    let node_id = derive::node_id(&node_key);
+    {
+        let mut seen = app.seen_hellos.lock().unwrap();
+        if seen.len() >= MAX_SEEN_HELLOS / 2 {
+            seen.retain(|_, until| *until > now);
+        }
+        if seen.len() >= MAX_SEEN_HELLOS {
+            return None;
+        }
+        // Remembered until the timestamp can no longer pass the window check.
+        if seen.insert((node_id.clone(), hello.cnonce.clone()), hello.ts + rdv::FAST_HELLO_WINDOW_MS + 1_000).is_some() {
+            return None;
+        }
+    }
+    app.hub.lock().unwrap().counters.fast_hellos += 1;
+    Some(FastSignIn { node_id, keepalive: hello.keepalive.clamp(60, 270), ids: hello.ids, warm: hello.warm })
 }
 
 async fn send(socket: &mut WebSocket, msg: Msg) -> bool {
@@ -207,29 +280,54 @@ async fn authenticate(app: &App, socket: &mut WebSocket) -> Option<(String, u32)
         return None;
     }
     let node_id = derive::node_id(&node_key);
-    let welcome = Msg::Welcome {
-        node_id: node_id.clone(),
+    if !send(socket, welcome(app, &node_id)).await {
+        return None;
+    }
+    Some((node_id, keepalive.clamp(60, 270)))
+}
+
+fn welcome(app: &App, node_id: &str) -> Msg {
+    Msg::Welcome {
+        node_id: node_id.to_string(),
         now: hub::unix_ms(),
         limits: Limits {
             max_ids: app.limits.max_ids as u32,
             max_signal_bytes: rdv::MAX_SIGNAL_BODY as u32,
             signals_per_minute: app.limits.signals_per_minute,
         },
-    };
-    if !send(socket, welcome).await {
-        return None;
+        relays: Some(app.hub.lock().unwrap().relay_infos()),
     }
-    Some((node_id, keepalive.clamp(60, 270)))
 }
 
-async fn session(app: Arc<App>, mut socket: WebSocket) {
-    let Some((node_id, keepalive)) = authenticate(&app, &mut socket).await else { return };
+async fn session(app: Arc<App>, mut socket: WebSocket, fast: Option<FastSignIn>) {
+    let (node_id, keepalive, ids, warm) = match fast {
+        Some(f) => {
+            if !send(&mut socket, welcome(&app, &f.node_id)).await {
+                return;
+            }
+            (f.node_id, f.keepalive, f.ids, f.warm)
+        }
+        None => {
+            let Some((node_id, keepalive)) = authenticate(&app, &mut socket).await else { return };
+            (node_id, keepalive, None, None)
+        }
+    };
     let (tx, mut rx) = mpsc::channel::<String>(64);
     let joined = app.hub.lock().unwrap().join(node_id, tx);
     let Some(id) = joined else {
         send(&mut socket, Msg::Error { code: "server_busy".into(), retry_after_ms: Some(30_000) }).await;
         return;
     };
+    // What the single flight also asked for: registration and the node's warm relay credentials.
+    {
+        let mut hub = app.hub.lock().unwrap();
+        if let Some(ids) = ids {
+            hub.handle(id, Msg::Register { ids });
+        }
+        if let Some(request) = warm {
+            hub.handle(id, Msg::RelayWarm { request });
+        }
+    }
     // The client keeps the socket warm every `keepalive` seconds; three silent intervals end it.
     let idle = Duration::from_secs(u64::from(keepalive) * 3);
     loop {
@@ -253,4 +351,67 @@ async fn session(app: Arc<App>, mut socket: WebSocket) {
         }
     }
     app.hub.lock().unwrap().leave(id);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ring::signature::{EcdsaKeyPair, KeyPair, ECDSA_P256_SHA256_ASN1_SIGNING};
+
+    fn app() -> App {
+        let config = Config::parse("[server]\nlisten = \"127.0.0.1:0\"\npublic_host = \"connect.example\"\n").unwrap();
+        App {
+            trust_proxy: false,
+            limits: config.limits.clone(),
+            environment: "test".into(),
+            public_host: config.server.public_host.clone(),
+            seen_hellos: Mutex::new(HashMap::new()),
+            hub: Mutex::new(Hub::new(config, HashMap::new())),
+            per_ip: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn hello(key: &EcdsaKeyPair, host: &str, ts: u64, cnonce: [u8; 16]) -> String {
+        let rng = ring::rand::SystemRandom::new();
+        let node = key.public_key().as_ref().to_vec();
+        let sig = key.sign(&rng, &derive::auth_message_v2(host, ts, &cnonce, &node)).unwrap();
+        let hello = FastHello {
+            v: rdv::PROTOCOL_VERSION,
+            node: b64::url_encode(&node),
+            app: "test".into(),
+            keepalive: 120,
+            ts,
+            cnonce: b64::url_encode(&cnonce),
+            sig: b64::url_encode(sig.as_ref()),
+            ids: Some(vec!["AAAAAAAAAAAAAAAAAAAAAA".into()]),
+            warm: None,
+        };
+        b64::url_encode(serde_json::to_string(&hello).unwrap().as_bytes())
+    }
+
+    #[test]
+    fn fast_sign_in_once_in_window_for_this_host() {
+        let rng = ring::rand::SystemRandom::new();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
+        let key = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng).unwrap();
+        let app = app();
+        let headers = HeaderMap::new();
+        let now = hub::unix_ms();
+        let good = hello(&key, "connect.example", now, [1; 16]);
+        let signed_in = fast_sign_in(&app, &headers, &good).expect("valid hello");
+        assert_eq!(signed_in.node_id, derive::node_id(key.public_key().as_ref()));
+        assert_eq!(signed_in.ids.as_deref().map(<[String]>::len), Some(1));
+        // The same hello again (a replay) is refused; the client would fall back to the challenge.
+        assert!(fast_sign_in(&app, &headers, &good).is_none());
+        // Outside the two-minute window, for another host, or with a broken signature: refused.
+        assert!(fast_sign_in(&app, &headers, &hello(&key, "connect.example", now - 200_000, [2; 16])).is_none());
+        assert!(fast_sign_in(&app, &headers, &hello(&key, "other.example", now, [3; 16])).is_none());
+        let mut tampered: FastHello = serde_json::from_slice(&b64::url_decode(&hello(&key, "connect.example", now, [4; 16])).unwrap()).unwrap();
+        tampered.ts += 1;
+        assert!(fast_sign_in(&app, &headers, &b64::url_encode(serde_json::to_string(&tampered).unwrap().as_bytes())).is_none());
+        assert!(fast_sign_in(&app, &headers, "not base64 json").is_none());
+        // A fresh nonce within the window works.
+        assert!(fast_sign_in(&app, &headers, &hello(&key, "connect.example", now, [5; 16])).is_some());
+        assert_eq!(app.hub.lock().unwrap().counters.fast_hellos, 2);
+    }
 }

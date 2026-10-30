@@ -146,6 +146,22 @@ pub fn local_addresses() -> Vec<LocalAddress> {
     out
 }
 
+/// `ip` is on one of this device's own subnets (same IPv4 network, or the same IPv6 /64): a LAN address of a
+/// peer that is probably on this network right now, where the app's LAN connection should get a head start.
+pub fn on_link(ip: IpAddr) -> bool {
+    if_addrs::get_if_addrs().unwrap_or_default().into_iter().filter(|i| !i.is_loopback()).any(|iface| match (&iface.addr, ip) {
+        (if_addrs::IfAddr::V4(a), IpAddr::V4(other)) => {
+            let mask = u32::from(a.netmask);
+            mask != 0 && u32::from(a.ip) & mask == u32::from(other) & mask
+        }
+        (if_addrs::IfAddr::V6(a), IpAddr::V6(other)) => {
+            let mine = a.ip.segments();
+            (mine[0] & 0xffc0) != 0xfe80 && mine[..4] == other.segments()[..4]
+        }
+        _ => false,
+    })
+}
+
 fn rank(kind: Kind) -> u8 {
     match kind {
         Kind::Lan => 0,
