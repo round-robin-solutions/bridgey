@@ -86,6 +86,8 @@ enum class SetupSetting(val default: String) {
     REDUCE_MOTION("false"),
     /** v0.10 settings sync: "Settings stay the same on your devices", on the summary (on by default). */
     SETTINGS_SYNC("true"),
+    /** Connect away from home (Connect anywhere). Off until chosen. */
+    CONNECT_AWAY("false"),
 }
 
 /** One setting set to a value by an answer or a switch. */
@@ -169,6 +171,7 @@ object SetupFeatures {
         SetupFeature("find", R.string.feature_find, R.string.settings_find_detail, listOf(SetupSetting.FEATURE_FIND_DEVICE), "MEDIA"),
         SetupFeature("ping", R.string.feature_ping, R.string.settings_ping_detail, listOf(SetupSetting.FEATURE_PING), "MEDIA"),
         SetupFeature("battery", R.string.feature_battery, R.string.settings_battery_detail, listOf(SetupSetting.FEATURE_BATTERY), "MEDIA"),
+        SetupFeature("away", R.string.settings_connect_away, R.string.setup_feature_away_detail, listOf(SetupSetting.CONNECT_AWAY), "AWAY"),
     )
 
     private val byId = all.associateBy { it.id }
@@ -243,6 +246,15 @@ object SetupQuestions {
             title = R.string.setup_q_pair_title, context = R.string.setup_q_pair_context, summary = R.string.setup_q_pair_summary,
             answers = emptyList(), covers = setOf(SetupSetting.PAIRING),
             asks = { !it.paired },
+        ),
+        SetupQuestion(
+            id = "away", section = SetupSection.DEVICES, feature = "away",
+            title = R.string.setup_q_away_title, context = R.string.setup_q_away_context, summary = R.string.setup_q_away_summary,
+            answers = listOf(
+                SetupAnswer(Answers.YES, R.string.setup_a_yes, changes = listOf(on(SetupSetting.CONNECT_AWAY))),
+                SetupAnswer(Answers.NO, R.string.setup_a_not_now, changes = listOf(off(SetupSetting.CONNECT_AWAY))),
+            ),
+            settingsPage = "AWAY", covers = setOf(SetupSetting.CONNECT_AWAY),
         ),
         SetupQuestion(
             id = "clipboard", section = SetupSection.CLIPBOARD, feature = "clipboard",
@@ -431,6 +443,7 @@ object SetupBundles {
         SetupBundle("calls", R.string.feature_calls, R.string.setup_bundle_calls, mapOf("calls" to Answers.PICK)),
         SetupBundle("files", R.string.feature_files, R.string.setup_bundle_files, mapOf("files" to Answers.PICK)),
         SetupBundle("remote", R.string.settings_remote_control, R.string.setup_bundle_remote_screen, mapOf("remote" to Answers.PICK, "mac_actions" to Answers.PICK, "screen" to Answers.PICK)),
+        SetupBundle("away", R.string.settings_connect_away, R.string.setup_bundle_away, mapOf("away" to Answers.PICK)),
     )
 
     /**

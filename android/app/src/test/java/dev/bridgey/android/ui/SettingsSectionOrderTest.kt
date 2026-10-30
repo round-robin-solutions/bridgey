@@ -18,6 +18,7 @@ class SettingsSectionOrderTest {
             listOf(
                 SettingsSection.THIS_PHONE,
                 SettingsSection.DEVICES,
+                SettingsSection.AWAY,
                 SettingsSection.CLIPBOARD,
                 SettingsSection.NOTIFICATIONS,
                 SettingsSection.MESSAGES,
@@ -57,9 +58,10 @@ class SettingsSectionOrderTest {
             ),
             SettingsSection.homeRows.groupBy { it.group },
         )
-        // This phone is the header card, not a row.
+        // This phone is the header card, not a row; Connect away from home opens from the Devices page.
         assertNull(SettingsSection.THIS_PHONE.group)
-        assertEquals(SettingsSection.entries.drop(1), SettingsSection.homeRows)
+        assertNull(SettingsSection.AWAY.group)
+        assertEquals(SettingsSection.entries.drop(1) - SettingsSection.AWAY, SettingsSection.homeRows)
     }
 
     @Test

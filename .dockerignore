@@ -1,0 +1,6 @@
+# Docker builds use the repository root as context (server/rendezvous/Dockerfile); send only
+# what they need.
+*
+!rust/
+!server/
+rust/target/

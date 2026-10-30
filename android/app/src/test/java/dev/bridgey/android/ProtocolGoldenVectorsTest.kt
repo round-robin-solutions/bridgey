@@ -96,6 +96,26 @@ class ProtocolGoldenVectorsTest {
         result == normalize(vector.get("expect"))
     }
 
+    /** Connect anywhere: both platforms decode connect.setup alike. */
+    @Test fun connectSetup() = each("connectSetup") { vector ->
+        val result: Any = dev.bridgey.android.connect.decodeConnectSetup(plaintext(vector))?.let {
+            mapOf("contribution" to Base64.getEncoder().encodeToString(it.contribution), "rotate" to it.rotate)
+        } ?: "reject"
+        result == normalize(vector.get("expect"))
+    }
+
+    /** Connect anywhere: connect.addresses, unusable entries skipped, order kept. */
+    @Test fun connectAddresses() = each("connectAddresses") { vector ->
+        val result: Any = dev.bridgey.android.connect.decodeConnectAddresses(plaintext(vector))?.let { decoded ->
+            mapOf(
+                "port" to decoded.port.toLong(),
+                "addrs" to decoded.addrs.map { mapOf("a" to it.a, "kind" to it.kind, "vpn" to it.vpn) },
+                "pairCheck" to decoded.pairCheck,
+            )
+        } ?: "reject"
+        result == normalize(vector.get("expect"))
+    }
+
     /** Mac actions: the phone reads the Mac's catalog. */
     @Test fun actionsCatalog() = each("actionsCatalog") { vector ->
         val result: Any = dev.bridgey.android.actions.decodeMacActionCatalog(plaintext(vector))?.let { catalog ->

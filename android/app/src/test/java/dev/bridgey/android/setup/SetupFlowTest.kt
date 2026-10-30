@@ -169,8 +169,8 @@ class SetupFlowTest {
         }
         val everything = start(fresh(paired = false, codes = true, apps = true), SetupBundles.answers(SetupBundles.all.map { it.id }.toSet(), emptyMap())).toTheEnd()
         // Every bundle at once: the start, pairing, one card per follow-up (clipboard, notification apps, text messages,
-        // calls, files, remote volume keys, screen), then switches, permissions and the summary: 12 since text messages.
-        assertTrue(everything.steps.toString(), everything.steps.size <= 12)
+        // calls, files, remote volume keys, screen, Connect away from home), then switches, permissions and the summary: 13.
+        assertTrue(everything.steps.toString(), everything.steps.size <= 13)
     }
 
     @Test

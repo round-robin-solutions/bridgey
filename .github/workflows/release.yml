@@ -23,6 +23,8 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/bridgey-release.jks"
+      - name: Rust for the Connect anywhere core
+        run: sh scripts/rr/rust-toolchain.sh android
       - run: chmod +x android/gradlew
       - name: Build signed APK
         working-directory: android
@@ -68,6 +70,8 @@ jobs:
       - name: Restore notarization API key
         if: ${{ env.APPLE_NOTARY_API_KEY_BASE64 != '' }}
         run: echo "$APPLE_NOTARY_API_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+      - name: Rust for the Connect anywhere core
+        run: sh scripts/rr/rust-toolchain.sh mac
       - run: chmod +x build-app.sh package-release.sh
         working-directory: macos
       - run: swift test -c release

@@ -45,6 +45,8 @@ data class DeviceRing(
     val peer: DiscoveredPeer?,
     /** Set while a trusted, disconnected device is being retried. */
     val reconnect: ReconnectDisplay? = null,
+    /** Connect anywhere: how a connected device is reached when it is not plain LAN (relay, direct, VPN). */
+    val route: dev.bridgey.android.connect.ConnectRoute? = null,
 ) {
     /** Offers "Retry now". */
     val canRetry: Boolean get() = trusted && reconnect != null && state != RingState.CONNECTED
@@ -94,11 +96,12 @@ fun deviceRings(
             peer != null -> RingState.NEARBY
             else -> RingState.OFFLINE
         }
-        DeviceRing(device.id, device.id, device.name, ringState, trusted = true, platform = peer?.platformHint, peer = peer, reconnect = retry)
+        val route = connections.firstOrNull { it.deviceId == device.id }?.state?.connectRoute
+        DeviceRing(device.id, device.id, device.name, ringState, trusted = true, platform = peer?.platformHint, peer = peer, reconnect = retry, route = route)
     }.toMutableList()
     connections.filter { it.deviceId !in trustedIds }.forEach { connected ->
         val peer = peers.firstOrNull { it.deviceIdHint == connected.deviceId }
-        rings += DeviceRing(connected.deviceId, connected.deviceId, connected.peerName, RingState.CONNECTED, trusted = true, platform = peer?.platformHint, peer = peer)
+        rings += DeviceRing(connected.deviceId, connected.deviceId, connected.peerName, RingState.CONNECTED, trusted = true, platform = peer?.platformHint, peer = peer, route = connected.state.connectRoute)
     }
     peers
         .filter { peer -> peer.deviceIdHint == null || (peer.deviceIdHint !in trustedIds && peer.deviceIdHint !in connectedIds) }

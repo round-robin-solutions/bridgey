@@ -301,7 +301,9 @@ let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, places
                              // Text messages (SmsProtocol.swift).
                              smsFeatureKey,
                              // Settings sync (v0.10, SettingsSync.swift).
-                             settingsSyncFeatureKey]
+                             settingsSyncFeatureKey,
+                             // Connect anywhere (ConnectProtocol.swift), last.
+                             connectFeatureKey]
 
 func decodeFeatureState(_ plaintext: Data) -> FeatureStateDecoding {
     guard isStrictJSONObject(plaintext),

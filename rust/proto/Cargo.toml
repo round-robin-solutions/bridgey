@@ -1,0 +1,12 @@
+[package]
+name = "bridgey-connect-proto"
+description = "Connect anywhere: derivations, sealed signalling and rendezvous messages shared by the core and the control service"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+base64.workspace = true
+ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true

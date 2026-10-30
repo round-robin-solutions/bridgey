@@ -41,6 +41,10 @@ if [ -n "${RR_MAC_P12_FILE:-}" ]; then
   [ -n "$RR_SIGNING_IDENTITY" ] || die "the signing identity did not import"
   export RR_SIGNING_IDENTITY
 fi
+# The Connect anywhere core goes into Contents/Frameworks (build-app.sh builds it with cargo).
+sh "$RR_ROOT/scripts/rr/rust-toolchain.sh" mac
+PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+export PATH
 swift test -c release --skip MacTrustRegistryTests
 OUTPUT_DIR="$OUTPUT" ./package-release.sh
 
@@ -49,6 +53,7 @@ PLIST="$APP/Contents/Info.plist"
 [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")" = "$(edition_value EDITION_APP_ID)" ] || die "wrong bundle id"
 [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "$BRIDGEY_BUILD_NUMBER" ] || die "wrong CFBundleVersion"
 [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "$BRIDGEY_VERSION_NAME" ] || die "wrong version"
+[ -f "$APP/Contents/Frameworks/libbridgey_connect.dylib" ] || die "the app has no Connect anywhere core (Contents/Frameworks/libbridgey_connect.dylib)"
 codesign --verify --deep --strict "$APP"
 if [ -n "${RR_SIGNING_IDENTITY:-}" ]; then
   LEAF=$(printf '%s' "$RR_SIGNING_IDENTITY" | tr 'A-F' 'a-f')

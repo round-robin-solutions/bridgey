@@ -296,6 +296,15 @@ class PairingCoordinator(
     /** Connection health per device: route class, round trip, drops, reconnects. Never addresses. */
     val health = dev.bridgey.android.health.ConnectionHealthBook()
 
+    /** Connect anywhere: pair secrets and learned addresses per paired device. */
+    private val connectStore: dev.bridgey.android.connect.ConnectStore by lazy { dev.bridgey.android.connect.AndroidConnectStore(appContext) }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val connectLane = Dispatchers.IO.limitedParallelism(1)
+
+    /** Connect anywhere's core, while the setting is on (set by the application). */
+    @Volatile private var connect: dev.bridgey.android.connect.ConnectAnywhere? = null
+
     /**
      * Reconnects. Both sides keep trying a dropped trusted device at its known addresses, whoever
      * dialled before; the session registry keeps one socket when both dial at once.
@@ -786,6 +795,8 @@ class PairingCoordinator(
         BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT retry now peer=${deviceId.take(8)}")
         held.release(deviceId)
         reconnect.dialEverywhere(deviceId, "retry_now")
+        syncConnectPeers()
+        connect?.takeIf { it.running }?.connectNow(deviceId)
     }
 
     private fun publishReconnectStates() {
@@ -805,6 +816,13 @@ class PairingCoordinator(
         BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT link event $reason")
         diagnostics.record("link", reason, detail = PowerFacts.summary(appContext))
         linkDebouncer.note(reason)
+        val core = connect
+        // The default network appeared, went or switched (Wi-Fi to mobile data): routes and the presence
+        // connection start over. Address churn on the same network (IPv6 privacy rotation) does not.
+        if (core != null && core.running && reason in CONNECT_NETWORK_EVENTS) {
+            core.networkChanged(reason)
+            probeSessions(reason)
+        }
     }
 
     /** A power change worth seeing next to a drop in diagnostics (screen off, Doze entered). */
@@ -997,6 +1015,7 @@ class PairingCoordinator(
         BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT disconnected by user peer=${deviceId.take(8)}")
         held.hold(deviceId)
         disconnect(deviceId)
+        syncConnectPeers()
         publishReconnectStates()
     }
 
@@ -1015,6 +1034,7 @@ class PairingCoordinator(
         folderSender.forget(deviceId)
         mutableFileTransfers.update { transfers -> transfers.filterValues { it.kind != TransferKind.FOLDER || it.active || it.deviceId != deviceId } }
         trust.remove(deviceId)
+        connectStore.forget(deviceId)
         reconnect.forget(deviceId)
         settings.removeDevice(deviceId)
         macActions.forget(deviceId)
@@ -1024,6 +1044,7 @@ class PairingCoordinator(
         autoClipboardTracker.clear(deviceId)
         clearClipboardCache()
         disconnect(deviceId)
+        syncConnectPeers()
         BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING revoked peerId=${deviceId.take(8)}")
     }
 
@@ -2826,6 +2847,7 @@ class PairingCoordinator(
         updates?.disconnected(deviceId)
         if (smsPeers.remove(deviceId)) sms.peerGone(deviceId)
         health.disconnected(deviceId, reason, System.currentTimeMillis())
+        syncConnectPeers()
         // The power state at the moment of the drop: Doze, screen, saver, standby bucket, exemption.
         diagnostics.record("transport", "disconnected", reason, device = deviceId, detail = PowerFacts.summary(appContext))
         BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT disconnected peerId=${deviceId.take(8)} reason=$reason")
@@ -2842,13 +2864,16 @@ class PairingCoordinator(
         peerHint: String?,
         manual: Boolean = false,
         dialDeviceId: String? = null,
+        tunnel: dev.bridgey.android.connect.TunnelInfo? = null,
         target: PairingTarget? = null,
         generation: Int? = null,
     ) {
         val current = runCatching {
             socket.keepAlive = true
             socket.tcpNoDelay = true
-            socket.soTimeout = ReconnectPolicy.HEARTBEAT_INTERVAL_MILLIS.toInt()
+            // A tunnel is kept alive by QUIC (15 s on NATed paths) and ICE checks; the session heartbeat over it
+            // only needs to catch a dead peer, so it runs less often and spares the radio on mobile data.
+            socket.soTimeout = (if (tunnel != null) TUNNEL_HEARTBEAT_INTERVAL_MILLIS else ReconnectPolicy.HEARTBEAT_INTERVAL_MILLIS).toInt()
             Session(socket)
         }.getOrElse {
             runCatching { socket.close() }
@@ -2857,10 +2882,16 @@ class PairingCoordinator(
         }
         current.initiatedLocally = initiatedLocally
         current.dialDeviceId = dialDeviceId
-        // Where the other end is: once it authenticates, the next reconnect can dial it there.
-        current.remoteHost = socket.inetAddress?.hostAddress?.let(::normalizedHost)
+        current.tunnel = tunnel
+        // Where the other end is: once it authenticates, the next reconnect can dial it there. A
+        // tunnel's socket is the loopback bridge, never an address worth keeping.
+        current.remoteHost = if (tunnel == null) socket.inetAddress?.hostAddress?.let(::normalizedHost) else null
         current.remotePort = socket.port
-        if (!initiatedLocally) {
+        if (!initiatedLocally && tunnel != null) {
+            // A tunnel: the core already capped unauthenticated inbound tunnels per source address and in all,
+            // so it does not use (or fill) the LAN connection caps below.
+            registry.addPending(current, initiatedLocally = false)
+        } else if (!initiatedLocally) {
             BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT inbound connection address=${current.remoteHost?.let(::addressTag) ?: "unknown"}")
             // Connections that have not authenticated yet are capped, in all and per address.
             val admitted = registry.addPendingIf(current, initiatedLocally = false) { pendingSessions ->
@@ -2892,10 +2923,12 @@ class PairingCoordinator(
             current.id = UUID.randomUUID().toString()
             // A user's reconnect to a trusted device checks that the answer comes from that device.
             val reconnectTo = target?.deviceId?.takeIf { !target.forceCommit && trust.identityKey(it) != null }
-            current.expectedDeviceId = dialDeviceId ?: reconnectTo
+            // A tunnel's dial is a background reconnect to the paired device the core reached.
+            val tunnelPeer = tunnel?.peer
+            current.expectedDeviceId = dialDeviceId ?: reconnectTo ?: tunnelPeer
             // A first pairing commits to its key and reveals it after the answer (protocol 2); a reconnect to a
             // trusted device sends the key, because that device's pinned identity signature authenticates it.
-            val backgroundTrusted = dialDeviceId?.let { trust.identityKey(it) != null } ?: false
+            val backgroundTrusted = (dialDeviceId ?: tunnelPeer)?.let { trust.identityKey(it) != null } ?: false
             if (!manual && !PairingRules.backgroundDialAllowed(backgroundTrusted)) {
                 // Forgotten since this reconnect was scheduled: no offer, no pairing.
                 BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT dial dropped: no longer trusted peer=${dialDeviceId?.take(8)}")
@@ -2910,7 +2943,7 @@ class PairingCoordinator(
                     deviceId = localDeviceId,
                     deviceName = localDeviceName,
                     publicKey = current.localEphemeralKey.takeUnless { current.committed },
-                    targetDeviceId = dialDeviceId ?: reconnectTo,
+                    targetDeviceId = dialDeviceId ?: reconnectTo ?: tunnelPeer,
                     commitment = if (current.committed) SessionSecurity.commitment(current.id, current.localEphemeralKey) else null,
                     protocolVersion = SessionSecurity.PROTOCOL_VERSION,
                 ),
@@ -2954,6 +2987,7 @@ class PairingCoordinator(
                                 supported = current.heartbeatSupported,
                                 lastReceivedAtMillis = current.lastReceivedAtMillis,
                                 nowMillis = now,
+                                timeoutMillis = if (current.tunnel != null) TUNNEL_HEARTBEAT_TIMEOUT_MILLIS else ReconnectPolicy.HEARTBEAT_TIMEOUT_MILLIS,
                             )
                         ) {
                             BridgeyLogging.w(LogCategory.CONNECTION, "TRANSPORT heartbeat timed out peerId=${current.remoteDeviceId.take(8)}")
@@ -3115,6 +3149,17 @@ class PairingCoordinator(
                 // close without a pairing prompt.
                 if (message.targetDeviceId != null && !message.targetDeviceId.equals(localDeviceId, ignoreCase = true)) {
                     current.dropReason = "not_for_this_device"
+                    current.close()
+                    return
+                }
+                // Tunnels carry paired devices only: no pairing prompt for anyone reaching this phone from the
+                // internet (pairing stays on the local network), so a committed offer (a new pairing) and an
+                // offer without protocol 2 (no envelope tags) close the tunnel quietly.
+                val tunnelPeer = current.tunnel?.peer
+                if (current.tunnel != null && (!tunnelOfferAllowed(message) ||
+                        (tunnelPeer != null && !tunnelPeer.equals(message.deviceId, ignoreCase = true)))
+                ) {
+                    current.dropReason = "tunnel_untrusted"
                     current.close()
                     return
                 }
@@ -3285,6 +3330,8 @@ class PairingCoordinator(
             "actions.catalog", "actions.result" -> receiveActionsMessage(current, message)
             "focus.state" -> receiveFocusMessage(current, message)
             "updates.status", "updates.start", "updates.result" -> receiveUpdatesMessage(current, message)
+            dev.bridgey.android.connect.ConnectKinds.SETUP, dev.bridgey.android.connect.ConnectKinds.SETUP_ACK,
+            dev.bridgey.android.connect.ConnectKinds.ADDRESSES -> receiveConnectMessage(current, message)
             "camera.request" -> receiveCameraMessage(current, message)
             "screen.request" -> receiveScreenRequest(current, message)
             "screen.started", "screen.ack", "screen.stop" -> receiveScreenStream(current, message)
@@ -3903,7 +3950,27 @@ class PairingCoordinator(
         if (changed) publish()
     }
 
+    /** An offer over a tunnel: a plain reconnect, protocol 2, from a device this phone already trusts. */
+    private fun tunnelOfferAllowed(message: Message): Boolean = dev.bridgey.android.connect.TunnelRules.offerAllowed(
+        trusted = message.deviceId?.let { trust.identityKey(it) != null } == true,
+        committed = message.commitment != null || message.publicKey == null,
+        protocolVersion = message.protocolVersion ?: 1L,
+    )
+
     private fun authenticateOrPrompt(current: Session) {
+        // A tunnel never prompts and never runs without envelope tags: it is a reconnect of a paired device.
+        if (current.tunnel != null && !dev.bridgey.android.connect.TunnelRules.sessionAllowed(
+                trusted = trust.identityKey(current.remoteDeviceId) != null,
+                autoConfirms = PairingRules.autoConfirms(current.position(), trust.identityKey(current.remoteDeviceId) != null),
+                tagged = current.envelopeKey != null,
+            )
+        ) {
+            BridgeyLogging.w(LogCategory.CONNECTION, "CONNECT tunnel session refused peer=${current.remoteDeviceId.take(8)}")
+            diagnostics.record("transport", "tunnel_refused", device = current.remoteDeviceId)
+            current.dropReason = "tunnel_refused"
+            current.close()
+            return
+        }
         // A device that once spoke protocol 2 keeps it: a session without envelope tags is a downgrade.
         if (current.envelopeKey == null && trust.pinnedProtocol(current.remoteDeviceId) >= SessionSecurity.PROTOCOL_VERSION) {
             return failHandshake(current, PairingFailure.INVALID, "Protocol downgrade refused")
@@ -3970,6 +4037,11 @@ class PairingCoordinator(
         } else {
             listOf(current.remoteDeviceId, localDeviceId, current.remoteEphemeralKey, current.localEphemeralKey)
         }
+        // On a Connect anywhere tunnel the signatures also bind the QUIC connection (its exporter),
+        // so a relay or anyone in the middle cannot splice two tunnels together.
+        current.tunnel?.let { tunnel ->
+            return dev.bridgey.android.connect.tunnelTranscript(current.id, fields[0], fields[1], fields[2], fields[3], tunnel.exporter)
+        }
         return (listOf("bridgey-auth-v1", current.id) + fields).joinToString("\u0000").toByteArray()
     }
 
@@ -3986,6 +4058,8 @@ class PairingCoordinator(
             return
         }
         trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!)
+        // The core resets its back-off for this peer only once a session on the tunnel authenticated.
+        current.tunnel?.let { tunnel -> connect?.tunnelAuthenticated(tunnel.tunnelId) }
         if (current.envelopeKey != null) trust.pinProtocol(current.remoteDeviceId, SessionSecurity.PROTOCOL_VERSION)
         when (val admission = registry.authenticate(current, current.remoteDeviceId, current.peerName)) {
             SessionRegistry.Admission.Rejected -> {
@@ -4012,7 +4086,9 @@ class PairingCoordinator(
         val port = if (current.initiatedLocally) current.remotePort else ReconnectPolicy.LISTENING_PORT
         val attempts = reconnect.entry(current.remoteDeviceId)?.attempts ?: 0
         reconnect.connected(current.remoteDeviceId, current.remoteHost, port, source)
-        health.connected(current.remoteDeviceId, current.remoteHost, current.initiatedLocally, System.currentTimeMillis())
+        health.connected(current.remoteDeviceId, current.remoteHost, current.initiatedLocally, System.currentTimeMillis(), current.tunnel?.let { routeClass(it.route) })
+        val tunnelRoute = current.tunnel?.route
+        registry.update(current.remoteDeviceId) { it.copy(connectRoute = tunnelRoute) }
         BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT connected peer=${current.remoteDeviceId.take(8)} via=${source.key} address=${current.remoteHost?.let(::addressTag) ?: "unknown"} attempts=$attempts")
         diagnostics.record("transport", "connected", source.key, device = current.remoteDeviceId, detail = "after_${attempts}_attempts")
         val prompted = current.prompted
@@ -4028,8 +4104,9 @@ class PairingCoordinator(
         publish()
         diagnostics.record("pairing", "connected")
         sendFeatureState(current)
+        syncConnectPeers()
         BridgeyNotificationListenerService.resendActiveCalls()
-        BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING verified peerId=${current.remoteDeviceId.take(8)}")
+        BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING verified peerId=${current.remoteDeviceId.take(8)}${current.tunnel?.let { " route=${it.route.route}" }.orEmpty()}")
         finishRediscoverIfEveryoneAnswered()
     }
 
@@ -4064,6 +4141,8 @@ class PairingCoordinator(
         featureValues.put(dev.bridgey.android.updates.UPDATES_FEATURE_KEY, true)
         // Draft, edition only: settings sync with this Mac, while both sync switches are on.
         featureValues.put(dev.bridgey.android.sync.SETTINGS_SYNC_FEATURE_KEY, settingsSync.advertised(current.remoteDeviceId))
+        // Draft, edition only: Connect anywhere, while the setting is on and the core runs.
+        featureValues.put(dev.bridgey.android.connect.CONNECT_FEATURE_KEY, connectAdvertised())
         val payload = JSONObject()
             .put("version", 1)
             .put("features", featureValues)
@@ -4103,6 +4182,7 @@ class PairingCoordinator(
                 remoteUpdates = drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true,
                 updateStatus = state.updateStatus.takeIf { drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true },
                 remoteSettingsSync = drafts[dev.bridgey.android.sync.SETTINGS_SYNC_FEATURE_KEY] == true,
+                remoteConnect = drafts[dev.bridgey.android.connect.CONNECT_FEATURE_KEY] == true,
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
                 ringing = state.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
             )
@@ -4135,6 +4215,8 @@ class PairingCoordinator(
         } else if (smsPeers.remove(deviceId)) {
             sms.peerGone(deviceId)
         }
+        // Connect anywhere: where this phone can be reached, and the pair check, once per map.
+        if (connectAvailable(deviceId)) sendConnectAddresses(current)
     }
 
     // MARK: Update all (draft updates_draft1)
@@ -4243,6 +4325,164 @@ class PairingCoordinator(
         // A Mac that asks while the switch is off here hears the map again (and the request is refused).
         if (!settings.isEnabled(BridgeyFeature.SMS, current.remoteDeviceId)) sendFeatureState(current)
         sms.receive(current.remoteDeviceId, message.kind, data)
+    }
+
+    // MARK: Connect anywhere (draft connect_draft1)
+
+    /** The application hands over the core once; tunnels and route changes come back here. */
+    fun attachConnect(core: dev.bridgey.android.connect.ConnectAnywhere) {
+        connect = core
+        core.onTunnel = ::acceptTunnel
+        core.onRoute = ::tunnelRouteChanged
+    }
+
+    /** The core started or stopped: tell every device (the key changes) and refresh the core's peers. */
+    fun connectChanged() {
+        syncConnectPeers()
+        registry.connectedIds().forEach { id -> registry.session(id)?.let(::sendFeatureState) }
+    }
+
+    private fun connectAdvertised(): Boolean = settings.state.value.connectAway && connect?.running == true
+
+    /** Both sides run Connect anywhere for [deviceId]. */
+    private fun connectAvailable(deviceId: String): Boolean =
+        connectAdvertised() && registry.state(deviceId)?.remoteConnect == true
+
+    /** A tunnel from the core: the normal session runs over its bridge socket. */
+    private fun acceptTunnel(socket: Socket, info: dev.bridgey.android.connect.TunnelInfo) {
+        if (!reconnecting) {
+            runCatching { socket.close() }
+            return
+        }
+        scope.launch {
+            handle(socket, initiatedLocally = info.quicClient, peerHint = info.peer?.let(::trustedName), tunnel = info)
+        }
+    }
+
+    private fun tunnelRouteChanged(tunnelId: String, route: dev.bridgey.android.connect.ConnectRoute, rttMillis: Long) {
+        val deviceId = registry.connectedIds().firstOrNull { id -> registry.session(id)?.tunnel?.tunnelId == tunnelId } ?: return
+        val session = registry.session(deviceId) ?: return
+        session.tunnel = session.tunnel?.copy(route = route)
+        registry.update(deviceId) { it.copy(connectRoute = route) }
+        health.routeChanged(deviceId, routeClass(route))
+        diagnostics.record("transport", "route_changed", route.route, device = deviceId, detail = "rtt_${rttMillis}ms")
+        publish()
+    }
+
+    private fun routeClass(route: dev.bridgey.android.connect.ConnectRoute): dev.bridgey.android.health.RouteClass = when (route.route) {
+        "lan" -> dev.bridgey.android.health.RouteClass.SAME_NETWORK
+        "vpn" -> dev.bridgey.android.health.RouteClass.PRIVATE_NETWORK
+        "direct" -> dev.bridgey.android.health.RouteClass.DIRECT
+        "relay" -> dev.bridgey.android.health.RouteClass.RELAY
+        else -> dev.bridgey.android.health.RouteClass.OTHER
+    }
+
+    /** Every paired device with a pair secret, for the core: its side, secret, learned addresses and whether it is connected. */
+    private fun syncConnectPeers() {
+        val core = connect ?: return
+        if (!core.running) return
+        val now = System.currentTimeMillis()
+        // A device the user disconnected here stays off every route, the relay included, until Connect.
+        val peers = trust.trustedDeviceIds.value.filterNot(held::isHeld).mapNotNull { id ->
+            val secret = connectStore.pairSecret(id) ?: return@mapNotNull null
+            dev.bridgey.android.connect.ConnectPeer(
+                id = id,
+                side = dev.bridgey.android.connect.connectSide(localDeviceId, id),
+                pairSecret = secret,
+                addresses = connectStore.addresses(id, now),
+                connected = registry.session(id) != null,
+            )
+        }
+        // One lane, in order: a stale "connected" must never land after a newer "not connected".
+        scope.launch(connectLane) { core.setPeers(peers) }
+    }
+
+    /** connect.addresses: where this phone can be reached, and the pair check (never the secret). */
+    private fun sendConnectAddresses(current: Session) {
+        val core = connect ?: return
+        scope.launch {
+            val addresses = core.localAddresses()
+            val check = connectStore.pairSecret(current.remoteDeviceId)?.let { dev.bridgey.android.connect.pairCheck(it) }
+            sendEncrypted(current, dev.bridgey.android.connect.ConnectKinds.ADDRESSES, dev.bridgey.android.connect.connectAddressesPayload(core.udpPort, addresses, check))
+        }
+    }
+
+    /** Opens a connect.setup exchange: our contribution; the pair secret follows the other side's. */
+    private fun beginConnectSetup(current: Session, rotate: Boolean) {
+        if (current.connectContribution != null) return
+        val contribution = ByteArray(32).also(java.security.SecureRandom()::nextBytes)
+        current.connectContribution = contribution
+        sendEncrypted(current, dev.bridgey.android.connect.ConnectKinds.SETUP, dev.bridgey.android.connect.connectSetupPayload(contribution, rotate))
+    }
+
+    /** connect.setup, connect.setup.ack and connect.addresses: decrypted, replay-checked, bounded; malformed ones are dropped. */
+    private fun receiveConnectMessage(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        val deviceId = current.remoteDeviceId
+        if (!connectAvailable(deviceId)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        when (message.kind) {
+            dev.bridgey.android.connect.ConnectKinds.SETUP -> {
+                val setup = dev.bridgey.android.connect.decodeConnectSetup(data) ?: return
+                val mine = current.connectContribution ?: ByteArray(32).also(java.security.SecureRandom()::nextBytes).also { contribution ->
+                    // The other side opened the exchange: answer with ours.
+                    sendEncrypted(current, dev.bridgey.android.connect.ConnectKinds.SETUP, dev.bridgey.android.connect.connectSetupPayload(contribution, setup.rotate))
+                }
+                current.connectContribution = null
+                val secret = dev.bridgey.android.connect.pairSecret(localDeviceId, deviceId, mine, setup.contribution)
+                connectStore.setPairSecret(deviceId, secret)
+                sendEncrypted(current, dev.bridgey.android.connect.ConnectKinds.SETUP_ACK, dev.bridgey.android.connect.connectSetupAckPayload())
+                diagnostics.record("transport", "connect_setup", if (setup.rotate) "rotate" else "new", device = deviceId)
+                BridgeyLogging.i(LogCategory.CONNECTION, "CONNECT pair secret set peer=${deviceId.take(8)}")
+                syncConnectPeers()
+            }
+            dev.bridgey.android.connect.ConnectKinds.SETUP_ACK -> Unit
+            dev.bridgey.android.connect.ConnectKinds.ADDRESSES -> {
+                val addresses = dev.bridgey.android.connect.decodeConnectAddresses(data) ?: return
+                val now = System.currentTimeMillis()
+                // The newest report replaces the old one (spec 4.5); VPN and LAN first, at most 16.
+                connectStore.setAddresses(deviceId, addresses.addrs.map { dev.bridgey.android.connect.LearnedAddress(it.a, addresses.port, it.kind, it.vpn, now) })
+                val mine = connectStore.pairSecret(deviceId)?.let { dev.bridgey.android.connect.pairCheck(it) }
+                val lower = dev.bridgey.android.connect.connectSide(localDeviceId, deviceId) == 0
+                if (!dev.bridgey.android.connect.samePairCheck(mine, addresses.pairCheck) && lower) beginConnectSetup(current, rotate = mine != null)
+                syncConnectPeers()
+            }
+        }
+    }
+
+    /** Reset away-from-home identity: new pair secrets with every connected device that runs Connect anywhere. */
+    fun resetConnectIdentity() {
+        connectStore.forgetAll()
+        registry.connectedIds().forEach { id ->
+            val current = registry.session(id) ?: return@forEach
+            if (connectAvailable(id)) {
+                current.connectContribution = null
+                beginConnectSetup(current, rotate = true)
+            }
+        }
+        syncConnectPeers()
+    }
+
+    /**
+     * After a network change: every session must answer a ping within 3 s or it is dropped, so a
+     * device that moved away is found on another route at once instead of after 30 s of silence.
+     */
+    private fun probeSessions(reason: String) {
+        val started = SystemClock.elapsedRealtime()
+        registry.connectedIds().mapNotNull(registry::session).forEach { current ->
+            scope.launch {
+                current.send(Message(kind = "heartbeat.ping", sessionId = current.id, messageId = UUID.randomUUID().toString()))
+                delay(NETWORK_PROBE_MILLIS)
+                if (!current.closed && current.lastReceivedAtMillis < started) {
+                    BridgeyLogging.i(LogCategory.CONNECTION, "CONNECT no answer after $reason peer=${current.remoteDeviceId.take(8)}")
+                    current.dropReason = "network_changed"
+                    current.close()
+                }
+            }
+        }
     }
 
     // MARK: Codes from messages (draft sms_codes_draft1)
@@ -4444,6 +4684,10 @@ class PairingCoordinator(
             dev.bridgey.android.folders.FolderKinds.ENTRY_FAILED, dev.bridgey.android.folders.FolderKinds.RESULT,
         )
         const val REMOTE_INPUT_MAX_BYTES = 2_048
+        const val NETWORK_PROBE_MILLIS = 3_000L
+        val CONNECT_NETWORK_EVENTS = setOf("network_available", "network_lost", "local_network_available", "local_network_lost", "debug_relay_only")
+        const val TUNNEL_HEARTBEAT_INTERVAL_MILLIS = 25_000L
+        const val TUNNEL_HEARTBEAT_TIMEOUT_MILLIS = 75_000L
         const val LOW_PRIORITY_MAX_WAIT_MILLIS = 2_000
         const val LOW_PRIORITY_CHUNK_GAP_MILLIS = 2L
         const val MAX_DROPPED_FRAMES = 16
@@ -4513,6 +4757,12 @@ class PairingCoordinator(
         /** A reconnect to this trusted device; null for pairings and incoming sessions. */
         @Volatile var dialDeviceId: String? = null
         val dialFinished = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        /** Connect anywhere: this session runs over a QUIC tunnel (its bridge socket); null on LAN TCP. */
+        @Volatile var tunnel: dev.bridgey.android.connect.TunnelInfo? = null
+
+        /** Connect anywhere: our contribution while a connect.setup exchange is open. */
+        @Volatile var connectContribution: ByteArray? = null
 
         /** The other end's address (normalized) and port. */
         @Volatile var remoteHost: String? = null

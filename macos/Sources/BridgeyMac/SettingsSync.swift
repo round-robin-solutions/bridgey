@@ -83,6 +83,8 @@ enum SyncKey: String, CaseIterable, Comparable {
     case featureSms = "feature.sms"
     /// Update all devices automatically: no setting on the Mac yet (rr/auto-update-all); stored and relayed.
     case updatesAutoAll = "updates.auto_all"
+    /// Connect away from home (connect_draft1): both ends need it on, so it follows the other devices.
+    case connectAway = "connect.away"
 
     static func < (lhs: SyncKey, rhs: SyncKey) -> Bool {
         allCases.firstIndex(of: lhs)! < allCases.firstIndex(of: rhs)!
@@ -146,6 +148,7 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .focusFollow: "focus_follow"
         case .codesEnabled: "codes"
         case .updatesAutoAll: "auto_update_all"
+        case .connectAway: "connect_away"
         default: String(rawValue.dropFirst("feature.".count))
         }
     }
@@ -177,6 +180,7 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .featureScreen: L10n.text("sync.name.screen", fallback: "Screen sharing")
         case .featureSms: L10n.text("sync.name.sms", fallback: "Text messages")
         case .updatesAutoAll: L10n.text("sync.name.autoUpdateAll", fallback: "Update all devices automatically")
+        case .connectAway: L10n.text("settings.away", fallback: "Connect away from home")
         }
     }
 
@@ -350,6 +354,7 @@ func settingsSyncStoredValues(_ defaults: [String: Any]) -> [SyncKey: SyncValue]
     bool(.codesEnabled, "settings.codes.enabled")
     bool(.featureScreen, "settings.screen.show")
     bool(.featureSms, "settings.sms.enabled")
+    bool(.connectAway, "settings.connect.away")
     if let data = defaults["settings.focusSync"] as? Data, let focus = try? JSONDecoder().decode(FocusSyncSettings.self, from: data) {
         values[.focusShare] = .bool(focus.share)
         values[.focusFollow] = .bool(focus.follow)
@@ -360,7 +365,7 @@ func settingsSyncStoredValues(_ defaults: [String: Any]) -> [SyncKey: SyncValue]
 // MARK: Payloads
 
 struct SettingsPayload: Equatable {
-    /// The records of the 24 keys; skipped entries are counted, never kept.
+    /// The records of the 25 keys; skipped entries are counted, never kept.
     var records: [SyncKey: SyncRecord]
     /// The keys the sender has on but waiting for a permission there, in schema order.
     var waiting: [SyncKey]
@@ -1100,6 +1105,7 @@ final class SettingsSyncController: ObservableObject {
             .focusShare: bool({ focus.settings.share }, { on in focus.update { $0.share = on } }),
             .focusFollow: bool({ focus.settings.follow }, { on in focus.update { $0.follow = on } }),
             .codesEnabled: codes?.setting ?? bool({ settings.codesEnabled }, settings.setCodesEnabled),
+            .connectAway: bool({ settings.connectAway }, settings.setConnectAway),
         ]
         if let screen { out[.featureScreen] = screenSetting(screen) }
         if let setTextMessages { out[.featureSms] = bool({ settings.smsEnabled }, setTextMessages) }

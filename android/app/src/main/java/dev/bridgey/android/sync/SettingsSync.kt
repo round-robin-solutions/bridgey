@@ -73,6 +73,8 @@ enum class SyncKey(val key: String, val token: String, val default: Any, val val
     SMS("feature.sms", "sms", false, feature = true),
     /** Update all devices automatically: stored and relayed until that setting lands (rr/auto-update-all). */
     AUTO_UPDATE_ALL("updates.auto_all", "auto_update_all", false),
+    /** Connect away from home (connect_draft1): both ends need it on, so it follows the other devices. */
+    CONNECT_AWAY("connect.away", "connect_away", false, feature = true),
     ;
 
     fun accepts(value: Any?): Boolean = if (values != null) value is String && value in values else value is Boolean

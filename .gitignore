@@ -25,3 +25,6 @@ android/**/build/
 # Round Robin edition release output
 /dist/
 android/.kotlin/
+
+# Connect anywhere Rust workspace
+rust/target/

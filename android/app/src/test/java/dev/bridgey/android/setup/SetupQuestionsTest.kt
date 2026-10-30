@@ -66,7 +66,7 @@ class SetupQuestionsTest {
         // Bundles: exactly their Settings page's title.
         SetupBundles.all.forEach { bundle -> assertTrue(bundle.id, bundle.title in pageTitles.values) }
         // Switches: the page title for features with a page of their own.
-        listOf("clipboard" to "CLIPBOARD", "notifications" to "NOTIFICATIONS", "calls" to "CALLS", "files" to "FILES", "remote" to "REMOTE_CONTROL")
+        listOf("clipboard" to "CLIPBOARD", "notifications" to "NOTIFICATIONS", "calls" to "CALLS", "files" to "FILES", "remote" to "REMOTE_CONTROL", "away" to "AWAY")
             .forEach { (id, page) -> assertEquals(id, pageTitles.getValue(page), SetupFeatures.feature(id)!!.title) }
     }
 
@@ -79,6 +79,12 @@ class SetupQuestionsTest {
         assertEquals(mapOf(SetupSetting.ALLOW_BROWSE to "true", SetupSetting.ALLOW_REPLACE to "true"), changes("files_browse", Answers.CHANGE))
         assertEquals(mapOf(SetupSetting.HIDDEN_NOTIFICATION_APPS to "com.whatsapp"), changes("notification_apps", Answers.PICKED + "com.whatsapp"))
         assertEquals(mapOf(SetupSetting.CODES_LINK to "true"), changes("codes", Answers.YES))
+        // Connect away from home: off until chosen; Yes turns it on, Not now leaves it off.
+        assertEquals("false", SetupSetting.CONNECT_AWAY.default)
+        assertEquals(mapOf(SetupSetting.CONNECT_AWAY to "true"), changes("away", Answers.YES))
+        assertEquals(mapOf(SetupSetting.CONNECT_AWAY to "false"), changes("away", Answers.NO))
+        assertEquals(Coverage.ANSWER, SetupQuestions.coverage.getValue(SetupSetting.CONNECT_AWAY).second)
+        assertEquals(mapOf("away" to Answers.PICK), SetupBundles.all.first { it.id == "away" }.answers)
         assertEquals(listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "NIGHTLY")), SetupQuestions.typedOnly.getValue("updates").getValue(Answers.NEWEST))
         // Switches and picks turn a feature's settings on; refusals turn them off.
         assertEquals(listOf(SettingChange.on(SetupSetting.FEATURE_FIND_DEVICE)), SetupFeatures.feature("find")!!.on)

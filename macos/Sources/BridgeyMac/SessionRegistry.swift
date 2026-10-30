@@ -29,6 +29,8 @@ struct PhoneLinkState: Equatable {
     var remoteSms = false
     /// The phone advertised `settings_sync_draft1`: it syncs settings with this Mac.
     var remoteSettingsSync = false
+    /// The phone advertised `connect_draft1`: it understands connect.* (Connect anywhere).
+    var remoteConnect = false
     /// The phone's last `codes.status`: whether Android shows Bridgey the text of code messages.
     var codeAccess: CodeAccessStatus?
     var battery: RemoteBatteryStatus?

@@ -987,6 +987,7 @@ Macs.
 | `codes.enabled` | Stored and relayed | Notifications > Codes from messages | Mac: the consent and model that turning codes on asks for there |
 | `feature.screen` | Share screen with Macs | Remote control > Show phone screens (a preference here) | Each share is still asked on the phone, every time |
 | `feature.sms` | Text messages | Text messages | Android: SMS permission (read and send) |
+| `connect.away` | Connect away from home | Connect away from home | Both ends need it on for a phone to reach a Mac away from home, so it follows the other devices (Rahul's call, 2026-10-30) |
 | `updates.auto_all` | Update all devices automatically | Same | Stored and relayed until that setting lands (rr/auto-update-all); then a preference on both |
 
 A feature added later joins by adding its key to this table on both platforms; older builds skip

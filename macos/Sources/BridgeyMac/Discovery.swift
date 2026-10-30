@@ -66,7 +66,7 @@ enum DiscoveryTXTRecord {
 @MainActor
 final class BonjourDiscovery: NSObject, ObservableObject {
     static let serviceType = "_bridgey._tcp."
-    static let defaultPort: Int32 = 42_458
+    static let defaultPort = Int32(TestInstance.listeningPort)
 
     @Published private(set) var peers: [DiscoveredPeer] = []
     /// Connection health: browsing, stopped, or refused (Local Network access off, or mDNS failed).

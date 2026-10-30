@@ -104,6 +104,7 @@
 "setup.a.media.music" = "Apple Music";
 "setup.a.media.spotify" = "Spotify";
 "setup.a.no" = "Нет";
+"setup.a.notNow" = "Не сейчас";
 "setup.a.updates.early" = "Пораньше";
 "setup.a.updates.newest" = "Самые новые, каждый день";
 "setup.a.updates.steady" = "Надёжные";
@@ -114,6 +115,7 @@
 "setup.again.action" = "Настроить";
 "setup.again.detail" = "Пройти настройку с начала. Сопряжения и настройки сохранятся.";
 "setup.answer.current" = "Сейчас";
+"setup.bundle.away" = "Устройства остаются на связи, когда вы уходите из дома.";
 "setup.bundle.calls" = "Видеть, кто звонит, и отвечать здесь.";
 "setup.bundle.clipboard" = "Копировать на одном устройстве, вставлять на другом.";
 "setup.bundle.files" = "Отправлять файлы и фото в обе стороны.";
@@ -124,6 +126,7 @@
 "setup.done.skipped" = "Пропущено: %@. Разрешить можно в любой момент в Настройках > Конфиденциальность > Разрешения.";
 "setup.done.start" = "Начать";
 "setup.done.title" = "Всё готово";
+"setup.feature.away.detail" = "Связь с устройствами из любой сети, без VPN на телефоне.";
 "setup.intro.apply" = "Включить и продолжить";
 "setup.intro.body" = "Выберите, зачем вам Bridgey, или напишите своими словами. Всё остальное останется выключенным, пока вы его не включите.";
 "setup.intro.bundles" = "Зачем вам Bridgey?";
@@ -161,6 +164,9 @@
 "setup.permissions.refused" = "Отказано";
 "setup.permissions.title" = "Разрешите то, что нужно этим функциям";
 "setup.position" = "%1$d из %2$d";
+"setup.q.away.context" = "Устройства соединяются напрямую, когда это возможно, или через ретранслятор Round Robin, который видит только зашифрованные данные. Без учётной записи, выключить можно в любой момент.";
+"setup.q.away.summary" = "Связь вне дома";
+"setup.q.away.title" = "Связываться с устройствами вне дома?";
 "setup.q.callsRing.context" = "Тихий звонок повторяется, пока вы не ответите, не отклоните или не скроете вызов.";
 "setup.q.callsRing.summary" = "Звонок при входящих вызовах";
 "setup.q.callsRing.title" = "Звонить на этом Mac, когда звонит телефон?";

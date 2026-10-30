@@ -57,7 +57,7 @@ class AndroidSyncPermissions(private val context: Context) : SyncPermissions {
 }
 
 /**
- * The phone's settings behind the 24 keys. `codes.enabled` and `updates.auto_all` (until it lands) have no setting on
+ * The phone's settings behind the 25 keys. `codes.enabled` and `updates.auto_all` (until it lands) have no setting on
  * the phone: they are stored and relayed so two Macs share them. Messages' pinned, muted, archived and read state is
  * per Mac and never syncs. Per-device overrides, grants, paths and the file access guards are not here, so they never
  * sync.
@@ -111,6 +111,9 @@ fun phoneSyncedSettings(settings: BridgeySettings, ui: UiPreferences, permission
     )
     result[SyncKey.FOCUS_SHARE] = switch(
         "focus_share", { state().focusShare }, settings::setFocusShare, stored = { settings.hasStored(BridgeySettings.KEY_FOCUS_SHARE) },
+    )
+    result[SyncKey.CONNECT_AWAY] = switch(
+        "connect_away", { state().connectAway }, settings::setConnectAway, stored = { settings.hasStored(BridgeySettings.KEY_CONNECT_AWAY) },
     )
     result[SyncKey.FOCUS_FOLLOW] = switch(
         "focus_follow", { state().focusFollow }, settings::setFocusFollow, { !permissions.doNotDisturb() },

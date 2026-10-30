@@ -622,7 +622,7 @@ class SettingsSyncTest {
         val detail = SyncDetail.encode(changes)
         assertEquals("folder_destination=2,reduce_motion=0,calls=1", detail)
         assertEquals(listOf(changes[1], changes[0], changes[2]), SyncDetail.decode(detail))
-        assertEquals(24, SyncDetail.decode(SyncDetail.encode(SyncKey.entries.map { SyncChange(it, it.default) })).size)
+        assertEquals(25, SyncDetail.decode(SyncDetail.encode(SyncKey.entries.map { SyncChange(it, it.default) })).size)
         assertTrue(SyncDetail.decode("calls=1,evil text").isEmpty())
     }
 }

@@ -907,6 +907,7 @@
     <string name="health_reason_user">Вы отключили</string>
     <string name="health_reason_peer">Закрыто другим устройством</string>
     <string name="health_reason_network">Сеть недоступна</string>
+    <string name="health_reason_network_changed">Сеть сменилась, и старый маршрут перестал отвечать</string>
     <string name="health_reason_timeout">Время ожидания истекло</string>
     <string name="health_reason_replaced">Заменено новым подключением</string>
     <string name="health_reason_other">Другое (%1$s)</string>
@@ -970,6 +971,41 @@
     <string name="camera_unlock_text">%1$s просит снимок</string>
     <string name="camera_ask_title">%1$s просит снимок</string>
     <string name="camera_ask_text">Нажмите, чтобы открыть камеру</string>
+    <!-- Connect anywhere (Связь вне дома) -->
+    <string name="settings_connect_away">Связь вне дома</string>
+    <string name="connect_away_detail">Доступ к вашим устройствам из любой сети, без VPN на телефоне</string>
+    <string name="connect_how">Устройства соединяются напрямую, когда это возможно, или через ретранслятор Round Robin, который видит только зашифрованные данные. Ретрансляторы и сервис Round Robin никогда не видят имена, файлы и сообщения. Учётная запись не нужна. Если выключить, все маршруты вне дома остановятся; в одной сети Wi-Fi всё продолжит работать.</string>
+    <string name="connect_status">Состояние</string>
+    <string name="connect_status_online">Включено. Ваши устройства видят этот телефон из других сетей.</string>
+    <plurals name="connect_status_online_devices">
+        <item quantity="one">Включено. Сейчас доступно %d ваше устройство.</item>
+        <item quantity="few">Включено. Сейчас доступно %d ваших устройства.</item>
+        <item quantity="many">Включено. Сейчас доступно %d ваших устройств.</item>
+        <item quantity="other">Включено. Сейчас доступно %d ваших устройства.</item>
+    </plurals>
+    <string name="connect_status_connecting">Включено. Подключение к сервису Round Robin…</string>
+    <string name="connect_status_local">Включено, только для одной сети Wi-Fi и частных сетей. В этой сборке нет сервиса Round Robin.</string>
+    <string name="connect_status_unavailable">Недоступно в этой сборке</string>
+    <string name="connect_status_off">Выключено</string>
+    <string name="connect_summary_off">Выключено</string>
+    <string name="connect_summary_on">Включено, доступно из любой сети</string>
+    <string name="connect_reset">Сбросить ключ связи вне дома</string>
+    <string name="connect_reset_detail">Новый ключ для сервиса Round Robin и новые секреты с вашими устройствами. Пары сохранятся.</string>
+    <string name="connect_reset_confirm_title">Сбросить ключ связи вне дома?</string>
+    <string name="connect_reset_confirm_body">Ваши устройства договорятся о новых секретах при следующем подключении. Пары и настройки сохранятся.</string>
+    <string name="connect_reset_confirm">Сбросить</string>
+    <string name="route_private_network">Частная сеть</string>
+    <string name="route_tailscale">Tailscale</string>
+    <string name="connect_status_unreachable">Включено, но сервис Round Robin недоступен. Одна сеть Wi-Fi и частные сети работают; Bridgey продолжает попытки.</string>
+    <string name="connect_summary_unreachable">Сервис Round Robin недоступен</string>
+    <string name="route_direct">Напрямую</string>
+    <string name="route_relay">Ретранслятор</string>
+    <string name="route_relay_named">Ретранслятор (%1$s)</string>
+    <string name="relay_city_bom">Мумбаи</string>
+    <string name="relay_city_sin">Сингапур</string>
+    <string name="relay_city_sxb">Франция</string>
+    <string name="health_route_direct">Напрямую через интернет</string>
+    <string name="health_route_relay">Через ретранслятор, со сквозным шифрованием</string>
     <!-- Update all (draft updates_draft1) -->
     <string name="update_all_this_phone">Этот телефон</string>
     <string name="update_all_action">Обновить всё</string>

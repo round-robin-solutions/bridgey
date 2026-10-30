@@ -76,6 +76,9 @@ class BridgeyApplication : Application() {
     var isBridgeyEnabled: Boolean = false
         private set
     private lateinit var networkWatcher: NetworkWatcher
+
+    /** Connect anywhere's core, running while "Connect away from home" and Bridgey are both on. */
+    lateinit var connect: dev.bridgey.android.connect.ConnectAnywhere
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     // Automatic clipboard, phone to Mac: while any Bridgey activity is in the foreground we may read
     // the clipboard (Android 10+ forbids it in the background), so a foreground clip change is sent
@@ -140,6 +143,12 @@ class BridgeyApplication : Application() {
         // keeps dialling every trusted device that is not connected at its known addresses.
         networkWatcher = NetworkWatcher(this, onRecoveryEvent = pairing::linkEvent, onObservation = pairing::observe)
         pairing.restartDiscovery = discovery::restart
+        connect = dev.bridgey.android.connect.ConnectAnywhere(dev.bridgey.android.connect.ConnectNodeKey(), BuildConfig.VERSION_NAME)
+        pairing.attachConnect(connect)
+        applicationScope.launch {
+            settings.state.map { it.connectAway }.distinctUntilChanged().collect { updateConnect() }
+        }
+        if (BuildConfig.DEBUG) registerConnectDebugReceiver()
         pairing.localNetworks = networkWatcher::localNetworks
         discovery.onEvent = pairing::discoveryEvent
         applicationScope.launch {
@@ -345,6 +354,7 @@ class BridgeyApplication : Application() {
         networkWatcher.start()
         pairing.start()
         discovery.start()
+        updateConnect()
         if (!batteryReceiverRegistered) {
             lastBatteryIntent = registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
             batteryReceiverRegistered = true
@@ -375,6 +385,62 @@ class BridgeyApplication : Application() {
         remoteInput.stop()
         networkWatcher.stop()
         pairing.pause()
+        updateConnect()
+    }
+
+    /** Starts or stops Connect anywhere to match the setting and Bridgey's own switch. */
+    @Synchronized fun updateConnect() {
+        if (!::connect.isInitialized) return
+        val wanted = isBridgeyEnabled && settings.state.value.connectAway
+        if (wanted && !connect.running) {
+            val url = (if (BuildConfig.DEBUG) settings.connectDebugControlUrl else null) ?: BuildConfig.CONNECT_CONTROL_URL
+            connect.start(url, relayOnly = BuildConfig.DEBUG && settings.connectDebugRelayOnly)
+            pairing.connectChanged()
+        } else if (!wanted && connect.running) {
+            connect.stop()
+            pairing.connectChanged()
+        }
+    }
+
+    /** Settings > Connect away from home > Reset away-from-home identity: a new node key and new pair secrets. */
+    fun resetConnectIdentity() {
+        val wasRunning = connect.running
+        connect.stop()
+        dev.bridgey.android.connect.ConnectNodeKey().reset()
+        if (wasRunning) updateConnect()
+        pairing.resetConnectIdentity()
+    }
+
+    /**
+     * Debuggable builds only, for tests: `adb shell am broadcast -a <app id>.CONNECT_DEBUG
+     * --es url ws://... --ez relayOnly true --ez away true`. Only the shell (it holds DUMP) can send it.
+     */
+    private fun registerConnectDebugReceiver() {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                intent ?: return
+                val url = intent.getStringExtra("url") ?: settings.connectDebugControlUrl
+                val relayOnly = intent.getBooleanExtra("relayOnly", settings.connectDebugRelayOnly)
+                val urlChanged = url != settings.connectDebugControlUrl
+                settings.setConnectDebug(url, relayOnly)
+                if (intent.hasExtra("away")) settings.setConnectAway(intent.getBooleanExtra("away", false))
+                if (urlChanged && connect.running) {
+                    connect.stop()
+                    updateConnect()
+                } else if (connect.running) {
+                    connect.setRelayOnly(relayOnly)
+                    // As if the network changed: sessions that no longer answer are dropped at once.
+                    pairing.linkEvent("debug_relay_only")
+                }
+                BridgeyLogging.i(LogCategory.CONNECTION, "CONNECT debug url=${url != null} relayOnly=$relayOnly running=${connect.running}")
+            }
+        }
+        val filter = IntentFilter("$packageName.CONNECT_DEBUG")
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(receiver, filter, android.Manifest.permission.DUMP, null, RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(receiver, filter, android.Manifest.permission.DUMP, null)
+        }
     }
 
     fun updateDeviceName(value: String) {

@@ -43,6 +43,16 @@ func connectionRoute(forHost raw: String?) -> ConnectionRoute {
     return host.lowercased().hasSuffix(".local") || host.lowercased().hasSuffix(".local.") ? .sameNetwork : .unknown
 }
 
+/// The route class of a Connect anywhere tunnel (lan, vpn, direct, relay).
+func connectionRoute(forTunnel route: String) -> ConnectionRoute {
+    switch ConnectRouteKind(rawValue: route) {
+    case .lan: .sameNetwork
+    case .vpn: .privateNetwork
+    case .direct, .relay: .otherNetwork
+    case nil: .unknown
+    }
+}
+
 /// Heartbeat round trips: the send time of the last few pings, and the last ten samples.
 struct HeartbeatRoundTrips: Equatable {
     static let maximumPending = 8
@@ -105,6 +115,9 @@ struct DailyCounter: Equatable {
 struct DeviceHealthRecord: Equatable {
     var connectedSince: Date?
     var route: ConnectionRoute = .unknown
+    /// Connect anywhere: the tunnel's route and relay (nil on today's TCP).
+    var tunnelRoute: String?
+    var tunnelRelay: String?
     /// This Mac dialled the phone (true), or the phone connected to this Mac (false).
     var outbound: Bool?
     var roundTrips = HeartbeatRoundTrips()
@@ -123,6 +136,8 @@ struct ConnectionHealthSnapshot: Equatable, Identifiable {
     let deviceID: String
     var connected = false
     var route: ConnectionRoute = .unknown
+    var tunnelRoute: String?
+    var tunnelRelay: String?
     var outbound: Bool?
     var connectedSince: Date?
     var roundTripLast: TimeInterval?
@@ -144,6 +159,8 @@ struct ConnectionHealthSnapshot: Equatable, Identifiable {
         guard let record else { return }
         if connected {
             route = record.route
+            tunnelRoute = record.tunnelRoute
+            tunnelRelay = record.tunnelRelay
             outbound = record.outbound
             connectedSince = record.connectedSince
             roundTripLast = record.roundTrips.last
@@ -164,6 +181,8 @@ struct ConnectionHealthSnapshot: Equatable, Identifiable {
             "discoveryVisible": discoveryVisible,
             "discovery": discovery.rawValue,
         ]
+        if let tunnelRoute { value["tunnel"] = tunnelRoute }
+        if let tunnelRelay { value["relay"] = tunnelRelay }
         if let outbound { value["dialledBy"] = outbound ? "this_device" : "other_device" }
         if let connectedSince { value["connectedSince"] = formatter.string(from: connectedSince) }
         if let roundTripLast { value["roundTripMs"] = Int((roundTripLast * 1000).rounded()) }
@@ -191,6 +210,12 @@ func dropReasonText(_ reason: String) -> String {
     case "protocol_error", "frame_too_large", "wrong_device", "not_for_this_device": L10n.text("health.drop.protocol", fallback: "Unexpected message")
     default: L10n.text("health.drop.other", fallback: "Connection ended")
     }
+}
+
+/// The chip for a connected phone: "Same Wi-Fi", "Private network", "Direct" or "Relay (Mumbai)".
+func routeChipText(_ health: ConnectionHealthSnapshot?) -> String? {
+    guard let health, health.connected else { return nil }
+    return connectRouteChipText(tunnelRoute: health.tunnelRoute, relay: health.tunnelRelay, legacy: health.route)
 }
 
 func routeText(_ route: ConnectionRoute) -> String {

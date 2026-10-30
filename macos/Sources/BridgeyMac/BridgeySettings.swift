@@ -125,6 +125,8 @@ final class BridgeySettings: ObservableObject {
     /// Settings > Text messages > Keep conversations on this Mac: the cache is written (0600) so
     /// conversations open instantly. On by default; off keeps them in memory only.
     @Published private(set) var smsKeepOnMac: Bool
+    /// Devices > Connect away from home (draft connect_draft1). Off until chosen.
+    @Published private(set) var connectAway: Bool
 
     private let defaults = UserDefaults.standard
 
@@ -162,6 +164,7 @@ final class BridgeySettings: ObservableObject {
         openLinksRightAway = storedDefaults.bool(forKey: "settings.links.openRightAway")
         smsEnabled = storedDefaults.bool(forKey: "settings.sms.enabled")
         smsKeepOnMac = storedDefaults.object(forKey: "settings.sms.keepOnMac") as? Bool ?? true
+        connectAway = storedDefaults.bool(forKey: "settings.connect.away")
         let engine = CodeEngine.stored(storedDefaults.string(forKey: "settings.codes.engine"), codesWereEnabled: codesOn)
         // Settle the choice once, so turning codes on later never reads as an old cloud opt-in.
         storedDefaults.set(engine.rawValue, forKey: "settings.codes.engine")
@@ -231,6 +234,11 @@ final class BridgeySettings: ObservableObject {
     func setOpenLinksRightAway(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.links.openRightAway")
         openLinksRightAway = enabled
+    }
+
+    func setConnectAway(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.connect.away")
+        connectAway = enabled
     }
 
     func setCodesEngine(_ engine: CodeEngine) {

@@ -25,6 +25,10 @@ data class DeviceLinkState(
     val updateStatus: dev.bridgey.android.updates.UpdateStatus? = null,
     /** The device advertised settings_sync_draft1: it syncs settings with this phone (both its switches on). */
     val remoteSettingsSync: Boolean = false,
+    /** The device advertised connect_draft1: it runs Connect anywhere and understands connect.*. */
+    val remoteConnect: Boolean = false,
+    /** The session's tunnel route (Connect anywhere); null for a plain LAN session. */
+    val connectRoute: dev.bridgey.android.connect.ConnectRoute? = null,
     val battery: RemoteBatteryStatus? = null,
     /** The device reported that it is ringing (Find device). */
     val ringing: Boolean = false,

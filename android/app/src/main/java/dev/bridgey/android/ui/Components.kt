@@ -449,14 +449,20 @@ fun StatusPill(text: String, icon: ImageVector?, tint: Tint) {
 
 /** Route pill under a device name. */
 @Composable
-fun RoutePill(state: RingState, label: String? = null) {
+fun RoutePill(state: RingState, label: String? = null, route: dev.bridgey.android.connect.ConnectRoute? = null) {
     val colors = BridgeyTheme.colors
     val (bg, fg) = when (state) {
         RingState.CONNECTED -> colors.tintGreen to colors.onTintGreen
         RingState.NEARBY, RingState.CONNECTING -> colors.tintBlue to colors.onTintBlue
         RingState.OFFLINE -> colors.surface3 to colors.onSurfaceVariant
     }
-    val icon = if (state == RingState.OFFLINE) BridgeyIcons.WifiOff else BridgeyIcons.Wifi
+    val icon = when {
+        state == RingState.OFFLINE -> BridgeyIcons.WifiOff
+        state != RingState.CONNECTED || route == null || route.route == "lan" -> BridgeyIcons.Wifi
+        route.route == "vpn" -> BridgeyIcons.VpnLock
+        route.route == "direct" -> BridgeyIcons.Public
+        else -> BridgeyIcons.Cloud
+    }
     Crossfade(state, animationSpec = LocalMotion.current.fadeSpec(), label = "route") { shown ->
         Row(
             Modifier.height(26.dp).clip(RoundedCornerShape(13.dp)).background(bg).padding(start = 8.dp, end = 10.dp),
@@ -482,6 +488,7 @@ fun ringStateLabel(state: RingState): String = stringResource(
 /** A ring's one-line status: "Reconnecting…" or "Retrying…" while a dropped device is retried, else its route. */
 @Composable
 fun ringStatusLabel(ring: DeviceRing): String = when {
+    ring.state == RingState.CONNECTED && ring.route != null -> connectRouteLabel(ring.route)
     !ring.canRetry -> ringStateLabel(ring.state)
     ring.reconnect?.disconnectedByUser == true -> stringResource(R.string.ring_disconnected_by_you)
     ring.reconnect?.struggling == true -> stringResource(R.string.ring_retrying)

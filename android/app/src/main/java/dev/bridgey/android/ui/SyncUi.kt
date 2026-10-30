@@ -84,6 +84,7 @@ fun syncKeyName(context: Context, key: SyncKey): String = context.getString(
         SyncKey.CODES -> R.string.sync_name_codes
         SyncKey.SCREEN -> R.string.sync_name_screen
         SyncKey.SMS -> R.string.sync_name_sms
+        SyncKey.CONNECT_AWAY -> R.string.settings_connect_away
         SyncKey.AUTO_UPDATE_ALL -> R.string.sync_name_auto_update_all
     },
 )

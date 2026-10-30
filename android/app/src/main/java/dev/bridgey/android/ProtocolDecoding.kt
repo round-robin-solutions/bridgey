@@ -269,8 +269,8 @@ internal sealed interface FeatureStateDecoding {
  * (the Mac accepts folders); files_browse_draft1 is read too, so both platforms decode the golden vectors alike.
  * Automation (v0.9): mac_actions_draft1, links_open_draft1, focus_sync_draft1 and camera_draft1. Update all:
  * updates_draft1. Screen sharing (v0.9): screen_draft1, a switch here like the camera. Text messages: sms_draft1
- * (a switch here too). Settings sync (v0.10): settings_sync_draft1, last. Connection health has no key (no wire
- * change). The Mac has the same list in the same order.
+ * (a switch here too). Settings sync (v0.10): settings_sync_draft1. Connect anywhere: connect_draft1, last.
+ * Connection health has no key (no wire change). The Mac has the same list in the same order.
  */
 internal val KNOWN_DRAFT_FEATURE_KEYS = listOf(
     CLIPBOARD_FILES_FEATURE_KEY, FOLDERS_FEATURE_KEY, PLACES_FEATURE_KEY, SMS_CODES_FEATURE_KEY,
@@ -280,6 +280,7 @@ internal val KNOWN_DRAFT_FEATURE_KEYS = listOf(
     dev.bridgey.android.screen.SCREEN_FEATURE_KEY,
     SMS_FEATURE_KEY,
     SETTINGS_SYNC_FEATURE_KEY,
+    dev.bridgey.android.connect.CONNECT_FEATURE_KEY,
 )
 
 internal fun decodeFeatureState(plaintext: ByteArray): FeatureStateDecoding {

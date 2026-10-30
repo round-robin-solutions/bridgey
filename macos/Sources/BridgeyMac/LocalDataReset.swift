@@ -156,7 +156,9 @@ struct LocalDataLocations {
         case .otherCaches: [caches]
         case .settings: []
         // The identity key and the trusted phones share trust-v3.json.
-        case .trustedDevices, .identityKeys: [support.appendingPathComponent(MacPairingStore.fileName)]
+        case .trustedDevices: [support.appendingPathComponent(MacPairingStore.fileName)]
+        // Connect anywhere's node key and pair secrets (connect-v1.json) go with the identity.
+        case .identityKeys: [support.appendingPathComponent(MacPairingStore.fileName), support.appendingPathComponent(ConnectStore.fileName)]
         case .reconnectAddresses, .appRecords: []
         }
     }
