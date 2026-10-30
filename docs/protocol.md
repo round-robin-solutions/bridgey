@@ -1629,7 +1629,8 @@ most 16 KiB, the type in `t`:
 **Single-flight sign-in.** A client may put hello, sign-in, registration and its warm relay request into the
 upgrade request: header `x-bridgey-hello` = base64url(JSON `{v, node, app, keepalive, ts, cnonce, sig, ids?,
 warm?}`), `sig` over `"bridgey-rdv-auth-v2\0" ‖ host ‖ "\0" ‖ ts (8 bytes, big-endian Unix ms) ‖ cnonce (16 bytes)
-‖ node`, where `host` is the request's authority (the service compares it with its configured host). The service
+‖ node`, where `host` is the request's authority (the service compares it with its configured host and takes no
+single-flight sign-in without one). The service
 takes it within two minutes of `ts` and once per (node, cnonce); then it answers the upgrade with
 `x-bridgey-welcome: 1`, sends `welcome` first, and handles `ids` and `warm` as `register` and `relay.warm`.
 Without that header in the answer the client signs in with `hello`, `challenge` and `auth` on the same socket.

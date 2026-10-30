@@ -163,17 +163,21 @@ struct IceSession {
     /// The other side's description arrived (the offer we answered, or the answer to ours).
     described: AtomicBool,
     created: Instant,
+    /// When ICE first selected a path.
+    selected_at: Mutex<Option<Instant>>,
 }
 
-/// A session with no tunnel this long after it began is not going to get one (for example the controlled side
-/// selected a path but the other side's QUIC dial never came): it no longer holds up new offers.
-const ICE_STALE: Duration = Duration::from_secs(10);
+/// A session with a selected path but no tunnel this long after is not going to get one (the controlled side waits
+/// for a QUIC dial that never came, and no agent timer ends a selected session); nor is one this old overall.
+const ICE_STALE_SELECTED: Duration = Duration::from_secs(10);
+const ICE_STALE: Duration = Duration::from_secs(25);
 /// Offers that cross within this long are glare (signals through the control service take one of its round trips).
 const GLARE_WINDOW: Duration = Duration::from_secs(1);
 
 impl IceSession {
     fn pending(&self) -> bool {
-        self.tunnel.lock().unwrap().is_none() && self.created.elapsed() < ICE_STALE
+        let selected_long_ago = self.selected_at.lock().unwrap().is_some_and(|t| t.elapsed() >= ICE_STALE_SELECTED);
+        self.tunnel.lock().unwrap().is_none() && self.created.elapsed() < ICE_STALE && !selected_long_ago
     }
 }
 
@@ -465,6 +469,15 @@ impl Node {
                 self.rdv_changed.notify_waiters();
             }
             RdvEvent::Disconnected(reason) => {
+                // Credentials that are missing, expired or in their last hour are asked for in the next sign-in.
+                let renew = self.warm.lock().unwrap().grant.as_ref().is_none_or(|(g, _)| g.expires_at < now_ms() + 3_600_000);
+                if renew {
+                    let mut request = self.rdv_shared.warm.lock().unwrap();
+                    if request.is_none() {
+                        let w = self.warm.lock().unwrap();
+                        *request = Some(WarmRequest { rtts: Some(w.rtts.clone()).filter(|r| !r.is_empty()), exclude: Some(w.exclude.clone()).filter(|e| !e.is_empty()), reclaim: None });
+                    }
+                }
                 self.rdv_connected.store(false, Ordering::Relaxed);
                 self.rdv_changed.notify_waiters();
                 self.online.lock().unwrap().clear();
@@ -835,6 +848,7 @@ impl Node {
             generation: self.rdv_generation.load(Ordering::Relaxed),
             described: AtomicBool::new(false),
             created: Instant::now(),
+            selected_at: Mutex::new(None),
         });
         *session.allocation.lock().unwrap() = warm;
         self.ice.lock().unwrap().insert(sid, session.clone());
@@ -943,19 +957,18 @@ impl Node {
                 if existing.is_some() {
                     return;
                 }
-                // Glare: both offered at once, and the lower device ID's offer wins. Only an offer of ours that is young and
-                // unanswered counts: an older one went somewhere the other side never saw (its control service connection
-                // had died), so holding out for it would leave both sides waiting until it times out.
+                // Glare: both offered, and the lower device ID's offer wins. The lower side keeps its unanswered offer and,
+                // if it is old enough that the other side should have answered, sends it again on the current connection
+                // (it may have gone into a control connection the other side had already lost). A session of ours the
+                // other side already answered means it started over: answer its new offer.
                 self.end_stale(&peer);
                 let mine: Vec<Arc<IceSession>> = self.ice.lock().unwrap().values().filter(|s| s.peer == peer && s.pending()).cloned().collect();
-                let glare = mine.iter().any(|s| !s.described.load(Ordering::Relaxed) && s.created.elapsed() < GLARE_WINDOW);
-                if !glare {
-                    for s in &mine {
-                        self.end_ice(&s.agent.sid, "superseded");
+                let unanswered: Vec<&Arc<IceSession>> = mine.iter().filter(|s| !s.described.load(Ordering::Relaxed)).collect();
+                if local_side == 0 && !unanswered.is_empty() {
+                    for s in unanswered.into_iter().filter(|s| s.created.elapsed() >= GLARE_WINDOW) {
+                        self.send_signal(s, Signal::Offer(self.description(s)));
+                        self.mark("ice.offer.resent", Some(&peer), None);
                     }
-                }
-                let mine: Vec<Arc<IceSession>> = if glare { mine } else { Vec::new() };
-                if !mine.is_empty() && local_side == 0 {
                     return;
                 }
                 for s in mine {
@@ -1131,6 +1144,7 @@ impl Node {
                 IceEvent::FirstSuccess { route } => self.mark("ice.first_success", Some(&session.peer), Some(route.as_str())),
                 IceEvent::Selected { route, relay, rtt } => {
                     self.mark("ice.selected", Some(&session.peer), Some(route.as_str()));
+                    session.selected_at.lock().unwrap().get_or_insert_with(Instant::now);
                     *session.route.lock().unwrap() = (route, relay.clone());
                     let tunnel = session.tunnel.lock().unwrap().clone();
                     match tunnel {
@@ -1168,6 +1182,11 @@ impl Node {
 
     async fn dial_ice(self: Arc<Self>, session: Arc<IceSession>, route: Route, relay: Option<String>) {
         let pin = session.remote_cert.lock().unwrap().clone();
+        if pin.is_none() {
+            // Selection needs the other side's credentials, which come with its pin; never dial without one.
+            self.end_ice(&session.agent.sid, "no_pin");
+            return;
+        }
         let config = quic::client_config(&self.identity.read().unwrap(), pin, keep_alive(route));
         let Ok(connecting) = self.endpoint.connect_with(config, session.agent.vaddr, "bridgey") else { return };
         match tokio::time::timeout(Duration::from_secs(8), connecting).await {
@@ -1182,9 +1201,12 @@ impl Node {
     }
 
     fn end_stale(&self, peer: &str) {
-        let stale: Vec<String> = self.ice.lock().unwrap().values().filter(|s| s.peer == peer && s.tunnel.lock().unwrap().is_none() && !s.pending()).map(|s| s.agent.sid.clone()).collect();
-        for sid in stale {
-            self.end_ice(&sid, "stale");
+        let stale: Vec<Arc<IceSession>> = self.ice.lock().unwrap().values().filter(|s| s.peer == peer && s.tunnel.lock().unwrap().is_none() && !s.pending()).cloned().collect();
+        for session in stale {
+            // Checked again at the last moment: a tunnel may have just been registered on it.
+            if session.tunnel.lock().unwrap().is_none() {
+                self.end_ice(&session.agent.sid, "stale");
+            }
         }
     }
 
@@ -1354,9 +1376,10 @@ impl Node {
         let weak = self.weak();
         self.warm.lock().unwrap().reclaimed_at = Some(Instant::now());
         let release = tokio::spawn(async move {
-            // Credentials only ever go to the relay the grant names (as resolved now), never to an address from disk.
-            let resolved = match weak.upgrade() {
-                Some(node) => node.resolve_relay(&grant).await,
+            // Credentials only ever go to the relay the grant names, resolved now from its URL (never from the pool a
+            // state file supplied).
+            let resolved = match grant.urls.iter().find_map(|u| turn::parse_udp_url(u)) {
+                Some((host, port)) => tokio::net::lookup_host((host.as_str(), port)).await.ok().and_then(|mut it| it.find(|a| a.is_ipv4())).map(addrs::canonical),
                 None => None,
             };
             if resolved != Some(left.server) {
@@ -1405,12 +1428,14 @@ impl Node {
                 Err(e) => {
                     warm.failures += 1;
                     let mismatch = e == turn::MISMATCH;
-                    if mismatch && !warm.exclude.contains(&grant.id) {
+                    // A relay that keeps refusing (a rotated secret, an outage) is left for another after three tries.
+                    if (mismatch || warm.failures >= 3) && !warm.exclude.contains(&grant.id) {
                         // A left-behind allocation we could not reclaim: use another relay until it lapses.
                         warm.exclude.push(grant.id.clone());
                     }
                     let request = WarmRequest { rtts: Some(warm.rtts.clone()).filter(|r| !r.is_empty()), exclude: Some(warm.exclude.clone()), reclaim: None };
-                    Err((e, mismatch.then_some(request)))
+                    let ask = mismatch || warm.failures == 3;
+                    Err((e, ask.then_some(request)))
                 }
             }
         };
@@ -1577,7 +1602,16 @@ impl Node {
                         conn.close(0u32.into(), b"unknown");
                         return;
                     };
-                    let pin = session.remote_cert.lock().unwrap().clone();
+                    // The offering side learns the pin from the answer, and the other side's dial can arrive before it
+                    // (its checks and QUIC go straight to us, the answer through the control service): wait for it.
+                    let mut pin = session.remote_cert.lock().unwrap().clone();
+                    for _ in 0..150 {
+                        if pin.is_some() {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                        pin = session.remote_cert.lock().unwrap().clone();
+                    }
                     if pin.is_none() || quic::peer_cert_hash(&conn) != pin {
                         conn.close(0u32.into(), b"pin");
                         return;

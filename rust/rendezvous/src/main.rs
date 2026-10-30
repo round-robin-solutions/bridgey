@@ -216,7 +216,7 @@ async fn upgrade(State(app): State<Arc<App>>, ConnectInfo(peer): ConnectInfo<Soc
 
 /// Checks a [FastHello]: the node key, the signature over this service's host, the time window and a nonce
 /// not seen before. `None` for anything else.
-fn fast_sign_in(app: &App, headers: &HeaderMap, value: &str) -> Option<FastSignIn> {
+fn fast_sign_in(app: &App, _headers: &HeaderMap, value: &str) -> Option<FastSignIn> {
     if value.len() > rdv::MAX_FRAME_BYTES {
         return None;
     }
@@ -230,10 +230,9 @@ fn fast_sign_in(app: &App, headers: &HeaderMap, value: &str) -> Option<FastSignI
     if hello.ts.abs_diff(now) > rdv::FAST_HELLO_WINDOW_MS {
         return None;
     }
-    let host = match &app.public_host {
-        Some(host) => host.clone(),
-        None => headers.get(axum::http::header::HOST)?.to_str().ok()?.to_string(),
-    };
+    // Only with a configured host: a Host header is whatever the client (or a proxy) says, so a sign-in made for
+    // another service could be presented here.
+    let host = app.public_host.clone()?;
     let signature = b64::url_decode(&hello.sig)?;
     let key = ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_ASN1, &node_key);
     if key.verify(&derive::auth_message_v2(&host, hello.ts, &cnonce, &node_key), &signature).is_err() {

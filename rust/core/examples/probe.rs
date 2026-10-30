@@ -97,7 +97,7 @@ fn main() {
                 let client = event["quicClient"].as_bool().unwrap();
                 let tunnel = event["tunnel"].as_str().unwrap().to_string();
                 let lines = lines.clone();
-                std::thread::spawn(move || run_bridge(port, &token, client, &tunnel, started, lines));
+                std::thread::spawn(move || run_bridge(handle, port, &token, client, &tunnel, started, lines));
             }
             _ => println!("{}", json!({"probe": "event", "atMs": started.elapsed().as_millis() as u64, "event": event})),
         }
@@ -107,7 +107,13 @@ fn main() {
     ffi::stop(handle);
 }
 
-fn run_bridge(port: u16, token: &str, client: bool, tunnel: &str, started: Instant, lines: std::sync::Arc<std::sync::atomic::AtomicU64>) {
+/// Like the apps, the probe tells the core when a session works (its first echo): a tunnel that closes after
+/// that is redialled at once, one that never worked backs off.
+fn authenticated(handle: u64, tunnel: &str) {
+    ffi::command(handle, &json!({"c": "authenticated", "tunnel": tunnel}).to_string());
+}
+
+fn run_bridge(handle: u64, port: u16, token: &str, client: bool, tunnel: &str, started: Instant, lines: std::sync::Arc<std::sync::atomic::AtomicU64>) {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("bridge");
     stream.set_nodelay(true).ok();
     stream.write_all(format!("{token}\n").as_bytes()).unwrap();
@@ -131,6 +137,7 @@ fn run_bridge(port: u16, token: &str, client: bool, tunnel: &str, started: Insta
             rtts.push(sent.elapsed().as_micros() as u64);
             lines.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if n == 0 {
+                authenticated(handle, tunnel);
                 println!("{}", json!({"probe": "first_echo", "tunnel": tunnel, "atMs": started.elapsed().as_millis() as u64, "rttUs": rtts[0]}));
             }
             if rtts.len() == 20 {
@@ -149,7 +156,9 @@ fn run_bridge(port: u16, token: &str, client: bool, tunnel: &str, started: Insta
                     if stream.write_all(line.as_bytes()).is_err() {
                         break;
                     }
-                    lines.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if lines.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+                        authenticated(handle, tunnel);
+                    }
                 }
             }
         }

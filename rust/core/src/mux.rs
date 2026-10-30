@@ -332,6 +332,11 @@ impl Mux {
     pub fn retain_permitted(&self, server: SocketAddr, keep: &HashSet<IpAddr>) {
         if let Some(channels) = self.state.lock().unwrap().turns.get_mut(&server) {
             channels.permitted.retain(|ip| keep.contains(ip));
+            // A bound channel is re-bound every 4 minutes, which would renew the relay's permission for its address too.
+            channels.by_peer.retain(|peer, _| keep.contains(&peer.ip()));
+            channels.reserved.retain(|peer, _| keep.contains(&peer.ip()));
+            let bound: HashSet<u16> = channels.by_peer.values().copied().collect();
+            channels.by_number.retain(|number, _| bound.contains(number));
         }
     }
 

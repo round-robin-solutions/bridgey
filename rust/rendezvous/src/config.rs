@@ -25,7 +25,7 @@ pub struct Server {
     #[serde(default = "default_environment")]
     pub environment: String,
     /// The host name clients connect to (`connect.roundrobin.in`). A single-flight sign-in signs it, so a
-    /// signature made for another service is refused. Unset: the request's Host header (local tests).
+    /// signature made for another service is refused. Unset: no single-flight sign-ins (the challenge only).
     #[serde(default)]
     pub public_host: Option<String>,
 }

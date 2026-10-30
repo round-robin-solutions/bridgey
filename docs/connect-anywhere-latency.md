@@ -131,11 +131,72 @@ this device's own subnet does the app's LAN TCP connection get 300 ms first, bec
 | Device | What runs while idle | Cost |
 | --- | --- | --- |
 | Mac | STUN binding to the relay every 25 s (about 100 bytes each way), allocation refresh every 4 minutes | Negligible |
-| Android on Wi-Fi | The same | One small packet each way every 25 s while the Wi-Fi radio is associated: estimated well under 0.5% of a day's battery (see Results for the estimate) |
+| Android on Wi-Fi | The same | Estimated 0.03% to 0.15% of a 15 Wh battery a day (below) |
 | Android on mobile data | Nothing new: credentials only, allocation on demand | No new radio wake-ups; a session there costs one extra relay round trip |
 
 The control service keep-alive (60 to 270 s, adaptive) and the tunnel keep-alives are unchanged.
 
+**The Wi-Fi estimate.** A STUN binding every 25 s is 3,456 small exchanges a day (about 100 bytes each way). On
+Wi-Fi in power-save mode a small exchange costs roughly 5 to 20 mJ (the radio wakes, sends, waits for the reply
+and dozes again; published Wi-Fi power-save measurements put a short wake in this range). That is 17 to 70 J a
+day, 5 to 19 mWh, or 0.03% to 0.15% of a 15 Wh phone battery. This is an estimate: the emulator has no real
+radio, and it was not measured on a phone. While Android holds the phone in Doze the app's network is paused and
+the keep-alive does nothing; the first connection after Doze then allocates again (one relay round trip), which
+measure C covers.
+
+**What was traded.** Mobile data gets no warm allocation, so a session that starts there needs one more relay
+round trip (about 75 ms to relay-sg) than on Wi-Fi, in exchange for no new radio wake-ups. The keep-alive is
+25 s rather than 60 to 120 s because home routers commonly expire UDP mappings after 30 to 60 s, and a lapsed
+mapping turns the warm allocation into a cold one.
+
 ## Results
 
-To be filled with the 20-run medians and 95th percentiles for A, B and C before and after, and the waterfalls.
+Emulator bridgey-api36 and the Mac test instance, both on the personal Mac in India; public control service and
+relay-sg; 20 runs each unless noted. "Before" is beta 13 (rr/main 0aed845) plus the timing marks only; "after" is
+this branch. The personal Mac was busy throughout (load average 8 to 11, another app using about 5 cores).
+
+| Measure | Before: median | Before: p95 | After: median | After: p95 |
+| --- | --- | --- | --- | --- |
+| **A. Cold start** (process start to the phone's session on the relay) | 2.35 s | 3.29 s | **1.01 s** | 1.65 s |
+| **B. Failover** (LAN dropped to the session on the relay on both devices) | 1.49 s | 1.53 s | **0.59 s** | 0.62 s |
+| **C. Warm reconnect** (foreground to the session back) | no session within 40 s in 5 of 5 runs | | see below | |
+
+How the harness differs from the 2026-10-30 beta measurements (3.4 s for B, about 4 s for A): the LAN drop is
+seen at once (the Mac test instance closes the LAN session, so the phone gets the close immediately), and turning
+relay only on no longer restarts the Mac's control service connection (a test artifact; only the UDP paths
+change). The before numbers above use the same harness as the after numbers.
+
+### A. Cold start: median waterfall (ms since the phone's process started)
+
+| Step | Before | After |
+| --- | --- | --- |
+| Core started (Application.onCreate) | 111 | 92 |
+| Control service: DNS, TCP, TLS | 137, 281, 818 | 121, 186, 288 |
+| Signed in and registered | 1,054 (upgrade, challenge, signature, auth, welcome, register) | 331 (one flight after TLS) |
+| Offer sent / answer received | 1,109 / 1,201 | 342 / 422 |
+| First pair answers | 1,412 | 596 |
+| Pair selected | 1,888 (300 ms window, then a nomination round trip) | 596 (aggressive nomination) |
+| QUIC up (the phone is the QUIC server here) | 2,194 | 761 |
+| Session authenticated | **2,354** | **1,014** |
+| The left-behind allocation | 437 on relay-sg; the next session's relay moved to relay-eu | ended 79 ms after sign-in; the warm allocation back on relay-sg about a second later |
+
+The emulator's TCP and TLS to the control service at a cold start take 65 to 500 ms (TLS was 500 ms in most
+before runs and in the slow after runs); the same core on the Mac does TCP in 35 ms and TLS in 39 ms. The three
+after runs above 1.5 s are that, plus one run whose QUIC handshake lost a packet and waited for QUIC's probe timer
+(the first one fires after about a second, since QUIC assumes a 333 ms round trip until it measures one).
+
+### B. Failover: median waterfall (ms since the Mac dropped the LAN)
+
+| Step | Before | After |
+| --- | --- | --- |
+| Both sides see the drop | -9 (phone), 2 (Mac) | -9, 1 |
+| Race and offer | 33 (phone), 36 (Mac): after the re-registration answered, which ended the 1.5 s grace | -3 (phone), 2 (Mac): at once |
+| Relay ready | grant 72 to 100, allocation 223 (Mac), the phone's after the 1 s grace (1,221 when used) | already allocated (warm) |
+| First pair answers | 641 (Mac), 668 (phone) | 176 (phone), 228 (Mac) |
+| Pair selected | 1,028 / 1,114 | 176 / 228 |
+| QUIC up | 1,269 (Mac) / 1,335 (phone) | 382 / 442 |
+| Session authenticated | 1,430 (Mac) / **1,492** (phone) | 534 / **592** |
+
+After the drop: one signal each way (about 40 ms each through the control service), one relay round trip for the
+check, one for QUIC and one and a half for the Bridgey handshake (the relay round trip between the two devices is
+about 150 ms). That is the floor from section "The floor".

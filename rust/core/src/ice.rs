@@ -347,8 +347,17 @@ impl IceAgent {
     /// One connectivity check on a pair (index into the sorted list at the time it started).
     async fn check(self: Arc<Self>, index: usize, path: Path, nominate: bool) -> bool {
         let (bytes, txid, pwd) = {
-            let st = self.state.lock().unwrap();
-            let Some((bytes, txid)) = self.request(&st, nominate) else { return false };
+            let mut st = self.state.lock().unwrap();
+            let Some((bytes, txid)) = self.request(&st, nominate) else {
+                // A triggered check before the other side's description arrived (its checks can beat the answer through
+                // the control service): no credentials yet, so the pair waits and the tick checks it once they come.
+                if let Some(i) = st.pairs.iter().position(|p| Self::path(&st, p) == path) {
+                    if st.pairs[i].state == PairState::InProgress {
+                        st.pairs[i].state = PairState::Waiting;
+                    }
+                }
+                return false;
+            };
             (bytes, txid, st.remote_pwd.clone().unwrap_or_default())
         };
         let started = Instant::now();
@@ -395,6 +404,12 @@ impl IceAgent {
     }
 
     fn select(&self, st: &mut State, i: usize, rtt: Duration) {
+        // An older nomination never pulls the path back later.
+        for (j, pair) in st.pairs.iter_mut().enumerate() {
+            if j != i {
+                pair.nominated = false;
+            }
+        }
         let path = Self::path(st, &st.pairs[i]);
         let changed = st.selected != Some(path);
         st.selected = Some(path);
@@ -428,6 +443,7 @@ impl IceAgent {
         let Some(li) = li else { return };
         let ri = match st.remotes.iter().position(|r| r.addr == path.remote) {
             Some(ri) => ri,
+            None if st.remotes.len() >= 32 => return,
             None => {
                 let pri = msg.u32(stun::ATTR_PRIORITY).unwrap_or(priority(TYPE_PRFLX, path.remote.ip()));
                 st.remotes.push(Remote { addr: path.remote, kind: "prflx".into(), pri, relay: None });
@@ -443,13 +459,21 @@ impl IceAgent {
             let agent = self.clone();
             tokio::spawn(async move { agent.check(i, path, false).await });
         }
-        if nominated {
+        // Datagrams arriving on any pair that passed integrity belong to this connection (QUIC authenticates each one);
+        // only where ours leave is guarded by proof.
+        self.mux.map_path(path, self.vaddr);
+        if nominated && Some(path) != st.selected {
             st.pairs[i].nominated = true;
-            if st.pairs[i].state == PairState::Succeeded && self.follows(&st, i) {
-                let path = Self::path(&st, &st.pairs[i]);
-                self.mux.map_path(path, self.vaddr);
+            if st.selected.is_none() && st.pairs[i].state == PairState::Succeeded {
                 self.select(&mut st, i, Duration::ZERO);
                 return;
+            }
+            if st.selected.is_some() && st.pairs[i].state == PairState::Succeeded {
+                // A move away from a working path needs a check of our own started after this nomination: a replayed
+                // nomination for a pair proven long ago (and dead since) cannot pass one.
+                st.pairs[i].state = PairState::InProgress;
+                let agent = self.clone();
+                tokio::spawn(async move { agent.check(i, path, false).await });
             }
         }
         if Some(path) == st.selected {
@@ -459,7 +483,6 @@ impl IceAgent {
         // Until something is selected, answer QUIC on the first pair that reached us with a valid check (the peer's
         // checks arrive before any replay of them could).
         if st.selected.is_none() && !self.controlling && self.mux.selected(self.vaddr).is_none() {
-            self.mux.map_path(path, self.vaddr);
             self.mux.select_path(self.vaddr, path);
         }
     }
@@ -638,6 +661,33 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         assert!(!b.is_selected());
+    }
+
+    /// The controlling side's checks can arrive before the answer reaches the controlled side (the answer goes
+    /// through the control service). The controlled side then has no credentials for its triggered check; once
+    /// they arrive it must still check, prove the pair and select it.
+    #[tokio::test]
+    async fn checks_before_the_answer_still_select() {
+        let mux_a = Mux::bind(0).unwrap();
+        let mux_b = Mux::bind(0).unwrap();
+        let (a, _events_a) = IceAgent::new(mux_a.clone(), "sid-a".into(), true);
+        let (b, _events_b) = IceAgent::new(mux_b.clone(), "sid-b".into(), false);
+        a.add_local(host(&mux_a));
+        b.add_local(host(&mux_b));
+        a.set_remote_credentials(&b.local_ufrag, &b.local_pwd);
+        a.add_remote(&host(&mux_b).candidate());
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(a.is_selected() && !b.is_selected());
+        // The answer arrives.
+        b.set_remote_credentials(&a.local_ufrag, &a.local_pwd);
+        b.add_remote(&host(&mux_a).candidate());
+        for _ in 0..40 {
+            if b.is_selected() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(b.is_selected());
     }
 
     #[test]
