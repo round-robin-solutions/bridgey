@@ -2,7 +2,7 @@
 
 Status: built on `rr/fast-transfers` (October 2026), behind the draft key `files_fast_draft1`. Measured on the
 personal Mac (M4), on `rr-dev-1` and with both apps on the bridgey-api36 emulator (Android 16, 4 cores, 2 GB) over
-`adb forward`. **Not yet measured on real Wi-Fi or on the OnePlus 11** (section 6).
+`adb forward`. **Not yet measured on real Wi-Fi or on the OnePlus 11** (section 7).
 
 Rahul, 2026-10-29: Phone files downloads ran at about 1 to 3.5 MB/s; he expected 80 to 100 MB/s. This page explains
 why the old path was slow, what changed, what was measured, and what is still an estimate.
@@ -90,7 +90,9 @@ was checked: the 1 GB files matched SHA-256 on both sides. Phone app in the back
 The same builds differ by up to 2x between emulator boots and from run to run, so only A/B pairs run back to back on
 one boot are compared below. During one series another tool force-stopped the phone app every 35 seconds
 (`stop in.roundrobin.bridgey due to from pid ...` in the log); those runs were thrown away and repeated. A Phone files
-download cut off that way stayed "waiting" on the Mac instead of failing; not investigated further here.
+download cut off that way stayed "waiting" on the Mac for over 20 minutes instead of failing. **Fixed:** a save or drag
+that the phone does not carry on with within 45 seconds of a disconnect now fails with "The download stopped: <phone>
+disconnected and did not continue it." and Retry in the Phone files window (`PhoneFilesFlawlessTests`).
 
 **A/B on one emulator boot, Phone files download of 200 photos of 5 MB** (each figure one run of 2 × 100 files):
 
@@ -152,7 +154,18 @@ Not a cause (measured): AES-GCM and SHA-256 (gigabytes a second on the Mac, over
 TCP loopback. The Mac bench does every file write and ack on the main thread, as the app does, and still moves
 574 MB/s; in the live runs the Mac app was idle while waiting for the phone.
 
-## 4. Security of the binary path
+## 4. Away from home (Connect anywhere)
+
+A Connect anywhere tunnel carries the normal session: the core copies the bytes of QUIC stream 0 to and from a
+loopback socket without reading them, and both apps run the same session code on it (and a tunnel session is always
+protocol 2). So binary frames travel through tunnels unchanged. Checked with the core's own probe (`rust/core/examples/
+probe.rs --binary-mb N`): two cores on rr-dev-1, joined through the local control service, exchanged 256 KiB frames
+that start with the `0xB1` marker and hold every byte value. **Measured:** every echo came back identical (SHA-256);
+64 MiB each way over a direct tunnel ran at 6.3 to 8.3 MB/s each way (3 runs), 16 MiB each way through the local
+relay at 2.3 to 3.9 MB/s (6 runs). These tunnels are far slower than the local network on the same host, so away from
+home the tunnel, not the frame code, will set the speed; that is for the Connect anywhere work to look at.
+
+## 5. Security of the binary path
 
 A fresh reviewer checked the binary frame path on 2026-10-30, including what is parsed before authentication.
 
@@ -174,7 +187,7 @@ skipped before their tag was checked (low); Android allowed binary frames a mome
 (info); binary frames used the session key itself, which also encrypts JSON payloads (info; nothing could cross,
 but frames now use their own key, HMAC-SHA-256 of the session key and `bridgey-fast-frame-key-v2`).
 
-## 5. The speed test
+## 6. The speed test
 
 Settings > Privacy > Transfer speed on both apps sends about 7 seconds of test data each way over the session and
 shows both directions, the round trip idle and under load, each side's link, and a verdict:
@@ -201,7 +214,7 @@ during the test, both links "Not Wi-Fi or Ethernet", and the verdict "Route: not
 example a cable, a VPN or an emulator), so there is no estimate to compare with." The Mac's own run gave Mac to phone
 320.9 MB/s, phone to Mac 132.0 MB/s, and "Route: unknown; no estimate" in Copy results.
 
-## 6. Not measured yet
+## 7. Not measured yet
 
 - **Real Wi-Fi with the OnePlus 11** and either Mac. The estimates above are not measurements, and the emulator's
   links are loopback, so its numbers are a ceiling for the apps, not a forecast for Wi-Fi.
@@ -210,7 +223,7 @@ example a cable, a VPN or an emulator), so there is no estimate to compare with.
 - **The cost of drawing transfer rows on a real phone.** On the emulator the phone app in front halved the speed of
   200 small files (software graphics); a real GPU should make this much smaller.
 
-## 7. Running the benches again
+## 8. Running the benches again
 
 ```sh
 # Mac (on the personal Mac, holding /tmp/app-build-mac.lock)
