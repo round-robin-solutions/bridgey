@@ -168,6 +168,8 @@ struct IceSession {
 /// A session with no tunnel this long after it began is not going to get one (for example the controlled side
 /// selected a path but the other side's QUIC dial never came): it no longer holds up new offers.
 const ICE_STALE: Duration = Duration::from_secs(10);
+/// Offers that cross within this long are glare (signals through the control service take one of its round trips).
+const GLARE_WINDOW: Duration = Duration::from_secs(1);
 
 impl IceSession {
     fn pending(&self) -> bool {
@@ -941,9 +943,18 @@ impl Node {
                 if existing.is_some() {
                     return;
                 }
-                // Glare: both offered at once. The lower device ID's offer wins (a stale session of ours is no offer).
+                // Glare: both offered at once, and the lower device ID's offer wins. Only an offer of ours that is young and
+                // unanswered counts: an older one went somewhere the other side never saw (its control service connection
+                // had died), so holding out for it would leave both sides waiting until it times out.
                 self.end_stale(&peer);
                 let mine: Vec<Arc<IceSession>> = self.ice.lock().unwrap().values().filter(|s| s.peer == peer && s.pending()).cloned().collect();
+                let glare = mine.iter().any(|s| !s.described.load(Ordering::Relaxed) && s.created.elapsed() < GLARE_WINDOW);
+                if !glare {
+                    for s in &mine {
+                        self.end_ice(&s.agent.sid, "superseded");
+                    }
+                }
+                let mine: Vec<Arc<IceSession>> = if glare { mine } else { Vec::new() };
                 if !mine.is_empty() && local_side == 0 {
                     return;
                 }
@@ -1841,18 +1852,19 @@ impl Node {
     }
 
     /// The app came to the foreground: try better routes and waiting peers. A control service connection that has
-    /// been quiet for a while is replaced at once when a peer is waiting for it: after a phone slept, its socket may
-    /// be one the network dropped long ago, and signalling into it would wait out TCP retransmits.
+    /// been quiet for a while is replaced at once: after a phone slept, its socket may be one the network dropped
+    /// long ago, and signalling into it would wait out TCP retransmits.
     pub fn foreground(self: &Arc<Self>) {
-        let waiting = {
+        {
             let mut peers = self.peers.lock().unwrap();
             for p in peers.values_mut() {
                 p.next_attempt = p.next_attempt.min(Instant::now());
             }
-            peers.values().any(|p| !p.cfg.connected)
-        };
+        }
+        // Even with every peer still connected as far as the app knows: a session that died while the phone slept is
+        // often only noticed now, and its reconnect needs a control connection that works.
         let quiet = self.rdv.lock().unwrap().as_ref().and_then(RdvClient::quiet_for).is_some_and(|q| q > RDV_QUIET_LIMIT);
-        if waiting && quiet {
+        if quiet {
             self.mark("rdv.refresh", None, Some("foreground"));
             self.restart_rdv();
         }
