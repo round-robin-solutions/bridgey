@@ -4,7 +4,7 @@ import XCTest
 @testable import BridgeyMac
 
 /// Settings > Calls with "When another app asks to call", and the call confirmation alert with its
-/// Don't ask again box, light and dark. Runs only when BRIDGEY_SCREENSHOT_DIR is set:
+/// Don't ask again box, and Settings > Files with the synced hidden and system file switches, light and dark. Runs only when BRIDGEY_SCREENSHOT_DIR is set:
 ///   BRIDGEY_SCREENSHOT_DIR=/tmp/shots swift test --filter CallPolicyScreenshots
 final class CallPolicyScreenshots: XCTestCase {
     private var directory: URL!
@@ -40,6 +40,20 @@ final class CallPolicyScreenshots: XCTestCase {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             try write(view.padding(24).background(scheme == .dark ? Color(hex: 0x0A1428) : Color(hex: 0xDFE7F0)),
                       scheme: scheme, name: "mac-settings-calls-\(scheme == .dark ? "dark" : "light")")
+        }
+    }
+
+    @MainActor func testFilesPane() throws {
+        var model = callsModel
+        model.folderIncludeHidden = true
+        model.syncStatus[.folderIncludeHidden] = SyncRowStatus(differentOn: ["OnePlus 11"])
+        for scheme in [ColorScheme.light, .dark] {
+            let view = BrandRoot(reduceMotion: false) {
+                SettingsWindowView(model: model, actions: SettingsActions(), pane: .constant(.files))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            try write(view.padding(24).background(scheme == .dark ? Color(hex: 0x0A1428) : Color(hex: 0xDFE7F0)),
+                      scheme: scheme, name: "mac-settings-files-\(scheme == .dark ? "dark" : "light")")
         }
     }
 
