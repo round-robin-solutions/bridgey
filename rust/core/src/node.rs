@@ -162,6 +162,17 @@ struct IceSession {
     generation: u64,
     /// The other side's description arrived (the offer we answered, or the answer to ours).
     described: AtomicBool,
+    created: Instant,
+}
+
+/// A session with no tunnel this long after it began is not going to get one (for example the controlled side
+/// selected a path but the other side's QUIC dial never came): it no longer holds up new offers.
+const ICE_STALE: Duration = Duration::from_secs(10);
+
+impl IceSession {
+    fn pending(&self) -> bool {
+        self.tunnel.lock().unwrap().is_none() && self.created.elapsed() < ICE_STALE
+    }
 }
 
 pub type EventSink = Arc<dyn Fn(String) + Send + Sync>;
@@ -821,6 +832,7 @@ impl Node {
             relay_retried: AtomicBool::new(false),
             generation: self.rdv_generation.load(Ordering::Relaxed),
             described: AtomicBool::new(false),
+            created: Instant::now(),
         });
         *session.allocation.lock().unwrap() = warm;
         self.ice.lock().unwrap().insert(sid, session.clone());
@@ -864,8 +876,10 @@ impl Node {
 
     /// The offering side: a new ICE session, the offer, and a relay request (spec 4.3).
     async fn offer_ice(self: Arc<Self>, peer: String) {
-        // An ICE session with this peer is already under way (we answered its offer): wait for it.
-        let existing = self.ice.lock().unwrap().values().find(|s| s.peer == peer && s.tunnel.lock().unwrap().is_none()).cloned();
+        // An ICE session with this peer is already under way (we answered its offer): wait for it. One that has been
+        // waiting too long for its tunnel ends here instead of blocking every later race.
+        self.end_stale(&peer);
+        let existing = self.ice.lock().unwrap().values().find(|s| s.peer == peer && s.pending()).cloned();
         if let Some(session) = existing {
             self.wait_for_tunnel(&session).await;
             return;
@@ -892,7 +906,7 @@ impl Node {
                 Some(s) if s.tunnel.lock().unwrap().is_some() => return,
                 Some(_) => {}
                 None => {
-                    let replacement = self.ice.lock().unwrap().values().find(|s| s.peer == session.peer).map(|s| s.agent.sid.clone());
+                    let replacement = self.ice.lock().unwrap().values().find(|s| s.peer == session.peer && s.pending()).map(|s| s.agent.sid.clone());
                     match replacement {
                         Some(next) => sid = next,
                         None => return,
@@ -927,8 +941,9 @@ impl Node {
                 if existing.is_some() {
                     return;
                 }
-                // Glare: both offered at once. The lower device ID's offer wins.
-                let mine: Vec<Arc<IceSession>> = self.ice.lock().unwrap().values().filter(|s| s.peer == peer && s.tunnel.lock().unwrap().is_none()).cloned().collect();
+                // Glare: both offered at once. The lower device ID's offer wins (a stale session of ours is no offer).
+                self.end_stale(&peer);
+                let mine: Vec<Arc<IceSession>> = self.ice.lock().unwrap().values().filter(|s| s.peer == peer && s.pending()).cloned().collect();
                 if !mine.is_empty() && local_side == 0 {
                     return;
                 }
@@ -1152,6 +1167,13 @@ impl Node {
                 self.register_tunnel(conn, true, route_now.0, route_now.1, Some(session.peer.clone()), Some(session.clone()));
             }
             _ => self.end_ice(&session.agent.sid, "quic_failed"),
+        }
+    }
+
+    fn end_stale(&self, peer: &str) {
+        let stale: Vec<String> = self.ice.lock().unwrap().values().filter(|s| s.peer == peer && s.tunnel.lock().unwrap().is_none() && !s.pending()).map(|s| s.agent.sid.clone()).collect();
+        for sid in stale {
+            self.end_ice(&sid, "stale");
         }
     }
 
@@ -1737,6 +1759,11 @@ impl Node {
             if dates != last_dates {
                 last_dates = dates;
                 self.register();
+            }
+            // Sessions that never got their tunnel end (a selected path whose QUIC dial never came keeps no agent timer).
+            let peers: HashSet<String> = self.ice.lock().unwrap().values().filter(|s| s.tunnel.lock().unwrap().is_none() && !s.pending()).map(|s| s.peer.clone()).collect();
+            for peer in peers {
+                self.end_stale(&peer);
             }
             self.connect_waiting("retry");
             since_upgrade += Duration::from_secs(5);
