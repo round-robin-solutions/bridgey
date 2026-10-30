@@ -2,7 +2,7 @@
 
 Status: built on `rr/fast-transfers` (October 2026), behind the draft key `files_fast_draft1`. Measured on the
 personal Mac (M4), on `rr-dev-1` and with both apps on the bridgey-api36 emulator (Android 16, 4 cores, 2 GB) over
-`adb forward`. **Not yet measured on real Wi-Fi or on the OnePlus 11** (section 7).
+`adb forward`. **Not yet measured on real Wi-Fi or on the OnePlus 11** (section 6).
 
 Rahul, 2026-10-29: Phone files downloads ran at about 1 to 3.5 MB/s; he expected 80 to 100 MB/s. This page explains
 why the old path was slow, what changed, what was measured, and what is still an estimate.
@@ -56,7 +56,7 @@ app's threads (frames decrypted on a receive queue, file writes and acks on the 
 | Android code on ART in the emulator, acks, file written through Android's shared storage (`/sdcard/Download`, as received files are) | bridgey-api36 | **14 MB/s** | **116 MB/s** |
 | TCP alone, loopback | Mac (NWConnection) / rr-dev-1 JVM | 2,929 MB/s / 883 MB/s | |
 | TCP alone, Mac to emulator through `adb forward` | personal Mac, bridgey-api36 | 1,073 MB/s | |
-| TCP alone, emulator to Mac through `adb forward` | personal Mac, bridgey-api36 | 71 MB/s | |
+| TCP alone, emulator to Mac through `adb forward` (Android's own `nc`, which turned out to be the limit: the apps moved 133 MB/s this way) | personal Mac, bridgey-api36 | at least 71 MB/s | |
 | TCP alone, emulator dials the Mac at 10.0.2.2 (the emulator's own network) | personal Mac, bridgey-api36 | 4.3 MB/s out, 6.7 MB/s in | |
 | TCP alone, loopback inside the emulator | bridgey-api36 | 1,439 MB/s | |
 
@@ -79,16 +79,18 @@ was checked: the 1 GB files matched SHA-256 on both sides. Phone app in the back
 
 | Transfer | Fresh install, first runs | Later runs (another emulator boot) |
 | --- | --- | --- |
-| 1 GB Mac to phone | **283 MB/s** (3.5 s) | 109 to 176 MB/s (4 runs) |
-| 1 GB Phone files download (phone to Mac) | **133 MB/s** (7.5 s) | 77 MB/s (2 runs) |
+| 1 GB Mac to phone | **283 MB/s** (3.5 s) | 109 to 230 MB/s (10 runs, two boots) |
+| 1 GB Phone files download (phone to Mac) | **133 MB/s** (7.5 s) | 73 to 133 MB/s (9 runs, two boots) |
 | 200 × 5 MB Mac to phone, as separate files | 38 MB/s | 39 to 47 MB/s |
 | 200 × 5 MB Mac to phone, as one folder | 46 MB/s | 59 to 91 MB/s |
 | 200 × 5 MB Phone files download | see below | see below |
 | In-app speed test, started on the phone | | phone to Mac 134.6 MB/s, Mac to phone 332.9 MB/s, round trip 2 ms idle, 34 ms loaded |
 | In-app speed test, started on the Mac | | Mac to phone 320.9 MB/s, phone to Mac 132.0 MB/s, round trip 2 ms idle, 27 ms loaded |
 
-The two columns differ by up to 2x with the same builds: the first emulator boot (by another session) ran faster than
-the later ones. Compare rows within one column only.
+The same builds differ by up to 2x between emulator boots and from run to run, so only A/B pairs run back to back on
+one boot are compared below. During one series another tool force-stopped the phone app every 35 seconds
+(`stop in.roundrobin.bridgey due to from pid ...` in the log); those runs were thrown away and repeated. A Phone files
+download cut off that way stayed "waiting" on the Mac instead of failing; not investigated further here.
 
 **A/B on one emulator boot, Phone files download of 200 photos of 5 MB** (each figure one run of 2 × 100 files):
 
@@ -111,30 +113,44 @@ Its numbers are left out of the tables.
    a JSON line that is built, parsed and checked per chunk, with a fresh nonce, a UUID message ID and an envelope tag
    each. The same old path tops out at **19 MB/s on an M4, 13 MB/s on an x86 server and 14 to 18 MB/s on ART in the
    emulator, with no network at all** (measured, section 2). A OnePlus 11 core is slower than the M4 cores the
-   emulator runs on, so on the phone it is lower still (inference). Fast frames remove it: the same code paths move
-   116 to 574 MB/s.
+   emulator runs on, so on the phone it is lower still (inference). Fast frames remove it: with both apps on the
+   emulator 1 GB now moves at 109 to 283 MB/s to the phone and 77 to 133 MB/s from it (measured).
 2. **Only 1.5 MiB in flight** for the Mac's sends and for folders (a Phone files download is a folder transfer):
    64 chunks of 24 KiB. On Wi-Fi with a 10 to 30 ms round trip that caps a transfer at 50 to 150 MB/s before anything
-   else, and any stall on the receiver (a disk flush, a busy main thread, the phone
-   saving Wi-Fi power) empties the pipe. Now: 2 to 32 MiB, sized by the queueing delay (estimate of the cap from the
-   window and round trip; not measured on Wi-Fi).
-3. **Not the emulator's network, as long as the Mac dials the phone through `adb forward`** (measured): that path
-   carries 71 MB/s from the emulator and about 1 GB/s to it. The emulator's own NAT (the phone dialling the Mac at
-   10.0.2.2) carries only 4 to 7 MB/s, so a live test where the phone dialled the Mac would be capped there.
-4. **Something in the apps that the benches do not include** (open): both apps' frame code reaches 116 to 574 MB/s and
-   the emulator link 71 MB/s or more, yet the earlier session reported 11 to 13 MB/s for the apps on the emulator. The
-   benches leave out the apps' UI, session routing, MediaStore bookkeeping, the sender's SHA-256 pass before it sends,
-   and per-file round trips; one of those, or the earlier measurement itself, is the gap. Finding it needs the live run
-   in section 6, with `sample` on the Mac and simpleperf on the phone during the transfer. The old path shows the same
-   kind of gap (14 to 18 MB/s in the bench against 5.5 and 9.1 MB/s reported live), and a Mac `sample` from the earlier
-   session's old-path download shows the Mac idle, waiting on the network, so the phone side is the first suspect.
-5. **Phone Wi-Fi power saving** (estimate, not measured here): with the screen off Android may still save Wi-Fi power;
+   else, and any stall on the receiver empties the pipe. Now: 2 to 32 MiB, sized by the queueing delay (estimate of
+   the cap from the window and round trip; not measured on Wi-Fi).
+3. **Per-file work for many small files** (measured on the emulator). 200 files of 5 MB move at 38 to 91 MB/s against
+   109 to 283 MB/s for one 1 GB file. Where the time went, from simpleperf on the phone and `sample` on the Mac:
+   - the Mac was idle, waiting, in every profile, so the phone sets the pace;
+   - preparing a Phone files download hashed each file one after another before the first byte went out. **Fixed:**
+     four at a time; preparing 100 photos went from 2.0 to 2.4 s to 0.5 to 0.9 s, and the whole download from 47 to
+     48 MB/s to 60 to 67 MB/s (A/B, same emulator boot);
+   - saving each received file in Download/Bridgey costs several round trips to Android's MediaProvider (insert, open,
+     rename, publish, plus an fsync), about 40% of the receiving thread's time. **Changed:** rename and publish are one
+     update now; no difference could be measured within the run-to-run spread, so this is not counted as a gain;
+   - the phone's garbage collector used 30 to 60% of a core in every transfer, because each 256 KiB chunk got a new
+     array when sealed and another when read. **Changed:** the session reuses its buffers. A/B on one emulator boot, 1 GB each
+     way: the collector's share fell from 34 to 46% of a core to 1% (phone sending) and 18 to 22% (phone receiving).
+     Throughput did not change measurably (phone sending: 73 to 133 MB/s before, 100 to 104 MB/s after;
+     phone receiving: 119 to 230 MB/s before, 171 to 206 MB/s after; within the run-to-run spread), so on the emulator's four fast cores the collector was not the limit;
+     on a phone it saves CPU and battery (inference).
+   - single files to the same device restarted their window at 2 MiB each. **Changed:** the next file starts where the
+     last one ended; 46 MB/s before and 46 to 47 MB/s after for 200 separate files, so no measurable gain on the
+     emulator's short round trip (it may matter on Wi-Fi; not measured).
+4. **Not the emulator's network, as long as the Mac dials the phone through `adb forward`** (measured): the apps
+   themselves moved 283 MB/s to the phone and 133 MB/s from it that way. The emulator's own NAT (the phone dialling the
+   Mac at 10.0.2.2) carries only 4 to 7 MB/s, so a live test where the phone dialled the Mac would be capped there.
+5. **The earlier session's 11 to 13 MB/s for both apps was not reproduced** (measured): the same 1 GB runs gave 109 to
+   283 MB/s here. Its runs used the same kind of builds, so the most likely explanation is a measurement problem or an
+   emulator in a bad state; one emulator boot in this session also ran up to 2x slower than another with the same
+   builds.
+6. **Phone Wi-Fi power saving** (estimate, not measured here): with the screen off Android may still save Wi-Fi power;
    Android applies the low-latency lock only while the screen is on and Bridgey is in front. The speed test reports
    `screenOn` so this shows up in results.
 
-Not a cause (measured): AES-GCM and SHA-256 (gigabytes a second on the Mac) and TCP loopback. The Mac bench does every
-file write and ack on the main thread, as the app does, and still moves 574 MB/s; the app's main thread also draws the
-windows, which the bench does not.
+Not a cause (measured): AES-GCM and SHA-256 (gigabytes a second on the Mac, over 500 MB/s on ART in the emulator) and
+TCP loopback. The Mac bench does every file write and ack on the main thread, as the app does, and still moves
+574 MB/s; in the live runs the Mac app was idle while waiting for the phone.
 
 ## 4. Security of the binary path
 
@@ -176,21 +192,23 @@ shows both directions, the round trip idle and under load, each side's link, and
 - **No estimate** when the route is not Wi-Fi or Ethernet on both sides: the emulator's loopback, a cable or a VPN
   says so and gives no "slower than expected" verdict and no advice about routers.
 
-Checked on the emulator path: not live (section 6). The verdict for that route is pinned by the shared vectors
-`loopback (the emulator)` and `loopback (the emulator), slow` in `protocol/test-vectors/files-fast-v1.json`, which both
-apps pass: on the emulator the session runs over loopback, so each side reports its network as `other`, and the
-verdict says there is no estimate instead of the old "On a typical Wi-Fi 6 router, expect 30 to 45 MB/s. Your
-connection is slower than that. The signal may be weak or the network busy. Move closer to the router."
+Checked live on the emulator (2026-10-30), from both apps. The first try from the phone failed at once with "The
+test stopped because data stopped arriving. Try again closer to the router.": the tap sent `speed.start` on the main
+thread and Android refused the socket write (`NetworkOnMainThreadException`). Fixed (Start and Stop now send from the
+coordinator's scope; `SpeedTestThreadTest`), and a connection that cannot be reached now says so instead of the stall
+message. Afterwards the phone showed phone to Mac 134.6 MB/s, Mac to phone 332.9 MB/s, round trip 2 ms idle and 34 ms
+during the test, both links "Not Wi-Fi or Ethernet", and the verdict "Route: not Wi-Fi or Ethernet on both sides (for
+example a cable, a VPN or an emulator), so there is no estimate to compare with." The Mac's own run gave Mac to phone
+320.9 MB/s, phone to Mac 132.0 MB/s, and "Route: unknown; no estimate" in Copy results.
 
 ## 6. Not measured yet
 
-- **Both apps end to end on the emulator** (1 GB each way, 200 files of 5 MB, Phone files downloads) and the in-app
-  speed test there. These need the phone app installed, set up and paired through its screens; in this session the
-  emulator on the personal Mac was not available as a watched device, and driving its screens over ssh is not allowed
-  without Rahul's explicit OK.
-- **Real Wi-Fi with the OnePlus 11** and either Mac. The estimates above are not measurements.
+- **Real Wi-Fi with the OnePlus 11** and either Mac. The estimates above are not measurements, and the emulator's
+  links are loopback, so its numbers are a ceiling for the apps, not a forecast for Wi-Fi.
 - **Window behaviour on Wi-Fi with power-save jitter.** The window shrinks when the round trip climbs more than 40 ms
   over the lowest seen; whether Wi-Fi power saving triggers that needs a real device.
+- **The cost of drawing transfer rows on a real phone.** On the emulator the phone app in front halved the speed of
+  200 small files (software graphics); a real GPU should make this much smaller.
 
 ## 7. Running the benches again
 
