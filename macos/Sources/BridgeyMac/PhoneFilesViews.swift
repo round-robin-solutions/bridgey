@@ -944,6 +944,10 @@ private struct PhoneFilesStatusStrip: View {
                     .foregroundStyle(c.on)
                     .lineLimit(2)
                 Spacer(minLength: 0)
+                if model.noticeRetry != nil {
+                    Button(L10n.text("action.retry", fallback: "Retry")) { model.retryNotice() }
+                        .buttonStyle(PillButtonStyle(kind: .neutral, height: 24))
+                }
             } else {
                 Text(summary)
                     .font(BrandFont.body(12))

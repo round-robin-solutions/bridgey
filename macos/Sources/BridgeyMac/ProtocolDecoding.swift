@@ -219,29 +219,93 @@ private func boundedReason(_ value: String?) throws -> String? {
     return value
 }
 
+/// One frame from the connection: a JSON message, or a binary frame (draft files_fast_draft1) with its kind and
+/// body, still encrypted.
+enum ProtocolFrame {
+    case message(PairingMessage)
+    case binary(kind: UInt8, body: Data)
+}
+
 /// Splits the byte stream of one connection into frames. A frame ends at LF; one CR before the LF is
 /// dropped. A partial frame over the frame limit is an error, so memory stays bounded.
+///
+/// Once the session is authenticated, `binaryAllowed` also reads binary frames (FastTransfer.swift): a frame that
+/// starts with the 0xB1 marker carries its kind and a 32-bit body length instead of ending at LF. Bodies over
+/// `FastFrame.maximumBody` are an error. Without the flag the reader behaves exactly as before.
 struct ProtocolFrameReader {
-    private(set) var buffer = Data()
+    private var storage = Data()
+    /// Where the next frame starts in `storage`; consumed bytes are dropped when no complete frame is left.
+    private var head = 0
+    /// Bytes after `head` already searched for LF, so a long partial frame is not searched again on every read.
+    private var searched = 0
+    var binaryAllowed = false
 
-    mutating func append(_ data: Data) { buffer.append(data) }
+    /// The bytes not yet returned as frames.
+    var buffer: Data { storage.suffix(from: storage.startIndex + head) }
 
-    /// The next complete frame, or nil when no complete frame is buffered. Throws for a malformed frame.
+    mutating func append(_ data: Data) { storage.append(data) }
+
+    /// The next complete JSON frame, or nil when no complete frame is buffered. Throws for a malformed frame.
     mutating func next() throws -> PairingMessage? {
-        guard let newline = buffer.firstIndex(of: 0x0A) else {
-            guard !overLimit else { throw PairingError.invalidMessage }
+        while let frame = try nextFrame() {
+            if case let .message(message) = frame { return message }
+        }
+        return nil
+    }
+
+    /// The next complete frame of either form, or nil when none is buffered. Throws for a malformed frame (which is
+    /// consumed first, as before).
+    mutating func nextFrame() throws -> ProtocolFrame? {
+        let available = storage.count - head
+        guard available > 0 else {
+            compact()
             return nil
         }
-        var line = Data(buffer[buffer.startIndex..<newline])
-        buffer.removeSubrange(buffer.startIndex...newline)
+        let start = storage.startIndex + head
+        if binaryAllowed && storage[start] == FastFrame.marker {
+            guard available >= FastFrame.headerBytes else {
+                compact()
+                return nil
+            }
+            let length = storage[(start + 2)..<(start + 6)].reduce(0) { $0 << 8 | Int($1) }
+            guard length >= 1, length <= FastFrame.maximumBody else { throw PairingError.invalidMessage }
+            guard available >= FastFrame.headerBytes + length else {
+                compact()
+                return nil
+            }
+            let kind = storage[start + 1]
+            let body = storage.subdata(in: (start + FastFrame.headerBytes)..<(start + FastFrame.headerBytes + length))
+            head += FastFrame.headerBytes + length
+            searched = 0
+            return .binary(kind: kind, body: body)
+        }
+        guard let newline = storage[(start + searched)...].firstIndex(of: 0x0A) else {
+            searched = available
+            guard !overLimit else { throw PairingError.invalidMessage }
+            compact()
+            return nil
+        }
+        var line = storage.subdata(in: start..<newline)
+        head = newline - storage.startIndex + 1
+        searched = 0
         if line.last == 0x0D { line.removeLast() }
-        return try decodeProtocolMessage(line)
+        return .message(try decodeProtocolMessage(line))
+    }
+
+    private mutating func compact() {
+        guard head > 0 else { return }
+        storage.removeSubrange(storage.startIndex..<(storage.startIndex + head))
+        head = 0
     }
 
     /// The buffered partial frame is already over the limit.
     /// One byte over is allowed only for the CR that may end the frame.
     var overLimit: Bool {
-        buffer.firstIndex(of: 0x0A) == nil && buffer.count > maximumProtocolFrameBytes + (buffer.last == 0x0D ? 1 : 0)
+        let available = storage.count - head
+        guard available > maximumProtocolFrameBytes else { return false }
+        let start = storage.startIndex + head
+        if binaryAllowed && storage[start] == FastFrame.marker { return false }
+        return storage[start...].firstIndex(of: 0x0A) == nil && available > maximumProtocolFrameBytes + (storage.last == 0x0D ? 1 : 0)
     }
 }
 
@@ -289,7 +353,7 @@ enum FeatureStateDecoding: Equatable {
 /// Files 2.0 (BrowseMessages.swift): the Mac reads files_browse_draft1 (the phone serves browsing); it reads
 /// folders_receive_draft1 too, so both platforms decode the golden vectors alike, though only phones act on it.
 /// Update all (UpdateAllProtocol.swift) adds updates_draft1, then screen sharing screen_draft1, text messages sms_draft1
-/// and settings sync settings_sync_draft1 (last). Android has the same
+/// settings sync settings_sync_draft1 and fast transfers files_fast_draft1 (last). Android has the same
 /// list in the same order.
 let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, placesFeatureKey, smsCodesFeatureKey,
                              foldersReceiveFeatureKey, filesBrowseFeatureKey,
@@ -302,8 +366,10 @@ let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, places
                              smsFeatureKey,
                              // Settings sync (v0.10, SettingsSync.swift).
                              settingsSyncFeatureKey,
-                             // Connect anywhere (ConnectProtocol.swift), last.
-                             connectFeatureKey]
+                             // Connect anywhere (ConnectProtocol.swift).
+                             connectFeatureKey,
+                             // Fast transfers (FastTransfer.swift), last.
+                             filesFastFeatureKey]
 
 func decodeFeatureState(_ plaintext: Data) -> FeatureStateDecoding {
     guard isStrictJSONObject(plaintext),

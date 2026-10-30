@@ -90,6 +90,8 @@ final class PhoneFilesModel: ObservableObject {
     @Published var preview: PhonePreviewState?
     @Published private(set) var previewImage: PhoneDecodedImage?
     @Published private(set) var notice: String?
+    /// Retry for the notice, when it reports a download that stopped (the phone dropped or was busy).
+    @Published private(set) var noticeRetry: (() -> Void)?
     @Published var dropTargeted = false
     /// Screenshots pin "now" so day headers and dates do not depend on when they render.
     var displayNow: Date?
@@ -622,7 +624,16 @@ final class PhoneFilesModel: ObservableObject {
                     self.show(String(format: L10n.text("phonefiles.saved", fallback: "Saved %@ to Received files"), title))
                 }
             case let .failure(error):
-                if error != .cancelled { self.show(error) }
+                if error != .cancelled {
+                    // A save or drag that stopped for a passing reason gets Retry next to the message.
+                    if purpose != .preview, PhoneFilesText.isTransient(error) {
+                        self.show(error, retry: { [weak self] in
+                            self?.download(entries, into: directory, purpose: purpose, completion: completion)
+                        })
+                    } else {
+                        self.show(error)
+                    }
+                }
             }
             completion(result)
         })
@@ -683,12 +694,33 @@ final class PhoneFilesModel: ObservableObject {
 
     func show(_ error: PhoneFilesError) { show(PhoneFilesText.error(error, phone: phoneName)) }
 
-    func show(_ text: String) {
+    /// A notice with Retry stays until Retry, another notice or 60 seconds.
+    func show(_ error: PhoneFilesError, retry: @escaping () -> Void) {
+        show(PhoneFilesText.error(error, phone: phoneName), seconds: 60)
+        noticeRetry = retry
+    }
+
+    func show(_ text: String, seconds: TimeInterval = 5) {
         notice = text
+        noticeRetry = nil
         noticeClear?.cancel()
-        let clear = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.notice = nil } }
+        let clear = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                self?.notice = nil
+                self?.noticeRetry = nil
+            }
+        }
         noticeClear = clear
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: clear)
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: clear)
+    }
+
+    /// The notice's Retry.
+    func retryNotice() {
+        guard let retry = noticeRetry else { return }
+        noticeClear?.cancel()
+        notice = nil
+        noticeRetry = nil
+        retry()
     }
 
     /// Window closed: requests stop, caches stay.

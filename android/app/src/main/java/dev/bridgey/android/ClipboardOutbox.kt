@@ -53,6 +53,8 @@ internal class ClipboardOutbox(
         val accepted = CompletableDeferred<Boolean>()
         val completed = CompletableDeferred<Boolean>()
         var job: Job? = null
+        /** Set while a fast stream runs (FastTransfer.kt). */
+        @Volatile var pacer: dev.bridgey.android.TransferPacer? = null
     }
 
     private val lock = Any()
@@ -143,12 +145,18 @@ internal class ClipboardOutbox(
         transfers[transferId]?.completed?.complete(true)
     }
 
+    /** files.chunk.ack for a fast stream: its window moves. */
+    fun onChunkAcknowledged(transferId: String, sequence: Long) {
+        transfers[transferId]?.pacer?.acknowledged(transferId, sequence)
+    }
+
     /** files.cancel or files.rejected from the Mac. */
     fun onCancelled(transferId: String) {
         transfers.remove(transferId)?.let { transfer ->
             transfer.accepted.complete(false)
             transfer.completed.complete(false)
             transfer.job?.cancel()
+            transfer.pacer?.cancel()
         }
     }
 
@@ -199,7 +207,10 @@ internal class ClipboardOutbox(
                 if (!link.send("files.offer", transferId, clipTransferOfferPayload(transferId, offerId, item, item.sha256))) return
                 if (withTimeoutOrNull(ClipLimits.ACCEPT_TIMEOUT_MILLIS) { transfer.accepted.await() } != true) return
                 val digest = MessageDigest.getInstance("SHA-256")
-                val buffer = ByteArray(ClipLimits.CHUNK_SIZE)
+                // A fast peer gets binary frames of 256 KiB in a byte window that follows the link (FastTransfer.kt).
+                val pacer = if (link.fastTransfers) dev.bridgey.android.TransferPacer(fast = true).also { transfer.pacer = it } else null
+                val job = coroutineContext[Job]
+                val buffer = ByteArray(pacer?.chunkSize ?: ClipLimits.CHUNK_SIZE)
                 var total = 0L
                 var sequence = 0L
                 while (true) {
@@ -215,8 +226,15 @@ internal class ClipboardOutbox(
                     total += count
                     if (total > item.size) return sendError(ClipErrorCode.CHANGED)
                     digest.update(buffer, 0, count)
+                    if (pacer != null) {
+                        if (!pacer.waitForRoom(count) { job?.isActive == false }) return
+                        pacer.didSend(transferId, sequence, count)
+                        if (!link.sendFastChunk(transferId, sequence++, buffer, count)) return
+                        continue
+                    }
                     if (!link.send("files.chunk", transferId, buffer.copyOf(count), sequence++)) return
                 }
+                if (pacer != null && !pacer.waitForAll { job?.isActive == false }) return
                 if (total != item.size) return sendError(ClipErrorCode.CHANGED)
                 val sha256 = Base64.getEncoder().encodeToString(digest.digest())
                 if (item.sha256 != null && item.sha256 != sha256) return sendError(ClipErrorCode.CHANGED)

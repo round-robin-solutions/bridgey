@@ -30,6 +30,7 @@ class SettingsSectionOrderTest {
                 SettingsSection.UPDATES,
                 SettingsSection.GENERAL,
                 SettingsSection.ABOUT,
+                SettingsSection.DEVELOPER,
             ),
             SettingsSection.entries.toList(),
         )
@@ -61,7 +62,9 @@ class SettingsSectionOrderTest {
         // This phone is the header card, not a row; Connect away from home opens from the Devices page.
         assertNull(SettingsSection.THIS_PHONE.group)
         assertNull(SettingsSection.AWAY.group)
-        assertEquals(SettingsSection.entries.drop(1) - SettingsSection.AWAY, SettingsSection.homeRows)
+        // Developer and experimental is hidden until unlocked; then the home adds it after About itself.
+        assertNull(SettingsSection.DEVELOPER.group)
+        assertEquals(SettingsSection.entries.drop(1) - SettingsSection.AWAY - SettingsSection.DEVELOPER, SettingsSection.homeRows)
     }
 
     @Test

@@ -25,6 +25,7 @@ internal object SessionSecurity {
     private const val COMMIT_LABEL = "bridgey-commit-v2"
     private const val SAS_LABEL = "bridgey-sas-v2"
     private const val ENVELOPE_LABEL = "bridgey-envelope-v2"
+    private const val FAST_FRAME_KEY_LABEL = "bridgey-fast-frame-key-v2"
 
     /** Base64 SHA-256 over the label, the session ID and the initiator's ephemeral public key (base64 text). */
     fun commitment(sessionId: String, publicKey: String): String =
@@ -44,6 +45,9 @@ internal object SessionSecurity {
     }
 
     fun envelopeKey(sessionKey: ByteArray): ByteArray = hmac(sessionKey, ENVELOPE_LABEL.toByteArray(Charsets.UTF_8))
+
+    /** The AES-GCM key for binary frames (draft files_fast_draft1, FastTransfer.kt), kept apart from the session key. */
+    fun fastFrameKey(sessionKey: ByteArray): ByteArray = hmac(sessionKey, FAST_FRAME_KEY_LABEL.toByteArray(Charsets.UTF_8))
 
     /**
      * Base64 HMAC-SHA-256 over the sender's device ID and every envelope field of [message] except `tag`. An empty

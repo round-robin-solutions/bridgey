@@ -19,6 +19,11 @@ final class ExpectedDownload {
     let completion: (Result<[URL], PhoneFilesError>) -> Void
     /// The phone's folder offer arrived and the receive started.
     var started = false
+    /// Bumped whenever the phone offers this download or its bytes arrive; a disconnect checks it later
+    /// (FolderReceiver.downloadResumeTimeout).
+    var activity = 0
+    /// After a disconnect: fails the download unless the phone resumes it in time.
+    var resumeWatch: FolderTimer?
     private var finished = false
 
     init(requestId: String, phoneID: String, directory: URL, purpose: PhoneDownloadPurpose,
@@ -35,6 +40,8 @@ final class ExpectedDownload {
     func finish(_ result: Result<[URL], PhoneFilesError>) {
         guard !finished else { return }
         finished = true
+        resumeWatch?.cancel()
+        resumeWatch = nil
         completion(result)
     }
 

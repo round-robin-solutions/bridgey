@@ -70,6 +70,10 @@ interface TreeStore {
     @Throws(IOException::class)
     fun publish(fileId: String) = Unit
 
+    /** [rename] then [publish]; returns the ID afterwards. MediaStore does both in one update. */
+    @Throws(IOException::class)
+    fun renameAndPublish(id: String, name: String): String = rename(id, name).also { publish(it) }
+
     /**
      * Called for folders that end up without files. True when the folder exists on its own; the MediaStore
      * fallback can only try a placeholder and may answer false (the folder is then skipped and counted).

@@ -88,6 +88,25 @@ final class FolderReceiver {
         expected[download.requestId] = download
     }
 
+    /// How long a save or drag may wait after the phone disconnects for the phone to carry on with it (a reconnect
+    /// resumes it; a restarted phone app may not). Then it fails, so the window offers Retry instead of "Waiting"
+    /// for ever (live test 2026-10-30).
+    static let downloadResumeTimeout: TimeInterval = 45
+    private lazy var mainClock: FolderClock = makeClock(.main)
+
+    private func watchResume(_ download: ExpectedDownload) {
+        let mark = download.activity
+        download.resumeWatch?.cancel()
+        download.resumeWatch = mainClock.schedule(after: Self.downloadResumeTimeout) { [weak self, weak download] in
+            MainActor.assumeIsolated {
+                guard let self, let download, !download.isFinished, !download.cancelled else { return }
+                if download.activity != mark { return }
+                download.finish(.failure(.interrupted))
+                self.cancelExpected(download)
+            }
+        }
+    }
+
     func cancelExpected(_ download: ExpectedDownload) {
         download.cancelled = true
         expected.removeValue(forKey: download.requestId)
@@ -207,6 +226,7 @@ final class FolderReceiver {
             if let waiting = expected[requestID], waiting.phoneID == phoneID {
                 guard !waiting.cancelled else { return reject(id, code: FolderCode.declined, phoneID: phoneID) }
                 waiting.started = true
+                waiting.activity += 1
                 download = waiting
                 purpose = waiting.purpose
             } else if let record, record.header.downloadRequestId == requestID, record.header.peerID == phoneID {
@@ -320,10 +340,14 @@ final class FolderReceiver {
     func phoneDisconnected(_ phoneID: String) {
         for item in items.values where item.phoneID == phoneID && item.session != nil { onSession(item) { $0.interrupt() } }
         // A preview whose offer had not come yet fails now: the viewer can try again once the phone is back.
-        // Saves and drags keep waiting, as the phone offers them again after the reconnect.
+        // Saves and drags wait for the phone to carry on (a reconnect resumes them), but only for
+        // downloadResumeTimeout: a phone whose app restarted may never offer them again.
         for (key, download) in expected where download.phoneID == phoneID && !download.started && download.purpose == .preview {
             expected.removeValue(forKey: key)
             download.finish(.failure(.notConnected))
+        }
+        for download in expected.values where download.phoneID == phoneID && !download.isFinished && !download.cancelled {
+            watchResume(download)
         }
     }
 
@@ -367,6 +391,7 @@ final class FolderReceiver {
         guard let item = items[id], item.session === session else { return }
         item.progress = progress
         if let download = item.download, !download.isFinished {
+            if progress.waiting == nil { download.activity += 1 }
             var update = PhoneTransferProgress(phase: progress.waiting == nil ? .transferring : .waiting)
             update.filesDone = progress.filesDone
             update.filesTotal = progress.filesTotal

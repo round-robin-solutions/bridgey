@@ -1,0 +1,901 @@
+{
+ "description": "Fast transfers (draft files_fast_draft1, docs/protocol.md 'Fast transfers' and 'Speed test'). The key is bytes 0 to 31, base64 in 'keyBase64'; every frame is sent by 'senderDeviceId' and read by 'receiverDeviceId' (the associated data binds the sender). fastFrame: 'frameBase64' is one whole binary frame, header included; expect is the decoded kind, id, sequence and plaintext, 'skip' (an unknown kind whose tag verifies: dropped whole, the session stays) or 'reject' (a bad length closes the session; anything else is dropped and counted like a frame with a bad envelope tag, 16 close the session). 'write': true means both platforms also produce exactly these bytes from the expected fields with the nonce in 'nonceBase64'. 'zeroPadTo': N appends zero bytes until the frame is N bytes long. speedPayload: the JSON plaintext of a speed.* message of 'kind'; 'plaintext' is serialised by each platform's own encoder, 'plaintextString' is used byte for byte; absent optional values are null in expect; test IDs compare lowercased. speedVerdict: the plain-words verdict both apps show for the two links and the better direction's bytes a second; 'basis' says where the estimate comes from ('linkRates', 'typical' for Wi-Fi 6 when a rate is not readable, or 'none': no estimate, low and high 0).",
+ "keyBase64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+ "frameKey": {
+  "description": "keyBase64 is the frame key itself. Apps derive it from the session key: HMAC-SHA-256(session key, 'bridgey-fast-frame-key-v2').",
+  "sessionKeyBase64": "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8=",
+  "frameKeyBase64": "2zTc6X2aouA9KEZUAcvj4Cew2No3zcBBY2ar6VSGLUE="
+ },
+ "senderDeviceId": "7e57d00d-0000-4000-8000-0000000000aa",
+ "receiverDeviceId": "7e57d00d-0000-4000-8000-0000000000bb",
+ "fastFrame": [
+  {
+   "name": "a file chunk",
+   "frameBase64": "sQEAAABfJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAADw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9Ks5clEbLtyBmPlY+JU+U5pw=",
+   "expect": {
+    "kind": 1,
+    "id": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "sequence": 0,
+    "plaintextBase64": "QnJpZGdleSBmYXN0IHRyYW5zZmVycw=="
+   },
+   "write": true,
+   "nonceBase64": "Dw4NDAsKCQgHBgUE"
+  },
+  {
+   "name": "a later chunk",
+   "frameBase64": "sQEAAABfJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAApDw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9Kt1gbku6Fbu+82uk9c78IxM=",
+   "expect": {
+    "kind": 1,
+    "id": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "sequence": 41,
+    "plaintextBase64": "QnJpZGdleSBmYXN0IHRyYW5zZmVycw=="
+   },
+   "write": true,
+   "nonceBase64": "Dw4NDAsKCQgHBgUE"
+  },
+  {
+   "name": "speed test bytes",
+   "frameBase64": "sQIAAACJJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAHDw4NDAsKCQgHBgUEpDCxXFvXr67r37FfOJqJAWlmH2DPWfFkVkmu/zIKsCoEisNAK0l7jiC1LO2TDCgFFwD1UWi9Xuv0XEb2c3dFitBR7YD+IpMTlIeIGl9ZEZs=",
+   "expect": {
+    "kind": 2,
+    "id": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "sequence": 7,
+    "plaintextBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+   },
+   "write": true,
+   "nonceBase64": "Dw4NDAsKCQgHBgUE"
+  },
+  {
+   "name": "the largest sequence",
+   "frameBase64": "sQEAAABKJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAf////////Dw4NDAsKCQgHBgUE3GC0z07CGRHH99TzWuq/kAE=",
+   "expect": {
+    "kind": 1,
+    "id": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "sequence": 9007199254740991,
+    "plaintextBase64": "eA=="
+   },
+   "write": true,
+   "nonceBase64": "Dw4NDAsKCQgHBgUE"
+  },
+  {
+   "name": "an uppercase transfer ID stays as sent",
+   "frameBase64": "sQEAAABfJDZEMUYyQzNCLTRBNTktNDY4Ny05QTFCLTJDM0Q0RTVGNkE3QgAAAAAAAAAADw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9KkfGwc4yXd+JWIumtwyIL1c=",
+   "expect": {
+    "kind": 1,
+    "id": "6D1F2C3B-4A59-4687-9A1B-2C3D4E5F6A7B",
+    "sequence": 0,
+    "plaintextBase64": "QnJpZGdleSBmYXN0IHRyYW5zZmVycw=="
+   },
+   "write": true,
+   "nonceBase64": "Dw4NDAsKCQgHBgUE"
+  },
+  {
+   "name": "a one-byte ID",
+   "frameBase64": "sQEAAAA8AWEAAAAAAAAAAA8ODQwLCgkIBwYFBOZC2Dg8staOjb7CKxju+2AHFXkFvSrLJRIHWYUGp/UASoZZdRk5",
+   "expect": {
+    "kind": 1,
+    "id": "a",
+    "sequence": 0,
+    "plaintextBase64": "QnJpZGdleSBmYXN0IHRyYW5zZmVycw=="
+   },
+   "write": true,
+   "nonceBase64": "Dw4NDAsKCQgHBgUE"
+  },
+  {
+   "name": "a 64-byte ID",
+   "frameBase64": "sQEAAAB7QGlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWkAAAAAAAAAAA8ODQwLCgkIBwYFBOZC2Dg8staOjb7CKxju+2AHFXkFvSo5tjXfZksW3vdlrL9bOYIC",
+   "expect": {
+    "kind": 1,
+    "id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+    "sequence": 0,
+    "plaintextBase64": "QnJpZGdleSBmYXN0IHRyYW5zZmVycw=="
+   },
+   "write": true,
+   "nonceBase64": "Dw4NDAsKCQgHBgUE"
+  },
+  {
+   "name": "a 4 KiB chunk",
+   "frameBase64": "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",
+   "expect": {
+    "kind": 1,
+    "id": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "sequence": 3,
+    "plaintextBase64": "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"
+   },
+   "write": true,
+   "nonceBase64": "Dw4NDAsKCQgHBgUE"
+  },
+  {
+   "name": "an unknown kind is skipped",
+   "frameBase64": "sQkAAABfJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAADw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9KhR97BxmyDBiIJ/nBUmTCKk=",
+   "expect": "skip"
+  },
+  {
+   "name": "an unknown kind with a bad tag is dropped and counted",
+   "frameBase64": "sQkAAABfJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAADw4NDAsKCQgHBgUETxZDnxxQpdpwrtsi43pT4VefKw0iKQyY5pFFqtDYypnMYlnT3No=",
+   "expect": "reject"
+  },
+  {
+   "name": "an unknown kind sealed as another kind",
+   "frameBase64": "sQkAAABfJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAADw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9Ks5clEbLtyBmPlY+JU+U5pw=",
+   "expect": "reject"
+  },
+  {
+   "name": "a tampered ciphertext",
+   "frameBase64": "sQEAAABfJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAADw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9K85clEbLtyBmPlY+JU+U5pw=",
+   "expect": "reject"
+  },
+  {
+   "name": "a moved sequence (not what the tag covers)",
+   "frameBase64": "sQEAAABfJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAFDw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9KiIMXS2pdvFLggH37yG10Ww=",
+   "expect": "reject"
+  },
+  {
+   "name": "another kind's tag",
+   "frameBase64": "sQEAAABfJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAADw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9KkpQ5Vs1RwZnuj1zSU7V4Nc=",
+   "expect": "reject"
+  },
+  {
+   "name": "the wrong key",
+   "frameBase64": "sQEAAABfJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAADw4NDAsKCQgHBgUETxZDnxxQpdpwrtsi43pT4VefKw0iKWVgYKnfJ7LYI+zc2YJbs3U=",
+   "expect": "reject"
+  },
+  {
+   "name": "reflected: sealed by the receiving device itself",
+   "frameBase64": "sQEAAABfJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAADw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9KrXLecZ551+9x5Z2MAGw7CE=",
+   "expect": "reject"
+  },
+  {
+   "name": "a sequence of 2^53",
+   "frameBase64": "sQEAAABfJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAgAAAAAAAADw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9KoFKxVzXbU9l+JLRua0kkdU=",
+   "expect": "reject"
+  },
+  {
+   "name": "an empty ID",
+   "frameBase64": "sQEAAAA7AAAAAAAAAAAADw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9KiUcas0hjI+0LwyF+CmPtXk=",
+   "expect": "reject"
+  },
+  {
+   "name": "a 65-byte ID",
+   "frameBase64": "sQEAAAB8QWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpAAAAAAAAAAAPDg0MCwoJCAcGBQTmQtg4PLLWjo2+wisY7vtgBxV5Bb0qeUf3XiqmVPesk6hmdkC4hg==",
+   "expect": "reject"
+  },
+  {
+   "name": "an ID with a space",
+   "frameBase64": "sQEAAAA+A2EgYgAAAAAAAAAADw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9KuGzpKqSS7mRpYyEaN3Dogo=",
+   "expect": "reject"
+  },
+  {
+   "name": "an ID with a control byte",
+   "frameBase64": "sQEAAAA+A2EBYgAAAAAAAAAADw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9KkR0gOIK6hBcE1I+dndok/A=",
+   "expect": "reject"
+  },
+  {
+   "name": "no ciphertext, only the tag",
+   "frameBase64": "sQEAAABJJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAADw4NDAsKCQgHBgUEAAAAAAAAAAAAAAAAAAAAAA==",
+   "expect": "reject"
+  },
+  {
+   "name": "a body cut short",
+   "frameBase64": "sQEAAAAtJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAA",
+   "expect": "reject"
+  },
+  {
+   "name": "ciphertext for 1 MiB plus one byte",
+   "frameBase64": "sQEAEAAnAXQAAAAAAAAAAA8ODQwLCgkIBwYFBA==",
+   "zeroPadTo": 1048621,
+   "expect": "reject"
+  },
+  {
+   "name": "a declared length over the limit",
+   "frameBase64": "sQEAEABm",
+   "expect": "reject"
+  },
+  {
+   "name": "a declared length of zero",
+   "frameBase64": "sQEAAAAA",
+   "expect": "reject"
+  }
+ ],
+ "speedPayload": [
+  {
+   "name": "start from a Mac",
+   "kind": "speed.start",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "seconds": 7,
+    "link": {
+     "platform": "macos",
+     "network": "wifi",
+     "band": "5",
+     "linkMbps": 1201,
+     "standard": 6,
+     "widthMhz": 80
+    }
+   },
+   "expect": {
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "seconds": 7,
+    "link": {
+     "platform": "macos",
+     "network": "wifi",
+     "band": "5",
+     "linkMbps": 1201,
+     "standard": 6,
+     "widthMhz": 80,
+     "lockHeld": null,
+     "screenOn": null
+    }
+   }
+  },
+  {
+   "name": "start with an uppercase test ID reads lowercased",
+   "kind": "speed.start",
+   "plaintext": {
+    "version": 1,
+    "testId": "6D1F2C3B-4A59-4687-9A1B-2C3D4E5F6A7B",
+    "seconds": 2,
+    "link": {
+     "platform": "android",
+     "network": "wifi",
+     "band": "5",
+     "linkMbps": 2402,
+     "standard": 6,
+     "lockHeld": true,
+     "screenOn": false
+    }
+   },
+   "expect": {
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "seconds": 2,
+    "link": {
+     "platform": "android",
+     "network": "wifi",
+     "band": "5",
+     "linkMbps": 2402,
+     "standard": 6,
+     "widthMhz": null,
+     "lockHeld": true,
+     "screenOn": false
+    }
+   }
+  },
+  {
+   "name": "start at 15 seconds",
+   "kind": "speed.start",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "seconds": 15,
+    "link": {
+     "platform": "android",
+     "network": "hotspot"
+    }
+   },
+   "expect": {
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "seconds": 15,
+    "link": {
+     "platform": "android",
+     "network": "hotspot",
+     "band": null,
+     "linkMbps": null,
+     "standard": null,
+     "widthMhz": null,
+     "lockHeld": null,
+     "screenOn": null
+    }
+   }
+  },
+  {
+   "name": "start with unknown link fields and an unknown band",
+   "kind": "speed.start",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "seconds": 7,
+    "link": {
+     "platform": "macos",
+     "network": "ethernet",
+     "band": "60",
+     "ssid": "x",
+     "linkMbps": 0
+    }
+   },
+   "expect": {
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "seconds": 7,
+    "link": {
+     "platform": "macos",
+     "network": "ethernet",
+     "band": null,
+     "linkMbps": null,
+     "standard": null,
+     "widthMhz": null,
+     "lockHeld": null,
+     "screenOn": null
+    }
+   }
+  },
+  {
+   "name": "start at 16 seconds",
+   "kind": "speed.start",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "seconds": 16,
+    "link": {
+     "platform": "macos",
+     "network": "wifi",
+     "band": "5",
+     "linkMbps": 1201,
+     "standard": 6,
+     "widthMhz": 80
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start at 1 second",
+   "kind": "speed.start",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "seconds": 1,
+    "link": {
+     "platform": "macos",
+     "network": "wifi",
+     "band": "5",
+     "linkMbps": 1201,
+     "standard": 6,
+     "widthMhz": 80
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start without a link",
+   "kind": "speed.start",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "seconds": 7
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start with an unknown network",
+   "kind": "speed.start",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "seconds": 7,
+    "link": {
+     "platform": "macos",
+     "network": "5g"
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start with a test ID that is not a UUID",
+   "kind": "speed.start",
+   "plaintext": {
+    "version": 1,
+    "testId": "test-1",
+    "seconds": 7,
+    "link": {
+     "platform": "macos",
+     "network": "wifi",
+     "band": "5",
+     "linkMbps": 1201,
+     "standard": 6,
+     "widthMhz": 80
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start version 2",
+   "kind": "speed.start",
+   "plaintext": {
+    "version": 2,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "seconds": 7,
+    "link": {
+     "platform": "macos",
+     "network": "wifi",
+     "band": "5",
+     "linkMbps": 1201,
+     "standard": 6,
+     "widthMhz": 80
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "start over 1 KiB",
+   "kind": "speed.start",
+   "plaintextString": "{\"version\":1,\"testId\":\"6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b\",\"seconds\":7,\"link\":{\"platform\":\"macos\",\"network\":\"wifi\"},\"pad\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "ready",
+   "kind": "speed.ready",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "status": "ready",
+    "link": {
+     "platform": "android",
+     "network": "wifi",
+     "band": "5",
+     "linkMbps": 2402,
+     "standard": 6,
+     "lockHeld": true,
+     "screenOn": false
+    }
+   },
+   "expect": {
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "status": "ready",
+    "link": {
+     "platform": "android",
+     "network": "wifi",
+     "band": "5",
+     "linkMbps": 2402,
+     "standard": 6,
+     "widthMhz": null,
+     "lockHeld": true,
+     "screenOn": false
+    }
+   }
+  },
+  {
+   "name": "busy, without a link",
+   "kind": "speed.ready",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "status": "busy"
+   },
+   "expect": {
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "status": "busy",
+    "link": null
+   }
+  },
+  {
+   "name": "disabled",
+   "kind": "speed.ready",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "status": "disabled"
+   },
+   "expect": {
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "status": "disabled",
+    "link": null
+   }
+  },
+  {
+   "name": "an unknown status",
+   "kind": "speed.ready",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "status": "maybe"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "turn",
+   "kind": "speed.turn",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "bytesPerSecond": 41234567
+   },
+   "expect": {
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "bytesPerSecond": 41234567
+   }
+  },
+  {
+   "name": "turn at zero",
+   "kind": "speed.turn",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "bytesPerSecond": 0
+   },
+   "expect": {
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "bytesPerSecond": 0
+   }
+  },
+  {
+   "name": "turn with a negative rate",
+   "kind": "speed.turn",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "bytesPerSecond": -1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "turn with a fractional rate",
+   "kind": "speed.turn",
+   "plaintextString": "{\"version\":1,\"testId\":\"6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b\",\"bytesPerSecond\":1.5}",
+   "expect": "reject"
+  },
+  {
+   "name": "turn over 10^12",
+   "kind": "speed.turn",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "bytesPerSecond": 1000000000001
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "done",
+   "kind": "speed.done",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "bytesPerSecond": 38000000
+   },
+   "expect": {
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "bytesPerSecond": 38000000
+   }
+  },
+  {
+   "name": "done without a rate",
+   "kind": "speed.done",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "result",
+   "kind": "speed.result",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "forwardBytesPerSecond": 41000000,
+    "backBytesPerSecond": 38000000,
+    "roundTripMs": 3.5,
+    "loadedRoundTripMs": 31.2
+   },
+   "expect": {
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "forward": 41000000,
+    "back": 38000000,
+    "roundTripMs": 3.5,
+    "loadedRoundTripMs": 31.2
+   }
+  },
+  {
+   "name": "result with only one direction",
+   "kind": "speed.result",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "forwardBytesPerSecond": 41000000
+   },
+   "expect": {
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "forward": 41000000,
+    "back": null,
+    "roundTripMs": null,
+    "loadedRoundTripMs": null
+   }
+  },
+  {
+   "name": "result with out-of-range round trips reads them as absent",
+   "kind": "speed.result",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "forwardBytesPerSecond": 1,
+    "roundTripMs": -1,
+    "loadedRoundTripMs": 60001
+   },
+   "expect": {
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "forward": 1,
+    "back": null,
+    "roundTripMs": null,
+    "loadedRoundTripMs": null
+   }
+  },
+  {
+   "name": "result where a round trip is a boolean reads it as absent",
+   "kind": "speed.result",
+   "plaintext": {
+    "version": 1,
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "backBytesPerSecond": 2,
+    "roundTripMs": true
+   },
+   "expect": {
+    "testId": "6d1f2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+    "forward": null,
+    "back": 2,
+    "roundTripMs": null,
+    "loadedRoundTripMs": null
+   }
+  }
+ ],
+ "speedVerdict": [
+  {
+   "name": "same router, Wi-Fi 6 80 MHz both, as expected",
+   "mac": {
+    "platform": "macos",
+    "network": "wifi",
+    "band": "5",
+    "linkMbps": 1201
+   },
+   "phone": {
+    "platform": "android",
+    "network": "wifi",
+    "band": "5",
+    "linkMbps": 1201
+   },
+   "bestBytesPerSecond": 40000000.0,
+   "expect": {
+    "route": "sameRouter",
+    "basis": "linkRates",
+    "low": 38,
+    "high": 56,
+    "asExpected": true,
+    "advice": [
+     "tryHotspot"
+    ]
+   }
+  },
+  {
+   "name": "same router, 160 MHz both (what the work Mac and a OnePlus 11 can reach)",
+   "mac": {
+    "platform": "macos",
+    "network": "wifi",
+    "band": "5",
+    "linkMbps": 2268
+   },
+   "phone": {
+    "platform": "android",
+    "network": "wifi",
+    "band": "5",
+    "linkMbps": 2402
+   },
+   "bestBytesPerSecond": 80000000.0,
+   "expect": {
+    "route": "sameRouter",
+    "basis": "linkRates",
+    "low": 73,
+    "high": 109,
+    "asExpected": true,
+    "advice": [
+     "tryHotspot"
+    ]
+   }
+  },
+  {
+   "name": "same router, 160 MHz Mac, slow phone on 2.4 GHz",
+   "mac": {
+    "platform": "macos",
+    "network": "wifi",
+    "band": "5",
+    "linkMbps": 2268
+   },
+   "phone": {
+    "platform": "android",
+    "network": "wifi",
+    "band": "2.4",
+    "linkMbps": 144
+   },
+   "bestBytesPerSecond": 3000000.0,
+   "expect": {
+    "route": "sameRouter",
+    "basis": "linkRates",
+    "low": 8,
+    "high": 13,
+    "asExpected": false,
+    "advice": [
+     "phone24",
+     "tryHotspot"
+    ]
+   }
+  },
+  {
+   "name": "same router, rates unknown",
+   "mac": {
+    "platform": "macos",
+    "network": "wifi"
+   },
+   "phone": {
+    "platform": "android",
+    "network": "wifi"
+   },
+   "bestBytesPerSecond": 10000000.0,
+   "expect": {
+    "route": "sameRouter",
+    "basis": "typical",
+    "low": 30,
+    "high": 45,
+    "asExpected": false,
+    "advice": [
+     "weakLink",
+     "tryHotspot"
+    ]
+   }
+  },
+  {
+   "name": "same router, slow with the screen off",
+   "mac": {
+    "platform": "macos",
+    "network": "wifi",
+    "band": "5",
+    "linkMbps": 1201
+   },
+   "phone": {
+    "platform": "android",
+    "network": "wifi",
+    "band": "5",
+    "linkMbps": 1201,
+    "screenOn": false,
+    "lockHeld": true
+   },
+   "bestBytesPerSecond": 5000000.0,
+   "expect": {
+    "route": "sameRouter",
+    "basis": "linkRates",
+    "low": 38,
+    "high": 56,
+    "asExpected": false,
+    "advice": [
+     "screenOff",
+     "tryHotspot"
+    ]
+   }
+  },
+  {
+   "name": "Mac on Ethernet",
+   "mac": {
+    "platform": "macos",
+    "network": "ethernet"
+   },
+   "phone": {
+    "platform": "android",
+    "network": "wifi",
+    "band": "5",
+    "linkMbps": 1201
+   },
+   "bestBytesPerSecond": 60000000.0,
+   "expect": {
+    "route": "macWired",
+    "basis": "linkRates",
+    "low": 75,
+    "high": 113,
+    "asExpected": true,
+    "advice": []
+   }
+  },
+  {
+   "name": "Mac on the phone's hotspot",
+   "mac": {
+    "platform": "macos",
+    "network": "wifi",
+    "band": "5",
+    "linkMbps": 1201
+   },
+   "phone": {
+    "platform": "android",
+    "network": "hotspot",
+    "lockHeld": true,
+    "screenOn": true
+   },
+   "bestBytesPerSecond": 80000000.0,
+   "expect": {
+    "route": "hotspot",
+    "basis": "linkRates",
+    "low": 75,
+    "high": 113,
+    "asExpected": true,
+    "advice": []
+   }
+  },
+  {
+   "name": "hotspot, Mac rate unknown",
+   "mac": {
+    "platform": "macos",
+    "network": "wifi"
+   },
+   "phone": {
+    "platform": "android",
+    "network": "hotspot"
+   },
+   "bestBytesPerSecond": 20000000.0,
+   "expect": {
+    "route": "hotspot",
+    "basis": "typical",
+    "low": 50,
+    "high": 90,
+    "asExpected": false,
+    "advice": [
+     "weakLink"
+    ]
+   }
+  },
+  {
+   "name": "loopback (the emulator)",
+   "mac": {
+    "platform": "macos",
+    "network": "other"
+   },
+   "phone": {
+    "platform": "android",
+    "network": "other"
+   },
+   "bestBytesPerSecond": 200000000.0,
+   "expect": {
+    "route": "unknown",
+    "basis": "none",
+    "low": 0,
+    "high": 0,
+    "asExpected": true,
+    "advice": []
+   }
+  },
+  {
+   "name": "loopback (the emulator), slow: no estimate, so no verdict or advice",
+   "mac": {
+    "platform": "macos",
+    "network": "other"
+   },
+   "phone": {
+    "platform": "android",
+    "network": "other"
+   },
+   "bestBytesPerSecond": 5000000.0,
+   "expect": {
+    "route": "unknown",
+    "basis": "none",
+    "low": 0,
+    "high": 0,
+    "asExpected": true,
+    "advice": []
+   }
+  },
+  {
+   "name": "phone on Wi-Fi, Mac on another network (a VPN)",
+   "mac": {
+    "platform": "macos",
+    "network": "other"
+   },
+   "phone": {
+    "platform": "android",
+    "network": "wifi",
+    "band": "5",
+    "linkMbps": 1201
+   },
+   "bestBytesPerSecond": 2000000.0,
+   "expect": {
+    "route": "unknown",
+    "basis": "none",
+    "low": 0,
+    "high": 0,
+    "asExpected": true,
+    "advice": []
+   }
+  }
+ ]
+}

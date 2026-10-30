@@ -1079,6 +1079,9 @@ private fun BridgeyApp(
                         dualSim = remember { dev.bridgey.android.sms.isDualSim(context) },
                         onChanged = pairing::smsPermissionsChanged,
                     )
+                    val developerMenu = remember { DeveloperMenu(context) }
+                    val developerOn by developerMenu.enabled.collectAsStateWithLifecycle()
+                    val transferPaths = remember(connections, developerOn) { if (developerOn) pairing.transferPaths() else emptyList() }
                     val settingsUi =
                         SettingsState(
                             deviceName = settingsState.deviceName,
@@ -1129,6 +1132,8 @@ private fun BridgeyApp(
                             updateAll = updateAllState,
                             messages = messagesPermissions.state,
                             connect = connectSettingsState(settingsState.connectAway, connectStatus),
+                            developerMenu = developerOn,
+                            transferPaths = transferPaths,
                         )
                     val settingsUiActions =
                         SettingsActions(
@@ -1136,6 +1141,24 @@ private fun BridgeyApp(
                             openDevices = { stack.push(Route.Devices) },
                             openSection = { stack.push(settingsRoute(it)) },
                             openPerfTest = { stack.push(Route.PerfTest) },
+                            openSpeedTest = { stack.push(Route.SpeedTest) },
+                            versionTapped = {
+                                when (val tap = developerMenu.tap()) {
+                                    DeveloperMenu.Tap.Counting -> Unit
+                                    is DeveloperMenu.Tap.Remaining -> android.widget.Toast.makeText(
+                                        context, context.resources.getQuantityString(R.plurals.developer_taps_left, tap.left, tap.left), android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                    DeveloperMenu.Tap.Unlocked -> {
+                                        android.widget.Toast.makeText(context, context.getString(R.string.developer_on), android.widget.Toast.LENGTH_SHORT).show()
+                                        stack.push(settingsRoute(dev.bridgey.android.ui.SettingsSection.DEVELOPER))
+                                    }
+                                    DeveloperMenu.Tap.Open -> stack.push(settingsRoute(dev.bridgey.android.ui.SettingsSection.DEVELOPER))
+                                }
+                            },
+                            turnOffDeveloper = {
+                                developerMenu.turnOff()
+                                stack.pop()
+                            },
                             openNotificationApps = { stack.push(Route.NotificationApps) },
                             appNotifications = {
                                 if (appNotificationsEnabled) onOpenAppNotificationSettings()
@@ -1282,6 +1305,24 @@ private fun BridgeyApp(
                         Route.Reset -> ResetRoute(setup, onBack = { stack.pop() })
                         else -> SettingsScreen(section = (route as? Route.SettingsPane)?.section, state = settingsUi, actions = settingsUiActions)
                     }
+                }
+                Route.SpeedTest -> {
+                    val speedState by pairing.speedTest.state.collectAsStateWithLifecycle()
+                    dev.bridgey.android.ui.SpeedTestScreen(
+                        state = speedState,
+                        devices = remember(connections) { pairing.speedTestDevices() },
+                        actions = dev.bridgey.android.ui.SpeedTestActions(
+                            back = { stack.pop() },
+                            start = pairing.speedTest::start,
+                            stop = pairing.speedTest::cancel,
+                            copy = { report ->
+                                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                                    ClipData.newPlainText("Bridgey speed test", report.plainText(BuildConfig.VERSION_NAME)),
+                                )
+                                android.widget.Toast.makeText(context, context.getString(R.string.speed_copied), android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                        ),
+                    )
                 }
                 Route.PerfTest -> {
                     val benchState by BenchState.state.collectAsStateWithLifecycle()

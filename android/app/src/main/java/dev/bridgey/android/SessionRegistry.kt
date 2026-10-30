@@ -21,6 +21,8 @@ data class DeviceLinkState(
     val remoteFocusSync: Boolean = false,
     /** The device advertised updates_draft1: it sends updates.status and understands updates.start. */
     val remoteUpdates: Boolean = false,
+    /** The device advertised files_fast_draft1: binary chunk frames and the byte window (FastTransfer.kt). */
+    val remoteFastTransfers: Boolean = false,
     /** Its latest updates.status (version, channel, where its update stands), or null before the first. */
     val updateStatus: dev.bridgey.android.updates.UpdateStatus? = null,
     /** The device advertised settings_sync_draft1: it syncs settings with this phone (both its switches on). */

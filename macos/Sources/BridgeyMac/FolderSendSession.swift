@@ -15,6 +15,14 @@ protocol FolderTransport: AnyObject {
     func sendOuter(kind: String, transferID: String)
 }
 
+/// A transport that can carry chunks as binary frames (draft files_fast_draft1) when both sides advertise it.
+protocol FastFolderTransport: FolderTransport {
+    /// The peer advertised `files_fast_draft1` (read once, when a folder starts).
+    var fastTransfers: Bool { get }
+    /// One chunk as a binary frame. False when the session is gone.
+    func sendFastChunk(transferID: String, sequence: Int64, data: Data) -> Bool
+}
+
 protocol FolderTimer: AnyObject { func cancel() }
 
 protocol FolderClock: AnyObject {
@@ -244,13 +252,19 @@ final class FolderSendSession: @unchecked Sendable {
     private struct Flight {
         let entry: Int
         let size: Int64
+        let chunkSize: Int
         var chunksSent: Int64 = 0
         var acked: Int64 = -1
         var completeSent = false
 
         var unacked: Int64 { max(0, chunksSent - (acked + 1)) }
-        var ackedBytes: Int64 { min(size, (acked + 1) * Int64(FolderSendSession.chunkSize)) }
+        var ackedBytes: Int64 { min(size, (acked + 1) * Int64(chunkSize)) }
     }
+
+    /// Binary frames, 256 KiB chunks and a byte window for a peer with files_fast_draft1 (FastTransfer.swift);
+    /// otherwise 24 KiB JSON chunks and at most 64 unacknowledged.
+    private let fast: Bool
+    private let pacer: TransferPacer
 
     init(
         plan: FolderSendPlan,
@@ -270,6 +284,8 @@ final class FolderSendSession: @unchecked Sendable {
         self.events = events
         self.fileOwnership = fileOwnership
         self.makeID = makeID
+        fast = (transport as? FastFolderTransport)?.fastTransfers == true
+        pacer = TransferPacer(fast: fast)
         lastAckProgress = clock.now
         progress.filesTotal = plan.fileCount
         progress.bytesTotal = plan.totalSize
@@ -401,6 +417,7 @@ final class FolderSendSession: @unchecked Sendable {
     func chunkAcknowledged(_ transferID: String, sequence: Int64) {
         guard var flight = flights[transferID], sequence > flight.acked else { return }
         flight.acked = min(sequence, flight.chunksSent - 1)
+        pacer.acknowledged(transferID, through: flight.acked)
         flights[transferID] = flight
         lastAckProgress = clock.now
         emit()
@@ -518,7 +535,11 @@ final class FolderSendSession: @unchecked Sendable {
             }
             guard let file = current else { break }
             if file.sent < file.size {
-                guard unackedChunks < Int64(FolderLimits.chunkWindow) else { break }
+                if fast {
+                    guard pacer.canSend(Int(min(Int64(pacer.chunkSize), file.size - file.sent))) else { break }
+                } else {
+                    guard unackedChunks < Int64(FolderLimits.chunkWindow) else { break }
+                }
                 sendChunk(file)
             } else {
                 finishFile(file)
@@ -555,7 +576,7 @@ final class FolderSendSession: @unchecked Sendable {
         }
         transport.send(kind: "files.offer", payload: data, transferID: transferID, sequence: nil)
         current = CurrentFile(entry: index, transferID: transferID, size: size, reader: reader)
-        flights[transferID] = Flight(entry: index, size: size)
+        flights[transferID] = Flight(entry: index, size: size, chunkSize: pacer.chunkSize)
         flightOrder.append(transferID)
         progress.currentPath = entry.path
         progress.currentBytes = 0
@@ -564,7 +585,7 @@ final class FolderSendSession: @unchecked Sendable {
     }
 
     private func sendChunk(_ file: CurrentFile) {
-        let wanted = Int(min(Int64(Self.chunkSize), file.size - file.sent))
+        let wanted = Int(min(Int64(pacer.chunkSize), file.size - file.sent))
         let data: Data
         do {
             data = try file.reader.read(upTo: wanted)
@@ -578,7 +599,12 @@ final class FolderSendSession: @unchecked Sendable {
             return
         }
         file.hasher.update(data: data)
-        transport.send(kind: "files.chunk", payload: data, transferID: file.transferID, sequence: file.sequence)
+        if fast, let fastTransport = transport as? FastFolderTransport {
+            pacer.didSend(file.transferID, sequence: file.sequence, bytes: data.count)
+            _ = fastTransport.sendFastChunk(transferID: file.transferID, sequence: file.sequence, data: data)
+        } else {
+            transport.send(kind: "files.chunk", payload: data, transferID: file.transferID, sequence: file.sequence)
+        }
         file.sequence += 1
         file.sent += Int64(data.count)
         flights[file.transferID]?.chunksSent = file.sequence
@@ -628,6 +654,7 @@ final class FolderSendSession: @unchecked Sendable {
     }
 
     private func removeFlight(_ transferID: String) {
+        pacer.forget(transferID)
         flights.removeValue(forKey: transferID)
         flightOrder.removeAll { $0 == transferID }
     }
@@ -706,7 +733,7 @@ final class FolderSendSession: @unchecked Sendable {
             let elapsed = now.timeIntervalSince(sample.at)
             if elapsed >= 0.5 {
                 let rate = Double(max(0, progress.bytesDone - sample.bytes)) / elapsed
-                progress.bytesPerSecond = progress.bytesPerSecond == 0 ? rate : progress.bytesPerSecond * 0.7 + rate * 0.3
+                progress.bytesPerSecond = smoothedRate(progress.bytesPerSecond, sample: rate, elapsed: elapsed)
                 speedSample = (now, progress.bytesDone)
             }
         } else if phase == .sending {
