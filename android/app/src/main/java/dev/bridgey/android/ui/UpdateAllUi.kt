@@ -37,7 +37,17 @@ import androidx.compose.ui.unit.dp
 import dev.bridgey.android.R
 import dev.bridgey.android.UpdateChannel
 import dev.bridgey.android.UpdateFeeds
+import android.text.format.DateUtils
+import androidx.compose.ui.platform.LocalContext
+import dev.bridgey.android.activity.ActivityItem
+import dev.bridgey.android.activity.ActivityKind
+import dev.bridgey.android.updates.AUTO_CHECK_STABLE_MILLIS
+import dev.bridgey.android.updates.AUTO_FAILED_NOT_APPLIED
+import dev.bridgey.android.updates.AutoCondition
+import dev.bridgey.android.updates.AutoRunRecord
+import dev.bridgey.android.updates.AutoUpdateView
 import dev.bridgey.android.updates.DeviceUpdateRow
+import dev.bridgey.android.updates.UpdateBusy
 import dev.bridgey.android.updates.PlanTarget
 import dev.bridgey.android.updates.RunFailure
 import dev.bridgey.android.updates.RunItem
@@ -64,6 +74,8 @@ data class UpdateAllUiState(
     val devices: List<DeviceUpdateRow> = emptyList(),
     /** "Let paired devices start updates on this phone". */
     val remoteStart: Boolean = true,
+    /** Update all devices automatically: the switch, how often it checks, what it waits for, the last run. */
+    val auto: AutoUpdateView = AutoUpdateView(),
 ) {
     /** The card shows on Home and the button in Settings: something to update, or a run to follow. */
     val offered: Boolean get() = run != null || plan?.visible == true
@@ -79,6 +91,8 @@ class UpdateAllActions(
     val dismiss: () -> Unit = {},
     val close: () -> Unit = {},
     val setRemoteStart: (Boolean) -> Unit = {},
+    /** Update all devices automatically: the person's own choice from now on. */
+    val setAuto: (Boolean) -> Unit = {},
 )
 
 // MARK: Words
@@ -110,8 +124,28 @@ fun updateAllOrder(plan: UpdatePlan): String {
     }
 }
 
+/** What the person is doing, in the words "Waiting: …" uses: "call in progress", "screen sharing", … */
+@Composable
+fun busyText(busy: UpdateBusy): String = stringResource(
+    when (busy) {
+        UpdateBusy.CALL -> R.string.update_busy_call
+        UpdateBusy.SCREEN_SHARE -> R.string.update_busy_screen_share
+        UpdateBusy.REMOTE_CONTROL -> R.string.update_busy_remote_control
+        UpdateBusy.TRANSFER -> R.string.update_busy_transfer
+        UpdateBusy.PHONE_FILES -> R.string.update_busy_phone_files
+        UpdateBusy.SETUP -> R.string.update_busy_setup
+        UpdateBusy.OTHER -> R.string.update_busy_other
+    },
+)
+
+/** "Waiting: call in progress", or "Waiting: call in progress on Work Mac" when [device] is another device. */
+@Composable
+fun waitingText(busy: UpdateBusy, device: String?): String =
+    if (device == null) stringResource(R.string.update_auto_waiting, busyText(busy)) else stringResource(R.string.update_auto_waiting_on, busyText(busy), device)
+
 @Composable
 fun runSummaryText(summary: RunSummary): String = when (summary) {
+    is RunSummary.Held -> waitingText(summary.busy, null)
     is RunSummary.Countdown -> stringResource(R.string.update_all_capsule_countdown, summary.seconds)
     RunSummary.Restarting -> stringResource(R.string.update_all_capsule_restarting)
     is RunSummary.Slow -> stringResource(R.string.update_all_capsule_slow, summary.name, summary.minutes.toInt())
@@ -137,7 +171,7 @@ private fun skipText(reason: UpdateSkipReason): String = stringResource(
 )
 
 @Composable
-private fun failureText(failure: RunFailure?): String = stringResource(
+internal fun failureText(failure: RunFailure?): String = stringResource(
     when (failure) {
         RunFailure.DISABLED -> R.string.update_all_failure_disabled
         RunFailure.RATE_LIMITED -> R.string.update_all_failure_rate_limited
@@ -218,12 +252,12 @@ fun UpdateAllCardContent(state: UpdateAllUiState, actions: UpdateAllActions) {
     val plan = state.plan
     if (run != null) {
         val summary = summarizeRun(run, state.now)
-        val detail = run.items.joinToString(" · ") { it.name }
-        CardText(runSummaryText(summary), detail)
+        val names = run.items.joinToString(" · ") { it.name }
+        CardText(runSummaryText(summary), if (run.auto) pluralStringResource(R.plurals.update_auto_card_detail, run.items.size, run.items.size) else names)
         RunProgress(run, Modifier.padding(top = 10.dp))
         CardActions {
             when {
-                summary is RunSummary.Countdown -> TonalPillButton(stringResource(R.string.updates_later), actions.later, tint = Tint.NEUTRAL)
+                summary is RunSummary.Countdown || summary is RunSummary.Held -> TonalPillButton(stringResource(R.string.updates_later), actions.later, tint = Tint.NEUTRAL)
                 run.finished -> TonalPillButton(stringResource(R.string.action_dismiss), actions.dismiss, tint = Tint.NEUTRAL)
                 else -> Unit
             }
@@ -388,7 +422,7 @@ private fun RunContent(run: UpdateRun, now: Long, actions: UpdateAllActions) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         when {
-            summary is RunSummary.Countdown -> OutlinePillButton(stringResource(R.string.updates_later), null, actions.later)
+            summary is RunSummary.Countdown || summary is RunSummary.Held -> OutlinePillButton(stringResource(R.string.updates_later), null, actions.later)
             run.finished -> OutlinePillButton(stringResource(R.string.action_dismiss), null, { actions.dismiss(); actions.close() })
             else -> Unit
         }
@@ -505,6 +539,116 @@ private fun YourDeviceRow(row: DeviceUpdateRow) {
             val stateText = deviceStateText(row)
             val attention = status?.state == UpdateState.AVAILABLE || status?.state == UpdateState.READY
             Text(stateText, style = BridgeyType.smallStrong, color = if (attention) colors.primary else colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+// MARK: Update all devices automatically
+
+/** A stream row's title for an automatic update entry (keys shared with the Mac). [device] is the row's device name. */
+@Composable
+internal fun autoUpdateItemTitle(item: ActivityItem, device: String): String {
+    val content = item.content
+    return when (item.kind) {
+        ActivityKind.UPDATE_AUTO_DONE -> stringResource(R.string.stream_update_auto_done_title, content.orEmpty())
+        ActivityKind.UPDATE_AUTO_WAITING -> waitingText(UpdateBusy.fromWire(content.orEmpty()), device.takeIf { item.deviceId != null })
+        ActivityKind.UPDATE_AUTO_SKIPPED -> autoSkipText(content)?.let { stringResource(R.string.stream_update_auto_skipped_title, device, it) }
+            ?: stringResource(R.string.stream_update_auto_skipped_plain, device)
+        ActivityKind.UPDATE_AUTO_STARTED_BY -> stringResource(R.string.stream_update_auto_started_by_title, device)
+        ActivityKind.UPDATE_AUTO_FAILED -> when {
+            content == AUTO_FAILED_NOT_APPLIED && item.deviceId == null -> stringResource(R.string.stream_update_auto_not_applied_here)
+            content == AUTO_FAILED_NOT_APPLIED -> stringResource(R.string.stream_update_auto_not_applied_title, device)
+            item.deviceId == null -> stringResource(R.string.stream_update_auto_failed_here, failureText(RunFailure.fromWire(content)))
+            else -> stringResource(R.string.stream_update_auto_failed_title, device, failureText(RunFailure.fromWire(content)))
+        }
+        else -> device
+    }
+}
+
+/** Why the automatic run skipped a device, as the stream says it ("updates from other devices are off"). */
+@Composable
+private fun autoSkipText(wire: String?): String? = when (wire) {
+    "offline" -> stringResource(R.string.update_auto_skip_offline)
+    "by_hand" -> stringResource(R.string.update_auto_skip_by_hand)
+    "not_applied" -> stringResource(R.string.update_auto_skip_not_applied)
+    "remote_off" -> stringResource(R.string.update_auto_skip_remote_off)
+    else -> null
+}
+
+/** "15:30" today, "29 Oct, 15:30" on another day. */
+private fun autoTimeText(context: android.content.Context, at: Long, now: Long): String {
+    val sameDay = java.util.Calendar.getInstance().let { first ->
+        first.timeInMillis = at
+        val second = java.util.Calendar.getInstance().apply { timeInMillis = now }
+        first.get(java.util.Calendar.YEAR) == second.get(java.util.Calendar.YEAR) &&
+            first.get(java.util.Calendar.DAY_OF_YEAR) == second.get(java.util.Calendar.DAY_OF_YEAR)
+    }
+    val flags = if (sameDay) DateUtils.FORMAT_SHOW_TIME else DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH or DateUtils.FORMAT_NO_YEAR or DateUtils.FORMAT_SHOW_TIME
+    return DateUtils.formatDateTime(context, at, flags)
+}
+
+/** What it waits for now, in one line, or null. */
+@Composable
+fun autoConditionText(condition: AutoCondition, now: Long): String = when (condition) {
+    is AutoCondition.Waiting -> waitingText(condition.busy, condition.device)
+    is AutoCondition.PutOff -> stringResource(R.string.update_auto_put_off, autoTimeText(LocalContext.current, condition.until, now))
+    AutoCondition.IdleOnly -> stringResource(R.string.update_auto_idle_only)
+    is AutoCondition.Yielding -> stringResource(R.string.update_auto_yield, condition.to)
+    is AutoCondition.Retrying -> stringResource(R.string.update_auto_retry, autoTimeText(LocalContext.current, condition.at, now))
+}
+
+/** "3 of 3 updated", with what did not finish and a Later. */
+@Composable
+fun autoResultText(record: AutoRunRecord): String = when {
+    record.failed > 0 && record.later -> stringResource(R.string.update_auto_result_failed_later, record.updated, record.total, record.failed)
+    record.failed > 0 -> stringResource(R.string.update_auto_result_failed, record.updated, record.total, record.failed)
+    record.later -> stringResource(R.string.update_auto_result_later, record.updated, record.total)
+    else -> stringResource(R.string.update_auto_result, record.updated, record.total)
+}
+
+/**
+ * Settings > Updates: the Update all devices automatically switch, then how often this phone checks,
+ * what the automatic update waits for (if anything) and how the last one went. Off: the daily check
+ * and installs only when the person taps.
+ */
+@Composable
+fun AutoUpdateSettings(view: AutoUpdateView, now: Long, setAuto: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+    val colors = BridgeyTheme.colors
+    val context = LocalContext.current
+    val on = view.on && view.supported
+    Column(modifier) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .toggleable(value = on, enabled = view.supported, role = Role.Switch) { setAuto(it) },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.update_auto_title), style = BridgeyType.itemTitle, color = colors.onSurface)
+                Text(stringResource(R.string.update_auto_detail), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
+            }
+            BridgeySwitch(checked = on, onCheckedChange = null, enabled = view.supported)
+        }
+        Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (on) {
+                val every = if (view.checkEvery >= AUTO_CHECK_STABLE_MILLIS) R.string.update_auto_every_6_hours else R.string.update_auto_every_30_minutes
+                Text(stringResource(every), style = BridgeyType.small, color = colors.onSurfaceVariant)
+                view.condition?.let { condition ->
+                    Text(autoConditionText(condition, now), style = BridgeyType.smallStrong, color = colors.onSurface)
+                }
+            } else {
+                Text(stringResource(R.string.updates_auto_title), style = BridgeyType.small, color = colors.onSurfaceVariant)
+                Text(stringResource(R.string.updates_auto_detail), style = BridgeyType.small, color = colors.onSurfaceVariant)
+            }
+            view.lastRun?.let { record ->
+                val time = autoTimeText(context, record.at, now)
+                val title = record.version?.let { stringResource(R.string.update_auto_last_to, time, it) } ?: stringResource(R.string.update_auto_last, time)
+                Text(title, style = BridgeyType.small, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
+                Text(autoResultText(record), style = BridgeyType.small, color = if (record.failed > 0) colors.warn else colors.onSurfaceVariant)
+            }
         }
     }
 }

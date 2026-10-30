@@ -211,7 +211,7 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
         var written = 0
         try each("updatesStart") { vector in
             let decoded = UpdateStartRequest.decode(plaintext(vector))
-            let result: Any = decoded.map { ["requestId": $0.requestID, "retry": $0.retry] as [String: Any] } ?? "reject"
+            let result: Any = decoded.map { ["requestId": $0.requestID, "retry": $0.retry, "auto": $0.auto] as [String: Any] } ?? "reject"
             guard Self.same(result, vector["expect"]) else { return false }
             guard vector["write"] as? Bool == true, let request = decoded else { return true }
             written += 1
@@ -244,6 +244,7 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
             "channel": status.channel.rawValue, "state": status.state.rawValue, "target": status.target ?? NSNull(),
             "targetBuild": status.targetBuild ?? NSNull(), "progress": status.progress ?? NSNull(),
             "reason": status.reason?.rawValue ?? NSNull(), "remoteStart": status.remoteStart, "checkedAt": status.checkedAt,
+            "auto": status.auto, "busy": status.busy?.rawValue ?? NSNull(),
         ]
     }
 
@@ -473,6 +474,30 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
         try each("remoteInput") { vector in
             let data = try JSONSerialization.data(withJSONObject: vector["plaintext"] as Any)
             let result: Any = RemoteInputMessage.parse(kind: vector["kind"] as! String, data: data).map { Self.describe($0.command) } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// Connect anywhere (connect_draft1): connect.setup, decoded by both platforms.
+    func testConnectSetup() throws {
+        try each("connectSetup") { vector in
+            let result: Any = ConnectSetup.decode(plaintext(vector)).map {
+                ["contribution": $0.contribution.base64EncodedString(), "rotate": $0.rotate] as [String: Any]
+            } ?? "reject"
+            return Self.same(result, vector["expect"])
+        }
+    }
+
+    /// connect.addresses: entries keep their order; vpn null means absent.
+    func testConnectAddresses() throws {
+        try each("connectAddresses") { vector in
+            let result: Any = ConnectAddresses.decode(plaintext(vector)).map { decoded -> [String: Any] in
+                [
+                    "port": decoded.port,
+                    "addrs": decoded.addrs.map { ["a": $0.a, "kind": $0.kind, "vpn": $0.vpn ?? NSNull()] as [String: Any] },
+                    "pairCheck": decoded.pairCheck ?? NSNull(),
+                ]
+            } ?? "reject"
             return Self.same(result, vector["expect"])
         }
     }

@@ -187,6 +187,50 @@ final class PhoneFilesFlawlessTests: XCTestCase {
         XCTAssertNil(save)
     }
 
+    /// Live test 2026-10-30: the phone app restarted in the middle of a Phone files download and the Mac showed it
+    /// "waiting" for over 20 minutes. Now a save or drag that the phone does not carry on with fails after
+    /// FolderReceiver.downloadResumeTimeout, as an error the window offers Retry for.
+    func testASaveThePhoneDoesNotContinueAfterADisconnectFails() throws {
+        let clock = ManualFolderClock()
+        let receiver = FolderReceiver(host: nil, journals: ReceiveJournalStore(directory: directory.appendingPathComponent("journals")),
+                                      makeClock: { _ in clock })
+        var started: Result<[URL], PhoneFilesError>?
+        var waiting: Result<[URL], PhoneFilesError>?
+        let running = ExpectedDownload(requestId: "a", phoneID: phone, directory: directory, purpose: .save, progress: { _ in }, completion: { started = $0 })
+        running.started = true
+        let queued = ExpectedDownload(requestId: "b", phoneID: phone, directory: directory, purpose: .dragOut, progress: { _ in }, completion: { waiting = $0 })
+        receiver.expect(running)
+        receiver.expect(queued)
+        receiver.phoneDisconnected(phone)
+        clock.advance(FolderReceiver.downloadResumeTimeout - 1)
+        XCTAssertNil(started)
+        XCTAssertNil(waiting)
+        clock.advance(2)
+        guard case .failure(.interrupted)? = started, case .failure(.interrupted)? = waiting else {
+            return XCTFail("\(String(describing: started)) \(String(describing: waiting))")
+        }
+        XCTAssertTrue(running.cancelled, "the receive is cancelled, so a late offer is declined")
+        XCTAssertTrue(PhoneFilesText.isTransient(.interrupted), "the window offers Retry")
+        XCTAssertTrue(PhoneFilesText.error(.interrupted, phone: "Pixel").contains("Pixel"))
+    }
+
+    /// A download the phone carries on with after the reconnect (it offers it again, bytes arrive) is not failed.
+    func testASaveThatResumesAfterADisconnectIsNotFailed() throws {
+        let clock = ManualFolderClock()
+        let receiver = FolderReceiver(host: nil, journals: ReceiveJournalStore(directory: directory.appendingPathComponent("journals")),
+                                      makeClock: { _ in clock })
+        var result: Result<[URL], PhoneFilesError>?
+        let running = ExpectedDownload(requestId: "a", phoneID: phone, directory: directory, purpose: .save, progress: { _ in }, completion: { result = $0 })
+        running.started = true
+        receiver.expect(running)
+        receiver.phoneDisconnected(phone)
+        clock.advance(10)
+        running.activity += 1  // What the receiver does when the phone offers it again or its bytes arrive.
+        clock.advance(FolderReceiver.downloadResumeTimeout * 3)
+        XCTAssertNil(result)
+        XCTAssertFalse(running.cancelled)
+    }
+
     /// An offer that did arrive is not timed out.
     func testAStartedDownloadIsNotTimedOut() throws {
         let loopback = LoopbackPhone()

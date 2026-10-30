@@ -284,7 +284,7 @@ private fun DeviceHeader(state: DeviceState) {
                 modifier = Modifier.semantics { heading() },
             )
             Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                RoutePill(state.ring.state, ringStatusLabel(state.ring))
+                RoutePill(state.ring.state, ringStatusLabel(state.ring), state.ring.route)
                 state.battery?.let { battery ->
                     val description = stringResource(
                         if (battery.isCharging) R.string.device_battery_charging else R.string.device_battery,

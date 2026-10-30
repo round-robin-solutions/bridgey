@@ -186,10 +186,12 @@ internal fun setupFacts(context: Context, settings: SettingsState, paired: Boole
         put(SetupSetting.SHOW_PREVIEWS, settings.showPreviews.toString())
         put(SetupSetting.LOGGING_CONNECTION, settings.logging.connection.toString())
         put(SetupSetting.UPDATE_CHANNEL, settings.update.channel.name)
+        put(SetupSetting.AUTO_UPDATES, settings.updateAll.auto.on.toString())
         put(SetupSetting.BATTERY_EXEMPTION, settings.batteryExempt.toString())
         put(SetupSetting.KEEP_WIFI_AWAKE, settings.keepWifiAwake.toString())
         put(SetupSetting.REDUCE_MOTION, settings.reduceMotion.toString())
         put(SetupSetting.SETTINGS_SYNC, settings.sync.switches.enabled.toString())
+        put(SetupSetting.CONNECT_AWAY, settings.connect.on.toString())
     }
     return SetupFacts(
         paired = paired,
@@ -255,8 +257,10 @@ internal fun applySetupChange(
         SetupSetting.REDUCE_MOTION -> uiPreferences.setReduceMotion(on)
         SetupSetting.LOGGING_CONNECTION -> settings.setLogging(settings.state.value.logging.copy(connection = on))
         SetupSetting.UPDATE_CHANNEL -> UpdateChannel.entries.firstOrNull { it.name == change.value }?.let(updater::setChannel)
+        SetupSetting.AUTO_UPDATES -> settings.setUpdatesAutoAll(on)
         SetupSetting.KEEP_WIFI_AWAKE -> settings.setKeepWifiAwake(on)
         SetupSetting.SETTINGS_SYNC -> setSettingsSync(on)
+        SetupSetting.CONNECT_AWAY -> settings.setConnectAway(on)
         SetupSetting.HIDDEN_NOTIFICATION_APPS -> {
             // Only the apps the question listed: picked ones stay on the phone, the others are sent again.
             val hidden = change.value.split(',').filter { it.isNotEmpty() }.toSet()
@@ -466,6 +470,7 @@ internal fun SetupRoute(
                 actions.requestBatteryExemption()
             },
             openOemStep = { OemBattery.open(context, it) },
+            openAppInfo = { runCatching { context.startActivity(OemBattery.appDetails(context.packageName)) } },
             openPage = { page -> SettingsSection.entries.firstOrNull { it.name == page }?.let(onOpenSection) },
             allowPermission = { kind -> SetupQuestions.permission(kind)?.let { allow(listOf(it)) } },
             allowAll = { allow(SetupFlow.neededPermissions(flow, currentFacts())) },

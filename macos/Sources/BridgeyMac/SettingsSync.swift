@@ -81,8 +81,14 @@ enum SyncKey: String, CaseIterable, Comparable {
     /// v0.10 round 2: appended, so the order of the earlier keys and tokens never changes.
     case featureScreen = "feature.screen"
     case featureSms = "feature.sms"
-    /// Update all devices automatically: no setting on the Mac yet (rr/auto-update-all); stored and relayed.
+    /// Update all devices automatically: follows the release channel until chosen; a synced value is a choice.
     case updatesAutoAll = "updates.auto_all"
+    /// Connect away from home (connect_draft1): both ends need it on, so it follows the other devices. On until
+    /// chosen; like updates.auto_all, a value nobody chose is not sent as a choice.
+    case connectAway = "connect.away"
+    /// Appended after the earlier keys. The same two switches as the phone's Files group.
+    case folderIncludeHidden = "files.folder_include_hidden"
+    case folderIncludeSystem = "files.folder_include_system"
 
     static func < (lhs: SyncKey, rhs: SyncKey) -> Bool {
         allCases.firstIndex(of: lhs)! < allCases.firstIndex(of: rhs)!
@@ -103,6 +109,7 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .folderDestination: .string("sender_picks")
         case .folderConflict: .string("ask")
         case .activityPreviews: .bool(true)
+        case .connectAway: .bool(BridgeySettings.connectAwayDefault)
         default: .bool(false)
         }
     }
@@ -128,7 +135,7 @@ enum SyncKey: String, CaseIterable, Comparable {
     /// Turning it on shares more: a remote change that turns it on is announced with a banner.
     var sharesWhenOn: Bool {
         switch self {
-        case .folderDestination, .folderConflict, .activityPreviews, .reduceMotion: false
+        case .folderDestination, .folderConflict, .activityPreviews, .reduceMotion, .folderIncludeHidden, .folderIncludeSystem: false
         default: true
         }
     }
@@ -146,6 +153,9 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .focusFollow: "focus_follow"
         case .codesEnabled: "codes"
         case .updatesAutoAll: "auto_update_all"
+        case .connectAway: "connect_away"
+        case .folderIncludeHidden: "folder_include_hidden"
+        case .folderIncludeSystem: "folder_include_system"
         default: String(rawValue.dropFirst("feature.".count))
         }
     }
@@ -177,6 +187,9 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .featureScreen: L10n.text("sync.name.screen", fallback: "Screen sharing")
         case .featureSms: L10n.text("sync.name.sms", fallback: "Text messages")
         case .updatesAutoAll: L10n.text("sync.name.autoUpdateAll", fallback: "Update all devices automatically")
+        case .connectAway: L10n.text("settings.away", fallback: "Connect away from home")
+        case .folderIncludeHidden: L10n.text("sync.name.folderHidden", fallback: "Hidden files in folders")
+        case .folderIncludeSystem: L10n.text("sync.name.folderSystem", fallback: "System files in folders")
         }
     }
 
@@ -342,6 +355,8 @@ func settingsSyncStoredValues(_ defaults: [String: Any]) -> [SyncKey: SyncValue]
     }
     bool(.activityPreviews, "settings.activity.previews")
     bool(.reduceMotion, "settings.reduceMotion")
+    bool(.folderIncludeHidden, "settings.folders.includeHidden")
+    bool(.folderIncludeSystem, "settings.folders.includeSystem")
     for key in SyncKey.allCases {
         if let feature = key.feature { bool(key, "settings.global.\(feature.rawValue)") }
     }
@@ -350,6 +365,8 @@ func settingsSyncStoredValues(_ defaults: [String: Any]) -> [SyncKey: SyncValue]
     bool(.codesEnabled, "settings.codes.enabled")
     bool(.featureScreen, "settings.screen.show")
     bool(.featureSms, "settings.sms.enabled")
+    bool(.connectAway, "settings.connect.away")
+    bool(.updatesAutoAll, AutoUpdateCoordinator.choiceKey)
     if let data = defaults["settings.focusSync"] as? Data, let focus = try? JSONDecoder().decode(FocusSyncSettings.self, from: data) {
         values[.focusShare] = .bool(focus.share)
         values[.focusFollow] = .bool(focus.follow)
@@ -360,7 +377,7 @@ func settingsSyncStoredValues(_ defaults: [String: Any]) -> [SyncKey: SyncValue]
 // MARK: Payloads
 
 struct SettingsPayload: Equatable {
-    /// The records of the 24 keys; skipped entries are counted, never kept.
+    /// The records of the 27 keys; skipped entries are counted, never kept.
     var records: [SyncKey: SyncRecord]
     /// The keys the sender has on but waiting for a permission there, in schema order.
     var waiting: [SyncKey]
@@ -542,11 +559,18 @@ struct SyncedSetting {
     var matches: (SyncValue) -> Bool
     /// Applies a value that won.
     var write: (SyncValue) -> Void
+    /// For a setting that follows something else until the person chooses (Update all devices automatically follows
+    /// the release channel): true while it follows, false once chosen; nil for every other setting. While it follows,
+    /// nothing here is a choice to send, and only a chosen value from another device is applied (it then counts as
+    /// this device's choice too).
+    var followsDefault: () -> Bool?
 
-    init(read: @escaping () -> SyncValue, matches: ((SyncValue) -> Bool)? = nil, write: @escaping (SyncValue) -> Void) {
+    init(read: @escaping () -> SyncValue, matches: ((SyncValue) -> Bool)? = nil, write: @escaping (SyncValue) -> Void,
+         followsDefault: @escaping () -> Bool? = { nil }) {
         self.read = read
         self.matches = matches ?? { $0 == read() }
         self.write = write
+        self.followsDefault = followsDefault
     }
 }
 
@@ -642,7 +666,13 @@ final class SettingsSyncEngine {
         for key in SyncKey.allCases {
             guard let setting = settings[key] else { continue }
             let current = record(key)
-            guard !setting.matches(current.value) else { continue }
+            switch setting.followsDefault() {
+            // Following the channel: not a choice, so nothing to send.
+            case true?: continue
+            // Chosen here: send it unless the record already holds this choice.
+            case false?: if current.chosen && setting.matches(current.value) { continue }
+            case nil: if setting.matches(current.value) { continue }
+            }
             let value = setting.read()
             guard key.accepts(value) else { continue }
             records[key] = stampLocalEdit(current, value: value, now: clock(), device: localDeviceID)
@@ -662,9 +692,12 @@ final class SettingsSyncEngine {
                 base = SyncRecord(value: base.value, changedAt: other.changedAt, version: max(base.version, other.version), changedBy: base.changedBy)
             }
         }
-        let stamped = stampLocalEdit(base, value: record(key).value, now: clock(), device: localDeviceID)
+        let value = localValue(key)
+        let stamped = stampLocalEdit(base, value: value, now: clock(), device: localDeviceID)
         records[key] = stamped
         save(records)
+        // Apply to all is a choice: a setting that followed its default here keeps this value from now on.
+        if let setting = settings[key], setting.followsDefault() == true { setting.write(value) }
         return stamped
     }
 
@@ -772,8 +805,9 @@ final class SettingsSyncEngine {
         guard !receipt.applied.isEmpty else { return }
         save(records)
         for key in receipt.applied {
-            guard let setting = settings[key], !setting.matches(records[key]!.value) else { continue }
-            setting.write(records[key]!.value)
+            guard let setting = settings[key], let record = records[key] else { continue }
+            // A setting that follows its default takes only a chosen value, which then becomes its choice here.
+            if setting.followsDefault() == true ? record.chosen : !setting.matches(record.value) { setting.write(record.value) }
         }
     }
 
@@ -804,19 +838,34 @@ final class SettingsSyncEngine {
         var pinned = false
         for key in differingKeys(peer) {
             if !record(key).chosen {
-                records[key] = SyncRecord(value: record(key).value, changedAt: 1, version: 1, changedBy: localDeviceID)
+                records[key] = SyncRecord(value: localValue(key), changedAt: 1, version: 1, changedBy: localDeviceID)
                 pinned = true
             }
+            // Keep mine on a setting that follows its default: what it does here becomes its choice.
+            if let setting = settings[key], setting.followsDefault() == true { setting.write(record(key).value) }
             state.sent[key] = record(key).stamp
         }
         if pinned { save(records) }
+    }
+
+    /// What `key` does here: the setting's own value while it follows its default (its record is not stamped
+    /// then), else the record's.
+    private func localValue(_ key: SyncKey) -> SyncValue {
+        if let setting = settings[key], setting.followsDefault() == true { return setting.read() }
+        return record(key).value
+    }
+
+    /// A setting that follows its default here, against a value nobody chose there: each device follows its own
+    /// default (Update all devices automatically, its own channel), so it is not a difference to ask about or show.
+    private func bothFollow(_ key: SyncKey, _ remote: SyncRecord) -> Bool {
+        settings[key]?.followsDefault() == true && !remote.chosen
     }
 
     /// Asking: the settings that differ between this device and the peer (what Use these would change).
     func differingKeys(_ peer: String) -> [SyncKey] {
         guard let state = peers[peer] else { return [] }
         return SyncKey.allCases.filter { key in
-            guard !excluded.contains(key), let known = state.known[key] else { return false }
+            guard !excluded.contains(key), let known = state.known[key], !bothFollow(key, known) else { return false }
             return !alreadyMeans(key, known.value)
         }
     }
@@ -854,7 +903,7 @@ final class SettingsSyncEngine {
     /// Ready peers whose value of `key` differs from what this device does.
     func differentOn(_ key: SyncKey) -> [String] {
         guard !excluded.contains(key) else { return [] }
-        return peers.filter { $0.value.ready && $0.value.known[key].map { !alreadyMeans(key, $0.value) } == true }.keys.sorted()
+        return peers.filter { $0.value.ready && $0.value.known[key].map { !bothFollow(key, $0) && !alreadyMeans(key, $0.value) } == true }.keys.sorted()
     }
 
     /// Peers that have `key` on but wait for a permission there.
@@ -1045,12 +1094,16 @@ final class SettingsSyncController: ObservableObject {
 
     /// The settings of this Mac, watched wherever they change (Settings, setup, Siri, reset).
     static func live(localDeviceID: String, settings: BridgeySettings, focus: FocusSync, codes: CodesSyncGate,
-                     screen: PhoneScreen, setTextMessages: @escaping (Bool) -> Void) -> SettingsSyncController {
+                     screen: PhoneScreen, setTextMessages: @escaping (Bool) -> Void,
+                     autoUpdate: AutoUpdateCoordinator? = nil) -> SettingsSyncController {
         let controller = SettingsSyncController(localDeviceID: localDeviceID,
-                                                settings: liveSettings(settings, focus: focus, codes: codes, screen: screen, setTextMessages: setTextMessages))
-        let changes: [AnyPublisher<Void, Never>] = [
+                                                settings: liveSettings(settings, focus: focus, codes: codes, screen: screen,
+                                                                       setTextMessages: setTextMessages, autoUpdate: autoUpdate))
+        var changes: [AnyPublisher<Void, Never>] = [
             settings.$folderReceiveMode.map { _ in () }.eraseToAnyPublisher(),
             settings.$folderConflictPolicy.map { _ in () }.eraseToAnyPublisher(),
+            settings.$folderIncludeHidden.map { _ in () }.eraseToAnyPublisher(),
+            settings.$folderIncludeSystem.map { _ in () }.eraseToAnyPublisher(),
             settings.$showActivityPreviews.map { _ in () }.eraseToAnyPublisher(),
             settings.$reduceMotion.map { _ in () }.eraseToAnyPublisher(),
             settings.$globalFeatures.map { _ in () }.eraseToAnyPublisher(),
@@ -1060,7 +1113,9 @@ final class SettingsSyncController: ObservableObject {
             focus.$settings.map { _ in () }.eraseToAnyPublisher(),
             screen.$enabled.map { _ in () }.eraseToAnyPublisher(),
             settings.$smsEnabled.map { _ in () }.eraseToAnyPublisher(),
+            settings.$connectAwayChoice.map { _ in () }.eraseToAnyPublisher(),
         ]
+        if let autoUpdate { changes.append(autoUpdate.$storedChoice.map { _ in () }.eraseToAnyPublisher()) }
         // @Published fires before the property changes: read it on the next turn of the main queue.
         Publishers.MergeMany(changes)
             .dropFirst(changes.count)
@@ -1073,9 +1128,11 @@ final class SettingsSyncController: ObservableObject {
     /// `codes`: Codes from messages goes through its consent gate; nil (tests) writes the switch directly.
     /// `screen` and `setTextMessages`: the same paths as their Settings switches, so their side effects run (a
     /// stream stops when Show phone screens goes off; Text messages off deletes the conversations kept here). Nil
-    /// (tests) leaves those keys stored and relayed only. `updates.auto_all` has no setting on the Mac yet.
+    /// (tests) leaves those keys stored and relayed only. `autoUpdate`: Update all devices automatically, which follows
+    /// the release channel until chosen; nil (tests) stores and relays it only.
     static func liveSettings(_ settings: BridgeySettings, focus: FocusSync, codes: CodesSyncGate? = nil,
-                             screen: PhoneScreen? = nil, setTextMessages: ((Bool) -> Void)? = nil) -> [SyncKey: SyncedSetting] {
+                             screen: PhoneScreen? = nil, setTextMessages: ((Bool) -> Void)? = nil,
+                             autoUpdate: AutoUpdateCoordinator? = nil) -> [SyncKey: SyncedSetting] {
         func bool(_ read: @escaping () -> Bool, _ write: @escaping (Bool) -> Void) -> SyncedSetting {
             SyncedSetting(read: { .bool(read()) }, write: { value in if case let .bool(on) = value { write(on) } })
         }
@@ -1094,15 +1151,19 @@ final class SettingsSyncController: ObservableObject {
             ),
             .activityPreviews: bool({ settings.showActivityPreviews }, settings.setShowActivityPreviews),
             .reduceMotion: bool({ settings.reduceMotion }, settings.setReduceMotion),
+            .folderIncludeHidden: bool({ settings.folderIncludeHidden }, settings.setFolderIncludeHidden),
+            .folderIncludeSystem: bool({ settings.folderIncludeSystem }, settings.setFolderIncludeSystem),
             // Only the global switch; which phone may use a feature stays a grant or override made on this Mac.
             .autoClipboard: bool({ settings.autoClipboardEnabled }, { settings.setAutoClipboard($0) }),
             .clipboardFiles: bool({ settings.clipboardFilesEnabled }, settings.setClipboardFilesEnabled),
             .focusShare: bool({ focus.settings.share }, { on in focus.update { $0.share = on } }),
             .focusFollow: bool({ focus.settings.follow }, { on in focus.update { $0.follow = on } }),
             .codesEnabled: codes?.setting ?? bool({ settings.codesEnabled }, settings.setCodesEnabled),
+            .connectAway: connectAwaySetting(settings),
         ]
         if let screen { out[.featureScreen] = screenSetting(screen) }
         if let setTextMessages { out[.featureSms] = bool({ settings.smsEnabled }, setTextMessages) }
+        if let autoUpdate { out[.updatesAutoAll] = autoUpdateSetting(autoUpdate) }
         for key in SyncKey.allCases {
             guard let feature = key.feature else { continue }
             // Grant features read on only when their global switch is explicitly on.
@@ -1110,6 +1171,20 @@ final class SettingsSyncController: ObservableObject {
                             { settings.setGlobal(feature, enabled: $0) })
         }
         return out
+    }
+
+    /// Connect away from home: the person's choice, or on while there is none (an unset default is not a choice).
+    static func connectAwaySetting(_ settings: BridgeySettings) -> SyncedSetting {
+        SyncedSetting(read: { .bool(settings.connectAway) },
+                      write: { value in if case let .bool(on) = value { settings.setConnectAway(on) } },
+                      followsDefault: { settings.connectAwayChoice == nil })
+    }
+
+    /// Update all devices automatically: the person's choice, or the channel's default while there is none.
+    static func autoUpdateSetting(_ auto: AutoUpdateCoordinator) -> SyncedSetting {
+        SyncedSetting(read: { .bool(auto.settingValue) },
+                      write: { value in if case let .bool(on) = value { auto.setEnabled(on) } },
+                      followsDefault: { auto.storedChoice == nil })
     }
 
     /// Show phone screens, written the way its Settings switch does (a stream stops when it goes off). No
@@ -1388,7 +1463,7 @@ final class SettingsSyncController: ObservableObject {
 
 extension SyncKey {
     /// Keys the Mac only stores and relays (no setting here): left out of Choose what syncs.
-    static let storeOnlyOnMac: Set<SyncKey> = [.featureCamera, .updatesAutoAll]
+    static let storeOnlyOnMac: Set<SyncKey> = [.featureCamera]
 }
 
 /// What a synced folder destination does on this Mac.

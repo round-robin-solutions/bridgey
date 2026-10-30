@@ -113,14 +113,15 @@
     <!-- Updates -->
     <string name="setup_q_updates_summary">Updates</string>
     <string name="setup_a_updates_steady">Steady</string>
-    <string name="setup_a_updates_early">Early</string>
-    <string name="setup_a_updates_newest">Newest every day</string>
+    <string name="setup_a_updates_early">Early, all devices update automatically</string>
+    <string name="setup_a_updates_newest">Newest every day, all devices update automatically</string>
+    <string name="setup_q_updates_auto_summary">Update all devices automatically</string>
 
     <!-- General -->
 
     <!-- Short path: the switches page, the permissions page, the start's preview, Essentials -->
     <string name="setup_switches_title">Anything else?</string>
-    <string name="setup_switches_context">Everything here stays off until you turn it on.</string>
+    <string name="setup_switches_context">Turn on what you want. Connect away from home is already on, so your devices stay connected off Wi-Fi.</string>
     <string name="setup_switches_details">Change details in Settings</string>
     <string name="setup_continue">Continue</string>
     <string name="setup_permissions_title">Allow what these need</string>
@@ -135,4 +136,10 @@
     <string name="setup_intro_off">Off</string>
     <string name="setup_done_essentials">On now: pairing, the clipboard when you tap Send, and your phone\'s notifications on your Mac. Turn on more in Settings.</string>
     <string name="setup_summary_turned_off">Not allowed, so this stays off: %1$s.</string>
+    <string name="setup_q_away_title">Reach your devices away from home?</string>
+    <string name="setup_q_away_context">Devices connect directly when they can, or through a Round Robin relay that only sees encrypted data. No account, and you can turn it off at any time.</string>
+    <string name="setup_q_away_summary">Connect away from home</string>
+    <string name="setup_a_not_now">Not now</string>
+    <string name="setup_bundle_away">Your devices stay connected when you leave home.</string>
+    <string name="setup_feature_away_detail">Reach your devices from any network, with no VPN on the phone</string>
 </resources>

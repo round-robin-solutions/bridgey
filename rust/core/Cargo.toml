@@ -1,0 +1,31 @@
+[package]
+name = "bridgey-connect"
+description = "Connect anywhere core: routes, ICE, TURN, QUIC tunnel, rendezvous client"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[lib]
+name = "bridgey_connect"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[dependencies]
+bridgey-connect-proto = { path = "../proto" }
+base64.workspace = true
+ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+quinn.workspace = true
+rustls.workspace = true
+rcgen.workspace = true
+md-5.workspace = true
+crc32fast.workspace = true
+if-addrs.workspace = true
+socket2.workspace = true
+webpki-roots = "1"
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni.workspace = true

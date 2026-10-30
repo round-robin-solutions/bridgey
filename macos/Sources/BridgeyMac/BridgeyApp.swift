@@ -37,7 +37,11 @@ struct BridgeyApp: App {
         let updater = AppUpdater()
         self.updater = updater
         // Update all: this Mac's version and update state for phones, their requests, and runs from here.
+        // Update all devices automatically goes first, so the run restored at launch can say how it ended.
+        AutoUpdateCoordinator.shared.configure(pairing: pairing, updater: updater, updateAll: UpdateAllCoordinator.shared,
+                                               localDeviceID: discovery.localDeviceID)
         UpdateAllCoordinator.shared.configure(pairing: pairing, updater: updater)
+        AutoUpdateCoordinator.shared.start()
         let settingsWindow = SettingsWindowController(discovery: discovery, pairing: pairing, settings: settings, updater: updater)
         self.settingsWindow = settingsWindow
         appDelegate.configure { [weak pairing] number in pairing?.sendCallWhenConnected(number, source: .link) }

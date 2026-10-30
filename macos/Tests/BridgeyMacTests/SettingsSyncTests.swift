@@ -99,10 +99,12 @@ final class SettingsSyncTests: XCTestCase {
         XCTAssertEqual(SettingsSyncDetail.detail("folder_destination=1,auto_clipboard=1"), "Folders: ask where to save, Automatic clipboard turned on")
         let all = SettingsSyncDetail.encode(Dictionary(uniqueKeysWithValues: SyncKey.allCases.map { ($0, $0.defaultValue) }))
         XCTAssertNotNil(SettingsSyncDetail.clean(all))
-        XCTAssertEqual(SettingsSyncDetail.decode(all).count, 24)
-        XCTAssertEqual(SyncKey.allCases.count, 24)
-        XCTAssertEqual(SyncKey.allCases.suffix(3).map(\.token), ["screen", "sms", "auto_update_all"])
-        XCTAssertEqual(SyncKey.listedOnMac.count, 22)
+        XCTAssertEqual(SettingsSyncDetail.decode(all).count, 27)
+        XCTAssertEqual(SyncKey.allCases.count, 27)
+        XCTAssertEqual(SyncKey.allCases.suffix(6).map(\.token),
+                       ["screen", "sms", "auto_update_all", "connect_away", "folder_include_hidden", "folder_include_system"])
+        // Update all devices automatically is a setting on the Mac too; Photos for the Mac is only stored and relayed.
+        XCTAssertEqual(SyncKey.listedOnMac.count, 26)
         XCTAssertTrue(SyncKey.allCases.allSatisfy { $0.token.count <= 24 })
         XCTAssertNil(SettingsSyncDetail.clean("reduce motion on"))
         let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
@@ -178,6 +180,38 @@ final class SettingsSyncTests: XCTestCase {
         XCTAssertEqual(net.values[macA]![.featureCalls], .bool(true))
         XCTAssertEqual(net.controllers[macA]!.status(.featureCalls).differentOn, [])
         XCTAssertEqual(net.controllers[phone]!.status(.featureCalls).differentOn, [])
+    }
+
+    /// "Include hidden files" and "Include system files" are the phone's two switches under the documented keys,
+    /// and the Mac-only call policy has no key.
+    func testHiddenAndSystemFileChoicesSyncUnderTheDocumentedKeys() {
+        XCTAssertEqual(SyncKey.folderIncludeHidden.rawValue, "files.folder_include_hidden")
+        XCTAssertEqual(SyncKey.folderIncludeSystem.rawValue, "files.folder_include_system")
+        XCTAssertEqual(SyncKey.folderIncludeHidden.defaultValue, .bool(false))
+        XCTAssertEqual(SyncKey.folderIncludeSystem.defaultValue, .bool(false))
+        XCTAssertFalse(SyncKey.folderIncludeHidden.sharesWhenOn || SyncKey.folderIncludeSystem.sharesWhenOn)
+        XCTAssertNil(SyncKey.folderIncludeHidden.feature)
+        XCTAssertTrue(SyncKey.allCases.allSatisfy { !$0.rawValue.lowercased().contains("otherapps") && !$0.rawValue.contains("other_apps") })
+        XCTAssertEqual(SyncKey.folderIncludeHidden.name, "Hidden files in folders")
+        XCTAssertEqual(SettingsSyncDetail.detail("folder_include_hidden=1,folder_include_system=0"),
+                       "Hidden files in folders turned on, System files in folders turned off")
+        // A Mac that stored the switches before sync stamps them as chosen; one that never did keeps the default.
+        let stored = settingsSyncStoredValues(["settings.folders.includeHidden": true, "settings.folders.includeSystem": false])
+        XCTAssertEqual(stored[.folderIncludeHidden], .bool(true))
+        XCTAssertEqual(stored[.folderIncludeSystem], .bool(false))
+        XCTAssertNil(settingsSyncStoredValues(["settings.calls.otherApps": "allow"])[.folderIncludeHidden])
+
+        let net = Net(self)
+        net.add(phone, clock: 1000); net.add(macA, clock: 1200)
+        net.connect(phone, macA)
+        net.deliverAll()
+        net.values[phone]![.folderIncludeHidden] = .bool(true)
+        net.values[macA]![.folderIncludeSystem] = .bool(true)
+        net.controllers[phone]!.localChanged(); net.controllers[phone]!.flush()
+        net.controllers[macA]!.localChanged(); net.controllers[macA]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(net.values[macA]![.folderIncludeHidden], .bool(true))
+        XCTAssertEqual(net.values[phone]![.folderIncludeSystem], .bool(true))
     }
 
     /// Section 8.2 with live updates: the later of two edits made at the same moment wins on both, after one
@@ -347,7 +381,170 @@ final class SettingsSyncTests: XCTestCase {
         XCTAssertEqual(net.controllers[macA]!.engine.observeLocal(), [])
     }
 
-    /// Update all devices automatically has no setting on the Mac: a Mac between two phones stores and relays it,
+    /// Update all devices automatically: follows the channel's default until the person chooses.
+    final class Following {
+        var defaultOn: Bool
+        var choice: Bool?
+        var writes = 0
+        init(defaultOn: Bool) { self.defaultOn = defaultOn }
+        /// Holds this fake strongly (the fake never holds the setting, so there is no cycle).
+        var setting: SyncedSetting {
+            SyncedSetting(read: { .bool(self.choice ?? self.defaultOn) },
+                          write: { value in if case let .bool(on) = value { self.choice = on; self.writes += 1 } },
+                          followsDefault: { self.choice == nil })
+        }
+    }
+
+    /// The channel's default is not a choice and never syncs; a choice does, even one equal to the default, and a
+    /// synced value becomes the other device's own choice (it no longer follows its channel).
+    func testUpdateAllDevicesAutomaticallyFollowsTheChannelUntilAChoiceSyncs() {
+        let net = Net(self)
+        let phoneAuto = Following(defaultOn: true)
+        let macAuto = Following(defaultOn: false)
+        net.add(phone, override: [.updatesAutoAll: phoneAuto.setting], isPhone: true)
+        net.add(macA, override: [.updatesAutoAll: macAuto.setting])
+        net.connect(phone, macA)
+        net.deliverAll()
+        net.log.removeAll()
+        // The Mac moves to Beta: its default turns on, which sends nothing and chooses nothing.
+        macAuto.defaultOn = true
+        net.controllers[macA]!.localChanged()
+        net.controllers[macA]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(net.log.count, 0)
+        XCTAssertNil(macAuto.choice)
+        XCTAssertNil(phoneAuto.choice)
+        XCTAssertFalse(net.controllers[macA]!.engine.record(.updatesAutoAll).chosen)
+        // The phone's person turns it on, the same as its default: a choice, and it reaches the Mac as one.
+        phoneAuto.choice = true
+        net.controllers[phone]!.localChanged()
+        net.controllers[phone]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(macAuto.choice, true)
+        XCTAssertEqual(macAuto.writes, 1)
+        // The Mac's channel can no longer change it.
+        macAuto.defaultOn = false
+        XCTAssertEqual(net.controllers[macA]!.engine.settings[.updatesAutoAll]!.read(), .bool(true))
+        // An unchosen value never applies as a choice.
+        let fresh = Following(defaultOn: false)
+        net.add(macB, override: [.updatesAutoAll: fresh.setting])
+        net.connect(phone, macB)
+        net.deliverAll()
+        XCTAssertEqual(fresh.choice, true, "the phone's choice reaches a newly connected Mac")
+    }
+
+    /// Connect away from home on by default on both: nobody chose, so nothing is sent, asked or shown as different,
+    /// and a phone from before (its old default off, never chosen) is not different either. An explicit off syncs.
+    func testConnectAwayOnByDefaultIsNeitherSentNorShownAsDifferent() {
+        let net = Net(self)
+        let phoneAway = Following(defaultOn: true)
+        let macAway = Following(defaultOn: true)
+        net.add(phone, override: [.connectAway: phoneAway.setting], isPhone: true)
+        net.add(macA, override: [.connectAway: macAway.setting], fresh: true)
+        net.connect(phone, macA)
+        net.deliverAll()
+        net.log.removeAll()
+        net.controllers[macA]!.localChanged()
+        net.controllers[macA]!.flush()
+        net.controllers[phone]!.localChanged()
+        net.controllers[phone]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(net.log.count, 0)
+        XCTAssertEqual(net.controllers[macA]!.questions, [])
+        XCTAssertEqual(net.controllers[macA]!.status(.connectAway).differentOn, [])
+        XCTAssertEqual(net.controllers[phone]!.status(.connectAway).differentOn, [])
+        XCTAssertFalse(net.controllers[macA]!.engine.record(.connectAway).chosen)
+        XCTAssertEqual(phoneAway.writes + macAway.writes, 0)
+        // The Mac's person turns it off: a choice, and the phone takes it as its own.
+        macAway.choice = false
+        net.controllers[macA]!.localChanged()
+        net.controllers[macA]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(phoneAway.choice, false)
+        // A phone from before: the old default (off), never chosen. Not a difference on this Mac either.
+        let older = Net(self)
+        let newMac = Following(defaultOn: true)
+        var olderWrites = 0
+        older.add(phone, override: [.connectAway: SyncedSetting(read: { .bool(false) }, write: { _ in olderWrites += 1 })], isPhone: true)
+        older.add(macB, override: [.connectAway: newMac.setting])
+        older.connect(phone, macB)
+        older.deliverAll()
+        XCTAssertEqual(older.controllers[macB]!.status(.connectAway).differentOn, [])
+        XCTAssertNil(newMac.choice)
+        XCTAssertEqual(olderWrites, 0)
+    }
+
+    /// A new Mac on Beta (on by default) meets a phone on Stable (off by default); `phoneChoice` nil: the phone
+    /// follows its channel too.
+    private func autoUpdatePair(phoneChoice: Bool?) -> (Net, Following, Following) {
+        let net = Net(self)
+        let phoneAuto = Following(defaultOn: false)
+        let macAuto = Following(defaultOn: true)
+        net.add(phone, clock: 1000, override: [.updatesAutoAll: phoneAuto.setting], isPhone: true)
+        net.add(macA, clock: 2000, override: [.updatesAutoAll: macAuto.setting], fresh: true)
+        if let phoneChoice {
+            phoneAuto.choice = phoneChoice
+            net.controllers[phone]!.localChanged()
+        }
+        net.connect(phone, macA)
+        net.deliverAll()
+        return (net, phoneAuto, macAuto)
+    }
+
+    /// Off there and on here, but nobody chose: each follows its own channel, so nothing is asked or shown.
+    func testFirstConnectNeverAsksAboutUpdateAllWhenEachFollowsItsChannel() {
+        let (net, phoneAuto, macAuto) = autoUpdatePair(phoneChoice: nil)
+        XCTAssertEqual(net.controllers[macA]!.questions, [])
+        XCTAssertEqual(net.controllers[macA]!.status(.updatesAutoAll).differentOn, [])
+        XCTAssertEqual(net.controllers[phone]!.status(.updatesAutoAll).differentOn, [])
+        XCTAssertNil(phoneAuto.choice)
+        XCTAssertNil(macAuto.choice)
+    }
+
+    /// Use these takes the phone's choice, which is this Mac's choice from then on.
+    func testUseTheseTakesThePhonesUpdateAllChoice() {
+        let (net, _, macAuto) = autoUpdatePair(phoneChoice: false)
+        XCTAssertEqual(net.controllers[macA]!.questions, [phone])
+        net.controllers[macA]!.answer(phone, use: true)
+        net.deliverAll()
+        XCTAssertEqual(macAuto.choice, false)
+        XCTAssertEqual(net.controllers[macA]!.status(.updatesAutoAll).differentOn, [])
+    }
+
+    /// Keep mine makes what this Mac did (on, from Beta) its choice; Apply to all then sends that choice.
+    func testKeepMineAndApplyToAllMakeAFollowedUpdateAllSettingAChoice() {
+        let (net, phoneAuto, macAuto) = autoUpdatePair(phoneChoice: false)
+        net.controllers[macA]!.answer(phone, use: false)
+        net.deliverAll()
+        XCTAssertEqual(macAuto.choice, true)
+        XCTAssertTrue(net.controllers[macA]!.engine.record(.updatesAutoAll).chosen)
+        XCTAssertEqual(phoneAuto.choice, false)
+        XCTAssertEqual(net.controllers[macA]!.status(.updatesAutoAll).differentOn, ["Device a"])
+        net.controllers[macA]!.applyToAll(.updatesAutoAll)
+        net.deliverAll()
+        XCTAssertEqual(phoneAuto.choice, true)
+        XCTAssertEqual(net.controllers[macA]!.status(.updatesAutoAll).differentOn, [])
+    }
+
+    /// Apply to all from a setting that follows its channel sends what it does now (not its record's older
+    /// value) and makes that this Mac's choice.
+    func testApplyToAllFromAFollowedUpdateAllSettingSendsWhatItDoesNow() {
+        let net = Net(self)
+        let phoneAuto = Following(defaultOn: false)
+        let macAuto = Following(defaultOn: false)
+        net.add(phone, override: [.updatesAutoAll: phoneAuto.setting], isPhone: true)
+        net.add(macA, override: [.updatesAutoAll: macAuto.setting])
+        net.connect(phone, macA)
+        net.deliverAll()
+        // The Mac moves to Nightly after its record was made.
+        macAuto.defaultOn = true
+        net.controllers[macA]!.applyToAll(.updatesAutoAll)
+        net.deliverAll()
+        XCTAssertEqual(macAuto.choice, true)
+        XCTAssertEqual(phoneAuto.choice, true)
+    }
+
+    /// A Mac with no setting for Update all devices automatically (tests, older builds) stores and relays it,
     /// with no activity entry of its own.
     func testStoreOnlyKeyIsRelayedByAMacHub() {
         let net = Net(self)

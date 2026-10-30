@@ -55,6 +55,9 @@ internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
     )
 
 /** Features that start off until the person turns them on. */
+/** Connect away from home while nobody chose: on (Rahul, 2026-10-30). */
+const val CONNECT_AWAY_DEFAULT = true
+
 internal fun featureOnByDefault(feature: BridgeyFeature): Boolean =
     feature != BridgeyFeature.REMOTE_INPUT && feature != BridgeyFeature.SCREEN && feature != BridgeyFeature.SMS
 
@@ -99,6 +102,17 @@ data class BridgeySettingsState(
      * files_browse_draft1.
      */
     val allowBrowseFromOtherDevices: Boolean = true,
+    /**
+     * Files > Include hidden files when sending folders: dotfiles and dot-folders that are not system files. Off by
+     * default, as on the Mac (`settings.folders.includeHidden`). Applies to folders this phone sends and to folders a
+     * Mac downloads from it.
+     */
+    val folderIncludeHidden: Boolean = false,
+    /**
+     * Files > Include system files when sending folders: `.DS_Store`, `._*`, `Thumbs.db` and the rest of
+     * [dev.bridgey.android.folders.SystemFiles]. Off by default, as on the Mac (`settings.folders.includeSystem`).
+     */
+    val folderIncludeSystem: Boolean = false,
     /** The Save to… sheet's recent destinations, newest first. On this phone only. */
     val recentFolderDestinations: List<FolderDestination> = emptyList(),
     /** Privacy > Logging: what reaches Logcat and exported diagnostics. On this phone only. */
@@ -112,12 +126,32 @@ data class BridgeySettingsState(
      * starts Bridgey's own update from this phone's channel, with its own checks (docs/rr-edition.md).
      */
     val updatesRemoteStart: Boolean = true,
+    /**
+     * Updates > Update all devices automatically, as the person set it, or null when they never did:
+     * then it follows the release channel (on for Beta and Nightly, off for Stable, see
+     * [dev.bridgey.android.updates.AutoUpdateRules.enabled]). A choice they made sticks across channel changes.
+     */
+    val updatesAutoAll: Boolean? = null,
     /** Text messages > Send replies as SMS: answers to SMS notifications skip the messaging app's own reply. Off by default. */
     val smsReplyAsSms: Boolean = false,
+    /**
+     * Connect away from home (draft connect_draft1): reach paired devices off the local network
+     * through the QUIC tunnel, directly or through a Round Robin relay. The person's choice (or a
+     * synced one), or null when nobody chose: then it is on ([connectAway]), an exception to
+     * off until chosen (Rahul, 2026-10-30). An explicit off stays off.
+     */
+    val connectAwayChoice: Boolean? = null,
 ) {
+    /** What Connect away from home does now: the choice, or on while there is none. */
+    val connectAway: Boolean get() = connectAwayChoice ?: CONNECT_AWAY_DEFAULT
+
     /** What a folder transfer to this phone reads when it decides. */
     val folderReceiveSettings: FolderReceiveSettings
         get() = FolderReceiveSettings(folderMode, folderConflict, folderDefaultPlace, allowReplaceFromOtherDevices)
+
+    /** What a folder this phone sends (or a Mac downloads) skips. */
+    val folderScanOptions: dev.bridgey.android.folders.FolderScanOptions
+        get() = dev.bridgey.android.folders.FolderScanOptions(folderIncludeHidden, folderIncludeSystem)
 }
 
 /** Automatic clipboard is on for a device when global and the per-device switch both allow it. */
@@ -264,6 +298,12 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(updatesRemoteStart = enabled)
     }
 
+    /** The person's own choice for Update all devices automatically: from now on it no longer follows the channel. */
+    fun setUpdatesAutoAll(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_UPDATES_AUTO_ALL, enabled).apply()
+        mutableState.value = mutableState.value.copy(updatesAutoAll = enabled)
+    }
+
     fun setFocusFollow(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_FOCUS_FOLLOW, enabled).apply()
         mutableState.value = mutableState.value.copy(focusFollow = enabled)
@@ -276,6 +316,23 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
 
     /** Text messages is on for at least one Mac (its global switch). */
     fun smsOn(): Boolean = mutableState.value.globalFeatures[BridgeyFeature.SMS] == true
+
+    /** The person's own choice (or a synced one) for Connect away from home: from now on it no longer follows the default. */
+    fun setConnectAway(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_CONNECT_AWAY, enabled).apply()
+        mutableState.value = mutableState.value.copy(connectAwayChoice = enabled)
+    }
+
+    /**
+     * Test builds only (debuggable): a control service URL and relay-only mode, set with
+     * `adb shell run-as <app> ...` or the debug intent; release builds ignore both.
+     */
+    val connectDebugControlUrl: String? get() = preferences.getString(KEY_CONNECT_DEBUG_URL, null)?.takeIf { it.isNotBlank() }
+    val connectDebugRelayOnly: Boolean get() = preferences.getBoolean(KEY_CONNECT_DEBUG_RELAY_ONLY, false)
+
+    fun setConnectDebug(controlUrl: String?, relayOnly: Boolean) {
+        preferences.edit().putString(KEY_CONNECT_DEBUG_URL, controlUrl).putBoolean(KEY_CONNECT_DEBUG_RELAY_ONLY, relayOnly).apply()
+    }
 
     fun setFolderMode(mode: DestinationMode) {
         preferences.edit().putString(KEY_FOLDER_MODE, mode.wire).apply()
@@ -291,6 +348,16 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         val value = placeId.takeIf(::isPlaceId) ?: DEFAULT_PLACE_ID
         preferences.edit().putString(KEY_FOLDER_DEFAULT_PLACE, value).apply()
         mutableState.value = mutableState.value.copy(folderDefaultPlace = value)
+    }
+
+    fun setFolderIncludeHidden(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_FOLDER_INCLUDE_HIDDEN, enabled).apply()
+        mutableState.value = mutableState.value.copy(folderIncludeHidden = enabled)
+    }
+
+    fun setFolderIncludeSystem(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_FOLDER_INCLUDE_SYSTEM, enabled).apply()
+        mutableState.value = mutableState.value.copy(folderIncludeSystem = enabled)
     }
 
     fun setAllowReplaceFromOtherDevices(enabled: Boolean) {
@@ -382,13 +449,17 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             folderConflict = ConflictPolicy.fromWire(preferences.getString(KEY_FOLDER_CONFLICT, null)) ?: ConflictPolicy.ASK,
             folderDefaultPlace = preferences.getString(KEY_FOLDER_DEFAULT_PLACE, null)?.takeIf(::isPlaceId) ?: DEFAULT_PLACE_ID,
             allowReplaceFromOtherDevices = preferences.getBoolean(KEY_FOLDER_ALLOW_REPLACE, false),
+            folderIncludeHidden = preferences.getBoolean(KEY_FOLDER_INCLUDE_HIDDEN, false),
+            folderIncludeSystem = preferences.getBoolean(KEY_FOLDER_INCLUDE_SYSTEM, false),
             allowBrowseFromOtherDevices = preferences.getBoolean(KEY_FILES_ALLOW_BROWSE, true),
             recentFolderDestinations = decodeDestinations(preferences.getString(KEY_FOLDER_RECENT, null)),
             logging = loggingPolicyFrom { key, default -> preferences.getBoolean(key, default) },
             focusShare = preferences.getBoolean(KEY_FOCUS_SHARE, false),
             focusFollow = preferences.getBoolean(KEY_FOCUS_FOLLOW, false),
             updatesRemoteStart = preferences.getBoolean(KEY_UPDATES_REMOTE_START, true),
+            updatesAutoAll = if (preferences.contains(KEY_UPDATES_AUTO_ALL)) preferences.getBoolean(KEY_UPDATES_AUTO_ALL, false) else null,
             smsReplyAsSms = preferences.getBoolean(KEY_SMS_REPLY_AS_SMS, false),
+            connectAwayChoice = if (preferences.contains(KEY_CONNECT_AWAY)) preferences.getBoolean(KEY_CONNECT_AWAY, true) else null,
         )
     }
 
@@ -408,12 +479,19 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         internal const val KEY_FOLDER_CONFLICT = "files.folder_conflict"
         private const val KEY_FOLDER_DEFAULT_PLACE = "files.folder_default_place"
         private const val KEY_FOLDER_ALLOW_REPLACE = "files.folder_allow_replace"
+        // Same meaning and defaults as the Mac's `settings.folders.includeHidden` and `.includeSystem`.
+        internal const val KEY_FOLDER_INCLUDE_HIDDEN = "files.folder_include_hidden"
+        internal const val KEY_FOLDER_INCLUDE_SYSTEM = "files.folder_include_system"
         private const val KEY_FILES_ALLOW_BROWSE = "files.allow_browse"
         private const val KEY_FOLDER_RECENT = "files.folder_recent"
         internal const val KEY_FOCUS_SHARE = "focus.share"
         internal const val KEY_FOCUS_FOLLOW = "focus.follow"
         private const val KEY_UPDATES_REMOTE_START = "updates.remote_start"
+        private const val KEY_UPDATES_AUTO_ALL = "updates.auto_all"
         private const val KEY_SMS_REPLY_AS_SMS = "sms.reply_as_sms"
+        internal const val KEY_CONNECT_AWAY = "connect.away"
+        private const val KEY_CONNECT_DEBUG_URL = "connect.debug.controlUrl"
+        private const val KEY_CONNECT_DEBUG_RELAY_ONLY = "connect.debug.relayOnly"
     }
 }
 

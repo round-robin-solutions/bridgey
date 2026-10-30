@@ -21,6 +21,12 @@ enum class RouteClass(val token: String) {
 
     /** A private overlay network: 100.64.0.0/10 (Tailscale and other carrier-grade NAT) or Tailscale's IPv6 prefix. */
     PRIVATE_NETWORK("private_network"),
+
+    /** Connect anywhere: QUIC straight to the other device over the internet (IPv6 or hole punching). */
+    DIRECT("direct"),
+
+    /** Connect anywhere: QUIC through a relay, which sees only encrypted packets. */
+    RELAY("relay"),
     OTHER("other"),
     UNKNOWN("unknown"),
 }
@@ -139,15 +145,23 @@ class ConnectionHealthBook(
     private fun changed() { mutableChanges.value = mutableChanges.value + 1 }
 
     /** [deviceId] authenticated; [host] is used only to pick the route class and is not kept. */
-    @Synchronized fun connected(deviceId: String, host: String?, dialledHere: Boolean, wallMillis: Long) {
+    @Synchronized fun connected(deviceId: String, host: String?, dialledHere: Boolean, wallMillis: Long, routeClass: RouteClass? = null) {
         of(deviceId).apply {
             connected = true
-            route = classifyRoute(host)
+            route = routeClass ?: classifyRoute(host)
             this.dialledHere = dialledHere
             connectedSince = wallMillis
             pings.clear()
             rtts.clear()
         }
+        changed()
+    }
+
+    /** A tunnel moved to another path (Connect anywhere upgrade or failover). */
+    @Synchronized fun routeChanged(deviceId: String, routeClass: RouteClass) {
+        val facts = of(deviceId)
+        if (!facts.connected || facts.route == routeClass) return
+        facts.route = routeClass
         changed()
     }
 

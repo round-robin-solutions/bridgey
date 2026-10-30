@@ -301,7 +301,7 @@ final class PairingCoordinator: ObservableObject {
     /// Settings sync with phones (draft settings_sync_draft1): folder, preview and motion preferences.
     private(set) lazy var settingsSync = SettingsSyncController.live(
         localDeviceID: deviceID, settings: settings, focus: focusSync, codes: codesSyncGate, screen: phoneScreen,
-        setTextMessages: { [unowned self] in self.setTextMessagesEnabled($0) })
+        setTextMessages: { [unowned self] in self.setTextMessagesEnabled($0) }, autoUpdate: AutoUpdateCoordinator.shared)
     /// Codes from messages turned on from another device waits here until this Mac gives its own consent.
     private(set) lazy var codesSyncGate = CodesSyncGate(
         isOn: { [unowned self] in self.settings.codesEnabled },
@@ -313,6 +313,9 @@ final class PairingCoordinator: ObservableObject {
     private let syncQuestionWindows = SyncQuestionWindows()
     /// "Take Photo with OnePlus 11" (draft camera_draft1).
     let camera = PhoneCamera()
+    /// Connect anywhere (draft connect_draft1): phones away from home, through the core's QUIC tunnels.
+    let connect = ConnectAnywhere()
+    private var connectCancellable: AnyCancellable?
     /// Incoming transfers that are camera photos, by transfer ID, with their request ID.
     private var cameraTransfers: [String: String] = [:]
     /// "Show Phone Screen" (draft screen_draft1): view only, off by default.
@@ -351,6 +354,9 @@ final class PairingCoordinator: ObservableObject {
     /// What Try again restarts: the peer of the last pairing.
     private var lastPairingPeer: PairingPeer?
     private var listener: NWListener?
+    /// TestInstance only: "drop-lan" closed every LAN session and refuses new ones (the phone left home).
+    fileprivate var testLanBlocked = false
+    fileprivate var testControlTimer: Timer?
     /// Multi-device sessions: pending (handshaking or pairing) and one per phone.
     private lazy var registry = SessionRegistry<Session>(localDeviceID: deviceID)
     /// The session whose code is on screen, or the pairing the user started.
@@ -533,6 +539,7 @@ final class PairingCoordinator: ObservableObject {
         UNUserNotificationCenter.current().delegate = notificationPresenter
         refreshNotificationAuthorization()
         if identity != nil { startListener() }
+        if TestInstance.enabled { startTestControl() }
         folders.loadJournals()
         folderReceiver.loadJournals()
         quickActions.available = { [weak self] in self?.isFeatureAvailable($0) == true }
@@ -651,6 +658,7 @@ final class PairingCoordinator: ObservableObject {
                     self.refreshAutoClipboard()
                 }
             }
+        configureConnect()
         startReconnecting()
     }
 
@@ -979,7 +987,9 @@ final class PairingCoordinator: ObservableObject {
         textMessages.forget(deviceID)
         settingsSync.forget(deviceID)
         reconnect.forget(deviceID)
+        connect.store.forget(deviceID)
         disconnect(deviceID: deviceID)
+        connectSync()
         BridgeyLog.pairing.notice("pairing revoked peer=\(shortDeviceID(deviceID), privacy: .public)")
     }
 
@@ -1038,6 +1048,7 @@ final class PairingCoordinator: ObservableObject {
             lastSentBattery = nil
         }
         publish()
+        connectSync()
         BridgeyLog.transport.notice("disconnected peer=\(shortDeviceID(id), privacy: .public) reason=\(reason, privacy: .public)")
         diagnostics.record(category: "transport", event: "disconnected", outcome: reason, device: id)
         guard trustedDeviceIDs.contains(id) else { return }
@@ -1107,13 +1118,19 @@ final class PairingCoordinator: ObservableObject {
             setTransientCallStatus("Phone link does not contain a valid number")
             return
         }
-        if source.needsConfirmation {
+        switch otherAppCallDecision(source: source, policy: settings.otherAppCallPolicy) {
+        case .refuse:
+            setTransientCallStatus(L10n.text("call.refused", fallback: "Calls from other apps are off in Settings > Calls"))
+            return
+        case .ask:
             // Asked once the Service or the link handler has returned, so the other app does not wait on it.
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.confirmCall(number) else { return }
                 self.sendCallWhenConnected(number, source: .bridgey)
             }
             return
+        case .callNow:
+            break
         }
         pendingCallNumber = number
         pendingCallExpiryWorkItem?.cancel()
@@ -1131,15 +1148,14 @@ final class PairingCoordinator: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: expiry)
     }
 
-    /// Asks on this Mac before a call another app started goes to the phone.
+    /// Asks on this Mac before a call another app started goes to the phone. Call with Don't ask again
+    /// checked sets Settings > Calls to Call right away; Cancel never changes the setting.
     private func confirmCall(_ number: String) -> Bool {
-        let alert = NSAlert()
-        alert.messageText = callConfirmationTitle(number: number, phoneName: session?.peerName)
-        alert.informativeText = L10n.text("call.confirm.detail", fallback: "Another app asked Bridgey to place this call.")
-        alert.addButton(withTitle: L10n.text("call.confirm.call", fallback: "Call"))
-        alert.addButton(withTitle: L10n.text("action.cancel", fallback: "Cancel"))
+        let alert = makeCallConfirmationAlert(number: number, phoneName: session?.peerName)
         NSApp.activate(ignoringOtherApps: true)
-        return alert.runModal() == .alertFirstButtonReturn
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        if alert.suppressionButton?.state == .on { settings.setOtherAppCallPolicy(.callNow) }
+        return true
     }
 
     func sendCall(_ value: String) {
@@ -2293,7 +2309,7 @@ final class PairingCoordinator: ObservableObject {
     private func startListener() {
         diagnostics.record(category: "transport", event: "listener_started")
         do {
-            let listener = try NWListener(using: .tcp, on: 42_458)
+            let listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: TestInstance.listeningPort) ?? 42_458)
             listener.newConnectionHandler = { [weak self] connection in
                 DispatchQueue.main.async { self?.accept(connection) }
             }
@@ -2312,13 +2328,18 @@ final class PairingCoordinator: ObservableObject {
     /// Every incoming connection is its own pending session: a pairing in its verification step
     /// and reconnects from other trusted phones run side by side.
     private func accept(_ connection: NWConnection) {
+        if testLanBlocked {
+            connection.cancel()
+            return
+        }
         let current = Session(connection: connection, peerName: "Android device")
         current.initiatedLocally = false
         // Where the phone connected from: once it authenticates, the next reconnect can dial it there.
         current.remoteHost = endpointHost(connection.endpoint)
         BridgeyLog.transport.notice("inbound connection address=\(current.remoteHost.map(addressTag) ?? "unknown", privacy: .public)")
         // Connections that have not authenticated yet are capped, in all and per address.
-        let pendingHosts = registry.pendingSessions.filter { !$0.initiatedLocally }.map(\.remoteHost)
+        // Tunnels have their own caps in the core (per source address and in all), so they never fill these.
+        let pendingHosts = registry.pendingSessions.filter { !$0.initiatedLocally && $0.tunnel == nil }.map(\.remoteHost)
         guard admitsPendingConnection(pendingHosts: pendingHosts, host: current.remoteHost) else {
             BridgeyLog.transport.error("inbound connection refused: too many unauthenticated connections")
             diagnostics.record(category: "transport", event: "inbound_refused", outcome: "pending_limit")
@@ -2445,6 +2466,16 @@ final class PairingCoordinator: ObservableObject {
                 current.id = message.sessionId
                 current.peerName = sanitizedPeerName(message.deviceName, fallback: "Android device")
                 guard let remoteDeviceID = message.deviceId else { throw PairingError.invalidMessage }
+                // Tunnels carry paired phones only, as a plain protocol 2 reconnect: pairing stays on the local
+                // network, with no prompt here, and a tunnel never falls back to protocol 1.
+                // The phone the core reached must be the one that speaks (signatures still decide who it is).
+                let wrongPeer = current.tunnel?.peer.map { $0.lowercased() != remoteDeviceID.lowercased() } ?? false
+                if current.tunnel != nil, wrongPeer || !TunnelRules.offerAllowed(trusted: trustedIdentityKey(remoteDeviceID) != nil,
+                                                                     committed: revealed == nil, protocolVersion: remoteProtocol) {
+                    current.dropReason = "untrusted_tunnel"
+                    current.close()
+                    return
+                }
                 current.remoteDeviceID = remoteDeviceID
                 current.remoteProtocol = remoteProtocol
                 // Refusals come before the answer and cost nothing; every answered offer that can reach a code costs a
@@ -2507,8 +2538,13 @@ final class PairingCoordinator: ObservableObject {
                     return
                 }
                 // A reconnect reached some other device at the old address: never prompt to pair it.
-                if let expected = current.dialDeviceID, expected.lowercased() != message.deviceId?.lowercased() {
+                if let expected = current.dialDeviceID ?? current.tunnel?.peer, expected.lowercased() != message.deviceId?.lowercased() {
                     current.dropReason = "wrong_device"
+                    current.close()
+                    return
+                }
+                if current.tunnel != nil, trustedIdentityKey(message.deviceId ?? "") == nil {
+                    current.dropReason = "untrusted_tunnel"
                     current.close()
                     return
                 }
@@ -2614,6 +2650,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteSms = draftKeys[smsFeatureKey] == true
                     link.remoteFastTransfers = draftKeys[filesFastFeatureKey] == true
                     link.remoteSettingsSync = draftKeys[settingsSyncFeatureKey] == true
+                    link.remoteConnect = draftKeys[connectFeatureKey] == true
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
                 }
@@ -2656,6 +2693,7 @@ final class PairingCoordinator: ObservableObject {
                 }
                 // Settings sync: a snapshot once both sides show the key, or the end of syncing when one stops.
                 settingsSync.refresh(phoneID)
+                if draftKeys[connectFeatureKey] == true { sendConnectAddresses(to: current) }
             case "ping.request":
                 try receivePing(message, in: current)
             case "ping.ack":
@@ -3130,6 +3168,8 @@ final class PairingCoordinator: ObservableObject {
                 receiveSpeedMessage(message, in: current)
             case "settings.snapshot", "settings.update", "settings.ack", "settings.error":
                 try receiveSettingsMessage(message, in: current)
+            case "connect.setup", "connect.setup.ack", "connect.addresses":
+                receiveConnectMessage(message, in: current)
             default:
                 break
             }
@@ -3222,6 +3262,8 @@ final class PairingCoordinator: ObservableObject {
             publish()
             return
         case let .accepted(replaced):
+            // The core resets its back-off for this phone only once a session on the tunnel authenticated.
+            if let tunnel = current.tunnel { _ = connect.command(["c": "authenticated", "tunnel": tunnel.id]) }
             if let replaced {
                 BridgeyLog.transport.notice("duplicate session replaced peer=\(shortDeviceID(id), privacy: .public)")
                 diagnostics.record(category: "transport", event: "duplicate_replaced", device: id)
@@ -3248,7 +3290,9 @@ final class PairingCoordinator: ObservableObject {
         diagnostics.record(category: "transport", event: "connected", outcome: source.rawValue, device: id, detail: "after_\(attempts)_attempts")
         var record = healthRecords[id] ?? DeviceHealthRecord()
         record.connectedSince = Date()
-        record.route = connectionRoute(forHost: current.remoteHost)
+        record.route = current.tunnel.map { connectionRoute(forTunnel: $0.route) } ?? connectionRoute(forHost: current.remoteHost)
+        record.tunnelRoute = current.tunnel?.route
+        record.tunnelRelay = current.tunnel?.relay ?? current.tunnel?.vpn
         record.outbound = current.initiatedLocally
         record.roundTrips = HeartbeatRoundTrips()
         healthRecords[id] = record
@@ -3266,6 +3310,7 @@ final class PairingCoordinator: ObservableObject {
         refreshAutoClipboard()
         BridgeyLog.pairing.notice("verified peer=\(shortDeviceID(id), privacy: .public) name=\(current.peerName, privacy: .private)")
         finishRediscoverIfEveryoneAnswered()
+        connectSync()
     }
 
     /// A dial is over (it connected, lost the duplicate rule or failed): it no longer blocks the
@@ -3310,6 +3355,8 @@ final class PairingCoordinator: ObservableObject {
         features[smsFeatureKey] = settings.smsEnabled
         // Draft, edition only: settings sync, while the global and this phone's switches are on.
         features[settingsSyncFeatureKey] = settingsSync.advertised(for: current.remoteDeviceID)
+        // Draft, edition only: Connect anywhere, while its switch is on and the core runs.
+        features[connectFeatureKey] = connectAdvertised
         // Draft, edition only: binary chunk frames and a byte window (FastTransfer.swift). A capability, so always on.
         features[filesFastFeatureKey] = FastTransferSettings.enabled
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
@@ -3448,6 +3495,17 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func authenticateOrPrompt(_ current: Session) {
+        // A tunnel never prompts and never runs without envelope tags: it is a reconnect of a paired phone.
+        if current.tunnel != nil {
+            let trusted = trustedIdentityKey(current.remoteDeviceID) != nil
+            guard TunnelRules.sessionAllowed(trusted: trusted, autoConfirms: PairingRules.autoConfirms(trusted: trusted, current.position),
+                                             tagged: current.envelopeKey != nil) else {
+                BridgeyLog.transport.notice("connect tunnel session refused peer=\(shortDeviceID(current.remoteDeviceID), privacy: .public)")
+                current.dropReason = "tunnel_refused"
+                current.close()
+                return
+            }
+        }
         // A phone that once spoke protocol 2 keeps it: a session without envelope tags is a downgrade.
         if current.envelopeKey == nil && protocolPins.pinned(current.remoteDeviceID) >= SessionSecurity.protocolVersion {
             BridgeyLog.pairing.error("protocol downgrade refused")
@@ -3533,6 +3591,11 @@ final class PairingCoordinator: ObservableObject {
         let fields = current.initiatedLocally
             ? [deviceID, current.remoteDeviceID, current.localEphemeralKey, current.remoteEphemeralKey]
             : [current.remoteDeviceID, deviceID, current.remoteEphemeralKey, current.localEphemeralKey]
+        // A tunnel binds the signatures to its QUIC connection (bridgey-auth-v2, docs/protocol.md).
+        if let exporter = current.tunnel?.exporter {
+            return ConnectCrypto.transcriptV2(sessionID: current.id, initiator: fields[0], responder: fields[1],
+                                              initiatorKey: fields[2], responderKey: fields[3], exporter: exporter)
+        }
         return Data((["bridgey-auth-v1", current.id] + fields).joined(separator: "\0").utf8)
     }
 
@@ -3563,7 +3626,8 @@ final class PairingCoordinator: ObservableObject {
         reconnect.isTrusted = { [weak self] in self?.trustedDeviceIDs.contains($0) == true }
         reconnect.isConnected = { [weak self] in self?.registry.session(for: $0) != nil }
         reconnect.dial = { [weak self] id, address in
-            guard let self, let port = NWEndpoint.Port(rawValue: UInt16(clamping: address.port)) else {
+            // TestInstance "drop-lan": the LAN is gone, so LAN dials end at once (Connect anywhere still runs).
+            guard let self, !self.testLanBlocked, let port = NWEndpoint.Port(rawValue: UInt16(clamping: address.port)) else {
                 self?.reconnect.dialEnded(id)
                 return
             }
@@ -3639,6 +3703,7 @@ final class PairingCoordinator: ObservableObject {
     private func linkEvent(_ reason: String) {
         BridgeyLog.reconnect.notice("link event \(reason, privacy: .public)")
         diagnostics.record(category: "link", event: reason)
+        if ["network_change", "network_lost", "wake"].contains(reason) { probeAfterNetworkChange(reason) }
         linkDebouncer.note(reason)
     }
 
@@ -3773,11 +3838,190 @@ final class PairingCoordinator: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: timeout)
     }
 
+    // MARK: - Connect anywhere
+
+    /// Advertised to phones (connect_draft1) while the switch is on and the core runs.
+    private var connectAdvertised: Bool { settings.connectAway && connect.running }
+
+    private func configureConnect() {
+        connect.onTunnel = { [weak self] tunnel in self?.acceptTunnel(tunnel) }
+        connect.onRoute = { [weak self] id, route, relay in self?.tunnelRouteChanged(id, route: route, relay: relay) }
+        connectCancellable = settings.$connectAway.removeDuplicates().sink { [weak self] enabled in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.connect.apply(enabled: enabled && self.identity != nil)
+                self.connectSync()
+                self.sendFeatureState()
+            }
+        }
+    }
+
+    /// The core's list of paired phones: those with a pair secret, and whether a session is up.
+    private func connectSync() {
+        guard connect.available else { return }
+        let peers = trustRegistry.devices.compactMap { device -> ConnectPeer? in
+            guard let secret = connect.store.pairSecret(device.id) else { return nil }
+            return ConnectPeer(id: device.id, side: ConnectCrypto.side(local: deviceID, remote: device.id), pairSecret: secret,
+                               addresses: connect.store.addresses(device.id), connected: registry.session(for: device.id) != nil)
+        }
+        connect.setPeers(peers)
+    }
+
+    /// A tunnel is up: run a session on its loopback bridge, exactly as on a LAN socket. The QUIC
+    /// client sends pairing.offer; the signatures bind to the tunnel's exporter.
+    private func acceptTunnel(_ tunnel: ConnectTunnel) {
+        guard identity != nil, settings.connectAway, let port = NWEndpoint.Port(rawValue: tunnel.port) else {
+            connect.command(["c": "close", "tunnel": tunnel.id])
+            return
+        }
+        let connection = NWConnection(host: NWEndpoint.Host("127.0.0.1"), port: port, using: .tcp)
+        let current = Session(connection: connection, peerName: tunnel.peer.map { trustedName($0) } ?? "Android device")
+        current.tunnel = tunnel
+        current.initiatedLocally = tunnel.quicClient
+        current.tagSender = deviceID
+        if tunnel.quicClient {
+            current.id = UUID().uuidString.lowercased()
+            current.privateKey = P256.KeyAgreement.PrivateKey()
+            current.localEphemeralKey = current.privateKey!.publicKey.x963Representation.base64EncodedString()
+            // A tunnel dial is a background reconnect: it never commits, so it can never become a pairing prompt.
+            current.committed = false
+        }
+        // Only a phone that is still trusted gets an offer over a tunnel.
+        let offerAllowed = tunnel.peer.map { trustedIdentityKey($0) != nil } ?? false
+        registry.addPending(current, initiatedLocally: tunnel.quicClient)
+        scheduleConnectionTimeout(for: current)
+        configure(current) { [weak self, weak current] in
+            guard let self, let current else { return }
+            // The bridge's one-time token comes first; then the session is stream 0 of the tunnel.
+            current.connection.send(content: Data((tunnel.token + "\n").utf8), completion: .contentProcessed { _ in })
+            guard tunnel.quicClient else { return }
+            guard offerAllowed else {
+                current.dropReason = "not_trusted"
+                current.close()
+                return
+            }
+            current.send(PairingMessage(
+                kind: "pairing.offer",
+                sessionId: current.id,
+                deviceId: self.deviceID,
+                deviceName: self.deviceName,
+                publicKey: current.localEphemeralKey,
+                targetDeviceId: tunnel.peer,
+                protocolVersion: SessionSecurity.protocolVersion
+            ))
+        }
+    }
+
+    /// ICE moved a tunnel to another pair (a better route, or the relay after a failure).
+    private func tunnelRouteChanged(_ id: String, route: String, relay: String?) {
+        for (phoneID, current) in registry.broadcastTargets({ _, _ in true }) where current.tunnel?.id == id {
+            current.tunnel?.route = route
+            current.tunnel?.relay = relay
+            var record = healthRecords[phoneID] ?? DeviceHealthRecord()
+            record.route = connectionRoute(forTunnel: route)
+            record.tunnelRoute = route
+            record.tunnelRelay = relay
+            healthRecords[phoneID] = record
+            publishHealth()
+        }
+    }
+
+    /// After features.update shows connect_draft1 on both sides: where this Mac can be dialled, and its pair check.
+    private func sendConnectAddresses(to current: Session) {
+        guard connectAdvertised, let local = connect.localAddresses() else { return }
+        let check = connect.store.pairSecret(current.remoteDeviceID).map(ConnectCrypto.pairCheck)
+        _ = sendQuickPayload(kind: "connect.addresses", payload: ConnectAddresses(port: local.port, addrs: local.addrs, pairCheck: check).payload, to: current)
+    }
+
+    /// Opens a connect.setup exchange: this side's contribution to a new pair secret.
+    private func beginConnectSetup(with current: Session, rotate: Bool) {
+        let contribution = randomContribution()
+        current.connectContribution = contribution
+        _ = sendQuickPayload(kind: "connect.setup", payload: ConnectSetup(contribution: contribution, rotate: rotate).payload, to: current)
+    }
+
+    private func randomContribution() -> Data {
+        SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+    }
+
+    /// connect.* in a session (draft connect_draft1). A malformed payload is dropped; the session stays.
+    private func receiveConnectMessage(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return }
+        let phoneID = current.remoteDeviceID
+        guard connectAdvertised, registry.state(for: phoneID)?.remoteConnect == true else { return }
+        switch message.kind {
+        case "connect.addresses":
+            guard let addresses = ConnectAddresses.decode(data) else { return }
+            connect.store.learn(phoneID, port: addresses.port, addresses: addresses.addrs)
+            let mine = connect.store.pairSecret(phoneID).map(ConnectCrypto.pairCheck)
+            // Different pair checks (or none yet): the lower device ID starts a new exchange.
+            if (mine == nil || addresses.pairCheck == nil || mine != addresses.pairCheck) && deviceID < phoneID {
+                beginConnectSetup(with: current, rotate: mine != nil)
+            }
+            connectSync()
+        case "connect.setup":
+            guard let setup = ConnectSetup.decode(data) else { return }
+            let own: Data
+            if let pending = current.connectContribution {
+                own = pending
+            } else {
+                own = randomContribution()
+                _ = sendQuickPayload(kind: "connect.setup", payload: ConnectSetup(contribution: own, rotate: setup.rotate).payload, to: current)
+            }
+            current.connectContribution = nil
+            let secret = ConnectCrypto.pairSecret(local: own, remote: setup.contribution, localID: deviceID, remoteID: phoneID)
+            connect.store.setPairSecret(secret, for: phoneID)
+            _ = sendQuickPayload(kind: "connect.setup.ack", payload: ["version": 1], to: current)
+            BridgeyLog.transport.notice("connect pair secret set peer=\(shortDeviceID(phoneID), privacy: .public) rotate=\(setup.rotate, privacy: .public)")
+            connectSync()
+        default:
+            break
+        }
+    }
+
+    /// Settings: "Reset away-from-home identity": a new node key, then a new pair secret with every phone.
+    func resetConnectIdentity() {
+        connect.resetIdentity()
+        for (_, current) in registry.broadcastTargets({ _, link in link.remoteConnect }) {
+            beginConnectSetup(with: current, rotate: true)
+        }
+        connectSync()
+    }
+
+    /// The network changed while Connect anywhere runs: tell the core, and drop every session that
+    /// does not answer a ping within 3 s, so a phone that left this network reconnects at once.
+    private func probeAfterNetworkChange(_ reason: String) {
+        guard connect.running else { return }
+        connect.network(reason)
+        let sent = Date()
+        for (_, current) in registry.broadcastTargets({ _, _ in true }) {
+            current.send(PairingMessage(kind: "heartbeat.ping", sessionId: current.id, messageId: UUID().uuidString.lowercased()))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self, weak current] in
+                guard let self, let current, self.registry.isActive(current), current.lastReceivedAt < sent else { return }
+                BridgeyLog.transport.notice("no answer after \(reason, privacy: .public) peer=\(shortDeviceID(current.remoteDeviceID), privacy: .public)")
+                current.dropReason = "network_changed"
+                current.close()
+            }
+        }
+    }
+
+    /// Connect anywhere's state for Settings.
+    var connectDisplay: ConnectDisplay {
+        ConnectDisplay(available: connect.available, controlConfigured: ConnectAnywhere.controlURL != nil,
+                       running: connect.running, presence: connect.presence.rawValue, relayOnly: ConnectAnywhere.relayOnly,
+                       debug: ConnectAnywhere.debugEnabled, controlURL: ConnectAnywhere.controlURL ?? "")
+    }
+
     private func scheduleHeartbeat(for current: Session) {
         current.heartbeat?.cancel()
         let work = DispatchWorkItem { [weak self, weak current] in
             guard let self, let current, self.registry.isActive(current) else { return }
-            if heartbeatExpired(supported: current.heartbeatSupported, lastReceivedAt: current.lastReceivedAt) {
+            // Over a tunnel QUIC and ICE keep the path alive; the session heartbeat runs less often there (mobile data).
+            if heartbeatExpired(supported: current.heartbeatSupported, lastReceivedAt: current.lastReceivedAt,
+                                timeout: current.tunnel == nil ? ReconnectPolicy.heartbeatTimeout : 75) {
                 BridgeyLog.transport.notice("heartbeat timed out peer=\(shortDeviceID(current.remoteDeviceID), privacy: .public)")
                 current.dropReason = "heartbeat_timeout"
                 current.close()
@@ -3796,7 +4040,7 @@ final class PairingCoordinator: ObservableObject {
             self.scheduleHeartbeat(for: current)
         }
         current.heartbeat = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + ReconnectPolicy.heartbeatInterval, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + (current.tunnel == nil ? ReconnectPolicy.heartbeatInterval : 25), execute: work)
     }
 
     private func postNotification(_ payload: RemoteNotificationPayload, deviceID: String) {
@@ -4938,7 +5182,8 @@ extension PairingCoordinator: PhoneFilesHost {
             let link = registry.state(for: phone.id)
             let browsable = link?.featureStateReceived == true && link?.remoteBrowse == true && isFeatureAvailable(.files, for: phone.id)
             return BrowsablePhone(id: phone.id, name: phone.name, browsable: browsable,
-                                  route: PhoneRouteClassifier.route(host: registry.session(for: phone.id)?.remoteHost))
+                                  route: registry.session(for: phone.id)?.tunnel.map { $0.route == ConnectRouteKind.lan.rawValue ? .lan : .relay }
+                                      ?? PhoneRouteClassifier.route(host: registry.session(for: phone.id)?.remoteHost))
         }
     }
 
@@ -5103,6 +5348,10 @@ private final class Session {
     var heartbeat: DispatchWorkItem?
     var lastReceivedAt = Date()
     var heartbeatSupported = false
+    /// Connect anywhere: the QUIC tunnel this session runs on (nil for today's TCP).
+    var tunnel: ConnectTunnel?
+    /// connect.setup: this side's contribution while an exchange is open.
+    var connectContribution: Data?
     var onMessage: ((PairingMessage) -> Void)?
     /// A decrypted binary frame (draft files_fast_draft1): a file chunk or speed test bytes.
     var onFast: ((FastFramePayload) -> Void)?
@@ -5878,4 +6127,63 @@ enum SmsPhoneDisplay: Equatable {
     case phoneOff(String)
     case waiting(String)
     case ready(String, SmsPhoneStatus)
+}
+
+// MARK: - Test instance control (debug builds with BridgeyTestInstance only)
+
+/// Commands for live tests, as files in `/tmp/<bundle id>-control/` (each is deleted once read):
+/// `pair` ("host:port", dials that phone like a pairing the user started), `drop-lan` (closes every LAN
+/// session, refuses new ones and turns on relay only: the phone left home), `clipboard` (sends this Mac's
+/// clipboard), `send-file` (a path), and `autoconfirm` (kept: "Codes match" is pressed for any prompt). Every
+/// second the instance writes `status.json` with its sessions, so a test can time connects and failovers.
+extension PairingCoordinator {
+    fileprivate var testControlDirectory: URL { URL(fileURLWithPath: "/tmp/\(Edition.identifier)-control", isDirectory: true) }
+
+    fileprivate func startTestControl() {
+        guard TestInstance.enabled, testControlTimer == nil else { return }
+        try? FileManager.default.createDirectory(at: testControlDirectory, withIntermediateDirectories: true)
+        testControlTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.testControlTick() }
+        }
+    }
+
+    private func takeTestCommand(_ name: String) -> String? {
+        let url = testControlDirectory.appendingPathComponent(name)
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        try? FileManager.default.removeItem(at: url)
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func testControlTick() {
+        if let target = takeTestCommand("pair") {
+            let parts = target.split(separator: ":")
+            if parts.count == 2, let port = Int(parts[1]) { pair(host: String(parts[0]), port: port, peerName: "Test phone") }
+        }
+        if takeTestCommand("drop-lan") != nil {
+            testLanBlocked = true
+            connect.setRelayOnly(true)
+            listener?.cancel()
+            listener = nil
+            for (_, current) in registry.broadcastTargets({ _, _ in true }) where current.tunnel == nil {
+                current.dropReason = "test_drop_lan"
+                current.close()
+            }
+            BridgeyLog.transport.notice("test: LAN dropped, relay only")
+        }
+        if takeTestCommand("clipboard") != nil { sendClipboard() }
+        if let path = takeTestCommand("send-file") { _ = sendDroppedFiles([URL(fileURLWithPath: path)], to: nil) }
+        if FileManager.default.fileExists(atPath: testControlDirectory.appendingPathComponent("autoconfirm").path),
+           let current = pairingSession, let token = current.token, current.code != nil, !current.localConfirmed {
+            confirm(token: token)
+        }
+        let sessions: [[String: Any]] = registry.broadcastTargets({ _, _ in true }).map { id, current in
+            ["peer": shortDeviceID(id), "tunnel": current.tunnel != nil, "route": current.tunnel?.route ?? "lan_tcp",
+             "relay": current.tunnel?.relay ?? NSNull(), "vpn": current.tunnel?.vpn ?? NSNull()]
+        }
+        let status: [String: Any] = ["at": Date().timeIntervalSince1970, "lanBlocked": testLanBlocked, "sessions": sessions,
+                                     "presence": connect.presence.rawValue, "trusted": trustRegistry.devices.count]
+        if let data = try? JSONSerialization.data(withJSONObject: status) {
+            try? data.write(to: testControlDirectory.appendingPathComponent("status.json"), options: .atomic)
+        }
+    }
 }

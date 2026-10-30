@@ -86,7 +86,8 @@ f("frame of 65,536 bytes with CRLF", None, {"kind":"pairing.offer","sessionId":S
 features_all = {"clipboard":True,"files":True,"notifications":True,"battery":True,"find_device":True,"ping":True,"links":True,"media":True,"calls":True,"remote_input_draft1":False}
 drafts_none = {"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False,"folders_receive_draft1":False,"files_browse_draft1":False,
                "mac_actions_draft1":False,"links_open_draft1":False,"focus_sync_draft1":False,"camera_draft1":False,
-               "updates_draft1":False,"screen_draft1":False,"sms_draft1":False,"settings_sync_draft1":False,"files_fast_draft1":False}
+               "updates_draft1":False,"screen_draft1":False,"sms_draft1":False,"settings_sync_draft1":False,
+               "connect_draft1":False,"files_fast_draft1":False}
 feat = []
 def fe(name, plaintext, expect, raw=False):
     feat.append({"name": name, ("plaintextString" if raw else "plaintext"): plaintext, "expect": expect})
@@ -129,6 +130,11 @@ fe("settings sync key that is not a boolean counts as false", {"version":1,"feat
    {"features":features_all,"drafts":drafts_none})
 fe("v0.10 device with Update all, screen sharing, Text messages and settings sync", {"version":1,"features":{**features_all,"updates_draft1":True,"screen_draft1":True,"sms_draft1":True,"settings_sync_draft1":True}},
    {"features":features_all,"drafts":{**drafts_none,"updates_draft1":True,"screen_draft1":True,"sms_draft1":True,"settings_sync_draft1":True}})
+# Connect anywhere (connect_draft1): a draft key like the others, true only for JSON true.
+fe("Connect anywhere on", {"version":1,"features":{**features_all,"connect_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"connect_draft1":True}})
+fe("Connect anywhere key that is not a boolean counts as false", {"version":1,"features":{**features_all,"connect_draft1":"true"}},
+   {"features":features_all,"drafts":drafts_none})
 fe("first-slice Mac (folders_draft1 only, no Files 2.0 keys)", {"version":1,"features":{**features_all,"folders_draft1":True,"places_draft1":False}},
    {"features":features_all,"drafts":{**drafts_none,"folders_draft1":True}})
 legacy = {"clipboard":True,"files":False,"notifications":True,"battery":True,"find_device":False}
@@ -610,7 +616,7 @@ def us(name, p, expect, raw=False, write=False):
 base = {"version":1,"platform":"android","edition":"rr","app":"0.9.0-rr.3-beta.2","build":903002,"channel":"beta","state":"current","remoteStart":True,"checkedAt":1793091600000}
 def e(**kw):
     d = {k:v for k,v in base.items() if k != "version"}
-    d.update({"target":None,"targetBuild":None,"progress":None,"reason":None})
+    d.update({"target":None,"targetBuild":None,"progress":None,"reason":None,"auto":False,"busy":None})
     d.update(kw)
     return d
 us("up to date", base, e(), write=True)
@@ -626,6 +632,17 @@ us("did not apply", {**base,"state":"failed","target":"0.9.0-rr.3-beta.3","targe
 us("failed check without a target", {**base,"state":"failed","reason":"check"}, e(state="failed",reason="check"), write=True)
 us("manual, remote start off", {**base,"platform":"macos","state":"manual","remoteStart":False}, e(platform="macos",state="manual",remoteStart=False), write=True)
 us("an unknown reason reads as other", {**base,"state":"failed","reason":"disk_full"}, e(state="failed",reason="other"))
+# Update all devices automatically: optional auto (the setting is on) and busy (what the person is doing there).
+us("automatic updates on", {**base,"auto":True}, e(auto=True), write=True)
+for activity in ["call","screen_share","remote_control","transfer","phone_files","setup"]:
+    us("busy: " + activity, {**base,"auto":True,"busy":activity}, e(auto=True,busy=activity), write=True)
+us("auto false written out", {**base,"auto":False}, e())
+us("an unknown busy reads as other (still busy)", {**base,"busy":"karaoke"}, e(busy="other"))
+us("busy null counts as absent", {**base,"busy":None,"auto":None}, e())
+us("auto as a string", {**base,"auto":"true"}, "reject")
+us("auto as a number", {**base,"auto":1}, "reject")
+us("busy as a boolean", {**base,"busy":True}, "reject")
+us("busy as a number", {**base,"busy":1}, "reject")
 us("unknown fields are ignored", {**base,"since":5,"extra":{"a":1}}, e())
 us("version written as 1.0", '{"version":1.0,"platform":"android","edition":"rr","app":"0.9.0-rr.3-beta.2","build":903002,"channel":"beta","state":"current","remoteStart":true,"checkedAt":1793091600000}', e(), raw=True)
 us("null optionals count as absent", {**base,"target":None,"targetBuild":None,"progress":None,"reason":None}, e())
@@ -662,11 +679,15 @@ def ut(name, p, expect, raw=False, write=False):
     v = {"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect}
     if write: v["write"] = True
     ustart.append(v)
-ut("update now", {"version":1,"requestId":R2}, {"requestId":R2,"retry":False}, write=True)
-ut("retry after Retry was tapped", {"version":1,"requestId":R2,"retry":True}, {"requestId":R2,"retry":True}, write=True)
-ut("retry false written out", {"version":1,"requestId":R2,"retry":False}, {"requestId":R2,"retry":False})
-ut("an uppercase request ID is read lowercased", {"version":1,"requestId":R2.upper()}, {"requestId":R2,"retry":False})
-ut("unknown fields are ignored (a version or URL is never read)", {"version":1,"requestId":R2,"url":"https://example.com/evil.apk","target":"9.9.9"}, {"requestId":R2,"retry":False})
+ut("update now", {"version":1,"requestId":R2}, {"requestId":R2,"retry":False,"auto":False}, write=True)
+ut("retry after Retry was tapped", {"version":1,"requestId":R2,"retry":True}, {"requestId":R2,"retry":True,"auto":False}, write=True)
+ut("retry false written out", {"version":1,"requestId":R2,"retry":False}, {"requestId":R2,"retry":False,"auto":False})
+ut("an uppercase request ID is read lowercased", {"version":1,"requestId":R2.upper()}, {"requestId":R2,"retry":False,"auto":False})
+ut("unknown fields are ignored (a version or URL is never read)", {"version":1,"requestId":R2,"url":"https://example.com/evil.apk","target":"9.9.9"}, {"requestId":R2,"retry":False,"auto":False})
+ut("started automatically", {"version":1,"requestId":R2,"auto":True}, {"requestId":R2,"retry":False,"auto":True}, write=True)
+ut("auto false written out", {"version":1,"requestId":R2,"auto":False}, {"requestId":R2,"retry":False,"auto":False})
+ut("auto null counts as absent", {"version":1,"requestId":R2,"auto":None}, {"requestId":R2,"retry":False,"auto":False})
+ut("auto as a string", {"version":1,"requestId":R2,"auto":"true"}, "reject")
 ut("retry as a string", {"version":1,"requestId":R2,"retry":"true"}, "reject")
 ut("requestId not a UUID", {"version":1,"requestId":"update-1"}, "reject")
 ut("requestId missing", {"version":1}, "reject")
@@ -895,7 +916,7 @@ sms_b("over 1 KiB", sized('{"version":1,"requestId":"%s","result":"opened","pad"
 
 # Settings sync (settings_sync_draft1, docs/folders-and-settings-sync.md sections 4.9, 8 and 8.4). settingsPayload: a
 # settings.snapshot or settings.update plaintext as the receiver reads it. expect is {records, waiting, skipped} (the
-# records of the 24 schema 1 keys, the keys the sender says wait for a permission there, and how many record entries were
+# records of the 27 schema 1 keys, the keys the sender says wait for a permission there, and how many record entries were
 # skipped one by one: unknown or per-device keys, wrong types, values out of range), "invalid" (the whole message is
 # dropped and answered settings.error invalid_message) or {"unsupportedSchema": N}.
 DA = "7e57d00d-0000-4000-8000-00000000000a"
@@ -906,8 +927,9 @@ SYNC_BOOL_KEYS = ["activity.previews","display.reduce_motion",
                   "feature.clipboard","feature.files","feature.notifications","feature.battery","feature.find_device","feature.ping",
                   "feature.links","feature.media","feature.calls","feature.remote_input","feature.mac_actions","feature.camera",
                   "clipboard.automatic","clipboard.files","focus.share","focus.follow","codes.enabled",
-                  "feature.screen","feature.sms","updates.auto_all"]
-assert len(SYNC_STRING_KEYS) + len(SYNC_BOOL_KEYS) == 24
+                  "feature.screen","feature.sms","updates.auto_all","connect.away",
+                  "files.folder_include_hidden","files.folder_include_system"]
+assert len(SYNC_STRING_KEYS) + len(SYNC_BOOL_KEYS) == 27
 spay = []
 def sp(name, kind, p, expect, raw=False): spay.append({"name":name, "kind":kind, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
 def ok(records, skipped=0, waiting=None, first=False, new=False, answered=False):
@@ -968,9 +990,9 @@ sp("first connect of a new device", "snapshot", {"schema":1,"maxSchema":1,"recor
 sp("first connect of a device that synced before", "snapshot", {"schema":1,"maxSchema":1,"records":{},"first":True,"new":False}, ok({}, first=True))
 sp("the person answered", "update", {"schema":1,"records":{},"answered":True}, ok({}, answered=True))
 sp("first, new and answered that are not booleans count as false", "snapshot", {"schema":1,"records":{},"first":1,"new":"true","answered":None}, ok({}))
-filler = {"x.k%02d" % n: rec(True,1,1,DA) for n in range(8)}
+filler = {"x.k%02d" % n: rec(True,1,1,DA) for n in range(32 - len(every))}
 assert len(every) + len(filler) == 32
-sp("32 records (8 unknown)", "snapshot", {"schema":1,"maxSchema":1,"records":{**every,**filler}}, ok(every, 8))
+sp("32 records (%d unknown)" % len(filler), "snapshot", {"schema":1,"maxSchema":1,"records":{**every,**filler}}, ok(every, len(filler)))
 sp("33 records", "snapshot", {"schema":1,"maxSchema":1,"records":{**every,**filler,"x.k99":rec(True,1,1,DA)}}, "invalid")
 sp("waiting of 33 entries", "update", {"schema":1,"records":{},"waiting":["feature.calls"]*33}, "invalid")
 sp("schema 2", "update", {"schema":2,"records":{}}, {"unsupportedSchema":2})
@@ -1042,8 +1064,49 @@ ss("changedAt at 2^53-1 stays there; the version decides", rec(True,900719925474
 ss("same changedAt as now still moves forward", rec(True,5000,1,DB), 5000, rec(None,5001,2,DA))
 ss("Apply to all from a chosen value", rec(True,1792900000000,7,DA), 1792900005000, rec(None,1792900005000,8,DA))
 
+# Connect anywhere (connect_draft1), decoded by both platforms. connect.setup: version 1, contribution
+# base64 of exactly 32 bytes, rotate an optional boolean (missing means false). connect.addresses:
+# version 1, port 1 to 65535, addrs an array of at most 16; entries with an unknown kind or an address
+# that is not a usable IP literal (loopback, unspecified, multicast) are skipped; vpn is tailscale,
+# other or null; pairCheck an optional base64url string of 8 bytes.
+C32 = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
+setup = []
+def cu(name, p, expect, raw=False): setup.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+cu("first exchange", {"version":1,"contribution":C32,"rotate":False}, {"contribution":C32,"rotate":False})
+cu("rotate", {"version":1,"contribution":C32,"rotate":True}, {"contribution":C32,"rotate":True})
+cu("rotate missing means false", {"version":1,"contribution":C32}, {"contribution":C32,"rotate":False})
+cu("unknown fields are ignored", {"version":1,"contribution":C32,"future":[1,2]}, {"contribution":C32,"rotate":False})
+cu("31 bytes", {"version":1,"contribution":"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHw=="}, "reject")
+cu("33 bytes", {"version":1,"contribution":"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAh"}, "reject")
+cu("not base64", {"version":1,"contribution":"!!!!"}, "reject")
+cu("contribution missing", {"version":1}, "reject")
+cu("rotate as a string", {"version":1,"contribution":C32,"rotate":"yes"}, "reject")
+cu("version 2", {"version":2,"contribution":C32}, "reject")
+cu("over 256 bytes", sized('{"version":1,"contribution":"%s","pad":"' % C32, 257), "reject", raw=True)
+cu("lenient JSON", "{version:1,contribution:'%s'}" % C32, "reject", raw=True)
+
+addresses = []
+def ad(name, p, expect, raw=False): addresses.append({"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
+def ae(a, kind, vpn=None): return {"a":a,"kind":kind,"vpn":vpn}
+PC = "r_IQgYZ46wg"
+ad("home Mac with Tailscale", {"version":1,"port":42458,"addrs":[{"a":"192.168.1.20","kind":"lan"},{"a":"100.101.1.2","kind":"vpn","vpn":"tailscale"},{"a":"2409:4040:1:2::20","kind":"public6"}],"pairCheck":PC},
+   {"port":42458,"addrs":[ae("192.168.1.20","lan"),ae("100.101.1.2","vpn","tailscale"),ae("2409:4040:1:2::20","public6")],"pairCheck":PC})
+ad("no pair secret yet", {"version":1,"port":42458,"addrs":[]}, {"port":42458,"addrs":[],"pairCheck":None})
+ad("unusable entries are skipped", {"version":1,"port":50000,"addrs":[{"a":"127.0.0.1","kind":"lan"},{"a":"::1","kind":"lan"},{"a":"0.0.0.0","kind":"lan"},{"a":"224.0.0.1","kind":"lan"},
+   {"a":"example.com","kind":"lan"},{"a":"300.1.1.1","kind":"lan"},{"a":"10.0.0.2","kind":"satellite"},{"a":"10.0.0.3"},5,{"a":"10.0.0.4","kind":"lan"}]},
+   {"port":50000,"addrs":[ae("10.0.0.4","lan")],"pairCheck":None})
+ad("unknown vpn names read as none", {"version":1,"port":42458,"addrs":[{"a":"10.8.0.2","kind":"vpn","vpn":"wireguard"}]}, {"port":42458,"addrs":[ae("10.8.0.2","vpn")],"pairCheck":None})
+ad("17 entries", {"version":1,"port":42458,"addrs":[{"a":"10.0.0.%d" % n,"kind":"lan"} for n in range(1,18)]}, "reject")
+ad("port 0", {"version":1,"port":0,"addrs":[]}, "reject")
+ad("port 65536", {"version":1,"port":65536,"addrs":[]}, "reject")
+ad("addrs missing", {"version":1,"port":42458}, "reject")
+ad("pairCheck as a number", {"version":1,"port":42458,"addrs":[],"pairCheck":5}, "reject")
+ad("pairCheck of the wrong length", {"version":1,"port":42458,"addrs":[],"pairCheck":"abc"}, "reject")
+ad("version 2", {"version":2,"port":42458,"addrs":[]}, "reject")
+ad("over 2048 bytes", sized('{"version":1,"port":42458,"addrs":[],"pad":"', 2049), "reject", raw=True)
+
 out = {
-  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect, and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page), smsSendStatus, smsMarkReadResult and smsBlockedNumbersResult by the Mac (the phone also writes exactly the expected plaintext for each valid one); requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, waiting, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins when an update arrives (local, remote or equal); settingsSnapshot says what a snapshot record does (adopt, different or same); settingsAsker says which side asks on a first connect (local, remote or none); settingsStamp is the record a local edit or Apply to all makes from current at now by device (value null: the new value is the edit's own).",
+  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect (auto and retry: false), and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page), smsSendStatus, smsMarkReadResult and smsBlockedNumbersResult by the Mac (the phone also writes exactly the expected plaintext for each valid one); requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, waiting, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins when an update arrives (local, remote or equal); settingsSnapshot says what a snapshot record does (adopt, different or same); settingsAsker says which side asks on a first connect (local, remote or none); settingsStamp is the record a local edit or Apply to all makes from current at now by device (value null: the new value is the edit's own). Connect anywhere (connect_draft1): connectSetup and connectAddresses are decoded by both platforms; addresses keep their order and vpn null means absent.",
   "sessionId": S,
   "frames": frames,
   "featuresUpdate": feat,
@@ -1077,9 +1140,11 @@ out = {
   "settingsSnapshot": ssnap,
   "settingsAsker": sasker,
   "settingsStamp": sstamp,
+  "connectSetup": setup,
+  "connectAddresses": addresses,
 }
 open(OUT,'w').write(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
 print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat), len(st), len(ustart), len(uresult),
       len(screq), len(scstat), len(sstream), len(sframe),
       len(smsreq), len(smssend), len(smsstatus), len(smsmsg), len(smssent), len(smsmark), len(smsblock),
-      len(spay), len(smerge), len(ssnap), len(sasker), len(sstamp))
+      len(spay), len(smerge), len(ssnap), len(sasker), len(sstamp), len(setup), len(addresses))

@@ -78,6 +78,16 @@ class AppUpdater(
     /** Set by the application: a Bridgey screen is in front (then Android's own screens can open at once). */
     @Volatile var isForeground: () -> Boolean = { false }
 
+    /**
+     * Set by Update all: "Update all devices automatically" is on. Then the scheduled check runs every 30
+     * minutes (6 hours on Stable), waking up and network changes check too, and a new version starts the
+     * automatic run instead of the "Update available" prompt and notification.
+     */
+    @Volatile var automatic: () -> Boolean = { false }
+
+    /** The last check started by waking up or a network change (not saved: a fresh process may check once). */
+    @Volatile private var lastEventCheckAt = 0L
+
     /** The updater can run: this build has an HTTPS channel feed. */
     val canUpdate: Boolean = BuildConfig.UPDATE_FEED_BASE_URL.startsWith("https://")
     private val mutableState = MutableStateFlow(
@@ -132,14 +142,35 @@ class AppUpdater(
         }
     }
 
-    /** Runs while the connection service runs: at most one check per 24 hours. */
+    /**
+     * Runs while the connection service runs: one check a day, or every 30 minutes on Beta and Nightly
+     * and every 6 hours on Stable with Update all devices automatically on. Wakes every few minutes to
+     * see whether one is due (a delay does not run during deep sleep, so a due check runs on waking).
+     */
     suspend fun runPeriodicChecks() {
         while (true) {
-            if (UpdateFeeds.isCheckDue(lastCheckedAt(), System.currentTimeMillis(), UpdateFeeds.CHECK_INTERVAL_MILLIS)) {
+            if (UpdateFeeds.isCheckDue(lastCheckedAt(), System.currentTimeMillis(), checkInterval())) {
                 check(notify = true, userInitiated = false)
             }
             delay(PERIODIC_WAKE_MILLIS)
         }
+    }
+
+    private fun checkInterval(): Long {
+        val channel = dev.bridgey.android.updates.WireChannel.fromWire(mutableState.value.channel.key) ?: dev.bridgey.android.updates.WireChannel.STABLE
+        return dev.bridgey.android.updates.AutoUpdateRules.checkInterval(automatic(), channel)
+    }
+
+    /**
+     * The screen came on or the network changed: with Update all devices automatically on, check now,
+     * unless any check ran in the last 10 minutes.
+     */
+    fun checkOnEvent() {
+        if (!canUpdate || !automatic()) return
+        val now = System.currentTimeMillis()
+        if (!dev.bridgey.android.updates.AutoUpdateRules.eventCheckAllowed(lastCheckedAt(), lastEventCheckAt, now)) return
+        lastEventCheckAt = now
+        scope.launch { check(notify = true, userInitiated = false) }
     }
 
     fun later() {
@@ -316,9 +347,12 @@ class AppUpdater(
         mutableState.update { it.copy(awaitingConfirmation = false, installing = false, error = error) }
     }
 
-    /** What this phone tells its paired devices (updates.status). */
-    fun wireStatus(remoteStart: Boolean): UpdateStatus =
-        localUpdateStatus(mutableState.value, installedVersionName, installedVersionCode, remoteStart, canUpdate)
+    /**
+     * What this phone tells its paired devices (updates.status). [automatic]: Update all devices
+     * automatically is on; [busy]: what the person is doing here, so an automatic run waits.
+     */
+    fun wireStatus(remoteStart: Boolean, automatic: Boolean = false, busy: dev.bridgey.android.updates.UpdateBusy? = null): UpdateStatus =
+        localUpdateStatus(mutableState.value, installedVersionName, installedVersionCode, remoteStart, canUpdate, automatic, busy)
 
     private fun storeNotApplied(marker: dev.bridgey.android.updates.NotApplied) {
         preferences.edit().putLong(KEY_NOT_APPLIED_BUILD, marker.build).putString(KEY_NOT_APPLIED_VERSION, marker.version).apply()
@@ -406,17 +440,26 @@ class AppUpdater(
                 val snoozed = update != null && !userInitiated &&
                     preferences.getLong(KEY_SNOOZED_CODE, 0L) == update.versionCode &&
                     now < preferences.getLong(KEY_SNOOZED_UNTIL, 0L)
+                // Update all devices automatically starts its own run (with its own notice) for a new version.
+                val automatic = automatic()
                 mutableState.update {
                     it.copy(
                         checking = false,
                         lastCheckedAt = now,
                         available = update,
-                        promptVisible = update != null && !userInitiated && !snoozed && it.downloadProgress == null,
+                        promptVisible = update != null && !userInitiated && !snoozed && !automatic && it.downloadProgress == null,
                         deferred = update != null && snoozed,
                         skippedVersion = if (update == null) newest?.versionName else null,
+                        // The feed answered: "couldn't reach the update server" is no longer true. With automatic
+                        // updates on, a newer build than the one that failed is a new attempt (the same build waits for the person).
+                        error = when {
+                            it.error == UpdateError.CHECK -> null
+                            automatic && update != null && it.available != null && update.versionCode != it.available.versionCode -> null
+                            else -> it.error
+                        },
                     )
                 }
-                if (notify && update != null && !snoozed) notifyUpdate(update)
+                if (notify && update != null && !snoozed && !automatic) notifyUpdate(update)
             },
             onFailure = {
                 mutableState.update { it.copy(checking = false, error = if (userInitiated) UpdateError.CHECK else it.error) }
@@ -651,7 +694,7 @@ class AppUpdater(
         private const val KEY_NOTIFIED_CODE = "notified_version_code"
         private const val KEY_SKIPPED_CODE = "skipped_version_code"
         private const val NETWORK_TIMEOUT_MILLIS = 15_000
-        private const val PERIODIC_WAKE_MILLIS = 60L * 60 * 1000
+        private const val PERIODIC_WAKE_MILLIS = 5L * 60 * 1000
         private const val NOTIFICATION_CHANNEL_ID = "bridgey.updates"
         private const val NOTIFICATION_ID = 42_470
         private const val ATTENTION_CHANNEL_ID = "bridgey.updates.attention"
@@ -667,7 +710,8 @@ class AppUpdater(
 /**
  * This phone's updates.status from the updater's state (docs/protocol.md "Update all"). One state
  * at a time, the step furthest along first. A version that did not apply stays reported until the
- * person installs by hand, retries, or a newer build is offered.
+ * person installs by hand, retries, or a newer build is offered. `auto` only when the updater can
+ * run; `busy` is what the person is doing here.
  */
 fun localUpdateStatus(
     state: UpdateUiState,
@@ -675,6 +719,8 @@ fun localUpdateStatus(
     installedVersionCode: Long,
     remoteStart: Boolean,
     canUpdate: Boolean,
+    automatic: Boolean = false,
+    busy: dev.bridgey.android.updates.UpdateBusy? = null,
 ): UpdateStatus {
     val update = state.available
     val notApplied = state.notApplied
@@ -697,6 +743,8 @@ fun localUpdateStatus(
         reason = reason,
         remoteStart = remoteStart && canUpdate,
         checkedAt = state.lastCheckedAt.coerceAtLeast(0),
+        auto = automatic && canUpdate,
+        busy = busy,
     )
     return when {
         !canUpdate -> status(UpdateState.MANUAL, target = null)

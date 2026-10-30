@@ -35,6 +35,8 @@ final class LocalDataResetTests: XCTestCase {
         "settings.batteryAlerts.11111111-1111-1111-1111-111111111111.full", "settings.focusSync", "settings.camera.copyToClipboard",
         // Text messages
         "settings.sms.enabled", "settings.sms.keepOnMac",
+        // Calls from other apps
+        "settings.calls.otherApps",
     ]
     private let identityKeys = ["deviceID", "settings.codes.installId"]
     private let trustKeys = ["trustedDeviceIDs", "trusted.11111111-1111-1111-1111-111111111111.name", "protocolPin.11111111-1111-1111-1111-111111111111", "sync.answers"]

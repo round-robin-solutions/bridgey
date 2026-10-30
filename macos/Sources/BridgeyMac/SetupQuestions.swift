@@ -34,6 +34,8 @@ enum SetupSection: String, CaseIterable {
 enum SetupSetting: String, CaseIterable {
     // Devices
     case pairing, deviceFeatures, deviceAutoClipboard, batteryAlerts
+    /// Devices > Connect away from home (connect_draft1), on until chosen (Rahul, 2026-10-30).
+    case connectAway
     // Clipboard
     case featureClipboard, autoClipboard, clipboardFiles, clipboardEagerLimit, shortcutClipboard
     // Notifications
@@ -57,7 +59,7 @@ enum SetupSetting: String, CaseIterable {
     // Privacy
     case showPreviews, loggingConnection, loggingDetail
     // Updates
-    case updateChannel, updatesAutomatic
+    case updateChannel, updatesAutomatic, updatesAutoAll
     // General
     case launchAtLogin, reduceMotion, shortcutShift
     // Settings sync: the summary's own switch (v0.10)
@@ -68,7 +70,7 @@ enum SetupSetting: String, CaseIterable {
         switch self {
         case .featureClipboard, .autoClipboard, .clipboardFiles, .featureNotifications, .featureCalls, .ringForCalls,
              .featureFiles, .featureLinks, .featurePing, .featureFindDevice, .featureBattery, .showPreviews,
-             .loggingConnection, .updatesAutomatic, .smsKeepOnMac, .settingsSync:
+             .loggingConnection, .updatesAutomatic, .smsKeepOnMac, .settingsSync, .connectAway:
             "true"
         case .codesEngine: "local"
         case .folderReceiveMode: "fixed"
@@ -179,6 +181,9 @@ enum SetupFeatures {
                      on: [.on(.featurePing)], off: [.off(.featurePing)], main: .featurePing, pane: .media),
         SetupFeature(id: "battery", title: BridgeyFeature.battery.title, detail: BridgeyFeature.battery.subtitle,
                      on: [.on(.featureBattery)], off: [.off(.featureBattery)], main: .featureBattery, pane: .media),
+        SetupFeature(id: "away", title: SettingsPane.away.title,
+                     detail: L10n.setup("setup.feature.away.detail", fallback: "Reach your devices from any network, with no VPN on the phone."),
+                     on: [.on(.connectAway)], off: [.off(.connectAway)], main: .connectAway, pane: .away),
     ]
 
     static func feature(_ id: String) -> SetupFeature? { all.first { $0.id == id } }
@@ -252,6 +257,17 @@ enum SetupQuestions {
             summary: L10n.setup("setup.q.pair.summary", fallback: "Paired with your phone"),
             answers: [], pane: .devices, covers: [.pairing],
             asks: { !$0.paired }
+        ),
+        SetupQuestion(
+            id: "away", section: .devices, feature: "away",
+            title: L10n.setup("setup.q.away.title", fallback: "Reach your devices away from home?"),
+            context: L10n.setup("setup.q.away.context", fallback: "Devices connect directly when they can, or through a Round Robin relay that only sees encrypted data. No account, and you can turn it off at any time."),
+            summary: L10n.setup("setup.q.away.summary", fallback: "Connect away from home"),
+            answers: [
+                SetupAnswer(key: SetupAnswerKey.yes, label: L10n.setup("setup.a.yes", fallback: "Yes"), changes: [.on(.connectAway)]),
+                SetupAnswer(key: SetupAnswerKey.no, label: L10n.setup("setup.a.notNow", fallback: "Not now"), changes: [.off(.connectAway)]),
+            ],
+            pane: .away, covers: [.connectAway]
         ),
         SetupQuestion(
             id: "clipboard", section: .clipboard, feature: "clipboard",
@@ -359,13 +375,15 @@ enum SetupQuestions {
         ),
     ]
 
-    /// Answers only typing gives (no card): Do Not Disturb in step, and the update channel. Their
-    /// settings are on their Settings pages too.
+    /// Answers only typing gives (no card): Do Not Disturb in step, the update channel and Update all
+    /// devices automatically. Their settings are on their Settings pages too. Applied in id order, so an
+    /// explicit "updates_auto" answer wins over the channel's own choice.
     static let typedOnly: [String: [String: [SettingChange]]] = [
         "focus": [SetupAnswerKey.both: [.on(.focusShare), .on(.focusFollow)], SetupAnswerKey.no: [.off(.focusShare), .off(.focusFollow)]],
-        "updates": [SetupAnswerKey.steady: [.set(.updateChannel, "stable")],
-                    SetupAnswerKey.early: [.set(.updateChannel, "beta")],
-                    SetupAnswerKey.newest: [.set(.updateChannel, "nightly")]],
+        "updates": [SetupAnswerKey.steady: [.set(.updateChannel, "stable"), .off(.updatesAutoAll)],
+                    SetupAnswerKey.early: [.set(.updateChannel, "beta"), .on(.updatesAutoAll)],
+                    SetupAnswerKey.newest: [.set(.updateChannel, "nightly"), .on(.updatesAutoAll)]],
+        "updates_auto": [SetupAnswerKey.yes: [.on(.updatesAutoAll)], SetupAnswerKey.no: [.off(.updatesAutoAll)]],
     ]
 
     /// The typed-only answers as they read in the preview and the summary.
@@ -378,9 +396,13 @@ enum SetupQuestions {
         case ("updates", SetupAnswerKey.steady):
             (L10n.setup("setup.q.updates.summary", fallback: "Updates"), L10n.setup("setup.a.updates.steady", fallback: "Steady"), .updates)
         case ("updates", SetupAnswerKey.early):
-            (L10n.setup("setup.q.updates.summary", fallback: "Updates"), L10n.setup("setup.a.updates.early", fallback: "Early"), .updates)
+            (L10n.setup("setup.q.updates.summary", fallback: "Updates"), L10n.setup("setup.a.updates.earlyAuto", fallback: "Early, all devices update automatically"), .updates)
         case ("updates", SetupAnswerKey.newest):
-            (L10n.setup("setup.q.updates.summary", fallback: "Updates"), L10n.setup("setup.a.updates.newest", fallback: "Newest every day"), .updates)
+            (L10n.setup("setup.q.updates.summary", fallback: "Updates"), L10n.setup("setup.a.updates.newestAuto", fallback: "Newest every day, all devices update automatically"), .updates)
+        case ("updates_auto", SetupAnswerKey.yes):
+            (AutoUpdateText.title, L10n.setup("setup.a.yes", fallback: "Yes"), .updates)
+        case ("updates_auto", SetupAnswerKey.no):
+            (AutoUpdateText.title, L10n.setup("setup.a.no", fallback: "No"), .updates)
         default: nil
         }
     }
@@ -417,7 +439,7 @@ enum SetupQuestions {
         .macActionApps: .media, .macActionShortcuts: .media, .macActionsLog: .media, .shortcutLink: .media, .shortcutPing: .media,
         .remoteLog: .remoteControl,
         .showPreviews: .privacy, .loggingConnection: .privacy, .loggingDetail: .privacy,
-        .updateChannel: .updates, .updatesAutomatic: .updates,
+        .updateChannel: .updates, .updatesAutomatic: .updates, .updatesAutoAll: .updates,
         .launchAtLogin: .general, .reduceMotion: .general, .shortcutShift: .general,
     ]
 
@@ -485,6 +507,11 @@ enum SetupTyped {
         Rule(id: "updates", answer: SetupAnswerKey.newest, stems: ["nightly", "newest", "every day", "ночн", "каждый день"], negatable: false),
         Rule(id: "updates", answer: SetupAnswerKey.early, stems: ["beta", "early", "бета", "раньше"], negatable: false),
         Rule(id: "updates", answer: SetupAnswerKey.steady, stems: ["stable", "steady", "стабил"], negatable: false),
+        Rule(id: "updates_auto", answer: SetupAnswerKey.yes,
+             stems: ["update automatically", "updates automatically", "updating automatically", "install automatically", "devices automatically",
+                     "auto updat", "autoupdat", "automatic updat", "automatically updat",
+                     "автообнов", "автоматически обнов", "автоматическое обнов", "автоматические обнов", "автоматических обнов",
+                     "обновлять автоматич", "обновляться автоматич", "обновления автоматич", "обновление автоматич", "устанавливать автоматич"]),
     ]
 
     /// Every id typing can answer on this Mac: the features, their follow-ups, Focus and updates.
@@ -575,6 +602,9 @@ enum SetupBundles {
         SetupBundle(id: "remote", pane: .remoteControl,
                     detail: L10n.setup("setup.bundle.remote", fallback: "Your phone as a touchpad and slide clicker, and its screen on this Mac."),
                     answers: [("remote", SetupAnswerKey.pick), ("mac_actions", SetupAnswerKey.pick), ("screen", SetupAnswerKey.pick)]),
+        SetupBundle(id: "away", pane: .away,
+                    detail: L10n.setup("setup.bundle.away", fallback: "Your devices stay connected when you leave home."),
+                    answers: [("away", SetupAnswerKey.pick)]),
     ]
 
     /// "Get started quickly": pair, then clipboard when you click Send, and your phone's
@@ -645,10 +675,12 @@ extension SetupFacts {
             .featureFindDevice: feature(.findDevice),
             .featurePing: feature(.ping),
             .featureBattery: feature(.battery),
+            .connectAway: bool(model.connectAway),
             .showPreviews: bool(model.showPreviews),
             .loggingConnection: bool(model.logging.connection),
             .updateChannel: model.channel.rawValue,
             .updatesAutomatic: bool(model.automaticallyChecks),
+            .updatesAutoAll: bool(model.autoUpdate.enabled),
             .launchAtLogin: bool(model.launchAtLogin),
             .reduceMotion: bool(model.reduceMotion),
             .settingsSync: bool(model.settingsSyncEnabled),

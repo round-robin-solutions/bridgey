@@ -342,6 +342,60 @@ class SetupScreenshotTest {
 
     @Test @Config(qualifiers = "+night") fun codesLinkPickerDark() = codesLinkPicker()
 
+    /** Settings > General on a Google Pixel: App battery usage, Adaptive Battery, Pause app activity if unused. */
+    private fun pixelChecklist() = capture("oem-checklist-pixel") {
+        SettingsScreen(
+            state = settings.copy(batteryExempt = false, setup = SetupSettingsState(oem = OemBattery.checklist("Google", "google"))),
+            actions = SettingsActions(),
+            section = SettingsSection.GENERAL,
+        )
+    }
+
+    @Test fun pixelChecklistLight() = pixelChecklist()
+
+    @Test @Config(qualifiers = "+night") fun pixelChecklistDark() = pixelChecklist()
+
+    /** Setup's Permissions page: Notification access was asked and is still off, so the restricted settings hint shows. */
+    private fun permissionsRestricted() = questions(
+        "setup-permissions-restricted",
+        go(atSwitches, SetupEvent.Continue, SetupEvent.Asked(setOf(PermissionKind.NOTIFICATION_ACCESS))),
+        facts = facts(granted = setOf(PermissionKind.POST_NOTIFICATIONS)),
+    )
+
+    @Test fun permissionsRestrictedLight() = permissionsRestricted()
+
+    @Test @Config(qualifiers = "+night") fun permissionsRestrictedDark() = permissionsRestricted()
+
+    /** The quick path's Notification access step after Allow, back with nothing granted. */
+    private fun quickNotificationsRestricted() = setup(
+        "setup-quick-notifications-restricted",
+        flow(SetupEvent.ChooseQuick, SetupEvent.Next, SetupEvent.Asked(setOf(PermissionKind.NOTIFICATION_ACCESS))),
+        settings = settings.copy(notificationAccessEnabled = false), paired = listOf("Personal Mac"),
+    )
+
+    @Test fun quickNotificationsRestrictedLight() = quickNotificationsRestricted()
+
+    @Test @Config(qualifiers = "+night") fun quickNotificationsRestrictedDark() = quickNotificationsRestricted()
+
+    /** Settings > Files with the two new switches (synced), scrolled down to them; hidden files differ on a Mac. */
+    private fun filesHidden() = capture("settings-files-hidden") {
+        SettingsScreen(
+            state = settings.copy(
+                folders = settings.folders.copy(includeHidden = true),
+                sync = dev.bridgey.android.sync.SyncUiState(
+                    rows = mapOf(dev.bridgey.android.sync.SyncKey.FOLDER_INCLUDE_HIDDEN to dev.bridgey.android.sync.SyncRowStatus(differentOn = listOf("Work Mac"))),
+                ),
+            ),
+            actions = SettingsActions(),
+            listState = androidx.compose.foundation.lazy.LazyListState(firstVisibleItemIndex = 0, firstVisibleItemScrollOffset = 1100),
+            section = SettingsSection.FILES,
+        )
+    }
+
+    @Test fun filesHiddenLight() = filesHidden()
+
+    @Test @Config(qualifiers = "+night") fun filesHiddenDark() = filesHidden()
+
     private fun obtainium() = capture("obtainium") { SettingsScreen(state = settings, actions = SettingsActions(), section = SettingsSection.ABOUT) }
 
     @Test fun obtainiumLight() = obtainium()

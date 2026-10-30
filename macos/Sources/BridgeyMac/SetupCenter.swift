@@ -20,6 +20,8 @@ final class SetupCenter: ObservableObject {
     @Published private(set) var permissions: [PermissionStatus] = SetupSettingsModel().permissions
     @Published private(set) var requested: Set<SetupPermission> = []
     @Published private(set) var resetMessage: String?
+    /// The setup window is open: automatic updates wait until it closes.
+    @Published private(set) var setupOpen = false
 
     /// Settings sync hook (settings_sync_draft1): gets the choices when setup finishes. Deferred.
     weak var choicesSink: SetupChoicesSink?
@@ -169,6 +171,7 @@ final class SetupCenter: ObservableObject {
         BridgeyWindows.close(setupWindow)
         closingSetup = false
         stopPolling()
+        setupOpen = false
     }
 
     /// While the permissions page shows, its statuses follow System Settings live.
@@ -194,6 +197,7 @@ final class SetupCenter: ObservableObject {
     fileprivate func setupWindowWillClose() {
         stopPolling()
         pairing?.holdPairingArmed(false)
+        setupOpen = false
     }
 
     var setupActions: SetupActions {
@@ -324,9 +328,11 @@ final class SetupCenter: ObservableObject {
             settings.setLogging(logging)
         case .updateChannel: UpdateChannel(rawValue: change.value).map { updater?.setChannel($0) }
         case .updatesAutomatic: updater?.setAutomaticallyChecks(on)
+        case .updatesAutoAll: AutoUpdateCoordinator.shared.setEnabled(on)
         case .launchAtLogin: settings.setLaunchAtLogin(on)
         case .reduceMotion: settings.setReduceMotion(on)
         case .settingsSync: pairing.settingsSync.setEnabled(on)
+        case .connectAway: settings.setConnectAway(on)
         case .pairing, .macNotifications, .accessibility, .deviceFeatures, .deviceAutoClipboard, .batteryAlerts,
              .clipboardEagerLimit, .shortcutClipboard, .codesAutoCopy, .codesModel, .codesPhoneLink, .focusShortcuts,
              .shortcutCall, .receiveFolder, .folderIncludeHidden, .folderIncludeSystem, .folderConflict, .tagReceivedFiles,
@@ -359,6 +365,7 @@ final class SetupCenter: ObservableObject {
             setupWindow = created
         }
         startPolling()
+        setupOpen = true
         NSApp.activate(ignoringOtherApps: true)
         setupWindow?.makeKeyAndOrderFront(nil)
     }

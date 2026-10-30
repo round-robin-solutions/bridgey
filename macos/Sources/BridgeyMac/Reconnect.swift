@@ -45,7 +45,7 @@ enum ReconnectPolicy {
     static let heartbeatTimeout: TimeInterval = 30
     /// The port Bridgey listens on. Inbound connections come from a random port, so an address
     /// learned from one is stored with this port.
-    static let listeningPort = 42_458
+    static let listeningPort = Int(TestInstance.listeningPort)
 
     /// The wait after `attempts` attempts, `elapsed` seconds into the fast phase.
     static func delay(afterAttempts attempts: Int, elapsed: TimeInterval) -> TimeInterval {

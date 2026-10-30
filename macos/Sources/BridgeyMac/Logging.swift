@@ -166,6 +166,8 @@ enum BridgeyLog {
     static let screen = Logger(subsystem: subsystem, category: "screen")
     /// Windows and popovers that had to be taken off the screen by hand: a window kind and a reason.
     static let windows = Logger(subsystem: subsystem, category: "windows")
+    /// Updates: automatic decisions, checks and the command line. Versions, states and reasons only.
+    static let updates = Logger(subsystem: subsystem, category: "updates")
 
     /// Writes a line built by `LogLines`; nil (category off) writes nothing.
     static func line(_ logger: Logger, _ line: String?) {

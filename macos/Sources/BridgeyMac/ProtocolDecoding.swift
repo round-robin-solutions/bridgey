@@ -366,7 +366,9 @@ let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, places
                              smsFeatureKey,
                              // Settings sync (v0.10, SettingsSync.swift).
                              settingsSyncFeatureKey,
-                             // Fast transfers (FastTransfer.swift).
+                             // Connect anywhere (ConnectProtocol.swift).
+                             connectFeatureKey,
+                             // Fast transfers (FastTransfer.swift), last.
                              filesFastFeatureKey]
 
 func decodeFeatureState(_ plaintext: Data) -> FeatureStateDecoding {

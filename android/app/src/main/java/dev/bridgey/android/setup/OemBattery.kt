@@ -9,8 +9,8 @@ import android.provider.Settings
 
 /**
  * Phone makers that stop background apps beyond Android's own battery optimisation. The steps and
- * the screens they open come from dontkillmyapp.com; the copy lives in strings_setup.xml under
- * `oem_<vendor>_<step>`.
+ * the screens they open come from dontkillmyapp.com (Pixel: Pixel Phone Help and the Settings app's own
+ * labels, see docs/compatibility.md); the copy lives in strings_setup.xml under `oem_<vendor>_<step>`.
  */
 enum class OemVendor(val key: String) {
     ONEPLUS("oneplus"),
@@ -18,6 +18,8 @@ enum class OemVendor(val key: String) {
     XIAOMI("xiaomi"),
     SAMSUNG("samsung"),
     VIVO("vivo"),
+    /** Google Pixel (Android 14 to 16): close to stock, so the steps are Android's own. */
+    PIXEL("pixel"),
 }
 
 enum class OemStepKind(val key: String) {
@@ -25,18 +27,30 @@ enum class OemStepKind(val key: String) {
     BACKGROUND_ACTIVITY("background"),
     BATTERY_OPTIMISATION("battery"),
     NEVER_SLEEPING("never_sleeping"),
+    /** Pixel: App info, App battery usage, Unrestricted. */
+    APP_BATTERY_USAGE("app_battery_usage"),
+    /** Pixel: Battery, Battery Saver, Adaptive Battery. */
+    ADAPTIVE_BATTERY("adaptive_battery"),
+    /** Pixel: App info, Unused app settings, Pause app activity if unused. */
+    PAUSE_IF_UNUSED("pause_if_unused"),
 }
 
 /**
- * One step: what to change ([kind]) and the screens that may show it, best first. An empty list (or
- * none resolvable) opens Bridgey's App info, where every phone shows its battery settings.
+ * One step: what to change ([kind]) and the screens that may show it, best first. [actions] are public
+ * Settings actions tried after the components. An empty list (or none resolvable) opens Bridgey's
+ * App info, where every phone shows its battery settings.
  */
-data class OemStep(val kind: OemStepKind, val components: List<String>)
+data class OemStep(val kind: OemStepKind, val components: List<String>, val actions: List<String> = emptyList())
 
 data class OemChecklist(val vendor: OemVendor, val steps: List<OemStep>)
 
 object OemBattery {
     const val SOURCE_URL = "https://dontkillmyapp.com"
+
+    /** Pixel Phone Help: "Keep Adaptive Battery & battery optimization on". */
+    const val PIXEL_SOURCE_URL = "https://support.google.com/pixelphone/answer/7015477"
+
+    fun sourceUrl(vendor: OemVendor): String = if (vendor == OemVendor.PIXEL) PIXEL_SOURCE_URL else SOURCE_URL
 
     /** [manufacturer] and [brand] are `Build.MANUFACTURER` and `Build.BRAND`; either may name the maker. */
     fun checklist(manufacturer: String?, brand: String?): OemChecklist? {
@@ -51,6 +65,7 @@ object OemBattery {
         "xiaomi", "redmi", "poco" -> OemVendor.XIAOMI
         "samsung" -> OemVendor.SAMSUNG
         "vivo", "iqoo" -> OemVendor.VIVO
+        "google" -> OemVendor.PIXEL
         else -> null
     }
 
@@ -105,9 +120,15 @@ object OemBattery {
             OemStep(OemStepKind.BACKGROUND_ACTIVITY, listOf("com.vivo.abe/com.vivo.applicationbehaviorengine.ui.ExcessivePowerManagerActivity")),
             OemStep(OemStepKind.BATTERY_OPTIMISATION, emptyList()),
         )
+        // App info holds App battery usage and Unused app settings; Adaptive Battery sits under Battery Saver.
+        OemVendor.PIXEL -> listOf(
+            OemStep(OemStepKind.APP_BATTERY_USAGE, emptyList()),
+            OemStep(OemStepKind.ADAPTIVE_BATTERY, emptyList(), listOf(Settings.ACTION_BATTERY_SAVER_SETTINGS)),
+            OemStep(OemStepKind.PAUSE_IF_UNUSED, emptyList()),
+        )
     }
 
-    /** Explicit intents for [step], best first, then App info for [packageName] as the fallback. */
+    /** Explicit intents for [step], best first, then its Settings actions, then App info for [packageName] as the fallback. */
     fun intents(step: OemStep, packageName: String, label: String): List<Intent> =
         step.components.mapNotNull(ComponentName::unflattenFromString).map { component ->
             Intent().setComponent(component)
@@ -115,7 +136,7 @@ object OemBattery {
                 // Xiaomi's battery saver page opens on the app it is given.
                 .putExtra("package_name", packageName)
                 .putExtra("package_label", label)
-        } + appDetails(packageName)
+        } + step.actions.map { Intent(it).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) } + appDetails(packageName)
 
     fun appDetails(packageName: String): Intent =
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

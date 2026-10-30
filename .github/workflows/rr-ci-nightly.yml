@@ -108,6 +108,8 @@ jobs:
         with:
           java-version: '17'
           distribution: temurin
+      - name: Rust for the Connect anywhere core
+        run: sh scripts/rr/rust-toolchain.sh android
       - name: Build the signed APK
         env:
           KEYSTORE_B64: ${{ secrets.BRIDGEY_ANDROID_KEYSTORE_B64 }}
@@ -150,6 +152,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Rust for the Connect anywhere core
+        run: sh scripts/rr/rust-toolchain.sh mac
       - name: Build the app, DMG and ZIP
         env:
           BRIDGEY_VERSION_NAME: ${{ needs.authorize.outputs.version }}

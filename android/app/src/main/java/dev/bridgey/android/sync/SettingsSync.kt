@@ -71,8 +71,16 @@ enum class SyncKey(val key: String, val token: String, val default: Any, val val
     /** Share screen with Macs here; Show phone screens on the Mac. Each share is still asked on the phone. */
     SCREEN("feature.screen", "screen", false, feature = true),
     SMS("feature.sms", "sms", false, feature = true),
-    /** Update all devices automatically: stored and relayed until that setting lands (rr/auto-update-all). */
+    /** Update all devices automatically. It follows the release channel until chosen; a synced value is a choice. */
     AUTO_UPDATE_ALL("updates.auto_all", "auto_update_all", false),
+    /**
+     * Connect away from home (connect_draft1): both ends need it on, so it follows the other devices. On until chosen;
+     * like [AUTO_UPDATE_ALL], a value nobody chose is not sent as a choice.
+     */
+    CONNECT_AWAY("connect.away", "connect_away", true, feature = true),
+    /** Appended, so the order of the earlier keys never changes. The same two switches as the Mac's Files card. */
+    FOLDER_INCLUDE_HIDDEN("files.folder_include_hidden", "folder_include_hidden", false),
+    FOLDER_INCLUDE_SYSTEM("files.folder_include_system", "folder_include_system", false),
     ;
 
     fun accepts(value: Any?): Boolean = if (values != null) value is String && value in values else value is Boolean
@@ -283,6 +291,14 @@ interface SyncedSetting {
 
     /** On here but waiting for a permission only this device can give. */
     fun waitingForPermission(): Boolean = false
+
+    /**
+     * For a setting that follows something else until the person chooses (Update all devices automatically follows
+     * the release channel): true while it follows, false once chosen; null for every other setting. While it follows,
+     * nothing here is a choice to send, and only a chosen value from another device is applied (it then counts as
+     * this device's choice too).
+     */
+    fun followsDefault(): Boolean? = null
 }
 
 /** Where records live between launches. */
@@ -412,7 +428,13 @@ class SettingsSyncEngine(
         var changed = false
         settings.forEach { (key, setting) ->
             val current = records.getValue(key)
-            if (setting.matches(current.value)) return@forEach
+            when (setting.followsDefault()) {
+                // Following the channel: not a choice, so nothing to send.
+                true -> return@forEach
+                // Chosen here: send it unless the record already holds this choice.
+                false -> if (current.chosen && setting.matches(current.value)) return@forEach
+                null -> if (setting.matches(current.value)) return@forEach
+            }
             records[key] = stampLocal(current, setting.read(), clock(), localDeviceId)
             changed = true
         }
@@ -427,8 +449,12 @@ class SettingsSyncEngine(
     @Synchronized fun applyToAll(key: SyncKey) {
         val current = records.getValue(key)
         val newest = peers.values.mapNotNull { it.known[key] }.fold(current) { a, b -> if (compareRecords(b, a) > 0) b else a }
-        records[key] = stampLocal(newest, settings[key]?.read() ?: current.value, clock(), localDeviceId)
+        val setting = settings[key]
+        val value = setting?.read() ?: current.value
+        records[key] = stampLocal(newest, value, clock(), localDeviceId)
         store.save(records)
+        // Apply to all is a choice: a setting that followed its default here keeps this value from now on.
+        if (setting?.followsDefault() == true) setting.write(value)
     }
 
     /** Keys that are on here but wait for a permission (never the excluded ones). */
@@ -551,16 +577,30 @@ class SettingsSyncEngine(
      * not quietly take the other device's value; it is not sent, so neither side pushes over the other.
      */
     private fun pinKept(peer: Peer, key: SyncKey) {
-        val local = records.getValue(key)
-        if (!local.chosen) records[key] = SyncRecord(local.value, 1, 1, localDeviceId)
+        if (!records.getValue(key).chosen) records[key] = SyncRecord(localValue(key), 1, 1, localDeviceId)
+        // Keep mine on a setting that follows its default: what it does here becomes its choice.
+        settings[key]?.takeIf { it.followsDefault() == true }?.write(records.getValue(key).value)
         peer.sent[key] = records.getValue(key).stamp
     }
+
+    /**
+     * What [key] does here: the setting's own value while it follows its default (its record is not stamped then),
+     * else the record's.
+     */
+    private fun localValue(key: SyncKey): Any =
+        settings[key]?.takeIf { it.followsDefault() == true }?.read() ?: records.getValue(key).value
+
+    /**
+     * A setting that follows its default here, against a value nobody chose there: each device follows its own
+     * default (Update all devices automatically, its own channel), so it is not a difference to ask about or show.
+     */
+    private fun bothFollow(key: SyncKey, remote: SyncRecord): Boolean = settings[key]?.followsDefault() == true && !remote.chosen
 
     /** Non-excluded keys whose value on [peer] does something else here. */
     private fun differing(peer: Peer): List<SyncKey> {
         val hidden = excluded()
         return SyncKey.entries.filter { key ->
-            key !in hidden && peer.known[key]?.let { !sameHere(key, records.getValue(key).value, it.value) } == true
+            key !in hidden && peer.known[key]?.let { !bothFollow(key, it) && !sameHere(key, localValue(key), it.value) } == true
         }
     }
 
@@ -649,10 +689,10 @@ class SettingsSyncEngine(
         val hidden = excluded()
         val waitingHere = waitingHere().toSet()
         return SyncKey.entries.filter { it !in hidden }.mapNotNull { key ->
-            val local = records.getValue(key)
+            val local = localValue(key)
             // Any value that differs shows, chosen or not, until Apply to all or an edit settles it.
             val different = peers.filter { (_, peer) ->
-                peer.ready && peer.known[key]?.let { known -> !sameHere(key, local.value, known.value) } == true
+                peer.ready && peer.known[key]?.let { known -> !bothFollow(key, known) && !sameHere(key, local, known.value) } == true
             }.keys.toList()
             val waitingOn = peers.filter { (_, peer) -> key in peer.waiting }.keys.toList()
             val status = SyncKeyStatus(key in waitingHere, different, waitingOn)
@@ -665,7 +705,9 @@ class SettingsSyncEngine(
         val before = setting?.read()
         // The record first, so the setting's observer sees a match and never stamps it again.
         records[key] = remote
-        if (setting != null && !setting.matches(remote.value)) setting.write(remote.value)
+        val follows = setting?.followsDefault() == true
+        // A setting that follows its default takes only a chosen value, which then becomes its choice here.
+        if (setting != null && (if (follows) remote.chosen else !setting.matches(remote.value))) setting.write(remote.value)
         // Only settings this device has count as changes here; the rest are stored and relayed.
         if (setting != null && setting.read() != before) changes += SyncChange(key, remote.value)
     }

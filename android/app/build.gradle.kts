@@ -41,6 +41,8 @@ android {
         // Codes from messages: the relay the Code reader test may use (the Mac reads codes in the app).
         buildConfigField("String", "OTP_PROXY_URL", "\"${edition.getProperty("OTP_PROXY_URL").orEmpty()}\"")
         buildConfigField("boolean", "CODE_TEST_AVAILABLE", (!isStableBuild).toString())
+        // Connect anywhere: the control service. Empty means routes over learned addresses only.
+        buildConfigField("String", "CONNECT_CONTROL_URL", "\"${edition.getProperty("CONNECT_CONTROL_URL").orEmpty()}\"")
     }
 
     signingConfigs {
@@ -129,3 +131,38 @@ tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
         systemProperty("bridgey.screenshots", it)
     }
 }
+
+// Connect anywhere: the Rust core (rust/core) as libbridgey_connect.so for arm64-v8a and x86_64,
+// built with cargo-ndk (`cargo install cargo-ndk`; targets aarch64-linux-android and
+// x86_64-linux-android). Without it, pass -Pbridgey.connectCore=skip: the app still builds and
+// Settings says Connect away from home is not available in this build.
+val connectCoreSkip = (findProperty("bridgey.connectCore") as String?) == "skip"
+val connectRustDir: File = rootProject.projectDir.parentFile.resolve("rust")
+val connectJniDir = layout.buildDirectory.dir("connectJniLibs")
+val connectSdkDir = androidComponents.sdkComponents.sdkDirectory
+val connectNdkVersion = android.ndkVersion
+val buildConnectCore by tasks.registering(Exec::class) {
+    description = "Builds libbridgey_connect.so with cargo-ndk"
+    onlyIf { !connectCoreSkip }
+    val cargo = System.getenv("CARGO") ?: File(System.getProperty("user.home"), ".cargo/bin/cargo").takeIf { it.exists() }?.path ?: "cargo"
+    workingDir = connectRustDir
+    doFirst {
+        environment("ANDROID_NDK_HOME", connectSdkDir.get().asFile.resolve("ndk/$connectNdkVersion").path)
+        // A host without the toolchain (a fresh CI runner) gets it here instead of failing the build:
+        // rustup, the Android targets and cargo-ndk, from scripts/rr/rust-toolchain.sh.
+        val cargoBin = File(System.getProperty("user.home"), ".cargo/bin")
+        if (!cargoBin.resolve("cargo-ndk").exists()) {
+            val setup = ProcessBuilder("sh", connectRustDir.resolveSibling("scripts/rr/rust-toolchain.sh").path, "android").inheritIO()
+            setup.environment()["ANDROID_HOME"] = connectSdkDir.get().asFile.path
+            check(setup.start().waitFor() == 0) { "scripts/rr/rust-toolchain.sh android failed" }
+            commandLine(listOf(cargoBin.resolve("cargo").path) + commandLine.drop(1))
+        }
+    }
+    commandLine(cargo, "ndk", "-t", "arm64-v8a", "-t", "x86_64", "-o", connectJniDir.get().asFile.path, "build", "--release", "--locked", "-p", "bridgey-connect", "--lib")
+    inputs.files(fileTree(connectRustDir) { include("Cargo.toml", "Cargo.lock", "core/**", "proto/**"); exclude("**/target/**") })
+    outputs.dir(connectJniDir)
+}
+androidComponents.onVariants { variant ->
+    variant.sources.jniLibs?.addStaticSourceDirectory(connectJniDir.get().asFile.path)
+}
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach { dependsOn(buildConnectCore) }

@@ -156,7 +156,9 @@ struct LocalDataLocations {
         case .otherCaches: [caches]
         case .settings: []
         // The identity key and the trusted phones share trust-v3.json.
-        case .trustedDevices, .identityKeys: [support.appendingPathComponent(MacPairingStore.fileName)]
+        case .trustedDevices: [support.appendingPathComponent(MacPairingStore.fileName)]
+        // Connect anywhere's node key and pair secrets (connect-v1.json) go with the identity.
+        case .identityKeys: [support.appendingPathComponent(MacPairingStore.fileName), support.appendingPathComponent(ConnectStore.fileName)]
         case .reconnectAddresses, .appRecords: []
         }
     }
@@ -216,7 +218,7 @@ struct LocalDataReset {
     static let settingsPrefixes = ["settings.", "media.", "shortcuts.", "folders.lastDestination.", "setup.", "send.", "phoneFiles."]
     static let settingsKeys = [UpdateChannel.defaultsKey, "SUEnableAutomaticChecks", "SUAutomaticallyUpdate",
                                "SUScheduledCheckInterval", "SUSkippedVersion", "SUSkippedMajorVersion",
-                               UpdateAllCoordinator.remoteStartKey]
+                               UpdateAllCoordinator.remoteStartKey, AutoUpdateCoordinator.choiceKey]
     /// Not settings: the relay's random install ID (identity) and the record of accepted model terms.
     static let notSettingsKeys = ["settings.codes.installId", "settings.codes.model.acceptance"]
     static let identityKeys = ["deviceID", "settings.codes.installId"]
@@ -225,9 +227,11 @@ struct LocalDataReset {
     static let trustKeys = ["trustedDeviceIDs", "sync.answers"]
     static let trustPrefixes = ["trusted.", "protocolPin."]
     static let addressPrefixes = ["reconnect."]
-    /// Update all keeps its last run and the version that did not apply (UpdateAllProtocol.swift) as records.
+    /// Update all keeps its last run and the version that did not apply (UpdateAllProtocol.swift) as records,
+    /// and automatic updates their waits and Laters, their last run and an accepted automatic start.
     static let recordKeys = ["settings.codes.model.acceptance", "legacyPreferencesMigrated", pendingKey,
-                             UpdateAllCoordinator.runKey, UpdateAttemptStore.pendingKey, UpdateAttemptStore.notAppliedKey]
+                             UpdateAllCoordinator.runKey, UpdateAttemptStore.pendingKey, UpdateAttemptStore.notAppliedKey,
+                             AutoUpdateCoordinator.memoryKey, AutoUpdateCoordinator.lastRunKey, AutoUpdateCoordinator.markerKey]
     static let recordPrefixes = ["whatsNew.", "SU"]
 
     func keys(_ item: ResetItem) -> [String] {

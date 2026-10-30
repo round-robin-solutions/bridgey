@@ -1,0 +1,47 @@
+# Bridgey Rendezvous (the Connect anywhere control service): production settings.
+# The one settings file. Only secrets come from the environment (the *_env names below).
+# Spec: docs/connect-anywhere.md, sections 6 and 9. Deploy runbook: docs/connect-anywhere-deploy.md.
+
+[server]
+listen = "0.0.0.0:8080"
+# connect.roundrobin.in is served through the host nginx on rr-web, which sets X-Real-IP.
+trust_proxy = true
+environment = "production"
+
+[limits]
+max_ids = 64
+sockets_per_node = 3
+signals_per_minute = 120
+# Every ICE session takes one grant per side (a claim counts too), and a Mac answers for all its phones;
+# 30 ran out in an hour of app restarts during the 2026-10-30 live test.
+grants_per_hour = 120
+connections_per_ip = 32
+max_connections = 20000
+pow_bits = 0
+grant_lifetime_s = 7200
+auth_timeout_s = 10
+
+# Relay pool (section 9.1). Penalties steer India to bom first and keep sxb (the build server) last.
+[[relays]]
+id = "bom"
+kind = "coturn"
+urls = ["turn:relay-in.roundrobin.in:3478?transport=udp"]
+secret_env = "TURN_SECRET_BOM"
+penalty_ms = 0
+max_kbps = 50000
+
+[[relays]]
+id = "sin"
+kind = "coturn"
+urls = ["turn:relay-sg.roundrobin.in:3478?transport=udp"]
+secret_env = "TURN_SECRET_SIN"
+penalty_ms = 10
+max_kbps = 50000
+
+[[relays]]
+id = "sxb"
+kind = "coturn"
+urls = ["turn:relay-eu.roundrobin.in:3478?transport=udp"]
+secret_env = "TURN_SECRET_SXB"
+penalty_ms = 40
+max_kbps = 50000

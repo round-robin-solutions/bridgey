@@ -98,12 +98,13 @@
 
     <string name="setup_q_updates_summary">Обновления</string>
     <string name="setup_a_updates_steady">Надёжные</string>
-    <string name="setup_a_updates_early">Пораньше</string>
-    <string name="setup_a_updates_newest">Самые новые, каждый день</string>
+    <string name="setup_a_updates_early">Пораньше, все устройства обновляются автоматически</string>
+    <string name="setup_a_updates_newest">Самые новые, каждый день, все устройства обновляются автоматически</string>
+    <string name="setup_q_updates_auto_summary">Обновлять все устройства автоматически</string>
 
 
     <string name="setup_switches_title">Что-нибудь ещё?</string>
-    <string name="setup_switches_context">Всё здесь выключено, пока вы не включите.</string>
+    <string name="setup_switches_context">Включите то, что нужно. «Связь вне дома» уже включена, чтобы устройства оставались на связи без общей Wi-Fi.</string>
     <string name="setup_switches_details">Подробности в настройках</string>
     <string name="setup_continue">Продолжить</string>
     <string name="setup_permissions_title">Разрешите то, что нужно</string>
@@ -118,4 +119,10 @@
     <string name="setup_intro_off">Выкл.</string>
     <string name="setup_done_essentials">Сейчас включено: связь с Mac, буфер обмена по кнопке «Отправить» и уведомления телефона на Mac. Остальное можно включить в настройках.</string>
     <string name="setup_summary_turned_off">Нет доступа, поэтому выключено: %1$s.</string>
+    <string name="setup_q_away_title">Связь с устройствами вне дома?</string>
+    <string name="setup_q_away_context">Устройства соединяются напрямую, когда это возможно, или через ретранслятор Round Robin, который видит только зашифрованные данные. Без учётной записи, и это можно выключить в любой момент.</string>
+    <string name="setup_q_away_summary">Связь вне дома</string>
+    <string name="setup_a_not_now">Не сейчас</string>
+    <string name="setup_bundle_away">Устройства остаются на связи, когда вы уходите из дома.</string>
+    <string name="setup_feature_away_detail">Доступ к вашим устройствам из любой сети, без VPN на телефоне</string>
 </resources>

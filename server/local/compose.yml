@@ -1,0 +1,38 @@
+# Local test stack, and a starting point for self-hosting: the control service and one relay on
+# one host, both on the host network and bound to one address (bridgey-rendezvous.local.toml and
+# LISTENING_IP; the tailnet address of rr-dev-1 in our tests). Not for Dokploy.
+#
+#   TURN_SECRET=$(openssl rand -hex 32) TEST_IP=100.121.85.33 docker compose -f server/local/compose.yml up -d --build
+services:
+  rendezvous:
+    build:
+      context: ../..
+      dockerfile: server/rendezvous/Dockerfile
+    image: bridgey-rendezvous:local
+    network_mode: host
+    restart: "no"
+    volumes:
+      - ./bridgey-rendezvous.local.toml:/etc/bridgey/bridgey-rendezvous.toml:ro
+    environment:
+      TURN_SECRET_LOCAL: ${TURN_SECRET:?}
+  coturn:
+    image: coturn/coturn:4.18.0@sha256:bbefd3e1fdfdc0d58770fe01b581fd8b00d9f3a5580d00acb77cf719a6bc78e3
+    network_mode: host
+    restart: "no"
+    entrypoint: ["/bin/sh", "/etc/bridgey-relay/entrypoint.sh"]
+    volumes:
+      - ../relay/entrypoint.sh:/etc/bridgey-relay/entrypoint.sh:ro
+      - ../relay/turnserver.conf.template:/etc/bridgey-relay/turnserver.conf.template:ro
+    tmpfs:
+      - /run/coturn:mode=0700,uid=65534,gid=65534
+    environment:
+      TURN_SECRET: ${TURN_SECRET:?}
+      EXTERNAL_IP: ${TEST_IP:?}
+      LISTENING_IP: ${TEST_IP:?}
+      LISTEN_PORT: "3479"
+      MIN_PORT: "59000"
+      MAX_PORT: "59499"
+      # Relay to relay on one host: the relay must reach its own (tailnet) address.
+      ALLOWED_PEER_IP: ${TEST_IP:?}
+    cpus: 1.0
+    mem_limit: 512m

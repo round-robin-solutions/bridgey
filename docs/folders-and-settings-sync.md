@@ -215,7 +215,8 @@ sync mark, so it is clear they change the other device too.
 | Default folder | Place picker (default `Download/Bridgey`) | Existing "Received files" folder | No |
 | When a folder already exists | Ask each time / Merge / Replace files / Save as new folder | Same | Yes |
 | Places | List: label, storage, "Access lost" state; **Add folder…**; **Remove**; rename the label; `Download/Bridgey` row with **Allow full access** until granted | Not in the first build (comes with phone to Mac) | No |
-| Include hidden files when sending folders | Later (phone to Mac) | Switch, off | No |
+| Include hidden files when sending folders | Switch, off (0.10) | Switch, off | No |
+| Include system files when sending folders | Switch, off (0.10) | Switch, off | No |
 
 **General:** "Sync settings with paired devices" (on). Detail: "Keeps folder, clipboard,
 preview and motion preferences the same on your devices. Names, folders and update channels
@@ -914,6 +915,13 @@ the Received files folder plus folders added in Settings (bookmarks). Journal in
   launch at login, update channel, every feature switch and per-device feature override,
   notification app filters, phone links, shortcuts, the Mac's media player, "Include hidden
   files", the last destination, and the sync switches themselves.
+- "Include hidden files" and "Include system files" are the same two switches on both devices (bool,
+  default off, same names and help text; the phone applies them to folders it sends and to folders a Mac
+  downloads). They are stored as `settings.folders.includeHidden` and `settings.folders.includeSystem` on
+  the Mac and `files.folder_include_hidden` and `files.folder_include_system` on the phone. They sync
+  under those two keys (bool, default false, no migration), appended to schema 1 after
+  `updates.auto_all` and `connect.away` (0.10.0-rr.1); a build without them skips the keys. The Mac's call policy for other
+  apps (`settings.calls.otherApps`) is Mac-only and has no key.
 - The `clipboard.*` keys are reserved now; a platform implements them once automatic clipboard
   ships there.
 
@@ -964,7 +972,7 @@ T3 Code works" (a change made in Settings is saved to every connected device tha
 device that was offline or still differs shows it, with Apply to all). That replaces the earlier
 rule that sync never turns a feature on.
 
-**What syncs.** An allowlist of 24 schema 1 keys, the same on both platforms. A device that has no
+**What syncs.** An allowlist of 27 schema 1 keys, the same on both platforms. A device that has no
 such setting stores the record and relays it, so a phone carries a Mac-only setting between two
 Macs.
 
@@ -972,6 +980,8 @@ Macs.
 | --- | --- | --- | --- |
 | `files.folder_destination` | Files > Folders sent to this phone | Files > Folders from the phone (see below) | |
 | `files.folder_conflict` | Files > When a folder already exists | Same | |
+| `files.folder_include_hidden` | Files > Include hidden files when sending folders | Files > Include hidden files when sending folders | |
+| `files.folder_include_system` | Files > Include system files when sending folders | Files > Include system files when sending folders | |
 | `activity.previews` | Privacy > Show previews in activity | Privacy > Show previews | |
 | `display.reduce_motion` | General > Reduce motion | General > Reduce motion | |
 | `feature.clipboard`, `feature.files`, `feature.battery`, `feature.find_device`, `feature.ping`, `feature.links`, `feature.media` | The feature's switch | The feature's switch | |
@@ -987,7 +997,8 @@ Macs.
 | `codes.enabled` | Stored and relayed | Notifications > Codes from messages | Mac: the consent and model that turning codes on asks for there |
 | `feature.screen` | Share screen with Macs | Remote control > Show phone screens (a preference here) | Each share is still asked on the phone, every time |
 | `feature.sms` | Text messages | Text messages | Android: SMS permission (read and send) |
-| `updates.auto_all` | Update all devices automatically | Same | Stored and relayed until that setting lands (rr/auto-update-all); then a preference on both |
+| `updates.auto_all` | Settings > Updates > Update all devices automatically | Same | Each device follows its own channel until someone chooses: a value nobody chose is never sent, asked about or shown as different; a synced value is that device's choice too |
+| `connect.away` | Connect away from home | Connect away from home | Both ends need it on for a phone to reach a Mac away from home, so it follows the other devices (Rahul's call, 2026-10-30). On until someone chooses (Rahul, 2026-10-30): like `updates.auto_all`, a value nobody chose is never sent, asked about or shown as different |
 
 A feature added later joins by adding its key to this table on both platforms; older builds skip
 the key, so nothing else changes.
@@ -1053,9 +1064,8 @@ only the list changes), and the other devices show "Turned on, needs permission 
 **Switches.** Settings > General > "Sync settings with paired devices" (on); setup's summary has the
 same switch as "Settings stay the same on your devices". On each device's page,
 "Sync settings with this device" (on). The device page shows "Off on <device>" when the other
-device's latest `features.update` shows the key false. "Choose what syncs" lists the settings this device has (22 on each: the
-phone leaves out the Mac's codes, the Mac the phone's camera, and neither lists Update all devices
-automatically until it lands)
+device's latest `features.update` shows the key false. "Choose what syncs" lists the settings this device has (23 on each: the
+phone leaves out the Mac's codes, the Mac the phone's camera)
 with a check each; an unchecked setting stays on this device (it is not sent, and records for it
 are skipped). Turning sync off keeps every value as it is.
 

@@ -17,9 +17,7 @@ the tables at the end of this page are generated from it with
   RFC 8259 JSON: no comments, single quotes, unquoted names or trailing commas, and no lone surrogate
   escapes. Both clients run the same strict check before parsing, so they accept exactly the same
   frames. Duplicate names are undefined; senders must not produce them. TCP port 42458,
-  Bonjour service `_bridgey._tcp`. The draft `files_fast_draft1` adds binary frames (marker byte
-  `0xB1`, a kind and a 32-bit length; `transport.binaryFrames` in `protocol/messages.json`), read only
-  after authentication and sent only to a peer whose map shows the key; peers without it never see one.
+  Bonjour service `_bridgey._tcp`.
 - **Envelope.** The outer object has `kind` (1 to 64 bytes) and `sessionId` (at most 128 bytes;
   empty only in a `pairing.cancel` sent before the session ID is known) plus optional string fields
   and an integer `sequence`. Each field has one type. A wrong type, a missing `kind` or `sessionId`,
@@ -90,12 +88,6 @@ the tables at the end of this page are generated from it with
   without documenting it fails the build's tests.
 - `python3 -m unittest discover -s scripts/rr/tests` runs `test_protocol_contract.py`, which validates
   the file and fails when the tables on this page are stale.
-- Binary frames and the speed test (`files_fast_draft1`) have their own vectors in
-  [`protocol/test-vectors/files-fast-v1.json`](../protocol/test-vectors/files-fast-v1.json), written by
-  `python3 protocol/tools/fast_vectors.py` (it needs the Python `cryptography` package for AES-GCM with a
-  fixed nonce): valid, skipped and rejected frames, frames both platforms must write byte for byte,
-  `speed.*` payloads and the speed test's verdict. `FastTransferVectorsTest` and
-  `FastTransferVectorsTests` decode them.
 - Golden vectors in [`protocol/test-vectors/protocol-v1.json`](../protocol/test-vectors/protocol-v1.json)
   are decoded by both test suites with the same expected results: valid and invalid frames, and
   key payloads (`features.update`, `clipboard.rich`, `clipboard.offer`, `battery.update`,
@@ -161,6 +153,7 @@ the tables at the end of this page are generated from it with
 | `files_fast_draft1` | edition-draft | no | false |
 | `sms_draft1` | edition-draft | no | false |
 | `settings_sync_draft1` | edition-draft | no | false |
+| `connect_draft1` | edition-draft | no | false |
 
 ### Envelope fields
 
@@ -187,7 +180,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-138 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+147 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -884,25 +877,28 @@ The photo itself arrives as a files.offer carrying cameraRequestId.
 - `reason`: optional: with needs_user confirm | permission; with failed check | download | safety | installer | cancelled | not_applied | other; unknown reads as other
 - `remoteStart`: boolean: Let paired devices start updates on this device is on and the updater can run
 - `checkedAt`: integer, Unix ms of the last successful check, 0 for never
+- `auto`: boolean, optional, default false: Update all devices automatically is on there and its updater can run
+- `busy`: string, optional: what the person is doing there, so automatic updates wait: call | screen_share | remote_control | transfer | phone_files | setup; unknown reads as other (still busy)
 
-Sent once after each features.update that shows the key on both sides, then on every change of a field other than progress, and while downloading at most once a second. A receiver drops a status with an unknown state, platform or channel.
+Sent once after each features.update that shows the key on both sides, then on every change of a field other than progress, and while downloading at most once a second. A receiver drops a status with an unknown state, platform or channel, an auto that is not a boolean or a busy that is not a string. auto is written only when true, busy only when set.
 
 `updates.start`
 
 - `version`: integer, 1
 - `requestId`: string, UUID
 - `retry`: boolean, optional, default false: the person tapped Retry for this device
+- `auto`: boolean, optional, default false: started automatically (nobody tapped Update all); the receiver names the device that started it
 
 Answered by `updates.result`.
 
-Update yourself now from your own channel. It names no version, URL, file or channel: the receiver checks its own feed and installs only a newer build through its own checks (Android SHA-256 and signer, Mac Sparkle EdDSA), so it can never downgrade. Accepted only from a paired device whose map shows the key, while the receiver's Let paired devices start updates switch is on; at most one start every 30 seconds and five an hour per device. A start with a wrong version or a requestId that is not a UUID is dropped; anything else gets exactly one updates.result. Without retry, a device whose last attempt did not apply refuses not_applied.
+Update yourself now from your own channel. It names no version, URL, file or channel: the receiver checks its own feed and installs only a newer build through its own checks (Android SHA-256 and signer, Mac Sparkle EdDSA), so it can never downgrade. Accepted only from a paired device whose map shows the key, while the receiver's Let paired devices start updates switch is on; at most one start every 30 seconds and five an hour per device. A start with a wrong version or a requestId that is not a UUID is dropped; anything else gets exactly one updates.result. Without retry, a device whose last attempt did not apply refuses not_applied. With auto, a device whose person is busy (a call, a screen share, remote control, a transfer, a Phone files download, setup or pairing) refuses busy.
 
 `updates.result`
 
 - `version`: integer, 1
 - `requestId`: string, echoes the start
 - `status`: accepted | refused
-- `reason`: with refused: disabled | rate_limited | manual | not_applied | busy; senders read anything else as other
+- `reason`: with refused: disabled | rate_limited | manual | not_applied | busy (its updater cannot start now, or an automatic start found its person busy); senders read anything else as other
 
 accepted also when an update was already running. Progress follows as updates.status.
 
@@ -1192,6 +1188,92 @@ Opens Android's own Blocked numbers screen (TelecomManager.createManageBlockedNu
 - `version`: integer, 1
 - `requestId`: string, echoes the request
 - `result`: opened | notified | unavailable (an unknown result reads as unavailable)
+
+#### `connect.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `connect.setup` | edition-draft | either | connect_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `connect.setup.ack` | edition-draft | either | connect_draft1 | yes | messageId | 64 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `connect.addresses` | edition-draft | either | connect_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `connect.offer` | designed | either | connect_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | not yet |
+| `connect.answer` | designed | either | connect_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | not yet |
+| `connect.candidates` | designed | either | connect_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | not yet |
+| `connect.restart` | designed | either | connect_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | not yet |
+| `connect.bye` | designed | either | connect_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | not yet |
+| `connect.route` | designed | either | connect_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | not yet |
+
+`connect.setup`
+
+- `version`: integer, 1
+- `contribution`: string, base64 of 32 random bytes
+- `rotate`: optional boolean (Reset away-from-home identity); missing means false
+
+Answered by `connect.setup`, `connect.setup.ack`.
+
+Creates the pair secret: each side sends its contribution once per exchange (a side that receives one first answers with its own), then pairSecret = HKDF-SHA256(cLow || cHigh, salt bridgey-pair-secret-v1, info idLow 0x00 idHigh, 32). Started by the lower device ID when its pair check differs from the peer's connect.addresses. A malformed payload is dropped and the session stays.
+
+`connect.setup.ack`
+
+- `version`: integer, 1
+
+Informational: the sender holds the new pair secret.
+
+`connect.addresses`
+
+- `version`: integer, 1
+- `port`: integer 1 to 65535, the sender's UDP port
+- `addrs`: array of at most 16 {a: IP address string, kind: lan | vpn | public6, vpn?: tailscale | other}; entries with an unknown kind or an unusable address are skipped
+- `pairCheck`: optional string, base64url of HMAC-SHA256(pairSecret, bridgey-pair-check-v1)[0..8]; absent without a pair secret
+
+Sent after every features.update that shows the key on both sides and whenever the sender's addresses change. The receiver keeps at most 16 per peer (30 days) and dials them over QUIC when the peer is away. The pair check never reveals the secret.
+
+`connect.offer`
+
+- `version`: integer, 1
+- `sid`: string, base64url 16 bytes
+- `ufrag`: 8 characters
+- `pwd`: 24 characters
+- `cands`: at most 24 candidates
+- `cert`: certSha256
+
+In-band ICE (spec 4.4). Phase 1 signals ICE through the control service only.
+
+`connect.answer`
+
+- `version`: integer, 1
+- `sid`: as connect.offer
+- `ufrag`: 8 characters
+- `pwd`: 24 characters
+- `cands`: at most 24 candidates
+- `cert`: certSha256
+
+`connect.candidates`
+
+- `sid`: string
+- `cands`: at most 24 candidates
+- `done`: boolean
+
+`connect.restart`
+
+- `sid`: string
+- `ufrag`: 8 characters
+- `pwd`: 24 characters
+- `reason`: network_change | path_failed | relay_switch
+
+`connect.bye`
+
+- `sid`: string
+- `reason`: string
+
+`connect.route`
+
+- `version`: integer, 1
+- `route`: lan | vpn | direct | relay
+- `relay`: optional relay ID
+- `rttMs`: integer
+
+Informational. Phase 1 shows each side's own route from its core instead.
 
 #### `speed.*`
 

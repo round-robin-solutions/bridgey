@@ -126,6 +126,8 @@ data class SettingsState(
     val updateAll: UpdateAllUiState = UpdateAllUiState(),
     /** Text messages: permissions and how replies are sent. */
     val messages: MessagesSettingsState = MessagesSettingsState(),
+    /** Connect away from home (Connect anywhere). */
+    val connect: ConnectSettingsState = ConnectSettingsState(),
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean = globalFeatures[feature] != false
 }
@@ -179,6 +181,7 @@ class SettingsActions(
     val sync: SyncSettingsActions = SyncSettingsActions(),
     val updateAll: UpdateAllActions = UpdateAllActions(),
     val messages: MessagesSettingsActions = MessagesSettingsActions(),
+    val connect: ConnectSettingsActions = ConnectSettingsActions(),
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
@@ -195,6 +198,8 @@ enum class SettingsGroup { DEVICES, FEATURES, APP }
 enum class SettingsSection(val titleRes: Int, val group: SettingsGroup?) {
     THIS_PHONE(R.string.settings_this_phone, null),
     DEVICES(R.string.settings_devices, SettingsGroup.DEVICES),
+    /** Connect away from home: a page under Devices (its row is on the Devices page, as on the Mac). */
+    AWAY(R.string.settings_connect_away, null),
     CLIPBOARD(R.string.feature_clipboard, SettingsGroup.FEATURES),
     NOTIFICATIONS(R.string.settings_notifications, SettingsGroup.FEATURES),
     MESSAGES(R.string.feature_sms, SettingsGroup.FEATURES),
@@ -246,6 +251,7 @@ fun SettingsScreen(
     when (section) {
         null, SettingsSection.THIS_PHONE -> SettingsHome(state, actions, listState)
         SettingsSection.DEVICES -> DevicesPage(state, actions, listState)
+        SettingsSection.AWAY -> ConnectAwayPage(state, actions, listState)
         SettingsSection.CLIPBOARD -> ClipboardPage(state, actions, listState)
         SettingsSection.NOTIFICATIONS -> NotificationsPage(state, actions, listState)
         SettingsSection.MESSAGES -> MessagesPage(state, actions, listState)
@@ -485,6 +491,7 @@ private fun FilesPage(state: SettingsState, actions: SettingsActions, listState:
                 }
                 if (filesOn && state.folders.supported) {
                     Note(stringResource(if (state.folders.allowBrowse) R.string.settings_folders_note_browse else R.string.settings_folders_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp))
+                    Note(stringResource(R.string.settings_folder_send_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp))
                 }
             }
         }
@@ -580,11 +587,11 @@ private fun PrivacyPage(state: SettingsState, actions: SettingsActions, listStat
     }
 }
 
-/** Updates: the status card, the channel and the daily check. */
+/** Updates: the status card, the channel and Update all devices automatically, then your devices. */
 @Composable
 private fun UpdatesPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
     SectionPage(SettingsSection.UPDATES, actions, listState) {
-        item(key = "updates") { UpdatesCard(state.update, state.installedVersion, state.now, actions) }
+        item(key = "updates") { UpdatesCard(state.update, state.installedVersion, state.now, actions, state.updateAll.auto) }
         item(key = "updates.devices") {
             val colors = BridgeyTheme.colors
             YourDevicesCard(
@@ -757,6 +764,7 @@ private fun sectionVisual(section: SettingsSection, state: SettingsState): Pair<
     return when (section) {
         SettingsSection.THIS_PHONE -> BridgeyIcons.Smartphone to Tint.BLUE
         SettingsSection.DEVICES -> BridgeyIcons.Devices to Tint.BLUE
+        SettingsSection.AWAY -> BridgeyIcons.Public to if (state.connect.on) Tint.BLUE else Tint.NEUTRAL
         SettingsSection.CLIPBOARD -> feature(BridgeyFeature.CLIPBOARD)
         SettingsSection.NOTIFICATIONS -> feature(BridgeyFeature.NOTIFICATIONS)
         SettingsSection.MESSAGES -> feature(BridgeyFeature.SMS)
@@ -787,6 +795,7 @@ private fun sectionSummary(section: SettingsSection, state: SettingsState): Sect
         SettingsSection.DEVICES -> SectionSummary(
             androidx.compose.ui.res.pluralStringResource(R.plurals.settings_devices_count, state.pairedCount, state.pairedCount),
         )
+        SettingsSection.AWAY -> SectionSummary(connectSummary(state.connect))
         SettingsSection.CLIPBOARD -> if (featureOff(BridgeyFeature.CLIPBOARD)) {
             SectionSummary(off)
         } else {
@@ -1135,11 +1144,18 @@ private fun channelDescription(channel: UpdateChannel): String = stringResource(
 )
 
 /**
- * Settings > Updates: one status card that shows one state at a time, then the channel and the
- * daily check. The version appears once, in the status card.
+ * Settings > Updates: one status card that shows one state at a time, then the channel and Update
+ * all devices automatically (how often it checks, what it waits for). The version appears once, in
+ * the status card.
  */
 @Composable
-fun UpdatesCard(state: UpdateUiState, installedVersion: String, now: Long, actions: SettingsActions) {
+fun UpdatesCard(
+    state: UpdateUiState,
+    installedVersion: String,
+    now: Long,
+    actions: SettingsActions,
+    auto: dev.bridgey.android.updates.AutoUpdateView = dev.bridgey.android.updates.AutoUpdateView(),
+) {
     val colors = BridgeyTheme.colors
     val cardModifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(colors.surface1)
     Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1150,8 +1166,7 @@ fun UpdatesCard(state: UpdateUiState, installedVersion: String, now: Long, actio
             Text(channelDescription(state.channel), style = BridgeyType.itemBody, color = colors.onSurface, modifier = Modifier.padding(top = 10.dp))
             Text(stringResource(R.string.updates_channel_note), style = BridgeyType.small, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
             Box(Modifier.padding(vertical = 14.dp).fillMaxWidth().height(1.dp).background(colors.outlineVariant))
-            Text(stringResource(R.string.updates_auto_title), style = BridgeyType.itemTitle)
-            Text(stringResource(R.string.updates_auto_detail), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
+            AutoUpdateSettings(auto, now, actions.updateAll.setAuto)
         }
     }
 }
@@ -1355,6 +1370,8 @@ private fun Credit(actions: SettingsActions) {
 data class DevicesSettingsState(
     val rings: List<DeviceRing>,
     val rediscovering: Boolean = false,
+    /** Connect away from home, for its row (null hides it). */
+    val connect: ConnectSettingsState? = null,
 )
 
 class DevicesSettingsActions(
@@ -1362,6 +1379,7 @@ class DevicesSettingsActions(
     val openDevice: (DeviceRing) -> Unit = {},
     val addDevice: () -> Unit = {},
     val lookForDevices: () -> Unit = {},
+    val openConnectAway: () -> Unit = {},
 )
 
 /**
@@ -1387,6 +1405,18 @@ fun DevicesSettingsScreen(state: DevicesSettingsState, actions: DevicesSettingsA
                                 leading = { DeviceGlyph(ring.state.style(), deviceIcon(ring.platform), 40.dp, iconSize = 18.dp) },
                             ) { Chevron() }
                         }
+                    }
+                }
+            }
+        }
+        state.connect?.let { connect ->
+            item(key = "away") {
+                RowGroup(Modifier.padding(top = 24.dp)) {
+                    row { shape ->
+                        ListRow(
+                            shape, stringResource(R.string.settings_connect_away), connectSummary(connect),
+                            BridgeyIcons.Public, if (connect.on) Tint.BLUE else Tint.NEUTRAL, onClick = actions.openConnectAway,
+                        ) { Chevron() }
                     }
                 }
             }

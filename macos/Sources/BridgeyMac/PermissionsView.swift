@@ -235,6 +235,7 @@ extension SettingsPane {
     var parentPane: SettingsPane? {
         switch self {
         case .permissions, .reset: .privacy
+        case .away: .devices
         default: nil
         }
     }

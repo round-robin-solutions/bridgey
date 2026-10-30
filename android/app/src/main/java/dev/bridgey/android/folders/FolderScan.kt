@@ -59,15 +59,22 @@ class FolderScanResult(
 }
 
 /**
+ * "Include hidden files" and "Include system files" for one send, as on the Mac (Settings > Files has the
+ * defaults, both off): hidden is dotfiles and dot-folders that are not system files; system is OS clutter
+ * matched by exact name ([SystemFiles]). A system file needs its own option even when hidden files are included.
+ */
+data class FolderScanOptions(val includeHidden: Boolean = false, val includeSystem: Boolean = false)
+
+/**
  * Turns a folder on the phone (or a list of download items) into a manifest, like the Mac's FolderScanner:
- * portable names, case clashes numbered, hidden and system files skipped and counted (both off, as the Mac's
- * defaults), limits of 5.4. A whole folder keeps its own name as the root; `into` items are the top-level
- * entries themselves.
+ * portable names, case clashes numbered, hidden and system files skipped and counted (each unless its option is
+ * on, both off by default as on the Mac), limits of 5.4. A whole folder keeps its own name as the root; `into`
+ * items are the top-level entries themselves.
  */
 object FolderScanner {
     private val placeholderHash = java.util.Base64.getEncoder().encodeToString(ByteArray(32))
 
-    fun scanFolder(root: SendNode, includeHidden: Boolean = false, includeSystem: Boolean = false, cancelled: () -> Boolean = { false }): FolderScanResult {
+    fun scanFolder(root: SendNode, options: FolderScanOptions = FolderScanOptions(), cancelled: () -> Boolean = { false }): FolderScanResult {
         val rootName = PortableName.convert(root.name) ?: "_"
         val children = try {
             root.children()
@@ -76,14 +83,17 @@ object FolderScanner {
         } catch (_: SecurityException) {
             return FolderScanResult(rootName, false, emptyList(), emptyList(), SkippedCounts(), 0, FolderCodes.PLACE_UNAVAILABLE)
         }
-        return Walk(includeHidden, includeSystem, cancelled).run(children, rootName, into = false, renamedRoot = rootName != root.name)
+        return Walk(options.includeHidden, options.includeSystem, cancelled).run(children, rootName, into = false, renamedRoot = rootName != root.name)
     }
 
-    /** Download items: each lands directly in the receiver's folder (`into`). [rootName] is for display. */
-    fun scanItems(items: List<SendNode>, cancelled: () -> Boolean = { false }): FolderScanResult {
+    /**
+     * Download items: each lands directly in the receiver's folder (`into`). The items themselves are what the
+     * person picked, so they are sent whatever their names are; inside a picked folder [options] decide, as for a
+     * sent folder.
+     */
+    fun scanItems(items: List<SendNode>, options: FolderScanOptions = FolderScanOptions(), cancelled: () -> Boolean = { false }): FolderScanResult {
         val rootName = items.firstOrNull()?.name?.let(PortableName::convert) ?: "_"
-        // Items the user picked on purpose: hidden ones are sent too; system clutter inside folders is not.
-        return Walk(includeHidden = true, includeSystem = false, cancelled = cancelled, topLevelExplicit = true)
+        return Walk(options.includeHidden, options.includeSystem, cancelled, topLevelExplicit = true)
             .run(items, rootName, into = true, renamedRoot = false)
     }
 

@@ -1,0 +1,32 @@
+# Bridgey relay: coturn with the Bridgey settings (docs/connect-anywhere.md section 9).
+# One stack per relay host, deployed as a Dokploy compose app. Not deployed anywhere yet:
+# see docs/connect-anywhere-deploy.md for the approvals it needs.
+#
+# Environment (Dokploy):
+#   TURN_SECRET    hex, the relay's static-auth-secret (vault: Keychain/Bridgey Connect)
+#   EXTERNAL_IP    public IP, or "public/private" on hosts behind 1:1 NAT (oracle)
+#   LISTENING_IP  the public IPv4 (coturn then relays on it, not on Docker or tailnet addresses)
+#   MIN_PORT, MAX_PORT, TOTAL_QUOTA, BPS_CAPACITY, COTURN_CPUS   per host, section 9.6
+#   (the relay range stays above Linux's ephemeral ports, 32768-60999)
+services:
+  coturn:
+    image: coturn/coturn:4.18.0@sha256:bbefd3e1fdfdc0d58770fe01b581fd8b00d9f3a5580d00acb77cf719a6bc78e3
+    network_mode: host
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/etc/bridgey-relay/entrypoint.sh"]
+    volumes:
+      - ./entrypoint.sh:/etc/bridgey-relay/entrypoint.sh:ro
+      - ./turnserver.conf.template:/etc/bridgey-relay/turnserver.conf.template:ro
+    tmpfs:
+      - /run/coturn:mode=0700,uid=65534,gid=65534
+    environment:
+      TURN_SECRET: ${TURN_SECRET:?}
+      EXTERNAL_IP: ${EXTERNAL_IP:?}
+      MIN_PORT: ${MIN_PORT:-61000}
+      MAX_PORT: ${MAX_PORT:-62999}
+      # The public IPv4 to listen and relay on (phase 1 relays IPv4 only); empty means every address.
+      LISTENING_IP: ${LISTENING_IP:-}
+      TOTAL_QUOTA: ${TOTAL_QUOTA:-300}
+      BPS_CAPACITY: ${BPS_CAPACITY:-25000000}
+    cpus: ${COTURN_CPUS:-1.0}
+    mem_limit: 512m

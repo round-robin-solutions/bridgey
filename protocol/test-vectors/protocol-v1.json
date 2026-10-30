@@ -1,5 +1,5 @@
 {
- "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect, and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page), smsSendStatus, smsMarkReadResult and smsBlockedNumbersResult by the Mac (the phone also writes exactly the expected plaintext for each valid one); requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, waiting, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins when an update arrives (local, remote or equal); settingsSnapshot says what a snapshot record does (adopt, different or same); settingsAsker says which side asks on a first connect (local, remote or none); settingsStamp is the record a local edit or Apply to all makes from current at now by device (value null: the new value is the edit's own).",
+ "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect (auto and retry: false), and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page), smsSendStatus, smsMarkReadResult and smsBlockedNumbersResult by the Mac (the phone also writes exactly the expected plaintext for each valid one); requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, waiting, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins when an update arrives (local, remote or equal); settingsSnapshot says what a snapshot record does (adopt, different or same); settingsAsker says which side asks on a first connect (local, remote or none); settingsStamp is the record a local edit or Apply to all makes from current at now by device (value null: the new value is the edit's own). Connect anywhere (connect_draft1): connectSetup and connectAddresses are decoded by both platforms; addresses keep their order and vpn null means absent.",
  "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
  "frames": [
   {
@@ -488,6 +488,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -543,6 +544,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -600,6 +602,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -653,6 +656,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -708,6 +712,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -759,6 +764,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -809,6 +815,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -860,6 +867,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": true
     }
    }
@@ -910,6 +918,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -961,6 +970,7 @@
      "screen_draft1": true,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -1011,6 +1021,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -1062,6 +1073,7 @@
      "screen_draft1": false,
      "sms_draft1": true,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -1112,6 +1124,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -1162,6 +1175,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": true,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -1212,6 +1226,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -1265,6 +1280,109 @@
      "screen_draft1": true,
      "sms_draft1": true,
      "settings_sync_draft1": true,
+     "connect_draft1": false,
+     "files_fast_draft1": false
+    }
+   }
+  },
+  {
+   "name": "Connect anywhere on",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "connect_draft1": true
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
+     "sms_draft1": false,
+     "settings_sync_draft1": false,
+     "connect_draft1": true,
+     "files_fast_draft1": false
+    }
+   }
+  },
+  {
+   "name": "Connect anywhere key that is not a boolean counts as false",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "connect_draft1": "true"
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
+     "sms_draft1": false,
+     "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -1316,6 +1434,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -1360,6 +1479,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -1408,6 +1528,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -1453,6 +1574,7 @@
      "screen_draft1": false,
      "sms_draft1": false,
      "settings_sync_draft1": false,
+     "connect_draft1": false,
      "files_fast_draft1": false
     }
    }
@@ -7561,7 +7683,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7590,7 +7714,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7621,7 +7747,9 @@
     "target": "0.9.0-rr.3-beta.3",
     "targetBuild": 903003,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7653,7 +7781,9 @@
     "target": "0.9.0-rr.3-beta.3",
     "targetBuild": 903003,
     "progress": 42,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7684,7 +7814,9 @@
     "target": "0.9.0-rr.3",
     "targetBuild": 903000,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7715,7 +7847,9 @@
     "target": "0.9.0-rr.3-beta.3",
     "targetBuild": 903003,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7747,7 +7881,9 @@
     "target": "0.9.0-rr.3-beta.3",
     "targetBuild": 903003,
     "progress": null,
-    "reason": "confirm"
+    "reason": "confirm",
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7779,7 +7915,9 @@
     "target": "0.9.0-rr.3-beta.3",
     "targetBuild": 903003,
     "progress": null,
-    "reason": "permission"
+    "reason": "permission",
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7811,7 +7949,9 @@
     "target": "0.9.0-rr.3-beta.3",
     "targetBuild": 903003,
     "progress": null,
-    "reason": "not_applied"
+    "reason": "not_applied",
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7841,7 +7981,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": "check"
+    "reason": "check",
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7870,7 +8012,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    },
    "write": true
   },
@@ -7900,8 +8044,398 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": "other"
+    "reason": "other",
+    "auto": false,
+    "busy": null
    }
+  },
+  {
+   "name": "automatic updates on",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": true
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": true,
+    "busy": null
+   },
+   "write": true
+  },
+  {
+   "name": "busy: call",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": true,
+    "busy": "call"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": true,
+    "busy": "call"
+   },
+   "write": true
+  },
+  {
+   "name": "busy: screen_share",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": true,
+    "busy": "screen_share"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": true,
+    "busy": "screen_share"
+   },
+   "write": true
+  },
+  {
+   "name": "busy: remote_control",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": true,
+    "busy": "remote_control"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": true,
+    "busy": "remote_control"
+   },
+   "write": true
+  },
+  {
+   "name": "busy: transfer",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": true,
+    "busy": "transfer"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": true,
+    "busy": "transfer"
+   },
+   "write": true
+  },
+  {
+   "name": "busy: phone_files",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": true,
+    "busy": "phone_files"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": true,
+    "busy": "phone_files"
+   },
+   "write": true
+  },
+  {
+   "name": "busy: setup",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": true,
+    "busy": "setup"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": true,
+    "busy": "setup"
+   },
+   "write": true
+  },
+  {
+   "name": "auto false written out",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": false
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": false,
+    "busy": null
+   }
+  },
+  {
+   "name": "an unknown busy reads as other (still busy)",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "busy": "karaoke"
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": false,
+    "busy": "other"
+   }
+  },
+  {
+   "name": "busy null counts as absent",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "busy": null,
+    "auto": null
+   },
+   "expect": {
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "target": null,
+    "targetBuild": null,
+    "progress": null,
+    "reason": null,
+    "auto": false,
+    "busy": null
+   }
+  },
+  {
+   "name": "auto as a string",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": "true"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "auto as a number",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "auto": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "busy as a boolean",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "busy": true
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "busy as a number",
+   "plaintext": {
+    "version": 1,
+    "platform": "android",
+    "edition": "rr",
+    "app": "0.9.0-rr.3-beta.2",
+    "build": 903002,
+    "channel": "beta",
+    "state": "current",
+    "remoteStart": true,
+    "checkedAt": 1793091600000,
+    "busy": 1
+   },
+   "expect": "reject"
   },
   {
    "name": "unknown fields are ignored",
@@ -7932,7 +8466,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    }
   },
   {
@@ -7950,7 +8486,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    }
   },
   {
@@ -7982,7 +8520,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    }
   },
   {
@@ -8010,7 +8550,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    }
   },
   {
@@ -8113,7 +8655,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    }
   },
   {
@@ -8376,7 +8920,9 @@
     "target": null,
     "targetBuild": null,
     "progress": null,
-    "reason": null
+    "reason": null,
+    "auto": false,
+    "busy": null
    }
   },
   {
@@ -8407,7 +8953,8 @@
    },
    "expect": {
     "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
-    "retry": false
+    "retry": false,
+    "auto": false
    },
    "write": true
   },
@@ -8420,7 +8967,8 @@
    },
    "expect": {
     "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
-    "retry": true
+    "retry": true,
+    "auto": false
    },
    "write": true
   },
@@ -8433,7 +8981,8 @@
    },
    "expect": {
     "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
-    "retry": false
+    "retry": false,
+    "auto": false
    }
   },
   {
@@ -8444,7 +8993,8 @@
    },
    "expect": {
     "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
-    "retry": false
+    "retry": false,
+    "auto": false
    }
   },
   {
@@ -8457,8 +9007,58 @@
    },
    "expect": {
     "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
-    "retry": false
+    "retry": false,
+    "auto": false
    }
+  },
+  {
+   "name": "started automatically",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "auto": true
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false,
+    "auto": true
+   },
+   "write": true
+  },
+  {
+   "name": "auto false written out",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "auto": false
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false,
+    "auto": false
+   }
+  },
+  {
+   "name": "auto null counts as absent",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "auto": null
+   },
+   "expect": {
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "retry": false,
+    "auto": false
+   }
+  },
+  {
+   "name": "auto as a string",
+   "plaintext": {
+    "version": 1,
+    "requestId": "5b0c9e2a-7d41-4c3f-8e5a-1f2b3c4d5e6f",
+    "auto": "true"
+   },
+   "expect": "reject"
   },
   {
    "name": "retry as a string",
@@ -13080,6 +13680,24 @@
       "changedAt": 1792900000019,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "connect.away": {
+      "value": true,
+      "changedAt": 1792900000020,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_hidden": {
+      "value": true,
+      "changedAt": 1792900000021,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_system": {
+      "value": true,
+      "changedAt": 1792900000022,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     }
    },
@@ -13226,6 +13844,24 @@
      "updates.auto_all": {
       "value": true,
       "changedAt": 1792900000019,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "connect.away": {
+      "value": true,
+      "changedAt": 1792900000020,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_hidden": {
+      "value": true,
+      "changedAt": 1792900000021,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_system": {
+      "value": true,
+      "changedAt": 1792900000022,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
@@ -14189,6 +14825,96 @@
    }
   },
   {
+   "name": "connect.away off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "connect.away": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "connect.away": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0,
+    "first": false,
+    "new": false,
+    "answered": false
+   }
+  },
+  {
+   "name": "files.folder_include_hidden off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "files.folder_include_hidden": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "files.folder_include_hidden": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0,
+    "first": false,
+    "new": false,
+    "answered": false
+   }
+  },
+  {
+   "name": "files.folder_include_system off",
+   "kind": "update",
+   "plaintext": {
+    "schema": 1,
+    "records": {
+     "files.folder_include_system": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    }
+   },
+   "expect": {
+    "records": {
+     "files.folder_include_system": {
+      "value": false,
+      "changedAt": 7,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     }
+    },
+    "waiting": [],
+    "skipped": 0,
+    "first": false,
+    "new": false,
+    "answered": false
+   }
+  },
+  {
    "name": "unknown key is skipped, the rest applies",
    "kind": "update",
    "plaintext": {
@@ -14921,7 +15647,7 @@
    }
   },
   {
-   "name": "32 records (8 unknown)",
+   "name": "32 records (5 unknown)",
    "kind": "snapshot",
    "plaintext": {
     "schema": 1,
@@ -15071,6 +15797,24 @@
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
+     "connect.away": {
+      "value": true,
+      "changedAt": 1792900000020,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_hidden": {
+      "value": true,
+      "changedAt": 1792900000021,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_system": {
+      "value": true,
+      "changedAt": 1792900000022,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
      "x.k00": {
       "value": true,
       "changedAt": 1,
@@ -15096,24 +15840,6 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
      "x.k04": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k05": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k06": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k07": {
       "value": true,
       "changedAt": 1,
       "version": 1,
@@ -15266,10 +15992,28 @@
       "changedAt": 1792900000019,
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "connect.away": {
+      "value": true,
+      "changedAt": 1792900000020,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_hidden": {
+      "value": true,
+      "changedAt": 1792900000021,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_system": {
+      "value": true,
+      "changedAt": 1792900000022,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      }
     },
     "waiting": [],
-    "skipped": 8,
+    "skipped": 5,
     "first": false,
     "new": false,
     "answered": false
@@ -15426,6 +16170,24 @@
       "version": 1,
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
+     "connect.away": {
+      "value": true,
+      "changedAt": 1792900000020,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_hidden": {
+      "value": true,
+      "changedAt": 1792900000021,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
+     "files.folder_include_system": {
+      "value": true,
+      "changedAt": 1792900000022,
+      "version": 1,
+      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
+     },
      "x.k00": {
       "value": true,
       "changedAt": 1,
@@ -15451,24 +16213,6 @@
       "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
      },
      "x.k04": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k05": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k06": {
-      "value": true,
-      "changedAt": 1,
-      "version": 1,
-      "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
-     },
-     "x.k07": {
       "value": true,
       "changedAt": 1,
       "version": 1,
@@ -16145,6 +16889,394 @@
     "version": 8,
     "changedBy": "7e57d00d-0000-4000-8000-00000000000a"
    }
+  }
+ ],
+ "connectSetup": [
+  {
+   "name": "first exchange",
+   "plaintext": {
+    "version": 1,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "rotate": false
+   },
+   "expect": {
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "rotate": false
+   }
+  },
+  {
+   "name": "rotate",
+   "plaintext": {
+    "version": 1,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "rotate": true
+   },
+   "expect": {
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "rotate": true
+   }
+  },
+  {
+   "name": "rotate missing means false",
+   "plaintext": {
+    "version": 1,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
+   },
+   "expect": {
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "rotate": false
+   }
+  },
+  {
+   "name": "unknown fields are ignored",
+   "plaintext": {
+    "version": 1,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "future": [
+     1,
+     2
+    ]
+   },
+   "expect": {
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "rotate": false
+   }
+  },
+  {
+   "name": "31 bytes",
+   "plaintext": {
+    "version": 1,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHw=="
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "33 bytes",
+   "plaintext": {
+    "version": 1,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAh"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "not base64",
+   "plaintext": {
+    "version": 1,
+    "contribution": "!!!!"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "contribution missing",
+   "plaintext": {
+    "version": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "rotate as a string",
+   "plaintext": {
+    "version": 1,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+    "rotate": "yes"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "contribution": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 256 bytes",
+   "plaintextString": "{\"version\":1,\"contribution\":\"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,contribution:'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA='}",
+   "expect": "reject"
+  }
+ ],
+ "connectAddresses": [
+  {
+   "name": "home Mac with Tailscale",
+   "plaintext": {
+    "version": 1,
+    "port": 42458,
+    "addrs": [
+     {
+      "a": "192.168.1.20",
+      "kind": "lan"
+     },
+     {
+      "a": "100.101.1.2",
+      "kind": "vpn",
+      "vpn": "tailscale"
+     },
+     {
+      "a": "2409:4040:1:2::20",
+      "kind": "public6"
+     }
+    ],
+    "pairCheck": "r_IQgYZ46wg"
+   },
+   "expect": {
+    "port": 42458,
+    "addrs": [
+     {
+      "a": "192.168.1.20",
+      "kind": "lan",
+      "vpn": null
+     },
+     {
+      "a": "100.101.1.2",
+      "kind": "vpn",
+      "vpn": "tailscale"
+     },
+     {
+      "a": "2409:4040:1:2::20",
+      "kind": "public6",
+      "vpn": null
+     }
+    ],
+    "pairCheck": "r_IQgYZ46wg"
+   }
+  },
+  {
+   "name": "no pair secret yet",
+   "plaintext": {
+    "version": 1,
+    "port": 42458,
+    "addrs": []
+   },
+   "expect": {
+    "port": 42458,
+    "addrs": [],
+    "pairCheck": null
+   }
+  },
+  {
+   "name": "unusable entries are skipped",
+   "plaintext": {
+    "version": 1,
+    "port": 50000,
+    "addrs": [
+     {
+      "a": "127.0.0.1",
+      "kind": "lan"
+     },
+     {
+      "a": "::1",
+      "kind": "lan"
+     },
+     {
+      "a": "0.0.0.0",
+      "kind": "lan"
+     },
+     {
+      "a": "224.0.0.1",
+      "kind": "lan"
+     },
+     {
+      "a": "example.com",
+      "kind": "lan"
+     },
+     {
+      "a": "300.1.1.1",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.2",
+      "kind": "satellite"
+     },
+     {
+      "a": "10.0.0.3"
+     },
+     5,
+     {
+      "a": "10.0.0.4",
+      "kind": "lan"
+     }
+    ]
+   },
+   "expect": {
+    "port": 50000,
+    "addrs": [
+     {
+      "a": "10.0.0.4",
+      "kind": "lan",
+      "vpn": null
+     }
+    ],
+    "pairCheck": null
+   }
+  },
+  {
+   "name": "unknown vpn names read as none",
+   "plaintext": {
+    "version": 1,
+    "port": 42458,
+    "addrs": [
+     {
+      "a": "10.8.0.2",
+      "kind": "vpn",
+      "vpn": "wireguard"
+     }
+    ]
+   },
+   "expect": {
+    "port": 42458,
+    "addrs": [
+     {
+      "a": "10.8.0.2",
+      "kind": "vpn",
+      "vpn": null
+     }
+    ],
+    "pairCheck": null
+   }
+  },
+  {
+   "name": "17 entries",
+   "plaintext": {
+    "version": 1,
+    "port": 42458,
+    "addrs": [
+     {
+      "a": "10.0.0.1",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.2",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.3",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.4",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.5",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.6",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.7",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.8",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.9",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.10",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.11",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.12",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.13",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.14",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.15",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.16",
+      "kind": "lan"
+     },
+     {
+      "a": "10.0.0.17",
+      "kind": "lan"
+     }
+    ]
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "port 0",
+   "plaintext": {
+    "version": 1,
+    "port": 0,
+    "addrs": []
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "port 65536",
+   "plaintext": {
+    "version": 1,
+    "port": 65536,
+    "addrs": []
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "addrs missing",
+   "plaintext": {
+    "version": 1,
+    "port": 42458
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "pairCheck as a number",
+   "plaintext": {
+    "version": 1,
+    "port": 42458,
+    "addrs": [],
+    "pairCheck": 5
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "pairCheck of the wrong length",
+   "plaintext": {
+    "version": 1,
+    "port": 42458,
+    "addrs": [],
+    "pairCheck": "abc"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "port": 42458,
+    "addrs": []
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 2048 bytes",
+   "plaintextString": "{\"version\":1,\"port\":42458,\"addrs\":[],\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
   }
  ]
 }

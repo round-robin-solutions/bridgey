@@ -14,6 +14,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case thisMac, devices, clipboard, notifications, messages, calls, files, media, remoteControl, privacy, updates, general, about
     /// Privacy sub-pages (PermissionsView.swift, ResetView.swift); not in the sidebar.
     case permissions, reset
+    /// Devices sub-page: Connect away from home (ConnectSettingsView.swift).
+    case away
 
     var id: String { rawValue }
 
@@ -34,6 +36,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: L10n.text("settings.general", fallback: "General")
         case .about: L10n.text("settings.about", fallback: "About")
         case .permissions, .reset: subpageTitle
+        case .away: L10n.text("settings.away", fallback: "Connect away from home")
         }
     }
 
@@ -63,6 +66,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .about: "info.circle"
         case .permissions: "lock.shield"
         case .reset: "arrow.counterclockwise"
+        case .away: "globe"
         }
     }
 
@@ -118,6 +122,7 @@ struct SettingsModel {
     var mediaPlayer: MediaPlayer = .off
     var pauseForCalls = false
     var ringForCalls = true
+    var otherAppCallPolicy: MacOtherAppCallPolicy = .ask
     var logging = LoggingPolicy()
     var mediaDetail = ""
     var showPreviews = true
@@ -133,6 +138,8 @@ struct SettingsModel {
     /// Update all: this Mac and its connected phones; and whether phones may start this Mac's update.
     var updateAll = UpdateAllDisplay()
     var remoteStartUpdates = true
+    /// Update all devices automatically: the switch and its status lines.
+    var autoUpdate = AutoUpdateDisplay()
     var shortVersion = "Development"
     var versionDescription = "Development"
     var phoneLinkStatus: String?
@@ -178,6 +185,9 @@ struct SettingsModel {
     var syncStatus: [SyncKey: SyncRowStatus] = [:]
     /// A paired device turned Codes from messages on; it waits for this Mac's own consent.
     var codesPendingSync = false
+    /// Devices > Connect away from home: the switch and the core's state.
+    var connectAway = false
+    var connect = ConnectDisplay()
 
     var connectedDeviceID: String? {
         if case let .connected(id, _) = state { return id }
@@ -255,6 +265,7 @@ struct SettingsActions {
     var setPlayer: (MediaPlayer) -> Void = { _ in }
     var setPauseForCalls: (Bool) -> Void = { _ in }
     var setRingForCalls: (Bool) -> Void = { _ in }
+    var setOtherAppCallPolicy: (MacOtherAppCallPolicy) -> Void = { _ in }
     var setLogging: (LoggingPolicy) -> Void = { _ in }
     var clearLogs: () -> Void = {}
     var refreshPlayer: () -> Void = {}
@@ -269,6 +280,7 @@ struct SettingsActions {
     var update = UpdateFlowActions()
     var updateAll = UpdateAllActions()
     var setRemoteStartUpdates: (Bool) -> Void = { _ in }
+    var setAutoUpdate: (Bool) -> Void = { _ in }
     var openURL: (URL) -> Void = { _ in }
     var stopRemoteControl: () -> Void = {}
     var openAccessibilitySettings: () -> Void = {}
@@ -300,6 +312,11 @@ struct SettingsActions {
     var applyToAll: (SyncKey) -> Void = { _ in }
     /// "On, waiting for permission": open where it is allowed.
     var allowPermission: (SyncKey) -> Void = { _ in }
+    var setConnectAway: (Bool) -> Void = { _ in }
+    var resetConnectIdentity: () -> Void = {}
+    /// Debug only (BridgeyConnectDebug): the control service URL and relay only.
+    var setConnectControlURL: (String) -> Void = { _ in }
+    var setConnectRelayOnly: (Bool) -> Void = { _ in }
 }
 
 enum SettingsLinks {
@@ -667,6 +684,7 @@ struct SettingsPaneView: View {
         case .about: AboutPane(model: model, actions: actions)
         case .permissions: PermissionsPane(model: model, actions: actions)
         case .reset: ResetPane(model: model, actions: actions)
+        case .away: ConnectAwayPane(model: model, actions: actions)
         }
     }
 }
@@ -785,6 +803,7 @@ private struct CallsPane: View {
         SettingsCard {
             FeatureSwitch(feature: .calls, model: model, actions: actions)
             PhoneLinksRow(status: model.phoneLinkStatus, use: actions.usePhoneLinks)
+            OtherAppCallsRow(model: model, actions: actions)
             RingForCallsToggle(model: model, actions: actions)
             PauseForCallsToggle(model: model, actions: actions)
         }
@@ -804,10 +823,12 @@ private struct FilesPane: View {
         SettingsCard(footnote: L10n.text("settings.folders.note", fallback: "These are the defaults; the send sheet can change them for one folder. Links and Finder aliases are never sent.")) {
             SettingsToggle(title: L10n.text("settings.folders.hidden", fallback: "Include hidden files when sending folders"),
                            subtitle: L10n.text("settings.folders.hidden.detail", fallback: "Files and folders whose names start with a dot, such as .gitignore or .config."),
-                           divider: false, isOn: model.folderIncludeHidden, set: actions.setFolderIncludeHidden)
+                           divider: false, synced: model.syncs(.folderIncludeHidden), isOn: model.folderIncludeHidden, set: actions.setFolderIncludeHidden)
+            SyncStatusLine(key: .folderIncludeHidden, model: model, actions: actions)
             SettingsToggle(title: L10n.text("settings.folders.system", fallback: "Include system files when sending folders"),
                            subtitle: L10n.text("settings.folders.system.detail", fallback: "Clutter the system makes, such as .DS_Store, ._ files and Thumbs.db."),
-                           isOn: model.folderIncludeSystem, set: actions.setFolderIncludeSystem)
+                           synced: model.syncs(.folderIncludeSystem), isOn: model.folderIncludeSystem, set: actions.setFolderIncludeSystem)
+            SyncStatusLine(key: .folderIncludeSystem, model: model, actions: actions)
         }
         SettingsCard(footnote: L10n.text("settings.folders.receive.note", fallback: "Folders from your phone keep their structure. Received files get a Where from line in Finder.")) {
             SettingsRow(title: L10n.text("settings.folders.receive", fallback: "Folders sent to this Mac"),
@@ -1054,6 +1075,7 @@ private struct DevicesPane: View {
                     .disabled(model.rediscovering)
             }
         }
+        ConnectAwayCard(model: model, actions: actions)
         ForEach(model.trustedDevices) { device in
             DeviceCard(device: device, model: model, actions: actions)
         }
@@ -1074,6 +1096,7 @@ struct DeviceCard: View {
             HStack(spacing: 12) {
                 DeviceRingView(state: ring?.state ?? .offline, platform: ring?.platform, size: 36)
                 RowText(title: device.name, subtitle: ring.map { ringStatusDetail($0, now: model.now) } ?? L10n.text("ring.offline", fallback: "Offline"))
+                if let chip = routeChipText(model.health[device.id]) { RouteChip(text: chip) }
                 if ring?.canRetry == true {
                     Button(L10n.text("panel.retryNow", fallback: "Retry now")) { actions.retryDevice(device.id) }
                         .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
@@ -1177,6 +1200,31 @@ struct MediaPlayerRow: View {
                 .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
                 .disabled(model.mediaPlayer == .off)
         }
+    }
+}
+
+/// Settings > Calls > When another app asks to call: tel: links and the Call with Bridgey Service.
+struct OtherAppCallsRow: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+
+    var body: some View {
+        SettingsRow(title: L10n.text("settings.calls.otherApps", fallback: "When another app asks to call"),
+                    subtitle: L10n.text("settings.calls.otherApps.detail", fallback: "Covers tel: links and the Call with Bridgey RR item in the Services menu. Calls you start in Bridgey go through without asking.")) {
+            ChoiceButton(value: otherAppCallPolicyTitle(model.otherAppCallPolicy)) {
+                MacOtherAppCallPolicy.allCases.map { policy in
+                    PopUpMenuItem(title: otherAppCallPolicyTitle(policy), checked: policy == model.otherAppCallPolicy) { actions.setOtherAppCallPolicy(policy) }
+                }
+            }
+        }
+    }
+}
+
+func otherAppCallPolicyTitle(_ policy: MacOtherAppCallPolicy) -> String {
+    switch policy {
+    case .ask: return L10n.text("settings.calls.otherApps.ask", fallback: "Ask every time")
+    case .callNow: return L10n.text("settings.calls.otherApps.callNow", fallback: "Call right away")
+    case .refuse: return L10n.text("settings.calls.otherApps.refuse", fallback: "Don\u{2019}t allow")
     }
 }
 
@@ -1559,7 +1607,9 @@ struct LiveSettingsView: View {
     @ObservedObject var camera: PhoneCamera
     @ObservedObject var settingsSync: SettingsSyncController
     @ObservedObject var updateAll = UpdateAllCoordinator.shared
+    @ObservedObject var autoUpdate = AutoUpdateCoordinator.shared
     @ObservedObject var phoneScreen: PhoneScreen
+    @ObservedObject var connect: ConnectAnywhere
     @State private var pane: SettingsPane = .devices
     @State private var availableShortcuts: [String]?
     @State private var phoneLinkStatus: String?
@@ -1585,6 +1635,7 @@ struct LiveSettingsView: View {
         camera = pairing.camera
         phoneScreen = pairing.phoneScreen
         settingsSync = pairing.settingsSync
+        connect = pairing.connect
     }
 
     private var codeModelDisplay: CodeModelDisplay {
@@ -1670,6 +1721,7 @@ struct LiveSettingsView: View {
         model.mediaPlayer = media.player
         model.pauseForCalls = media.pauseForCalls
         model.ringForCalls = settings.ringForIncomingCalls
+        model.otherAppCallPolicy = settings.otherAppCallPolicy
         model.logging = settings.logging
         model.mediaDetail = media.snapshot.detail
         model.showPreviews = settings.showActivityPreviews
@@ -1684,6 +1736,9 @@ struct LiveSettingsView: View {
         model.updateDeferral = updater.deferral
         model.updateAll = updateAll.display()
         model.remoteStartUpdates = updateAll.remoteStartAllowed
+        model.autoUpdate = AutoUpdateDisplay(enabled: autoUpdate.enabled, choice: autoUpdate.storedChoice, available: updater.isAvailable,
+                                             checksOff: !updater.automaticallyChecks, channel: updater.channel,
+                                             decision: autoUpdate.decision, lastRun: autoUpdate.lastRun, now: Date())
         model.shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
         model.versionDescription = updater.versionDescription
         model.phoneLinkStatus = phoneLinkStatus
@@ -1710,6 +1765,8 @@ struct LiveSettingsView: View {
         model.syncStatus = Dictionary(uniqueKeysWithValues: SyncKey.allCases.map { ($0, settingsSync.status($0)) })
         model.phoneSettingsSync = Dictionary(pairing.connectedPhones.filter(\.state.featureStateReceived).map { ($0.id, $0.state.remoteSettingsSync) },
                                              uniquingKeysWith: { $1 })
+        model.connectAway = settings.connectAway
+        model.connect = pairing.connectDisplay
         model.batteryAlerts = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, batteryAlerts.thresholds(for: $0.id)) })
         return model
     }
@@ -1766,6 +1823,14 @@ struct LiveSettingsView: View {
         actions.applyToAll = { settingsSync.applyToAll($0) }
         // Codes waits for its own consent step on its card; the others for a system permission.
         actions.allowPermission = { key in pane = key == .codesEnabled ? .notifications : .permissions }
+        actions.setConnectAway = { settings.setConnectAway($0) }
+        actions.resetConnectIdentity = { pairing.resetConnectIdentity() }
+        actions.setConnectControlURL = { url in
+            let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { UserDefaults.standard.removeObject(forKey: "BridgeyConnectControlURL") } else { UserDefaults.standard.set(trimmed, forKey: "BridgeyConnectControlURL") }
+            if settings.connectAway { connect.stop(); connect.start() }
+        }
+        actions.setConnectRelayOnly = { connect.setRelayOnly($0) }
         actions.setFocusSync = { change in
             focusSync.update(change)
             if focusSync.settings.follow { loadShortcuts() }
@@ -1828,6 +1893,7 @@ struct LiveSettingsView: View {
             settings.setRingForIncomingCalls(enabled)
             pairing.refreshCallRinging()
         }
+        actions.setOtherAppCallPolicy = { settings.setOtherAppCallPolicy($0) }
         actions.refreshPlayer = { media.refresh() }
         actions.setShowPreviews = { settings.setShowActivityPreviews($0) }
         actions.setLogging = { settings.setLogging($0) }
@@ -1842,6 +1908,7 @@ struct LiveSettingsView: View {
         actions.update = updater.flowActions
         actions.updateAll = updateAll.actions
         actions.setRemoteStartUpdates = { updateAll.setRemoteStartAllowed($0) }
+        actions.setAutoUpdate = { autoUpdate.setEnabled($0) }
         actions.openURL = { NSWorkspace.shared.open($0) }
         return setupCenter.hooked(actions, showPane: { pane = $0 }, inSetup: inSetup)
     }

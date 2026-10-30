@@ -19,6 +19,8 @@ jobs:
           java-version: "17"
           cache: gradle
       - uses: gradle/actions/setup-gradle@v5
+      - name: Rust for the Connect anywhere core
+        run: sh scripts/rr/rust-toolchain.sh android
       - run: chmod +x android/gradlew
       - name: Android lint, tests, and debug build
         run: ./gradlew :app:lintDebug :core:discovery:lintDebug :app:testDebugUnitTest :core:discovery:testDebugUnitTest :app:assembleDebug
@@ -40,6 +42,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
+      - name: Rust for the Connect anywhere core
+        run: sh scripts/rr/rust-toolchain.sh mac
       - run: chmod +x build-app.sh
         working-directory: macos
       - name: Swift tests with warnings as errors

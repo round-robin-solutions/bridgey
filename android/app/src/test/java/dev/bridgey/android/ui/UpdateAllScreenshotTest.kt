@@ -34,7 +34,11 @@ import dev.bridgey.android.PairingState
 import dev.bridgey.android.TrustedDevice
 import dev.bridgey.android.UpdateChannel
 import dev.bridgey.android.UpdateUiState
+import dev.bridgey.android.updates.AutoCondition
+import dev.bridgey.android.updates.AutoRunRecord
+import dev.bridgey.android.updates.AutoUpdateView
 import dev.bridgey.android.updates.LOCAL_DEVICE_ID
+import dev.bridgey.android.updates.UpdateBusy
 import dev.bridgey.android.updates.PeerUpdateInfo
 import dev.bridgey.android.updates.RunFailure
 import dev.bridgey.android.updates.RunItem
@@ -243,6 +247,65 @@ class UpdateAllScreenshotTest {
     @Test fun settingsLight() = settings("settings", updateState, null)
 
     @Test @Config(qualifiers = "+night") fun settingsDark() = settings("settings", updateState, null)
+
+    // MARK: Update all devices automatically
+
+    /** An automatic run: the Mac is done, this phone is ready and waits for a call, or counts down a minute. */
+    private fun autoRun(hold: UpdateBusy? = null, restartAt: Long? = null) = UpdateRun(
+        "auto", now - 3 * 60_000,
+        listOf(
+            item("m", "MacBook Pro", RunStep.DONE, newApp = beta3),
+            item("w", "Work Mac", RunStep.DONE, channel = WireChannel.STABLE, fromApp = "0.9.0-rr.2", targetApp = "0.9.0-rr.3", newApp = "0.9.0-rr.3"),
+            item(LOCAL_DEVICE_ID, "This phone", RunStep.READY, UpdatePlatform.ANDROID),
+        ),
+        restartAt = restartAt, auto = true, hold = hold,
+    )
+
+    private fun autoHome(name: String, run: UpdateRun) = capture("android-auto-update-$name-${theme()}") {
+        HomeScreen(
+            state = HomeState(rings = rings, target = sendTarget(rings, null), activity = emptyList(), live = listOf(LiveCard.UpdateAll(uiState(run))), canSendClipboard = true, now = now),
+            actions = HomeActions(),
+            snackbar = remember { SnackbarHostState() },
+            deviceName = { it.deviceName },
+        )
+    }
+
+    /** beta.3 is out and waits for the call on Work Mac; the last automatic run brought the devices to beta.2. */
+    private val autoView = AutoUpdateView(
+        on = true, channel = WireChannel.BETA,
+        condition = AutoCondition.Waiting(UpdateBusy.CALL, "Work Mac"),
+        lastRun = AutoRunRecord(now - 3 * 60 * 60_000, beta2, 2, 3, 1, later = false),
+    )
+
+    private fun autoSettings(name: String, view: AutoUpdateView, update: UpdateUiState = updateState) = capture("android-auto-update-$name-${theme()}") {
+        SettingsScreen(
+            state = sampleSettingsState(now).copy(
+                update = update,
+                installedVersion = beta2,
+                updateAll = uiState(null).copy(auto = view),
+            ),
+            actions = SettingsActions(),
+            section = SettingsSection.UPDATES,
+        )
+    }
+
+    @Test fun autoHeldLight() = autoHome("held", autoRun(hold = UpdateBusy.CALL))
+
+    @Test @Config(qualifiers = "+night") fun autoHeldDark() = autoHome("held", autoRun(hold = UpdateBusy.CALL))
+
+    @Test fun autoCountdownLight() = autoHome("countdown", autoRun(restartAt = now + 42_000))
+
+    @Test @Config(qualifiers = "+night") fun autoCountdownDark() = autoHome("countdown", autoRun(restartAt = now + 42_000))
+
+    @Test fun autoSettingsLight() = autoSettings("settings", autoView)
+
+    @Test @Config(qualifiers = "+night") fun autoSettingsDark() = autoSettings("settings", autoView)
+
+    private val upToDate = UpdateUiState(channel = UpdateChannel.STABLE, lastCheckedAt = now - 4 * 60_000)
+
+    @Test fun autoSettingsOffLight() = autoSettings("settings-off", AutoUpdateView(on = false, channel = WireChannel.STABLE), upToDate)
+
+    @Test @Config(qualifiers = "+night") fun autoSettingsOffDark() = autoSettings("settings-off", AutoUpdateView(on = false, channel = WireChannel.STABLE), upToDate)
 
     @Test fun settingsNeedsYouLight() = settings("settings-needs-you", updateState.copy(awaitingConfirmation = true), needsYou)
 

@@ -1,0 +1,36 @@
+# Bridgey relay (coturn 4.18.0), rendered by entrypoint.sh into a tmpfs at start.
+# Spec: docs/connect-anywhere.md section 9.7. The @NAME@ values come from the environment;
+# the secret never touches the disk or a command line.
+listening-port=@LISTEN_PORT@
+external-ip=@EXTERNAL_IP@
+min-port=@MIN_PORT@
+max-port=@MAX_PORT@
+realm=bridgey
+use-auth-secret
+static-auth-secret=@TURN_SECRET@
+fingerprint
+no-multicast-peers
+no-tcp-relay
+# Phase 1 clients use TURN over UDP only; TURN over TLS (5349, 443) comes with phase 3. Without a
+# certificate coturn opens no TLS or DTLS listener.
+no-tls
+user-quota=2
+total-quota=@TOTAL_QUOTA@
+max-bps=6250000
+bps-capacity=@BPS_CAPACITY@
+max-allocate-lifetime=3600
+stale-nonce=600
+log-file=stdout
+simple-log
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.0.0.0-192.0.0.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=198.18.0.0-198.19.255.255
+denied-peer-ip=::1
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff

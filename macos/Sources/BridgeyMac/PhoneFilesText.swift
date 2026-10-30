@@ -42,6 +42,8 @@ enum PhoneFilesText {
             return String(format: L10n.text("phonefiles.error.timeout", fallback: "%@ did not answer. Try again."), phone)
         case .cancelled:
             return L10n.text("phonefiles.error.cancelled", fallback: "Cancelled")
+        case .interrupted:
+            return String(format: L10n.text("phonefiles.error.interrupted", fallback: "The download stopped: %@ disconnected and did not continue it."), phone)
         case let .code(code):
             switch code {
             case "read_only":
@@ -67,7 +69,7 @@ enum PhoneFilesText {
     /// Errors worth a Try again (the phone was busy or slow, or the connection dropped).
     static func isTransient(_ error: PhoneFilesError) -> Bool {
         switch error {
-        case .timeout, .notConnected: return true
+        case .timeout, .notConnected, .interrupted: return true
         case let .code(code): return [FolderCode.busy, FolderCode.ioError, FolderCode.timeout].contains(code)
         case .notBrowsable, .cancelled: return false
         }
