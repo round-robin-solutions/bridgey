@@ -576,7 +576,7 @@ private struct SetupDoneView: View {
                 .foregroundStyle(c.on)
                 .accessibilityAddTraits(.isHeader)
                 .padding(.bottom, 10)
-            Text(L10n.setup("setup.done.body", fallback: "The Essentials are on: clipboard when you click Send, and your phone\u{2019}s notifications. Everything else stays off until you turn it on in Settings."))
+            Text(L10n.setup("setup.done.body", fallback: "The Essentials are on: clipboard when you click Send, and your phone\u{2019}s notifications. Connect away from home is on too. Everything else stays off until you turn it on in Settings."))
                 .font(BrandFont.body(14))
                 .foregroundStyle(c.on2)
                 .multilineTextAlignment(.center)
@@ -812,7 +812,7 @@ private struct SetupIntroView: View {
                                 left: flow.stepsLeft(ifStarted: chosenMap, facts: facts))
             SetupColumn {
                 SetupHeading(title: L10n.setup("setup.intro.title", fallback: "What do you want Bridgey for?"),
-                             context: L10n.setup("setup.intro.body", fallback: "Pick what brought you here or type it in your own words. Everything else stays off until you turn it on."))
+                             context: L10n.setup("setup.intro.body", fallback: "Pick what brought you here or type it in your own words. Everything else stays off until you turn it on, except Connect away from home."))
                 bundles.padding(.top, 22)
                 input.padding(.top, 18)
                 preview.padding(.top, 14)

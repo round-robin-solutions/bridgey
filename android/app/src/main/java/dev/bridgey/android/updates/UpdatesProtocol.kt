@@ -82,6 +82,30 @@ enum class UpdateReason(val wire: String) {
     }
 }
 
+/**
+ * What the person is doing on a device, so an automatic Update all waits (updates.status `busy`).
+ * Unknown values read as [OTHER], which still counts as busy.
+ */
+enum class UpdateBusy(val wire: String) {
+    CALL("call"),
+    SCREEN_SHARE("screen_share"),
+    REMOTE_CONTROL("remote_control"),
+    TRANSFER("transfer"),
+    PHONE_FILES("phone_files"),
+    SETUP("setup"),
+    OTHER("other"),
+    ;
+
+    companion object {
+        fun fromWire(value: String): UpdateBusy = entries.firstOrNull { it.wire == value } ?: OTHER
+
+        /** The one a device reports when several are going: a call first, then control, sharing, setup, downloads, transfers. */
+        private val ORDER = listOf(CALL, REMOTE_CONTROL, SCREEN_SHARE, SETUP, PHONE_FILES, TRANSFER, OTHER)
+
+        fun mostImportant(active: Collection<UpdateBusy>): UpdateBusy? = ORDER.firstOrNull { it in active }
+    }
+}
+
 /** One device's version and where its own update stands (updates.status). */
 data class UpdateStatus(
     val platform: UpdatePlatform,
@@ -96,13 +120,20 @@ data class UpdateStatus(
     val reason: UpdateReason? = null,
     val remoteStart: Boolean,
     val checkedAt: Long,
+    /** "Update all devices automatically" is on there (and its updater can run). */
+    val auto: Boolean = false,
+    /** What its person is doing, or null: an automatic Update all waits while any device is busy. */
+    val busy: UpdateBusy? = null,
 ) {
     /** The same status without the download progress: what "changed" means for sending. */
     fun withoutProgress(): UpdateStatus = copy(progress = null)
 }
 
-/** updates.start: update yourself now. [retry] only when the person tapped Retry for this device. */
-data class UpdateStart(val requestId: String, val retry: Boolean)
+/**
+ * updates.start: update yourself now. [retry] only when the person tapped Retry for this device;
+ * [auto] when nobody tapped Update all (Update all devices automatically started it).
+ */
+data class UpdateStart(val requestId: String, val retry: Boolean, val auto: Boolean = false)
 
 enum class UpdateResultStatus(val wire: String) { ACCEPTED("accepted"), REFUSED("refused") }
 
@@ -156,7 +187,9 @@ fun parseUpdateStatus(payload: JSONObject): UpdateStatus? {
     val reason = optional(payload, "reason") { (it as? String)?.let(UpdateReason::fromWire) }.getOrElse { return null }
     val remoteStart = payload.opt("remoteStart") as? Boolean ?: return null
     val checkedAt = jsonInteger(payload.opt("checkedAt"))?.takeIf { it in 0..MAX_SAFE_INTEGER } ?: return null
-    return UpdateStatus(platform, edition, app, build, channel, state, target, targetBuild, progress, reason, remoteStart, checkedAt)
+    val auto = optional(payload, "auto") { it as? Boolean }.getOrElse { return null } ?: false
+    val busy = optional(payload, "busy") { (it as? String)?.let(UpdateBusy::fromWire) }.getOrElse { return null }
+    return UpdateStatus(platform, edition, app, build, channel, state, target, targetBuild, progress, reason, remoteStart, checkedAt, auto, busy)
 }
 
 /** An updates.status plaintext as it arrives: at most 1,024 bytes of strict JSON. Null when malformed. */
@@ -177,24 +210,28 @@ fun updateStatusPayload(status: UpdateStatus): JSONObject = JSONObject().apply {
     status.reason?.let { put("reason", it.wire) }
     put("remoteStart", status.remoteStart)
     put("checkedAt", status.checkedAt)
+    if (status.auto) put("auto", true)
+    status.busy?.let { put("busy", it.wire) }
 }
 
 fun parseUpdateStart(payload: JSONObject): UpdateStart? {
     if (jsonInteger(payload.opt("version")) != 1L) return null
     val requestId = wireUuid(payload.opt("requestId")) ?: return null
     val retry = optional(payload, "retry") { it as? Boolean }.getOrElse { return null } ?: false
-    return UpdateStart(requestId, retry)
+    val auto = optional(payload, "auto") { it as? Boolean }.getOrElse { return null } ?: false
+    return UpdateStart(requestId, retry, auto)
 }
 
 /** An updates.start plaintext: at most 512 bytes of strict JSON. Null when malformed (dropped, no answer). */
 fun decodeUpdateStart(plaintext: ByteArray): UpdateStart? =
     plaintext.takeIf { it.size <= UPDATES_START_MAX_BYTES }?.let(::strictJsonObject)?.let(::parseUpdateStart)
 
-/** `retry` is written only when true. */
+/** `retry` and `auto` are written only when true. */
 fun updateStartPayload(start: UpdateStart): JSONObject = JSONObject().apply {
     put("version", 1)
     put("requestId", start.requestId)
     if (start.retry) put("retry", true)
+    if (start.auto) put("auto", true)
 }
 
 fun parseUpdateResult(payload: JSONObject): UpdateResult? {

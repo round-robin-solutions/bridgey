@@ -28,6 +28,23 @@ enum PeerUpdateReason: String, Codable, Equatable {
     case other
 }
 
+/// What the person is doing on a device, so an automatic Update all waits (`updates.status` `busy`).
+/// Unknown values read as `other`, which still counts as busy.
+enum UpdateBusy: String, Codable, Equatable, CaseIterable {
+    case call
+    case screenShare = "screen_share"
+    case remoteControl = "remote_control"
+    case transfer
+    case phoneFiles = "phone_files"
+    case setup
+    case other
+
+    /// The one a device reports when several are going: a call first, then control, sharing, setup, downloads, transfers.
+    static let order: [UpdateBusy] = [.call, .remoteControl, .screenShare, .setup, .phoneFiles, .transfer, .other]
+
+    static func mostImportant(_ active: Set<UpdateBusy>) -> UpdateBusy? { order.first { active.contains($0) } }
+}
+
 enum UpdateLimits {
     static let statusBytes = 1024
     static let startBytes = 512
@@ -80,6 +97,10 @@ struct PeerUpdateStatus: Codable, Equatable {
     var remoteStart: Bool
     /// Unix milliseconds of the last successful check, 0 for never.
     var checkedAt: Int
+    /// "Update all devices automatically" is on there (and its updater can run).
+    var auto = false
+    /// What its person is doing, or nil: an automatic Update all waits while any device is busy.
+    var busy: UpdateBusy?
 
     /// Equal apart from download progress: progress alone is sent at most once a second.
     func sameApartFromProgress(_ other: PeerUpdateStatus) -> Bool {
@@ -100,6 +121,8 @@ struct PeerUpdateStatus: Codable, Equatable {
         if let targetBuild { payload["targetBuild"] = targetBuild }
         if let progress { payload["progress"] = progress }
         if let reason { payload["reason"] = reason.rawValue }
+        if auto { payload["auto"] = true }
+        if let busy { payload["busy"] = busy.rawValue }
         return payload
     }
 
@@ -137,29 +160,49 @@ struct PeerUpdateStatus: Codable, Equatable {
         case let .value(value): status.reason = PeerUpdateReason(rawValue: value) ?? .other
         case .absent: break
         }
+        switch optional(object["auto"], jsonBool) {
+        case .invalid: return nil
+        case let .value(value): status.auto = value
+        case .absent: break
+        }
+        switch optional(object["busy"], { $0 as? String }) {
+        case .invalid: return nil
+        case let .value(value): status.busy = UpdateBusy(rawValue: value) ?? .other
+        case .absent: break
+        }
         return status
     }
 }
 
-/// `updates.start`: update yourself now. Nothing else is read from it.
+/// `updates.start`: update yourself now. Nothing else is read from it. `auto`: nobody clicked Update all
+/// (Update all devices automatically started it).
 struct UpdateStartRequest: Equatable {
     let requestID: String
     var retry = false
+    var auto = false
 
     var payload: [String: Any] {
         var payload: [String: Any] = ["version": 1, "requestId": requestID]
         if retry { payload["retry"] = true }
+        if auto { payload["auto"] = true }
         return payload
     }
 
     static func decode(_ data: Data) -> UpdateStartRequest? {
         guard let object = updateObject(data, limit: UpdateLimits.startBytes),
               let requestID = updateRequestID(object["requestId"]) else { return nil }
+        var request = UpdateStartRequest(requestID: requestID)
         switch optional(object["retry"], jsonBool) {
         case .invalid: return nil
-        case let .value(retry): return UpdateStartRequest(requestID: requestID, retry: retry)
-        case .absent: return UpdateStartRequest(requestID: requestID)
+        case let .value(retry): request.retry = retry
+        case .absent: break
         }
+        switch optional(object["auto"], jsonBool) {
+        case .invalid: return nil
+        case let .value(auto): request.auto = auto
+        case .absent: break
+        }
+        return request
     }
 }
 
@@ -212,6 +255,7 @@ struct UpdateStartGate {
     /// Starts that counted, per device (rate-limited ones do not).
     private(set) var history: [String: [Date]] = [:]
 
+    /// `auto` and `personBusy`: an automatic start (`updates.start` `auto`) waits while the person here is busy.
     mutating func decide(
         deviceID: String,
         retry: Bool,
@@ -219,7 +263,9 @@ struct UpdateStartGate {
         allowed: Bool,
         updaterAvailable: Bool,
         notApplied: Bool,
-        canStart: Bool
+        canStart: Bool,
+        auto: Bool = false,
+        personBusy: UpdateBusy? = nil
     ) -> Decision {
         guard allowed else { return .refuse(.disabled) }
         guard updaterAvailable else { return .refuse(.manual) }
@@ -229,6 +275,7 @@ struct UpdateStartGate {
         history[deviceID] = recent + [now]
         if notApplied && !retry { return .refuse(.notApplied) }
         guard canStart else { return .refuse(.busy) }
+        if auto && personBusy != nil { return .refuse(.busy) }
         return .accept
     }
 

@@ -79,14 +79,16 @@ struct UpdatePlan: Equatable {
     /// The devices it would update are on more than one channel; each stays on its own.
     var channelsDiffer: Bool { Set(targets.compactMap(\.channel)).count > 1 }
 
-    static func make(local: PeerUpdateStatus, localName: String, phones: [UpdateAllPhone], now: Date) -> UpdatePlan {
+    /// `refreshBefore` (automatic and command-line runs): a phone that reported "up to date" from a check
+    /// older than this is asked to check again, because this device has just found a newer build.
+    static func make(local: PeerUpdateStatus, localName: String, phones: [UpdateAllPhone], now: Date, refreshBefore: Date? = nil) -> UpdatePlan {
         let sorted = phones.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        var entries = sorted.map { phoneEntry($0, now: now) }
+        var entries = sorted.map { phoneEntry($0, now: now, refreshBefore: refreshBefore) }
         entries.append(localEntry(local, name: localName))
         return UpdatePlan(entries: entries)
     }
 
-    private static func phoneEntry(_ phone: UpdateAllPhone, now: Date) -> UpdatePlanEntry {
+    private static func phoneEntry(_ phone: UpdateAllPhone, now: Date, refreshBefore: Date?) -> UpdatePlanEntry {
         let status = phone.status
         func entry(_ kind: UpdatePlanEntry.Kind) -> UpdatePlanEntry {
             UpdatePlanEntry(id: phone.id, name: phone.name, isLocal: false, app: status?.app, build: status?.build,
@@ -103,7 +105,7 @@ struct UpdatePlan: Equatable {
             return entry(.update(to: status.target, toBuild: status.targetBuild))
         case .current, .checking:
             let checked = Date(timeIntervalSince1970: TimeInterval(status.checkedAt) / 1000)
-            let stale = status.checkedAt == 0 || now.timeIntervalSince(checked) > staleAfter
+            let stale = status.checkedAt == 0 || now.timeIntervalSince(checked) > staleAfter || refreshBefore.map { checked < $0 } == true
             return entry(stale ? .update(to: nil, toBuild: nil) : .upToDate)
         case .manual:
             return entry(.skipped(.byHand))
@@ -217,6 +219,7 @@ enum UpdateRunEffect: Equatable {
 }
 
 struct UpdateRun: Codable, Equatable {
+    /// The countdown before this Mac restarts when the person started the run here.
     static let countdown: TimeInterval = 10
     static let slowAfter: TimeInterval = 180
     static let answerTimeout: TimeInterval = 20
@@ -232,12 +235,28 @@ struct UpdateRun: Codable, Equatable {
     var updatedAt: Date
     /// The person closed the finished run.
     var dismissed = false
+    /// Started by Update all devices automatically or the command line, not by a click here: phones are
+    /// told so, and this Mac's restart waits 60 seconds. Optional so runs saved by older builds still load.
+    var auto: Bool?
+    /// Someone is busy (a call, a screen share, ...): this Mac's restart waits. Not saved.
+    var hold: UpdateBusy?
+    /// While held: the next look (every few minutes in an automatic run, at once otherwise).
+    var holdCheckAt: Date?
+
+    var isAuto: Bool { auto == true }
+    /// How long this Mac's restart counts down: 60 seconds in an automatic run, 10 otherwise.
+    var countdownLength: TimeInterval { isAuto ? AutoUpdateRules.countdown : Self.countdown }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, startedAt, items, countdownUntil, updatedAt, dismissed, auto
+    }
 
     var phones: [UpdateRunItem] { items.filter { !$0.isLocal } }
     var local: UpdateRunItem? { items.first(where: \.isLocal) }
 
     /// Starts every phone at once (one `updates.start` each); this Mac's item starts downloading.
-    static func start(plan: UpdatePlan, now: Date, newID: () -> String) -> (run: UpdateRun, starts: [(deviceID: String, request: UpdateStartRequest)])? {
+    /// `auto`: nobody clicked Update all (the setting, or the command line).
+    static func start(plan: UpdatePlan, now: Date, auto: Bool = false, newID: () -> String) -> (run: UpdateRun, starts: [(deviceID: String, request: UpdateStartRequest)])? {
         let targets = plan.targets
         guard !targets.isEmpty else { return nil }
         var starts: [(String, UpdateStartRequest)] = []
@@ -246,7 +265,7 @@ struct UpdateRun: Codable, Equatable {
             if !entry.isLocal {
                 let id = newID()
                 requestID = id
-                starts.append((entry.id, UpdateStartRequest(requestID: id)))
+                starts.append((entry.id, UpdateStartRequest(requestID: id, auto: auto)))
             }
             var toBuild: Int?
             if case let .update(_, build) = entry.kind { toBuild = build }
@@ -254,7 +273,7 @@ struct UpdateRun: Codable, Equatable {
                                  targetApp: entry.knownTarget, targetBuild: toBuild, channel: entry.channel ?? .stable,
                                  step: entry.isLocal ? .downloading(nil) : .starting, startedAt: now, stepSince: now, requestID: requestID)
         }
-        return (UpdateRun(id: newID(), startedAt: now, items: items, updatedAt: now), starts)
+        return (UpdateRun(id: newID(), startedAt: now, items: items, updatedAt: now, auto: auto ? true : nil), starts)
     }
 
     private mutating func change(_ id: String, now: Date, _ transform: (inout UpdateRunItem) -> Void) {
@@ -413,6 +432,22 @@ struct UpdateRun: Codable, Equatable {
         items.allSatisfy { $0.step.isTerminal || $0.step == .later }
     }
 
+    /// What the person is doing on any device, each tick. Busy holds this Mac's restart at once (and stops
+    /// a countdown); it goes on when nobody is busy at the next look, every few minutes in an automatic run.
+    mutating func busy(_ busy: UpdateBusy?, now: Date) {
+        if let busy {
+            if hold != busy { hold = busy }
+            holdCheckAt = now.addingTimeInterval(isAuto ? AutoUpdateRules.recheck : 0)
+            if countdownUntil != nil {
+                countdownUntil = nil
+                updatedAt = now
+            }
+        } else if hold != nil, now >= (holdCheckAt ?? now) {
+            hold = nil
+            holdCheckAt = nil
+        }
+    }
+
     /// Timeouts, the countdown, and this Mac's install once the phones are settled.
     mutating func tick(now: Date) -> [UpdateRunEffect] {
         var effects: [UpdateRunEffect] = []
@@ -435,7 +470,7 @@ struct UpdateRun: Codable, Equatable {
                 updatedAt = now
             }
         }
-        if let index = items.firstIndex(where: \.isLocal), items[index].step == .ready, phonesSettled {
+        if let index = items.firstIndex(where: \.isLocal), items[index].step == .ready, phonesSettled, hold == nil {
             if let until = countdownUntil {
                 if now >= until {
                     countdownUntil = nil
@@ -444,7 +479,7 @@ struct UpdateRun: Codable, Equatable {
                     effects.append(.installLocal)
                 }
             } else {
-                countdownUntil = now.addingTimeInterval(Self.countdown)
+                countdownUntil = now.addingTimeInterval(countdownLength)
                 updatedAt = now
             }
         }
@@ -461,10 +496,12 @@ struct UpdateRun: Codable, Equatable {
         updatedAt = now
     }
 
-    /// Restart now, after Later (or to skip the rest of the countdown).
+    /// Restart now, after Later (or to skip the rest of the countdown). The person asked, so a hold goes too.
     mutating func installNow(now: Date) -> Bool {
         guard let id = local?.id, let step = local?.step, step == .ready || step == .later else { return false }
         countdownUntil = nil
+        hold = nil
+        holdCheckAt = nil
         change(id, now: now) { $0.move(.installing, now: now) }
         return true
     }
@@ -674,6 +711,10 @@ enum UpdateAllText {
 
     /// The run in one line, as T3 Code's update button shows it.
     static func capsule(_ run: UpdateRun, now: Date) -> Capsule {
+        // Someone is busy: this Mac's restart waits (Later still puts it off).
+        if let hold = run.hold, run.local?.step == .ready, run.phonesSettled {
+            return Capsule(tone: .normal, label: AutoUpdateText.waiting(hold, device: nil), action: .later)
+        }
         if let until = run.countdownUntil {
             return Capsule(tone: .normal, label: countdown(until, now: now), action: .later)
         }
@@ -758,11 +799,16 @@ struct LocalUpdateInputs: Equatable {
     var lastCheck: Date?
     var remoteStartAllowed: Bool
     var notApplied: UpdateAttemptStore.Attempt?
+    /// Update all devices automatically is on here.
+    var auto = false
+    /// What the person is doing on this Mac.
+    var busy: UpdateBusy?
 
     var status: PeerUpdateStatus {
         var status = PeerUpdateStatus(platform: .macos, edition: "rr", app: app, build: max(1, build), channel: channel, state: .current,
                                       remoteStart: available && remoteStartAllowed,
-                                      checkedAt: lastCheck.map { max(0, Int(($0.timeIntervalSince1970 * 1000).rounded(.down))) } ?? 0)
+                                      checkedAt: lastCheck.map { max(0, Int(($0.timeIntervalSince1970 * 1000).rounded(.down))) } ?? 0,
+                                      auto: available && auto, busy: busy)
         guard available else {
             status.state = .manual
             return status

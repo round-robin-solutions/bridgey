@@ -47,6 +47,11 @@
     <string name="perm_continue">Продолжить</string>
     <string name="perm_notification_access_name">Доступ к уведомлениям</string>
     <string name="perm_notification_access_why">Показывает уведомления и звонки телефона на вашем Mac.</string>
+    <string name="perm_notification_access_why_restricted">Показывает уведомления и звонки телефона на вашем Mac. В Android 13 и новее приложению, установленному из файла или браузера, сначала может понадобиться «Разрешить доступ к настройкам» в разделе «О приложении».</string>
+    <string name="restricted_hint_title">Возможно, Android блокирует это</string>
+    <string name="restricted_hint_body">В Android 13 и новее приложение, установленное из файла или браузера, не может включить «%1$s», пока вы не разрешите доступ к настройкам.</string>
+    <string name="restricted_hint_steps">1. Нажмите «О приложении».\n2. Нажмите на три точки вверху справа, затем «Разрешить доступ к настройкам».\n3. Вернитесь сюда и снова нажмите «Разрешить».</string>
+    <string name="restricted_hint_open">О приложении</string>
     <string name="perm_notification_access_without">На Mac не будет уведомлений, звонков и кодов с телефона.</string>
     <string name="perm_post_notifications_name">Уведомления</string>
     <string name="perm_post_notifications_why">Bridgey показывает передачи, поиск телефона, запросы на звонок и показ экрана.</string>
@@ -127,6 +132,7 @@
     <string name="reset_item_features">Переключатели функций, настройки устройств, журналов и фокусирования, имя этого телефона</string>
     <string name="reset_item_app">Предпросмотр, уменьшение движения, выбор для удалённого управления, скриншотов, панели отправки и виджетов</string>
     <string name="reset_item_channel">Канал обновлений</string>
+    <string name="reset_item_update_records">Записи «Обновить всё»: последний запуск, ожидания и отсрочки автообновления</string>
     <string name="reset_item_places">Папки назначения и места</string>
     <string name="reset_item_setup">Выбор в настройке (она запустится заново)</string>
     <string name="reset_item_trusted">Доверенные устройства</string>
@@ -156,15 +162,21 @@
     <string name="oem_title">Чтобы Bridgey работал на %1$s</string>
     <string name="oem_intro">Этот телефон закрывает фоновые приложения сверх обычных настроек батареи Android. Измените это один раз и проверьте снова после обновления системы.</string>
     <string name="oem_source">Шаги по dontkillmyapp.com</string>
+    <string name="oem_intro_pixel">Android может ограничить или приостановить приложение, которое вы давно не открывали. Измените это один раз и проверьте снова после обновления системы.</string>
+    <string name="oem_source_pixel">Шаги из справки Pixel</string>
     <string name="oem_vendor_oneplus">OnePlus</string>
     <string name="oem_vendor_coloros">Oppo и Realme (ColorOS)</string>
     <string name="oem_vendor_xiaomi">Xiaomi, Redmi и Poco (HyperOS и MIUI)</string>
     <string name="oem_vendor_samsung">Samsung (One UI)</string>
     <string name="oem_vendor_vivo">Vivo и iQOO</string>
+    <string name="oem_vendor_pixel">Google Pixel</string>
     <string name="oem_step_auto_start">Автозапуск</string>
     <string name="oem_step_background">Работа в фоне</string>
     <string name="oem_step_battery">Оптимизация батареи</string>
     <string name="oem_step_never_sleeping">Приложения, которые не усыпляются</string>
+    <string name="oem_step_app_battery_usage">Расход заряда приложением</string>
+    <string name="oem_step_adaptive_battery">Адаптивное энергопотребление</string>
+    <string name="oem_step_pause_if_unused">Приостановить работу в неактивный период</string>
     <string name="oem_oneplus_auto_start">Настройки, Приложения, Автозапуск: включите Bridgey.</string>
     <string name="oem_oneplus_background">О приложении, Батарея: разрешите работу в фоне.</string>
     <string name="oem_oneplus_battery">Батарея, Оптимизация батареи: для Bridgey выберите «Не оптимизировать». В разделе «Расширенная оптимизация» отключите «Глубокую оптимизацию» и «Оптимизацию в режиме сна».</string>
@@ -180,6 +192,9 @@
     <string name="oem_vivo_auto_start">i Manager, Диспетчер приложений, Автозапуск: включите Bridgey.</string>
     <string name="oem_vivo_background">Батарея, Энергопотребление в фоне: разрешите Bridgey.</string>
     <string name="oem_vivo_battery">О приложении, Батарея: выберите «Не ограничивать работу в фоне».</string>
+    <string name="oem_pixel_app_battery_usage">Настройки, Приложения, Bridgey, Расход заряда батареи приложениями: нажмите «Разрешить использование в фоновом режиме» и выберите «Без ограничений».</string>
+    <string name="oem_pixel_adaptive_battery">Настройки, Батарея, Режим энергосбережения, Адаптивное энергопотребление. «Без ограничений» уже выводит Bridgey из-под него, так что его можно не отключать. Если уведомления всё равно приходят с задержкой, выключите его.</string>
+    <string name="oem_pixel_pause_if_unused">Настройки, Приложения, Bridgey, Настройки неиспользуемых приложений: выключите «Приостановить работу в неактивный период». В некоторых версиях это «Остановить работу приложения при простое».</string>
 
     <!-- Настройки, О приложении -->
     <string name="obtainium_title">Добавить в Obtainium</string>

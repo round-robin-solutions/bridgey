@@ -120,6 +120,7 @@ struct SettingsModel {
     var mediaPlayer: MediaPlayer = .off
     var pauseForCalls = false
     var ringForCalls = true
+    var otherAppCallPolicy: MacOtherAppCallPolicy = .ask
     var logging = LoggingPolicy()
     var mediaDetail = ""
     var showPreviews = true
@@ -135,6 +136,8 @@ struct SettingsModel {
     /// Update all: this Mac and its connected phones; and whether phones may start this Mac's update.
     var updateAll = UpdateAllDisplay()
     var remoteStartUpdates = true
+    /// Update all devices automatically: the switch and its status lines.
+    var autoUpdate = AutoUpdateDisplay()
     var shortVersion = "Development"
     var versionDescription = "Development"
     var phoneLinkStatus: String?
@@ -260,6 +263,7 @@ struct SettingsActions {
     var setPlayer: (MediaPlayer) -> Void = { _ in }
     var setPauseForCalls: (Bool) -> Void = { _ in }
     var setRingForCalls: (Bool) -> Void = { _ in }
+    var setOtherAppCallPolicy: (MacOtherAppCallPolicy) -> Void = { _ in }
     var setLogging: (LoggingPolicy) -> Void = { _ in }
     var clearLogs: () -> Void = {}
     var refreshPlayer: () -> Void = {}
@@ -274,6 +278,7 @@ struct SettingsActions {
     var update = UpdateFlowActions()
     var updateAll = UpdateAllActions()
     var setRemoteStartUpdates: (Bool) -> Void = { _ in }
+    var setAutoUpdate: (Bool) -> Void = { _ in }
     var openURL: (URL) -> Void = { _ in }
     var stopRemoteControl: () -> Void = {}
     var openAccessibilitySettings: () -> Void = {}
@@ -796,6 +801,7 @@ private struct CallsPane: View {
         SettingsCard {
             FeatureSwitch(feature: .calls, model: model, actions: actions)
             PhoneLinksRow(status: model.phoneLinkStatus, use: actions.usePhoneLinks)
+            OtherAppCallsRow(model: model, actions: actions)
             RingForCallsToggle(model: model, actions: actions)
             PauseForCallsToggle(model: model, actions: actions)
         }
@@ -815,10 +821,12 @@ private struct FilesPane: View {
         SettingsCard(footnote: L10n.text("settings.folders.note", fallback: "These are the defaults; the send sheet can change them for one folder. Links and Finder aliases are never sent.")) {
             SettingsToggle(title: L10n.text("settings.folders.hidden", fallback: "Include hidden files when sending folders"),
                            subtitle: L10n.text("settings.folders.hidden.detail", fallback: "Files and folders whose names start with a dot, such as .gitignore or .config."),
-                           divider: false, isOn: model.folderIncludeHidden, set: actions.setFolderIncludeHidden)
+                           divider: false, synced: model.syncs(.folderIncludeHidden), isOn: model.folderIncludeHidden, set: actions.setFolderIncludeHidden)
+            SyncStatusLine(key: .folderIncludeHidden, model: model, actions: actions)
             SettingsToggle(title: L10n.text("settings.folders.system", fallback: "Include system files when sending folders"),
                            subtitle: L10n.text("settings.folders.system.detail", fallback: "Clutter the system makes, such as .DS_Store, ._ files and Thumbs.db."),
-                           isOn: model.folderIncludeSystem, set: actions.setFolderIncludeSystem)
+                           synced: model.syncs(.folderIncludeSystem), isOn: model.folderIncludeSystem, set: actions.setFolderIncludeSystem)
+            SyncStatusLine(key: .folderIncludeSystem, model: model, actions: actions)
         }
         SettingsCard(footnote: L10n.text("settings.folders.receive.note", fallback: "Folders from your phone keep their structure. Received files get a Where from line in Finder.")) {
             SettingsRow(title: L10n.text("settings.folders.receive", fallback: "Folders sent to this Mac"),
@@ -1190,6 +1198,31 @@ struct MediaPlayerRow: View {
                 .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
                 .disabled(model.mediaPlayer == .off)
         }
+    }
+}
+
+/// Settings > Calls > When another app asks to call: tel: links and the Call with Bridgey Service.
+struct OtherAppCallsRow: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+
+    var body: some View {
+        SettingsRow(title: L10n.text("settings.calls.otherApps", fallback: "When another app asks to call"),
+                    subtitle: L10n.text("settings.calls.otherApps.detail", fallback: "Covers tel: links and the Call with Bridgey RR item in the Services menu. Calls you start in Bridgey go through without asking.")) {
+            ChoiceButton(value: otherAppCallPolicyTitle(model.otherAppCallPolicy)) {
+                MacOtherAppCallPolicy.allCases.map { policy in
+                    PopUpMenuItem(title: otherAppCallPolicyTitle(policy), checked: policy == model.otherAppCallPolicy) { actions.setOtherAppCallPolicy(policy) }
+                }
+            }
+        }
+    }
+}
+
+func otherAppCallPolicyTitle(_ policy: MacOtherAppCallPolicy) -> String {
+    switch policy {
+    case .ask: return L10n.text("settings.calls.otherApps.ask", fallback: "Ask every time")
+    case .callNow: return L10n.text("settings.calls.otherApps.callNow", fallback: "Call right away")
+    case .refuse: return L10n.text("settings.calls.otherApps.refuse", fallback: "Don\u{2019}t allow")
     }
 }
 
@@ -1571,6 +1604,7 @@ struct LiveSettingsView: View {
     @ObservedObject var camera: PhoneCamera
     @ObservedObject var settingsSync: SettingsSyncController
     @ObservedObject var updateAll = UpdateAllCoordinator.shared
+    @ObservedObject var autoUpdate = AutoUpdateCoordinator.shared
     @ObservedObject var phoneScreen: PhoneScreen
     @ObservedObject var connect: ConnectAnywhere
     @State private var pane: SettingsPane = .devices
@@ -1683,6 +1717,7 @@ struct LiveSettingsView: View {
         model.mediaPlayer = media.player
         model.pauseForCalls = media.pauseForCalls
         model.ringForCalls = settings.ringForIncomingCalls
+        model.otherAppCallPolicy = settings.otherAppCallPolicy
         model.logging = settings.logging
         model.mediaDetail = media.snapshot.detail
         model.showPreviews = settings.showActivityPreviews
@@ -1697,6 +1732,9 @@ struct LiveSettingsView: View {
         model.updateDeferral = updater.deferral
         model.updateAll = updateAll.display()
         model.remoteStartUpdates = updateAll.remoteStartAllowed
+        model.autoUpdate = AutoUpdateDisplay(enabled: autoUpdate.enabled, choice: autoUpdate.storedChoice, available: updater.isAvailable,
+                                             checksOff: !updater.automaticallyChecks, channel: updater.channel,
+                                             decision: autoUpdate.decision, lastRun: autoUpdate.lastRun, now: Date())
         model.shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
         model.versionDescription = updater.versionDescription
         model.phoneLinkStatus = phoneLinkStatus
@@ -1851,6 +1889,7 @@ struct LiveSettingsView: View {
             settings.setRingForIncomingCalls(enabled)
             pairing.refreshCallRinging()
         }
+        actions.setOtherAppCallPolicy = { settings.setOtherAppCallPolicy($0) }
         actions.refreshPlayer = { media.refresh() }
         actions.setShowPreviews = { settings.setShowActivityPreviews($0) }
         actions.setLogging = { settings.setLogging($0) }
@@ -1865,6 +1904,7 @@ struct LiveSettingsView: View {
         actions.update = updater.flowActions
         actions.updateAll = updateAll.actions
         actions.setRemoteStartUpdates = { updateAll.setRemoteStartAllowed($0) }
+        actions.setAutoUpdate = { autoUpdate.setEnabled($0) }
         actions.openURL = { NSWorkspace.shared.open($0) }
         return setupCenter.hooked(actions, showPane: { pane = $0 }, inSetup: inSetup)
     }

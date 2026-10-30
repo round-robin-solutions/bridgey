@@ -47,7 +47,11 @@ fun OemChecklistCard(checklist: OemChecklist, onOpen: (OemStep) -> Unit, openUrl
                 color = colors.onSurface,
                 modifier = Modifier.semantics { heading() },
             )
-            Text(stringResource(R.string.oem_intro), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
+            Text(
+                stringResource(if (checklist.vendor == OemVendor.PIXEL) R.string.oem_intro_pixel else R.string.oem_intro),
+                style = BridgeyType.itemBody,
+                color = colors.onSurfaceVariant,
+            )
         }
         checklist.steps.forEachIndexed { index, step ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -60,11 +64,15 @@ fun OemChecklistCard(checklist: OemChecklist, onOpen: (OemStep) -> Unit, openUrl
             }
         }
         Row(
-            Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).clickable(role = Role.Button) { openUrl(OemBattery.SOURCE_URL) },
+            Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).clickable(role = Role.Button) { openUrl(OemBattery.sourceUrl(checklist.vendor)) },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(stringResource(R.string.oem_source), style = BridgeyType.smallStrong, color = colors.primary)
+            Text(
+                stringResource(if (checklist.vendor == OemVendor.PIXEL) R.string.oem_source_pixel else R.string.oem_source),
+                style = BridgeyType.smallStrong,
+                color = colors.primary,
+            )
             Icon(BridgeyIcons.OpenInNew, null, tint = colors.primary, modifier = Modifier.size(14.dp))
         }
     }
@@ -78,6 +86,7 @@ fun oemVendorName(vendor: OemVendor): String = stringResource(
         OemVendor.XIAOMI -> R.string.oem_vendor_xiaomi
         OemVendor.SAMSUNG -> R.string.oem_vendor_samsung
         OemVendor.VIVO -> R.string.oem_vendor_vivo
+        OemVendor.PIXEL -> R.string.oem_vendor_pixel
     },
 )
 
@@ -88,6 +97,9 @@ private fun oemStepTitle(kind: OemStepKind): String = stringResource(
         OemStepKind.BACKGROUND_ACTIVITY -> R.string.oem_step_background
         OemStepKind.BATTERY_OPTIMISATION -> R.string.oem_step_battery
         OemStepKind.NEVER_SLEEPING -> R.string.oem_step_never_sleeping
+        OemStepKind.APP_BATTERY_USAGE -> R.string.oem_step_app_battery_usage
+        OemStepKind.ADAPTIVE_BATTERY -> R.string.oem_step_adaptive_battery
+        OemStepKind.PAUSE_IF_UNUSED -> R.string.oem_step_pause_if_unused
     },
 )
 
@@ -118,6 +130,11 @@ private fun oemStepDetail(vendor: OemVendor, kind: OemStepKind): String = string
             OemStepKind.AUTO_START -> R.string.oem_vivo_auto_start
             OemStepKind.BACKGROUND_ACTIVITY -> R.string.oem_vivo_background
             else -> R.string.oem_vivo_battery
+        }
+        OemVendor.PIXEL -> when (kind) {
+            OemStepKind.ADAPTIVE_BATTERY -> R.string.oem_pixel_adaptive_battery
+            OemStepKind.PAUSE_IF_UNUSED -> R.string.oem_pixel_pause_if_unused
+            else -> R.string.oem_pixel_app_battery_usage
         }
     },
 )

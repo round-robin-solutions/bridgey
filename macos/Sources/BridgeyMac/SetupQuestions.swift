@@ -34,7 +34,7 @@ enum SetupSection: String, CaseIterable {
 enum SetupSetting: String, CaseIterable {
     // Devices
     case pairing, deviceFeatures, deviceAutoClipboard, batteryAlerts
-    /// Devices > Connect away from home (connect_draft1), off until chosen.
+    /// Devices > Connect away from home (connect_draft1), on until chosen (Rahul, 2026-10-30).
     case connectAway
     // Clipboard
     case featureClipboard, autoClipboard, clipboardFiles, clipboardEagerLimit, shortcutClipboard
@@ -59,7 +59,7 @@ enum SetupSetting: String, CaseIterable {
     // Privacy
     case showPreviews, loggingConnection, loggingDetail
     // Updates
-    case updateChannel, updatesAutomatic
+    case updateChannel, updatesAutomatic, updatesAutoAll
     // General
     case launchAtLogin, reduceMotion, shortcutShift
     // Settings sync: the summary's own switch (v0.10)
@@ -70,7 +70,7 @@ enum SetupSetting: String, CaseIterable {
         switch self {
         case .featureClipboard, .autoClipboard, .clipboardFiles, .featureNotifications, .featureCalls, .ringForCalls,
              .featureFiles, .featureLinks, .featurePing, .featureFindDevice, .featureBattery, .showPreviews,
-             .loggingConnection, .updatesAutomatic, .smsKeepOnMac, .settingsSync:
+             .loggingConnection, .updatesAutomatic, .smsKeepOnMac, .settingsSync, .connectAway:
             "true"
         case .codesEngine: "local"
         case .folderReceiveMode: "fixed"
@@ -375,13 +375,15 @@ enum SetupQuestions {
         ),
     ]
 
-    /// Answers only typing gives (no card): Do Not Disturb in step, and the update channel. Their
-    /// settings are on their Settings pages too.
+    /// Answers only typing gives (no card): Do Not Disturb in step, the update channel and Update all
+    /// devices automatically. Their settings are on their Settings pages too. Applied in id order, so an
+    /// explicit "updates_auto" answer wins over the channel's own choice.
     static let typedOnly: [String: [String: [SettingChange]]] = [
         "focus": [SetupAnswerKey.both: [.on(.focusShare), .on(.focusFollow)], SetupAnswerKey.no: [.off(.focusShare), .off(.focusFollow)]],
-        "updates": [SetupAnswerKey.steady: [.set(.updateChannel, "stable")],
-                    SetupAnswerKey.early: [.set(.updateChannel, "beta")],
-                    SetupAnswerKey.newest: [.set(.updateChannel, "nightly")]],
+        "updates": [SetupAnswerKey.steady: [.set(.updateChannel, "stable"), .off(.updatesAutoAll)],
+                    SetupAnswerKey.early: [.set(.updateChannel, "beta"), .on(.updatesAutoAll)],
+                    SetupAnswerKey.newest: [.set(.updateChannel, "nightly"), .on(.updatesAutoAll)]],
+        "updates_auto": [SetupAnswerKey.yes: [.on(.updatesAutoAll)], SetupAnswerKey.no: [.off(.updatesAutoAll)]],
     ]
 
     /// The typed-only answers as they read in the preview and the summary.
@@ -394,9 +396,13 @@ enum SetupQuestions {
         case ("updates", SetupAnswerKey.steady):
             (L10n.setup("setup.q.updates.summary", fallback: "Updates"), L10n.setup("setup.a.updates.steady", fallback: "Steady"), .updates)
         case ("updates", SetupAnswerKey.early):
-            (L10n.setup("setup.q.updates.summary", fallback: "Updates"), L10n.setup("setup.a.updates.early", fallback: "Early"), .updates)
+            (L10n.setup("setup.q.updates.summary", fallback: "Updates"), L10n.setup("setup.a.updates.earlyAuto", fallback: "Early, all devices update automatically"), .updates)
         case ("updates", SetupAnswerKey.newest):
-            (L10n.setup("setup.q.updates.summary", fallback: "Updates"), L10n.setup("setup.a.updates.newest", fallback: "Newest every day"), .updates)
+            (L10n.setup("setup.q.updates.summary", fallback: "Updates"), L10n.setup("setup.a.updates.newestAuto", fallback: "Newest every day, all devices update automatically"), .updates)
+        case ("updates_auto", SetupAnswerKey.yes):
+            (AutoUpdateText.title, L10n.setup("setup.a.yes", fallback: "Yes"), .updates)
+        case ("updates_auto", SetupAnswerKey.no):
+            (AutoUpdateText.title, L10n.setup("setup.a.no", fallback: "No"), .updates)
         default: nil
         }
     }
@@ -433,7 +439,7 @@ enum SetupQuestions {
         .macActionApps: .media, .macActionShortcuts: .media, .macActionsLog: .media, .shortcutLink: .media, .shortcutPing: .media,
         .remoteLog: .remoteControl,
         .showPreviews: .privacy, .loggingConnection: .privacy, .loggingDetail: .privacy,
-        .updateChannel: .updates, .updatesAutomatic: .updates,
+        .updateChannel: .updates, .updatesAutomatic: .updates, .updatesAutoAll: .updates,
         .launchAtLogin: .general, .reduceMotion: .general, .shortcutShift: .general,
     ]
 
@@ -501,6 +507,11 @@ enum SetupTyped {
         Rule(id: "updates", answer: SetupAnswerKey.newest, stems: ["nightly", "newest", "every day", "ночн", "каждый день"], negatable: false),
         Rule(id: "updates", answer: SetupAnswerKey.early, stems: ["beta", "early", "бета", "раньше"], negatable: false),
         Rule(id: "updates", answer: SetupAnswerKey.steady, stems: ["stable", "steady", "стабил"], negatable: false),
+        Rule(id: "updates_auto", answer: SetupAnswerKey.yes,
+             stems: ["update automatically", "updates automatically", "updating automatically", "install automatically", "devices automatically",
+                     "auto updat", "autoupdat", "automatic updat", "automatically updat",
+                     "автообнов", "автоматически обнов", "автоматическое обнов", "автоматические обнов", "автоматических обнов",
+                     "обновлять автоматич", "обновляться автоматич", "обновления автоматич", "обновление автоматич", "устанавливать автоматич"]),
     ]
 
     /// Every id typing can answer on this Mac: the features, their follow-ups, Focus and updates.
@@ -669,6 +680,7 @@ extension SetupFacts {
             .loggingConnection: bool(model.logging.connection),
             .updateChannel: model.channel.rawValue,
             .updatesAutomatic: bool(model.automaticallyChecks),
+            .updatesAutoAll: bool(model.autoUpdate.enabled),
             .launchAtLogin: bool(model.launchAtLogin),
             .reduceMotion: bool(model.reduceMotion),
             .settingsSync: bool(model.settingsSyncEnabled),

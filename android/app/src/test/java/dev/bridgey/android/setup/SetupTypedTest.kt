@@ -28,6 +28,21 @@ class SetupTypedTest {
         assertEquals(emptyList<Pair<String, String>>(), match(""))
     }
 
+    /** Update all devices automatically (typed id updates_auto, after the channel so it wins). The Mac tests the same sentences. */
+    @Test
+    fun automaticUpdatesSentences() {
+        assertEquals(listOf("updates_auto" to Answers.YES), match("update all my devices automatically"))
+        assertEquals(listOf("updates_auto" to Answers.YES), match("Auto-update everything"))
+        assertEquals(listOf("updates" to Answers.EARLY, "updates_auto" to Answers.NO), match("beta, but no automatic updates"))
+        assertEquals(listOf("updates_auto" to Answers.NO), match("don't update automatically"))
+        assertEquals(listOf("updates" to Answers.NEWEST, "updates_auto" to Answers.YES), match("nightly builds that install automatically"))
+        assertEquals(listOf("updates_auto" to Answers.YES), match("Хочу автообновление"))
+        assertEquals(listOf("updates_auto" to Answers.NO), match("без автообновлений"))
+        assertEquals(listOf("updates" to Answers.STEADY, "updates_auto" to Answers.YES), match("стабильные, обновлять автоматически"))
+        // Plain "update" is not enough.
+        assertEquals(emptyList<Pair<String, String>>(), match("I want to update my Mac"))
+    }
+
     @Test
     fun androidSentences() {
         assertEquals(listOf("codes" to Answers.YES), match("codes from messages"))

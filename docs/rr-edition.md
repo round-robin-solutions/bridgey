@@ -19,7 +19,7 @@ upstream clients.
 | macOS legacy import | reads the old `BridgeyMac` defaults suite | never reads it (it belongs to upstream) |
 | URL handler name, Services item | `dev.bridgey.mac.phone`, "Call with Bridgey" | `in.roundrobin.bridgey.phone`, "Call with Bridgey RR" |
 | Android clipboard task affinity | `dev.bridgey.android.clipboard_action` | `${applicationId}.clipboard_action` |
-| Updates | none (manual downloads) | Stable, Beta and Nightly channels, in-app updates, and **Update all** for every connected device (draft `updates_draft1`, see [Update all](#update-all)) |
+| Updates | none (manual downloads) | Stable, Beta and Nightly channels, in-app updates, **Update all** for every connected device, and **Update all devices automatically** (draft `updates_draft1`, see [Update all](#update-all)) |
 | Releases | GitHub Actions on `v*` tags | `scripts/rr/release.sh` on our own machines; `release.yml` is manual-only |
 | Android design | Material defaults | Direction B "Stream": device rings, activity stream, send bar (Round Robin theme) |
 | Android activity stream | none | Local, private history of what moved between devices (see below) |
@@ -28,6 +28,7 @@ upstream clients.
 | Remote control | planned for 0.7 | Phone as touchpad, keyboard and presentation remote for the Mac, through the draft `remote_input_draft1` (see below) |
 | Phone screen on the Mac | planned for 0.9 | View-only prototype: the Mac shows the phone's screen in a window, H.264 from MediaProjection to VideoToolbox over the session, off by default on both sides (draft `screen_draft1`, see below and [screen-sharing.md](screen-sharing.md)) |
 | Files 2.0 | planned for 0.8 | Folders both ways; Mac "Phone files" window (photos and videos, recent documents, granted folders) with instant thumbnails, Quick Look, drag out and in; Android attach sheet; Mac send sheet, Tray, menu-bar drops and send optimisation; Finder metadata and transfer history (drafts `folders_draft1`, `places_draft1`, `files_browse_draft1`, `folders_receive_draft1`; see [files-browse.md](files-browse.md)) |
+| Connect away from home | none (LAN only) | On by default, one switch to turn it off (Settings > Devices > Connect away from home): paired devices reach each other off the home network, directly or through a Round Robin relay that sees only ciphertext. It keeps a connection to `connect.roundrobin.in` and uses a relay only when the same Wi-Fi is not available (draft `connect_draft1`, see [Connect anywhere](connect-anywhere.md)) |
 | Settings sync | none | On by default, one switch to turn it off (and one per device): feature switches and shared preferences stay the same on paired devices; a phone with two Macs carries changes between them. Permissions, per-device grants, pairing and folders never sync; a device that differs shows "Different on <device>" with Apply to all, and every change from another device is in the activity stream (draft `settings_sync_draft1`, see [folders-and-settings-sync.md](folders-and-settings-sync.md) 8.4) |
 | Codes from text messages | none | Opt-in: the Mac shows "Code 482913 from HDFC Bank" with Copy code, read on the Mac by a small downloaded model (default) or, if chosen, through Round Robin's relay to Cloudflare Workers AI; a companion link lets Android 15+ show Bridgey the codes (draft `sms_codes_draft1`, see below) |
 | Text messages | notification replies only | Opt-in, off by default: SMS conversations on the Mac (Messages window with conversations, new messages to a contact or number, delivery status, the SIM per conversation, MMS images read only) and a Reply field on every text message notification; incremental sync over the encrypted session, no cloud (draft `sms_draft1`, see below and [sms-call-policy.md](sms-call-policy.md)) |
@@ -396,7 +397,9 @@ How channels combine:
 ### Android
 
 - Checks when the app opens (at most every 15 minutes) and, while the connection service
-  runs, at most once per 24 hours (a coroutine in the service; no WorkManager).
+  runs, at most once per 24 hours (a coroutine in the service; no WorkManager). With **Update all
+  devices automatically** on, every 30 minutes on Beta and Nightly and every 6 hours on Stable, and
+  also when the screen turns on or the network changes (at most once every 10 minutes).
 - A background check that finds an update posts one "Update available" notification per
   version. Opening the app shows a dialog with the notes, **Install** and **Later**. Later
   hides the dialog for that version for 24 hours; Settings still offers it.
@@ -421,8 +424,11 @@ How channels combine:
   too and never offers a build older than the installed `CFBundleVersion`.
 - Updates are the ZIP, signed with EdDSA (`sparkle:edSignature`). The appcast keeps the newest
   5 Stable, 5 Beta and 10 Nightly items.
-- Settings → Updates: channel, automatic checks (on by default, daily), Check Now, version
-  and last check. A custom Sparkle user driver (`InAppUpdateDriver` in `AppUpdater.swift`)
+- Settings → Updates: channel, automatic checks (on by default, daily), **Update all devices
+  automatically**, Check Now, version and last check. With that setting on, this Mac also checks
+  quietly every 30 minutes on Beta and Nightly and every 6 hours on Stable, and on wake and network
+  changes (at most once every 10 minutes); it needs automatic checks, so turning it on turns them on.
+  A custom Sparkle user driver (`InAppUpdateDriver` in `AppUpdater.swift`)
   shows every step in the app instead of Sparkle's windows: update found (notes, Install,
   Later, Skip), download progress, preparing, ready (Restart to update), installing, plain
   errors, and "You're up to date" after Check Now. The Stream panel shows the same step as a
@@ -477,6 +483,55 @@ connected Mac ("Updates this phone and 3 connected Macs"); from a Mac, every con
 - **Setting.** "Let paired devices start updates on this device" (Settings > Updates, on by
   default). Off: the device refuses and shows as skipped. Why it is on by default is in
   [SECURITY.md](../SECURITY.md#bridgey-by-round-robin-edition-update-all).
+
+### Update all devices automatically
+
+Rahul, 2026-10-29: "from now on, whenever you publish, also trigger update for all automatically."
+**Update all devices automatically** (Settings > Updates on both apps, and setup's Updates answer)
+runs Update all by itself when this device's own check finds a newer build on its channel: connected
+devices first, this device last. Each device still updates from its own channel with its own
+signature checks, and a device whose "Let paired devices start updates" is off is skipped as before.
+
+- **Default.** On for Beta and Nightly, off for Stable. Until the person flips the switch the default
+  follows the channel; their own choice then stays, whatever the channel. Existing installs keep the
+  channel they picked. Setup: Steady turns it off, Early and Newest turn it on, and typing "update
+  automatically" or "no automatic updates" sets it on its own. On the Mac it needs automatic checks.
+  With settings sync on, a choice reaches the paired devices (`updates.auto_all`) and counts as
+  their own choice too; a value that only follows the channel is never sent. Keep mine and Apply to
+  all on it are choices as well.
+- **Checks.** Every 30 minutes on Beta and Nightly and every 6 hours on Stable, plus on wake and on a
+  network change, at most once every 10 minutes for those.
+- **Waits for the person.** It does not start while any connected device reports a call (ringing or
+  ongoing), a screen share, remote control, a file or folder transfer, a Phone files download, or
+  setup or pairing going on (a code on screen, waiting for the other device to allow pairing, or Allow
+  pairing on); it looks again every 5 minutes and adds "Waiting: call in progress" to
+  the activity stream once per wait. A device asked by an automatic start refuses (`busy`) while its
+  own person is busy. A call that starts during this device's countdown stops the countdown at once.
+- **Notice and Later.** When the run starts, a short notice appears (Mac: a panel in the top-right
+  corner that never takes focus; Android: a quiet notification) saying which devices go first; this
+  device restarts after a 60-second countdown with **Later** and **Restart now**. Later puts this
+  device's restart off for an hour; after three Laters for one build it waits until the Mac is idle
+  (5 minutes without input), locked or its display sleeps, or the phone's screen is off while it
+  charges. A device updated by another one's automatic run says "Started automatically by Work Mac".
+- **One device starts.** When several devices find the same build, the one with the lowest device ID
+  among the connected devices with the setting on starts the run; the others wait for its request and
+  start their own after 15 minutes if it never came. That device also runs for a connected device
+  with the setting on that reports a newer build. No device starts a run while one is going, or while
+  it updates because another device asked. An automatic run asks devices that said "up to date" before
+  the build was found to check again.
+- **Honest.** The activity stream gets "Updated automatically to 0.10.0-rr.1-beta.11", "Waiting: call
+  in progress", "Skipped Work Mac: updates from other devices are off", "Update started automatically
+  by Work Mac" and "Automatic update didn't finish on ...". Settings > Updates shows what the setting is
+  doing now (checking every 30 minutes, waiting, put off until, which device starts) and the last
+  automatic run with its result.
+- **Command line (Mac).** `"/Applications/Bridgey by Round Robin.app/Contents/MacOS/BridgeyMac" --update-all`
+  is "check now, then Update all" for the person who publishes (see [releasing.md](releasing.md)). It
+  hands the request to the running app over a Unix socket in the app's Application Support folder
+  (folder 0700, socket 0600, and the caller's user checked again with `getpeereid`), starts the app
+  first if it is not running, prints the plan and the result, and exits: 0 started, 3 up to date, 2
+  blocked (a run is going, the Mac updates for another device, or someone is busy), 1 anything else.
+  `--json` prints the answer lines as they come. It ignores the switch, Later and the lowest-ID rule,
+  but never someone busy. The request names no URL or version.
 
 **When Android installs without a tap** (AOSP `PackageInstallerSession`, Android 12 to 16): the
 session asks for `USER_ACTION_NOT_REQUIRED`, the app declares `UPDATE_PACKAGES_WITHOUT_USER_ACTION`,

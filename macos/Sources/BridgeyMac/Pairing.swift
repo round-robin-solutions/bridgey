@@ -301,7 +301,7 @@ final class PairingCoordinator: ObservableObject {
     /// Settings sync with phones (draft settings_sync_draft1): folder, preview and motion preferences.
     private(set) lazy var settingsSync = SettingsSyncController.live(
         localDeviceID: deviceID, settings: settings, focus: focusSync, codes: codesSyncGate, screen: phoneScreen,
-        setTextMessages: { [unowned self] in self.setTextMessagesEnabled($0) })
+        setTextMessages: { [unowned self] in self.setTextMessagesEnabled($0) }, autoUpdate: AutoUpdateCoordinator.shared)
     /// Codes from messages turned on from another device waits here until this Mac gives its own consent.
     private(set) lazy var codesSyncGate = CodesSyncGate(
         isOn: { [unowned self] in self.settings.codesEnabled },
@@ -1117,13 +1117,19 @@ final class PairingCoordinator: ObservableObject {
             setTransientCallStatus("Phone link does not contain a valid number")
             return
         }
-        if source.needsConfirmation {
+        switch otherAppCallDecision(source: source, policy: settings.otherAppCallPolicy) {
+        case .refuse:
+            setTransientCallStatus(L10n.text("call.refused", fallback: "Calls from other apps are off in Settings > Calls"))
+            return
+        case .ask:
             // Asked once the Service or the link handler has returned, so the other app does not wait on it.
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.confirmCall(number) else { return }
                 self.sendCallWhenConnected(number, source: .bridgey)
             }
             return
+        case .callNow:
+            break
         }
         pendingCallNumber = number
         pendingCallExpiryWorkItem?.cancel()
@@ -1141,15 +1147,14 @@ final class PairingCoordinator: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: expiry)
     }
 
-    /// Asks on this Mac before a call another app started goes to the phone.
+    /// Asks on this Mac before a call another app started goes to the phone. Call with Don't ask again
+    /// checked sets Settings > Calls to Call right away; Cancel never changes the setting.
     private func confirmCall(_ number: String) -> Bool {
-        let alert = NSAlert()
-        alert.messageText = callConfirmationTitle(number: number, phoneName: session?.peerName)
-        alert.informativeText = L10n.text("call.confirm.detail", fallback: "Another app asked Bridgey to place this call.")
-        alert.addButton(withTitle: L10n.text("call.confirm.call", fallback: "Call"))
-        alert.addButton(withTitle: L10n.text("action.cancel", fallback: "Cancel"))
+        let alert = makeCallConfirmationAlert(number: number, phoneName: session?.peerName)
         NSApp.activate(ignoringOtherApps: true)
-        return alert.runModal() == .alertFirstButtonReturn
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        if alert.suppressionButton?.state == .on { settings.setOtherAppCallPolicy(.callNow) }
+        return true
     }
 
     func sendCall(_ value: String) {

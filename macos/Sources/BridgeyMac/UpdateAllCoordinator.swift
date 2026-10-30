@@ -47,6 +47,8 @@ final class UpdateAllCoordinator: ObservableObject {
 
     private weak var pairing: PairingCoordinator?
     private weak var updater: AppUpdater?
+    /// Update all devices automatically: the setting and busy state phones hear, and the automatic runs.
+    weak var auto: AutoUpdateCoordinator?
     private let defaults: UserDefaults
     private var gate = UpdateStartGate()
     private var lastSent: [String: PeerUpdateStatus] = [:]
@@ -95,7 +97,12 @@ final class UpdateAllCoordinator: ObservableObject {
 
     // MARK: Status to phones
 
-    var localStatus: PeerUpdateStatus? { updater?.localInputs(remoteStartAllowed: remoteStartAllowed).status }
+    var localStatus: PeerUpdateStatus? {
+        updater?.localInputs(remoteStartAllowed: remoteStartAllowed, auto: auto?.enabled ?? false, busy: auto?.busy.current).status
+    }
+
+    /// The automatic setting or what the person is doing changed: phones hear it at once.
+    func statusInputsChanged() { localChanged() }
 
     private func localChanged() {
         guard let updater, let status = localStatus else { return }
@@ -161,11 +168,17 @@ final class UpdateAllCoordinator: ObservableObject {
         guard let updater else { return UpdateStartResult(requestID: request.requestID, refusal: .manual) }
         let decision = gate.decide(deviceID: id, retry: request.retry, now: Date(), allowed: remoteStartAllowed,
                                    updaterAvailable: updater.isAvailable, notApplied: updater.notApplied != nil,
-                                   canStart: updater.canStartForPeer)
+                                   canStart: updater.canStartForPeer, auto: request.auto, personBusy: auto?.busy.current)
         switch decision {
         case .accept:
+            // A run of this Mac's own is going: it carries on and installs this Mac last, after its phones.
+            let ownRun = run.map { !$0.finished && !$0.dismissed } ?? false
+            let automatic = request.auto
             // After the answer is on its way: the phone hears "accepted" before the first progress.
-            DispatchQueue.main.async { updater.startForPeer(retry: request.retry) }
+            DispatchQueue.main.async { [weak self] in
+                if !ownRun { updater.startForPeer(retry: request.retry) }
+                if automatic { self?.auto?.peerStarted(by: id) }
+            }
             return UpdateStartResult(requestID: request.requestID)
         case let .refuse(reason):
             return UpdateStartResult(requestID: request.requestID, refusal: reason)
@@ -174,7 +187,7 @@ final class UpdateAllCoordinator: ObservableObject {
 
     // MARK: Update all from this Mac
 
-    func plan(now: Date = Date()) -> UpdatePlan {
+    func plan(now: Date = Date(), refreshBefore: Date? = nil) -> UpdatePlan {
         guard let pairing, let local = localStatus else { return UpdatePlan() }
         var phones: [UpdateAllPhone] = []
         var seen = Set<String>()
@@ -186,7 +199,7 @@ final class UpdateAllCoordinator: ObservableObject {
         for device in pairing.trustedDevices where !seen.contains(device.id) {
             phones.append(UpdateAllPhone(id: device.id, name: device.name, connected: false, supportsUpdates: false, status: nil))
         }
-        return UpdatePlan.make(local: local, localName: UpdateAllText.thisMac, phones: phones, now: now)
+        return UpdatePlan.make(local: local, localName: UpdateAllText.thisMac, phones: phones, now: now, refreshBefore: refreshBefore)
     }
 
     func display(now: Date = Date()) -> UpdateAllDisplay {
@@ -206,11 +219,17 @@ final class UpdateAllCoordinator: ObservableObject {
         )
     }
 
-    func startAll() {
-        guard let pairing, let updater else { return }
+    /// Update all. `auto`: Update all devices automatically or the command line started it; phones that
+    /// reported "up to date" before `refreshBefore` are asked to check again. Returns the run, or nil
+    /// when there was nothing to update.
+    @discardableResult
+    func startAll(auto automatic: Bool = false, refreshBefore: Date? = nil) -> UpdateRun? {
+        guard let pairing, let updater else { return nil }
         previewOpen = false
         let date = Date()
-        guard let started = UpdateRun.start(plan: plan(now: date), now: date, newID: { UUID().uuidString.lowercased() }) else { return }
+        let plan = plan(now: date, refreshBefore: refreshBefore)
+        guard let started = UpdateRun.start(plan: plan, now: date, auto: automatic, newID: { UUID().uuidString.lowercased() }) else { return nil }
+        if automatic { auto?.runStarted(plan: plan) }
         run = started.run
         for (id, request) in started.starts {
             if !pairing.sendUpdatesStart(request, to: id) { run?.disconnected(id, now: date) }
@@ -227,9 +246,13 @@ final class UpdateAllCoordinator: ObservableObject {
         }
         if let status = localStatus { run?.local(status, now: date) }
         runChanged()
+        return run
     }
 
+    var runActive: Bool { run.map { !$0.finished && !$0.dismissed } ?? false }
+
     private func later() {
+        auto?.laterChosen()
         mutateRun { $0.later(now: Date()) }
         installWhenOffered = false
         updater?.later()
@@ -286,6 +309,7 @@ final class UpdateAllCoordinator: ObservableObject {
         guard let run else { return }
         if let data = try? JSONEncoder().encode(run) { defaults.set(data, forKey: Self.runKey) }
         if run.dismissed { stopTimer() } else { startTimer() }
+        auto?.runChanged(run)
     }
 
     private func startTimer() {
@@ -306,6 +330,12 @@ final class UpdateAllCoordinator: ObservableObject {
         let date = Date()
         now = date
         guard var current = run else { return stopTimer() }
+        // Never restart this Mac while someone is busy on any device (a call above all).
+        let busy = auto?.busyAnywhere()
+        current.busy(busy?.0, now: date)
+        if current.isAuto, let busy, current.hold != nil, current.local?.step == .ready, current.phonesSettled {
+            auto?.runHeld(busy.0, device: busy.1, runID: current.id)
+        }
         let effects = current.tick(now: date)
         if current != run {
             run = current
@@ -313,7 +343,7 @@ final class UpdateAllCoordinator: ObservableObject {
         }
         if effects.contains(.installLocal) { installLocal() }
         // A finished run keeps its card until it is closed, but needs no clock.
-        if current.finished && current.countdownUntil == nil { stopTimer() }
+        if current.finished && current.countdownUntil == nil && current.hold == nil { stopTimer() }
     }
 
     /// After this Mac relaunched (often: Update all just installed it), the run comes back for 30 minutes.
@@ -325,8 +355,12 @@ final class UpdateAllCoordinator: ObservableObject {
             defaults.removeObject(forKey: Self.runKey)
             return
         }
+        let localBefore = saved.local?.step
         saved.restored(installedApp: updater.shortVersion, installedBuild: updater.buildNumber, now: date)
         run = saved
+        if saved.isAuto, case .done = saved.local?.step {
+            if case .done = localBefore {} else { auto?.updatedAutomatically(to: updater.shortVersion) }
+        }
         runChanged()
     }
 }

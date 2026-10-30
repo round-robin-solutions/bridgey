@@ -56,6 +56,8 @@ class StorageNamesTest {
         assertEquals("document-index.json", TreeDocumentIndex.FILE_NAME)
         assertSource("browse/TreeDocumentIndex.kt", "File(context.applicationContext.noBackupFilesDir, FILE_NAME)")
         assertSource("BridgeySettings.kt", "KEY_FILES_ALLOW_BROWSE = \"files.allow_browse\"", "KEY_FOLDER_ALLOW_REPLACE = \"files.folder_allow_replace\"")
+        // 0.10: the Mac's settings.folders.includeHidden and .includeSystem, same meaning and defaults (off).
+        assertSource("BridgeySettings.kt", "KEY_FOLDER_INCLUDE_HIDDEN = \"files.folder_include_hidden\"", "KEY_FOLDER_INCLUDE_SYSTEM = \"files.folder_include_system\"")
         assertSource(
             "AttachUi.kt",
             "getSharedPreferences(\"bridgey.attach\", Context.MODE_PRIVATE)",

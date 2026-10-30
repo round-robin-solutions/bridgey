@@ -27,12 +27,21 @@ class SettingsSyncTest {
     private var now = 1_792_900_000_000L
 
     /** One setting held in memory. */
-    private class Fake(var value: Any, var stored: Boolean = false, var waiting: Boolean = false) : SyncedSetting {
+    private open class Fake(open var value: Any, var stored: Boolean = false, var waiting: Boolean = false) : SyncedSetting {
         var writes = 0
         override fun read(): Any = value
         override fun write(value: Any) { this.value = value; writes++ }
         override fun stored(): Boolean = stored
         override fun waitingForPermission(): Boolean = value == true && waiting
+    }
+
+    /** Update all devices automatically: follows its channel's default until the person (or a synced value) chooses. */
+    private class Following(var defaultOn: Boolean, var choice: Boolean? = null) : Fake(defaultOn) {
+        override var value: Any
+            get() = choice ?: defaultOn
+            set(new) { choice = new as Boolean }
+        override fun stored(): Boolean = choice != null
+        override fun followsDefault(): Boolean = choice == null
     }
 
     private data class Sent(val from: String, val to: String, val kind: String, val messageId: String, val payload: JSONObject)
@@ -120,7 +129,7 @@ class SettingsSyncTest {
         }
     }
 
-    /** The phone's settings: everything but the Mac-only codes and the not-yet-built Update all devices automatically. */
+    /** The phone's settings: everything but the Mac-only codes and Update all devices automatically (tested on its own). */
     private fun fakes(): Map<SyncKey, Fake> =
         SyncKey.entries.filter { it != SyncKey.CODES && it != SyncKey.AUTO_UPDATE_ALL }.associateWith { Fake(it.default) }
 
@@ -160,6 +169,34 @@ class SettingsSyncTest {
         assertEquals(2, net.kinds().count { it == SettingsSyncKinds.UPDATE })
         assertEquals(2, net.kinds().count { it == SettingsSyncKinds.ACK })
         assertEquals(4, net.kinds().size)
+    }
+
+    @Test fun hiddenAndSystemFileChoicesSyncUnderTheDocumentedKeys() {
+        assertEquals("files.folder_include_hidden", SyncKey.FOLDER_INCLUDE_HIDDEN.key)
+        assertEquals("files.folder_include_system", SyncKey.FOLDER_INCLUDE_SYSTEM.key)
+        assertEquals(false, SyncKey.FOLDER_INCLUDE_HIDDEN.default)
+        assertEquals(false, SyncKey.FOLDER_INCLUDE_SYSTEM.default)
+        // The Mac's call policy is a Mac-only setting: no key carries it.
+        assertTrue(SyncKey.entries.none { it.key.contains("other_apps") || it.key.contains("otherApps") })
+        val (net, phone, mac) = pair()
+        net.link(phone, mac)
+        net.pump()
+        now = 1_000
+        phone.edit(SyncKey.FOLDER_INCLUDE_HIDDEN, true)
+        now = 2_000
+        mac.edit(SyncKey.FOLDER_INCLUDE_SYSTEM, true)
+        net.pump()
+        assertEquals(true, mac[SyncKey.FOLDER_INCLUDE_HIDDEN])
+        assertEquals(true, phone[SyncKey.FOLDER_INCLUDE_SYSTEM])
+        assertEquals(phone.sync.record(SyncKey.FOLDER_INCLUDE_HIDDEN), mac.sync.record(SyncKey.FOLDER_INCLUDE_HIDDEN))
+        assertEquals(phone.sync.record(SyncKey.FOLDER_INCLUDE_SYSTEM), mac.sync.record(SyncKey.FOLDER_INCLUDE_SYSTEM))
+        // They share nothing that needs a permission, so no device is told to allow anything.
+        assertTrue(phone.turnedOn.isEmpty() && mac.turnedOn.isEmpty())
+        // Turning one off on the Mac comes back to the phone.
+        now = 3_000
+        mac.edit(SyncKey.FOLDER_INCLUDE_HIDDEN, false)
+        net.pump()
+        assertEquals(false, phone[SyncKey.FOLDER_INCLUDE_HIDDEN])
     }
 
     @Test fun aLiveChangeAppliesOnTheOtherDeviceAndIsNeverSentBack() {
@@ -617,12 +654,174 @@ class SettingsSyncTest {
         assertEquals(true, phone.sync.record(SyncKey.AUTO_UPDATE_ALL)!!.value)
     }
 
+    @Test fun updateAllDevicesAutomaticallyFollowsTheChannelUntilAChoiceSyncs() {
+        clear("phone", "mac")
+        val net = Net()
+        // The phone is on Beta (on by default), the Mac on Stable (off by default); nobody chose yet.
+        val phoneAuto = Following(defaultOn = true)
+        val macAuto = Following(defaultOn = false)
+        val phone = Device("phone", "OnePlus 11", net, fakes() + (SyncKey.AUTO_UPDATE_ALL to phoneAuto))
+        val mac = Device("mac", "Work Mac", net, fakes() + (SyncKey.AUTO_UPDATE_ALL to macAuto))
+        net.link(phone, mac)
+        net.pump()
+        net.log.clear()
+        // A channel change moves the default, which is not a choice: nothing is sent and nothing becomes chosen.
+        phoneAuto.defaultOn = false
+        phone.sync.localChanged()
+        net.pump()
+        assertTrue(net.kinds().isEmpty())
+        assertNull(phoneAuto.choice)
+        assertNull(macAuto.choice)
+        assertFalse(phone.sync.record(SyncKey.AUTO_UPDATE_ALL)!!.chosen)
+        // The Mac's person turns it off, the same value its default already had: still a choice, and it syncs.
+        mac.edit(SyncKey.AUTO_UPDATE_ALL, false)
+        net.pump()
+        assertEquals(false, macAuto.choice)
+        assertEquals("a synced value counts as the phone's own choice", false, phoneAuto.choice)
+        assertEquals(1, phoneAuto.writes)
+        // The phone's channel default can no longer turn it on.
+        phoneAuto.defaultOn = true
+        assertEquals(false, phone[SyncKey.AUTO_UPDATE_ALL])
+        // And the phone's own choice goes the other way.
+        phone.edit(SyncKey.AUTO_UPDATE_ALL, true)
+        net.pump()
+        assertEquals(true, macAuto.choice)
+    }
+
+    @Test fun anUnchosenUpdateAllSettingIsNeverAppliedAsAChoice() {
+        clear("phone", "mac")
+        val net = Net()
+        val phoneAuto = Following(defaultOn = true)
+        val macAuto = Following(defaultOn = false)
+        val phone = Device("phone", "OnePlus 11", net, fakes() + (SyncKey.AUTO_UPDATE_ALL to phoneAuto))
+        val mac = Device("mac", "Work Mac", net, fakes() + (SyncKey.AUTO_UPDATE_ALL to macAuto))
+        net.link(phone, mac)
+        net.pump()
+        phone.sync.localChanged()
+        mac.sync.localChanged()
+        net.pump()
+        assertNull(phoneAuto.choice)
+        assertNull(macAuto.choice)
+        assertEquals(0, phoneAuto.writes + macAuto.writes)
+    }
+
+    /** A new phone on Beta (on by default) meets a Mac; [macChoice] null: the Mac follows Stable (off by default). */
+    private inner class AutoPair(macChoice: Boolean?) {
+        init { clear("phone", "mac") }
+        val net = Net()
+        val phoneAuto = Following(defaultOn = true)
+        val macAuto = Following(defaultOn = false, choice = macChoice)
+        val phone = Device("phone", "OnePlus 11", net, fakes() + (SyncKey.AUTO_UPDATE_ALL to phoneAuto), veteran = false)
+        val mac = Device("mac", "Work Mac", net, fakes() + (SyncKey.AUTO_UPDATE_ALL to macAuto))
+    }
+
+    @Test fun aFirstConnectNeverAsksAboutUpdateAllWhenEachDeviceFollowsItsChannel() {
+        val pair = AutoPair(macChoice = null)
+        val (net, phone, mac) = Triple(pair.net, pair.phone, pair.mac)
+        net.link(phone, mac)
+        net.pump()
+        // On here and off there, but nobody chose: each follows its own channel, so there is nothing to ask or show.
+        assertTrue(phone.sync.ui.value.questions.isEmpty())
+        assertNull(phone.sync.ui.value.row(SyncKey.AUTO_UPDATE_ALL))
+        assertNull(mac.sync.ui.value.row(SyncKey.AUTO_UPDATE_ALL))
+        assertNull(pair.phoneAuto.choice)
+        assertNull(pair.macAuto.choice)
+    }
+
+    @Test fun useTheseTakesTheMacsUpdateAllChoice() {
+        val pair = AutoPair(macChoice = false)
+        val (net, phone, mac) = Triple(pair.net, pair.phone, pair.mac)
+        net.link(phone, mac)
+        net.pump()
+        assertEquals(listOf("mac"), phone.sync.ui.value.questions.map { it.deviceId })
+        phone.sync.answer("mac", use = true)
+        net.pump()
+        assertEquals("the Mac's choice is the phone's choice now", false, pair.phoneAuto.choice)
+        assertNull(phone.sync.ui.value.row(SyncKey.AUTO_UPDATE_ALL))
+    }
+
+    @Test fun keepMineAndApplyToAllMakeAFollowedUpdateAllSettingAChoice() {
+        val pair = AutoPair(macChoice = false)
+        val (net, phone, mac) = Triple(pair.net, pair.phone, pair.mac)
+        net.link(phone, mac)
+        net.pump()
+        phone.sync.answer("mac", use = false)
+        net.pump()
+        // Keep mine: what the phone did (on, from Beta) is its choice now, so a later channel change cannot move it.
+        assertEquals(true, pair.phoneAuto.choice)
+        assertEquals(SyncRecord(true, 1, 1, "phone"), phone.sync.record(SyncKey.AUTO_UPDATE_ALL))
+        assertEquals(false, pair.macAuto.choice)
+        assertEquals(listOf("Work Mac"), phone.sync.ui.value.row(SyncKey.AUTO_UPDATE_ALL)!!.differentOn)
+        phone.sync.applyToAll(SyncKey.AUTO_UPDATE_ALL)
+        net.pump()
+        assertEquals(true, pair.macAuto.choice)
+        assertNull(phone.sync.ui.value.row(SyncKey.AUTO_UPDATE_ALL))
+    }
+
+    @Test fun applyToAllFromAFollowedUpdateAllSettingSendsWhatItDoesNowAndChoosesIt() {
+        clear("phone", "mac")
+        val net = Net()
+        val phoneAuto = Following(defaultOn = false)
+        val macAuto = Following(defaultOn = false)
+        val phone = Device("phone", "OnePlus 11", net, fakes() + (SyncKey.AUTO_UPDATE_ALL to phoneAuto))
+        val mac = Device("mac", "Work Mac", net, fakes() + (SyncKey.AUTO_UPDATE_ALL to macAuto))
+        net.link(phone, mac)
+        net.pump()
+        // The phone moves to Nightly after its record was made: Apply to all sends on, not the record's old off.
+        phoneAuto.defaultOn = true
+        phone.sync.applyToAll(SyncKey.AUTO_UPDATE_ALL)
+        net.pump()
+        assertEquals(true, phoneAuto.choice)
+        assertEquals(true, macAuto.choice)
+    }
+
+    @Test fun connectAwayOnByDefaultIsNeitherSentNorShownAsDifferent() {
+        clear("phone", "mac")
+        val net = Net()
+        // Both on by default, nobody chose; and a Mac from before still holds the old default (off, never chosen).
+        val phoneAway = Following(defaultOn = true)
+        val macAway = Following(defaultOn = true)
+        val phone = Device("phone", "OnePlus 11", net, fakes() + (SyncKey.CONNECT_AWAY to phoneAway), veteran = false)
+        val mac = Device("mac", "Work Mac", net, fakes() + (SyncKey.CONNECT_AWAY to macAway))
+        net.link(phone, mac)
+        net.pump()
+        net.log.clear()
+        phone.sync.localChanged()
+        mac.sync.localChanged()
+        net.pump()
+        assertTrue(net.kinds().isEmpty())
+        assertTrue(phone.sync.ui.value.questions.isEmpty())
+        assertNull(phone.sync.ui.value.row(SyncKey.CONNECT_AWAY))
+        assertNull(mac.sync.ui.value.row(SyncKey.CONNECT_AWAY))
+        assertFalse(phone.sync.record(SyncKey.CONNECT_AWAY)!!.chosen)
+        assertEquals(0, phoneAway.writes + macAway.writes)
+        assertNull(phoneAway.choice)
+        // An explicit off on the Mac is a choice: it syncs, and the phone keeps it as its own.
+        mac.edit(SyncKey.CONNECT_AWAY, false)
+        net.pump()
+        assertEquals(false, phoneAway.choice)
+        assertEquals(false, phone[SyncKey.CONNECT_AWAY])
+    }
+
+    @Test fun connectAwayOnByDefaultIsNotDifferentFromAnOlderBuildsUnchosenOff() {
+        clear("phone", "mac")
+        val net = Net()
+        val phoneAway = Following(defaultOn = true)
+        val phone = Device("phone", "OnePlus 11", net, fakes() + (SyncKey.CONNECT_AWAY to phoneAway))
+        val mac = Device("mac", "Work Mac", net, fakes() + (SyncKey.CONNECT_AWAY to Fake(false)))
+        net.link(phone, mac)
+        net.pump()
+        assertNull(phone.sync.ui.value.row(SyncKey.CONNECT_AWAY))
+        assertNull(phoneAway.choice)
+        assertEquals(true, phone[SyncKey.CONNECT_AWAY])
+    }
+
     @Test fun activityDetailRoundTrips() {
         val changes = listOf(SyncChange(SyncKey.REDUCE_MOTION, false), SyncChange(SyncKey.FOLDER_DESTINATION, "fixed"), SyncChange(SyncKey.CALLS, true))
         val detail = SyncDetail.encode(changes)
         assertEquals("folder_destination=2,reduce_motion=0,calls=1", detail)
         assertEquals(listOf(changes[1], changes[0], changes[2]), SyncDetail.decode(detail))
-        assertEquals(25, SyncDetail.decode(SyncDetail.encode(SyncKey.entries.map { SyncChange(it, it.default) })).size)
+        assertEquals(27, SyncDetail.decode(SyncDetail.encode(SyncKey.entries.map { SyncChange(it, it.default) })).size)
         assertTrue(SyncDetail.decode("calls=1,evil text").isEmpty())
     }
 }

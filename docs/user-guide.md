@@ -1,12 +1,13 @@
 # User guide
 
-Bridgey by Round Robin connects an Android phone and a Mac over your own Wi-Fi. It has no
-account and no cloud service for normal use. This guide covers the common tasks. For what has
+Bridgey by Round Robin connects an Android phone and a Mac over your own Wi-Fi, and away from
+home through Round Robin's connect service (on by default, see
+[Connect away from home](#connect-away-from-home)). It has no account. This guide covers the common tasks. For what has
 been tried on which devices, see [compatibility](compatibility.md).
 
 Contents: [install](#install), [pair](#pair-a-phone-and-a-mac), [clipboard and files](#send-the-clipboard-and-files),
 [notifications](#notifications), [calls](#calls), [codes from messages](#codes-from-messages),
-[remote control](#remote-control), [updates](#update-channels-and-updates), [permissions](#permissions),
+[remote control](#remote-control), [connect away from home](#connect-away-from-home), [updates](#update-channels-and-updates), [permissions](#permissions),
 [reset](#reset-local-data), [uninstall](#uninstall), [troubleshooting](#troubleshooting).
 
 ## Install
@@ -118,6 +119,11 @@ Anything marked sensitive (for example by a password manager) is not sent.
   send can be retried once the devices reconnect.
 - **Where they land:** Android saves to `Download/Bridgey`. The Mac saves to `Downloads/Bridgey` by
   default; change it in Settings > Files (Received files). A file never replaces an existing one.
+- **Hidden files in folders:** a folder skips hidden files (names that start with a dot, such as
+  `.gitignore`) and system clutter (`.DS_Store`, `._` files, `Thumbs.db`). Two switches in Settings >
+  Files on the phone and on the Mac, "Include hidden files when sending folders" and "Include system
+  files when sending folders", turn each on; both are off by default. On the phone they also apply
+  when a Mac downloads a folder from it.
 
 ## Notifications
 
@@ -217,6 +223,21 @@ until you turn it on, and only works between two Round Robin edition apps.
 The Mac keeps a 30-day session record (device, times and counts, never what you typed) that you can
 clear in the same pane.
 
+## Connect away from home
+
+Your paired devices stay connected when they are not on the same Wi-Fi, with no VPN on the phone.
+It is on by default.
+
+- **What it contacts.** While it is on, Bridgey keeps a connection to `connect.roundrobin.in`, which
+  helps your devices find each other. When they cannot reach each other on the same Wi-Fi (or a
+  private network such as Tailscale, or directly over the internet), the traffic goes through a
+  Round Robin relay.
+- **What the relay sees.** Only encrypted data: your devices' public addresses, and the timing and
+  size of the traffic. Never device names, content or file names.
+- **Turn it off.** Settings > Devices > Connect away from home, on the phone or the Mac. With
+  settings sync on, your other devices turn it off too. Once you turn it off it stays off, including
+  after updates. Same Wi-Fi keeps working either way.
+
 ## Update channels and updates
 
 Bridgey updates itself. Open **Settings > Updates** on either device.
@@ -228,9 +249,9 @@ Bridgey updates itself. Open **Settings > Updates** on either device.
 | **Nightly** | Built from every change. Expect rough edges. |
 
 Switching to a steadier channel never downgrades; it waits for that channel's next newer build.
-The apps check daily, and **Check now** checks at once. Nothing updates unless someone asked: you tap
-**Install** (the Mac shows each step with **Install**, **Later** and **Skip**), or **Update all** on a
-paired device. On Android 12 and later an update you started usually finishes without a second tap;
+The apps check daily, and **Check now** checks at once. An update installs when you tap **Install**
+(the Mac shows each step with **Install**, **Later** and **Skip**), when you use **Update all** on a
+paired device, or by itself with **Update all devices automatically** (below). On Android 12 and later an update you started usually finishes without a second tap;
 when Android still wants one, Bridgey shows "Tap to finish updating Bridgey".
 On Android the download must match its published checksum and be signed with the same certificate as the
 installed app. On the Mac the update must carry a valid EdDSA signature. Details are in
@@ -255,6 +276,28 @@ Each device stays on its own channel and only installs its own signed update. If
 on its old version, Bridgey says "Update didn't apply" and does not try that version again by itself.
 To stop other devices from starting updates on one device, turn off **Let paired devices start updates
 on this device** in its Settings > Updates.
+
+### Update all devices automatically
+
+With **Update all devices automatically** on (Settings > Updates; on by default for Beta and Nightly,
+off for Stable), a new version reaches every connected device without a tap. Your devices check every
+30 minutes on Beta and Nightly (every 6 hours on Stable) and when they wake up. When one finds a new
+version, the other connected devices update first and it restarts last.
+
+- It waits while you are on a call, sharing your screen, using remote control, sending or receiving
+  files, downloading from Phone files, or in setup or pairing, on any of your connected devices, and
+  looks again every few minutes.
+- A short notice says what is updating. Bridgey restarts after 60 seconds; choose **Later** to put it
+  off for an hour. After three Laters it waits until you step away (the Mac idle or locked, or the
+  phone's screen off while it charges).
+- A device updated this way says "Started automatically by" the device that started it, and the
+  activity stream lists what happened, for example "Updated automatically to 0.10.0-rr.1-beta.11"
+  or "Waiting: call in progress".
+- Settings > Updates shows what it is doing now and how the last automatic update went.
+- With settings sync on, turning it on or off on one device does the same on your other devices.
+
+On a Mac you can also start it from Terminal: `"/Applications/Bridgey by Round Robin.app/Contents/MacOS/BridgeyMac" --update-all`
+checks now, updates the connected phones and then the Mac, and prints what it did.
 
 ## Permissions
 
@@ -323,6 +366,12 @@ Security > Local Network allows Bridgey. Press **Look for devices again** (the r
 General > "Stay connected while the phone sleeps". Many phones add their own limit; see
 [compatibility](compatibility.md#phone-makers-and-skins). On OnePlus, open App info > Battery usage and
 allow background activity.
+
+**Notification access will not turn on (Android 13 and later).** An app installed from a file or a
+browser is blocked from this switch until you allow restricted settings. Setup shows the steps when it
+sees this; you can also do them yourself: Settings > Apps > Bridgey, tap the three dots at the top right,
+tap **Allow restricted settings**, then turn on notification access again. On some phones the three
+dots appear only after Android has blocked the switch once, so tap **Allow** in Bridgey first.
 
 **Phone notifications do not appear on the Mac.** Check Notification forwarding is on, Bridgey has
 notification access on the phone ("Needs notification access" means it does not), the app is chosen

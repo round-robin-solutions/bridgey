@@ -49,11 +49,10 @@ class SyncSettingsActions(
 )
 
 /**
- * The settings Choose what syncs offers: the ones this phone has (22). Codes from messages is a Mac setting and Update all
- * devices automatically has no setting yet (rr/auto-update-all adds it): the phone only stores and relays those, as the
- * Mac does for Photos for the Mac.
+ * The settings Choose what syncs offers: the ones this phone has (26). Codes from messages is a Mac setting: the phone
+ * only stores and relays it, as the Mac does for Photos for the Mac.
  */
-val ChoosableSyncKeys: List<SyncKey> = SyncKey.entries - SyncKey.CODES - SyncKey.AUTO_UPDATE_ALL
+val ChoosableSyncKeys: List<SyncKey> = SyncKey.entries - SyncKey.CODES
 
 /** The sync key behind a feature's global switch. */
 fun syncKeyFor(feature: BridgeyFeature): SyncKey? = SyncFeatureKeys.entries.firstOrNull { it.value == feature }?.key
@@ -86,6 +85,8 @@ fun syncKeyName(context: Context, key: SyncKey): String = context.getString(
         SyncKey.SMS -> R.string.sync_name_sms
         SyncKey.CONNECT_AWAY -> R.string.settings_connect_away
         SyncKey.AUTO_UPDATE_ALL -> R.string.sync_name_auto_update_all
+        SyncKey.FOLDER_INCLUDE_HIDDEN -> R.string.sync_name_folder_include_hidden
+        SyncKey.FOLDER_INCLUDE_SYSTEM -> R.string.sync_name_folder_include_system
     },
 )
 

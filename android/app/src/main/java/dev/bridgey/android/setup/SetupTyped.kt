@@ -34,6 +34,13 @@ object SetupTyped {
         Rule("updates", Answers.NEWEST, listOf("nightly", "newest", "every day", "ночн", "каждый день"), negatable = false),
         Rule("updates", Answers.EARLY, listOf("beta", "early", "бета", "раньше"), negatable = false),
         Rule("updates", Answers.STEADY, listOf("stable", "steady", "стабил"), negatable = false),
+        // Update all devices automatically: "no automatic updates" and "без автообновлений" are a No.
+        Rule("updates_auto", Answers.YES, listOf(
+            "update automatically", "updates automatically", "updating automatically", "install automatically", "devices automatically",
+            "auto updat", "autoupdat", "automatic updat", "automatically updat",
+            "автообнов", "автоматически обнов", "автоматическое обнов", "автоматические обнов", "автоматических обнов",
+            "обновлять автоматич", "обновляться автоматич", "обновления автоматич", "обновление автоматич", "устанавливать автоматич",
+        )),
     )
 
     /** Every id typing can answer on this phone: the features, their follow-ups, Focus and updates. */

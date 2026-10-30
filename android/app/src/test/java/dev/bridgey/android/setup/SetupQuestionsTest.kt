@@ -30,7 +30,7 @@ class SetupQuestionsTest {
             }
         }
         // Settings that left the path are under More options, not dropped.
-        listOf(SetupSetting.CLIPBOARD_FILES, SetupSetting.FOCUS_FOLLOW, SetupSetting.FOLDER_MODE, SetupSetting.REDUCE_MOTION, SetupSetting.UPDATE_CHANNEL)
+        listOf(SetupSetting.CLIPBOARD_FILES, SetupSetting.FOCUS_FOLLOW, SetupSetting.FOLDER_MODE, SetupSetting.REDUCE_MOTION, SetupSetting.UPDATE_CHANNEL, SetupSetting.AUTO_UPDATES)
             .forEach { assertEquals(Coverage.MORE_OPTIONS, SetupQuestions.coverage.getValue(it).second) }
         // Settings sync is on the summary (Rahul, 2026-10-27).
         assertEquals("summary" to Coverage.SUMMARY, SetupQuestions.coverage.getValue(SetupSetting.SETTINGS_SYNC))
@@ -79,13 +79,27 @@ class SetupQuestionsTest {
         assertEquals(mapOf(SetupSetting.ALLOW_BROWSE to "true", SetupSetting.ALLOW_REPLACE to "true"), changes("files_browse", Answers.CHANGE))
         assertEquals(mapOf(SetupSetting.HIDDEN_NOTIFICATION_APPS to "com.whatsapp"), changes("notification_apps", Answers.PICKED + "com.whatsapp"))
         assertEquals(mapOf(SetupSetting.CODES_LINK to "true"), changes("codes", Answers.YES))
-        // Connect away from home: off until chosen; Yes turns it on, Not now leaves it off.
-        assertEquals("false", SetupSetting.CONNECT_AWAY.default)
+        // Connect away from home: on until chosen (Rahul, 2026-10-30); Yes keeps it on, Not now turns it off.
+        assertEquals("true", SetupSetting.CONNECT_AWAY.default)
         assertEquals(mapOf(SetupSetting.CONNECT_AWAY to "true"), changes("away", Answers.YES))
         assertEquals(mapOf(SetupSetting.CONNECT_AWAY to "false"), changes("away", Answers.NO))
         assertEquals(Coverage.ANSWER, SetupQuestions.coverage.getValue(SetupSetting.CONNECT_AWAY).second)
         assertEquals(mapOf("away" to Answers.PICK), SetupBundles.all.first { it.id == "away" }.answers)
-        assertEquals(listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "NIGHTLY")), SetupQuestions.typedOnly.getValue("updates").getValue(Answers.NEWEST))
+        // The channel answer sets Update all devices automatically too: off for Steady, on for Early and Newest.
+        assertEquals(
+            listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "NIGHTLY"), SettingChange.on(SetupSetting.AUTO_UPDATES)),
+            SetupQuestions.typedOnly.getValue("updates").getValue(Answers.NEWEST),
+        )
+        assertEquals(
+            listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "BETA"), SettingChange.on(SetupSetting.AUTO_UPDATES)),
+            SetupQuestions.typedOnly.getValue("updates").getValue(Answers.EARLY),
+        )
+        assertEquals(
+            listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "STABLE"), SettingChange.off(SetupSetting.AUTO_UPDATES)),
+            SetupQuestions.typedOnly.getValue("updates").getValue(Answers.STEADY),
+        )
+        assertEquals(listOf(SettingChange.on(SetupSetting.AUTO_UPDATES)), SetupQuestions.typedOnly.getValue("updates_auto").getValue(Answers.YES))
+        assertEquals(listOf(SettingChange.off(SetupSetting.AUTO_UPDATES)), SetupQuestions.typedOnly.getValue("updates_auto").getValue(Answers.NO))
         // Switches and picks turn a feature's settings on; refusals turn them off.
         assertEquals(listOf(SettingChange.on(SetupSetting.FEATURE_FIND_DEVICE)), SetupFeatures.feature("find")!!.on)
         assertEquals(listOf(SettingChange.off(SetupSetting.FEATURE_NOTIFICATIONS)), SetupQuestions.permission(PermissionKind.NOTIFICATION_ACCESS)!!.offWhenRefused)

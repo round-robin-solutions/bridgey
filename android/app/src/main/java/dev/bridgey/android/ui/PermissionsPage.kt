@@ -1,5 +1,6 @@
 package dev.bridgey.android.ui
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +27,7 @@ import dev.bridgey.android.R
 import dev.bridgey.android.setup.PermissionEntry
 import dev.bridgey.android.setup.PermissionKind
 import dev.bridgey.android.setup.PermissionState
+import dev.bridgey.android.setup.RestrictedSettings
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import dev.bridgey.android.ui.theme.BridgeyType
 
@@ -47,11 +49,15 @@ fun permissionName(kind: PermissionKind): String = stringResource(
     },
 )
 
-/** [textMessages]: Text messages is on, so the companion link's reason is about replies. */
+/**
+ * [textMessages]: Text messages is on, so the companion link's reason is about replies. [sdkInt]: from Android 13
+ * Notification access mentions "Allow restricted settings" once (see [RestrictedSettings]).
+ */
 @Composable
-fun permissionWhy(kind: PermissionKind, textMessages: Boolean = false): String = stringResource(
+fun permissionWhy(kind: PermissionKind, textMessages: Boolean = false, sdkInt: Int = Build.VERSION.SDK_INT): String = stringResource(
     if (kind == PermissionKind.COMPANION_LINK && textMessages) R.string.perm_companion_link_why_sms else when (kind) {
-        PermissionKind.NOTIFICATION_ACCESS -> R.string.perm_notification_access_why
+        PermissionKind.NOTIFICATION_ACCESS ->
+            if (RestrictedSettings.canBeBlocked(kind, sdkInt)) R.string.perm_notification_access_why_restricted else R.string.perm_notification_access_why
         PermissionKind.POST_NOTIFICATIONS -> R.string.perm_post_notifications_why
         PermissionKind.PHONE_CALLS -> R.string.perm_phone_calls_why
         PermissionKind.PHOTOS -> R.string.perm_photos_why

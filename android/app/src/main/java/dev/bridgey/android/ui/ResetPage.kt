@@ -176,6 +176,7 @@ private fun resetItemText(item: ResetItem): String = stringResource(
         ResetItem.RECONNECT_ADDRESSES -> R.string.reset_item_reconnect
         ResetItem.CODES_LINK -> R.string.reset_item_codes
         ResetItem.WHATS_NEW -> R.string.reset_item_whats_new
+        ResetItem.UPDATE_RECORDS -> R.string.reset_item_update_records
     },
 )
 

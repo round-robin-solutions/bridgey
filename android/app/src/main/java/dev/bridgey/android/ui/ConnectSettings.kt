@@ -35,7 +35,7 @@ class ConnectSettingsActions(
 
 /**
  * Connect away from home: the switch, where it stands, what it does in plain words, and the
- * identity reset. Off until chosen (the edition's rule).
+ * identity reset. On until chosen (Rahul, 2026-10-30, an exception to the edition's off until chosen).
  */
 @Composable
 internal fun ConnectAwayPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
