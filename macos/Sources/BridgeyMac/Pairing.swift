@@ -3755,6 +3755,7 @@ final class PairingCoordinator: ObservableObject {
     private func configureConnect() {
         connect.onTunnel = { [weak self] tunnel in self?.acceptTunnel(tunnel) }
         connect.onRoute = { [weak self] id, route, relay in self?.tunnelRouteChanged(id, route: route, relay: relay) }
+        connect.onTunnelClosed = { [weak self] id in self?.tunnelClosed(id) }
         connectCancellable = settings.$connectAway.removeDuplicates().sink { [weak self] enabled in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -3778,6 +3779,15 @@ final class PairingCoordinator: ObservableObject {
 
     /// A tunnel is up: run a session on its loopback bridge, exactly as on a LAN socket. The QUIC
     /// client sends pairing.offer; the signatures bind to the tunnel's exporter.
+    /// The core's tunnel ended: the session on it ends now rather than when its loopback socket notices, so the
+    /// reconnect starts at once.
+    private func tunnelClosed(_ id: String) {
+        for (_, current) in registry.broadcastTargets({ _, _ in true }) where current.tunnel?.id == id {
+            current.dropReason = "tunnel_closed"
+            current.close()
+        }
+    }
+
     private func acceptTunnel(_ tunnel: ConnectTunnel) {
         guard identity != nil, settings.connectAway, let port = NWEndpoint.Port(rawValue: tunnel.port) else {
             connect.command(["c": "close", "tunnel": tunnel.id])

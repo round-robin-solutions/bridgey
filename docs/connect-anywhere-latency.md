@@ -116,6 +116,29 @@ connection. The race starts as soon as a peer is not connected; only when one of
 this device's own subnet does the app's LAN TCP connection get 300 ms first, because LAN sessions stay on TCP
 (Rahul, 2026-10-27).
 
+## Bugs found on the way
+
+| Bug | Effect | Fix |
+| --- | --- | --- |
+| A session that selected a path but never got its QUIC dial (beta 13 too) | Lived forever; every later race for that peer waited on it, and the lower device ID turned every offer away as glare. In the before C runs neither side reconnected within 40 s | Sessions end 10 s after selection without a tunnel, or 25 s after they began |
+| Glare after a lost offer | The lower device ID held out for an offer it had sent into the other side's dead control connection (about 8 s in the first after C runs) | The lower side sends its unanswered offer again once it is a second old; the higher side always yields |
+| A stale control connection after sleep (beta 13 too) | Signals waited behind TCP retransmits; the reconnect came on back-off, 25 s later in one before C run | Foreground replaces a connection quiet for 25 s |
+| Nagle on the control service | About 40 ms on a frame sent right after another | `TCP_NODELAY` |
+| The first STUN request of a new node | Sometimes refused by the socket and resent 250 ms later | Waits for writability |
+| The probe example never reported a working session (since the beta fit) | Its failover test backed off instead of redialling | Reports it like the apps |
+
+## Security review
+
+Two rounds by separate Claude reviewers, each given the code and the invariants. Round one (no high findings)
+led to: a replay-proof controlled side (it selects only pairs its own check proved), trimmed relay permissions,
+warm credentials asked once, reclaims only to the grant's relay, a bounded sweep of the sign-in replay memory, a
+per-address slot given back on a failed upgrade, and the pin set before the answer. Round two found that two of
+those fixes broke connection setup in a narrow window (checks or a QUIC dial arriving before the answer) and that
+the glare rule misbehaved with slow signalling; all fixed with tests (a replayed nomination is never selected;
+checks before the answer still select). Kept deliberately: foreground replaces a quiet control connection without
+pinging first, because the ping would cost a second exactly when the connection is dead (the trade: one sign-in
+per foreground after 25 s of quiet, and a moment where the peer sees this device offline).
+
 ## Security
 
 | Property | How it holds |

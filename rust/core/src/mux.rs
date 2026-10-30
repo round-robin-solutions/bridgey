@@ -58,6 +58,9 @@ pub struct Channels {
     /// Peer addresses with a permission (CreatePermission): datagrams to them go as Send indications
     /// until a channel is bound, so a relay path works one round trip earlier.
     permitted: HashSet<IpAddr>,
+    /// Channels no longer refreshed (their peer left), kept for 11 minutes: the relay holds a binding for up to 10,
+    /// keeps delivering that peer's data on it, and refuses a different number for the same peer.
+    retired: HashMap<SocketAddr, (u16, std::time::Instant)>,
 }
 
 #[derive(Default)]
@@ -332,11 +335,19 @@ impl Mux {
     pub fn retain_permitted(&self, server: SocketAddr, keep: &HashSet<IpAddr>) {
         if let Some(channels) = self.state.lock().unwrap().turns.get_mut(&server) {
             channels.permitted.retain(|ip| keep.contains(ip));
-            // A bound channel is re-bound every 4 minutes, which would renew the relay's permission for its address too.
-            channels.by_peer.retain(|peer, _| keep.contains(&peer.ip()));
+            // A bound channel is re-bound every 4 minutes, which would renew the relay's permission for its address
+            // too: channels to peers not kept stop being refreshed. Their numbers stay known until the relay must
+            // have let them go, because it keeps using them for that peer's data until then.
+            let now = std::time::Instant::now();
+            let gone: Vec<(SocketAddr, u16)> = channels.by_peer.iter().filter(|(peer, _)| !keep.contains(&peer.ip())).map(|(p, n)| (*p, *n)).collect();
+            for (peer, number) in gone {
+                channels.by_peer.remove(&peer);
+                channels.retired.insert(peer, (number, now));
+            }
             channels.reserved.retain(|peer, _| keep.contains(&peer.ip()));
-            let bound: HashSet<u16> = channels.by_peer.values().copied().collect();
-            channels.by_number.retain(|number, _| bound.contains(number));
+            channels.retired.retain(|_, (_, at)| now.duration_since(*at) < Duration::from_secs(660));
+            let live: HashSet<u16> = channels.by_peer.values().chain(channels.retired.values().map(|(n, _)| n)).copied().collect();
+            channels.by_number.retain(|number, _| live.contains(number));
         }
     }
 
@@ -362,6 +373,10 @@ impl Mux {
         if let Some(n) = channels.by_peer.get(&peer).or(channels.reserved.get(&peer)) {
             return *n;
         }
+        if let Some((n, _)) = channels.retired.remove(&peer) {
+            channels.reserved.insert(peer, n);
+            return n;
+        }
         let n = 0x4000 + (channels.next % 0x0FFF);
         channels.next += 1;
         channels.reserved.insert(peer, n);
@@ -370,6 +385,8 @@ impl Mux {
 
     pub fn bound(&self, server: SocketAddr, peer: SocketAddr, number: u16) {
         if let Some(channels) = self.state.lock().unwrap().turns.get_mut(&server) {
+            channels.reserved.remove(&peer);
+            channels.retired.remove(&peer);
             channels.by_peer.insert(peer, number);
             channels.by_number.insert(number, peer);
         }
@@ -515,5 +532,10 @@ mod tests {
         mux.send_path(path, b"bound").unwrap();
         let (n, _) = tokio::time::timeout(Duration::from_secs(2), relay.recv_from(&mut buf)).await.unwrap().unwrap();
         assert_eq!(stun::parse_channel_data(&buf[..n]), Some((0x4001, &b"bound"[..])));
+        // Trimmed: not refreshed any more, but its number still maps incoming data and is reused if bound again.
+        mux.retain_permitted(server, &HashSet::new());
+        assert!(mux.channel_peers(server).is_empty());
+        assert_eq!(mux.state.lock().unwrap().turns[&server].by_number.get(&0x4001), Some(&peer));
+        assert_eq!(mux.channel_for(server, peer), 0x4001);
     }
 }

@@ -89,6 +89,9 @@ class ConnectAnywhere(
     /** Set by the coordinator: a tunnel moved to another path (an upgrade, or a relay after a failure). */
     @Volatile var onRoute: (tunnelId: String, route: ConnectRoute, rttMillis: Long) -> Unit = { _, _, _ -> }
 
+    /** Set by the coordinator: a tunnel ended in the core (its QUIC connection timed out or closed). */
+    @Volatile var onTunnelClosed: (tunnelId: String) -> Unit = { }
+
     val running: Boolean get() = handle != 0L
 
     /** Starts the core; [controlUrl] empty means learned addresses only. */
@@ -241,6 +244,10 @@ class ConnectAnywhere(
             }
             "tunnel" -> openTunnel(event)
             "state" -> event.optJSONObject("state")?.let(::writeState)
+            "tunnel.closed" -> {
+                BridgeyLogging.i(LogCategory.CONNECTION, "CONNECT tunnel.closed ${event.optString("reason")}")
+                onTunnelClosed(event.optString("tunnel"))
+            }
             "timing" -> ConnectTiming.mark(
                 "core.${event.optString("step")}",
                 event.optString("peer").takeIf { it.isNotEmpty() && it != "null" },

@@ -4339,6 +4339,7 @@ class PairingCoordinator(
         connect = core
         core.onTunnel = ::acceptTunnel
         core.onRoute = ::tunnelRouteChanged
+        core.onTunnelClosed = ::tunnelClosed
     }
 
     /** The core started or stopped: tell every device (the key changes) and refresh the core's peers. */
@@ -4362,6 +4363,16 @@ class PairingCoordinator(
         scope.launch {
             handle(socket, initiatedLocally = info.quicClient, peerHint = info.peer?.let(::trustedName), tunnel = info)
         }
+    }
+
+    /**
+     * The core's tunnel ended: the session on it ends now, rather than when its loopback socket notices (which can
+     * be much later after the phone slept), so the reconnect starts at once.
+     */
+    private fun tunnelClosed(tunnelId: String) {
+        val current = registry.connectedIds().mapNotNull(registry::session).firstOrNull { it.tunnel?.tunnelId == tunnelId } ?: return
+        current.dropReason = "tunnel_closed"
+        current.close()
     }
 
     private fun tunnelRouteChanged(tunnelId: String, route: dev.bridgey.android.connect.ConnectRoute, rttMillis: Long) {
