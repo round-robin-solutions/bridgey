@@ -3,8 +3,8 @@ import Foundation
 import Network
 import SwiftUI
 
-// Speed test (draft files_fast_draft1; docs/transfer-speed.md, docs/protocol.md "Speed test"). Settings > Privacy >
-// Diagnostics > Transfer speed: about 15 seconds over the real session with a chosen phone: round trips first, then
+// Speed test (draft files_fast_draft1; docs/transfer-speed.md, docs/protocol.md "Speed test"). Settings > Developer
+// and experimental > Transfer speed: about 15 seconds over the real session with a chosen phone: round trips first, then
 // 7 seconds of test bytes each way, paced and acknowledged exactly like file chunks. Both apps show megabytes a
 // second each way, the round trip, each side's Wi-Fi link where it can be read, whether the phone held its Wi-Fi
 // power-save lock, and a verdict in plain words. Android has the same code in SpeedTest.kt.

@@ -420,7 +420,7 @@ class PairingCoordinator(
     /** Wi-Fi and wake locks while transfers or a speed test run (TransferPower.kt). */
     private val transferPower = TransferPowerLock(appContext, scope)
 
-    /** Settings > Privacy > Transfer speed (SpeedTest.kt). */
+    /** Settings > Developer and experimental > Transfer speed (hidden until the version is tapped five times) (SpeedTest.kt). */
     internal val speedTest = SpeedTest(
         scope, transferPower,
         linkFor = { id -> registry.session(id)?.takeIf { it.pairingKey != null && it.fastTransfers }?.let { SessionSpeedLink(it) } },

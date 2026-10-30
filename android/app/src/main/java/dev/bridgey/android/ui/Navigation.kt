@@ -72,7 +72,7 @@ sealed interface Route {
         override val key = "perf_test"
     }
 
-    /** Settings > Privacy > Transfer speed (SpeedTest.kt). */
+    /** Settings > Developer and experimental > Transfer speed (hidden until the version is tapped five times) (SpeedTest.kt). */
     data object SpeedTest : Route {
         override val key = "speed_test"
     }

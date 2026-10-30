@@ -1720,7 +1720,7 @@ uploads, clipboard files) is a binary frame of kind 1 instead of the JSON messag
 
 ### Speed test
 
-Settings > Privacy > Transfer speed on both apps. Either side starts; one test at a time per device. All JSON
+Settings > Developer and experimental > Transfer speed (hidden until the version is tapped five times) on both apps. Either side starts; one test at a time per device. All JSON
 plaintexts are UTF-8, `version: 1`, at most 1,024 bytes; test IDs are UUIDs and compare lowercased; an undecryptable or
 malformed speed message is dropped and the session stays.
 

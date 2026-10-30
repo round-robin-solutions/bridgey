@@ -19,8 +19,8 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 /*
- * Speed test (draft files_fast_draft1; docs/transfer-speed.md, docs/protocol.md "Speed test"). Settings > Privacy >
- * Transfer speed: about 15 seconds over the real session with a chosen Mac: round trips first, then 7 seconds of test
+ * Speed test (draft files_fast_draft1; docs/transfer-speed.md, docs/protocol.md "Speed test"). Settings > Developer
+ * and experimental > Transfer speed: about 15 seconds over the real session with a chosen Mac: round trips first, then 7 seconds of test
  * bytes each way, paced and acknowledged exactly like file chunks. Shows megabytes a second each way, the round trip,
  * each side's Wi-Fi link where Android or macOS can read it, whether this phone held its Wi-Fi power-save lock, and a
  * verdict in plain words. The Mac has the same code in SpeedTest.swift.

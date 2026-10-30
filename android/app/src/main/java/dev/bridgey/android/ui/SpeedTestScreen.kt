@@ -36,7 +36,7 @@ class SpeedTestActions(
     val copy: (SpeedReport) -> Unit = {},
 )
 
-/** Settings > Privacy > Transfer speed (SpeedTest.kt): pick a Mac, run, read the result in plain words, copy it. */
+/** Settings > Developer and experimental > Transfer speed (hidden until the version is tapped five times) (SpeedTest.kt): pick a Mac, run, read the result in plain words, copy it. */
 @Composable
 fun SpeedTestScreen(
     state: SpeedTestState,

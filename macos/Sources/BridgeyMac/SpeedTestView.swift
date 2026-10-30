@@ -7,7 +7,7 @@ struct SpeedPhone: Identifiable, Equatable {
     let name: String
 }
 
-/// Settings > Privacy > Transfer speed (SpeedTest.swift): pick a phone, run the test, read the result in plain
+/// Settings > Developer and experimental > Transfer speed (hidden until the version is tapped five times) (SpeedTest.swift): pick a phone, run the test, read the result in plain
 /// words, copy it without names or addresses.
 struct SpeedTestCard: View {
     let phones: [SpeedPhone]

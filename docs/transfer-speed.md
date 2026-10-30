@@ -17,7 +17,7 @@ Every number below is marked **measured** (with where and how) or **estimate** (
 | In flight | at most 64 chunks (1.5 MiB) for the Mac's sends and for folders; the phone's single files only TCP's own limit | a byte window from 2 MiB up to 32 MiB that follows the link's queueing delay |
 | Acknowledgements | one `files.chunk.ack` per chunk (folders); single files from the Mac paced on them | one `files.chunk.ack` per chunk for every kind of transfer, read as cumulative by the sender |
 | Phone Wi-Fi power saving | not held off | low-latency and high-performance Wi-Fi locks plus a partial wake lock while a transfer or speed test runs |
-| Speed test | none | Settings > Privacy > Transfer speed on both apps |
+| Speed test | none | Settings > Developer and experimental > Transfer speed (hidden until the version is tapped five times) on both apps |
 
 The wire format and rules are in [protocol.md](protocol.md#draft-fast-transfers-and-the-speed-test-files_fast_draft1).
 
@@ -189,7 +189,7 @@ but frames now use their own key, HMAC-SHA-256 of the session key and `bridgey-f
 
 ## 6. The speed test
 
-Settings > Privacy > Transfer speed on both apps sends about 7 seconds of test data each way over the session and
+Settings > Developer and experimental > Transfer speed (hidden until the version is tapped five times) on both apps sends about 7 seconds of test data each way over the session and
 shows both directions, the round trip idle and under load, each side's link, and a verdict:
 
 - **Route**: both on one router, Mac on Ethernet, Mac on the phone's hotspot, or not Wi-Fi or Ethernet on both sides
