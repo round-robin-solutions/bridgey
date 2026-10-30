@@ -116,6 +116,30 @@ connection. The race starts as soon as a peer is not connected; only when one of
 this device's own subnet does the app's LAN TCP connection get 300 ms first, because LAN sessions stay on TCP
 (Rahul, 2026-10-27).
 
+## Tunnel throughput
+
+Measured with the fast-transfers probe (`--binary-mb 64`: 64 MiB in 256 KiB binary frames each way at once, the
+other side echoing every byte, SHA-256 checked), two headless nodes on rr-dev-1 through the local control service
+and coturn, 3 runs each, the first transfer of each run:
+
+| Path | Before | After |
+| --- | --- | --- |
+| Direct tunnel | 4.7, 5.6, 8.8 MB/s each way | 24.2, 25.5, 24.8 MB/s |
+| Through the relay | 4.8, 5.1, 5.5 MB/s | 3.4, 4.0, 4.7 MB/s (within noise) |
+
+What changed: the UDP socket asks for 4 MiB send and receive buffers (the defaults, about 200 KB, dropped the
+bursts a QUIC window sends); the queue between the socket reader and QUIC holds a full window (16,384 datagrams)
+instead of dropping past 2,048; QUIC takes every waiting datagram in one call instead of one per wake-up; the
+loopback bridge copies through 256 KiB buffers instead of tokio's 8 KiB. QUIC's flow-control windows (4 MiB per
+stream, 16 MiB per connection) were already larger than the bandwidth-delay product of these paths, and files
+belong on a stream, not QUIC datagrams (they need ordering and retransmission). BBR was tried in place of Cubic
+and was worse on both paths (3 to 9 MB/s direct, 2.5 to 3.3 relayed), so Cubic stays.
+
+The relay path is held by the relay itself: coturn's `max-bps=6250000` (50 Mbit/s per allocation, section 9.7 of
+the spec) drops what goes over, and QUIC then backs off. Raising it is a cost decision (relay bandwidth
+allowances), not a code change. Packets stay at 1,200 bytes because path MTU discovery is off (a tunnel can move
+onto a relayed path at any moment, and larger packets would black-hole there).
+
 ## Bugs found on the way
 
 | Bug | Effect | Fix |

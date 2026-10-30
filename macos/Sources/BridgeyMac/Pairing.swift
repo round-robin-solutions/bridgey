@@ -6191,7 +6191,8 @@ extension PairingCoordinator {
             connect.setRelayOnly(true)
             listener?.cancel()
             listener = nil
-            for (_, current) in registry.broadcastTargets({ _, _ in true }) where current.tunnel == nil {
+            // LAN sessions on TCP, and tunnels on a LAN or private-network address (a race can carry the LAN too).
+            for (_, current) in registry.broadcastTargets({ _, _ in true }) where current.tunnel == nil || current.tunnel?.route == "lan" || current.tunnel?.route == "vpn" {
                 current.dropReason = "test_drop_lan"
                 current.close()
             }
