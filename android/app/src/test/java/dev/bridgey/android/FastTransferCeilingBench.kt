@@ -36,9 +36,12 @@ class FastTransferCeilingBench {
          */
         @JvmStatic fun main(args: Array<String>) {
             val bench = FastTransferCeilingBench()
-            bench.codecAlone()
-            bench.rawTcp()
-            bench.fastFramesWithAcksNoDisk()
+            if (!args.contains("--disk-only")) {
+                bench.codecAlone()
+                bench.rawTcp()
+                bench.fastFramesWithAcksNoDisk()
+            }
+            if (args.contains("--no-disk")) return
             bench.fastFramesWithAcksAndDisk()
             bench.legacyJsonWithAcksAndDisk()
         }
@@ -154,7 +157,8 @@ class FastTransferCeilingBench {
         val source = sourceFile()
         val total = source.length()
         val transferId = UUID.randomUUID().toString()
-        val target = File(System.getProperty("java.io.tmpdir"), "bridgey-ceiling-received-${UUID.randomUUID()}.bin")
+        // -Dbridgey.benchDir puts the received file elsewhere (on a phone: /sdcard/Download, through Android's storage layer).
+        val target = File(System.getProperty("bridgey.benchDir") ?: System.getProperty("java.io.tmpdir"), "bridgey-ceiling-received-${UUID.randomUUID()}.bin")
         ServerSocket(0, 1, loopback).use { server ->
             var receiverError: Throwable? = null
             val receiver = thread(name = "receiver-read-loop") {

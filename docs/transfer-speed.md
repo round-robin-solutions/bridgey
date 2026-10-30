@@ -14,7 +14,7 @@ Every number below is marked **measured** (with where and how) or **estimate** (
 | | Before (any peer without the key) | Now (both peers show `files_fast_draft1`) |
 | --- | --- | --- |
 | Chunk on the wire | 24 KiB, AES-GCM, then base64 inside a JSON line | 256 KiB binary frame: AES-GCM with the frame's fields in the associated data, no base64, no JSON |
-| In flight | at most 64 chunks (1.5 MiB) | a byte window from 2 MiB up to 32 MiB that follows the link's queueing delay |
+| In flight | at most 64 chunks (1.5 MiB) for the Mac's sends and for folders; the phone's single files only TCP's own limit | a byte window from 2 MiB up to 32 MiB that follows the link's queueing delay |
 | Acknowledgements | one `files.chunk.ack` per chunk (folders); single files from the Mac paced on them | one `files.chunk.ack` per chunk for every kind of transfer, read as cumulative by the sender |
 | Phone Wi-Fi power saving | not held off | low-latency and high-performance Wi-Fi locks plus a partial wake lock while a transfer or speed test runs |
 | Speed test | none | Settings > Privacy > Transfer speed on both apps |
@@ -51,16 +51,22 @@ app's threads (frames decrypted on a receive queue, file writes and acks on the 
 | --- | --- | --- | --- |
 | Mac code, loopback, acks, disk, SHA-256 | personal Mac (M4), release build | **19 MB/s** | **574 MB/s** |
 | Android code on the JVM, loopback, acks, disk, SHA-256 | rr-dev-1 (x86, busy with other builds) | **13 MB/s** | **133 MB/s** (211 MB/s without disk) |
-| Android code on ART (Android's runtime), loopback inside the emulator | bridgey-api36 on the personal Mac | ART_OLD | ART_FAST |
+| Android code on ART (Android's runtime), loopback inside the emulator, acks, no disk | bridgey-api36 (API 36, arm64) on the personal Mac | | **245 MB/s** |
+| Android code on ART in the emulator, acks, file written to app storage (`/data`) | bridgey-api36 | **18 MB/s** | **145 MB/s** |
+| Android code on ART in the emulator, acks, file written through Android's shared storage (`/sdcard/Download`, as received files are) | bridgey-api36 | **14 MB/s** | **116 MB/s** |
 | TCP alone, loopback | Mac (NWConnection) / rr-dev-1 JVM | 2,929 MB/s / 883 MB/s | |
-| TCP alone, Mac to emulator through `adb forward` | personal Mac, bridgey-api36 | EMU_FWD_IN | |
-| TCP alone, emulator to Mac through `adb forward` | personal Mac, bridgey-api36 | EMU_FWD_OUT | |
-| TCP alone, emulator dials the Mac at 10.0.2.2 | personal Mac, bridgey-api36 | EMU_NAT | |
+| TCP alone, Mac to emulator through `adb forward` | personal Mac, bridgey-api36 | 1,073 MB/s | |
+| TCP alone, emulator to Mac through `adb forward` | personal Mac, bridgey-api36 | 71 MB/s | |
+| TCP alone, emulator dials the Mac at 10.0.2.2 (the emulator's own network) | personal Mac, bridgey-api36 | 4.3 MB/s out, 6.7 MB/s in | |
+| TCP alone, loopback inside the emulator | bridgey-api36 | 1,439 MB/s | |
 
-Crypto alone on the Mac (one core, measured): AES-GCM seal 3,087 MB/s, open 3,158 MB/s, SHA-256 1,610 MB/s.
+Crypto alone, one core (measured): on the Mac AES-GCM seal 3,087 MB/s, open 3,158 MB/s, SHA-256 1,610 MB/s; on ART in the
+emulator seal 560 MB/s, open 514 MB/s, SHA-256 1,378 MB/s; the old JSON chunk on ART 50 MB/s to build and 51 MB/s to
+read, before any network.
 
-All rows are single runs; rr-dev-1 had a load average of 9 to 17 from other agents' builds, so its numbers are lower
-bounds.
+All rows are single runs (the emulator disk rows used a 300 MB file, the rest 1,000 MB); rr-dev-1 had a load average
+of 9 to 17 from other agents' builds, so its numbers are lower bounds. The ART rows run the app's own classes from the
+debug APK with `app_process`, outside the app, so they include no UI, no Bridgey session and no MediaStore bookkeeping.
 
 ### What the earlier session reported (not re-measured)
 
@@ -72,20 +78,32 @@ here (section 6), so they are kept only as the earlier session's report.
 
 1. **The old chunk format itself.** 24 KiB per chunk, base64 (a third more bytes, and an encode and decode pass) inside
    a JSON line that is built, parsed and checked per chunk, with a fresh nonce, a UUID message ID and an envelope tag
-   each. The same old path tops out at **19 MB/s on an M4 and 13 MB/s on an x86 server with no network at all**
-   (measured, section 2), so a phone CPU caps it lower still. This alone explains most of Rahul's 1 to 3.5 MB/s. Fast
-   frames remove it: the same machines move 574 and 133 MB/s.
-2. **Only 1.5 MiB in flight.** 64 chunks of 24 KiB. On Wi-Fi with a 10 to 30 ms round trip that caps a transfer at
-   50 to 150 MB/s before anything else, and any stall on the receiver (a disk flush, a busy main thread, the phone
+   each. The same old path tops out at **19 MB/s on an M4, 13 MB/s on an x86 server and 14 to 18 MB/s on ART in the
+   emulator, with no network at all** (measured, section 2). A OnePlus 11 core is slower than the M4 cores the
+   emulator runs on, so on the phone it is lower still (inference). Fast frames remove it: the same code paths move
+   116 to 574 MB/s.
+2. **Only 1.5 MiB in flight** for the Mac's sends and for folders (a Phone files download is a folder transfer):
+   64 chunks of 24 KiB. On Wi-Fi with a 10 to 30 ms round trip that caps a transfer at 50 to 150 MB/s before anything
+   else, and any stall on the receiver (a disk flush, a busy main thread, the phone
    saving Wi-Fi power) empties the pipe. Now: 2 to 32 MiB, sized by the queueing delay (estimate of the cap from the
    window and round trip; not measured on Wi-Fi).
-3. **The emulator's network** (for the earlier session's numbers only): see the TCP rows in section 2. EMU_CAUSE
-4. **Phone Wi-Fi power saving** (estimate, not measured here): with the screen off Android may still save Wi-Fi power;
+3. **Not the emulator's network, as long as the Mac dials the phone through `adb forward`** (measured): that path
+   carries 71 MB/s from the emulator and about 1 GB/s to it. The emulator's own NAT (the phone dialling the Mac at
+   10.0.2.2) carries only 4 to 7 MB/s, so a live test where the phone dialled the Mac would be capped there.
+4. **Something in the apps that the benches do not include** (open): both apps' frame code reaches 116 to 574 MB/s and
+   the emulator link 71 MB/s or more, yet the earlier session reported 11 to 13 MB/s for the apps on the emulator. The
+   benches leave out the apps' UI, session routing, MediaStore bookkeeping, the sender's SHA-256 pass before it sends,
+   and per-file round trips; one of those, or the earlier measurement itself, is the gap. Finding it needs the live run
+   in section 6, with `sample` on the Mac and simpleperf on the phone during the transfer. The old path shows the same
+   kind of gap (14 to 18 MB/s in the bench against 5.5 and 9.1 MB/s reported live), and a Mac `sample` from the earlier
+   session's old-path download shows the Mac idle, waiting on the network, so the phone side is the first suspect.
+5. **Phone Wi-Fi power saving** (estimate, not measured here): with the screen off Android may still save Wi-Fi power;
    Android applies the low-latency lock only while the screen is on and Bridgey is in front. The speed test reports
    `screenOn` so this shows up in results.
 
-Not a cause (measured): AES-GCM and SHA-256 (gigabytes a second on the Mac), TCP loopback, and the Mac's main thread
-(574 MB/s with every file write and ack on it).
+Not a cause (measured): AES-GCM and SHA-256 (gigabytes a second on the Mac) and TCP loopback. The Mac bench does every
+file write and ack on the main thread, as the app does, and still moves 574 MB/s; the app's main thread also draws the
+windows, which the bench does not.
 
 ## 4. Security of the binary path
 
@@ -127,7 +145,11 @@ shows both directions, the round trip idle and under load, each side's link, and
 - **No estimate** when the route is not Wi-Fi or Ethernet on both sides: the emulator's loopback, a cable or a VPN
   says so and gives no "slower than expected" verdict and no advice about routers.
 
-SPEEDTEST_CHECK
+Checked on the emulator path: not live (section 6). The verdict for that route is pinned by the shared vectors
+`loopback (the emulator)` and `loopback (the emulator), slow` in `protocol/test-vectors/files-fast-v1.json`, which both
+apps pass: on the emulator the session runs over loopback, so each side reports its network as `other`, and the
+verdict says there is no estimate instead of the old "On a typical Wi-Fi 6 router, expect 30 to 45 MB/s. Your
+connection is slower than that. The signal may be weak or the network busy. Move closer to the router."
 
 ## 6. Not measured yet
 
@@ -152,4 +174,5 @@ adb shell 'CLASSPATH=/data/local/tmp/app-debug.apk:/data/local/tmp/bench.dex app
   -Djava.io.tmpdir=/data/local/tmp -Dbridgey.bench=1 /system/bin dev.bridgey.android.FastTransferCeilingBench'
 ```
 
-`BRIDGEY_BENCH_MB` (Mac) and `-Pbench.mb` or `-Dbridgey.benchMb` (Android) change the file size.
+`BRIDGEY_BENCH_MB` (Mac) and `-Pbench.mb` or `-Dbridgey.benchMb` (Android) change the file size;
+`-Dbridgey.benchDir=/sdcard/Download` writes the received file through shared storage.
