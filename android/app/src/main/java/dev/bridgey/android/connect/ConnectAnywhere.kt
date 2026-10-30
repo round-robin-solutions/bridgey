@@ -244,10 +244,6 @@ class ConnectAnywhere(
             }
             "tunnel" -> openTunnel(event)
             "state" -> event.optJSONObject("state")?.let(::writeState)
-            "tunnel.closed" -> {
-                BridgeyLogging.i(LogCategory.CONNECTION, "CONNECT tunnel.closed ${event.optString("reason")}")
-                onTunnelClosed(event.optString("tunnel"))
-            }
             "timing" -> ConnectTiming.mark(
                 "core.${event.optString("step")}",
                 event.optString("peer").takeIf { it.isNotEmpty() && it != "null" },
@@ -256,9 +252,11 @@ class ConnectAnywhere(
             )
             "route" -> onRoute(event.getString("tunnel"), ConnectRoute(event.getString("route"), event.optString("relay").takeIf { it.isNotEmpty() && it != "null" }), event.optLong("rttMs"))
             else -> {
-                // "log", the end of a tunnel and failed attempts: diagnostics only, never addresses.
+                // "log", the end of a tunnel and failed attempts: diagnostics, never addresses. Core event names are
+                // not session message kinds, so they are read with dots as underscores (as on the Mac).
                 val detail = event.optString("msg").ifEmpty { event.optString("reason") }
                 BridgeyLogging.i(LogCategory.CONNECTION, "CONNECT ${event.optString("e")} $detail")
+                if (event.optString("e").replace('.', '_') == "tunnel_closed") onTunnelClosed(event.optString("tunnel"))
             }
         }
     }

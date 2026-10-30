@@ -69,7 +69,7 @@ From the code and the waterfall of beta 13 (numbers in [Results](#results)):
 | Checks | One pair every 25 ms in priority order, so relay pairs (lowest priority) went last; first retransmit after 250 ms | A direct lane and a relayed lane each start a check every 25 ms; relayed pairs get a 50 ms head start (none when no direct pair is pending); first retransmit after 100 ms |
 | Nomination | First success, then a 300 ms window for a better pair, then a nomination check (one more round trip) before QUIC | Aggressive nomination: the first pair that answers is the path; better pairs are tried 1, 2, 4 and 8 s later and QUIC moves without noticing |
 | Network change | A 3 s ping probe before a session was given up | 1.5 s |
-| Foreground after sleep | The control connection was trusted however long it had been quiet, so signals could sit behind TCP retransmits | Replaced at once when it has been quiet for 25 s and a peer is waiting |
+| Foreground after sleep | The control connection was trusted however long it had been quiet, so signals could sit behind TCP retransmits; a lost one reconnected on back-off | Replaced at once when it has been quiet for 25 s or was lost (cutting back-off short, and abandoning an attempt stuck on the old network); the app ends a session as soon as the core says its tunnel closed |
 | First STUN request of a new node | Could be refused by the socket (tokio WouldBlock before the reactor saw it writable) and wait for its retransmit | Waits for writability |
 
 ## The design
@@ -122,7 +122,10 @@ this device's own subnet does the app's LAN TCP connection get 300 ms first, bec
 | --- | --- | --- |
 | A session that selected a path but never got its QUIC dial (beta 13 too) | Lived forever; every later race for that peer waited on it, and the lower device ID turned every offer away as glare. In the before C runs neither side reconnected within 40 s | Sessions end 10 s after selection without a tunnel, or 25 s after they began |
 | Glare after a lost offer | The lower device ID held out for an offer it had sent into the other side's dead control connection (about 8 s in the first after C runs) | The lower side sends its unanswered offer again once it is a second old; the higher side always yields |
-| A stale control connection after sleep (beta 13 too) | Signals waited behind TCP retransmits; the reconnect came on back-off, 25 s later in one before C run | Foreground replaces a connection quiet for 25 s |
+| A stale control connection after sleep (beta 13 too) | Signals waited behind TCP retransmits; the reconnect came on back-off, 25 s later in one before C run | Foreground replaces a connection quiet for 25 s or lost (a close no longer counts as hearing from the service), abandons an attempt still under way, and never interrupts a process's first attempt |
+| The ICE agent's 15 s counted from the session's start | An offer kept through glare and answered late died just as its answer arrived | Counted from when checks can start |
+| The app noticed a dead tunnel only through its loopback socket | After sleep, up to the foreground | The core's tunnel-closed event ends the session (the Mac exposed it but did not use it) |
+| Trimmed relay channels were forgotten | The relay kept using them, so that peer's data was dropped | Kept known (not refreshed) for 11 minutes |
 | Nagle on the control service | About 40 ms on a frame sent right after another | `TCP_NODELAY` |
 | The first STUN request of a new node | Sometimes refused by the socket and resent 250 ms later | Waits for writability |
 | The probe example never reported a working session (since the beta fit) | Its failover test backed off instead of redialling | Reports it like the apps |
