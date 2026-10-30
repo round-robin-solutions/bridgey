@@ -5279,6 +5279,14 @@ extension PairingCoordinator: SpeedTestHost {
         return SessionSpeedLink(session: current, key: key)
     }
 
+    /// Settings > Developer and experimental: how files travel to each connected phone right now.
+    var transferPaths: [TransferPathRow] {
+        connectedPhones.map { phone in
+            let session = registry.session(for: phone.id)
+            return TransferPathRow(id: phone.id, name: phone.name, fast: session?.fastTransfers == true, tunnelRoute: session?.tunnel?.route)
+        }
+    }
+
     /// Connected phones that advertise files_fast_draft1, while this Mac has fast transfers on.
     var speedPhones: [(id: String, name: String)] {
         guard FastTransferSettings.enabled else { return [] }

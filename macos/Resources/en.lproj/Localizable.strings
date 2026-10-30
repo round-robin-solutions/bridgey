@@ -1596,3 +1596,21 @@
 "speed.thisMac" = "This Mac";
 "speed.title" = "Transfer speed";
 "speed.with" = "With %@, over the connection you use for files";
+
+/* Developer and experimental pane (DeveloperMenu.swift) */
+"developer.experimental" = "Experimental features";
+"developer.experimental.empty" = "Nothing to try right now. New experiments show up here before everyone gets them.";
+"developer.hide" = "Hide this pane";
+"developer.hide.action" = "Hide";
+"developer.hide.detail" = "Click the version in About five times to bring it back";
+"developer.noPhones" = "No phone connected";
+"developer.on" = "Developer and experimental pane is on";
+"developer.path.fast" = "Fast transfers: 256 KiB binary frames";
+"developer.path.json" = "24 KiB chunks inside messages, as before fast transfers";
+"developer.route.direct" = "Away from home, direct";
+"developer.route.local" = "Local network";
+"developer.route.relay" = "Away from home, through a relay";
+"developer.tapsLeft" = "%d more clicks to open the developer pane";
+"developer.tapsLeft.one" = "%d more click to open the developer pane";
+"developer.transfers" = "How files travel now";
+"settings.developer" = "Developer and experimental";

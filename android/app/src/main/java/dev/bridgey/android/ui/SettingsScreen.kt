@@ -128,6 +128,10 @@ data class SettingsState(
     val messages: MessagesSettingsState = MessagesSettingsState(),
     /** Connect away from home (Connect anywhere). */
     val connect: ConnectSettingsState = ConnectSettingsState(),
+    /** The hidden Developer and experimental menu is on (DeveloperMenu.kt); never synced. */
+    val developerMenu: Boolean = false,
+    /** Developer menu > Transfers: how files travel to each connected device. */
+    val transferPaths: List<dev.bridgey.android.TransferPath> = emptyList(),
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean = globalFeatures[feature] != false
 }
@@ -166,8 +170,12 @@ class SettingsActions(
     val dismissUpdateError: () -> Unit = {},
     val openUrl: (String) -> Unit = {},
     val openPerfTest: () -> Unit = {},
-    /** Settings > Privacy > Transfer speed. */
+    /** Developer and experimental > Transfer speed. */
     val openSpeedTest: () -> Unit = {},
+    /** About > Version: counts toward the Developer and experimental menu, or opens it once on. */
+    val versionTapped: () -> Unit = {},
+    /** Developer and experimental > Turn off. */
+    val turnOffDeveloper: () -> Unit = {},
     val setRemotePointerSpeed: (Int) -> Unit = {},
     val setRemoteVolumeKeys: (Boolean) -> Unit = {},
     val requestBatteryExemption: () -> Unit = {},
@@ -211,6 +219,8 @@ enum class SettingsSection(val titleRes: Int, val group: SettingsGroup?) {
     UPDATES(R.string.settings_updates, SettingsGroup.APP),
     GENERAL(R.string.settings_general, SettingsGroup.APP),
     ABOUT(R.string.settings_about, SettingsGroup.APP),
+    /** Hidden until the version is tapped five times (DeveloperMenu.kt); then the last row of the App group. */
+    DEVELOPER(R.string.settings_developer, null),
     ;
 
     companion object {
@@ -263,6 +273,7 @@ fun SettingsScreen(
         SettingsSection.UPDATES -> UpdatesPage(state, actions, listState)
         SettingsSection.GENERAL -> GeneralPage(state, actions, listState)
         SettingsSection.ABOUT -> AboutPage(state, actions, listState)
+        SettingsSection.DEVELOPER -> DeveloperPage(state, actions, listState)
     }
 }
 
@@ -277,6 +288,9 @@ private fun SettingsHome(state: SettingsState, actions: SettingsActions, listSta
                 RowGroup(Modifier.padding(top = if (group == SettingsGroup.DEVICES) 16.dp else 24.dp)) {
                     SettingsSection.homeRows.filter { it.group == group }.forEach { section ->
                         row { shape -> SectionRow(shape, section, state) { actions.openSection(section) } }
+                    }
+                    if (group == SettingsGroup.APP && state.developerMenu) {
+                        row { shape -> SectionRow(shape, SettingsSection.DEVELOPER, state) { actions.openSection(SettingsSection.DEVELOPER) } }
                     }
                 }
             }
@@ -565,16 +579,6 @@ private fun PrivacyPage(state: SettingsState, actions: SettingsActions, listStat
         item(key = "privacy.logging") {
             LoggingSettingsGroup(state.logging, actions.setLogging, actions.exportDiagnostics, actions.clearLogs)
         }
-        item(key = "privacy.speed") {
-            RowGroup(Modifier.padding(top = 16.dp)) {
-                row { shape ->
-                    ListRow(
-                        shape, stringResource(R.string.settings_speed_test), stringResource(R.string.settings_speed_test_detail),
-                        BridgeyIcons.Wifi, Tint.BLUE, onClick = actions.openSpeedTest,
-                    )
-                }
-            }
-        }
     }
     if (confirmClear) {
         AlertDialog(
@@ -666,22 +670,18 @@ private fun GeneralPage(state: SettingsState, actions: SettingsActions, listStat
     }
 }
 
-/** About: the version (seven taps open the Performance test), licences and the credit. */
+/** About: the version (five taps turn on the Developer and experimental menu), licences and the credit. */
 @Composable
 private fun AboutPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
     var licences by rememberSaveable { mutableStateOf(false) }
-    var versionTaps by remember { mutableIntStateOf(0) }
     SectionPage(SettingsSection.ABOUT, actions, listState) {
         item(key = "about") {
             RowGroup(Modifier.padding(top = 8.dp)) {
                 row { shape ->
                     ListRow(
                         shape, stringResource(R.string.settings_version), state.installedVersion, BridgeyIcons.Info, Tint.BLUE,
-                        // Seven taps open the hidden Performance test.
-                        onClick = {
-                            versionTaps += 1
-                            if (versionTaps >= 7) { versionTaps = 0; actions.openPerfTest() }
-                        },
+                        // Five taps turn on the Developer and experimental menu; once on, a tap opens it.
+                        onClick = actions.versionTapped,
                     )
                 }
                 row { shape ->
@@ -702,6 +702,69 @@ private fun AboutPage(state: SettingsState, actions: SettingsActions, listState:
             text = { Text(stringResource(R.string.licences_body)) },
             confirmButton = { TextButton(onClick = { licences = false }) { Text(stringResource(R.string.action_close)) } },
         )
+    }
+}
+
+/**
+ * Developer and experimental (hidden, DeveloperMenu.kt): tests and facts for people chasing a problem, then the
+ * experiments Rahul turns on before they are ready for everyone, then the way to hide the menu again.
+ */
+@Composable
+private fun DeveloperPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
+    SectionPage(SettingsSection.DEVELOPER, actions, listState) {
+        item(key = "developer.tools.label") { SectionLabel(stringResource(R.string.developer_tools), Modifier.padding(top = 8.dp)) }
+        item(key = "developer.tools") {
+            RowGroup(Modifier.padding(top = 8.dp)) {
+                row { shape ->
+                    ListRow(
+                        shape, stringResource(R.string.settings_speed_test), stringResource(R.string.settings_speed_test_detail),
+                        BridgeyIcons.Wifi, Tint.BLUE, onClick = actions.openSpeedTest,
+                    ) { Chevron() }
+                }
+                row { shape ->
+                    ListRow(
+                        shape, stringResource(R.string.perf_title), stringResource(R.string.developer_perf_detail),
+                        BridgeyIcons.Bolt, Tint.PURPLE, onClick = actions.openPerfTest,
+                    ) { Chevron() }
+                }
+            }
+        }
+        item(key = "developer.paths.label") { SectionLabel(stringResource(R.string.developer_transfers), Modifier.padding(top = 20.dp)) }
+        item(key = "developer.paths") {
+            RowGroup(Modifier.padding(top = 8.dp)) {
+                if (state.transferPaths.isEmpty()) {
+                    row { shape -> ListRow(shape, stringResource(R.string.developer_no_devices), null, BridgeyIcons.Devices, Tint.NEUTRAL) }
+                }
+                state.transferPaths.forEach { path ->
+                    row { shape ->
+                        val route = when (path.tunnelRoute) {
+                            null -> stringResource(R.string.developer_route_local)
+                            "relay" -> stringResource(R.string.developer_route_relay)
+                            else -> stringResource(R.string.developer_route_direct)
+                        }
+                        val how = stringResource(if (path.fast) R.string.developer_path_fast else R.string.developer_path_json)
+                        ListRow(shape, path.deviceName, "$how. $route", if (path.tunnelRoute == null) BridgeyIcons.Lan else BridgeyIcons.Public,
+                            if (path.fast) Tint.GREEN else Tint.NEUTRAL)
+                    }
+                }
+            }
+        }
+        item(key = "developer.experimental.label") { SectionLabel(stringResource(R.string.developer_experimental), Modifier.padding(top = 20.dp)) }
+        item(key = "developer.experimental") {
+            RowGroup(Modifier.padding(top = 8.dp)) {
+                row { shape -> ListRow(shape, stringResource(R.string.developer_experimental_empty), null, BridgeyIcons.Sensors, Tint.NEUTRAL) }
+            }
+        }
+        item(key = "developer.off") {
+            RowGroup(Modifier.padding(top = 20.dp)) {
+                row { shape ->
+                    ListRow(
+                        shape, stringResource(R.string.developer_turn_off), stringResource(R.string.developer_turn_off_detail),
+                        BridgeyIcons.PowerSettingsNew, Tint.NEUTRAL,
+                    ) { OutlinePillButton(stringResource(R.string.developer_turn_off_action), null, actions.turnOffDeveloper) }
+                }
+            }
+        }
     }
 }
 
@@ -776,6 +839,7 @@ private fun sectionVisual(section: SettingsSection, state: SettingsState): Pair<
         SettingsSection.UPDATES -> BridgeyIcons.SystemUpdate to Tint.PURPLE
         SettingsSection.GENERAL -> BridgeyIcons.Settings to Tint.NEUTRAL
         SettingsSection.ABOUT -> BridgeyIcons.Info to Tint.NEUTRAL
+        SettingsSection.DEVELOPER -> BridgeyIcons.DeveloperMode to Tint.PURPLE
     }
 }
 
@@ -859,6 +923,7 @@ private fun sectionSummary(section: SettingsSection, state: SettingsState): Sect
             else -> SectionSummary(stringResource(R.string.settings_summary_general_background))
         }
         SettingsSection.ABOUT -> SectionSummary(stringResource(R.string.settings_summary_version, state.installedVersion))
+        SettingsSection.DEVELOPER -> SectionSummary(stringResource(R.string.settings_summary_developer))
     }
 }
 

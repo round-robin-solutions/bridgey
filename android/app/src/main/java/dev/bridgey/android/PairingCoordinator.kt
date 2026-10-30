@@ -3575,6 +3575,12 @@ class PairingCoordinator(
     }
 
     /** Connected devices that can run the speed test: they advertise files_fast_draft1. */
+    /** Settings > Developer and experimental: how files travel to each connected device right now. */
+    fun transferPaths(): List<TransferPath> = registry.connections().map { connection ->
+        val session = registry.session(connection.deviceId)
+        TransferPath(connection.peerName, session?.fastTransfers == true, session?.tunnel?.route?.route)
+    }
+
     fun speedTestDevices(): List<Pair<String, String>> =
         registry.connections().filter { registry.state(it.deviceId)?.remoteFastTransfers == true }.map { it.deviceId to it.peerName }
 

@@ -1160,4 +1160,27 @@
     <string name="speed_advice_screen_off">Keep the screen on during big transfers: Android saves Wi-Fi power when it is off.</string>
     <string name="speed_advice_weak">The signal may be weak or the network busy. Move closer to the router.</string>
     <string name="speed_advice_hotspot">For more, connect the Mac to this phone’s hotspot: one Wi-Fi hop instead of two.</string>
+
+    <!-- Developer and experimental menu (DeveloperMenu.kt) -->
+    <string name="settings_developer">Developer and experimental</string>
+    <string name="settings_summary_developer">Speed and performance tests, experiments</string>
+    <string name="developer_on">Developer and experimental menu is on</string>
+    <string name="developer_tools">Tests</string>
+    <string name="developer_perf_detail">How much checking received files costs this phone</string>
+    <string name="developer_transfers">How files travel now</string>
+    <string name="developer_no_devices">No device connected</string>
+    <string name="developer_path_fast">Fast transfers: 256 KiB binary frames</string>
+    <string name="developer_path_json">24 KiB chunks inside messages, as before fast transfers</string>
+    <string name="developer_route_local">Local network</string>
+    <string name="developer_route_direct">Away from home, direct</string>
+    <string name="developer_route_relay">Away from home, through a relay</string>
+    <string name="developer_experimental">Experimental features</string>
+    <string name="developer_experimental_empty">Nothing to try right now. New experiments show up here before everyone gets them.</string>
+    <string name="developer_turn_off">Hide this menu</string>
+    <string name="developer_turn_off_detail">Tap the version in About five times to bring it back</string>
+    <string name="developer_turn_off_action">Hide</string>
+    <plurals name="developer_taps_left">
+        <item quantity="one">%d more tap to open the developer menu</item>
+        <item quantity="other">%d more taps to open the developer menu</item>
+    </plurals>
 </resources>

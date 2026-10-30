@@ -1228,4 +1228,29 @@
     <string name="speed_advice_screen_off">Держите экран включённым при больших передачах: при выключенном экране Android экономит энергию Wi-Fi.</string>
     <string name="speed_advice_weak">Возможно, сигнал слабый или сеть занята. Подойдите ближе к роутеру.</string>
     <string name="speed_advice_hotspot">Чтобы было быстрее, подключите Mac к точке доступа этого телефона: один участок Wi-Fi вместо двух.</string>
+
+    <!-- Developer and experimental menu (DeveloperMenu.kt) -->
+    <string name="settings_developer">Для разработчиков и эксперименты</string>
+    <string name="settings_summary_developer">Проверки скорости и производительности, эксперименты</string>
+    <string name="developer_on">Меню для разработчиков и экспериментов включено</string>
+    <string name="developer_tools">Проверки</string>
+    <string name="developer_perf_detail">Во что этому телефону обходится проверка полученных файлов</string>
+    <string name="developer_transfers">Как файлы передаются сейчас</string>
+    <string name="developer_no_devices">Нет подключённых устройств</string>
+    <string name="developer_path_fast">Быстрая передача: двоичные кадры по 256 КиБ</string>
+    <string name="developer_path_json">Части по 24 КиБ внутри сообщений, как до быстрой передачи</string>
+    <string name="developer_route_local">Локальная сеть</string>
+    <string name="developer_route_direct">Вне дома, напрямую</string>
+    <string name="developer_route_relay">Вне дома, через ретранслятор</string>
+    <string name="developer_experimental">Экспериментальные функции</string>
+    <string name="developer_experimental_empty">Сейчас пробовать нечего. Новые эксперименты появятся здесь раньше, чем у всех.</string>
+    <string name="developer_turn_off">Скрыть это меню</string>
+    <string name="developer_turn_off_detail">Чтобы вернуть его, коснитесь версии в разделе «О программе» пять раз</string>
+    <string name="developer_turn_off_action">Скрыть</string>
+    <plurals name="developer_taps_left">
+        <item quantity="one">Ещё %d касание, и откроется меню для разработчиков</item>
+        <item quantity="few">Ещё %d касания, и откроется меню для разработчиков</item>
+        <item quantity="many">Ещё %d касаний, и откроется меню для разработчиков</item>
+        <item quantity="other">Ещё %d касания, и откроется меню для разработчиков</item>
+    </plurals>
 </resources>

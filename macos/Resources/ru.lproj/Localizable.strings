@@ -1596,3 +1596,21 @@
 "speed.thisMac" = "Этот Mac";
 "speed.title" = "Скорость передачи";
 "speed.with" = "С %@, по соединению, которым идут файлы";
+
+/* Developer and experimental pane (DeveloperMenu.swift) */
+"developer.experimental" = "Экспериментальные функции";
+"developer.experimental.empty" = "Сейчас пробовать нечего. Новые эксперименты появятся здесь раньше, чем у всех.";
+"developer.hide" = "Скрыть этот раздел";
+"developer.hide.action" = "Скрыть";
+"developer.hide.detail" = "Чтобы вернуть его, нажмите на версию в разделе «О программе» пять раз";
+"developer.noPhones" = "Нет подключённых телефонов";
+"developer.on" = "Раздел для разработчиков и экспериментов включён";
+"developer.path.fast" = "Быстрая передача: двоичные кадры по 256 КиБ";
+"developer.path.json" = "Части по 24 КиБ внутри сообщений, как до быстрой передачи";
+"developer.route.direct" = "Вне дома, напрямую";
+"developer.route.local" = "Локальная сеть";
+"developer.route.relay" = "Вне дома, через ретранслятор";
+"developer.tapsLeft" = "Ещё %d нажатия, и откроется раздел для разработчиков";
+"developer.tapsLeft.one" = "Ещё %d нажатие, и откроется раздел для разработчиков";
+"developer.transfers" = "Как файлы передаются сейчас";
+"settings.developer" = "Для разработчиков и эксперименты";

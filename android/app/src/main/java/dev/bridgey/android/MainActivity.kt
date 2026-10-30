@@ -1079,6 +1079,9 @@ private fun BridgeyApp(
                         dualSim = remember { dev.bridgey.android.sms.isDualSim(context) },
                         onChanged = pairing::smsPermissionsChanged,
                     )
+                    val developerMenu = remember { DeveloperMenu(context) }
+                    val developerOn by developerMenu.enabled.collectAsStateWithLifecycle()
+                    val transferPaths = remember(connections, developerOn) { if (developerOn) pairing.transferPaths() else emptyList() }
                     val settingsUi =
                         SettingsState(
                             deviceName = settingsState.deviceName,
@@ -1129,6 +1132,8 @@ private fun BridgeyApp(
                             updateAll = updateAllState,
                             messages = messagesPermissions.state,
                             connect = connectSettingsState(settingsState.connectAway, connectStatus),
+                            developerMenu = developerOn,
+                            transferPaths = transferPaths,
                         )
                     val settingsUiActions =
                         SettingsActions(
@@ -1137,6 +1142,23 @@ private fun BridgeyApp(
                             openSection = { stack.push(settingsRoute(it)) },
                             openPerfTest = { stack.push(Route.PerfTest) },
                             openSpeedTest = { stack.push(Route.SpeedTest) },
+                            versionTapped = {
+                                when (val tap = developerMenu.tap()) {
+                                    DeveloperMenu.Tap.Counting -> Unit
+                                    is DeveloperMenu.Tap.Remaining -> android.widget.Toast.makeText(
+                                        context, context.resources.getQuantityString(R.plurals.developer_taps_left, tap.left, tap.left), android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                    DeveloperMenu.Tap.Unlocked -> {
+                                        android.widget.Toast.makeText(context, context.getString(R.string.developer_on), android.widget.Toast.LENGTH_SHORT).show()
+                                        stack.push(settingsRoute(dev.bridgey.android.ui.SettingsSection.DEVELOPER))
+                                    }
+                                    DeveloperMenu.Tap.Open -> stack.push(settingsRoute(dev.bridgey.android.ui.SettingsSection.DEVELOPER))
+                                }
+                            },
+                            turnOffDeveloper = {
+                                developerMenu.turnOff()
+                                stack.pop()
+                            },
                             openNotificationApps = { stack.push(Route.NotificationApps) },
                             appNotifications = {
                                 if (appNotificationsEnabled) onOpenAppNotificationSettings()
