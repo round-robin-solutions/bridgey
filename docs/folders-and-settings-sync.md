@@ -963,6 +963,169 @@ Android: `SharedPreferences` file `bridgey.sync`, one JSON record per key, `pair
 prefix for pair keys. Mac: `UserDefaults` dictionary `sync.records`. The local setting stays
 where it is today; the store wraps the setter (`setLocal` stamps, `applyRemote` does not).
 
+### 8.4 As built (v0.10, 2026-10-27)
+
+Settings sync shipped in v0.10 under `settings_sync_draft1`. Where the build differs from 8.1 to
+8.3, this section wins. Rahul widened it on 2026-10-27: feature switches sync too, "similar to how
+T3 Code works" (a change made in Settings is saved to every connected device that supports it; a
+device that was offline or still differs shows it, with Apply to all). That replaces the earlier
+rule that sync never turns a feature on.
+
+**What syncs.** An allowlist of 24 schema 1 keys, the same on both platforms. A device that has no
+such setting stores the record and relays it, so a phone carries a Mac-only setting between two
+Macs.
+
+| Key | Android | Mac | Needs here |
+| --- | --- | --- | --- |
+| `files.folder_destination` | Files > Folders sent to this phone | Files > Folders from the phone (see below) | |
+| `files.folder_conflict` | Files > When a folder already exists | Same | |
+| `activity.previews` | Privacy > Show previews in activity | Privacy > Show previews | |
+| `display.reduce_motion` | General > Reduce motion | General > Reduce motion | |
+| `feature.clipboard`, `feature.files`, `feature.battery`, `feature.find_device`, `feature.ping`, `feature.links`, `feature.media` | The feature's switch | The feature's switch | |
+| `feature.notifications` | Notification forwarding | Android notifications | Android: notification access. Mac: notification permission |
+| `feature.calls` | Calls | Calls from Mac | Android: phone permissions |
+| `feature.remote_input` | Remote control | Remote control (each phone is still granted on the Mac) | Mac: Accessibility |
+| `feature.mac_actions` | Mac actions | Mac actions (each phone is still granted on the Mac) | |
+| `feature.camera` | Take photos for the Mac | Stored and relayed | Android: camera |
+| `clipboard.automatic` | Automatic clipboard (all devices) | Same | |
+| `clipboard.files` | Copy images and files | Same | |
+| `focus.share` | Share Do Not Disturb with Macs | Share Focus with phones | |
+| `focus.follow` | Follow the Mac's Focus | Follow the phone's Do Not Disturb | Android: Do Not Disturb access |
+| `codes.enabled` | Stored and relayed | Notifications > Codes from messages | Mac: the consent and model that turning codes on asks for there |
+| `feature.screen` | Share screen with Macs | Remote control > Show phone screens (a preference here) | Each share is still asked on the phone, every time |
+| `feature.sms` | Text messages | Text messages | Android: SMS permission (read and send) |
+| `updates.auto_all` | Update all devices automatically | Same | Stored and relayed until that setting lands (rr/auto-update-all); then a preference on both |
+
+A feature added later joins by adding its key to this table on both platforms; older builds skip
+the key, so nothing else changes.
+
+**What never syncs.** Pairing, trust and identity keys, every secret, permissions themselves,
+per-device grants and overrides (which phone may use Mac actions or remote control, a feature
+turned off for one device, automatic clipboard for one device), device names, paths and folders
+(received-files folder, places, the default folder, last destinations), "Allow other devices to
+change files here" and "Let other devices browse this phone" (they guard this device against the
+others), Update all's "Let paired devices start updates on this device" (a security choice each
+device makes for itself), Messages' pinned, muted, archived and read state and "Keep conversations
+on this Mac" (per Mac by design), the background clipboard and Keep Wi-Fi awake (they depend on this phone), logging,
+update channels, notification app filters, shortcuts, the Mac's media player, launch at login, and
+the sync switches themselves. A key outside the allowlist is skipped on receipt, never stored and
+never relayed.
+
+**Live changes.** A change made on one device (in Settings, setup, Siri and Shortcuts) goes out
+after 500 ms to every connected device it syncs with, which applies it and passes it on. Two
+changes to the same setting at the same moment resolve by 8.2: the later edit wins on all devices.
+
+**First connect: ask once (Rahul, 2026-10-27).** The first time two devices sync, the new one
+asks "Use the same settings as <device>?":
+
+- **Use these** takes the other device's value for every setting that differs, features included.
+- **Keep mine** keeps this device's values; Settings shows "Different on <device>" with Apply to
+  all where they differ. On both devices a differing value nobody had chosen is then stamped as
+  chosen (`changedAt 1, version 1`) without being sent, so a later connect does not quietly take
+  the other device's value.
+
+A device is new when it has never synced with any device. When both are new, the phone asks;
+when neither is, nobody asks and the rules below apply at once. Until the answer neither side
+takes anything from the other's first snapshot, and nothing syncs with that device. If nothing
+differs there is no question. The answer is kept per device (Forget and Reset > Everything clear
+it; Reset > Settings keeps it), and from then on sync runs silently. The question waits in the
+app; it never posts a notification.
+
+**Later connects.** Each side sends `settings.snapshot` once per session, and again only after sync
+went off and on for that device. A snapshot never overwrites a value someone chose:
+
+- A setting nobody chose on this device yet (`version` 0) takes the other device's chosen value.
+  A new phone paired with a set-up Mac starts from the Mac's choices; features it turns on may then
+  wait for a permission.
+- When both devices chose different values (one was offline, or sync was off when the change
+  happened), nothing changes. Settings shows "Different on <device>" under that setting, with
+  **Apply to all**: it stamps this device's value as a new edit, above the newest record any
+  connected device holds for that setting (so a device whose clock runs ahead still takes it), and
+  sends it to every connected device that syncs, which applies it.
+- Two values nobody chose that still differ (the defaults differ between the devices) also show
+  "Different on <device>" until Apply to all or an edit settles them.
+- Golden vectors `settingsSnapshot` pin the three outcomes (adopt, different, same).
+
+**Permissions.** Permissions cannot be granted from another device, and neither can a consent.
+When a synced feature is on but this device lacks what it needs, the setting reads "On, waiting
+for permission" with **Allow** (Android: the Permissions page; Mac: the matching Permissions row).
+Where turning a setting on here asks for a consent or terms first (codes from messages on the
+Mac: the cloud relay consent, or the on-device model), a remote turn-on does not turn it on: the
+setting waits for that consent on this device and counts as on for sync, so nothing is sent back. If a paired device turned it
+on, a notification says so ("Calls turned on from Work Mac") with an Allow action. That is the
+only notification sync posts (Rahul, 2026-10-27). Each device
+lists such keys in a `waiting` array in every snapshot and update (an update with no records when
+only the list changes), and the other devices show "Turned on, needs permission on <device>".
+
+**Switches.** Settings > General > "Sync settings with paired devices" (on); setup's summary has the
+same switch as "Settings stay the same on your devices". On each device's page,
+"Sync settings with this device" (on). The device page shows "Off on <device>" when the other
+device's latest `features.update` shows the key false. "Choose what syncs" lists the settings this device has (22 on each: the
+phone leaves out the Mac's codes, the Mac the phone's camera, and neither lists Update all devices
+automatically until it lands)
+with a check each; an unchecked setting stays on this device (it is not sent, and records for it
+are skipped). Turning sync off keeps every value as it is.
+
+**Activity and notifications.** Every snapshot or update that changed something here records one
+item in Other, "Settings synced with Work Mac", with the changes as its detail ("Calls turned on,
+Reduce motion turned off"). The changes are stored as tokens, never free text. A remote change that
+turns a feature on is in the activity stream only; it notifies (a notification on the phone, a
+banner on the Mac) only when this device must give a permission for it.
+
+**More than one device.** Macs never pair with each other, so a phone paired with two Macs is the
+hub: it passes one Mac's change to the other. Every device relays to every device it syncs with, so
+a Mac with two phones is the hub between them in the same way. A device whose sync is off on either
+side is left out. When a device comes back after missing changes, it shows "Different on <device>"
+for each setting that still differs, and Apply to all on either side settles it.
+
+**Mac folder destination.** The Mac has two modes for folders from the phone: Ask on this Mac
+(`receiver_asks`) and Always save to Received files (`fixed`). It reads `sender_picks` as `fixed`,
+because the phone cannot choose a folder on the Mac, and does not count that as different.
+
+**Upgrade and reset.** The first build with sync stamps each setting once: a value the person
+stored before gets `changedAt 1, version 1` (chosen); a value never stored stays at 0 (not chosen).
+Reset > Settings also clears the sync records, switches and choices but keeps the first-connect
+answers, so the device takes the other devices' chosen values again, silently, the next time it
+connects. Nothing is pushed to the other devices (Rahul, 2026-10-27).
+
+**Storage.** Android: `SharedPreferences` file `bridgey.sync` (`record.<key>` JSON, `enabled`,
+`device.<deviceId>`, `excluded`, `stamped`). Mac: `settings.sync.records`, `settings.sync.enabled`,
+`settings.sync.devices`, `settings.sync.excluded` and `settings.sync.stamped` in `UserDefaults`,
+under the `settings.` prefix so Reset covers them.
+
+**Wire additions.** `waiting` (array of at most 32 keys) in `settings.snapshot` and
+`settings.update`; unknown keys and non-strings in it are dropped. First connect: a snapshot carries
+`first` (true while the sender has no answer for the receiver) and `new` (true while the sender has
+no answer for any device); both sides pick the asker from the two snapshots alike. The asker's
+`settings.update` with `answered: true` ends the wait on the other side. Answers are stored on
+Android in `bridgey.sync.answers` (`<deviceId>` = `use`, `keep`, `peer` or `auto`), on the Mac in
+`sync.answers`. `settings.error` codes:
+`unsupported_schema`, `invalid_message`, `rate_limited`. Only `unsupported_schema` stops sync with
+that device until the next session; the others are logged.
+
+### 8.5 Threat model (settings sync)
+
+Self-contained here; [SECURITY.md](../SECURITY.md) points to it.
+
+| Threat | What it could do | Mitigation |
+| --- | --- | --- |
+| A paired device is compromised or misused | Turn features on here, for example Files (so it can send files), Notification forwarding (so it receives notifications) or Calls | Only authenticated, trusted peers in a live session can send `settings.*`, and only while this device advertises `settings_sync_draft1` to that peer (both switches on). Every applied change is in the activity stream with the device's name, and turning a feature on posts a notification. Permissions are never granted remotely, so notification access, phone, camera, Accessibility and Do Not Disturb still need the person on this device. Turning sync off for that device, or Forget, stops it at once |
+| Escalation through per-device grants | A phone turning on Mac actions or remote control for itself | Only the global switch syncs. Which phone may use Mac actions or control the Mac stays a grant made on the Mac and never syncs |
+| Opening this device's storage | A Mac turning on writes into places, or browsing | "Allow other devices to change files here" and "Let other devices browse this phone" never sync |
+| Starting updates remotely | A peer turning on "Let paired devices start updates on this device" so it can restart this device's Bridgey | That switch never syncs; each device decides it |
+| Reading texts | A peer turning on Text messages here, so it can read and send SMS | Android's SMS permission is still needed and is never granted remotely: without it the switch waits and notifies. With it already given, the change is in the activity stream with the device's name; Text messages turned off for one Mac stays off (per-device overrides never sync) |
+| Skipping a consent | A peer turning on codes from messages on a Mac, which would send message text to the cloud relay without the person agreeing there | A remote turn-on waits for the consent (and model) on that Mac; nothing turns on until the person allows it there |
+| Secrets or pairing data leaking | Keys, codes or trust read or overwritten | None of them is a sync key; the allowlist is closed and unknown keys are skipped, not relayed |
+| A new device overwriting an existing setup | A freshly paired device pushing its defaults over the choices of the devices already in use | The new device asks; nothing moves until the person answers, and Keep mine leaves both sides as they are |
+| Flooding | A peer sending many updates to flip settings back and forth or fill the activity stream | At most 20 `settings.*` messages per peer per 10 seconds; more are dropped and answered once per window with `settings.error` `rate_limited`. Payloads are bounded (16 KiB, 32 records, 32 waiting keys) |
+| Replay or forgery | An old update applied again, or one from another device | AES-GCM per session, the 256-ID replay window, and records apply only when they win by 8.2 |
+| A peer on an older build | Settings it does not know reaching it | It does not advertise the key, so it receives nothing; a newer key reaching an older v0.10 build is skipped |
+| Mistaken overwrite after being offline | A stale device pushing old values on reconnect | A snapshot never overwrites a chosen value; differences wait for Apply to all |
+
+What sync cannot prevent: someone with a paired device and the person's trust can change shared
+settings by design, as they could by picking up this device. The defence is visibility (activity
+item, notification, "Different on" markers) and the switches.
+
 ## 9. Security and privacy
 
 | Risk | Mitigation |
@@ -1120,8 +1283,8 @@ Storage Access Framework". This design answers those three:
 
 1. **Hidden files default (D9).** Off matches Finder; "as-is" could argue for on. Keep off,
    with the count and the one-click Include in the send sheet?
-2. **Settings sync default on (D12).** On as asked; confirm, since a paired device can then
-   change shared preferences on this one (recorded in the activity stream).
+2. **Settings sync default on (D12).** Decided 2026-10-27: on, and setup's summary mentions it
+   (see the settings sync decisions below).
 3. **Replace without a phone prompt.** In mode (a) the Mac decides Replace, so a paired Mac can
    overwrite files in granted places. Add a phone-only switch "Allow other devices to replace
    files here" (default on), or leave it?
@@ -1140,3 +1303,19 @@ Storage Access Framework". This design answers those three:
 - Replace safety: a phone-only switch "Allow other devices to replace files here", off by default. Until it is on, a Replace chosen on the Mac asks on the phone first.
 - Ask on the phone: a Bridgey "Save to..." sheet with granted folders and recent destinations, plus "Other folder..." for Android's picker.
 - Timeouts as proposed: 3 minutes for questions, 30 minutes for automatic resume, 24 hours for the Resume button (not objected to; revisit after use).
+
+## Decisions confirmed by Rahul (2026-10-27, settings sync)
+
+- Feature switches sync too, similar to T3 Code: a change is saved to every connected device that
+  supports it; a device that was offline or differs shows it, with Apply to all.
+- First connect of a new device: ask once, "Use the same settings as <device>?" with Use these
+  (adopt the other device's choices, features included) or Keep mine (keep local values, show
+  Different on with Apply to all). After the answer sync runs silently; the answer is kept per device.
+- Sync is on by default and setup mentions it: the summary has "Settings stay the same on your
+  devices" with a switch, on both apps.
+- A remote turn-on is an activity entry only ("Calls turned on from Work Mac"); a notification only
+  when this device needs a permission for it.
+- Reset > Settings resets only this device, as built: it takes the others' choices back on the next
+  connect. No push to all.
+- The Mac reads "Let the sending device choose" as Always save to Received files: keep.
+- Rate limit of 20 settings messages per device per 10 seconds: keep.

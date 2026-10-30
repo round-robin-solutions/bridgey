@@ -241,3 +241,5 @@
 "setup.a.messages.no" = "No, load them from the phone each time";
 "setup.bundle.messages" = "Read and answer your phone’s texts here.";
 "reset.item.textMessages" = "Text messages kept on this Mac (your phone keeps them)";
+"setup.summary.sync" = "Settings stay the same on your devices";
+"setup.summary.sync.detail" = "Change what syncs any time in Settings > General.";

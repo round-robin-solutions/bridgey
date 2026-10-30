@@ -343,6 +343,9 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(recentFolderDestinations = list)
     }
 
+    /** Settings sync (8.4): the person stored [key] before, so the first sync stamp counts it as chosen. */
+    internal fun hasStored(key: String): Boolean = preferences.contains(key)
+
     /** Automatic clipboard for [deviceId], falling back to the global switch when unset. */
     fun isAutoClipboardEnabled(deviceId: String?): Boolean {
         val snapshot = mutableState.value
@@ -421,15 +424,15 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         private const val KEY_NOTIFICATION_APPLICATION_PREFIX = "notification.application."
         private const val KEY_DISABLED_NOTIFICATION_PACKAGES = "notification.disabled_packages"
         private const val KEY_DIRECT_CALLS_ENABLED = "calls.direct_enabled"
-        private const val KEY_AUTO_CLIPBOARD_GLOBAL = "clipboard.auto.global"
+        internal const val KEY_AUTO_CLIPBOARD_GLOBAL = "clipboard.auto.global"
         private const val KEY_AUTO_CLIPBOARD_DEVICE_PREFIX = "clipboard.auto.device."
         private const val KEY_BACKGROUND_CLIPBOARD = "clipboard.background.enabled"
-        private const val KEY_CLIPBOARD_FILES = "clipboard.files.enabled"
+        internal const val KEY_CLIPBOARD_FILES = "clipboard.files.enabled"
         private const val KEY_CLIPBOARD_EAGER_LIMIT = "clipboard.files.eager_limit"
         private const val KEY_SCREENSHOT_SEND = "clipboard.screenshot.enabled"
         private const val KEY_KEEP_WIFI_AWAKE = "connection.keep_wifi_awake"
-        private const val KEY_FOLDER_MODE = "files.folder_destination"
-        private const val KEY_FOLDER_CONFLICT = "files.folder_conflict"
+        internal const val KEY_FOLDER_MODE = "files.folder_destination"
+        internal const val KEY_FOLDER_CONFLICT = "files.folder_conflict"
         private const val KEY_FOLDER_DEFAULT_PLACE = "files.folder_default_place"
         private const val KEY_FOLDER_ALLOW_REPLACE = "files.folder_allow_replace"
         // Same meaning and defaults as the Mac's `settings.folders.includeHidden` and `.includeSystem`.
@@ -437,8 +440,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         internal const val KEY_FOLDER_INCLUDE_SYSTEM = "files.folder_include_system"
         private const val KEY_FILES_ALLOW_BROWSE = "files.allow_browse"
         private const val KEY_FOLDER_RECENT = "files.folder_recent"
-        private const val KEY_FOCUS_SHARE = "focus.share"
-        private const val KEY_FOCUS_FOLLOW = "focus.follow"
+        internal const val KEY_FOCUS_SHARE = "focus.share"
+        internal const val KEY_FOCUS_FOLLOW = "focus.follow"
         private const val KEY_UPDATES_REMOTE_START = "updates.remote_start"
         private const val KEY_SMS_REPLY_AS_SMS = "sms.reply_as_sms"
     }

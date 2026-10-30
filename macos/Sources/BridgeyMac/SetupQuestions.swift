@@ -60,13 +60,15 @@ enum SetupSetting: String, CaseIterable {
     case updateChannel, updatesAutomatic
     // General
     case launchAtLogin, reduceMotion, shortcutShift
+    // Settings sync: the summary's own switch (v0.10)
+    case settingsSync
 
     /// The value on an install from before the off-until-chosen defaults (BridgeySettings' old defaults).
     var defaultValue: String {
         switch self {
         case .featureClipboard, .autoClipboard, .clipboardFiles, .featureNotifications, .featureCalls, .ringForCalls,
              .featureFiles, .featureLinks, .featurePing, .featureFindDevice, .featureBattery, .showPreviews,
-             .loggingConnection, .updatesAutomatic, .smsKeepOnMac:
+             .loggingConnection, .updatesAutomatic, .smsKeepOnMac, .settingsSync:
             "true"
         case .codesEngine: "local"
         case .folderReceiveMode: "fixed"
@@ -81,7 +83,8 @@ enum SetupSetting: String, CaseIterable {
 /// How a setting is reached: a follow-up's answers, the feature switches, the permissions page,
 /// or its Settings page (More options on a card, Change details in Settings).
 enum SetupCoverage: Equatable {
-    case answer, featureSwitch, permission, moreOptions
+    /// `summary`: a switch on the summary itself (Settings stay the same on your devices).
+    case answer, featureSwitch, permission, moreOptions, summary
 }
 
 /// One setting set to a value by an answer or a switch.
@@ -418,6 +421,9 @@ enum SetupQuestions {
         .launchAtLogin: .general, .reduceMotion: .general, .shortcutShift: .general,
     ]
 
+    /// Settings with their own switch on the summary.
+    static let bySummary: [SetupSetting] = [.settingsSync]
+
     /// Settings the permissions page turns on by asking.
     static let byPermission: [SetupSetting: SetupPermission] = [.macNotifications: .notifications, .accessibility: .accessibility]
 
@@ -437,6 +443,7 @@ enum SetupQuestions {
             for setting in feature.settings where table[setting] == nil { table[setting] = ("switches", .featureSwitch) }
         }
         for (setting, permission) in byPermission where table[setting] == nil { table[setting] = (permission.rawValue, .permission) }
+        for setting in bySummary where table[setting] == nil { table[setting] = ("summary", .summary) }
         for (setting, pane) in moreOptions where table[setting] == nil { table[setting] = (pane.rawValue, .moreOptions) }
         return table
     }
@@ -644,6 +651,7 @@ extension SetupFacts {
             .updatesAutomatic: bool(model.automaticallyChecks),
             .launchAtLogin: bool(model.launchAtLogin),
             .reduceMotion: bool(model.reduceMotion),
+            .settingsSync: bool(model.settingsSyncEnabled),
         ]
         var allowed = Set(model.setup.permissions.filter { $0.system == .allowed }.map(\.permission))
         if model.accessibilityTrusted { allowed.insert(.accessibility) }

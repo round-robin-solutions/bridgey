@@ -166,6 +166,17 @@ struct SettingsModel {
     var smsEnabled = false
     var smsKeepOnMac = true
     var smsPhone: SmsPhoneDisplay = .noPhone
+    /// General > Sync settings with paired devices, and each phone's own switch (missing is on).
+    var settingsSyncEnabled = true
+    var settingsSyncDevices: [String: Bool] = [:]
+    /// Each connected phone's settings_sync_draft1, once its features arrived.
+    var phoneSettingsSync: [String: Bool] = [:]
+    /// Choose what syncs: settings kept on this Mac.
+    var syncExcluded: Set<SyncKey> = []
+    /// What each synced row shows under it (waiting for permission, different on a phone).
+    var syncStatus: [SyncKey: SyncRowStatus] = [:]
+    /// A paired device turned Codes from messages on; it waits for this Mac's own consent.
+    var codesPendingSync = false
 
     var connectedDeviceID: String? {
         if case let .connected(id, _) = state { return id }
@@ -184,6 +195,16 @@ struct SettingsModel {
 
     func isAutoClipboardEnabled(for deviceID: String) -> Bool {
         autoClipboard && autoClipboardDevices[deviceID] != false
+    }
+
+    func isSettingsSyncEnabled(for deviceID: String) -> Bool {
+        settingsSyncEnabled && settingsSyncDevices[deviceID] != false
+    }
+
+    /// The row's value is kept the same on paired devices (sync on, and the setting not kept on this Mac).
+    func syncs(_ key: SyncKey?) -> Bool {
+        guard let key else { return false }
+        return settingsSyncEnabled && !syncExcluded.contains(key)
     }
 }
 
@@ -271,6 +292,14 @@ struct SettingsActions {
     var deleteMessages: () -> Void = {}
     /// The Messages window, on a phone and conversation when given (the history's Reply).
     var openMessages: (String?, Int?) -> Void = { _, _ in }
+    var setSettingsSync: (Bool) -> Void = { _ in }
+    var setSettingsSyncForDevice: (String, Bool) -> Void = { _, _ in }
+    /// Choose what syncs.
+    var setSyncs: (SyncKey, Bool) -> Void = { _, _ in }
+    /// "Different on <phone>": send this Mac's value to every phone.
+    var applyToAll: (SyncKey) -> Void = { _ in }
+    /// "On, waiting for permission": open where it is allowed.
+    var allowPermission: (SyncKey) -> Void = { _ in }
 }
 
 enum SettingsLinks {
@@ -512,12 +541,14 @@ struct SettingsRow<Trailing: View>: View {
     var subtitle: String?
     var subtitleIsWarning = false
     var divider = true
+    /// Settings sync: this row changes the other devices too.
+    var synced = false
     @ViewBuilder let trailing: Trailing
     @Environment(\.brand) private var c
 
     var body: some View {
         HStack(spacing: 12) {
-            RowText(title: title, subtitle: subtitle, warning: subtitleIsWarning)
+            RowText(title: title, subtitle: subtitle, warning: subtitleIsWarning, synced: synced)
             trailing
         }
         .padding(.vertical, 8)
@@ -530,13 +561,18 @@ struct RowText: View {
     let title: String
     var subtitle: String?
     var warning = false
+    /// A small sync mark after the title: the row is kept the same on paired devices.
+    var synced = false
     @Environment(\.brand) private var c
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(BrandFont.body(13, .medium))
-                .foregroundStyle(c.on)
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(BrandFont.body(13, .medium))
+                    .foregroundStyle(c.on)
+                if synced { SyncedMark() }
+            }
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
                     .font(BrandFont.body(12))
@@ -554,18 +590,32 @@ struct SettingsToggle: View {
     var subtitle: String?
     var subtitleIsWarning = false
     var divider = true
+    var synced = false
     let isOn: Bool
     let set: (Bool) -> Void
     @Environment(\.brand) private var c
 
     var body: some View {
         Toggle(isOn: Binding(get: { isOn }, set: set)) {
-            RowText(title: title, subtitle: subtitle, warning: subtitleIsWarning)
+            RowText(title: title, subtitle: subtitle, warning: subtitleIsWarning, synced: synced)
         }
         .toggleStyle(BrandSwitchStyle())
         .padding(.vertical, 8)
         .frame(minHeight: 44)
         .overlay(alignment: .top) { if divider { Rectangle().fill(c.olv).frame(height: 1) } }
+    }
+}
+
+/// Settings sync's mark on a row whose value paired devices share.
+struct SyncedMark: View {
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        Image(systemName: "arrow.triangle.2.circlepath")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(c.on2)
+            .help(L10n.text("settings.sync.mark", fallback: "Synced with your devices"))
+            .accessibilityLabel(L10n.text("settings.sync.mark", fallback: "Synced with your devices"))
     }
 }
 
@@ -625,12 +675,14 @@ struct AutoClipboardToggle: View {
     let isOn: Bool
     var subtitle: String?
     var subtitleIsWarning = false
+    /// Only the global switch syncs; a device's own switch never does.
+    var synced = false
     let set: (Bool) -> Void
 
     var body: some View {
         SettingsToggle(title: L10n.text("settings.autoClipboard", fallback: "Automatic clipboard"),
                        subtitle: subtitle ?? L10n.text("settings.autoClipboard.detail", fallback: "Copy on one device, paste on the other."),
-                       subtitleIsWarning: subtitleIsWarning,
+                       subtitleIsWarning: subtitleIsWarning, synced: synced,
                        isOn: isOn, set: set)
     }
 }
@@ -643,9 +695,11 @@ private struct FeatureSwitch: View {
     var divider = false
 
     var body: some View {
-        SettingsToggle(title: feature.title, subtitle: feature.subtitle, divider: divider,
+        let key = SyncKey.key(for: feature)
+        SettingsToggle(title: feature.title, subtitle: feature.subtitle, divider: divider, synced: model.syncs(key),
                        isOn: model.globalFeatures[feature] != false,
                        set: { actions.setGlobal(feature, $0) })
+        if let key { SyncStatusLine(key: key, model: model, actions: actions) }
     }
 }
 
@@ -674,12 +728,14 @@ private struct ClipboardPane: View {
         let clipboardOn = model.globalFeatures[.clipboard] != false
         SettingsCard(footnote: L10n.text("settings.autoClipboard.note", fallback: "Works while both devices are connected and Clipboard is on for both. Passwords and other concealed clips are never sent. With an older Bridgey on the other device, or with Copy images and files off, only text up to 32 KiB moves.")) {
             FeatureSwitch(feature: .clipboard, model: model, actions: actions)
-            AutoClipboardToggle(isOn: model.autoClipboard, set: actions.setAutoClipboard)
+            AutoClipboardToggle(isOn: model.autoClipboard, synced: model.syncs(.autoClipboard), set: actions.setAutoClipboard)
                 .disabled(!clipboardOn)
+            SyncStatusLine(key: .autoClipboard, model: model, actions: actions)
             SettingsToggle(title: L10n.text("settings.clipboardFiles", fallback: "Copy images and files"),
                            subtitle: L10n.text("settings.clipboardFiles.detail", fallback: "Images, videos, files and long text. Big items move when you paste."),
-                           isOn: model.clipboardFiles, set: actions.setClipboardFiles)
+                           synced: model.syncs(.clipboardFiles), isOn: model.clipboardFiles, set: actions.setClipboardFiles)
                 .disabled(!clipboardOn)
+            SyncStatusLine(key: .clipboardFiles, model: model, actions: actions)
             SettingsRow(title: L10n.text("settings.clipboardEager", fallback: "Send right away up to"),
                         subtitle: L10n.text("settings.clipboardEager.detail", fallback: "Smaller copies move as soon as you copy, so pasting is instant.")) {
                 ChoiceButton(value: eagerLimitTitle(model.clipboardEagerLimit)) {
@@ -756,20 +812,23 @@ private struct FilesPane: View {
         }
         SettingsCard(footnote: L10n.text("settings.folders.receive.note", fallback: "Folders from your phone keep their structure. Received files get a Where from line in Finder.")) {
             SettingsRow(title: L10n.text("settings.folders.receive", fallback: "Folders sent to this Mac"),
-                        subtitle: nil, divider: false) {
+                        subtitle: nil, divider: false, synced: model.syncs(.folderDestination)) {
                 ChoiceButton(value: folderReceiveModeTitle(model.folderReceiveMode)) {
                     MacFolderReceiveMode.allCases.map { mode in
                         PopUpMenuItem(title: folderReceiveModeTitle(mode), checked: mode == model.folderReceiveMode) { actions.setFolderReceiveMode(mode) }
                     }
                 }
             }
-            SettingsRow(title: L10n.text("settings.folders.conflict", fallback: "When a folder already exists"), subtitle: nil) {
+            SyncStatusLine(key: .folderDestination, model: model, actions: actions)
+            SettingsRow(title: L10n.text("settings.folders.conflict", fallback: "When a folder already exists"), subtitle: nil,
+                        synced: model.syncs(.folderConflict)) {
                 ChoiceButton(value: folderConflictTitle(model.folderConflictPolicy)) {
                     MacFolderConflictPolicy.allCases.map { policy in
                         PopUpMenuItem(title: folderConflictTitle(policy), checked: policy == model.folderConflictPolicy) { actions.setFolderConflictPolicy(policy) }
                     }
                 }
             }
+            SyncStatusLine(key: .folderConflict, model: model, actions: actions)
             SettingsToggle(title: L10n.text("settings.files.tag", fallback: "Tag received files in Finder"),
                            subtitle: L10n.text("settings.files.tag.detail", fallback: "Adds the Bridgey tag, so Finder can list everything that came from your phone."),
                            isOn: model.tagReceivedFiles, set: actions.setTagReceivedFiles)
@@ -836,10 +895,12 @@ private struct GeneralPane: View {
                            isOn: model.launchAtLogin, set: actions.setLaunchAtLogin)
             SettingsToggle(title: L10n.text("settings.reduceMotion", fallback: "Reduce motion"),
                            subtitle: L10n.text("settings.reduceMotion.detail", fallback: "Fade between screens; nothing moves or bounces"),
-                           isOn: model.reduceMotion, set: actions.setReduceMotion)
+                           synced: model.syncs(.reduceMotion), isOn: model.reduceMotion, set: actions.setReduceMotion)
+            SyncStatusLine(key: .reduceMotion, model: model, actions: actions)
             SettingsToggle(title: L10n.text("settings.shortcuts.shift", fallback: "Also require Shift for shortcuts"),
                            isOn: model.shortcutShift, set: actions.setShortcutShift)
         }
+        SettingsSyncCard(model: model, actions: actions)
         RunSetupAgainCard(actions: actions)
     }
 }
@@ -1057,6 +1118,7 @@ struct DeviceCard: View {
             RemoteControlGrantToggle(device: device, model: model, actions: actions)
             // The same for Mac actions; see Settings > Media and actions.
             MacActionsGrantToggle(device: device, model: model, actions: actions)
+            SettingsSyncDeviceToggle(device: device, model: model, actions: actions)
         }
         .confirmationDialog(
             String(format: L10n.text("devices.forget.title", fallback: "Forget %@?"), device.name),
@@ -1258,7 +1320,8 @@ struct TextMessagesCard: View {
         SettingsCard {
             SettingsToggle(title: L10n.text("sms.toggle", fallback: "Your phone\u{2019}s texts on this Mac"),
                            subtitle: L10n.text("sms.toggle.detail", fallback: "Read and answer conversations in the Messages window, and reply from text notifications. Off by default. Messages travel only between your phone and this Mac, encrypted; Bridgey never becomes the phone\u{2019}s default SMS app."),
-                           divider: false, isOn: model.smsEnabled, set: actions.setSmsEnabled)
+                           divider: false, synced: model.syncs(.featureSms), isOn: model.smsEnabled, set: actions.setSmsEnabled)
+            SyncStatusLine(key: .featureSms, model: model, actions: actions)
             if model.smsEnabled {
                 SettingsRow(title: phoneTitle, subtitle: phoneDetail, subtitleIsWarning: phoneWarning, divider: true) {
                     Button(L10n.text("sms.open", fallback: "Open Messages")) { actions.openMessages(nil, nil) }
@@ -1338,7 +1401,8 @@ struct PrivacyPane: View {
         SettingsCard(title: L10n.text("settings.activity", fallback: "Activity")) {
             SettingsToggle(title: L10n.text("settings.previews", fallback: "Show previews in activity"),
                            subtitle: L10n.text("settings.previews.detail", fallback: "Clipboard text, app names and callers. Off keeps only what happened."),
-                           divider: false, isOn: model.showPreviews, set: actions.setShowPreviews)
+                           divider: false, synced: model.syncs(.activityPreviews), isOn: model.showPreviews, set: actions.setShowPreviews)
+            SyncStatusLine(key: .activityPreviews, model: model, actions: actions)
             SettingsRow(title: L10n.text("settings.activity.clear", fallback: "Clear activity"),
                         subtitle: L10n.text("settings.activity.detail", fallback: "Kept only on this Mac, for 7 days. Never in diagnostics.")) {
                 Button(L10n.text("action.clear", fallback: "Clear")) { confirmClear = true }
@@ -1518,6 +1582,7 @@ struct LiveSettingsView: View {
     @ObservedObject var batteryAlerts: BatteryAlerts
     @ObservedObject var focusSync: FocusSync
     @ObservedObject var camera: PhoneCamera
+    @ObservedObject var settingsSync: SettingsSyncController
     @ObservedObject var updateAll = UpdateAllCoordinator.shared
     @ObservedObject var phoneScreen: PhoneScreen
     @State private var pane: SettingsPane = .devices
@@ -1544,6 +1609,7 @@ struct LiveSettingsView: View {
         focusSync = pairing.focusSync
         camera = pairing.camera
         phoneScreen = pairing.phoneScreen
+        settingsSync = pairing.settingsSync
     }
 
     private var codeModelDisplay: CodeModelDisplay {
@@ -1662,6 +1728,13 @@ struct LiveSettingsView: View {
         model.smsEnabled = settings.smsEnabled
         model.smsKeepOnMac = settings.smsKeepOnMac
         model.smsPhone = pairing.textMessagesDisplay
+        model.settingsSyncEnabled = settingsSync.enabled
+        model.settingsSyncDevices = settingsSync.devices
+        model.syncExcluded = settingsSync.excluded
+        model.codesPendingSync = pairing.codesSyncGate.pending
+        model.syncStatus = Dictionary(uniqueKeysWithValues: SyncKey.allCases.map { ($0, settingsSync.status($0)) })
+        model.phoneSettingsSync = Dictionary(pairing.connectedPhones.filter(\.state.featureStateReceived).map { ($0.id, $0.state.remoteSettingsSync) },
+                                             uniquingKeysWith: { $1 })
         model.batteryAlerts = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, batteryAlerts.thresholds(for: $0.id)) })
         return model
     }
@@ -1712,6 +1785,12 @@ struct LiveSettingsView: View {
         actions.setSmsKeepOnMac = { pairing.setTextMessagesKeepOnMac($0) }
         actions.deleteMessages = { pairing.deleteTextMessagesOnMac() }
         actions.openMessages = { phoneID, threadID in MessagesWindowController.show(pairing: pairing, phoneID: phoneID, threadID: threadID) }
+        actions.setSettingsSync = { settingsSync.setEnabled($0) }
+        actions.setSettingsSyncForDevice = { id, on in settingsSync.setEnabled(on, for: id) }
+        actions.setSyncs = { key, on in settingsSync.setSyncs(key, on) }
+        actions.applyToAll = { settingsSync.applyToAll($0) }
+        // Codes waits for its own consent step on its card; the others for a system permission.
+        actions.allowPermission = { key in pane = key == .codesEnabled ? .notifications : .permissions }
         actions.setFocusSync = { change in
             focusSync.update(change)
             if focusSync.settings.follow { loadShortcuts() }
@@ -1735,7 +1814,11 @@ struct LiveSettingsView: View {
         actions.lookForDevices = { pairing.lookForDevices() }
         actions.enableNotifications = { pairing.enableNotifications() }
         actions.setHistoryEnabled = { settings.setNotificationHistoryEnabled($0) }
-        actions.setCodesEnabled = { settings.setCodesEnabled($0) }
+        actions.setCodesEnabled = { on in
+            // Off from the row that reads on while it waits: the wait ends and the off syncs as a normal edit.
+            if !on { pairing.codesSyncGate.turnedOffLocally() }
+            settings.setCodesEnabled(on)
+        }
         actions.setCodesAutoCopy = { settings.setCodesAutoCopy($0) }
         actions.setCodesEngine = { settings.setCodesEngine($0) }
         actions.acceptAndDownloadCodeModel = {
