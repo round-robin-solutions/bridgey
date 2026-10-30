@@ -3006,19 +3006,20 @@ class PairingCoordinator(
                         }
                         is ProtocolFrame.Binary -> {
                             // Read only once the session is authenticated on protocol 2 (FastTransfer.kt).
-                            current.lastReceivedAtMillis = SystemClock.elapsedRealtime()
-                            // Unknown binary kinds are skipped whole, like unknown message kinds.
-                            if (frame.kind != FastFrame.CHUNK_KIND && frame.kind != FastFrame.SPEED_KIND) continue
                             val context = current.binaryContext ?: continue
                             // Like a frame with a bad envelope tag: a forged, damaged, reflected or replayed frame is
-                            // dropped and counted; 16 close the session.
+                            // dropped and counted, whatever its kind (the kind is in the associated data); 16 close the
+                            // session. A genuine frame of a kind this version does not know is skipped.
                             val payload = runCatching { openFastFrameBody(frame.kind, frame.body, context.key, context.remote) }.getOrNull()
+                            val known = frame.kind == FastFrame.CHUNK_KIND || frame.kind == FastFrame.SPEED_KIND
                             val reason = when {
                                 payload == null -> "bad_binary_tag"
+                                !known -> continue
                                 !current.fastReplay.accept(payload) -> "binary_replay"
                                 else -> null
                             }
                             if (reason == null) {
+                                current.lastReceivedAtMillis = SystemClock.elapsedRealtime()
                                 receiveFast(current, payload!!)
                             } else if (dropFrame(current, reason)) {
                                 current.dropReason = "unauthenticated_frames"
@@ -3546,6 +3547,8 @@ class PairingCoordinator(
         }
         when {
             clipboardInbox.handles(transferId) -> {
+                // Only the device the clipboard transfer is with.
+                if (!clipboardInbox.isTransfer(transferId, current.remoteDeviceId)) return
                 if (clipboardInbox.onChunk(transferId, sequence, payload.plaintext, FastFrame.MAXIMUM_PLAINTEXT)) acknowledge()
             }
             // The folder session acknowledges its own chunks.
@@ -3783,6 +3786,7 @@ class PairingCoordinator(
         val transferId = message.transferId ?: return
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
+        if (!clipboardInbox.isTransfer(transferId, current.remoteDeviceId)) return
         val chunk = Crypto.decrypt(current.pairingKey ?: return, message.nonce ?: return, message.ciphertext ?: return)
         if (chunk == null || !clipboardInbox.onChunk(transferId, message.sequence ?: -1, chunk)) return
         current.send(Message(kind = "files.chunk.ack", sessionId = current.id, transferId = transferId, sequence = message.sequence))
@@ -4164,6 +4168,10 @@ class PairingCoordinator(
         }
         trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!)
         if (current.envelopeKey != null) trust.pinProtocol(current.remoteDeviceId, SessionSecurity.PROTOCOL_VERSION)
+        // Fast transfers only on protocol 2: binary frames are bound to the sender's ID like envelope tags. Allowed
+        // before the session becomes active, so the reader is ready before anything can tell the peer about them.
+        val sessionKey = current.pairingKey
+        if (sessionKey != null && current.envelopeKey != null) current.allowBinaryFrames(sessionKey, current.tagSender, current.remoteDeviceId)
         when (val admission = registry.authenticate(current, current.remoteDeviceId, current.peerName)) {
             SessionRegistry.Admission.Rejected -> {
                 // A live session for this device wins the duplicate rule; this socket closes quietly.
@@ -4184,9 +4192,6 @@ class PairingCoordinator(
             }
         }
         current.authenticated = true
-        // Fast transfers only on protocol 2: binary frames are bound to the sender's ID like envelope tags.
-        val sessionKey = current.pairingKey
-        if (sessionKey != null && current.envelopeKey != null) current.allowBinaryFrames(sessionKey, current.tagSender, current.remoteDeviceId)
         dialFinished(current)
         val source = if (current.initiatedLocally) AddressSource.OUTBOUND else AddressSource.INBOUND
         val port = if (current.initiatedLocally) current.remotePort else ReconnectPolicy.LISTENING_PORT

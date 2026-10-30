@@ -1466,6 +1466,14 @@
 "speed.advice.weak" = "The signal may be weak or the network busy. Move closer to the router.";
 "speed.copied" = "Copied";
 "speed.copy" = "Copy results";
+"speed.estimate.linkRates" = "Estimate: %d to %d MB/s, from the Wi-Fi link rates (Wi-Fi usually carries half to three quarters of its link rate).";
+"speed.estimate.typical" = "Estimate: %d to %d MB/s, typical for Wi-Fi 6 (the link rate was not readable).";
+"speed.route.hotspot" = "Route: Mac on the phone’s hotspot, one Wi-Fi hop.";
+"speed.route.macWired" = "Route: Mac on Ethernet, phone on Wi-Fi.";
+"speed.route.sameRouter" = "Route: both on the same router, so every byte crosses the air twice.";
+"speed.route.unknown" = "Route: not Wi-Fi or Ethernet on both sides (for example a cable, a VPN or an emulator), so there is no estimate to compare with.";
+"speed.verdict.ok" = "The test reached the estimate.";
+"speed.verdict.slow" = "The test was slower than the estimate.";
 "speed.failed" = "The test stopped because data stopped arriving. Try again closer to the router.";
 "speed.failed.busy" = "The phone is already running a speed test.";
 "speed.failed.cancelled" = "Stopped.";
@@ -1501,10 +1509,4 @@
 "speed.stop" = "Stop";
 "speed.thisMac" = "This Mac";
 "speed.title" = "Transfer speed";
-"speed.verdict.hotspot" = "Mac on the phone’s hotspot, one Wi-Fi hop: expect %d to %d MB/s.";
-"speed.verdict.macWired" = "Mac on Ethernet, phone on Wi-Fi: expect %d to %d MB/s.";
-"speed.verdict.ok" = "Your connection reaches that.";
-"speed.verdict.sameRouter" = "Both on the same router: expect %d to %d MB/s.";
-"speed.verdict.slow" = "Your connection is slower than that.";
-"speed.verdict.unknown" = "On a typical Wi-Fi 6 router, expect %d to %d MB/s.";
 "speed.with" = "With %@, over the connection you use for files";

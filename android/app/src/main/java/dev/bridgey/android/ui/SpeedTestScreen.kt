@@ -205,13 +205,22 @@ private fun phoneLinkText(link: SpeedLink): String {
 @Composable
 private fun verdictText(verdict: SpeedVerdict): String {
     val lines = mutableListOf<String>()
-    lines += when (verdict.route) {
-        SpeedVerdict.Route.SAME_ROUTER -> stringResource(R.string.speed_verdict_same_router, verdict.expectedLow, verdict.expectedHigh)
-        SpeedVerdict.Route.MAC_WIRED -> stringResource(R.string.speed_verdict_mac_wired, verdict.expectedLow, verdict.expectedHigh)
-        SpeedVerdict.Route.HOTSPOT -> stringResource(R.string.speed_verdict_hotspot, verdict.expectedLow, verdict.expectedHigh)
-        SpeedVerdict.Route.UNKNOWN -> stringResource(R.string.speed_verdict_unknown, verdict.expectedLow, verdict.expectedHigh)
+    lines += stringResource(
+        when (verdict.route) {
+            SpeedVerdict.Route.SAME_ROUTER -> R.string.speed_route_same_router
+            SpeedVerdict.Route.MAC_WIRED -> R.string.speed_route_mac_wired
+            SpeedVerdict.Route.HOTSPOT -> R.string.speed_route_hotspot
+            SpeedVerdict.Route.UNKNOWN -> R.string.speed_route_unknown
+        },
+    )
+    when (verdict.basis) {
+        SpeedVerdict.Basis.LINK_RATES -> lines += stringResource(R.string.speed_estimate_link_rates, verdict.expectedLow, verdict.expectedHigh)
+        SpeedVerdict.Basis.TYPICAL -> lines += stringResource(R.string.speed_estimate_typical, verdict.expectedLow, verdict.expectedHigh)
+        SpeedVerdict.Basis.NONE -> Unit
     }
-    lines += stringResource(if (verdict.asExpected) R.string.speed_verdict_ok else R.string.speed_verdict_slow)
+    if (verdict.basis != SpeedVerdict.Basis.NONE) {
+        lines += stringResource(if (verdict.asExpected) R.string.speed_verdict_ok else R.string.speed_verdict_slow)
+    }
     verdict.advice.forEach { advice ->
         lines += stringResource(
             when (advice) {

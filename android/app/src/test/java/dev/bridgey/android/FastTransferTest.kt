@@ -36,8 +36,9 @@ class FastTransferVectorsTest {
     private fun decode(frame: ByteArray): Any = runCatching {
         val reader = ProtocolStreamReader(ByteArrayInputStream(frame)).apply { binaryAllowed = true }
         val next = reader.next() as? ProtocolFrame.Binary ?: return@runCatching "reject"
-        if (next.kind != FastFrame.CHUNK_KIND && next.kind != FastFrame.SPEED_KIND) return@runCatching "skip"
+        // As the read loop: the tag first, whatever the kind; then a genuine unknown kind is skipped.
         val payload = openFastFrameBody(next.kind, next.body, key, sender)
+        if (next.kind != FastFrame.CHUNK_KIND && next.kind != FastFrame.SPEED_KIND) return@runCatching "skip"
         mapOf(
             "kind" to next.kind.toLong(), "id" to payload.id, "sequence" to payload.sequence,
             "plaintextBase64" to Base64.getEncoder().encodeToString(payload.plaintext),
@@ -99,7 +100,12 @@ class FastTransferVectorsTest {
                 SpeedVerdict.Advice.TRY_HOTSPOT -> "tryHotspot"
             }
         }
-        mapOf("route" to route, "low" to verdict.expectedLow.toLong(), "high" to verdict.expectedHigh.toLong(),
+        val basis = when (verdict.basis) {
+            SpeedVerdict.Basis.LINK_RATES -> "linkRates"
+            SpeedVerdict.Basis.TYPICAL -> "typical"
+            SpeedVerdict.Basis.NONE -> "none"
+        }
+        mapOf("route" to route, "basis" to basis, "low" to verdict.expectedLow.toLong(), "high" to verdict.expectedHigh.toLong(),
             "asExpected" to verdict.asExpected, "advice" to advice) == normalize(vector.get("expect"))
     }
 
@@ -207,6 +213,20 @@ class FastTransferTest {
         assertFalse("an older frame after a newer one", guard.accept(first))
         assertTrue("another kind is its own stream", guard.accept(FastFramePayload(2, "t", 0, ByteArray(0))))
         assertTrue("another transfer is its own stream", guard.accept(FastFramePayload(1, "u", 0, ByteArray(0))))
+    }
+
+    /** Security review 2026-10-30: a long transfer stays remembered while 256 short ones come and go. */
+    @Test fun replayGuardForgetsTheLeastRecentlyUsedTransfer() {
+        val guard = FastReplayGuard()
+        assertTrue(guard.accept(FastFramePayload(1, "long", 0, ByteArray(0))))
+        for (index in 0 until 300) {
+            assertTrue(guard.accept(FastFramePayload(1, "short-$index", 0, ByteArray(0))))
+            assertTrue(guard.accept(FastFramePayload(1, "long", index + 1L, ByteArray(0))))
+        }
+        assertFalse("the long transfer's old frame is still refused", guard.accept(FastFramePayload(1, "long", 5, ByteArray(0))))
+        // The oldest short transfer was forgotten; the most recent ones are not.
+        assertTrue(guard.accept(FastFramePayload(1, "short-0", 0, ByteArray(0))))
+        assertFalse(guard.accept(FastFramePayload(1, "short-299", 0, ByteArray(0))))
     }
 
     @Test fun legacyPacerKeepsSixtyFourChunks() {

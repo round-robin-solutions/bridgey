@@ -36,10 +36,10 @@
       "body": "1 byte ID length L (1 to 64), L bytes ID (printable ASCII: the transfer ID, or the speed test ID), 8 bytes sequence (big-endian, 0 to 2^53-1), 12 bytes AES-GCM nonce, ciphertext and 16-byte tag; plaintext 1 to 1048576 bytes",
       "associatedData": "length-prefixed like the protocol 2 envelope tag input: bridgey-fast-frame-v2, the sending device's ID, the kind (decimal), the ID, the sequence (decimal). The AES-GCM tag stands in for the envelope tag",
       "kinds": { "1": "files.chunk: the same chunk as the JSON files.chunk, up to 1 MiB; the receiver acknowledges each with files.chunk.ack", "2": "speed.data: speed test bytes, acknowledged with speed.ack and dropped" },
-      "onUnknownKind": "skip the frame (its length is known) and keep the session",
+      "onUnknownKind": "once its tag verifies (the kind is in the associated data), skip the frame and keep the session; a failed tag is dropped and counted",
       "onBadLength": "close the session (the stream can no longer be split)",
       "onMalformedOrUndecryptable": "drop and count with the frames dropped for a bad envelope tag; 16 close the connection",
-      "replay": "not in the messageId window: per kind and ID the sequence must rise (the last 256 IDs are remembered); file chunks must also follow on without gaps"
+      "replay": "not in the messageId window: per kind and ID the sequence must rise (the 256 most recently used IDs are remembered); file chunks must also follow on without gaps"
     }
   },
   "envelope": {

@@ -1,5 +1,5 @@
 {
- "description": "Fast transfers (draft files_fast_draft1, docs/protocol.md 'Fast transfers' and 'Speed test'). The key is bytes 0 to 31, base64 in 'keyBase64'; every frame is sent by 'senderDeviceId' and read by 'receiverDeviceId' (the associated data binds the sender). fastFrame: 'frameBase64' is one whole binary frame, header included; expect is the decoded kind, id, sequence and plaintext, 'skip' (an unknown kind: dropped whole, the session stays) or 'reject' (the session closes). 'write': true means both platforms also produce exactly these bytes from the expected fields with the nonce in 'nonceBase64'. 'zeroPadTo': N appends zero bytes until the frame is N bytes long. speedPayload: the JSON plaintext of a speed.* message of 'kind'; 'plaintext' is serialised by each platform's own encoder, 'plaintextString' is used byte for byte; absent optional values are null in expect; test IDs compare lowercased. speedVerdict: the plain-words verdict both apps show for the two links and the better direction's bytes a second.",
+ "description": "Fast transfers (draft files_fast_draft1, docs/protocol.md 'Fast transfers' and 'Speed test'). The key is bytes 0 to 31, base64 in 'keyBase64'; every frame is sent by 'senderDeviceId' and read by 'receiverDeviceId' (the associated data binds the sender). fastFrame: 'frameBase64' is one whole binary frame, header included; expect is the decoded kind, id, sequence and plaintext, 'skip' (an unknown kind whose tag verifies: dropped whole, the session stays) or 'reject' (a bad length closes the session; anything else is dropped and counted like a frame with a bad envelope tag, 16 close the session). 'write': true means both platforms also produce exactly these bytes from the expected fields with the nonce in 'nonceBase64'. 'zeroPadTo': N appends zero bytes until the frame is N bytes long. speedPayload: the JSON plaintext of a speed.* message of 'kind'; 'plaintext' is serialised by each platform's own encoder, 'plaintextString' is used byte for byte; absent optional values are null in expect; test IDs compare lowercased. speedVerdict: the plain-words verdict both apps show for the two links and the better direction's bytes a second; 'basis' says where the estimate comes from ('linkRates', 'typical' for Wi-Fi 6 when a rate is not readable, or 'none': no estimate, low and high 0).",
  "keyBase64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
  "senderDeviceId": "7e57d00d-0000-4000-8000-0000000000aa",
  "receiverDeviceId": "7e57d00d-0000-4000-8000-0000000000bb",
@@ -104,6 +104,16 @@
    "name": "an unknown kind is skipped",
    "frameBase64": "sQkAAABfJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAADw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9KhR97BxmyDBiIJ/nBUmTCKk=",
    "expect": "skip"
+  },
+  {
+   "name": "an unknown kind with a bad tag is dropped and counted",
+   "frameBase64": "sQkAAABfJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAADw4NDAsKCQgHBgUETxZDnxxQpdpwrtsi43pT4VefKw0iKQyY5pFFqtDYypnMYlnT3No=",
+   "expect": "reject"
+  },
+  {
+   "name": "an unknown kind sealed as another kind",
+   "frameBase64": "sQkAAABfJDZkMWYyYzNiLTRhNTktNDY4Ny05YTFiLTJjM2Q0ZTVmNmE3YgAAAAAAAAAADw4NDAsKCQgHBgUE5kLYODyy1o6NvsIrGO77YAcVeQW9Ks5clEbLtyBmPlY+JU+U5pw=",
+   "expect": "reject"
   },
   {
    "name": "a tampered ciphertext",
@@ -638,6 +648,7 @@
    "bestBytesPerSecond": 40000000.0,
    "expect": {
     "route": "sameRouter",
+    "basis": "linkRates",
     "low": 38,
     "high": 56,
     "asExpected": true,
@@ -663,6 +674,7 @@
    "bestBytesPerSecond": 80000000.0,
    "expect": {
     "route": "sameRouter",
+    "basis": "linkRates",
     "low": 73,
     "high": 109,
     "asExpected": true,
@@ -688,6 +700,7 @@
    "bestBytesPerSecond": 3000000.0,
    "expect": {
     "route": "sameRouter",
+    "basis": "linkRates",
     "low": 8,
     "high": 13,
     "asExpected": false,
@@ -710,6 +723,7 @@
    "bestBytesPerSecond": 10000000.0,
    "expect": {
     "route": "sameRouter",
+    "basis": "typical",
     "low": 30,
     "high": 45,
     "asExpected": false,
@@ -738,6 +752,7 @@
    "bestBytesPerSecond": 5000000.0,
    "expect": {
     "route": "sameRouter",
+    "basis": "linkRates",
     "low": 38,
     "high": 56,
     "asExpected": false,
@@ -762,6 +777,7 @@
    "bestBytesPerSecond": 60000000.0,
    "expect": {
     "route": "macWired",
+    "basis": "linkRates",
     "low": 75,
     "high": 113,
     "asExpected": true,
@@ -785,6 +801,7 @@
    "bestBytesPerSecond": 80000000.0,
    "expect": {
     "route": "hotspot",
+    "basis": "linkRates",
     "low": 75,
     "high": 113,
     "asExpected": true,
@@ -804,6 +821,7 @@
    "bestBytesPerSecond": 20000000.0,
    "expect": {
     "route": "hotspot",
+    "basis": "typical",
     "low": 50,
     "high": 90,
     "asExpected": false,
@@ -825,8 +843,51 @@
    "bestBytesPerSecond": 200000000.0,
    "expect": {
     "route": "unknown",
-    "low": 30,
-    "high": 45,
+    "basis": "none",
+    "low": 0,
+    "high": 0,
+    "asExpected": true,
+    "advice": []
+   }
+  },
+  {
+   "name": "loopback (the emulator), slow: no estimate, so no verdict or advice",
+   "mac": {
+    "platform": "macos",
+    "network": "other"
+   },
+   "phone": {
+    "platform": "android",
+    "network": "other"
+   },
+   "bestBytesPerSecond": 5000000.0,
+   "expect": {
+    "route": "unknown",
+    "basis": "none",
+    "low": 0,
+    "high": 0,
+    "asExpected": true,
+    "advice": []
+   }
+  },
+  {
+   "name": "phone on Wi-Fi, Mac on another network (a VPN)",
+   "mac": {
+    "platform": "macos",
+    "network": "other"
+   },
+   "phone": {
+    "platform": "android",
+    "network": "wifi",
+    "band": "5",
+    "linkMbps": 1201
+   },
+   "bestBytesPerSecond": 2000000.0,
+   "expect": {
+    "route": "unknown",
+    "basis": "none",
+    "low": 0,
+    "high": 0,
     "asExpected": true,
     "advice": []
    }

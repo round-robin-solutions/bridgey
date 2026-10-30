@@ -133,17 +133,27 @@ enum SpeedFormat {
         var lines: [String] = []
         switch verdict.route {
         case .sameRouter:
-            lines.append(String(format: L10n.text("speed.verdict.sameRouter", fallback: "Both on the same router: expect %d to %d MB/s."), low, high))
+            lines.append(L10n.text("speed.route.sameRouter", fallback: "Route: both on the same router, so every byte crosses the air twice."))
         case .macWired:
-            lines.append(String(format: L10n.text("speed.verdict.macWired", fallback: "Mac on Ethernet, phone on Wi-Fi: expect %d to %d MB/s."), low, high))
+            lines.append(L10n.text("speed.route.macWired", fallback: "Route: Mac on Ethernet, phone on Wi-Fi."))
         case .hotspot:
-            lines.append(String(format: L10n.text("speed.verdict.hotspot", fallback: "Mac on the phone\u{2019}s hotspot, one Wi-Fi hop: expect %d to %d MB/s."), low, high))
+            lines.append(L10n.text("speed.route.hotspot", fallback: "Route: Mac on the phone\u{2019}s hotspot, one Wi-Fi hop."))
         case .unknown:
-            lines.append(String(format: L10n.text("speed.verdict.unknown", fallback: "On a typical Wi-Fi 6 router, expect %d to %d MB/s."), low, high))
+            lines.append(L10n.text("speed.route.unknown", fallback: "Route: not Wi-Fi or Ethernet on both sides (for example a cable, a VPN or an emulator), so there is no estimate to compare with."))
         }
-        lines.append(verdict.asExpected
-            ? L10n.text("speed.verdict.ok", fallback: "Your connection reaches that.")
-            : L10n.text("speed.verdict.slow", fallback: "Your connection is slower than that."))
+        switch verdict.basis {
+        case .linkRates:
+            lines.append(String(format: L10n.text("speed.estimate.linkRates", fallback: "Estimate: %d to %d MB/s, from the Wi-Fi link rates (Wi-Fi usually carries half to three quarters of its link rate)."), low, high))
+        case .typical:
+            lines.append(String(format: L10n.text("speed.estimate.typical", fallback: "Estimate: %d to %d MB/s, typical for Wi-Fi 6 (the link rate was not readable)."), low, high))
+        case .none:
+            break
+        }
+        if verdict.basis != .none {
+            lines.append(verdict.asExpected
+                ? L10n.text("speed.verdict.ok", fallback: "The test reached the estimate.")
+                : L10n.text("speed.verdict.slow", fallback: "The test was slower than the estimate."))
+        }
         for advice in verdict.advice {
             switch advice {
             case .phone24: lines.append(L10n.text("speed.advice.phone24", fallback: "The phone is on 2.4 GHz. Join the router\u{2019}s 5 GHz network or move closer."))

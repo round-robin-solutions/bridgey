@@ -156,18 +156,25 @@ internal sealed interface SpeedPayload {
 /** What the numbers mean, in plain words. Both apps use the same rules (SpeedTest.swift). */
 data class SpeedVerdict(
     val route: Route,
-    /** What this route usually gives, in MB/s, from the link rates when both are readable. */
+    /** Where the estimate comes from; [Basis.NONE] (no estimate) when the route is not Wi-Fi or Ethernet. */
+    val basis: Basis,
+    /** The estimate for this route, in MB/s (0 without one). */
     val expectedLow: Int,
     val expectedHigh: Int,
-    /** The better direction reached at least 70% of the low end. */
+    /** The better direction reached at least 70% of the low end (always true without an estimate). */
     val asExpected: Boolean,
     val advice: List<Advice>,
 ) {
     enum class Route { SAME_ROUTER, MAC_WIRED, HOTSPOT, UNKNOWN }
+    enum class Basis { LINK_RATES, TYPICAL, NONE }
     enum class Advice { PHONE_24, MAC_24, SCREEN_OFF, WEAK_LINK, TRY_HOTSPOT }
 
     companion object {
-        /** Goodput over one Wi-Fi hop is about half to three quarters of the transmit rate (docs/transfer-speed.md). */
+        /**
+         * Goodput over one Wi-Fi hop is about half to three quarters of the transmit rate: phones on Wi-Fi 6 (2x2,
+         * 80 MHz, a 1,201 Mbit/s link) measured 900 Mbit/s down and 540 to 600 up (Aggarwal et al., INFOCOM 2021; see
+         * docs/transfer-speed.md). Estimates, not measurements of this app.
+         */
         private const val EFFICIENCY_LOW = 0.5
         private const val EFFICIENCY_HIGH = 0.75
 
@@ -178,18 +185,25 @@ data class SpeedVerdict(
                 mac?.network == "wifi" && phone.network == "wifi" -> Route.SAME_ROUTER
                 else -> Route.UNKNOWN
             }
+            // Not Wi-Fi or Ethernet on both sides (a cable, a VPN, an emulator): nothing to compare with.
+            if (route == Route.UNKNOWN) return SpeedVerdict(route, Basis.NONE, 0, 0, true, emptyList())
             fun range(mbps: Double): Pair<Int, Int> =
                 Math.round(mbps * EFFICIENCY_LOW / 8).toInt() to Math.round(mbps * EFFICIENCY_HIGH / 8).toInt()
-            val (low, high) = when (route) {
+            // Typical values when a link rate is not readable: Wi-Fi 6, 2x2, 80 MHz (the same source).
+            val rate: Double? = when (route) {
                 Route.SAME_ROUTER -> {
                     val a = mac?.linkMbps
                     val b = phone.linkMbps
                     // Through one access point every byte crosses the air twice: the two hops share the airtime.
-                    if (a != null && b != null && a > 0 && b > 0) range(1 / (1 / a.toDouble() + 1 / b.toDouble())) else 30 to 45
+                    if (a != null && b != null && a > 0 && b > 0) 1 / (1 / a.toDouble() + 1 / b.toDouble()) else null
                 }
-                Route.MAC_WIRED -> phone.linkMbps?.let { range(it.toDouble()) } ?: (50 to 75)
-                Route.HOTSPOT -> mac?.linkMbps?.let { range(it.toDouble()) } ?: (50 to 90)
-                Route.UNKNOWN -> 30 to 45
+                Route.MAC_WIRED -> phone.linkMbps?.toDouble()
+                else -> mac?.linkMbps?.toDouble()
+            }
+            val (low, high) = rate?.let(::range) ?: when (route) {
+                Route.SAME_ROUTER -> 30 to 45
+                Route.MAC_WIRED -> 50 to 75
+                else -> 50 to 90
             }
             val asExpected = bestBytesPerSecond / 1_000_000 >= low * 0.7
             val advice = buildList {
@@ -201,7 +215,7 @@ data class SpeedVerdict(
                 }
                 if (route == Route.SAME_ROUTER) add(Advice.TRY_HOTSPOT)
             }
-            return SpeedVerdict(route, low, high, asExpected, advice)
+            return SpeedVerdict(route, if (rate != null) Basis.LINK_RATES else Basis.TYPICAL, low, high, asExpected, advice)
         }
     }
 }
@@ -240,8 +254,11 @@ data class SpeedReport(
             "Round trip: ${ms(roundTripMs)} idle, ${ms(loadedRoundTripMs)} during the test",
             "Mac link: ${link(mac)}",
             "Phone link: ${link(phone)}",
-            "Route: ${verdict.route.name.lowercase()}; expected ${verdict.expectedLow} to ${verdict.expectedHigh} MB/s; " +
-                if (verdict.asExpected) "as expected" else "below expected",
+            "Route: ${verdict.route.name.lowercase()}; " + when (verdict.basis) {
+                SpeedVerdict.Basis.NONE -> "no estimate"
+                SpeedVerdict.Basis.LINK_RATES -> "estimate ${verdict.expectedLow} to ${verdict.expectedHigh} MB/s from the link rates; "
+                SpeedVerdict.Basis.TYPICAL -> "estimate ${verdict.expectedLow} to ${verdict.expectedHigh} MB/s, typical for Wi-Fi 6; "
+            } + if (verdict.basis == SpeedVerdict.Basis.NONE) "" else if (verdict.asExpected) "reached" else "below the estimate",
         ).joinToString("\n")
     }
 }

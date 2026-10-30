@@ -1540,7 +1540,7 @@ authentication the byte is just an invalid JSON frame, as it always was. Integer
 | Bytes | Field | Rule |
 | --- | --- | --- |
 | 0 | marker | `0xB1` |
-| 1 | kind | `1` file chunk, `2` speed test bytes; other kinds are skipped whole and the session stays |
+| 1 | kind | `1` file chunk, `2` speed test bytes; another kind is skipped whole once its tag verifies, and the session stays |
 | 2 to 5 | length | of what follows, 1 to 1,048,677; anything else closes the session |
 | 6 | ID length | 1 to 64 |
 | 7 to 6+L | ID | printable ASCII (0x21 to 0x7E): the transfer ID exactly as in `files.offer`, or the test ID |
@@ -1556,10 +1556,12 @@ sequence (decimal). So a frame cannot be moved to another transfer, position or 
 that sent it (its own ID is not the sender the receiver checks), and nobody without the session key can make one.
 
 **Replay.** Binary frames do not enter the `messageId` window. Each side remembers, per kind and ID, the highest
-sequence it took (the last 256 IDs) and drops a frame that does not raise it; file transfers additionally require the
-next sequence exactly, as JSON chunks always did.
+sequence it took (for the 256 most recently used IDs, so a long transfer is never forgotten while short ones come and
+go) and drops a frame that does not raise it; file transfers additionally require the next sequence exactly, as JSON
+chunks always did, and only from the device the transfer is with.
 
-**Bad frames.** A binary frame that fails its tag, is malformed inside its body or is a replay is dropped and counted
+**Bad frames.** A binary frame of any kind that fails its tag, is malformed inside its body or is a replay is dropped
+and counted
 with the frames dropped for a bad envelope tag; 16 close the connection, as for JSON. A header with a length outside
 1 to 1,048,677 closes the session at once, because the stream can no longer be split into frames.
 

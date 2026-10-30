@@ -75,6 +75,8 @@ v("a 64-byte ID", frame(1, body(1, "i" * 64, 0, small)), ok(1, "i" * 64, 0, smal
 mid = bytes((i * 7) & 0xFF for i in range(4096))
 v("a 4 KiB chunk", frame(1, body(1, T, 3, mid)), ok(1, T, 3, mid), write=True)
 v("an unknown kind is skipped", frame(9, body(9, T, 0, small)), "skip")
+v("an unknown kind with a bad tag is dropped and counted", frame(9, body(9, T, 0, small, key=OTHER_KEY)), "reject")
+v("an unknown kind sealed as another kind", frame(9, body(9, T, 0, small, aad_kind=1)), "reject")
 v("a tampered ciphertext", frame(1, body(1, T, 0, small)[:-17] + bytes([body(1, T, 0, small)[-17] ^ 1]) + body(1, T, 0, small)[-16:]), "reject")
 v("a moved sequence (not what the tag covers)", frame(1, body(1, T, 5, small, aad_sequence=4)), "reject")
 v("another kind's tag", frame(1, body(1, T, 0, small, aad_kind=2)), "reject")
@@ -152,23 +154,24 @@ def half_up(x):
 
 
 def expected(route, mac, phone):
-    """The same rule as both apps: goodput is 50% to 75% of the transmit rate; through one router the hops share airtime."""
+    """The same rule as both apps: goodput is 50% to 75% of the transmit rate; through one router the hops share airtime.
+    Returns (low, high, basis): basis "linkRates" from readable rates, "typical" (Wi-Fi 6 defaults) or "none"."""
     def rng(mbps):
         return half_up(mbps * EFFICIENCY[0] / 8), half_up(mbps * EFFICIENCY[1] / 8)
     if route == "sameRouter":
         a, b = mac.get("linkMbps"), phone.get("linkMbps")
-        return rng(1 / (1 / a + 1 / b)) if a and b else (30, 45)
+        return (*rng(1 / (1 / a + 1 / b)), "linkRates") if a and b else (30, 45, "typical")
     if route == "macWired":
-        return rng(phone["linkMbps"]) if phone.get("linkMbps") else (50, 75)
+        return (*rng(phone["linkMbps"]), "linkRates") if phone.get("linkMbps") else (50, 75, "typical")
     if route == "hotspot":
-        return rng(mac["linkMbps"]) if mac.get("linkMbps") else (50, 90)
-    return (30, 45)
+        return (*rng(mac["linkMbps"]), "linkRates") if mac.get("linkMbps") else (50, 90, "typical")
+    return (0, 0, "none")
 
 
 def vd(name, mac, phone, best, route, as_expected, advice):
-    low, high = expected(route, mac, phone)
+    low, high, basis = expected(route, mac, phone)
     verdicts.append({"name": name, "mac": mac, "phone": phone, "bestBytesPerSecond": best,
-                     "expect": {"route": route, "low": low, "high": high, "asExpected": as_expected, "advice": advice}})
+                     "expect": {"route": route, "basis": basis, "low": low, "high": high, "asExpected": as_expected, "advice": advice}})
 
 
 wifi = lambda platform, mbps, band="5", **kw: {"platform": platform, "network": "wifi", "band": band, "linkMbps": mbps, **kw}
@@ -185,15 +188,20 @@ vd("Mac on the phone's hotspot", wifi("macos", 1201), {"platform": "android", "n
    "hotspot", True, [])
 vd("hotspot, Mac rate unknown", {"platform": "macos", "network": "wifi"}, {"platform": "android", "network": "hotspot"}, 20e6, "hotspot", False, ["weakLink"])
 vd("loopback (the emulator)", {"platform": "macos", "network": "other"}, {"platform": "android", "network": "other"}, 200e6, "unknown", True, [])
+vd("loopback (the emulator), slow: no estimate, so no verdict or advice", {"platform": "macos", "network": "other"},
+   {"platform": "android", "network": "other"}, 5e6, "unknown", True, [])
+vd("phone on Wi-Fi, Mac on another network (a VPN)", {"platform": "macos", "network": "other"}, wifi("android", 1201), 2e6, "unknown", True, [])
 
 out = {
     "description": "Fast transfers (draft files_fast_draft1, docs/protocol.md 'Fast transfers' and 'Speed test'). The key is bytes 0 to 31, base64 in 'keyBase64'; "
                    "every frame is sent by 'senderDeviceId' and read by 'receiverDeviceId' (the associated data binds the sender). "
-                   "fastFrame: 'frameBase64' is one whole binary frame, header included; expect is the decoded kind, id, sequence and plaintext, 'skip' (an unknown kind: "
-                   "dropped whole, the session stays) or 'reject' (the session closes). 'write': true means both platforms also produce exactly these bytes from the expected "
+                   "fastFrame: 'frameBase64' is one whole binary frame, header included; expect is the decoded kind, id, sequence and plaintext, 'skip' (an unknown kind whose tag "
+                   "verifies: dropped whole, the session stays) or 'reject' (a bad length closes the session; anything else is dropped and counted "
+                   "like a frame with a bad envelope tag, 16 close the session). 'write': true means both platforms also produce exactly these bytes from the expected "
                    "fields with the nonce in 'nonceBase64'. 'zeroPadTo': N appends zero bytes until the frame is N bytes long. speedPayload: the JSON plaintext of a speed.* message of 'kind'; 'plaintext' is serialised by each platform's own "
                    "encoder, 'plaintextString' is used byte for byte; absent optional values are null in expect; test IDs compare lowercased. speedVerdict: the plain-words "
-                   "verdict both apps show for the two links and the better direction's bytes a second.",
+                   "verdict both apps show for the two links and the better direction's bytes a second; 'basis' says where the estimate comes from "
+                   "('linkRates', 'typical' for Wi-Fi 6 when a rate is not readable, or 'none': no estimate, low and high 0).",
     "keyBase64": b64(KEY),
     "senderDeviceId": SENDER,
     "receiverDeviceId": RECEIVER,

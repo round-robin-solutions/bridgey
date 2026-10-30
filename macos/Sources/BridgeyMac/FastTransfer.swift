@@ -111,10 +111,12 @@ func openFastFrameBody(kind: UInt8, body: Data, key: Data, sender: String) throw
 
 /// Binary frames do not enter the messageId window. Instead each kind and ID must carry a higher sequence than the last
 /// frame taken with them (file chunks follow on 0, 1, 2, ...; speed test bytes too), so a frame recorded and sent again
-/// is dropped before it reaches a transfer. Remembers the last 256 IDs; an older ID's late frames are still refused by
-/// its transfer, which has ended.
+/// is dropped before it reaches a transfer. Remembers the 256 most recently used IDs, so a long transfer that keeps
+/// sending is never forgotten while short ones come and go. A forgotten ID's replayed frame still reaches no data:
+/// every receiver takes only the exact next sequence of a transfer it owns.
 struct FastReplayGuard {
     private var highest: [String: Int64] = [:]
+    /// Least recently used first.
     private var order: [String] = []
     let capacity = 256
 
@@ -122,6 +124,10 @@ struct FastReplayGuard {
         let key = "\(payload.kind):\(payload.id)"
         if let last = highest[key] {
             guard payload.sequence > last else { return false }
+            if order.last != key, let index = order.lastIndex(of: key) {
+                order.remove(at: index)
+                order.append(key)
+            }
         } else {
             order.append(key)
             if order.count > capacity { highest.removeValue(forKey: order.removeFirst()) }

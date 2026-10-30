@@ -31,8 +31,9 @@ final class FastTransferVectorsTests: XCTestCase {
         reader.append(frame)
         guard let next = try? reader.nextFrame() else { return "reject" }
         guard case let .binary(kind, body) = next else { return "reject" }
-        guard kind == FastFrame.chunkKind || kind == FastFrame.speedKind else { return "skip" }
+        // As Session.parse: the tag first, whatever the kind; then a genuine unknown kind is skipped.
         guard let payload = try? openFastFrameBody(kind: kind, body: body, key: key, sender: sender) else { return "reject" }
+        guard kind == FastFrame.chunkKind || kind == FastFrame.speedKind else { return "skip" }
         return ["kind": Int(payload.kind), "id": payload.id, "sequence": payload.sequence, "plaintextBase64": payload.plaintext.base64EncodedString()]
     }
 
@@ -101,7 +102,7 @@ final class FastTransferVectorsTests: XCTestCase {
             let mac = try XCTUnwrap(SpeedLink.decode(vector["mac"]))
             let phone = SpeedLink.decode(vector["phone"])
             let verdict = SpeedVerdict.evaluate(mac: mac, phone: phone, best: vector["bestBytesPerSecond"] as! Double)
-            let decoded: [String: Any] = ["route": verdict.route.rawValue, "low": Int(verdict.expected.lowerBound), "high": Int(verdict.expected.upperBound),
+            let decoded: [String: Any] = ["route": verdict.route.rawValue, "basis": verdict.basis.rawValue, "low": Int(verdict.expected.lowerBound), "high": Int(verdict.expected.upperBound),
                                           "asExpected": verdict.asExpected, "advice": verdict.advice.map(\.rawValue)]
             return NSDictionary(dictionary: decoded).isEqual(to: vector["expect"] as! [String: Any])
         }
@@ -178,6 +179,21 @@ final class FastTransferTests: XCTestCase {
         // The same sequence under another kind or transfer is its own stream.
         XCTAssertTrue(guardWindow.accept(FastFramePayload(kind: 2, id: "t", sequence: 0, plaintext: Data())))
         XCTAssertTrue(guardWindow.accept(FastFramePayload(kind: 1, id: "u", sequence: 0, plaintext: Data())))
+    }
+
+    /// Security review 2026-10-30: a long transfer stays remembered while 256 short ones come and go.
+    func testReplayGuardForgetsTheLeastRecentlyUsedTransfer() {
+        var guardWindow = FastReplayGuard()
+        func frame(_ id: String, _ sequence: Int64) -> FastFramePayload { FastFramePayload(kind: 1, id: id, sequence: sequence, plaintext: Data()) }
+        XCTAssertTrue(guardWindow.accept(frame("long", 0)))
+        for index in 0..<300 {
+            XCTAssertTrue(guardWindow.accept(frame("short-\(index)", 0)))
+            XCTAssertTrue(guardWindow.accept(frame("long", Int64(index) + 1)))
+        }
+        XCTAssertFalse(guardWindow.accept(frame("long", 5)), "the long transfer's old frame is still refused")
+        // The oldest short transfer was forgotten; the most recent ones are not.
+        XCTAssertTrue(guardWindow.accept(frame("short-0", 0)))
+        XCTAssertFalse(guardWindow.accept(frame("short-299", 0)))
     }
 
     func testWithoutBinaryAllowedTheMarkerIsAnInvalidJSONFrame() {

@@ -139,6 +139,10 @@ internal class ClipboardInbox(
 
     fun handles(transferId: String?): Boolean = transferId != null && synchronized(lock) { transfers.containsKey(transferId) }
 
+    /** [transferId] is a transfer with [deviceId]: chunks from any other device are ignored. */
+    fun isTransfer(transferId: String, deviceId: String): Boolean =
+        synchronized(lock) { transfers[transferId]?.received?.deviceId == deviceId }
+
     /** A new offer from [link]'s device: supersede the previous one and put this one on the clipboard. */
     fun accept(offer: ClipOffer, link: ClipboardLink) {
         val received = ReceivedClipOffer(offer, link.deviceId, link.peerName, clock())

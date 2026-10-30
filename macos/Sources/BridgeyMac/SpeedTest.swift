@@ -141,17 +141,21 @@ enum SpeedPayload: Equatable {
 /// What the numbers mean, in plain words. Both apps use the same rules (SpeedTest.kt).
 struct SpeedVerdict: Equatable {
     enum Route: String { case sameRouter, macWired, hotspot, unknown }
+    /// Where the estimate comes from: the link rates, typical Wi-Fi 6 values, or none (the route is not Wi-Fi or Ethernet).
+    enum Basis: String { case linkRates, typical, none }
     enum Advice: String { case phone24, mac24, screenOff, weakLink, tryHotspot }
 
     let route: Route
-    /// What this route usually gives, in MB/s, from the link rates when both are readable.
+    let basis: Basis
+    /// The estimate for this route, in MB/s (0...0 without one).
     let expected: ClosedRange<Double>
-    /// The better direction reached at least 70% of the low end.
+    /// The better direction reached at least 70% of the low end (always true without an estimate).
     let asExpected: Bool
     let advice: [Advice]
 
-    /// Goodput over one Wi-Fi hop is about half to three quarters of the transmit rate (airtime overhead and
-    /// acknowledgements; a OnePlus 11 measured 1.9 Gbit/s over a 2.6 Gbit/s link at 3 m, docs/transfer-speed.md).
+    /// Goodput over one Wi-Fi hop is about half to three quarters of the transmit rate: phones on Wi-Fi 6 (2x2, 80 MHz,
+    /// a 1,201 Mbit/s link) measured 900 Mbit/s down and 540 to 600 up (Aggarwal et al., INFOCOM 2021; see
+    /// docs/transfer-speed.md). Estimates, not measurements of this app.
     static let efficiency: ClosedRange<Double> = 0.5...0.75
 
     static func evaluate(mac: SpeedLink, phone: SpeedLink?, best bytesPerSecond: Double) -> SpeedVerdict {
@@ -160,25 +164,23 @@ struct SpeedVerdict: Equatable {
         else if mac.network == "ethernet", phone?.network == "wifi" { route = .macWired }
         else if mac.network == "wifi", phone?.network == "wifi" { route = .sameRouter }
         else { route = .unknown }
-        let expected: ClosedRange<Double>
+        // Not Wi-Fi or Ethernet on both sides (a cable, a VPN, an emulator): nothing to compare with.
+        if route == .unknown { return SpeedVerdict(route: route, basis: .none, expected: 0...0, asExpected: true, advice: []) }
         func mbps(_ value: Double) -> ClosedRange<Double> {
             (value * efficiency.lowerBound / 8).rounded()...(value * efficiency.upperBound / 8).rounded()
         }
+        let rate: Double?
         switch route {
         case .sameRouter:
-            if let a = mac.linkMbps, let b = phone?.linkMbps, a > 0, b > 0 {
-                // Through one access point every byte crosses the air twice: the two hops share the airtime.
-                expected = mbps(1 / (1 / Double(a) + 1 / Double(b)))
-            } else {
-                expected = 30...45
-            }
+            // Through one access point every byte crosses the air twice: the two hops share the airtime.
+            if let a = mac.linkMbps, let b = phone?.linkMbps, a > 0, b > 0 { rate = 1 / (1 / Double(a) + 1 / Double(b)) } else { rate = nil }
         case .macWired:
-            expected = phone?.linkMbps.map { mbps(Double($0)) } ?? 50...75
-        case .hotspot:
-            expected = mac.linkMbps.map { mbps(Double($0)) } ?? 50...90
-        case .unknown:
-            expected = 30...45
+            rate = phone?.linkMbps.map(Double.init)
+        default:
+            rate = mac.linkMbps.map(Double.init)
         }
+        // Typical values when a link rate is not readable: Wi-Fi 6, 2x2, 80 MHz (the same source).
+        let expected = rate.map(mbps) ?? (route == .sameRouter ? 30...45 : route == .macWired ? 50...75 : 50...90)
         let megabytes = bytesPerSecond / 1_000_000
         let asExpected = megabytes >= expected.lowerBound * 0.7
         var advice: [Advice] = []
@@ -189,7 +191,7 @@ struct SpeedVerdict: Equatable {
             if advice.isEmpty { advice.append(.weakLink) }
         }
         if route == .sameRouter { advice.append(.tryHotspot) }
-        return SpeedVerdict(route: route, expected: expected, asExpected: asExpected, advice: advice)
+        return SpeedVerdict(route: route, basis: rate == nil ? .typical : .linkRates, expected: expected, asExpected: asExpected, advice: advice)
     }
 }
 
@@ -224,7 +226,14 @@ struct SpeedReport: Equatable {
             "Round trip: \(roundTripMs.map { String(format: "%.0f ms", $0) } ?? "n/a") idle, \(loadedRoundTripMs.map { String(format: "%.0f ms", $0) } ?? "n/a") during the test",
             "Mac link: \(link(mac))",
             "Phone link: \(link(phone))",
-            "Route: \(verdict.route.rawValue); expected \(Int(verdict.expected.lowerBound)) to \(Int(verdict.expected.upperBound)) MB/s; \(verdict.asExpected ? "as expected" : "below expected")",
+            "Route: \(verdict.route.rawValue); " + {
+                let range = "\(Int(verdict.expected.lowerBound)) to \(Int(verdict.expected.upperBound)) MB/s"
+                switch verdict.basis {
+                case .none: return "no estimate"
+                case .linkRates: return "estimate \(range) from the link rates; " + (verdict.asExpected ? "reached" : "below the estimate")
+                case .typical: return "estimate \(range), typical for Wi-Fi 6; " + (verdict.asExpected ? "reached" : "below the estimate")
+                }
+            }(),
         ].joined(separator: "\n")
     }
 }

@@ -3173,6 +3173,8 @@ final class PairingCoordinator: ObservableObject {
             current.send(PairingMessage(kind: "files.chunk.ack", sessionId: current.id, transferId: transferID, sequence: sequence))
         }
         if clipboardInbox.owns(transferID) {
+            // Only the phone the clipboard transfer is with, as for JSON chunks.
+            guard clipboardInbox.isTransfer(transferID, from: current.remoteDeviceID) else { return }
             if clipboardInbox.handleChunk(transferID: transferID, sequence: sequence, data: payload.plaintext,
                                           maximumChunk: FastFrame.maximumPlaintext) {
                 acknowledge()
@@ -3184,7 +3186,9 @@ final class PairingCoordinator: ObservableObject {
             return
         }
         if incomingFiles[transferID] == nil, cancelledTransferIDs.contains(transferID) { return }
-        guard let transfer = incomingFiles[transferID], transferDevices[transferID] == current.remoteDeviceID,
+        // Another phone's transfer is ignored, never cancelled: same order as JSON chunks.
+        if incomingFiles[transferID] != nil, !transferOwned(transferID, by: current) { return }
+        guard let transfer = incomingFiles[transferID],
               (try? transfer.append(payload.plaintext, sequence: sequence, maximumChunk: FastFrame.maximumPlaintext)) != nil else {
             if let transfer = incomingFiles.removeValue(forKey: transferID) { transfer.cancel() }
             if current.failure == nil { current.failure = .invalid }
@@ -5186,15 +5190,22 @@ private final class Session {
     /// A binary frame was dropped (FastTransfer.swift); the coordinator counts it with the frames dropped for bad tags.
     var onFastDropped: ((String) -> Void)?
 
+    /// Until the session is authenticated, reads are 64 KiB and the next one starts only after the main thread has
+    /// handled the last batch, as before fast transfers, so an unauthenticated peer cannot queue work faster than the
+    /// main thread drops it. Once authenticated (binary frames allowed), reads are 1 MiB and start at once.
     func receive() {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 20) { [weak self] data, _, complete, error in
+        let authenticated = binaryContext != nil
+        connection.receive(minimumIncompleteLength: 1, maximumLength: authenticated ? 1 << 20 : 1 << 16) { [weak self] data, _, complete, error in
             guard let self else { return }
             self.receiveQueue.async { self.parse(data, ended: complete || error != nil, error: error) }
         }
     }
 
-    /// On `receiveQueue`: frames are decoded (and binary ones decrypted) in arrival order, the next read starts at
-    /// once, and the main thread gets the batch in the same order. A bad frame ends the batch and the session.
+    /// Set by `close()`: events already parsed are no longer delivered.
+    private var closed = false
+
+    /// On `receiveQueue`: frames are decoded (and binary ones decrypted) in arrival order and the main thread gets the
+    /// batch in the same order. A bad frame ends the batch and the session.
     private func parse(_ data: Data?, ended: Bool, error: NWError?) {
         if let data { frames.append(data) }
         let context = binaryContext
@@ -5208,13 +5219,15 @@ private final class Session {
                 case let .message(message):
                     events.append(.message(message))
                 case let .binary(kind, body):
-                    // Unknown binary kinds are skipped whole, like unknown message kinds.
-                    guard kind == FastFrame.chunkKind || kind == FastFrame.speedKind, let context else { continue }
-                    // Like a frame with a bad envelope tag: a forged, damaged or reflected frame is dropped and counted.
+                    guard let context else { continue }
+                    // Like a frame with a bad envelope tag: a forged, damaged or reflected frame is dropped and counted,
+                    // whatever its kind (the kind is in the associated data).
                     guard let payload = try? openFastFrameBody(kind: kind, body: body, key: context.key, sender: context.remote) else {
                         events.append(.dropped("bad_binary_tag"))
                         continue
                     }
+                    // A genuine frame of a kind this version does not know is skipped, like an unknown message kind.
+                    guard kind == FastFrame.chunkKind || kind == FastFrame.speedKind else { continue }
                     guard fastReplay.accept(payload) else {
                         events.append(.dropped("binary_replay"))
                         continue
@@ -5231,10 +5244,13 @@ private final class Session {
             BridgeyLog.transport.error("protocol frame exceeded size limit")
             failure = "frame_too_large"
         }
-        if failure == nil, !ended { receive() }
+        let readAhead = context != nil
+        if failure == nil, !ended, readAhead { receive() }
         DispatchQueue.main.async {
             for event in events {
-                self.lastReceivedAt = Date()
+                if self.closed { break }
+                // Dropped frames do not count as signs of life.
+                if case .dropped = event {} else { self.lastReceivedAt = Date() }
                 switch event {
                 case let .message(message): self.onMessage?(message)
                 case let .fast(payload): self.onFast?(payload)
@@ -5250,11 +5266,16 @@ private final class Session {
                     self.dropReason = error.map(connectionDropReason) ?? "closed_by_peer"
                 }
                 self.onFailure?()
+            } else if !readAhead, !self.closed {
+                self.receive()
             }
         }
     }
 
-    func close() { connection.cancel() }
+    func close() {
+        closed = true
+        connection.cancel()
+    }
 
     /// A pairing.cancel (or any last word) that must reach the phone: a plain close drops a send still queued, so
     /// the connection closes once this has gone out. Nothing more is read from the session meanwhile.

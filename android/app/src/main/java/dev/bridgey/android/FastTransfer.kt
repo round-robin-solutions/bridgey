@@ -123,11 +123,13 @@ internal fun openFastFrameBody(kind: Int, body: ByteArray, key: ByteArray, sende
 /**
  * Binary frames do not enter the messageId window. Instead each kind and ID must carry a higher sequence than the last
  * frame taken with them (file chunks follow on 0, 1, 2, ...; speed test bytes too), so a frame recorded and sent again is
- * dropped before it reaches a transfer. Remembers the last 256 IDs; an older ID's late frames are still refused by its
- * transfer, which has ended. Used by one read loop.
+ * dropped before it reaches a transfer. Remembers the 256 most recently used IDs, so a long transfer that keeps sending is
+ * never forgotten while short ones come and go. A forgotten ID's replayed frame still reaches no data: every receiver
+ * takes only the exact next sequence of a transfer it owns. Used by one read loop.
  */
 internal class FastReplayGuard(private val capacity: Int = 256) {
-    private val highest = LinkedHashMap<String, Long>()
+    /** In access order: least recently used first. */
+    private val highest = LinkedHashMap<String, Long>(16, 0.75f, true)
 
     fun accept(payload: FastFramePayload): Boolean {
         val key = "${payload.kind}:${payload.id}"
