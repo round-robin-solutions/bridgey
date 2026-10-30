@@ -435,8 +435,10 @@ impl IceAgent {
         }
         let mut since_upgrade_scan = Duration::ZERO;
         loop {
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            since_upgrade_scan += Duration::from_secs(5);
+            // A check every 15 s matches the QUIC keep-alive on NATed paths: a radio wake-up shared by both,
+            // and 3 misses (45 s) end a pair, as spec 4.6 says. Network changes restart the race at once.
+            tokio::time::sleep(Duration::from_secs(15)).await;
+            since_upgrade_scan += Duration::from_secs(15);
             let (selected_path, better) = {
                 let st = self.state.lock().unwrap();
                 if st.closed {
@@ -475,7 +477,7 @@ impl IceAgent {
                 continue;
             }
             // Better pairs: for the first 10 s every tick, then every 60 s; three passes in a row to move.
-            let scan = self.started.elapsed() < Duration::from_secs(20) || since_upgrade_scan >= Duration::from_secs(60);
+            let scan = self.started.elapsed() < Duration::from_secs(35) || since_upgrade_scan >= Duration::from_secs(60);
             if scan && !better.is_empty() {
                 since_upgrade_scan = Duration::ZERO;
                 for (i, path) in better {

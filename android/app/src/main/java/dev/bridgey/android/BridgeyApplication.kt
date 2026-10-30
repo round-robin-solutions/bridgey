@@ -47,6 +47,10 @@ class BridgeyApplication : Application() {
         private set
     lateinit var updater: AppUpdater
         private set
+
+    /** Update all (draft updates_draft1): this phone's status to the Macs, their requests, and runs from here. */
+    lateinit var updateAll: dev.bridgey.android.updates.UpdateAllCoordinator
+        private set
     lateinit var activityLog: ActivityLog
         private set
     lateinit var activity: ActivityRecorder
@@ -60,6 +64,10 @@ class BridgeyApplication : Application() {
     lateinit var remoteInput: RemoteInputController
         private set
     lateinit var remotePreferences: RemoteInputPreferences
+        private set
+
+    /** Share screen with Macs (draft screen_draft1): consent, the stream and its state. */
+    lateinit var screenShare: dev.bridgey.android.screen.ScreenShareHub
         private set
 
     /** Codes from messages: whether Android shows Bridgey the text of code SMS (companion link). */
@@ -124,6 +132,7 @@ class BridgeyApplication : Application() {
         uiPreferences = UiPreferences(this)
         activityLog = ActivityLog(File(noBackupFilesDir, ActivityLog.FILE_NAME), Executors.newSingleThreadExecutor())
         activity = ActivityRecorder(activityLog, pairing, applicationScope) { uiPreferences.showPreviews.value }.also { it.start() }
+        startSettingsSync()
         backgroundClipboardSource = LogcatClipboardSource(
             this,
             packageName,
@@ -172,9 +181,41 @@ class BridgeyApplication : Application() {
         }
         startRemoteInput()
         startCodeAccess()
+        startUpdateAll()
         startCamera()
+        startBlockedNumbers()
+        screenShare = dev.bridgey.android.screen.ScreenShareHub(this, pairing) { startedActivityCount > 0 }
+        pairing.screenListener = screenShare
         registerForegroundClipboardWatcher()
         if (preferences.getBoolean(PREFERENCE_ENABLED, true)) enableBridgey()
+    }
+
+    /**
+     * Settings sync (settings_sync_draft1): this phone's settings and feature switches, kept the same as on the Macs
+     * that sync. Every change a Mac makes here is an activity item; a feature it turns on that needs a permission here
+     * also posts a notification.
+     */
+    private fun startSettingsSync() {
+        val sync = pairing.settingsSync
+        sync.attach(dev.bridgey.android.sync.phoneSyncedSettings(settings, uiPreferences, dev.bridgey.android.sync.AndroidSyncPermissions(this)))
+        sync.onSynced = { deviceId, deviceName, changes ->
+            activityLog.record(
+                dev.bridgey.android.activity.ActivityKind.SETTINGS_SYNCED, deviceId, deviceName,
+                detail = dev.bridgey.android.sync.SyncDetail.encode(changes),
+            )
+        }
+        // A Mac's change is an activity item; it notifies only when this phone must give a permission (Rahul, 2026-10-27).
+        sync.onNeedsPermission = { _, deviceName, key -> dev.bridgey.android.sync.SyncNotifier.needsPermission(this, deviceName, key) }
+        applicationScope.launch {
+            // Any synced setting changed here (Settings, setup, shortcuts, a Mac's change being applied): the
+            // controller stamps only what differs from its record, so applied changes are never sent back.
+            combine(settings.state, uiPreferences.reduceMotion, uiPreferences.showPreviews) { _, _, _ -> }.collect { sync.localChanged() }
+        }
+    }
+
+    /** The app came to the front: a permission may have changed, so the Macs hear the new waiting list. */
+    fun syncPermissionsChanged() {
+        if (::pairing.isInitialized) pairing.settingsSync.permissionsChanged()
     }
 
     private fun startRemoteInput() {
@@ -231,6 +272,18 @@ class BridgeyApplication : Application() {
             }
         }
         pairing.cameraEnded = { request -> dev.bridgey.android.camera.CameraNotifier.dismiss(this, request.deviceId) }
+    }
+
+    /** Block on phone, from a Mac's Messages window (sms.blocked_numbers). */
+    private fun startBlockedNumbers() {
+        pairing.openBlockedNumbers = { address -> dev.bridgey.android.sms.BlockedNumbers.open(this, address, startedActivityCount > 0) }
+    }
+
+    private fun startUpdateAll() {
+        updater.isForeground = { startedActivityCount > 0 }
+        updateAll = dev.bridgey.android.updates.UpdateAllCoordinator(this, applicationScope, pairing, updater, settings)
+        pairing.updates = updateAll
+        updateAll.start()
     }
 
     private fun startCodeAccess() {

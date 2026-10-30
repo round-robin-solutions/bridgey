@@ -293,6 +293,7 @@ private fun QuestionPage(question: SetupQuestion, state: SetupUiState, actions: 
     val flow = state.flow
     val given = flow.answers[question.id]
     val effective = SetupFlow.effective(flow, state.facts)
+    if (question.id == "pair") HoldPairing(actions)
     QuestionFrame(
         state, actions,
         footer = {
@@ -327,6 +328,7 @@ private fun LazyListScope.pairQuestion(state: SetupUiState, actions: SetupAction
     if (state.pairedNames.isNotEmpty()) {
         item(key = "paired") { StatusPill(stringResource(R.string.setup_pair_done, state.pairedNames.first()), BridgeyIcons.Check, Tint.GREEN) }
     }
+    item(key = "pair.ready") { SetupPairingReady(state, actions, Modifier.padding(bottom = 10.dp)) }
     item(key = "pair.nearby") {
         val colors = BridgeyTheme.colors
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -489,7 +491,7 @@ private fun PermissionsPage(state: SetupUiState, actions: SetupActions) {
                             },
                         )
                     }
-                    Text(permissionWhy(permission.kind), style = BridgeyType.itemBody, color = colors.onSurface)
+                    Text(permissionWhy(permission.kind, textMessages = SetupFeatures.feature("messages")?.let { SetupFeatures.isOn(it, onNow) } == true), style = BridgeyType.itemBody, color = colors.onSurface)
                     Text(
                         if (featureNames.isEmpty()) stringResource(R.string.setup_permissions_needed_connection)
                         else stringResource(R.string.setup_permissions_needed_for, featureNames.joinToString(", ")),
@@ -642,7 +644,7 @@ private fun SummaryPage(state: SetupUiState, actions: SetupActions) {
                 IconTile(BridgeyIcons.CheckCircle, Tint.GREEN, size = 52.dp, corner = 18.dp, iconSize = 28.dp)
                 Text(stringResource(R.string.setup_summary_title), style = BridgeyType.deviceName, color = colors.onSurface, modifier = Modifier.semantics { heading() })
                 Text(
-                    stringResource(if (items.isEmpty()) R.string.setup_summary_empty else R.string.setup_summary_body),
+                    stringResource(if (items.none { it !is SummaryItem.Sync }) R.string.setup_summary_empty else R.string.setup_summary_body),
                     style = BridgeyType.bodyText, color = colors.onSurfaceVariant,
                 )
             }
@@ -663,6 +665,9 @@ private fun SummaryPage(state: SetupUiState, actions: SetupActions) {
                     SummaryRow(stringResource(item.title), value, item.page, actions)
                 }
             }
+        }
+        items.filterIsInstance<SummaryItem.Sync>().firstOrNull()?.let { sync ->
+            item(key = "sync") { SyncSummaryRow(sync, actions, Modifier.padding(top = 14.dp)) }
         }
         if (refused.isNotEmpty()) {
             item(key = "refused.label") { SummaryLabel(stringResource(R.string.setup_summary_not_allowed)) }
@@ -705,6 +710,29 @@ private fun FeatureOnRow(item: SummaryItem.FeatureOn, actions: SetupActions) {
             BridgeySwitch(checked = item.on, onCheckedChange = null)
         }
         TextButton(onClick = { actions.openPage(item.feature.page) }, modifier = Modifier.padding(start = 6.dp, bottom = 4.dp)) {
+            Text(stringResource(R.string.setup_summary_change), style = BridgeyType.label, color = colors.primary)
+        }
+    }
+}
+
+/** Settings sync on the summary: "Settings stay the same on your devices", its switch, and Change in Settings. */
+@Composable
+private fun SyncSummaryRow(item: SummaryItem.Sync, actions: SetupActions, modifier: Modifier = Modifier) {
+    val colors = BridgeyTheme.colors
+    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(colors.surface1)) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 64.dp)
+                .toggleable(value = item.on, role = Role.Switch) { actions.event(SetupEvent.SummarySync(it)) }
+                .padding(start = 18.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(stringResource(R.string.setup_summary_sync), style = BridgeyType.rowTitle, color = colors.onSurface)
+                Text(stringResource(R.string.setup_summary_sync_detail), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
+            }
+            BridgeySwitch(checked = item.on, onCheckedChange = null)
+        }
+        TextButton(onClick = { actions.openPage("GENERAL") }, modifier = Modifier.padding(start = 6.dp, bottom = 4.dp)) {
             Text(stringResource(R.string.setup_summary_change), style = BridgeyType.label, color = colors.primary)
         }
     }

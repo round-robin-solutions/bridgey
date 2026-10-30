@@ -24,8 +24,11 @@ struct PanelModel {
     /// Once after an update from before v0.10 setup: "See what's new and review your setup".
     var showsSetupReview = false
     var state: PairingState = .idle
-    /// The pairing in progress only; drives the verification and failure cards.
+    /// The pairing in progress only; drives the pairing card (PairingViews.swift).
     var pairingFlow: PairingState = .idle
+    /// Allow pairing: seconds left (0: off), and a device that tried to pair while it was off.
+    var pairingArmedSeconds = 0
+    var pairingRequest: PairingRequest?
     var rings: [DeviceRing] = []
     var battery: RemoteBatteryStatus?
     /// Each connected phone's own battery, by device id.
@@ -36,6 +39,8 @@ struct PanelModel {
     /// Folder cards drawn expanded (screenshots; in the app the card's disclosure decides).
     var expandedTransfers: Set<String> = []
     var hasTransferHistory = false
+    /// Text messages: unread texts on the target phone; nil when Text messages is not available.
+    var messagesUnread: Int?
     var receivedLink: String?
     var ringing: RingingState?
     var call: RemoteCallStatus?
@@ -57,6 +62,10 @@ struct PanelModel {
     var browserName: String?
     /// The selected phone takes photos for this Mac (camera_draft1): its name, for File > Take Photo.
     var cameraPhone: String?
+    /// Phones whose screen this Mac can show (screen_draft1), by device ID, for Show Phone Screen.
+    var screenPhones: Set<String> = []
+    /// The selected phone's name when its screen can be shown, for File > Show Screen.
+    var screenPhone: String?
     var fileTransferActive = false
     /// Automatic clipboard is running for the connected device.
     var autoClipboard = false
@@ -65,6 +74,8 @@ struct PanelModel {
     /// In-app update progress (Sparkle drives it; no system windows).
     var update: UpdateFlow = .idle
     var appVersion = ""
+    /// Update all: this Mac and the phones connected to it.
+    var updateAll = UpdateAllDisplay()
     /// The pairing file could not be loaded; phones wait until Try again succeeds.
     var pairingStoreIssue: PairingStoreIssue?
 
@@ -74,6 +85,19 @@ struct PanelModel {
     }
 
     var isConnected: Bool { connectedName != nil }
+
+    /// Sparkle's own card, unless Update all already covers this Mac's update.
+    var showsUpdateCard: Bool {
+        guard update.showsInPanel else { return false }
+        if updateAll.activeRun?.local != nil { return false }
+        if updateAll.showsPanelCard, updateAll.plan.includesLocal {
+            switch update {
+            case .available, .ready: return false
+            default: break
+            }
+        }
+        return true
+    }
 }
 
 struct PanelActions {
@@ -86,8 +110,14 @@ struct PanelActions {
     var disconnect: () -> Void = {}
     var disconnectDevice: (String) -> Void = { _ in }
     var selectDevice: (String) -> Void = { _ in }
-    var confirm: () -> Void = {}
+    /// The code prompt's buttons name the prompt they belong to (its token).
+    var confirm: (String) -> Void = { _ in }
+    var reject: (String) -> Void = { _ in }
     var cancel: () -> Void = {}
+    var retryPairing: () -> Void = {}
+    var allowPairing: () -> Void = {}
+    var stopAllowingPairing: () -> Void = {}
+    var dismissPairingRequest: () -> Void = {}
     var openLocalNetworkSettings: () -> Void = {}
     var sendClipboard: () -> Void = {}
     var dropFiles: ([URL]) -> Bool = { _ in false }
@@ -97,6 +127,8 @@ struct PanelActions {
     var sendLink: () -> Void = {}
     var sendBrowserTab: () -> Void = {}
     var takePhoto: () -> Void = {}
+    /// Show Phone Screen: nil is the selected phone.
+    var showPhoneScreen: (String?) -> Void = { _ in }
     var call: () -> Void = {}
     var ping: () -> Void = {}
     var find: () -> Void = {}
@@ -117,11 +149,14 @@ struct PanelActions {
     var retryDevice: (String) -> Void = { _ in }
     var lookForDevices: () -> Void = {}
     var update = UpdateFlowActions()
+    var updateAll = UpdateAllActions()
     var retryPairingStore: () -> Void = {}
     /// Files 2.0: the Phone files window (nil: the selected phone), the History window, the Tray,
     /// a drop on one device's tile, and Show in Finder for a transfer row.
     var openPhoneFiles: (String?) -> Void = { _ in }
     var openTransferHistory: () -> Void = {}
+    /// Text messages: the Messages window.
+    var openMessages: () -> Void = {}
     var openTray: () -> Void = {}
     var dropFilesOnDevice: ([URL], String) -> Bool = { _, _ in false }
     var showInFinder: (URL) -> Void = { _ in }
@@ -162,7 +197,7 @@ struct StreamPanelView: View {
         } else {
             DeviceChips(rings: model.rings, batteries: model.batteries, targetDeviceID: model.targetDeviceID,
                         fileTransferActive: model.fileTransferActive, rediscovering: model.rediscovering,
-                        now: model.now, actions: actions)
+                        now: model.now, screenPhones: model.screenPhones, actions: actions)
                 .padding(.top, 12)
         }
         stateCard
@@ -202,36 +237,53 @@ struct StreamPanelView: View {
         }
         // Files 2.0 entries: Phone files and History (PhoneFilesWindow.swift), send sheet and Tray (SendSheet.swift).
         PhoneFilesPanelEntry(model: model, actions: actions)
+        MessagesPanelEntry(model: model, actions: actions)
         SendPanelEntry(model: model, actions: actions)
         SendBar(model: model, actions: actions)
             .padding(12)
     }
 
     private var hasLiveCards: Bool {
-        !model.transfers.isEmpty || model.receivedLink != nil || model.ringing != nil || model.call != nil || model.code != nil || model.codeModel != nil || model.update.showsInPanel
+        !model.transfers.isEmpty || model.receivedLink != nil || model.ringing != nil || model.call != nil || model.code != nil || model.codeModel != nil || model.showsUpdateCard || model.updateAll.showsPanelCard
     }
 
     @ViewBuilder private var stateCard: some View {
         switch model.pairingFlow {
-        case let .connecting(name):
-            StatusCard(
-                symbol: "lock.shield",
-                title: String(format: L10n.text("panel.connecting", fallback: "Connecting to %@"), name),
-                detail: L10n.text("panel.connecting.detail", fallback: "Setting up a secure session")
-            )
+        case .idle, .connected:
+            if let request = model.pairingRequest {
+                CardShell {
+                    PairingRequestContent(request: request, onAllow: actions.allowPairing, onDismiss: actions.dismissPairingRequest)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+            }
+        default:
+            CardShell {
+                PairingFlowContent(state: model.pairingFlow, actions: PairingFlowActions(
+                    confirm: actions.confirm, reject: actions.reject, cancel: actions.cancel, retry: actions.retryPairing,
+                    openLocalNetworkSettings: actions.openLocalNetworkSettings
+                ))
+            }
             .padding(.horizontal, 12)
             .padding(.top, 12)
-        case let .verification(name, code):
-            VerificationCard(name: name, code: code, actions: actions)
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-        case let .failed(message):
-            FailureCard(message: message, actions: actions)
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-        case .idle, .connected:
-            EmptyView()
         }
+        if showsAllowPairing {
+            AllowPairingRow(armedSeconds: model.pairingArmedSeconds, onAllow: actions.allowPairing, onStop: actions.stopAllowingPairing)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+        }
+    }
+
+    /// Allow pairing shows while it runs, and otherwise when pairing from a phone is likely: a device nearby that is not
+    /// paired, or nothing paired yet. Not during a pairing, nor over a request card (that has its own Allow).
+    private var showsAllowPairing: Bool {
+        switch model.pairingFlow {
+        case .idle, .connected: break
+        default: return false
+        }
+        if model.pairingArmedSeconds > 0 { return true }
+        guard model.pairingRequest == nil else { return false }
+        return model.rings.contains { !$0.trusted } || !model.rings.contains { $0.trusted }
     }
 
     private var footer: some View {
@@ -316,6 +368,7 @@ private struct DeviceChips: View {
     let fileTransferActive: Bool
     let rediscovering: Bool
     let now: Date
+    var screenPhones: Set<String> = []
     let actions: PanelActions
     @Environment(\.snapshotRendering) private var snapshot
 
@@ -374,6 +427,13 @@ private struct DeviceChips: View {
                         title: String(format: L10n.text("panel.sendTo", fallback: "Send to %@"), ring.name),
                         enabled: true,
                         action: { actions.selectDevice(id) }
+                    ))
+                }
+                if let id = ring.deviceID, screenPhones.contains(id) {
+                    items.append(PopUpMenuItem(
+                        title: L10n.text("panel.phoneScreen", fallback: "Show Phone Screen"),
+                        enabled: true,
+                        action: { actions.showPhoneScreen(id) }
                     ))
                 }
                 items.append(PopUpMenuItem(
@@ -592,75 +652,6 @@ private struct SearchingCard: View {
     }
 }
 
-private struct StatusCard: View {
-    let symbol: String
-    let title: String
-    let detail: String
-
-    var body: some View {
-        CardShell {
-            HStack(spacing: 10) {
-                IconTile(symbol: symbol, tint: .blue, size: 32, corner: 10)
-                CardText(title: title, detail: detail)
-            }
-        }
-    }
-}
-
-private struct VerificationCard: View {
-    let name: String
-    let code: String
-    let actions: PanelActions
-    @Environment(\.brand) private var c
-
-    var body: some View {
-        CardShell {
-            Text(String(format: L10n.text("panel.verify", fallback: "Verify %@"), name))
-                .font(BrandFont.body(13, .semibold))
-                .foregroundStyle(c.on)
-            Text(code)
-                .font(BrandFont.heading(32))
-                .monospacedDigit()
-                .kerning(2)
-                .foregroundStyle(c.on)
-                .textSelection(.enabled)
-            Text(L10n.text("panel.verify.detail", fallback: "Confirm only if the same code appears on both devices."))
-                .font(BrandFont.body(12))
-                .foregroundStyle(c.on2)
-            HStack(spacing: 8) {
-                Spacer()
-                Button(L10n.text("action.cancel", fallback: "Cancel"), action: actions.cancel)
-                    .buttonStyle(PillButtonStyle(kind: .outline))
-                Button(L10n.text("panel.verify.match", fallback: "Codes Match"), action: actions.confirm)
-                    .buttonStyle(PillButtonStyle(kind: .gradient))
-            }
-        }
-    }
-}
-
-private struct FailureCard: View {
-    let message: String
-    let actions: PanelActions
-
-    var body: some View {
-        CardShell {
-            HStack(alignment: .top, spacing: 10) {
-                IconTile(symbol: "exclamationmark.triangle.fill", tint: .purple, size: 32, corner: 10)
-                CardText(title: L10n.text("panel.pairingFailed", fallback: "Pairing failed"), detail: message, detailLines: 4)
-            }
-            HStack(spacing: 8) {
-                Spacer()
-                Button(L10n.text("action.dismiss", fallback: "Dismiss"), action: actions.cancel)
-                    .buttonStyle(PillButtonStyle(kind: .outline))
-                if message.contains("Local Network") {
-                    Button(L10n.text("panel.localNetwork", fallback: "Open Settings"), action: actions.openLocalNetworkSettings)
-                        .buttonStyle(PillButtonStyle(kind: .tonal))
-                }
-            }
-        }
-    }
-}
-
 /// One quiet line with an action, on a purple tint (the design's "away" banner style).
 private struct NoticeBanner: View {
     let symbol: String
@@ -764,7 +755,12 @@ private struct LiveCards: View {
                 }
                 .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
             }
-            if model.update.showsInPanel {
+            if model.updateAll.showsPanelCard {
+                UpdateAllPanelCard(display: model.updateAll, actions: actions.updateAll)
+                    .id("updateAll")
+                    .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
+            }
+            if model.showsUpdateCard {
                 let visual = updateFlowSymbol(model.update)
                 LiveCard(symbol: visual.symbol, tint: visual.tint,
                          title: UpdateFlowText.title(model.update, currentVersion: model.appVersion),
@@ -825,7 +821,8 @@ private struct LiveCards: View {
         if model.codeModel != nil { keys.append("codeModel") }
         if model.ringing != nil { keys.append("ringing") }
         if model.receivedLink != nil { keys.append("link") }
-        if model.update.showsInPanel { keys.append("update") }
+        if model.updateAll.showsPanelCard { keys.append("updateAll") }
+        if model.showsUpdateCard { keys.append("update") }
         keys += model.transfers.map { "transfer:\($0.id)" }
         return keys
     }
@@ -1105,6 +1102,7 @@ func activityVisual(_ kind: ActivityKind) -> (symbol: String, tint: TileTint) {
     case .clipPasteFailed: ("exclamationmark.circle", .neutral)
     case .folderSent, .folderReceived: ("folder", .green)
     case .folderIncomplete: ("folder.badge.questionmark", .neutral)
+    case .settingsSynced: ("arrow.triangle.2.circlepath", .neutral)
     }
 }
 
@@ -1168,19 +1166,24 @@ private struct QuickActionBar: View {
         let ringing = model.ringing != nil
         HStack(spacing: 2) {
             PopUpMenuButton(items: {
-                [
-                    PopUpMenuItem(title: L10n.text("quick.file.choose", fallback: "Send Files or Folders\u{2026}"), action: actions.chooseFile),
-                    PopUpMenuItem(title: L10n.text("drop.open", fallback: "Open file drop window"), action: actions.openDropWindow),
+                let files = model.available.contains(.files)
+                return [
+                    PopUpMenuItem(title: L10n.text("quick.file.choose", fallback: "Send Files or Folders\u{2026}"), enabled: files, action: actions.chooseFile),
+                    PopUpMenuItem(title: L10n.text("drop.open", fallback: "Open file drop window"), enabled: files, action: actions.openDropWindow),
                     PopUpMenuItem(title: model.cameraPhone.map { String(format: L10n.text("quick.file.photo", fallback: "Take Photo with %@"), $0) }
                                     ?? L10n.text("quick.file.photo.none", fallback: "Take Photo with Phone"),
-                                  enabled: model.cameraPhone != nil, action: actions.takePhoto),
+                                  enabled: files && model.cameraPhone != nil, action: actions.takePhoto),
+                    PopUpMenuItem(title: model.screenPhone.map { String(format: L10n.text("quick.file.screen", fallback: "Show Screen of %@"), $0) }
+                                    ?? L10n.text("panel.phoneScreen", fallback: "Show Phone Screen"),
+                                  enabled: model.screenPhone != nil, action: { actions.showPhoneScreen(nil) }),
                     .separator,
-                    PopUpMenuItem(title: L10n.text("quick.file.transfers", fallback: "Show File Transfers"), enabled: model.hasTransferHistory || !model.transfers.isEmpty, action: actions.showTransfers),
+                    PopUpMenuItem(title: L10n.text("quick.file.transfers", fallback: "Show File Transfers"), enabled: files && (model.hasTransferHistory || !model.transfers.isEmpty), action: actions.showTransfers),
                 ]
             }) {
                 QuickActionLabel(symbol: "paperclip", title: L10n.text("quick.file", fallback: "File"), position: .first)
             }
-            .disabled(!model.available.contains(.files))
+            // Show Phone Screen lives here too, so the menu opens when only the screen is available.
+            .disabled(!model.available.contains(.files) && model.screenPhone == nil)
             .help(L10n.text("quick.file.help", fallback: "Send a file"))
 
             PopUpMenuButton(items: {
@@ -1406,8 +1409,10 @@ struct BridgeyPanel: View {
     @ObservedObject var updater: AppUpdater
     @ObservedObject var codeModel: CodeModelStore
     @ObservedObject var setupCenter = SetupCenter.shared
+    @ObservedObject var updateAll = UpdateAllCoordinator.shared
     @ObservedObject var browserTab: BrowserTabReader
     @ObservedObject var camera: PhoneCamera
+    @ObservedObject var phoneScreen: PhoneScreen
     let onOpenSettings: () -> Void
     @State private var clipboard = PasteboardPreview()
     @State private var now = Date()
@@ -1424,6 +1429,7 @@ struct BridgeyPanel: View {
         codeModel = pairing.codeModel
         browserTab = pairing.browserTab
         camera = pairing.camera
+        phoneScreen = pairing.phoneScreen
         self.onOpenSettings = onOpenSettings
     }
 
@@ -1454,6 +1460,8 @@ struct BridgeyPanel: View {
         model.showsSetupReview = setupCenter.showsReviewBanner
         model.state = pairing.state
         model.pairingFlow = pairing.pairingFlow
+        model.pairingArmedSeconds = pairing.armedRemainingSeconds
+        model.pairingRequest = pairing.pairingRequest
         model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, connected: pairing.connectedPhones,
                                   pairing: pairing.pairingFlow, reconnecting: pairing.reconnectStates)
         model.rediscovering = pairing.isRediscovering
@@ -1464,6 +1472,9 @@ struct BridgeyPanel: View {
         if case let .connected(deviceID, _) = pairing.state { model.targetDeviceID = deviceID }
         model.transfers = liveTransfers(pairing.fileTransfers)
         model.hasTransferHistory = !pairing.fileTransfers.isEmpty
+        if let target = model.targetDeviceID, pairing.textMessagesAvailable(for: target) {
+            model.messagesUnread = pairing.textMessages.unreadCount(target)
+        }
         model.fileTransferActive = pairing.fileTransferActive
         if case let .connected(deviceID, _) = pairing.state {
             model.autoClipboard = pairing.isFeatureAvailable(.clipboard) && settings.isAutoClipboardEnabled(for: deviceID)
@@ -1481,7 +1492,7 @@ struct BridgeyPanel: View {
         model.available = Set(BridgeyFeature.allCases.filter { pairing.isFeatureAvailable($0) })
         model.clipboardLine = clipboard.line
         model.clipboardHidden = clipboard.hidden
-        model.status = pairing.rediscoverStatus ?? pairing.clipboardStatus ?? pairing.callStatus ?? pairing.pingStatus ?? quickActions.status ?? camera.status ?? pairing.fileTransferStatus.flatMap { pairing.fileTransferActive ? nil : $0 }
+        model.status = pairing.rediscoverStatus ?? pairing.clipboardStatus ?? pairing.callStatus ?? pairing.pingStatus ?? quickActions.status ?? camera.status ?? phoneScreen.status ?? pairing.fileTransferStatus.flatMap { pairing.fileTransferActive ? nil : $0 }
         if pairing.isFeatureAvailable(.notifications) && !pairing.notificationsAuthorized {
             model.notificationPrompt = pairing.notificationPermissionDetermined ? .openSettings : .request
         }
@@ -1489,7 +1500,10 @@ struct BridgeyPanel: View {
         model.mediaDetail = media.snapshot.detail
         model.browserName = browserTab.browser?.name
         if case let .connected(deviceID, name) = pairing.state, pairing.cameraAvailable(for: deviceID) { model.cameraPhone = name }
+        model.screenPhones = Set(pairing.connectedPhones.map(\.id).filter { pairing.screenAvailable(for: $0) })
+        if case let .connected(deviceID, name) = pairing.state, model.screenPhones.contains(deviceID) { model.screenPhone = name }
         model.update = updater.flow
+        model.updateAll = updateAll.display(now: now)
         model.appVersion = updater.shortVersion
         model.pairingStoreIssue = pairing.pairingStoreIssue
         return model
@@ -1510,8 +1524,13 @@ struct BridgeyPanel: View {
         actions.disconnect = { pairing.dismiss() }
         actions.disconnectDevice = { pairing.disconnect(deviceID: $0) }
         actions.selectDevice = { pairing.selectDevice($0) }
-        actions.confirm = { pairing.confirm() }
+        actions.confirm = { pairing.confirm(token: $0) }
+        actions.reject = { pairing.reject(token: $0) }
         actions.cancel = { pairing.cancel() }
+        actions.retryPairing = { pairing.retryPairing() }
+        actions.allowPairing = { pairing.armPairing() }
+        actions.stopAllowingPairing = { pairing.disarmPairing() }
+        actions.dismissPairingRequest = { pairing.dismissPairingRequest() }
         actions.openLocalNetworkSettings = {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork") {
                 NSWorkspace.shared.open(url)
@@ -1526,6 +1545,7 @@ struct BridgeyPanel: View {
         // macOS asks for Automation to the browser on first use; the Permissions explainer comes first.
         actions.sendBrowserTab = { setupCenter.explainThen(.browserAutomation) { pairing.sendBrowserTab() } }
         actions.takePhoto = { pairing.takePhoto() }
+        actions.showPhoneScreen = { pairing.showPhoneScreen(with: $0) }
         actions.call = { pairing.sendCallFromClipboard() }
         actions.ping = { pairing.sendPing() }
         actions.find = { pairing.findAndroid() }
@@ -1549,9 +1569,11 @@ struct BridgeyPanel: View {
         actions.retryDevice = { pairing.retryNow(deviceID: $0) }
         actions.lookForDevices = { pairing.lookForDevices() }
         actions.update = updater.flowActions
+        actions.updateAll = updateAll.actions
         actions.retryPairingStore = { pairing.retryPairingStore() }
         actions.openPhoneFiles = { PhoneFilesWindowController.show(pairing: pairing, phoneID: $0) }
         actions.openTransferHistory = { TransferHistoryWindowController.show(pairing: pairing) }
+        actions.openMessages = { MessagesWindowController.show(pairing: pairing, phoneID: model.targetDeviceID) }
         actions.openTray = { TrayController.show(pairing: pairing) }
         actions.dropFilesOnDevice = { pairing.sendDroppedFiles($0, to: $1) }
         actions.showInFinder = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }

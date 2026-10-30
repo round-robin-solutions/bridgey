@@ -166,7 +166,10 @@ func relayPlaceName(_ relay: String?) -> String? {
 func connectRouteChipText(tunnelRoute: String?, relay: String?, legacy: ConnectionRoute) -> String? {
     switch tunnelRoute.flatMap(ConnectRouteKind.init(rawValue:)) {
     case .lan: return L10n.text("connect.route.lan", fallback: "Same Wi-Fi")
-    case .vpn: return L10n.text("connect.route.vpn", fallback: "Private network")
+    case .vpn:
+        // The relay slot carries the private network's name for VPN routes (`tailscale`).
+        if relay == "tailscale" { return L10n.text("connect.route.tailscale", fallback: "Tailscale") }
+        return L10n.text("connect.route.vpn", fallback: "Private network")
     case .direct: return L10n.text("connect.route.direct", fallback: "Direct")
     case .relay:
         guard let place = relayPlaceName(relay) else { return L10n.text("connect.route.relay", fallback: "Relay") }
@@ -193,4 +196,19 @@ struct ConnectDisplay: Equatable {
     var relayOnly = false
     var debug = false
     var controlURL = ""
+}
+
+/// What a Connect anywhere tunnel may carry (protocol 2 era), the same rules as Android's TunnelRules. A tunnel is
+/// never a way to pair: pairing stays on the local network, where the code is compared. Over a tunnel only a plain
+/// reconnect of an already paired phone runs, with protocol 2 envelope tags on every frame.
+enum TunnelRules {
+    static let minProtocol: Int64 = 2
+
+    /// The dialled end's check of pairing.offer: trusted sender, no commitment (no new pairing), protocol 2.
+    static func offerAllowed(trusted: Bool, committed: Bool, protocolVersion: Int64) -> Bool {
+        trusted && !committed && protocolVersion >= minProtocol
+    }
+
+    /// Both ends, before confirming: a trusted phone, confirmed without a prompt, with envelope tags.
+    static func sessionAllowed(trusted: Bool, autoConfirms: Bool, tagged: Bool) -> Bool { trusted && autoConfirms && tagged }
 }

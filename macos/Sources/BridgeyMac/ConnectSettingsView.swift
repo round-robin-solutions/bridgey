@@ -8,6 +8,7 @@ func connectStatusText(_ display: ConnectDisplay, enabled: Bool) -> String {
     switch display.presence {
     case "online": return L10n.text("connect.status.online", fallback: "On. Your devices can reach this Mac from other networks.")
     case "disabled": return L10n.text("connect.status.noService", fallback: "On, for the same Wi-Fi and private networks only. This build has no Round Robin service.")
+    case "unreachable": return L10n.text("connect.status.unreachable", fallback: "On, but the Round Robin service can't be reached. Same Wi-Fi and private networks still work; Bridgey keeps trying.")
     default: return L10n.text("connect.status.connecting", fallback: "On. Reaching the Round Robin service\u{2026}")
     }
 }

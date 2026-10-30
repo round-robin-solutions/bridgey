@@ -23,7 +23,7 @@ enum ResetChoice: String, CaseIterable, Identifiable {
 
     var summary: String {
         switch self {
-        case .activity: L10n.setup("reset.activity.summary", fallback: "Activity, notification history, diagnostics and the remote control and Mac actions logs. Keeps settings and pairings.")
+        case .activity: L10n.setup("reset.activity.summary", fallback: "Activity, notification history, text messages kept here, diagnostics and the remote control and Mac actions logs. Keeps settings and pairings.")
         case .caches: L10n.setup("reset.caches.summary", fallback: "The code model, clipboard cache and folder transfer journals. Keeps settings, pairings and history.")
         case .settings: L10n.setup("reset.settings.summary", fallback: "Every setting back to its default; setup runs again. Keeps pairings, history and caches.")
         case .everything: L10n.setup("reset.everything.summary", fallback: "All of the above, plus trusted devices and this Mac\u{2019}s identity. Phones need pairing again.")
@@ -75,6 +75,8 @@ enum ResetItem: String, CaseIterable {
     case activityStream, notificationHistory, diagnostics, remoteAudit, transferHistory
     /// v0.9: every Mac action a phone ran or was refused.
     case macActionsAudit
+    /// Text messages: the conversations this Mac kept (the phones keep theirs).
+    case textMessages
     case codeModel, clipboardCache, folderJournals, otherCaches
     case settings
     case trustedDevices, identityKeys, reconnectAddresses, appRecords
@@ -87,6 +89,7 @@ enum ResetItem: String, CaseIterable {
         case .remoteAudit: L10n.setup("reset.item.remoteAudit", fallback: "Remote control audit log")
         case .transferHistory: L10n.setup("reset.item.transfers", fallback: "Transfer history")
         case .macActionsAudit: L10n.setup("reset.item.macActionsAudit", fallback: "Mac actions log")
+        case .textMessages: L10n.setup("reset.item.textMessages", fallback: "Text messages kept on this Mac (your phone keeps them)")
         case .codeModel: L10n.setup("reset.item.codeModel", fallback: "Code model (Codes from messages, On this Mac)")
         case .clipboardCache: L10n.setup("reset.item.clipboardCache", fallback: "Clipboard cache")
         case .folderJournals: L10n.setup("reset.item.folderJournals", fallback: "Folder transfer journals (interrupted folders will not resume)")
@@ -144,6 +147,7 @@ struct LocalDataLocations {
         // The History window's file (Files 2.0); the live reset also clears the rows in memory.
         case .transferHistory: [support.appendingPathComponent(TransferHistoryStore.fileName)]
         case .macActionsAudit: [support.appendingPathComponent(MacActionsAuditStore.fileName)]
+        case .textMessages: [support.appendingPathComponent(SmsStore.folderName, isDirectory: true)]
         case .codeModel: [support.appendingPathComponent("Models", isDirectory: true)]
         case .clipboardCache: [support.appendingPathComponent("ClipboardCache", isDirectory: true)]
         // Folders this Mac sends (FolderTransfers) and receives from phones (FolderReceives, Files 2.0).
@@ -175,7 +179,7 @@ struct LocalDataReset {
     }
 
     static func items(_ choice: ResetChoice) -> [ResetItem] {
-        let activity: [ResetItem] = [.activityStream, .notificationHistory, .diagnostics, .remoteAudit, .transferHistory, .macActionsAudit]
+        let activity: [ResetItem] = [.activityStream, .notificationHistory, .diagnostics, .remoteAudit, .transferHistory, .macActionsAudit, .textMessages]
         let caches: [ResetItem] = [.codeModel, .clipboardCache, .folderJournals, .otherCaches]
         switch choice {
         case .activity: return activity
@@ -209,17 +213,23 @@ struct LocalDataReset {
     /// send and menu-bar drop options and what the Phone files window remembers. The v0.9 automation
     /// settings are all `settings.` keys: `macActions.config`, `links.openRightAway`, `batteryAlerts.<id>.*`,
     /// `focusSync` and `camera.copyToClipboard`. Battery alert state is in memory and goes with the restart.
+    /// Settings sync (v0.10) keeps its records and switches under `settings.sync.`, so a reset device takes the
+    /// other devices' values the next time it connects.
     static let settingsPrefixes = ["settings.", "media.", "shortcuts.", "folders.lastDestination.", "setup.", "send.", "phoneFiles."]
     static let settingsKeys = [UpdateChannel.defaultsKey, "SUEnableAutomaticChecks", "SUAutomaticallyUpdate",
-                               "SUScheduledCheckInterval", "SUSkippedVersion", "SUSkippedMajorVersion"]
+                               "SUScheduledCheckInterval", "SUSkippedVersion", "SUSkippedMajorVersion",
+                               UpdateAllCoordinator.remoteStartKey]
     /// Not settings: the relay's random install ID (identity) and the record of accepted model terms.
     static let notSettingsKeys = ["settings.codes.installId", "settings.codes.model.acceptance"]
     static let identityKeys = ["deviceID", "settings.codes.installId"]
     /// Upstream's pre-file trust records, imported once by MacTrustRegistry.
-    static let trustKeys = ["trustedDeviceIDs"]
-    static let trustPrefixes = ["trusted."]
+    /// Settings sync's first-connect answers go with the trusted devices (Reset > Settings keeps them).
+    static let trustKeys = ["trustedDeviceIDs", "sync.answers"]
+    static let trustPrefixes = ["trusted.", "protocolPin."]
     static let addressPrefixes = ["reconnect."]
-    static let recordKeys = ["settings.codes.model.acceptance", "legacyPreferencesMigrated", pendingKey]
+    /// Update all keeps its last run and the version that did not apply (UpdateAllProtocol.swift) as records.
+    static let recordKeys = ["settings.codes.model.acceptance", "legacyPreferencesMigrated", pendingKey,
+                             UpdateAllCoordinator.runKey, UpdateAttemptStore.pendingKey, UpdateAttemptStore.notAppliedKey]
     static let recordPrefixes = ["whatsNew.", "SU"]
 
     func keys(_ item: ResetItem) -> [String] {

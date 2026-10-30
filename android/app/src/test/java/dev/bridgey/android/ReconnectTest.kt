@@ -247,6 +247,68 @@ class ReconnectTest {
         assertNull(harness.engine.display(mac))
     }
 
+    /**
+     * 27 October: a paired Mac was reset and came back under a new id at the same address. Dialling the
+     * old id there only reached a Bridgey that closed the connection, every minute. An address NSD now
+     * shows for another id is skipped; one shown by a peer that advertises no id is not.
+     */
+    @Test fun aRememberedAddressNowAdvertisedByAnotherDeviceIsNotDialled() {
+        val newMac = "033327d6-0000-4000-8000-000000000002"
+        val harness = Harness(setOf(mac), homeLan)
+        harness.engine.addressBook.learn(mac, "192.168.29.192", 42_458, AddressSource.OUTBOUND, harness.clock.wall - 600_000)
+        harness.engine.discoveryChanged(listOf(LivePeer(newMac, listOf("192.168.29.192"), 42_458)))
+        assertTrue(harness.engine.candidates(mac).isEmpty())
+        harness.engine.disconnected(mac)
+        harness.clock.advance(600_000)
+        assertTrue(harness.dials.isEmpty())
+        assertEquals(ReconnectEvent.NoAddress(mac, 1, "backoff"), harness.events.first())
+    }
+
+    /** Away for twelve hours: a launch tries it once, then every 10 minutes, not every minute for an hour. */
+    @Test fun anAwayDeviceIsTriedOnceAtLaunchThenEveryTenMinutes() {
+        val harness = Harness(setOf(mac), homeLan)
+        val lastSeen = harness.clock.wall - 12 * 3_600_000L
+        harness.engine.addressBook.learn(mac, "192.168.29.148", 42_458, AddressSource.INBOUND, lastSeen)
+        harness.engine.addressBook.markSeen(mac, lastSeen)
+        assertTrue(harness.engine.isAway(mac))
+        harness.engine.disconnected(mac, seenNow = false)
+        harness.engine.resetAll(listOf(mac))
+        var count = 0
+        repeat(60) {
+            harness.clock.advance(60_000)
+            count += harness.dials.size
+            harness.failDials()
+        }
+        assertEquals("at launch, then at 10, 20, ..., 60 minutes", 7, count)
+        assertEquals(ReconnectDisplay(lastSeen, struggling = true), harness.engine.display(mac))
+
+        // NSD seeing it: a fresh fast phase.
+        harness.engine.discoveryChanged(listOf(LivePeer(mac, listOf("192.168.29.52"), 42_458)))
+        harness.clock.advance(0)
+        assertEquals(listOf(mac to "192.168.29.52"), harness.dials)
+        harness.failDials()
+        harness.clock.advance(5_000)
+        assertEquals(1, harness.dials.size)
+        assertEquals(false, harness.engine.display(mac)?.struggling)
+    }
+
+    /** Dropped ten minutes ago: a launch still gives it the fast delays. */
+    @Test fun aRecentlyDroppedDeviceKeepsTheFastPhase() {
+        val harness = Harness(setOf(mac), homeLan)
+        harness.engine.addressBook.learn(mac, "192.168.29.148", 42_458, AddressSource.INBOUND, harness.clock.wall - 600_000)
+        harness.engine.addressBook.markSeen(mac, harness.clock.wall - 600_000)
+        assertFalse(harness.engine.isAway(mac))
+        harness.engine.disconnected(mac, seenNow = false)
+        harness.engine.resetAll(listOf(mac))
+        var count = 0
+        repeat(10) {
+            harness.clock.advance(60_000)
+            count += harness.dials.size
+            harness.failDials()
+        }
+        assertTrue(count >= 10)
+    }
+
     @Test fun recoveryEventsDialAtOnceAndAttemptsRotateThroughAddresses() {
         val harness = Harness(setOf(mac), homeLan)
         harness.engine.addressBook.learn(mac, "192.168.29.148", 42_458, AddressSource.INBOUND, harness.clock.wall)

@@ -100,7 +100,8 @@ final class SetupScreenshots: XCTestCase {
         flow.send(.skip)
         try setup("setup-quick-pair", flow: flow, model: firstRunModel)
         var code = firstRunModel
-        code.state = .verification(peerName: "OnePlus 11", code: "482 913")
+        code.state = .verification(PairingPrompt(peerName: "OnePlus 11", code: "482913", token: "t"))
+        code.pairingFlow = code.state
         try setup("setup-quick-pair-code", flow: flow, model: code)
         try setup("setup-quick-pair-done", flow: flow, model: pairedModel)
 
@@ -159,6 +160,8 @@ final class SetupScreenshots: XCTestCase {
         after.globalFeatures[.notifications] = false
         after.globalFeatures[.remoteInput] = false
         try setup("setup-summary", flow: flow, model: after)
+        // Settings sync (v0.10): the summary's "Settings stay the same on your devices" line.
+        try setup("settings-sync-setup-summary", flow: flow, model: after)
 
         var leaving = SetupFlow()
         leaving.send(.chooseAdvanced)
@@ -172,6 +175,20 @@ final class SetupScreenshots: XCTestCase {
         pair.send(.chooseAdvanced)
         pair.send(.startQuestions(["calls": SetupAnswerKey.pick]), facts: SetupFacts.make(model: unpaired))
         try setup("setup-question-pair", flow: pair, model: unpaired)
+    }
+
+    /// Phone screen (v0.9): the Remote control bundle picked, then its follow-up.
+    @MainActor func testPhoneScreenQuestion() throws {
+        var fresh = pairedModel
+        for feature in BridgeyFeature.allCases { fresh.globalFeatures[feature] = false }
+        fresh.phoneScreenEnabled = false
+        var flow = SetupFlow()
+        flow.send(.chooseAdvanced)
+        try setup("setup-intro-remote-bundle", flow: flow, model: fresh, picked: ["remote"])
+        var picked = fresh
+        picked.phoneScreenEnabled = true
+        flow.send(.startQuestions(["screen": SetupAnswerKey.pick]), facts: SetupFacts.make(model: picked))
+        try setup("setup-question-screen", flow: flow, model: picked)
     }
 
     // MARK: Explainer, Permissions, Reset

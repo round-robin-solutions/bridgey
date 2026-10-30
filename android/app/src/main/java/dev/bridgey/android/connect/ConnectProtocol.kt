@@ -209,3 +209,19 @@ internal fun hkdfSha256(ikm: ByteArray, salt: ByteArray, info: ByteArray, length
 /** Constant-time comparison of two pair checks. */
 fun samePairCheck(a: String?, b: String?): Boolean =
     a != null && b != null && MessageDigest.isEqual(a.toByteArray(), b.toByteArray())
+
+/**
+ * What a Connect anywhere tunnel may carry (protocol 2 era). A tunnel is never a way to pair: pairing stays on
+ * the local network, where the six-digit code is compared. Over a tunnel only a plain reconnect of an already
+ * paired device runs, with protocol 2 envelope tags on every frame, so nothing can downgrade to protocol 1.
+ */
+object TunnelRules {
+    const val MIN_PROTOCOL = 2L
+
+    /** The dialled end's check of pairing.offer: trusted sender, no commitment (no new pairing), protocol 2. */
+    fun offerAllowed(trusted: Boolean, committed: Boolean, protocolVersion: Long): Boolean =
+        trusted && !committed && protocolVersion >= MIN_PROTOCOL
+
+    /** Both ends, before confirming: a trusted device, confirmed without a prompt, with envelope tags. */
+    fun sessionAllowed(trusted: Boolean, autoConfirms: Boolean, tagged: Boolean): Boolean = trusted && autoConfirms && tagged
+}

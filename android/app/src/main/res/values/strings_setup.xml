@@ -50,10 +50,10 @@
     <string name="perm_notification_access_why">Shows your phone\'s notifications and calls on your Mac.</string>
     <string name="perm_notification_access_without">No phone notifications, call alerts or codes on the Mac.</string>
     <string name="perm_post_notifications_name">Notifications</string>
-    <string name="perm_post_notifications_why">Lets Bridgey show transfers, find-my-phone and call prompts.</string>
-    <string name="perm_post_notifications_without">You will not see progress, requests from the Mac or the Stop button for Find Device.</string>
+    <string name="perm_post_notifications_why">Lets Bridgey show transfers, find-my-phone, call prompts and screen sharing.</string>
+    <string name="perm_post_notifications_without">You will not see progress, requests from the Mac, or the Stop button for Find Device and screen sharing.</string>
     <string name="perm_phone_calls_name">Phone and calls</string>
-    <string name="perm_phone_calls_why">Lets the Mac answer, decline and place calls through this phone.</string>
+    <string name="perm_phone_calls_why">Lets the Mac answer, decline and place calls through this phone. With Text messages on a dual-SIM phone, lists the SIMs.</string>
     <string name="perm_phone_calls_without">Calls from the Mac open the dialer for you to confirm; Answer and Decline do not work.</string>
     <string name="perm_photos_name">Photos and videos</string>
     <string name="perm_photos_why">Shows your recent photos and videos when you send files, lets your Macs browse them, and sends a screenshot you just took with \"Send copied item\".</string>
@@ -63,6 +63,7 @@
     <string name="perm_camera_without">Take Photo on the Mac shows that the camera is not allowed.</string>
     <string name="perm_companion_link_name">Bluetooth companion link</string>
     <string name="perm_companion_link_why">Android 15 and later hide one-time codes from apps that are not linked to a nearby device.</string>
+    <string name="perm_companion_link_why_sms">Lets Bridgey see who sent a text, so replies go to the right conversation.</string>
     <string name="perm_companion_link_without">Codes from messages show \"hidden\" on the Mac.</string>
     <string name="perm_do_not_disturb_name">Do Not Disturb access</string>
     <string name="perm_do_not_disturb_why">Turns on Do Not Disturb here while a Mac is in Focus, when Follow the Mac\'s Focus is on.</string>
@@ -73,9 +74,9 @@
     <string name="perm_install_packages_name">Install unknown apps</string>
     <string name="perm_install_packages_why">Installs Bridgey\'s own updates.</string>
     <string name="perm_install_packages_without">Updates download but you install them by hand.</string>
-    <string name="perm_sms_name">SMS (Code reader test build only)</string>
-    <string name="perm_sms_why">Reads test messages for the Code reader test.</string>
-    <string name="perm_sms_without">The Code reader test cannot run. Normal builds never ask.</string>
+    <string name="perm_sms_name">SMS</string>
+    <string name="perm_sms_why">Text messages: shows your conversations on your Mac and sends the texts you write there.</string>
+    <string name="perm_sms_without">Text messages stays off. Codes from messages still work.</string>
     <string name="perm_logs_name">Logs (one-time ADB step)</string>
     <string name="perm_logs_why">Background clipboard (advanced) reads the clipboard while Bridgey is in the background.</string>
     <string name="perm_logs_without">Copying on the phone sends only while Bridgey is open, or with one tap.</string>
@@ -156,7 +157,7 @@
 
     <!-- OEM battery checklist (steps from dontkillmyapp.com) -->
     <string name="oem_title">Keep Bridgey running on %1$s</string>
-    <string name="oem_intro">This phone stops apps in the background beyond Android\'s own battery settings. Change these once.</string>
+    <string name="oem_intro">This phone stops apps in the background beyond Android\'s own battery settings. Change these once, and check them again after a system update.</string>
     <string name="oem_source">Steps from dontkillmyapp.com</string>
     <string name="oem_vendor_oneplus">OnePlus</string>
     <string name="oem_vendor_coloros">Oppo and Realme (ColorOS)</string>
@@ -169,7 +170,7 @@
     <string name="oem_step_never_sleeping">Never sleeping apps</string>
     <string name="oem_oneplus_auto_start">Settings, Apps, Auto launch: turn on Bridgey.</string>
     <string name="oem_oneplus_background">App info, Battery usage: allow background activity.</string>
-    <string name="oem_oneplus_battery">Battery, Battery optimisation: choose Don\'t optimise for Bridgey.</string>
+    <string name="oem_oneplus_battery">Battery, Battery optimisation: choose Don\'t optimise for Bridgey. Under Advanced optimisation, turn off Deep optimisation and Sleep standby optimisation.</string>
     <string name="oem_coloros_auto_start">Settings, App management, Auto launch: turn on Bridgey.</string>
     <string name="oem_coloros_background">App info, Battery usage: allow background activity.</string>
     <string name="oem_coloros_battery">Battery, More settings, Optimise battery use: choose Don\'t optimise for Bridgey.</string>
@@ -178,7 +179,7 @@
     <string name="oem_xiaomi_battery">Battery optimisation: choose Don\'t optimise. Also lock Bridgey in recent apps.</string>
     <string name="oem_samsung_background">App info, Battery: choose Unrestricted.</string>
     <string name="oem_samsung_battery">Battery, Background usage limits: turn off Put unused apps to sleep.</string>
-    <string name="oem_samsung_never_sleeping">Battery, Background usage limits, Never sleeping apps: add Bridgey.</string>
+    <string name="oem_samsung_never_sleeping">Battery, Background usage limits, Never sleeping apps: add Bridgey, and remove it from Sleeping apps and Deep sleeping apps.</string>
     <string name="oem_vivo_auto_start">i Manager, App manager, Autostart manager: turn on Bridgey.</string>
     <string name="oem_vivo_background">Battery, Background power consumption: allow Bridgey.</string>
     <string name="oem_vivo_battery">App info, Battery: choose Don\'t restrict background activity.</string>

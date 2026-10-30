@@ -7,6 +7,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ForwardedNotificationRegistryTest {
+    @Test fun callActionsNeedCallsOnForTheAskingMac() {
+        assertFalse("answer or hang up with Calls off", notificationActionAllowed(isCallAction = true, callsEnabled = false))
+        assertTrue(notificationActionAllowed(isCallAction = true, callsEnabled = true))
+        assertTrue("a message reply needs only Notifications", notificationActionAllowed(isCallAction = false, callsEnabled = false))
+    }
+
+    @Test fun aMacWithCallsOffGetsNoCallActionTokens() {
+        val actions = listOf("answer", "decline")
+        assertTrue(forwardedActionsFor(actions, isCall = true, callsEnabled = false).isEmpty())
+        assertTrue(forwardedActionsFor(actions, isCall = true, callsEnabled = true) == actions)
+        assertTrue("other notifications keep their actions", forwardedActionsFor(actions, isCall = false, callsEnabled = false) == actions)
+    }
+
     @Test fun removesOnlyForwardedNotificationsOnce() {
         val registry = ForwardedNotificationRegistry()
         registry.record("one", "system-one", "one.app")

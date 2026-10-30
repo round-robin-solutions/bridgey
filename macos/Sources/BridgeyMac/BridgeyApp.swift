@@ -13,6 +13,8 @@ struct BridgeyApp: App {
 
     init() {
         LegacyPreferences.migrateIfNeeded()
+        // Popovers close on clicks in other apps; closed windows that stay on screen are taken off.
+        WindowWatchdog.shared.start()
         // Before BridgeySettings writes anything: a pending reset, then setup or the review banner.
         SetupCenter.shared.prepareLaunch()
         let settings = BridgeySettings()
@@ -23,7 +25,7 @@ struct BridgeyApp: App {
         pairing.observe(discovery)
         IntentHost.pairing = pairing
         _pairing = StateObject(wrappedValue: pairing)
-        let callServiceProvider = CallServiceProvider { [weak pairing] number in pairing?.sendCallWhenConnected(number) }
+        let callServiceProvider = CallServiceProvider { [weak pairing] number in pairing?.sendCallWhenConnected(number, source: .service) }
         // Services: Call with Bridgey RR and Send to Phone with Bridgey (ShareAndServices.swift).
         let serviceProvider = BridgeyServiceProvider(calls: callServiceProvider) { payloads in
             QuickSendController.shared.present(payloads)
@@ -33,9 +35,11 @@ struct BridgeyApp: App {
         QuickSendController.shared.attach(pairing: pairing)
         let updater = AppUpdater()
         self.updater = updater
+        // Update all: this Mac's version and update state for phones, their requests, and runs from here.
+        UpdateAllCoordinator.shared.configure(pairing: pairing, updater: updater)
         let settingsWindow = SettingsWindowController(discovery: discovery, pairing: pairing, settings: settings, updater: updater)
         self.settingsWindow = settingsWindow
-        appDelegate.configure { [weak pairing] number in pairing?.sendCallWhenConnected(number) }
+        appDelegate.configure { [weak pairing] number in pairing?.sendCallWhenConnected(number, source: .link) }
         // The Share extension's hand-off: what it put on the private pasteboard goes to the chooser.
         appDelegate.configure(onShare: { QuickSendController.shared.present(ShareHandoff.take()) })
         MenuBarHost.start(discovery: discovery, pairing: pairing, settings: settings, updater: updater, openSettings: settingsWindow.show)

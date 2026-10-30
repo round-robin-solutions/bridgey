@@ -183,6 +183,13 @@ func decodeProtocolMessage(_ data: Data) throws -> PairingMessage {
         guard let integer = jsonInteger(value) else { throw PairingError.invalidMessage }
         sequence = Int64(integer)
     }
+    var protocolVersion: Int64?
+    switch object["protocolVersion"] {
+    case nil, is NSNull: protocolVersion = nil
+    case let value:
+        guard let integer = jsonInteger(value) else { throw PairingError.invalidMessage }
+        protocolVersion = Int64(integer)
+    }
     return PairingMessage(
         kind: kind,
         sessionId: sessionId,
@@ -197,8 +204,19 @@ func decodeProtocolMessage(_ data: Data) throws -> PairingMessage {
         ciphertext: try optional("ciphertext"),
         transferId: try optional("transferId"),
         sequence: sequence,
-        targetDeviceId: try optional("targetDeviceId")
+        targetDeviceId: try optional("targetDeviceId"),
+        commitment: try optional("commitment"),
+        protocolVersion: protocolVersion,
+        tag: try optional("tag"),
+        reason: try boundedReason(optional("reason"))
     )
+}
+
+/// `reason` in pairing.cancel is at most 32 bytes; a longer one closes the session like any bad envelope field.
+private func boundedReason(_ value: String?) throws -> String? {
+    guard let value else { return nil }
+    guard value.utf8.count <= 32 else { throw PairingError.invalidMessage }
+    return value
 }
 
 /// Splits the byte stream of one connection into frames. A frame ends at LF; one CR before the LF is
@@ -270,11 +288,21 @@ enum FeatureStateDecoding: Equatable {
 /// Draft feature keys this client reads from features.update.
 /// Files 2.0 (BrowseMessages.swift): the Mac reads files_browse_draft1 (the phone serves browsing); it reads
 /// folders_receive_draft1 too, so both platforms decode the golden vectors alike, though only phones act on it.
+/// Update all (UpdateAllProtocol.swift) adds updates_draft1, then screen sharing screen_draft1, text messages sms_draft1
+/// and settings sync settings_sync_draft1 (last). Android has the same
+/// list in the same order.
 let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, placesFeatureKey, smsCodesFeatureKey,
                              foldersReceiveFeatureKey, filesBrowseFeatureKey,
                              // Automation (v0.9). Connection health has no key (no wire change).
                              macActionsFeatureKey, linksOpenFeatureKey, focusSyncFeatureKey, cameraFeatureKey,
-                             // Connect anywhere (ConnectProtocol.swift).
+                             updatesFeatureKey,
+                             // Screen sharing (v0.9), view only.
+                             screenFeatureKey,
+                             // Text messages (SmsProtocol.swift).
+                             smsFeatureKey,
+                             // Settings sync (v0.10, SettingsSync.swift).
+                             settingsSyncFeatureKey,
+                             // Connect anywhere (ConnectProtocol.swift), last.
                              connectFeatureKey]
 
 func decodeFeatureState(_ plaintext: Data) -> FeatureStateDecoding {

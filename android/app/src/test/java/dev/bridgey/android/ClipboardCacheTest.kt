@@ -40,6 +40,19 @@ class ClipboardCacheTest {
     }
 
     @Test
+    fun canHoldCountsKeptOffersOnly() {
+        val cache = cache(maxBytes = 250)
+        val kept = saved(cache)
+        cache.writeComplete(kept, 0, ByteArray(100))
+        val other = saved(cache)
+        cache.writeComplete(other, 0, ByteArray(100))
+        val keptBytes = File(folder.root, "clipboard-cache/$kept").walkTopDown().filter(File::isFile).sumOf(File::length)
+        assertTrue("an offer that could be evicted makes room", cache.canHold(250 - keptBytes, setOf(kept)))
+        assertFalse("the kept offer counts toward the cap", cache.canHold(250 - keptBytes + 1, setOf(kept)))
+        assertTrue(cache.canHold(250, emptySet()))
+    }
+
+    @Test
     fun supersedeRemovesTheWholeOfferWhenNothingWasHandedOut() {
         val cache = cache()
         val id = saved(cache)

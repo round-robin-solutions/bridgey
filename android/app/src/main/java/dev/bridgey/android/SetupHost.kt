@@ -162,8 +162,10 @@ internal fun setupFacts(context: Context, settings: SettingsState, paired: Boole
             SetupSetting.FEATURE_CALLS to BridgeyFeature.CALLS, SetupSetting.FEATURE_FILES to BridgeyFeature.FILES,
             SetupSetting.FEATURE_REMOTE_INPUT to BridgeyFeature.REMOTE_INPUT, SetupSetting.FEATURE_MAC_ACTIONS to BridgeyFeature.MAC_ACTIONS,
             SetupSetting.FEATURE_MEDIA to BridgeyFeature.MEDIA, SetupSetting.FEATURE_CAMERA to BridgeyFeature.CAMERA,
+            SetupSetting.FEATURE_SCREEN to BridgeyFeature.SCREEN,
             SetupSetting.FEATURE_LINKS to BridgeyFeature.LINKS, SetupSetting.FEATURE_FIND_DEVICE to BridgeyFeature.FIND_DEVICE,
             SetupSetting.FEATURE_PING to BridgeyFeature.PING, SetupSetting.FEATURE_BATTERY to BridgeyFeature.BATTERY,
+            SetupSetting.FEATURE_SMS to BridgeyFeature.SMS,
         ).forEach { (setting, feature) -> put(setting, settings.featureOn(feature).toString()) }
         put(SetupSetting.PAIRING, paired.toString())
         put(SetupSetting.AUTO_CLIPBOARD, settings.autoClipboardEnabled.toString())
@@ -175,6 +177,7 @@ internal fun setupFacts(context: Context, settings: SettingsState, paired: Boole
         put(SetupSetting.CODES_LINK, settings.codes.linked.toString())
         put(SetupSetting.FOCUS_SHARE, settings.focus.share.toString())
         put(SetupSetting.FOCUS_FOLLOW, settings.focus.follow.toString())
+        put(SetupSetting.SMS_REPLY_AS_SMS, settings.messages.replyAsSms.toString())
         put(SetupSetting.DIRECT_CALLS, settings.directCallsEnabled.toString())
         put(SetupSetting.FOLDER_MODE, settings.folders.mode.name)
         put(SetupSetting.ALLOW_BROWSE, settings.folders.allowBrowse.toString())
@@ -186,6 +189,7 @@ internal fun setupFacts(context: Context, settings: SettingsState, paired: Boole
         put(SetupSetting.BATTERY_EXEMPTION, settings.batteryExempt.toString())
         put(SetupSetting.KEEP_WIFI_AWAKE, settings.keepWifiAwake.toString())
         put(SetupSetting.REDUCE_MOTION, settings.reduceMotion.toString())
+        put(SetupSetting.SETTINGS_SYNC, settings.sync.switches.enabled.toString())
         put(SetupSetting.CONNECT_AWAY, settings.connect.on.toString())
     }
     return SetupFacts(
@@ -197,6 +201,7 @@ internal fun setupFacts(context: Context, settings: SettingsState, paired: Boole
         wifiAwakeSupported = settings.keepWifiAwakeSupported,
         codesLinkApplies = settings.codes.linkApplies,
         duplicateApps = duplicateApps,
+        dualSim = settings.messages.dualSim,
     )
 }
 
@@ -217,6 +222,8 @@ internal fun applySetupChange(
     uiPreferences: dev.bridgey.android.ui.UiPreferences,
     remotePreferences: dev.bridgey.android.remote.RemoteInputPreferences,
     updater: AppUpdater,
+    /** Settings sync's main switch (the summary's "Settings stay the same on your devices"). */
+    setSettingsSync: (Boolean) -> Unit = {},
 ) {
     val on = change.value == "true"
     when (change.setting) {
@@ -228,10 +235,13 @@ internal fun applySetupChange(
         SetupSetting.FEATURE_MAC_ACTIONS -> setGlobal(BridgeyFeature.MAC_ACTIONS, on)
         SetupSetting.FEATURE_MEDIA -> setGlobal(BridgeyFeature.MEDIA, on)
         SetupSetting.FEATURE_CAMERA -> setGlobal(BridgeyFeature.CAMERA, on)
+        SetupSetting.FEATURE_SCREEN -> setGlobal(BridgeyFeature.SCREEN, on)
         SetupSetting.FEATURE_LINKS -> setGlobal(BridgeyFeature.LINKS, on)
         SetupSetting.FEATURE_FIND_DEVICE -> setGlobal(BridgeyFeature.FIND_DEVICE, on)
         SetupSetting.FEATURE_PING -> setGlobal(BridgeyFeature.PING, on)
         SetupSetting.FEATURE_BATTERY -> setGlobal(BridgeyFeature.BATTERY, on)
+        SetupSetting.FEATURE_SMS -> setGlobal(BridgeyFeature.SMS, on)
+        SetupSetting.SMS_REPLY_AS_SMS -> settings.setSmsReplyAsSms(on)
         SetupSetting.AUTO_CLIPBOARD -> settings.setAutoClipboardGlobal(on)
         SetupSetting.CLIPBOARD_FILES -> settings.setClipboardFilesEnabled(on)
         SetupSetting.SCREENSHOT_SEND -> settings.setScreenshotSendEnabled(on)
@@ -247,6 +257,7 @@ internal fun applySetupChange(
         SetupSetting.LOGGING_CONNECTION -> settings.setLogging(settings.state.value.logging.copy(connection = on))
         SetupSetting.UPDATE_CHANNEL -> UpdateChannel.entries.firstOrNull { it.name == change.value }?.let(updater::setChannel)
         SetupSetting.KEEP_WIFI_AWAKE -> settings.setKeepWifiAwake(on)
+        SetupSetting.SETTINGS_SYNC -> setSettingsSync(on)
         SetupSetting.CONNECT_AWAY -> settings.setConnectAway(on)
         SetupSetting.HIDDEN_NOTIFICATION_APPS -> {
             // Only the apps the question listed: picked ones stay on the phone, the others are sent again.
@@ -293,6 +304,16 @@ internal fun SetupBackHandler(flow: SetupState, send: (SetupEvent) -> Unit, onEx
  * the predictive gesture) goes to the previous step through the nav host's page back; on the first
  * screen it leaves, asking first when something was chosen.
  */
+/** The Pair step's link to the coordinator's Allow pairing (see [dev.bridgey.android.PairingCoordinator.armPairing]). */
+internal class SetupPairing(
+    val request: dev.bridgey.android.PairingRequest? = null,
+    val armedSeconds: Int = 0,
+    val hold: (Boolean) -> Unit = {},
+    val allow: () -> Unit = {},
+    val dismiss: () -> Unit = {},
+    val stop: () -> Unit = {},
+)
+
 @Composable
 internal fun SetupRoute(
     hooks: SetupHooks,
@@ -301,6 +322,7 @@ internal fun SetupRoute(
     pairedNames: List<String>,
     nearby: List<SetupNearbyMac>,
     onPair: (SetupNearbyMac) -> Unit,
+    pairingReady: SetupPairing,
     onAddDevice: () -> Unit,
     onLookForDevices: () -> Unit,
     onOpenNotificationAccess: () -> Unit,
@@ -335,6 +357,7 @@ internal fun SetupRoute(
                 SetupFlow.neededPermissions(current, now).filter { it.kind !in now.granted }.forEach { it.offWhenRefused.forEach(apply) }
             }
             is SetupEvent.SummarySwitch -> SetupFeatures.feature(event.feature)?.let { feature -> (if (event.on) feature.on else feature.off).forEach(apply) }
+            is SetupEvent.SummarySync -> apply(SettingChange(SetupSetting.SETTINGS_SYNC, event.on.toString()))
             else -> Unit
         }
         flow = SetupFlow.reduce(current, event, now)
@@ -373,6 +396,7 @@ internal fun SetupRoute(
         if (result.keys.any { it == Manifest.permission.CALL_PHONE } && granted(PermissionKind.PHONE_CALLS)) {
             BridgeyNotificationListenerService.callPermissionsChanged()
         }
+        if (result.keys.any { it in SmsPermissionNames }) (context.applicationContext as BridgeyApplication).pairing.smsPermissionsChanged()
         nextInQueue()
     }
 
@@ -392,6 +416,8 @@ internal fun SetupRoute(
             PermissionKind.POST_NOTIFICATIONS -> if (Build.VERSION.SDK_INT >= 33) listOf(Manifest.permission.POST_NOTIFICATIONS) else emptyList()
             PermissionKind.PHOTOS -> dev.bridgey.android.browse.MediaAccessRules.request(Build.VERSION.SDK_INT).toList()
             PermissionKind.CAMERA -> listOf(Manifest.permission.CAMERA)
+            PermissionKind.SMS -> listOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS)
+            PermissionKind.CONTACTS -> listOf(Manifest.permission.READ_CONTACTS)
             else -> emptyList()
         }
     }.distinct().toTypedArray()
@@ -418,11 +444,18 @@ internal fun SetupRoute(
         onFinish(openSettings)
     }
     SetupScreen(
-        SetupUiState(flow, settings.copy(setup = settings.setup.copy(oem = hooks.oem)), pairedNames, nearby, hooks.oem, rerun, facts),
+        SetupUiState(
+            flow, settings.copy(setup = settings.setup.copy(oem = hooks.oem)), pairedNames, nearby, hooks.oem, rerun, facts,
+            pairingRequest = pairingReady.request, armedSeconds = pairingReady.armedSeconds,
+        ),
         SetupActions(
             event = ::send,
             settings = actions,
             pair = onPair,
+            holdPairing = pairingReady.hold,
+            allowPairing = pairingReady.allow,
+            dismissPairingRequest = pairingReady.dismiss,
+            stopPairing = pairingReady.stop,
             addDevice = onAddDevice,
             lookForDevices = onLookForDevices,
             // The quick step shows the explainer's why and without-it itself.
@@ -465,7 +498,7 @@ internal fun permissionFacts(context: Context, settings: SettingsState): Permiss
         }
         // Files 2.0 needs photos and videos (attach sheet, Mac browsing); a fresh screenshot needs photos only.
         val photosGranted = if (settings.featureOn(BridgeyFeature.FILES)) {
-            dev.bridgey.android.browse.MediaAccessRules.access(Build.VERSION.SDK_INT, ::granted) == dev.bridgey.android.browse.MediaAccess.FULL
+            dev.bridgey.android.browse.MediaAccessRules.complete(Build.VERSION.SDK_INT, ::granted)
         } else {
             PhotoPermissions.access(context) == PhotoAccess.FULL
         }
@@ -475,7 +508,8 @@ internal fun permissionFacts(context: Context, settings: SettingsState): Permiss
         if (settings.codes.linked) add(PermissionKind.COMPANION_LINK)
         if (settings.batteryExempt) add(PermissionKind.BATTERY)
         if (context.packageManager.canRequestPackageInstalls()) add(PermissionKind.INSTALL_PACKAGES)
-        if (granted(Manifest.permission.READ_SMS)) add(PermissionKind.SMS)
+        if (granted(Manifest.permission.READ_SMS) && granted(Manifest.permission.SEND_SMS)) add(PermissionKind.SMS)
+        if (granted(Manifest.permission.READ_CONTACTS)) add(PermissionKind.CONTACTS)
         if (granted(Manifest.permission.READ_LOGS)) add(PermissionKind.LOGS)
     }
     return PermissionFacts(
@@ -489,8 +523,13 @@ internal fun permissionFacts(context: Context, settings: SettingsState): Permiss
         mediaOn = settings.featureOn(BridgeyFeature.FILES),
         cameraOn = settings.featureOn(BridgeyFeature.CAMERA),
         focusFollowOn = settings.focus.follow,
+        smsOn = settings.featureOn(BridgeyFeature.SMS),
+        dualSim = settings.messages.dualSim,
     )
 }
+
+/** The runtime permissions behind Text messages. */
+internal val SmsPermissionNames = setOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS, Manifest.permission.READ_CONTACTS)
 
 /** Route.Permissions: Manage opens the system screen, or the explainer then the request. */
 @Composable
@@ -520,11 +559,12 @@ internal fun PermissionsRoute(
             PermissionKind.DO_NOT_DISTURB -> actions.focus.openAccess()
             PermissionKind.BATTERY -> if (allowed) start(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) else actions.requestBatteryExemption()
             PermissionKind.INSTALL_PACKAGES -> start(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")))
-            PermissionKind.SMS -> start(appDetails)
+            // Text messages asks in its own page; once allowed, or refused for good, App info changes it.
+            PermissionKind.SMS, PermissionKind.CONTACTS -> if (allowed) start(appDetails) else onOpenSection(SettingsSection.MESSAGES)
             PermissionKind.LOGS -> onOpenSection(SettingsSection.CLIPBOARD)
         }
     }
-    PermissionsScreen(entries, onBack = actions.back) { entry ->
+    PermissionsScreen(entries, onBack = actions.back, textMessages = settings.featureOn(BridgeyFeature.SMS) && settings.featureOn(BridgeyFeature.NOTIFICATIONS)) { entry ->
         if (entry.state == PermissionState.ALLOWED) open(entry.kind, allowed = true) else explaining = entry.kind
     }
     explaining?.let { kind ->

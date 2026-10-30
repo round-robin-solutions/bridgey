@@ -20,8 +20,8 @@ fun editionValue(key: String): String = requireNotNull(edition.getProperty(key))
 val editionVersionName = System.getenv("BRIDGEY_VERSION_NAME") ?: "${editionValue("EDITION_NEXT_VERSION")}-dev"
 val editionVersionCode = System.getenv("BRIDGEY_BUILD_NUMBER")?.toInt() ?: 1
 // Stable releases are "x.y.z-rr.N"; betas, nightlies and local builds are lab builds. Only lab builds
-// carry the Code reader test and its READ_SMS permission (src/lab/AndroidManifest.xml), so a stable
-// APK never declares SMS access.
+// show the hidden Code reader test. SMS access itself is in every build since Text messages (off by
+// default, asked for only when it is turned on).
 val isStableBuild = Regex("""^\d+\.\d+\.\d+-rr\.\d+$""").matches(editionVersionName)
 
 android {
@@ -43,11 +43,6 @@ android {
         buildConfigField("boolean", "CODE_TEST_AVAILABLE", (!isStableBuild).toString())
         // Connect anywhere: the control service. Empty means routes over learned addresses only.
         buildConfigField("String", "CONNECT_CONTROL_URL", "\"${edition.getProperty("CONNECT_CONTROL_URL").orEmpty()}\"")
-    }
-    if (!isStableBuild) {
-        // Manifest overlays merge on top of main; the build type source sets have none of their own.
-        sourceSets.getByName("debug").manifest.srcFile("src/lab/AndroidManifest.xml")
-        sourceSets.getByName("release").manifest.srcFile("src/lab/AndroidManifest.xml")
     }
 
     signingConfigs {

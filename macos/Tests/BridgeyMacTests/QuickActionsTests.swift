@@ -60,6 +60,21 @@ final class QuickActionsTests: XCTestCase {
         XCTAssertNil(actions.status)
     }
 
+    @MainActor func testLinksAreCheckedAgainstThePhoneThatSentThem() {
+        let actions = QuickActions()
+        var replies: [[String: Any]] = []
+        actions.send = { _, payload in replies.append(payload); return true }
+        actions.available = { _ in true }
+        actions.availableFor = { feature, id in feature == .links && id == "allowed" }
+        let request: [String: Any] = ["version": 1, "requestId": UUID().uuidString, "feature": "links", "action": "offer", "value": "https://example.com"]
+        actions.receive("quick.request", payload: request, from: "not-allowed")
+        XCTAssertNil(actions.receivedLink, "the selected phone allowing links does not let another phone in")
+        XCTAssertEqual(replies.last?["accepted"] as? Bool, false)
+        actions.receive("quick.request", payload: request, from: "allowed")
+        XCTAssertEqual(actions.receivedLink, "https://example.com")
+        XCTAssertEqual(replies.last?["accepted"] as? Bool, true)
+    }
+
     func testNewCapabilitiesFailClosedForOldPeers() {
         XCTAssertFalse(featureEnabledByLegacyPeer(.links))
         XCTAssertFalse(featureEnabledByLegacyPeer(.media))

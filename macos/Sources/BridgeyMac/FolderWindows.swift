@@ -353,7 +353,7 @@ final class FolderSheetWindowController: NSWindowController, NSWindowDelegate {
 
     func dismiss() {
         onClose = nil
-        window?.close()
+        BridgeyWindows.close(window)
     }
 }
 
@@ -473,7 +473,7 @@ final class FolderConflictWindowController: NSWindowController, NSWindowDelegate
         guard !answered else { return }
         answered = true
         onAnswer(choice)
-        window?.close()
+        BridgeyWindows.close(window)
     }
 
     /// Closing the window is Cancel.
@@ -486,7 +486,7 @@ final class FolderConflictWindowController: NSWindowController, NSWindowDelegate
     /// The question ended elsewhere (timeout, the phone cancelled): close without answering.
     func dismiss() {
         answered = true
-        window?.close()
+        BridgeyWindows.close(window)
     }
 }
 

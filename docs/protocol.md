@@ -107,24 +107,60 @@ available only when both peers report the corresponding feature as enabled. Clie
 predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
-`sms_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`,
-`connect_draft1`) are optional booleans described in their own sections; a missing draft key means `false`.
+`sms_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`, `updates_draft1`,
+`screen_draft1`, `connect_draft1`)
+are optional booleans described in their own sections; a missing draft key means `false`.
 
 ## Pairing flow
 
-Pairing runs only after a user selects a discovered peer:
+Pairing runs only after a user selects a discovered peer. What the native clients
+do (protocol 2, v0.10):
 
-1. Both peers create ephemeral P-256 ECDH key pairs and exchange
-   `pairing.offer`/`pairing.answer` containing nonces and public keys.
-2. Each validates all fields and derives the same secret with platform crypto.
-3. HKDF-SHA-256 derives independent verification and session keys, binding the
-   ordered public keys, nonces, device IDs, and protocol version into `info`.
-4. A six-digit code derived from the verification key is displayed on both
-   devices. It is never sent over the network.
-5. Each user explicitly confirms; peers exchange authenticated
-   `pairing.confirm` records containing their long-term public keys.
-6. Trust is stored only after both confirmations verify. Any timeout, mismatch,
-   rejection, or disconnect erases ephemeral state.
+1. The initiator creates an ephemeral P-256 key pair and sends `pairing.offer`
+   with `protocolVersion: 2`. For a first pairing (the target is not already
+   trusted) the offer carries `commitment`, the base64 SHA-256 of
+   `"bridgey-commit-v2", sessionId, publicKey` (each field length-prefixed), and
+   no `publicKey`. A reconnect to a trusted device sends `publicKey` instead,
+   because that device's pinned identity signature authenticates it.
+2. The responder answers with its own ephemeral key and `protocolVersion: 2`
+   before it has seen the initiator's key.
+3. After a commitment, the initiator sends `pairing.reveal` with its `publicKey`.
+   The responder checks it against the commitment and fails the pairing on a
+   mismatch.
+4. Both derive the session key with ECDH and HKDF-SHA-256 (salt SHA-256 of the
+   session ID, info `bridgey-pairing-v1`). The six-digit code of a protocol 2
+   first pairing comes from its own label, `bridgey-sas-v2` over the initiator's
+   and the responder's ephemeral keys, not from session key bytes. It is never
+   sent over the network.
+5. Each user explicitly confirms; peers exchange `pairing.confirm` with an HMAC
+   proof and an identity signature over the session ID, device IDs and both
+   ephemeral keys. Trust is stored only after both confirmations verify.
+
+Because neither side can choose its ephemeral key after seeing the other's, an
+active attacker in the middle cannot search for keys that make the two codes
+match; each attempt is a one in a million guess that the user sees as a new
+prompt. Pairing frames are only taken in order (the dialled end takes the offer
+and the reveal, the dialler the answer), so an answer cannot stand in for the
+reveal. Offers from other devices are limited to three a minute.
+
+When both ends sent `protocolVersion: 2`, every frame after pairing carries
+`tag`: base64 HMAC-SHA-256, under HMAC(session key, `bridgey-envelope-v2`), of the
+sender's device ID and every envelope field (length-prefixed, an absent or empty
+field written as length 0xFFFFFFFF). A frame with a missing or wrong tag is dropped, as
+is any non-pairing frame on a session that has not authenticated; 16 dropped
+frames close the connection. A device that once authenticated with protocol 2 is
+pinned to it, so a later session without tags is refused. Shared vectors are in
+`protocol/test-vectors/crypto-v1.properties` (from
+`protocol/tools/crypto_v2_vectors.py`).
+
+Compatibility: a protocol 1 client (0.9 and earlier, and upstream Bridgey)
+still reconnects to a trusted protocol 2 client until the pair has once
+connected on protocol 2. A first pairing needs protocol 2 on both ends, in both
+directions: a protocol 2 client neither sends nor accepts an offer without a
+commitment from a device it does not trust, because a man in the middle could
+grind the protocol 1 leg to the code it saw on the other. Update both apps to
+pair. Each answered offer from an untrusted device counts toward the three a
+minute, whether or not it reveals.
 
 Pairing offers expire after two minutes and cannot be silently retried. The
 short code is a human MITM check, not a password. Detailed primitive and storage
@@ -569,6 +605,10 @@ is idle; an idle state must hold for 1.5 s) and then adds `"callEnded": true` to
 the reference payload. macOS removes a call card at once when `callEnded` is
 true; without it (an older Android release) the card stays for 2 s and survives
 if the call is posted again in that time.
+The notification ID names the phone app's notification, not the call: dialers post
+every call under the same notification, so consecutive calls arrive with the same
+ID. macOS treats a post with another caller for a card that is waiting out those
+2 s as a new call.
 
 ### Codes from messages (`sms_codes_draft1`)
 
@@ -799,13 +839,303 @@ The Mac saves it in the received files folder like any file and, if its "Copy ph
 clipboard" setting is on (off by default), also puts the image on the clipboard. Older Macs ignore
 the field and simply receive a file.
 
+### Update all (`updates_draft1`)
+
+Status: **Draft, edition only.** Each device tells the devices connected to it which version it
+runs, on which channel, and where its own update stands; **Update all** on one device then asks each
+connected device to update itself, and updates the device you are using last. Macs are not paired
+to each other, so "all" means every device connected to the one you are using: from a phone that is
+every connected Mac, from a Mac every connected phone.
+
+**Negotiation.** `features.update` gains `updates_draft1`: the device sends `updates.status` and
+understands `updates.start`. Edition builds that have the feature always advertise it; whether this
+device lets others start its update is a field of the status, not the key. Upstream peers and older
+edition builds never advertise it, never receive these messages, and are listed as "Update this one
+by hand".
+
+**Messages.** Encrypted like `codes.*` (`messageId` in the replay window), `version: 1`. A malformed
+message is dropped and the session stays.
+
+| Message | Direction | Max plaintext | Fields |
+| --- | --- | --- | --- |
+| `updates.status` | either | 1,024 B | `platform` (`android` \| `macos`), `edition` (1 to 32 UTF-8 bytes, `rr` for this edition), `app` (installed version name, 1 to 64 UTF-8 bytes), `build` (installed build number, 1 to 2^53-1), `channel` (`stable` \| `beta` \| `nightly`), `state`, optional `target` (version on offer, 1 to 64 UTF-8 bytes) and `targetBuild` (1 to 2^53-1), optional `progress` (0 to 100, with `downloading`), optional `reason`, `remoteStart` (boolean), `checkedAt` (Unix ms of the last successful check, 0 for never) |
+| `updates.start` | either | 512 B | `requestId` (UUID), optional `retry` (boolean, default false) |
+| `updates.result` | either | 512 B | `requestId` (echoes the start), `status` (`accepted` \| `refused`), `reason` with `refused` |
+
+`state` is one of:
+
+| State | Meaning | `target` | `reason` |
+| --- | --- | --- | --- |
+| `current` | Nothing newer was found on its channel at `checkedAt` | no | no |
+| `checking` | Checking its channel feed now | no | no |
+| `available` | A newer build is on offer | yes | no |
+| `downloading` | Downloading it; `progress` when the size is known | yes | no |
+| `ready` | Downloaded and verified, waiting to install (a countdown, or Later) | yes | no |
+| `installing` | Handed to the installer; the app restarts next | yes | no |
+| `needs_user` | The system needs the person at that device | yes | `confirm` (Android's install confirmation) \| `permission` (Install unknown apps is off) |
+| `failed` | The last attempt stopped | when known | `check` \| `download` \| `safety` \| `installer` \| `cancelled` \| `not_applied` \| `other` |
+| `manual` | This build cannot update itself (a development build, or the updater did not start) | no | no |
+
+A receiver drops a status with an unknown `state`, `platform` or `channel`, and reads an unknown
+`reason` as `other`. `not_applied` means the device handed version `target` to its installer and
+started again on its old build.
+
+`remoteStart` is the device's own "Let paired devices start updates on this device" switch (on by
+default), and false when its updater cannot run.
+
+**When a status is sent.** Once after each `features.update` that shows the key on both sides, then
+whenever any field but `progress` changes, and while downloading at most once a second.
+
+**`updates.start`** asks the receiver to update itself now from its own channel. It names no version,
+URL, file or channel: the receiver checks its own feed, offers only a build newer than the installed
+one, and installs only through its own checks (Android: SHA-256, package name, version code and
+signing certificate; Mac: Sparkle's EdDSA signature). A downgrade is therefore impossible through
+this message. The receiver answers exactly one `updates.result`:
+
+- Dropped without an answer: wrong `version` or a `requestId` that is not a UUID, or a start from a
+  peer whose latest map does not show the key.
+- `refused` with `reason`: `disabled` (its switch is off), `rate_limited` (more than one start every
+  30 seconds or five an hour from that device), `manual` (its updater cannot run), `not_applied`
+  (the last version it tried did not apply and `retry` is not true), `busy` (its updater cannot
+  start a check right now). A sender reads an unknown reason as `other`.
+- `accepted`: it updates. If an update is already running it carries on, and still answers
+  `accepted`. Progress follows as `updates.status`.
+
+`retry: true` is set only when the person taps Retry for that device. Without it, a device whose
+last attempt did not apply refuses, so a version that failed is never installed again on its own,
+even when another device asks.
+
+**Order and results (the device running Update all).** It starts every connected peer that will
+update at once, downloads its own update meanwhile, and installs its own last, after each peer has
+finished, failed, or handed over to its installer (`installing`, or `needs_user`). Its own restart
+waits through a 10-second countdown with **Later**; a peer that was asked installs and restarts
+without asking. A peer that drops while `ready` or `installing` is restarting; when it reconnects,
+its first `updates.status` decides: `build` at or above the `targetBuild` it was installing means
+done, the same `build` as before means "Update didn't apply" (never retried on its own). A peer
+whose current step has run for 3 minutes is marked as taking longer than usual.
+
+### Phone screen to Mac (`screen_draft1`)
+
+Status: **Draft, edition only, view only.** The Mac shows the phone's screen in a window. The phone
+captures with Android's MediaProjection after the person confirms in the system dialog, encodes H.264
+in hardware and streams it over the existing encrypted session. Control (touching the phone from the
+Mac) is not part of this draft; see [screen-control-decision.md](screen-control-decision.md). Why the
+stream shares the session instead of using a second connection, how it adapts to the link and what it
+measured: [screen-sharing.md](screen-sharing.md).
+
+**Negotiation.** `features.update` gains the boolean key `screen_draft1`. The phone sets it when
+"Share screen with Macs" is on for that Mac (off by default; a global switch with per-Mac choices, like
+the phone's other features). The Mac sets it when its "Show phone screens" switch is on (off by
+default; one switch for every phone). The grant per device lives on the phone because the phone's
+content is what is shared, as remote control's grant lives on the Mac it controls; the Mac's switch
+only decides whether it will display streams at all. `screen.*` messages go only to a peer whose latest map shows `true`.
+A receiver whose own switch is off answers `screen.request` with `screen.status` `disabled` and
+`screen.start` with `screen.stop` `disabled`, and drops every other `screen.*` message.
+
+**Asking and answering.** Both are encrypted like `camera.*` (outer `kind`, `sessionId`, a unique
+`messageId` in the replay window, `nonce`, `ciphertext`), plaintext at most 512 bytes, `version: 1`.
+
+| Message | Direction | Fields | Meaning |
+| --- | --- | --- | --- |
+| `screen.request` | Mac to phone | `requestId` (UUID) | "Phone screen" on the Mac. One open request per phone, at most one every 3 seconds; it expires after 2 minutes |
+| `screen.status` | phone to Mac | `requestId`, `status` | `waiting` (the phone shows "MacBook Air wants to see your screen", with the Mac's name, and waits for the person to tap and confirm), `declined` (the person said no in Android's dialog), `busy` (the phone already shares with another Mac), `disabled`, `failed` |
+
+Android does not let an app start capture, or open an activity, from the background, and asks for
+consent before every capture (each time on Android 14 and later). So a request always ends with the
+person tapping on the phone; the stream itself then starts with `screen.start` carrying the
+`requestId`. The phone can also start sharing on its own (its device screen or the Quick Settings
+tile), with no `requestId`; the Mac then opens the window if its switch is on.
+
+**Stream messages.** Encrypted on the current session like remote input: the JSON ones have outer
+`kind`, `sessionId`, a unique `messageId`, `nonce` and `ciphertext`; `screen.frame` has only `kind`,
+`sessionId`, `nonce` and `ciphertext`. None of them enters the shared `messageId` window, because 30
+frames a second would push every other feature's IDs out of it. Instead each side numbers its own
+messages of a stream 1, 2, 3, ... (the phone from `screen.start`, the Mac from `screen.started` or the
+refusing `screen.stop`), JSON and frames alike, and a receiver drops any message whose `sequence` is
+not higher than the last one it accepted from that side for that stream. A `streamId` is chosen by the
+phone and used once; the Mac remembers the last 16 ended stream IDs and ignores a start that reuses
+one. Malformed, out-of-sequence or undecryptable messages are dropped and counted, never answered,
+and never close the transport session. JSON plaintext is UTF-8, `version: 1`, at most 1,024 bytes for
+`screen.start` and 512 for the others.
+
+| Message | Direction | Fields (besides `version`, `streamId`, `sequence`) | Meaning |
+| --- | --- | --- | --- |
+| `screen.start` | phone to Mac | optional `requestId`; `codec`: `h264`; `width`, `height` (even integers, 16 to 4,096); `fps` (1 to 60); `bitrate` (bits a second, 100,000 to 50,000,000) | a new stream. Its first frame is a key frame |
+| `screen.started` | Mac to phone | none | the window is open; frames may follow. The phone gives up after 5 seconds without it |
+| `screen.frame` | phone to Mac | binary, below | one part of one encoded frame |
+| `screen.ack` | Mac to phone | `frame` (1 to 2^32-1), `decodeMs` (0 to 60,000); optional `keyframe`: `true` | the newest frame the Mac has received completely and decoded (or dropped while waiting for a key frame, with `decodeMs` 0), and how long decoding took. `keyframe` asks for a key frame after a frame was lost or failed to decode (at most one a second) |
+| `screen.stats` | phone to Mac | `latencyMs`, `rttMs` (0 to 60,000), `bitrate`, `sentBitrate` (0 to 50,000,000), `fps` (0 to 120), `dropped` (0 to 1,000) | once a second: the phone's latency estimate, its round trip, its target and measured bit rate, frames sent and dropped in the last second. Shown in the Mac window |
+| `screen.stop` | either | `reason` | ends the stream (below) |
+
+| `reason` | Sent by | Meaning |
+| --- | --- | --- |
+| `user` | phone | the person tapped Stop (notification, tile or app) |
+| `closed` | Mac | the person closed the window or chose Stop |
+| `ended` | phone | Android ended the capture (the status bar Stop, another app capturing, the shared app closed) |
+| `screen_off` | phone | the phone's screen turned off or locked |
+| `disabled` | either | the switch is off on this side |
+| `invalid` | Mac | the start was malformed, or asked for a codec or size the Mac cannot decode |
+| `timeout` | either | the phone got no `screen.started` within 5 seconds or no `screen.ack` for 6 seconds while frames were outstanding; the Mac got no frame or `screen.stats` for 6 seconds |
+| `failed` | either | the encoder, the capture or the decoder failed |
+
+An unknown `reason` reads as `failed`. When the transport session closes, both sides end the stream
+locally (reason `disconnected`, never sent). One stream at a time per phone (a second Mac's request
+gets `busy`); a Mac may show several phones, each in its own window.
+
+**Frames.** The plaintext of `screen.frame` is a 40-byte header followed by 1 to 32,768 bytes of
+H.264 Annex B data (at most 32,808 bytes; the encrypted frame stays well under the 65,536-byte frame
+limit). Integers are big-endian.
+
+| Bytes | Field | Rule |
+| --- | --- | --- |
+| 0 | version | `1` |
+| 1 | flags | bit 0 key frame (IDR), bit 1 the frame starts with its SPS and PPS, bit 2 last part of the frame; other bits are sent as 0 and ignored |
+| 2 to 3 | part | 0 to 63, the index of this part within the frame |
+| 4 to 19 | stream ID | the 16 bytes of the `streamId` UUID |
+| 20 to 27 | sequence | 1 to 2^53-1, the phone's stream sequence above |
+| 28 to 31 | frame | 1 to 2^32-1; increases from one frame to the next |
+| 32 to 39 | capture time | 0 to 2^63-1 microseconds on the phone's monotonic clock (a signed 64-bit value; a set top bit is rejected); only differences mean anything |
+
+A frame is one H.264 access unit, split into parts sent in order 0, 1, 2, ...; part 0 starts with an
+Annex B start code. Every key frame carries the current SPS and PPS at its start (flag bit 1), so it
+can be decoded on its own and a size change (rotation) needs no separate message. B-frames are not
+used, so frames are decoded and shown in the order they arrive. The Mac drops an unfinished frame when
+a part of a later frame arrives, and drops frames until the next key frame after a lost or undecodable
+one. Frames over 64 parts (2 MiB) are dropped.
+
+**Pacing (phone).** The phone sends a frame only while at most 6 frames and at most
+max(64 KiB, 250 ms at the current bit rate) are sent and not yet acknowledged. A frame that does not
+fit is dropped, along with every following frame up to the next key frame, which the phone requests
+from the encoder at once; then it lowers the bit rate. One exception keeps a stream from stalling:
+when nothing is unacknowledged, a key frame is always sent, whatever its size. The Mac acknowledges
+every frame it receives completely, including frames it drops while waiting for a key frame, so the
+phone's count of unacknowledged frames always drains. This keeps at most a quarter of a second of
+video queued in the socket, so clipboard, notifications and acknowledgements wait behind one part at
+most. The bit rate goes down by a quarter when frames are dropped or the round trip grows 80 ms over
+its minimum (at most every 500 ms), and up by 15 percent after 2 seconds without either, between
+300 kb/s and 8 Mb/s.
+
+**Security.**
+
+| Threat | Mitigations |
+| --- | --- |
+| The Mac watches the phone without the person knowing | Both switches are off by default. Every stream needs the person's confirmation in Android's own dialog on the phone, every time. While it runs, the phone shows a persistent "Your screen is being shared with MacBook Air" notification (the Mac's name) with Stop, and Android 15 and later add the status bar indicator. The phone stops when its screen turns off |
+| Sensitive content on screen | Android 15 and later hide one-time codes and other sensitive notification content during capture; secure windows (banking apps, passwords, FLAG_SECURE) appear black. The Mac never saves, records or forwards frames; nothing is written to disk |
+| Another device on the network watches or injects frames | Frames are AES-GCM encrypted with the session key of the authenticated, pinned peer. The per-stream sequence and the stream ID in each header reject replays and splicing between streams; the session key rejects them across sessions |
+| A flood of frames or huge frames | Parts are at most 32 KiB, frames at most 64 parts, and the Mac keeps one unfinished frame. Frames go only to a Mac whose switch is on; the Mac stops a stream with no traffic for 6 seconds |
+| Sharing left running unnoticed | The notification stays until the stream ends; Stop on either side, a locked screen, a disconnect or switching the feature off ends it |
+### Text messages (`sms_draft1`)
+
+Status: **Draft, edition only.** Bridgey by Round Robin shows the phone's SMS conversations on the
+Mac, Pushbullet style: a Messages window with the conversation list, each conversation, new messages
+to a contact or number, MMS images (read only), delivery status and the SIM each conversation uses.
+A text message notification gets a Reply field on the Mac that works whichever messaging app the
+phone uses. Off by default on both sides; upstream peers never see any of it.
+
+**Negotiation.** `features.update` gains `sms_draft1`. The phone sets it while its Text messages
+switch is on for that Mac; the Mac sets it while its own Text messages setting is on. `sms.*`
+messages and the two `notifications.post` fields below go only to a peer whose latest map shows the
+key `true`. A phone that turns the feature off sends the key `false`, and the Mac then deletes what
+it kept for that phone.
+
+**Permissions and privacy.** The phone reads the SMS provider (`READ_SMS`), sends with `SmsManager`
+(`SEND_SMS`), looks up names (`READ_CONTACTS`) and, on dual-SIM phones, lists SIMs
+(`READ_PHONE_STATE`). It asks only when Text messages is turned on, and never becomes the default SMS
+app: Android writes messages Bridgey sends into the provider itself. Message bodies, numbers and
+names travel only inside the encrypted session and are never logged on either side. The phone keeps
+nothing; the Mac keeps a cache (below) and MMS images only in memory.
+
+**Fields on `notifications.post`** (phone to Mac, only to a Mac that shows the key, only for the
+default SMS app's notifications):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `smsReply` | boolean | the phone can answer this notification: the Mac shows one Reply field and sends `sms.send` with `notificationId` |
+| `smsThreadId` | integer, optional | the conversation the newest message belongs to, so a click opens it |
+
+The phone answers a notification reply through the messaging app's own reply (RemoteInput) when the
+app offers one, so chat features such as RCS keep working, and through `SmsManager` when it does not,
+or always when the phone's "Send replies as SMS" switch is on (for apps whose reply is unreliable).
+SmsManager replies go to the conversation's single participant from the SIM it last used.
+
+**Messages.** Encrypted like `codes.*` (`messageId` in the replay window), `version: 1`. Requests
+carry a `requestId` (UUID) that the answer echoes.
+
+| Message | Direction | Fields | Meaning |
+| --- | --- | --- | --- |
+| `sms.status` | phone to Mac | `read`, `send`, `contacts` (permissions), `sims` (`subId`, `slot`, `label`), `cursor` | sent after each `features.update` showing the key on both sides and whenever a permission or the SIM list changes |
+| `sms.changed` | phone to Mac | `cursor` | the provider changed; at most one every 2 seconds |
+| `sms.threads` / `sms.threads_page` | Mac asks, phone answers | `before` (date), `limit` up to 50 / `threads`, `more` | conversation list, newest first |
+| `sms.messages` / `sms.messages_page` | Mac asks, phone answers | `threadId`, `before` (`date`, `id`), `limit` up to 100 / `messages`, `more` | one conversation, newest first |
+| `sms.sync` / `sms.sync_page` | Mac asks, phone answers | `since` cursor, `limit` up to 200 / `messages`, `cursor`, `more`, `reset` | everything newer than the Mac's cursor |
+| `sms.send` / `sms.send_status` | Mac asks, phone answers | `body` and one of `threadId`, `address`, `notificationId`, optional `subId` / `status`, `reason`, `via` | send one SMS; statuses `sending`, `sent`, `delivered`, `failed`, `refused` |
+| `sms.attachment` / `sms.attachment_data` | Mac asks, phone answers | `partId` / `mimeType`, `width`, `height`, `data` | one MMS image as a JPEG of at most 28 KiB |
+| `sms.contacts` / `sms.contacts_result` | Mac asks, phone answers | `query` / up to 20 `contacts` | names and numbers for a new message |
+| `sms.mark_read` / `sms.mark_read_result` | Mac asks, phone answers | up to 50 `threadIds` / `results` (`threadId`, `result`) | conversations read on the Mac: the phone runs the messaging app's own Mark as read on the notifications it still shows for them |
+| `sms.blocked_numbers` / `sms.blocked_numbers_result` | Mac asks, phone answers | optional `address` / `result` | opens Android's Blocked numbers screen on the phone |
+
+Pages stay under 40 KiB of plaintext (the frame limit is 64 KiB); the phone stops adding entries
+and sets `more`. A message is `{id, threadId, direction, status, date, address, body, truncated?,
+subId?, read, parts?}`; ids are `s<_id>` for SMS and `m<_id>` for MMS, so the two provider tables
+never collide. Bodies over 4,000 UTF-16 units are cut and marked `truncated`.
+
+**Incremental sync.** The cursor is the newest `_id` of the SMS and MMS tables. A Mac with no cache
+takes the cursor from `sms.status` as its starting point (it never copies the whole history) and
+loads the newest conversations; older conversations and older messages load only when scrolled to.
+After that it sends `sms.sync` on connect and after each `sms.changed`. The phone reads each table in
+`_id` order from the cursor, so a page never skips a message, and answers `reset: true` when the
+cursor is ahead of the phone (a restored phone) or more than 1,000 messages behind; the Mac then
+drops its cache and starts again. Opening a conversation refreshes its newest page, which picks up
+delivery reports and messages deleted on the phone.
+
+**The Mac's cache.** At most 200 conversations and the newest 200 messages of each, per phone, in one
+file under Application Support with permissions 0600. It is deleted when Text messages is turned off
+on the Mac, when the phone turns it off, when the phone is forgotten, and from Reset. No cloud.
+
+**Limits and safety.** `sms.send` goes to one recipient: a conversation with several people is
+refused (`group`) and the Mac says to answer it on the phone. Emergency numbers are refused. At most
+one send per second and 30 in 10 minutes per Mac (`rate_limited`); Android's own premium-number and
+volume prompts still apply on the phone. At most 4 open `sms.attachment` requests per Mac.
+
+**Managing conversations from the Mac.** Pin, mute, archive, read state, Mark as unread and Delete
+(a conversation or one message) are this Mac's own: they live in a small per-phone file next to the
+cache (0600, no message text), are never sent anywhere, and go when the cache goes (Forget, Text
+messages off on either device, Reset). Android lets only the default SMS app write to the SMS
+provider, so nothing the Mac does changes the phone's messages; Delete says "Removes it from this
+Mac. It stays on your phone." and keeps a tombstone (thread ID, its newest message's date and ID) so
+the next sync does not bring it back until a newer message arrives. An archived conversation comes
+back when a newer message arrives unless it is muted. A muted conversation shows no banner on the
+Mac (the phone sends `smsThreadId` with each SMS notification).
+
+Two things do reach the phone:
+
+- **Mark as read.** When a conversation is read on the Mac (opened, or marked read) and the phone
+  still counts it unread, the Mac sends `sms.mark_read`. For each conversation the phone looks at the
+  default SMS app's notifications it still shows (matched to conversations as for replies: by text,
+  sender and time), and runs the app's own action tagged `SEMANTIC_ACTION_MARK_AS_READ`, which marks
+  the messages read in the app and clears the notification. Each conversation's `result` is `marked`,
+  `not_shown` (no notification for it, so it stays unread on the phone), `no_action` (the app's
+  notification has no Mark as read) or `failed`. The Mac says which, in plain words. A phone that
+  does not know the request (older than this draft revision) never answers; the Mac treats that as
+  not reaching the phone.
+- **Block on phone.** Only the default dialer, the default SMS app and the carrier may add to
+  Android's blocked list, but any app may open the system Blocked numbers screen
+  (`TelecomManager.createManageBlockedNumbersIntent`). `sms.blocked_numbers` opens it at once when
+  Bridgey is in front on the phone (`opened`), otherwise Bridgey posts a notification that opens it
+  when tapped (`notified`), because Android does not let an app open a screen from the background;
+  `unavailable` when the phone has no such screen (for example a secondary user). The number is
+  shown so the person can add it there.
+
+**Codes from messages.** Unchanged: SMS notifications still carry `smsDefaultApp` and the Mac still
+reads codes from them. The conversation view offers Copy code on a message that looks like it holds
+one, using the same engine and guard as the notifications.
+
 ## Draft: folders, places and settings sync
 
 **Draft, edition only until accepted upstream.** Bridgey by Round Robin implements
-this first; upstream clients never receive these messages. Implemented so far
-(Files 2.0, first slice): folders Mac to phone and places on the phone. Phone to
-Mac and settings sync are not built yet; clients do not advertise
-`settings_sync_draft1`. The full design, user
+this first; upstream clients never receive these messages. Implemented: folders
+Mac to phone and places on the phone (Files 2.0, first slice), phone to Mac (second
+slice, below) and settings sync (v0.10). The full design, user
 experience and reasons are in [folders-and-settings-sync.md](folders-and-settings-sync.md).
 
 ### Negotiation
@@ -963,7 +1293,20 @@ plus one, and increments `version`. The higher `changedAt` wins, then the higher
 unchanged and never re-sent as a new edit, so updates cannot ping-pong. Receivers
 answer `settings.ack` `{schema, ackOf, applied[], kept[]}` and send their newer
 records for `kept` keys unless already sent to that peer; unknown keys and invalid records are skipped one by
-one; an unsupported schema is answered `settings.error` `{schema, code, maxSchema}`.
+one; an unsupported schema is answered `settings.error` `{schema, code, maxSchema}`
+(`unsupported_schema`), and a payload that fails validation `invalid_message`.
+
+As built in v0.10 ([section 8.4](folders-and-settings-sync.md#84-as-built-v010-2026-10-27)):
+24 keys sync, feature switches included (`feature.<key>`, `clipboard.automatic`,
+`clipboard.files`, `focus.share`, `focus.follow`, `codes.enabled`) next to the four preferences;
+per-device grants and overrides, permissions, pairing, paths and the file access guards never
+sync. Live updates apply when they win by the rule above and are relayed to the device's other
+peers, so a phone with two Macs carries one Mac's change to the other. A snapshot never overwrites
+a chosen value: a setting the receiver never chose (`version` 0) takes the sender's, and two
+different chosen values stay as they are until Apply to all on either device. Snapshots and updates
+may carry `waiting` (keys that are on but wait for a permission on the sender). More than 20
+`settings.*` messages from one peer in 10 seconds are dropped and answered `settings.error`
+`rate_limited`. Threat model: [section 8.5](folders-and-settings-sync.md#85-threat-model-settings-sync).
 
 ## Draft: phone files, media and folders both ways
 
@@ -1068,9 +1411,11 @@ modified) or `recent` (both, newest first). `limit` 1 to 200, default 100.
 
 Answer `media.page` `{version, requestId, kind, items[], nextCursor, access,
 indexing}`. An item is `{ref, name, size, modified, mimeType, width, height,
-durationMs, thumb, location}`; `width`, `height` and `durationMs` are null when
+durationMs, thumb, location, taken}`; `width`, `height` and `durationMs` are null when
 unknown; `location` is a display path such as "Camera" or "Documents/Invoices" (at
-most 128 characters). `access` is the photo access (`full`, `partial`, `none`;
+most 128 characters); `taken` (optional, media items only) is the Unix ms the list is
+sorted by (date taken, else date added), so the asker's day headers follow the same
+order as the items. Older phones leave it out; askers then use `modified`. `access` is the photo access (`full`, `partial`, `none`;
 with `none`, `kind: media` returns no items). `indexing` is true while the phone
 refreshes its document index; the asker may list again later. The document index
 covers granted places only (Android shared storage has no other way to see
@@ -1083,8 +1428,10 @@ mean the same bytes.
 
 `media.thumbnails` `{version, requestId, items[], size, replaces}`: 1 to 64 items
 `{key, ref}`, `key` 1 to 64 characters of `[A-Za-z0-9_-]` chosen by the asker;
-`size` is the longest edge in pixels, 64 to 512 (default 256). The phone answers
-in the order asked (the asker puts visible items first) with one or more
+`size` is the longest edge in pixels, 64 to 512 (default 256). The phone makes
+them in the order asked (the asker puts visible items first) and sends each as soon
+as it is ready, so one slow item does not hold back the rest; askers match thumbnails
+by `key`. The answer is one or more
 `media.thumbnails_batch` `{version, requestId, thumbs[], missing[], done}`. A thumb is
 `{key, mimeType, width, height, tint, data}`: `data` is base64 image bytes, at most
 24 KiB per thumbnail (WebP from Android 11, JPEG before; quality drops until it
@@ -1202,9 +1549,12 @@ carry QUIC, never plain TCP:
 
   A relay or a man in the middle that terminates QUIC on both sides sees two different exporters,
   so the signatures fail. `bridgey-auth-v1` stays the transcript on TCP.
-- Tunnels carry trusted devices only: a `pairing.offer` or `pairing.answer` from a device that is not
-  already paired closes the tunnel without a prompt. Pairing stays on the local network (remote
-  pairing by invite is a later phase).
+- Tunnels carry trusted devices only, as a plain protocol 2 reconnect: an offer from a device that
+  is not already paired, a committed offer (a new pairing), or an offer or answer without
+  `protocolVersion` 2 closes the tunnel without a prompt. Both ends refuse to confirm a tunnel session
+  without envelope tags, so every frame inside carries `tag` and goes through the replay window; a
+  tunnel can never fall back to protocol 1. Pairing stays on the local network, where the code is
+  compared (remote pairing by invite is a later phase).
 - Duplicates follow the existing rule: both sides keep the session dialled by the lower device ID,
   the newer one if that side dialled both. The QUIC client of an ICE tunnel is always the lower
   device ID.

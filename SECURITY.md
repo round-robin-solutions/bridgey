@@ -31,8 +31,21 @@ application-layer AES-GCM for feature payloads. They do **not** currently use
 TLS or WebSockets. Ephemeral P-256 ECDH/HKDF establishes a session key; HMAC
 confirmation and signed transcripts bind the stored long-term peer identity.
 Routing headers and some acknowledgement/heartbeat messages are not encrypted.
-Replay caches are bounded and session-local. This is not a claim of independent
-cryptographic audit or a complete active-network-attacker defense.
+Since protocol 2 (0.10) a first pairing commits to the initiator's key before
+the answer, so the six-digit code cannot be forced to match by a man in the
+middle, and when both ends speak protocol 2 every frame after pairing carries an
+HMAC tag over its whole envelope and its sender, so headers can no longer be
+rewritten, replayed under a new message ID or reflected (see `docs/protocol.md`
+and `docs/security-review-0.10.md`). Replay caches are bounded and
+session-local. `protocolVersion` is not part of the signed transcript, so an
+attacker who is on the path every time two devices paired under 0.9 connect can
+keep that pair on protocol 1 (no envelope tags) until one session gets through
+on protocol 2, after which the pair is pinned. Pairing again under 0.10 avoids
+this. First pairing with a protocol 1 device (Bridgey by Round Robin 0.9 and older,
+and upstream Bridgey) is refused in both directions, with no fallback (Rahul,
+2026-10-27); the user is asked to update the other device. Pairs made earlier
+keep reconnecting. This is not a claim of independent cryptographic audit or a
+complete active-network-attacker defense.
 
 The following items describe the target security design; in particular TLS,
 persistent replay handling, authenticated key rotation, and comprehensive
@@ -79,8 +92,11 @@ all pairings.
 
 ## Privacy defaults
 
-There is no telemetry, advertising identifier, account, cloud relay, or remote
-analytics. LAN features communicate directly between paired devices. Sensitive
+There is no telemetry, advertising identifier, account, or remote analytics.
+LAN features communicate directly between paired devices. The one exception is
+opt-in: "Codes from messages" set to the cloud option on the Mac sends the
+message text (at most 600 characters) and its sender to a Round Robin Cloudflare
+Worker that asks Workers AI for the code; the worker keeps no logs. Sensitive
 OS access requires explicit permission. Global and per-device switches gate
 feature execution; permission-light features default on. Mac media control
 defaults off and requires a locally selected player and Automation consent. Bridgey
@@ -121,3 +137,53 @@ The first launch after an update from a Keychain build reads the old items once
 old items with a marker and tries to delete them. If the read is denied,
 nothing changes, no new identity is created, and the app asks again on the next
 launch. Details and test results: `docs/rr-mac-signing.md`.
+
+## Bridgey by Round Robin edition: settings sync
+
+Paired devices can keep settings and feature switches the same (v0.10, draft
+key `settings_sync_draft1`, on by default, one switch to turn it off and one per
+device). A paired device can therefore turn a feature on here. It cannot grant a
+permission or a consent, change a per-device grant (which phone may use Mac
+actions or remote control), read or change pairing data or secrets, open this
+phone's storage ("Allow other devices to change files here" and "Let other
+devices browse this phone" never sync), or change who may start updates here
+("Let paired devices start updates on this device" never syncs). The first time
+two devices sync, the new one asks before anything moves. Every change a device
+makes is listed in the activity stream with its name, a feature that needs a
+permission here also posts a notification, and more than 20 settings messages in
+10 seconds from one device are dropped. The full threat model is in
+`docs/folders-and-settings-sync.md`, section 8.5.
+
+## Bridgey by Round Robin edition: Update all
+
+Update all lets one device ask the devices connected to it to update themselves (draft
+`updates_draft1`, `docs/protocol.md`). The decisions and why:
+
+- **The request carries nothing to install.** `updates.start` has a request ID and an optional
+  `retry` flag, nothing else: no URL, file, version or channel. The receiver reads its own channel
+  feed, picks only a build newer than the installed one, and installs it through its own checks:
+  on Android HTTPS from the release repository, size, SHA-256, package name, version code and the
+  exact signing certificate of the installed app; on the Mac Sparkle's EdDSA signature against the
+  key in the installed app. A paired device can therefore only trigger the update the receiver
+  would have offered anyway; it cannot choose what runs, and it can never downgrade.
+- **Only paired devices, only when advertised.** The request is accepted only on an authenticated,
+  encrypted session with a trusted peer whose latest feature map shows the key, and goes through
+  the session's replay window. Upstream peers and older builds never advertise the key and never
+  receive these messages.
+- **Rate limited.** At most one start every 30 seconds and five an hour from each device; more are
+  refused.
+- **No retry loops.** A device that started again on its old build records it and refuses further
+  starts for that version unless a person tapped Retry for it (`retry: true`) or updates it there.
+- **On by default.** "Let paired devices start updates on this device" is on by default. Judgement
+  call: the worst a paired device can do with it is make this device install its own signed update
+  from its own channel sooner, which it would offer anyway; the cost is a restart of Bridgey (not of
+  the device) at a moment the person did not pick. A paired device already has far more reach
+  (clipboard, files, notifications). Turning the switch off refuses every request.
+- **Android installs without a second tap where Android allows it.** Sessions ask for
+  `USER_ACTION_NOT_REQUIRED` and the app declares `UPDATE_PACKAGES_WITHOUT_USER_ACTION`. Android
+  grants this only to an app updating itself or the installer of record, only for the same
+  package, and the APK still has to pass the checks above and Android's own signature check
+  against the installed app. When Android wants a tap, the phone asks with a notification and
+  reports "needs you"; nothing is bypassed.
+- **The device you are using keeps the say.** Its own restart waits through a countdown with Later;
+  a device that was asked by another restarts without asking, because the person asked from there.

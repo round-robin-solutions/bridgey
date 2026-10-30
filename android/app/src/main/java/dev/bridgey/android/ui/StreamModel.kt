@@ -79,6 +79,7 @@ fun deviceRings(
     val connectedIds = connections.mapTo(HashSet()) { it.deviceId }
     val connectingName = when (pairing) {
         is PairingState.Connecting -> pairing.peerName
+        is PairingState.WaitingForAllow -> pairing.peerName
         is PairingState.Verification -> pairing.peerName
         else -> null
     }
@@ -91,7 +92,7 @@ fun deviceRings(
             connectingName != null && (connectingName == device.name || connectingName == peer?.deviceNameHint) -> RingState.CONNECTING
             // Retrying: the connecting ring while it is fresh; after several misses the ring shows
             // how it is reached (nearby or offline) and the label says it is still retrying.
-            retry != null && !retry.struggling -> RingState.CONNECTING
+            retry != null && !retry.struggling && !retry.disconnectedByUser -> RingState.CONNECTING
             peer != null -> RingState.NEARBY
             else -> RingState.OFFLINE
         }

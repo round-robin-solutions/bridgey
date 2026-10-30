@@ -89,9 +89,24 @@ sealed interface LiveCard {
         override val key get() = "media"
     }
 
+    /** A device asked to pair while this phone was not taking pairings: Allow pairing, or why it cannot. */
+    data class PairingRequest(val request: dev.bridgey.android.PairingRequest) : LiveCard {
+        override val key get() = "pairing"
+    }
+
+    /** Allow pairing is on: its countdown and Stop. Same key as the request, so the card changes in place. */
+    data class PairingReady(val seconds: Int) : LiveCard {
+        override val key get() = "pairing"
+    }
+
     /** A trusted device that dropped and is being retried, with Retry now. */
     data class Reconnecting(val deviceId: String, val deviceName: String, val lastSeen: String?, val struggling: Boolean) : LiveCard {
         override val key get() = "reconnecting:$deviceId"
+    }
+
+    /** Update all: devices with an update, or a run to follow. */
+    data class UpdateAll(val state: UpdateAllUiState) : LiveCard {
+        override val key get() = "update-all"
     }
 }
 
@@ -107,6 +122,10 @@ class LiveActions(
     val retryDevice: (String) -> Unit = {},
     /** A folder waits for this phone's answer: open its sheet. */
     val answerFolder: (String) -> Unit = {},
+    val allowPairing: () -> Unit = {},
+    val dismissPairingRequest: () -> Unit = {},
+    val stopPairing: () -> Unit = {},
+    val updateAll: UpdateAllActions = UpdateAllActions(),
 )
 
 /** The clock for live countdowns; screenshots fix it. */
@@ -128,6 +147,7 @@ fun ActivityKind.visual(): Pair<ImageVector, Tint> = when (this) {
     ActivityKind.CLIP_PASTE_FAILED -> BridgeyIcons.Error to Tint.NEUTRAL
     ActivityKind.FOLDER_SENT, ActivityKind.FOLDER_RECEIVED -> BridgeyIcons.Folder to Tint.GREEN
     ActivityKind.FOLDER_INCOMPLETE -> BridgeyIcons.Folder to Tint.NEUTRAL
+    ActivityKind.SETTINGS_SYNCED -> BridgeyIcons.Sync to Tint.BLUE
 }
 
 /** Clipboard offers show what they carried: an image or a file, else the clipboard. */
@@ -225,6 +245,7 @@ private fun itemTitleWithoutPreview(item: ActivityItem, device: String): String 
     ActivityKind.CLIP_OFFER_SENT, ActivityKind.CLIP_OFFER_RECEIVED, ActivityKind.CLIP_PASTED, ActivityKind.CLIP_PASTE_FAILED ->
         clipTitle(item, device, null)
     ActivityKind.FOLDER_SENT, ActivityKind.FOLDER_RECEIVED, ActivityKind.FOLDER_INCOMPLETE -> FolderText.itemTitle(LocalContext.current, item, device)
+    ActivityKind.SETTINGS_SYNCED -> stringResource(R.string.stream_settings_synced_title, device)
 }
 
 @Composable
@@ -251,6 +272,8 @@ fun itemDetail(item: ActivityItem, device: String): String = when (item.kind) {
     ActivityKind.FIND_MAC, ActivityKind.FIND_PHONE -> stringResource(R.string.stream_find_detail)
     ActivityKind.PAIRED -> stringResource(R.string.stream_paired_detail)
     ActivityKind.FOLDER_SENT, ActivityKind.FOLDER_RECEIVED, ActivityKind.FOLDER_INCOMPLETE -> FolderText.itemDetail(LocalContext.current, item, device)
+    ActivityKind.SETTINGS_SYNCED -> syncChangesText(LocalContext.current, dev.bridgey.android.sync.SyncDetail.decode(item.detail))
+        ?: stringResource(R.string.stream_settings_synced_detail)
 }
 
 @Composable
@@ -443,6 +466,9 @@ private fun LiveCardRow(card: LiveCard, actions: LiveActions, first: Boolean, la
         is LiveCard.Ringing -> BridgeyIcons.MyLocation to Tint.PURPLE
         is LiveCard.Media -> BridgeyIcons.MusicNote to Tint.BLUE
         is LiveCard.Reconnecting -> (if (card.struggling) BridgeyIcons.WifiOff else BridgeyIcons.Sync) to (if (card.struggling) Tint.NEUTRAL else Tint.BLUE)
+        is LiveCard.PairingRequest -> BridgeyIcons.LaptopMac to (if (card.request.oldVersion) Tint.NEUTRAL else Tint.PURPLE)
+        is LiveCard.PairingReady -> BridgeyIcons.Timer to Tint.PURPLE
+        is LiveCard.UpdateAll -> BridgeyIcons.Update to Tint.PURPLE
     }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp).heightIn(min = 80.dp),
@@ -480,6 +506,27 @@ private fun LiveCardRow(card: LiveCard, actions: LiveActions, first: Boolean, la
                     )
                     CardActions { TonalPillButton(stringResource(R.string.action_retry_now), { actions.retryDevice(card.deviceId) }) }
                 }
+                is LiveCard.PairingRequest -> {
+                    val request = card.request
+                    CardText(
+                        stringResource(R.string.pairing_request_title, request.peerName),
+                        if (request.oldVersion) stringResource(R.string.pairing_failed_old_version, request.peerName) else stringResource(R.string.pairing_request_body),
+                        singleLineDetail = false,
+                    )
+                    CardActions {
+                        if (request.oldVersion) {
+                            TonalPillButton(stringResource(R.string.action_dismiss), actions.dismissPairingRequest, tint = Tint.NEUTRAL)
+                        } else {
+                            TonalPillButton(stringResource(R.string.action_not_now), actions.dismissPairingRequest, tint = Tint.NEUTRAL)
+                            TonalPillButton(stringResource(R.string.pairing_allow), actions.allowPairing, tint = Tint.PURPLE)
+                        }
+                    }
+                }
+                is LiveCard.PairingReady -> {
+                    CardText(stringResource(R.string.pairing_ready_title, pairingCountdown(card.seconds)), stringResource(R.string.pairing_ready_body))
+                    CardActions { TonalPillButton(stringResource(R.string.action_stop), actions.stopPairing, tint = Tint.NEUTRAL) }
+                }
+                is LiveCard.UpdateAll -> UpdateAllCardContent(card.state, actions.updateAll)
             }
         }
     }

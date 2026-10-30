@@ -27,6 +27,8 @@ struct ReconnectDisplay: Equatable {
     let lastSeen: Date?
     /// Several attempts failed: the chip says "Can't reach" rather than "Reconnecting".
     let struggling: Bool
+    /// Not connected for over an hour and not in discovery: "Not on this network".
+    var away: Bool = false
 }
 
 struct DeviceRing: Identifiable, Equatable {
@@ -42,6 +44,9 @@ struct DeviceRing: Identifiable, Equatable {
     let peer: DiscoveredPeer?
     /// Set while a trusted, disconnected device is being retried.
     var reconnect: ReconnectDisplay? = nil
+    /// A trusted device that is not connected while a new, unpaired device with the same name is
+    /// nearby: most likely the same device after a reset or reinstall, which needs pairing again.
+    var namesakeNearby = false
 
     var canConnect: Bool { peer?.host != nil && peer?.port != nil && (state == .nearby) }
     /// Offers "Retry now".
@@ -69,10 +74,10 @@ func deviceRings(
     let connectedNames = Dictionary(connected.map { ($0.id, $0.name) }, uniquingKeysWith: { $1 })
     var connectingName: String?
     switch pairing {
-    case let .connecting(name):
+    case let .connecting(name), let .waitingForAllow(name):
         connectingName = name
-    case let .verification(name, _):
-        connectingName = name
+    case let .verification(prompt):
+        connectingName = prompt.peerName
     default:
         break
     }
@@ -97,7 +102,12 @@ func deviceRings(
         }
         let connectedName = connectedNames[device.id] ?? ""
         let name = !connectedName.isEmpty ? connectedName : device.name
-        return DeviceRing(id: device.id, deviceID: device.id, name: name, state: ringState, trusted: true, platform: peer?.platformHint, peer: peer, reconnect: reconnect)
+        let namesake = ringState != .connected && peer == nil && peers.contains { other in
+            guard let otherID = other.deviceIDHint else { return false }
+            return otherID != device.id && !trustedIDs.contains(otherID) && connectedNames[otherID] == nil && other.deviceNameHint == device.name
+        }
+        return DeviceRing(id: device.id, deviceID: device.id, name: name, state: ringState, trusted: true, platform: peer?.platformHint, peer: peer,
+                          reconnect: reconnect, namesakeNearby: namesake)
     }
     for phone in connected where !trustedIDs.contains(phone.id) {
         let peer = peers.first { $0.deviceIDHint == phone.id }
@@ -117,6 +127,24 @@ func deviceRings(
     return rings.enumerated()
         .sorted { (order($0.element), $0.offset) < (order($1.element), $1.offset) }
         .map(\.element)
+}
+
+/// The pairing code as it is read: six digits grouped 3 + 3 ("482 913").
+func formattedPairingCode(_ code: String) -> String {
+    let digits = code.filter(\.isNumber)
+    guard digits.count == 6 else { return code }
+    return "\(digits.prefix(3)) \(digits.suffix(3))"
+}
+
+/// What VoiceOver says for the code: digit by digit ("4 8 2 9 1 3").
+func pairingCodeSpokenLabel(_ code: String) -> String {
+    code.filter(\.isNumber).map(String.init).joined(separator: " ")
+}
+
+/// Allow pairing's countdown: "1:58".
+func pairingCountdownText(_ seconds: Int) -> String {
+    let value = max(0, seconds)
+    return String(format: "%d:%02d", value / 60, value % 60)
 }
 
 enum DaySection: Int, Comparable {
@@ -226,6 +254,8 @@ enum ActivityText {
             return clipTitle(item, device: device, showPreviews: showPreviews)
         case .folderSent, .folderReceived, .folderIncomplete:
             return folderTitle(item, device: device)
+        case .settingsSynced:
+            return SettingsSyncDetail.title(device: device)
         }
     }
 
@@ -363,6 +393,7 @@ enum ActivityText {
         case .clipPasted: return L10n.text("stream.clip.pasted.detail", fallback: "Moved when you pasted")
         case .clipPasteFailed: return L10n.text("stream.clip.failed.detail", fallback: "Copy it again and paste")
         case .folderSent, .folderReceived, .folderIncomplete: return folderDetail(item)
+        case .settingsSynced: return SettingsSyncDetail.detail(item.content)
         default: break
         }
         guard item.kind.category == .clipboard else { return nil }
@@ -408,6 +439,7 @@ enum ActivityText {
 /// A ring's one-line status under the device name (short form, for narrow chips).
 func ringStatusText(_ ring: DeviceRing) -> String {
     if let retry = ring.reconnect, ring.state != .connected {
+        if retry.away { return L10n.text("ring.away", fallback: "Not nearby") }
         return retry.struggling
             ? L10n.text("ring.retrying", fallback: "Retrying\u{2026}")
             : L10n.text("ring.reconnecting", fallback: "Reconnecting\u{2026}")
@@ -422,11 +454,14 @@ func ringStatusText(_ ring: DeviceRing) -> String {
     }
 }
 
-/// The long status, where there is room (a wide chip, Settings): "Reconnecting… (last seen 02:56)"
-/// or "Can't reach. Retrying (last seen 02:56)". Other states use the short text.
+/// The long status, where there is room (a wide chip, Settings): "Reconnecting… (last seen 02:56)",
+/// "Can't reach. Retrying (last seen 02:56)" or, away for over an hour, "Not on this network (last
+/// seen 10:20)". Other states use the short text.
 func ringStatusDetail(_ ring: DeviceRing, now: Date, locale: Locale = .current, calendar: Calendar = .current) -> String {
     guard let retry = ring.reconnect, ring.state != .connected else { return ringStatusText(ring) }
-    let base = retry.struggling
+    let base = retry.away
+        ? L10n.text("ring.away.detail", fallback: "Not on this network")
+        : retry.struggling
         ? L10n.text("ring.cantReach", fallback: "Can\u{2019}t reach. Retrying")
         : L10n.text("ring.reconnecting", fallback: "Reconnecting\u{2026}")
     guard let seen = retry.lastSeen else { return base }
@@ -437,9 +472,18 @@ func ringStatusDetail(_ ring: DeviceRing, now: Date, locale: Locale = .current, 
 /// The chip's tooltip: what is happening, with the device's name, and what a click does.
 func ringRetryHelp(_ ring: DeviceRing) -> String {
     let struggling = ring.reconnect?.struggling == true
-    return String(format: struggling
-        ? L10n.text("ring.cantReach.help", fallback: "Can\u{2019}t reach %@. Bridgey keeps retrying. Click to retry now.")
-        : L10n.text("ring.reconnecting.help", fallback: "Reconnecting to %@. Click to retry now."), ring.name)
+    let help: String
+    if ring.reconnect?.away == true {
+        help = String(format: L10n.text("ring.away.help", fallback: "%@ has not been on this network for over an hour. Bridgey checks every 10 minutes. Click to retry now."), ring.name)
+    } else {
+        help = String(format: struggling
+            ? L10n.text("ring.cantReach.help", fallback: "Can\u{2019}t reach %@. Bridgey keeps retrying. Click to retry now.")
+            : L10n.text("ring.reconnecting.help", fallback: "Reconnecting to %@. Click to retry now."), ring.name)
+    }
+    guard ring.namesakeNearby else { return help }
+    // The usual reason: the device was reset or reinstalled and now has a new identity.
+    let namesake = String(format: L10n.text("ring.namesake.help", fallback: "A new device named %@ is nearby. If this device was reset, pair the new one and remove this one."), ring.name)
+    return "\(help) \(namesake)"
 }
 
 /// "02:56" today, "Mon 02:56" this week, else "26 Oct".

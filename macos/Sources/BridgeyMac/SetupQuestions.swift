@@ -41,6 +41,8 @@ enum SetupSetting: String, CaseIterable {
     // Notifications
     case featureNotifications, macNotifications, codesEnabled, codesEngine, codesAutoCopy, codesModel, codesPhoneLink
     case notificationHistory, focusShare, focusFollow, focusShortcuts
+    // Settings > Text messages (sms_draft1)
+    case featureMessages, smsKeepOnMac
     // Calls
     case featureCalls, phoneLinks, ringForCalls, pauseForCalls, shortcutCall
     // Files
@@ -52,19 +54,23 @@ enum SetupSetting: String, CaseIterable {
     case shortcutLink, shortcutPing
     // Remote control
     case featureRemoteInput, remoteGrant, accessibility, remoteLog
+    // Phone screen (Remote control page)
+    case featureScreen
     // Privacy
     case showPreviews, loggingConnection, loggingDetail
     // Updates
     case updateChannel, updatesAutomatic
     // General
     case launchAtLogin, reduceMotion, shortcutShift
+    // Settings sync: the summary's own switch (v0.10)
+    case settingsSync
 
     /// The value on an install from before the off-until-chosen defaults (BridgeySettings' old defaults).
     var defaultValue: String {
         switch self {
         case .featureClipboard, .autoClipboard, .clipboardFiles, .featureNotifications, .featureCalls, .ringForCalls,
              .featureFiles, .featureLinks, .featurePing, .featureFindDevice, .featureBattery, .showPreviews,
-             .loggingConnection, .updatesAutomatic:
+             .loggingConnection, .updatesAutomatic, .smsKeepOnMac, .settingsSync:
             "true"
         case .codesEngine: "local"
         case .folderReceiveMode: "fixed"
@@ -79,7 +85,8 @@ enum SetupSetting: String, CaseIterable {
 /// How a setting is reached: a follow-up's answers, the feature switches, the permissions page,
 /// or its Settings page (More options on a card, Change details in Settings).
 enum SetupCoverage: Equatable {
-    case answer, featureSwitch, permission, moreOptions
+    /// `summary`: a switch on the summary itself (Settings stay the same on your devices).
+    case answer, featureSwitch, permission, moreOptions, summary
 }
 
 /// One setting set to a value by an answer or a switch.
@@ -149,6 +156,9 @@ enum SetupFeatures {
                      on: [.on(.featureClipboard)], off: [.off(.featureClipboard)], main: .featureClipboard, pane: .clipboard),
         SetupFeature(id: "notifications", title: SettingsPane.notifications.title, detail: BridgeyFeature.notifications.subtitle,
                      on: [.on(.featureNotifications)], off: [.off(.featureNotifications)], main: .featureNotifications, pane: .notifications),
+        SetupFeature(id: "messages", title: textMessagesTitle,
+                     detail: L10n.setup("setup.feature.messages.detail", fallback: "Your phone\u{2019}s texts in a Messages window, and Reply on text notifications"),
+                     on: [.on(.featureMessages)], off: [.off(.featureMessages)], main: .featureMessages, pane: .messages),
         SetupFeature(id: "calls", title: SettingsPane.calls.title, detail: BridgeyFeature.calls.subtitle,
                      on: [.on(.featureCalls)], off: [.off(.featureCalls)], main: .featureCalls, pane: .calls),
         SetupFeature(id: "files", title: SettingsPane.files.title, detail: BridgeyFeature.files.subtitle,
@@ -156,6 +166,8 @@ enum SetupFeatures {
         SetupFeature(id: "remote", title: SettingsPane.remoteControl.title, detail: BridgeyFeature.remoteInput.subtitle,
                      on: [.on(.featureRemoteInput), .on(.remoteGrant)], off: [.off(.featureRemoteInput), .off(.remoteGrant)],
                      main: .featureRemoteInput, pane: .remoteControl),
+        SetupFeature(id: "screen", title: PhoneScreenSettings.switchTitle, detail: PhoneScreenSettings.switchDetail,
+                     on: [.on(.featureScreen)], off: [.off(.featureScreen)], main: .featureScreen, pane: .remoteControl),
         SetupFeature(id: "media", title: BridgeyFeature.media.title, detail: BridgeyFeature.media.subtitle,
                      on: [.on(.featureMedia)], off: [.off(.featureMedia)], main: .featureMedia, pane: .media),
         SetupFeature(id: "mac_actions", title: BridgeyFeature.macActions.title, detail: BridgeyFeature.macActions.subtitle,
@@ -175,6 +187,9 @@ enum SetupFeatures {
     ]
 
     static func feature(_ id: String) -> SetupFeature? { all.first { $0.id == id } }
+
+    /// Text messages has its own Settings page; its switch, bundle and page share this name.
+    static var textMessagesTitle: String { L10n.text("sms.title", fallback: "Text messages") }
 
     static func isOn(_ feature: SetupFeature, _ effective: SetupEffective) -> Bool { effective.on(feature.main) }
 }
@@ -287,6 +302,19 @@ enum SetupQuestions {
             pane: .notifications, covers: [.codesEnabled, .codesEngine]
         ),
         SetupQuestion(
+            id: "messages", section: .notifications, feature: "messages",
+            title: L10n.setup("setup.q.messages.title", fallback: "Keep your conversations on this Mac?"),
+            context: L10n.setup("setup.q.messages.context", fallback: "Your texts stay on the phone either way. Kept here, they open instantly and only your account can read them."),
+            summary: L10n.setup("setup.q.messages.summary", fallback: "Text messages"),
+            answers: [
+                SetupAnswer(key: SetupAnswerKey.yes, label: L10n.setup("setup.a.messages.yes", fallback: "Yes, so they open instantly"),
+                            changes: [.on(.featureMessages), .on(.smsKeepOnMac)]),
+                SetupAnswer(key: SetupAnswerKey.no, label: L10n.setup("setup.a.messages.no", fallback: "No, load them from the phone each time"),
+                            changes: [.on(.featureMessages), .off(.smsKeepOnMac)]),
+            ],
+            pane: .messages, covers: [.featureMessages, .smsKeepOnMac]
+        ),
+        SetupQuestion(
             id: "calls_ring", section: .calls, feature: "calls",
             title: L10n.setup("setup.q.callsRing.title", fallback: "Ring on this Mac when your phone rings?"),
             context: L10n.setup("setup.q.callsRing.context", fallback: "A soft ring repeats until you answer, decline or hide the call."),
@@ -319,6 +347,18 @@ enum SetupQuestions {
                             changes: [.on(.featureMedia), .set(.mediaPlayer, "spotify")]),
             ],
             pane: .media, covers: [.featureMedia, .mediaPlayer]
+        ),
+        SetupQuestion(
+            id: "screen", section: .macControl, feature: "screen",
+            title: L10n.setup("setup.q.screen.title", fallback: "See your phone\u{2019}s screen on this Mac?"),
+            context: L10n.setup("setup.q.screen.context", fallback: "View only, in a window. Your phone asks you every time and shows a notification while it shares."),
+            summary: L10n.setup("setup.q.screen.summary", fallback: "Phone screen on this Mac"),
+            answers: [
+                SetupAnswer(key: SetupAnswerKey.yes, label: L10n.setup("setup.a.screen.yes", fallback: "Yes, when I ask for it"),
+                            changes: [.on(.featureScreen)]),
+                SetupAnswer(key: SetupAnswerKey.no, label: L10n.setup("setup.a.no", fallback: "No"), changes: [.off(.featureScreen)]),
+            ],
+            pane: .remoteControl, covers: [.featureScreen]
         ),
         SetupQuestion(
             id: "links", section: .quickActions, feature: "links",
@@ -365,8 +405,8 @@ enum SetupQuestions {
     static let permissions: [SetupPermissionNeed] = [
         SetupPermissionNeed(permission: .localNetwork, features: [],
                             needed: { effective in SetupFeatures.all.contains { SetupFeatures.isOn($0, effective) } }),
-        SetupPermissionNeed(permission: .notifications, features: ["notifications", "calls"],
-                            needed: { $0.on(.featureNotifications) || $0.on(.featureCalls) },
+        SetupPermissionNeed(permission: .notifications, features: ["notifications", "messages", "calls"],
+                            needed: { $0.on(.featureNotifications) || $0.on(.featureMessages) || $0.on(.featureCalls) },
                             offWhenRefused: [.off(.featureNotifications)]),
         SetupPermissionNeed(permission: .accessibility, features: ["remote", "mac_actions"],
                             needed: { $0.on(.featureRemoteInput) || ($0.on(.featureMacActions) && $0[.macActionSwitches].split(separator: ",").contains("lock")) },
@@ -374,8 +414,9 @@ enum SetupQuestions {
         SetupPermissionNeed(permission: .automation, features: ["media"],
                             needed: { $0.on(.featureMedia) },
                             offWhenRefused: [.off(.featureMedia)]),
-        SetupPermissionNeed(permission: .bluetooth, features: ["notifications"],
-                            needed: { $0.on(.featureNotifications) && $0.on(.codesEnabled) }),
+        // The phone-to-Mac link (Android 15+) serves codes and Text messages: the Mac advertises over Bluetooth once.
+        SetupPermissionNeed(permission: .bluetooth, features: ["notifications", "messages"],
+                            needed: { $0.on(.featureNotifications) && ($0.on(.codesEnabled) || $0.on(.featureMessages)) }),
     ]
 
     static func need(_ permission: SetupPermission) -> SetupPermissionNeed? { permissions.first { $0.permission == permission } }
@@ -396,6 +437,9 @@ enum SetupQuestions {
         .launchAtLogin: .general, .reduceMotion: .general, .shortcutShift: .general,
     ]
 
+    /// Settings with their own switch on the summary.
+    static let bySummary: [SetupSetting] = [.settingsSync]
+
     /// Settings the permissions page turns on by asking.
     static let byPermission: [SetupSetting: SetupPermission] = [.macNotifications: .notifications, .accessibility: .accessibility]
 
@@ -415,6 +459,7 @@ enum SetupQuestions {
             for setting in feature.settings where table[setting] == nil { table[setting] = ("switches", .featureSwitch) }
         }
         for (setting, permission) in byPermission where table[setting] == nil { table[setting] = (permission.rawValue, .permission) }
+        for setting in bySummary where table[setting] == nil { table[setting] = ("summary", .summary) }
         for (setting, pane) in moreOptions where table[setting] == nil { table[setting] = (pane.rawValue, .moreOptions) }
         return table
     }
@@ -439,12 +484,16 @@ enum SetupTyped {
         Rule(id: "clipboard", answer: SetupAnswerKey.pick, stems: ["copy", "copi", "paste", "clipboard", "копир", "скопир", "встав", "буфер"]),
         Rule(id: "notifications", answer: SetupAnswerKey.pick, stems: ["notif", "alert", "whatsapp", "telegram", "уведомл", "оповещ"]),
         Rule(id: "codes", answer: SetupAnswerKey.onMac, stems: ["code", "otp", "код"]),
+        Rule(id: "messages", answer: SetupAnswerKey.pick, stems: ["sms", "texts", "texting", "смс", "эсэмэс"]),
         Rule(id: "calls", answer: SetupAnswerKey.pick, stems: ["call", "звон", "вызов"]),
         Rule(id: "files", answer: SetupAnswerKey.pick, stems: ["file", "photo", "picture", "folder", "файл", "фото", "папк", "снимк"]),
         Rule(id: "remote", answer: SetupAnswerKey.pick, stems: ["touchpad", "trackpad", "mouse", "slide", "presentation", "тачпад", "мыш", "слайд", "презентац", "пульт"]),
         Rule(id: "mac_actions", answer: SetupAnswerKey.pick, stems: ["lock", "sleep", "volume", "блокир", "сон", "громк"]),
         Rule(id: "media", answer: SetupAnswerKey.pick, stems: ["music", "spotify", "song", "музык", "песн"]),
         Rule(id: "camera", answer: SetupAnswerKey.pick, stems: ["camera", "камер"]),
+        Rule(id: "screen", answer: SetupAnswerKey.pick, stems: ["mirror", "screen shar", "share screen", "share my screen", "share the screen",
+                                                               "see my screen", "phone screen", "phone's screen", "трансляц",
+                                                               "показ экран", "показать экран", "демонстрац", "экран телефона"]),
         Rule(id: "focus", answer: SetupAnswerKey.both, stems: ["dnd", "focus", "фокус"]),
         Rule(id: "links", answer: SetupAnswerKey.pick, stems: ["link", "url", "browser", "ссылк", "браузер"]),
         Rule(id: "find", answer: SetupAnswerKey.pick, stems: ["find my", "lost", "ring", "найти", "потерял"]),
@@ -530,6 +579,9 @@ enum SetupBundles {
         SetupBundle(id: "notifications", pane: .notifications,
                     detail: L10n.setup("setup.bundle.notifications", fallback: "Your phone\u{2019}s notifications on this Mac."),
                     answers: [("notifications", SetupAnswerKey.pick)]),
+        SetupBundle(id: "messages", pane: .messages,
+                    detail: L10n.setup("setup.bundle.messages", fallback: "Read and answer your phone\u{2019}s texts here."),
+                    answers: [("messages", SetupAnswerKey.pick)]),
         SetupBundle(id: "calls", pane: .calls,
                     detail: L10n.setup("setup.bundle.calls", fallback: "See who\u{2019}s calling, and answer here."),
                     answers: [("calls", SetupAnswerKey.pick)]),
@@ -537,8 +589,8 @@ enum SetupBundles {
                     detail: L10n.setup("setup.bundle.files", fallback: "Send files and photos both ways."),
                     answers: [("files", SetupAnswerKey.pick)]),
         SetupBundle(id: "remote", pane: .remoteControl,
-                    detail: L10n.setup("setup.bundle.remote", fallback: "Your phone as a touchpad and slide clicker."),
-                    answers: [("remote", SetupAnswerKey.pick), ("mac_actions", SetupAnswerKey.pick)]),
+                    detail: L10n.setup("setup.bundle.remote", fallback: "Your phone as a touchpad and slide clicker, and its screen on this Mac."),
+                    answers: [("remote", SetupAnswerKey.pick), ("mac_actions", SetupAnswerKey.pick), ("screen", SetupAnswerKey.pick)]),
         SetupBundle(id: "away", pane: .away,
                     detail: L10n.setup("setup.bundle.away", fallback: "Your devices stay connected when you leave home."),
                     answers: [("away", SetupAnswerKey.pick)]),
@@ -586,6 +638,8 @@ extension SetupFacts {
             .macNotifications: bool(model.notificationsAuthorized),
             .codesEnabled: bool(model.codesEnabled),
             .codesEngine: model.codesEngine.rawValue,
+            .featureMessages: bool(model.smsEnabled),
+            .smsKeepOnMac: bool(model.smsKeepOnMac),
             .notificationHistory: bool(model.historyEnabled),
             .focusShare: bool(model.focusSync.share),
             .focusFollow: bool(model.focusSync.follow),
@@ -597,6 +651,7 @@ extension SetupFacts {
             .cameraCopyToClipboard: bool(model.cameraCopyToClipboard),
             .sendImageMode: sendImageMode,
             .featureRemoteInput: feature(.remoteInput),
+            .featureScreen: bool(model.phoneScreenEnabled),
             .remoteGrant: bool(model.trustedDevices.contains { model.remoteGrant(for: $0.id) }),
             .accessibility: bool(model.accessibilityTrusted),
             .featureMacActions: feature(.macActions),
@@ -616,6 +671,7 @@ extension SetupFacts {
             .updatesAutomatic: bool(model.automaticallyChecks),
             .launchAtLogin: bool(model.launchAtLogin),
             .reduceMotion: bool(model.reduceMotion),
+            .settingsSync: bool(model.settingsSyncEnabled),
         ]
         var allowed = Set(model.setup.permissions.filter { $0.system == .allowed }.map(\.permission))
         if model.accessibilityTrusted { allowed.insert(.accessibility) }

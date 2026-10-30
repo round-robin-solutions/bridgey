@@ -9,6 +9,7 @@ struct UpdatesPane: View {
 
     var body: some View {
         UpdateStatusCard(model: model, actions: actions)
+        UpdateAllDevicesCard(display: model.updateAll, actions: actions.updateAll)
         SettingsCard {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 12) {
@@ -34,6 +35,13 @@ struct UpdatesPane: View {
                 title: L10n.text("updates.automatic", fallback: "Check automatically"),
                 isOn: model.automaticallyChecks,
                 set: actions.setAutomaticallyChecks
+            )
+            .disabled(!model.updatesAvailable)
+            SettingsToggle(
+                title: L10n.text("updates.remoteStart", fallback: "Let paired devices start updates on this Mac"),
+                subtitle: L10n.text("updates.remoteStart.detail", fallback: "Only starts Bridgey\u{2019}s own signed update from this Mac\u{2019}s channel."),
+                isOn: model.remoteStartUpdates && model.updatesAvailable,
+                set: actions.setRemoteStartUpdates
             )
             .disabled(!model.updatesAvailable)
         }
@@ -141,8 +149,13 @@ private struct UpdateStatusCard: View {
         }
     }
 
+    /// While Update all runs this Mac's turn, its card (countdown, Later) owns Install and Restart.
+    private var runOwnsThisMac: Bool { model.updateAll.activeRun?.local != nil }
+
     private var hasFooter: Bool {
-        switch flow {
+        if runOwnsThisMac, case .available = flow { return false }
+        if runOwnsThisMac, case .ready = flow { return false }
+        return switch flow {
         case .available, .ready, .failed: true
         default: false
         }

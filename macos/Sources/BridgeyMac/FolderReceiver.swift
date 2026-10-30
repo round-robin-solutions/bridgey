@@ -206,6 +206,7 @@ final class FolderReceiver {
         if let requestID = offer.downloadRequestId {
             if let waiting = expected[requestID], waiting.phoneID == phoneID {
                 guard !waiting.cancelled else { return reject(id, code: FolderCode.declined, phoneID: phoneID) }
+                waiting.started = true
                 download = waiting
                 purpose = waiting.purpose
             } else if let record, record.header.downloadRequestId == requestID, record.header.peerID == phoneID {
@@ -318,6 +319,12 @@ final class FolderReceiver {
 
     func phoneDisconnected(_ phoneID: String) {
         for item in items.values where item.phoneID == phoneID && item.session != nil { onSession(item) { $0.interrupt() } }
+        // A preview whose offer had not come yet fails now: the viewer can try again once the phone is back.
+        // Saves and drags keep waiting, as the phone offers them again after the reconnect.
+        for (key, download) in expected where download.phoneID == phoneID && !download.started && download.purpose == .preview {
+            expected.removeValue(forKey: key)
+            download.finish(.failure(.notConnected))
+        }
     }
 
     func forget(_ phoneID: String) {
@@ -476,7 +483,11 @@ final class FolderReceiver {
             item.access = nil
             end(item, state: .incomplete, text: L10n.text("folders.end.questionTimeout", fallback: "Cancelled: nobody answered on this Mac"))
             finishDownload(item, .failure(.code(FolderCode.timeout)))
-        case let .interrupted(resumable):
+        case let .interrupted(sessionResumable):
+            // A preview someone is waiting for fails at once (the viewer offers to try again): resuming it later
+            // in the background, perhaps after the window closed, helps nobody and kept it "Waiting" for ever.
+            let resumable = sessionResumable && item.purpose != .preview
+            if sessionResumable, !resumable { journals.delete(id) }
             item.resumable = resumable
             if resumable {
                 item.state = .interrupted

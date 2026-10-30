@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="feature_sms">SMS</string>
+    <string name="feature_sms_detail">Читайте SMS и отвечайте на них на Mac</string>
+    <string name="feature_sms_device_detail">%1$s показывает переписку и отправляет SMS с этого телефона</string>
+    <string name="messages_sms_access">Доступ к SMS</string>
+    <string name="messages_sms_access_on">Разрешено: Mac видит переписку и может отправлять</string>
+    <string name="messages_sms_access_off">Пока не разрешено: Mac не видит переписку</string>
+    <string name="messages_contacts_access">Контакты</string>
+    <string name="messages_contacts_access_on">Вместо номеров видны имена</string>
+    <string name="messages_contacts_access_off">Не разрешено: Mac показывает только номера</string>
+    <string name="messages_sims_access">SIM-карты</string>
+    <string name="messages_sims_access_on">Mac может выбрать SIM-карту для отправки</string>
+    <string name="messages_sims_access_off">Не разрешено: SMS уходят с основной SIM-карты</string>
+    <string name="messages_reply_as_sms">Отвечать обычными SMS</string>
+    <string name="messages_reply_as_sms_detail">Для приложений, в которых ответ из уведомления не отправляется. Обычные SMS, без функций чата.</string>
+    <string name="messages_allow">Разрешить</string>
+    <string name="messages_note">Сообщения передаются только на ваши Mac в зашифрованном виде. Bridgey не хранит копию на телефоне и никогда не становится приложением для SMS по умолчанию.</string>
+    <string name="settings_summary_messages_access">Нужен доступ к SMS</string>
+    <string name="settings_summary_messages_on">Переписка на Mac</string>
+    <string name="settings_summary_messages_sms">Вкл., ответы обычными SMS</string>
+    <string name="setup_bundle_messages">Читать SMS и отвечать на них на Mac.</string>
+    <string name="setup_q_messages_title">Как отправлять ответы с Mac?</string>
+    <string name="setup_q_messages_context">Mac показывает ваши SMS, и вы отвечаете на них там. Они передаются в зашифрованном виде, только между вашими устройствами.</string>
+    <string name="setup_q_messages_summary">SMS на Mac</string>
+    <string name="setup_a_messages_app">Через моё приложение для сообщений</string>
+    <string name="setup_a_messages_app_detail">Сохраняет функции чата, если приложение умеет отвечать из уведомления.</string>
+    <string name="setup_a_messages_sms">Обычными SMS с этого телефона</string>
+    <string name="setup_a_messages_sms_detail">Выберите, если ответ из уведомления в вашем приложении не отправляется.</string>
+    <string name="perm_contacts_name">Контакты</string>
+    <string name="perm_contacts_why">SMS: Mac показывает имена вместо номеров и находит контакт для нового сообщения.</string>
+    <string name="perm_contacts_without">Mac показывает только номера.</string>
+</resources>

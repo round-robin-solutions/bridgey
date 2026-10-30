@@ -119,6 +119,12 @@ final class BridgeySettings: ObservableObject {
     /// Media and actions > Open links from phones right away (links_open_draft1). Off by default:
     /// a link waits for Open on this Mac.
     @Published private(set) var openLinksRightAway: Bool
+    /// Settings > Text messages (draft sms_draft1): the phone's conversations in the Messages window,
+    /// and Reply on its text message notifications. Off by default.
+    @Published private(set) var smsEnabled: Bool
+    /// Settings > Text messages > Keep conversations on this Mac: the cache is written (0600) so
+    /// conversations open instantly. On by default; off keeps them in memory only.
+    @Published private(set) var smsKeepOnMac: Bool
     /// Devices > Connect away from home (draft connect_draft1). Off until chosen.
     @Published private(set) var connectAway: Bool
 
@@ -156,6 +162,8 @@ final class BridgeySettings: ObservableObject {
         codesEnabled = codesOn
         codesAutoCopy = storedDefaults.bool(forKey: "settings.codes.autoCopy")
         openLinksRightAway = storedDefaults.bool(forKey: "settings.links.openRightAway")
+        smsEnabled = storedDefaults.bool(forKey: "settings.sms.enabled")
+        smsKeepOnMac = storedDefaults.object(forKey: "settings.sms.keepOnMac") as? Bool ?? true
         connectAway = storedDefaults.bool(forKey: "settings.connect.away")
         let engine = CodeEngine.stored(storedDefaults.string(forKey: "settings.codes.engine"), codesWereEnabled: codesOn)
         // Settle the choice once, so turning codes on later never reads as an old cloud opt-in.
@@ -206,6 +214,16 @@ final class BridgeySettings: ObservableObject {
     func setCodesEnabled(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.codes.enabled")
         codesEnabled = enabled
+    }
+
+    func setSmsEnabled(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.sms.enabled")
+        smsEnabled = enabled
+    }
+
+    func setSmsKeepOnMac(_ keep: Bool) {
+        defaults.set(keep, forKey: "settings.sms.keepOnMac")
+        smsKeepOnMac = keep
     }
 
     func setCodesAutoCopy(_ enabled: Bool) {

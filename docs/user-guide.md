@@ -168,6 +168,40 @@ button. Removing the link in Android settings may also turn off Bridgey's notifi
 Copied codes stay on the Mac, are marked so clipboard managers skip them, and are cleared after 60
 seconds. Codes and message text are never written to logs or diagnostics.
 
+## Text messages
+
+Read and answer your phone's text messages on the Mac. It is off until you turn it on.
+
+1. On the phone, open **Settings > Text messages** and turn it on for your Mac. Allow SMS access
+   when asked; contacts access is optional (without it you see numbers instead of names).
+2. On the Mac, open **Settings > Text messages** and turn it on.
+
+Then:
+
+- A text message notification on the Mac has a **Reply** field. Your reply goes through your
+  messaging app when it can, or as an SMS. If replies from your messaging app do not arrive, turn
+  on **Send replies as SMS** on the phone.
+- **Messages** (from the menu bar panel, or by clicking a text notification) shows your
+  conversations. Pick a conversation to read it and reply; use **New message** to write to a
+  contact or a number. On a phone with two SIMs, choose the SIM next to the send button.
+- Unread conversations come first, newest first, then the rest. **Unread** shows only those;
+  opening a conversation takes you to the first unread message.
+- Right-click a conversation, swipe it, or use the buttons above it to mark it read or unread, pin,
+  mute (no banners on the Mac), archive or delete it. Click **Select** (or Command-click) to act on
+  several at once. Command-F searches every message kept on the Mac, Shift-Command-U marks read or
+  unread, Command-Delete deletes.
+- Right-click a message to copy its text or code, forward it, see its details, or delete it.
+- These choices stay on the Mac; your phone's messaging app is not changed. Two things reach the
+  phone: marking a conversation read also uses your messaging app's own **Mark as read** while its
+  notification is still showing (the window says when it did), and **Block on phone…** opens
+  Android's Blocked numbers screen, where you add the number yourself.
+- Deleting removes a conversation or message from this Mac only; it stays on your phone. A deleted
+  conversation comes back when a new message arrives in it, and so does an archived one unless
+  it is muted.
+- Group conversations can be read on the Mac; answer them on the phone.
+- Your messages go only to your own paired Macs, encrypted. Bridgey never becomes your default SMS
+  app. Turning Text messages off, or forgetting the phone, deletes the copy on the Mac.
+
 ## Remote control
 
 The phone can act as a touchpad, keyboard and slides remote for a Mac. It is off on both sides
@@ -194,11 +228,33 @@ Bridgey updates itself. Open **Settings > Updates** on either device.
 | **Nightly** | Built from every change. Expect rough edges. |
 
 Switching to a steadier channel never downgrades; it waits for that channel's next newer build.
-The apps check daily, and **Check now** checks at once. Nothing installs silently: Android always shows its own
-confirmation screen, and the Mac shows each step with **Install**, **Later** and **Skip**.
+The apps check daily, and **Check now** checks at once. Nothing updates unless someone asked: you tap
+**Install** (the Mac shows each step with **Install**, **Later** and **Skip**), or **Update all** on a
+paired device. On Android 12 and later an update you started usually finishes without a second tap;
+when Android still wants one, Bridgey shows "Tap to finish updating Bridgey".
 On Android the download must match its published checksum and be signed with the same certificate as the
 installed app. On the Mac the update must carry a valid EdDSA signature. Details are in
 [the edition notes](rr-edition.md#channels-and-feeds).
+
+### Update all
+
+When one of your devices has an update, **Update all** appears on the phone's home screen and in the
+Mac's menu-bar panel, and in **Settings > Updates** on both. It updates every device connected to the
+one you are using: on the phone, all connected Macs and the phone; on a Mac, its connected phones and
+that Mac. Macs are not paired to each other, so to update two Macs at once, start it from the phone.
+
+1. Tap **Update all**. The preview lists each device with its version now and after, and its channel.
+   Devices it skips are listed with the reason, for example not connected, or "Update this one by
+   hand" for a device without this feature.
+2. Confirm. The other devices update and restart on their own. The device you are using goes last,
+   after a 10-second countdown; choose **Later** to restart it when you are ready.
+3. Watch each device's progress. A device that fails shows **Retry**. "Waiting for you on OnePlus 11"
+   means the phone wants a tap: open the notification on the phone.
+
+Each device stays on its own channel and only installs its own signed update. If a device starts again
+on its old version, Bridgey says "Update didn't apply" and does not try that version again by itself.
+To stop other devices from starting updates on one device, turn off **Let paired devices start updates
+on this device** in its Settings > Updates.
 
 ## Permissions
 
@@ -217,7 +273,9 @@ What the optional permissions are for:
 | --- | --- |
 | Notifications (Android 13+) | The connection notification, transfer progress and Send copied item |
 | Notification access | Forwarding phone notifications; reading code messages |
-| Phone | Call status and Answer, Decline, Hang Up (only if you turn on Call status and controls) |
+| SMS | Text messages: your conversations on the Mac and sending replies (only if you turn it on) |
+| Contacts | Text messages: names instead of numbers, and finding a contact for a new message |
+| Phone | Call status and Answer, Decline, Hang Up (only if you turn on Call status and controls); choosing the SIM for Text messages on a dual-SIM phone |
 | Photos | Sending a fresh screenshot (needs all photos) |
 | Battery optimisation | Staying connected while the phone sleeps |
 | Install unknown apps | Installing Bridgey's own updates |

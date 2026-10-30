@@ -49,10 +49,10 @@
     <string name="perm_notification_access_why">Показывает уведомления и звонки телефона на вашем Mac.</string>
     <string name="perm_notification_access_without">На Mac не будет уведомлений, звонков и кодов с телефона.</string>
     <string name="perm_post_notifications_name">Уведомления</string>
-    <string name="perm_post_notifications_why">Bridgey показывает передачи, поиск телефона и запросы на звонок.</string>
-    <string name="perm_post_notifications_without">Вы не увидите ход передачи, запросы с Mac и кнопку «Стоп» для поиска устройства.</string>
+    <string name="perm_post_notifications_why">Bridgey показывает передачи, поиск телефона, запросы на звонок и показ экрана.</string>
+    <string name="perm_post_notifications_without">Вы не увидите ход передачи, запросы с Mac и кнопку «Стоп» для поиска устройства и показа экрана.</string>
     <string name="perm_phone_calls_name">Телефон и звонки</string>
-    <string name="perm_phone_calls_why">Mac может отвечать, отклонять и совершать звонки через этот телефон.</string>
+    <string name="perm_phone_calls_why">Mac может отвечать, отклонять и совершать звонки через этот телефон. Для SMS на телефоне с двумя SIM-картами показывает список SIM-карт.</string>
     <string name="perm_phone_calls_without">Звонок с Mac открывает номеронабиратель для подтверждения; «Ответить» и «Отклонить» не работают.</string>
     <string name="perm_photos_name">Фото и видео</string>
     <string name="perm_photos_why">Показывает недавние фото и видео при отправке файлов, позволяет вашим Mac просматривать их и отправляет только что сделанный скриншот через «Отправить скопированное».</string>
@@ -62,6 +62,7 @@
     <string name="perm_camera_without">«Сделать фото» на Mac покажет, что камера не разрешена.</string>
     <string name="perm_companion_link_name">Связь по Bluetooth</string>
     <string name="perm_companion_link_why">Android 15 и новее скрывает одноразовые коды от приложений, не связанных с устройством поблизости.</string>
+    <string name="perm_companion_link_why_sms">Позволяет Bridgey видеть, кто прислал SMS, чтобы ответ ушёл в нужную переписку.</string>
     <string name="perm_companion_link_without">Коды из сообщений на Mac показываются как «скрыто».</string>
     <string name="perm_do_not_disturb_name">Доступ к режиму «Не беспокоить»</string>
     <string name="perm_do_not_disturb_why">Включает здесь «Не беспокоить», пока на Mac включено фокусирование, если включено «Следовать за фокусированием Mac».</string>
@@ -72,9 +73,9 @@
     <string name="perm_install_packages_name">Установка неизвестных приложений</string>
     <string name="perm_install_packages_why">Устанавливает обновления самого Bridgey.</string>
     <string name="perm_install_packages_without">Обновления скачиваются, но устанавливать их придётся вручную.</string>
-    <string name="perm_sms_name">SMS (только в тестовой сборке для проверки кодов)</string>
-    <string name="perm_sms_why">Читает тестовые сообщения для проверки распознавания кодов.</string>
-    <string name="perm_sms_without">Проверка распознавания кодов не запустится. Обычные сборки никогда не спрашивают.</string>
+    <string name="perm_sms_name">SMS</string>
+    <string name="perm_sms_why">SMS: показывает переписку на Mac и отправляет SMS, написанные там.</string>
+    <string name="perm_sms_without">SMS на Mac остаются выключенными. Коды из сообщений работают.</string>
     <string name="perm_logs_name">Журналы (один шаг через ADB)</string>
     <string name="perm_logs_why">Фоновый буфер обмена (для опытных) читает буфер, пока Bridgey в фоне.</string>
     <string name="perm_logs_without">Скопированное на телефоне отправляется, только пока Bridgey открыт, или одним касанием.</string>
@@ -153,7 +154,7 @@
 
     <!-- Шаги производителя (по dontkillmyapp.com) -->
     <string name="oem_title">Чтобы Bridgey работал на %1$s</string>
-    <string name="oem_intro">Этот телефон закрывает фоновые приложения сверх обычных настроек батареи Android. Измените это один раз.</string>
+    <string name="oem_intro">Этот телефон закрывает фоновые приложения сверх обычных настроек батареи Android. Измените это один раз и проверьте снова после обновления системы.</string>
     <string name="oem_source">Шаги по dontkillmyapp.com</string>
     <string name="oem_vendor_oneplus">OnePlus</string>
     <string name="oem_vendor_coloros">Oppo и Realme (ColorOS)</string>
@@ -166,7 +167,7 @@
     <string name="oem_step_never_sleeping">Приложения, которые не усыпляются</string>
     <string name="oem_oneplus_auto_start">Настройки, Приложения, Автозапуск: включите Bridgey.</string>
     <string name="oem_oneplus_background">О приложении, Батарея: разрешите работу в фоне.</string>
-    <string name="oem_oneplus_battery">Батарея, Оптимизация батареи: для Bridgey выберите «Не оптимизировать».</string>
+    <string name="oem_oneplus_battery">Батарея, Оптимизация батареи: для Bridgey выберите «Не оптимизировать». В разделе «Расширенная оптимизация» отключите «Глубокую оптимизацию» и «Оптимизацию в режиме сна».</string>
     <string name="oem_coloros_auto_start">Настройки, Управление приложениями, Автозапуск: включите Bridgey.</string>
     <string name="oem_coloros_background">О приложении, Батарея: разрешите работу в фоне.</string>
     <string name="oem_coloros_battery">Батарея, Другие настройки, Оптимизация расхода: для Bridgey выберите «Не оптимизировать».</string>
@@ -175,7 +176,7 @@
     <string name="oem_xiaomi_battery">Оптимизация батареи: выберите «Не оптимизировать». И закрепите Bridgey в недавних приложениях.</string>
     <string name="oem_samsung_background">О приложении, Батарея: выберите «Без ограничений».</string>
     <string name="oem_samsung_battery">Батарея, Ограничения в фоне: выключите «Переводить в спящий режим».</string>
-    <string name="oem_samsung_never_sleeping">Батарея, Ограничения в фоне, Приложения, которые не усыпляются: добавьте Bridgey.</string>
+    <string name="oem_samsung_never_sleeping">Батарея, Ограничения в фоне, Приложения, которые не усыпляются: добавьте Bridgey и уберите его из списков «Спящие приложения» и «Приложения в глубоком сне».</string>
     <string name="oem_vivo_auto_start">i Manager, Диспетчер приложений, Автозапуск: включите Bridgey.</string>
     <string name="oem_vivo_background">Батарея, Энергопотребление в фоне: разрешите Bridgey.</string>
     <string name="oem_vivo_battery">О приложении, Батарея: выберите «Не ограничивать работу в фоне».</string>

@@ -35,7 +35,7 @@ final class StreamModelTests: XCTestCase {
         let trusted = [TrustedDeviceInfo(id: phoneID, name: "OnePlus 11")]
         let connecting = deviceRings(trusted: trusted, peers: [peer(phoneID, "OnePlus 11")], state: .connecting("OnePlus 11"))
         XCTAssertEqual(connecting.map(\.state), [.connecting])
-        let verifying = deviceRings(trusted: [], peers: [peer(newID, "Galaxy")], state: .verification(peerName: "Galaxy", code: "123456"))
+        let verifying = deviceRings(trusted: [], peers: [peer(newID, "Galaxy")], state: .verification(PairingPrompt(peerName: "Galaxy", code: "123456")))
         XCTAssertEqual(verifying.map(\.state), [.connecting])
         let fresh = deviceRings(trusted: [], peers: [], state: .connected(deviceID: newID, peerName: "Galaxy"))
         XCTAssertEqual(fresh.map(\.name), ["Galaxy"])

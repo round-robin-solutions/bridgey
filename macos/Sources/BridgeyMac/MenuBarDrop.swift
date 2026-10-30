@@ -316,7 +316,7 @@ struct DropToastView: View {
 
 @MainActor
 final class DropToastController {
-    private var panel: NSPanel?
+    private(set) var panel: NSPanel?
     private var hideWork: DispatchWorkItem?
 
     func show(_ model: DropToastModel, near icon: NSRect?, seconds: TimeInterval = DropRouter.undoSeconds) {
@@ -334,9 +334,11 @@ final class DropToastController {
         let anchorX = icon?.midX ?? visible.maxX - size.width / 2 - 16
         let x = min(max(anchorX - size.width / 2, visible.minX + 8), visible.maxX - size.width - 8)
         panel.setFrame(NSRect(x: x, y: visible.maxY - size.height - 8, width: size.width, height: size.height), display: true)
+        // A toast fading out when the next one arrives: the new one wins, the old fade-out ends nothing.
+        BridgeyWindows.cancelFade(panel)
         panel.alphaValue = reduce ? 1 : 0
         panel.orderFrontRegardless()
-        if !reduce { NSAnimationContext.runAnimationGroup { $0.duration = 0.15; panel.animator().alphaValue = 1 } }
+        if !reduce { BridgeyWindows.fadeIn(panel) }
         let work = DispatchWorkItem { [weak self] in self?.hide() }
         hideWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
@@ -345,7 +347,7 @@ final class DropToastController {
     func hide() {
         hideWork?.cancel()
         guard let panel, panel.isVisible else { return }
-        NSAnimationContext.runAnimationGroup({ $0.duration = 0.15; panel.animator().alphaValue = 0 }, completionHandler: { panel.orderOut(nil) })
+        BridgeyWindows.fadeOut(panel)
     }
 
     private func makePanel() -> NSPanel {

@@ -107,6 +107,10 @@ final class ClipboardInbox {
     var onPasteFailed: (ClipboardPasteFailure, Received) -> Void = { _, _ in }
     /// Bridgey wrote the pasteboard at this change count (so it is never sent back).
     var onPasteboardWritten: (Int, Received) -> Void = { _, _ in }
+    /// Settings > Clipboard > Send right away up to: also what the phone may push unasked.
+    var eagerLimit: () -> Int64 = { ClipboardEagerLimit.default.bytes }
+    /// Free bytes on the cache's volume; nil when unknown.
+    var freeBytes: () -> Int64?
 
     private let clock: () -> Date
     private var providers: [ClipboardItemProvider] = []
@@ -114,6 +118,8 @@ final class ClipboardInbox {
     private var deferredWrites: [() -> Void] = []
     private var watchdogScheduled = false
     private var finishedTransferIDs: [String] = []
+    /// Bytes the phone pushed unasked for the current offer.
+    private var pushedBytes: Int64 = 0
     let showProgressAfter: TimeInterval
     let blockedAfter: TimeInterval
 
@@ -129,6 +135,7 @@ final class ClipboardInbox {
         self.clock = clock
         self.showProgressAfter = showProgressAfter
         self.blockedAfter = blockedAfter
+        freeBytes = { FolderReceiveSession.freeBytes(cache.root) ?? FolderReceiveSession.freeBytes(cache.root.deletingLastPathComponent()) }
     }
 
     /// Ours, running or recently finished (late chunks of a cancelled transfer are dropped
@@ -138,11 +145,18 @@ final class ClipboardInbox {
         return transfers[transferID] != nil || finishedTransferIDs.contains(transferID)
     }
 
+    /// A running transfer, and `deviceID` is the phone whose offer it belongs to.
+    func isTransfer(_ transferID: String?, from deviceID: String) -> Bool {
+        guard let transferID, transfers[transferID] != nil else { return false }
+        return current?.deviceID == deviceID
+    }
+
     // MARK: Offers
 
     /// Puts a validated offer on the pasteboard, superseding the previous one.
     func accept(_ offer: ClipboardOffer, deviceID: String, peerName: String) {
         supersede()
+        pushedBytes = 0
         let received = Received(offer: offer, deviceID: deviceID, peerName: peerName)
         current = received
         performPasteboardWrite { [weak self] in
@@ -280,7 +294,8 @@ final class ClipboardInbox {
     }
 
     static func pngData(from data: Data) -> Data? {
-        NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:])
+        guard imageDataFitsPixelLimit(data) else { return nil }
+        return NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:])
     }
 
     /// Tiny inline files still need a file on disk for a file URL.
@@ -289,6 +304,7 @@ final class ClipboardInbox {
         guard let data = received.offer.inlineData(at: index),
               let url = try? cache.prepareItem(offerID: received.offer.offerId, index: index, name: clipboardTransferName(for: entry)) else { return nil }
         guard FileManager.default.createFile(atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600]) else { return nil }
+        FinderMetadata.quarantine(url)
         cache.markHandedOut(offerID: received.offer.offerId, index: index)
         return url
     }
@@ -376,10 +392,12 @@ final class ClipboardInbox {
             let entry = received.offer.items[offer.index]
             let busy = transfers.values.contains { $0.offerID == offer.offerId && $0.index == offer.index && $0.result == nil }
             guard entry.inline == nil, !busy, entry.size == offer.size,
-                  cache.cachedFile(offerID: offer.offerId, index: offer.index) == nil else {
+                  cache.cachedFile(offerID: offer.offerId, index: offer.index) == nil,
+                  pushFits(entry.size) else {
                 transport.sendCancel(transferID)
                 return false
             }
+            pushedBytes += entry.size
             transfer = Transfer(transferID: transferID, offerID: offer.offerId, index: offer.index, isFetch: false,
                                 expectedSize: entry.size, offeredHash: entry.sha256, now: clock())
             transfers[transferID] = transfer
@@ -438,6 +456,7 @@ final class ClipboardInbox {
             return
         }
         try? FileManager.default.removeItem(at: final)
+        FinderMetadata.quarantine(partial)
         do {
             try FileManager.default.moveItem(at: partial, to: final)
         } catch {
@@ -499,6 +518,18 @@ final class ClipboardInbox {
             self.transfers.values.forEach(self.checkTimeout)
             if self.transfers.values.contains(where: { $0.result == nil }) { self.scheduleWatchdog() }
         }
+    }
+
+    /// A push nobody asked for: within the eager limit for this offer, under the transfer cap, with
+    /// room on the disk and in the cache for it and for what is still on its way.
+    private func pushFits(_ size: Int64) -> Bool {
+        let running = transfers.values.filter { $0.result == nil }
+        let inFlight = running.reduce(Int64(0)) { $0 + max(0, $1.expectedSize - $1.received) }
+        guard pushedBytes + size <= eagerLimit(),
+              running.count < ClipboardOfferLimits.maximumConcurrentTransfers,
+              cache.totalBytes() + inFlight + size <= cache.maximumBytes else { return false }
+        if let free = freeBytes(), free - inFlight < size + FolderReceiveSession.spaceMargin { return false }
+        return true
     }
 
     private func protectedNow() -> Set<String> {
@@ -622,7 +653,7 @@ final class ClipboardPasteProgressPanel: NSObject, ClipboardPasteProgress {
     }
 
     func hide() {
-        panel?.orderOut(nil)
+        BridgeyWindows.orderOut(panel)
         panel = nil
         onCancel = nil
     }

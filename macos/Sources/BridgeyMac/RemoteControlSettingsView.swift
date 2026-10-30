@@ -27,7 +27,8 @@ struct RemoteControlPane: View {
         }
         SettingsCard(footnote: L10n.text("remote.footnote", fallback: "Each phone needs its own permission, below, and Remote control turned on in Bridgey on the phone. Typing, keys and slides use a short list of keys; shortcuts such as Quit or Lock are never sent.")) {
             SettingsToggle(title: BridgeyFeature.remoteInput.title, subtitle: BridgeyFeature.remoteInput.subtitle, divider: false,
-                           isOn: on, set: { actions.setGlobal(.remoteInput, $0) })
+                           synced: model.syncs(.featureRemoteInput), isOn: on, set: { actions.setGlobal(.remoteInput, $0) })
+            SyncStatusLine(key: .featureRemoteInput, model: model, actions: actions)
             AccessibilityRow(trusted: model.accessibilityTrusted, open: actions.openAccessibilitySettings)
             SettingsRow(title: L10n.text("remote.stop.title", fallback: "Stop at any time"),
                         subtitle: L10n.text("remote.stop.detail", fallback: "Press Control-Option-Escape, or Stop in the pill at the top of the screen. The pill shows for the whole session.")) {
@@ -41,6 +42,11 @@ struct RemoteControlPane: View {
             ForEach(Array(model.trustedDevices.enumerated()), id: \.element.id) { index, device in
                 RemoteControlGrantToggle(device: device, model: model, actions: actions, title: device.name, divider: index > 0)
             }
+        }
+        SettingsCard(title: PhoneScreenSettings.cardTitle, footnote: PhoneScreenSettings.footnote) {
+            SettingsToggle(title: PhoneScreenSettings.switchTitle, subtitle: PhoneScreenSettings.switchDetail, divider: false,
+                           synced: model.syncs(.featureScreen), isOn: model.phoneScreenEnabled, set: actions.setPhoneScreen)
+            SyncStatusLine(key: .featureScreen, model: model, actions: actions)
         }
         SettingsCard(title: L10n.text("remote.log", fallback: "Session log"),
                      footnote: L10n.text("remote.log.detail", fallback: "Kept only on this Mac, for 30 days. It records which phone controlled this Mac, when, for how long and how many moves, clicks and keys, never what was typed.")) {
@@ -237,4 +243,16 @@ func remoteDurationText(_ seconds: TimeInterval) -> String {
     formatter.allowedUnits = seconds >= 3600 ? [.hour, .minute] : seconds >= 60 ? [.minute, .second] : [.second]
     formatter.maximumUnitCount = 2
     return formatter.string(from: max(1, seconds.rounded())) ?? ""
+}
+
+/// Settings > Remote control > Phone screen: the switch for showing phone screens here (screen_draft1).
+enum PhoneScreenSettings {
+    static var cardTitle: String { L10n.text("screen.settings.card", fallback: "Phone screen") }
+    static var switchTitle: String { L10n.text("screen.settings.switch", fallback: "Show phone screens") }
+    static var switchDetail: String {
+        L10n.text("screen.settings.switch.detail", fallback: "See your phone\u{2019}s screen in a window on this Mac. The phone asks you each time.")
+    }
+    static var footnote: String {
+        L10n.text("screen.settings.note", fallback: "View only. In the menu bar panel, choose File > Show Screen, or start sharing on the phone. The phone shows a notification with Stop while it shares; nothing is recorded or saved on this Mac.")
+    }
 }

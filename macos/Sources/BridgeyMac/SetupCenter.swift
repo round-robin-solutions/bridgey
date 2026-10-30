@@ -166,7 +166,7 @@ final class SetupCenter: ObservableObject {
 
     private func closeSetupWindow() {
         closingSetup = true
-        setupWindow?.close()
+        BridgeyWindows.close(setupWindow)
         closingSetup = false
         stopPolling()
     }
@@ -189,14 +189,24 @@ final class SetupCenter: ObservableObject {
         pollTimer = nil
     }
 
+    /// The window is going: polling stops, and the pair step no longer holds pairing allowed (SwiftUI may not send
+    /// onDisappear for a closing window).
+    fileprivate func setupWindowWillClose() {
+        stopPolling()
+        pairing?.holdPairingArmed(false)
+    }
+
     var setupActions: SetupActions {
         var actions = SetupActions()
         actions.dispatch = { [weak self] event, facts in self?.send(event, facts: facts) }
         actions.allow = { [weak self] in self?.manage($0) }
         actions.requestFromPage = { [weak self] in self?.requestFromPage($0) }
         actions.allowAll = { [weak self] in self?.allowAll($0) }
-        actions.confirmPairing = { [weak self] in self?.pairing?.confirm() }
+        actions.confirmPairing = { [weak self] in self?.pairing?.confirm(token: $0) }
+        actions.rejectPairing = { [weak self] in self?.pairing?.reject(token: $0) }
         actions.cancelPairing = { [weak self] in self?.pairing?.cancel() }
+        actions.retryPairing = { [weak self] in self?.pairing?.retryPairing() }
+        actions.holdPairingArmed = { [weak self] in self?.pairing?.holdPairingArmed($0) }
         actions.openSettings = { [weak self] in self?.finishSetup(openSettings: true) }
         actions.start = { [weak self] in self?.finishSetup(openSettings: false) }
         actions.leave = { [weak self] in self?.leaveSetup() }
@@ -265,6 +275,8 @@ final class SetupCenter: ObservableObject {
         case .codesEnabled: settings.setCodesEnabled(on)
         case .codesEngine: CodeEngine(rawValue: change.value).map(settings.setCodesEngine)
         case .notificationHistory: settings.setNotificationHistoryEnabled(on)
+        case .featureMessages: pairing.setTextMessagesEnabled(on)
+        case .smsKeepOnMac: pairing.setTextMessagesKeepOnMac(on)
         case .focusShare: pairing.focusSync.update { $0.share = on }
         case .focusFollow: pairing.focusSync.update { $0.follow = on }
         case .featureCalls: settings.setGlobal(.calls, enabled: on)
@@ -286,6 +298,7 @@ final class SetupCenter: ObservableObject {
         case .remoteGrant:
             for device in pairing.trustedDevices { settings.setForDevice(device.id, feature: .remoteInput, enabled: on) }
             pairing.remoteInput.policyChanged()
+        case .featureScreen: pairing.phoneScreen.setEnabled(on)
         case .featureMacActions: settings.setGlobal(.macActions, enabled: on)
         case .macActionsGrant:
             for device in pairing.trustedDevices { settings.setForDevice(device.id, feature: .macActions, enabled: on) }
@@ -313,6 +326,7 @@ final class SetupCenter: ObservableObject {
         case .updatesAutomatic: updater?.setAutomaticallyChecks(on)
         case .launchAtLogin: settings.setLaunchAtLogin(on)
         case .reduceMotion: settings.setReduceMotion(on)
+        case .settingsSync: pairing.settingsSync.setEnabled(on)
         case .connectAway: settings.setConnectAway(on)
         case .pairing, .macNotifications, .accessibility, .deviceFeatures, .deviceAutoClipboard, .batteryAlerts,
              .clipboardEagerLimit, .shortcutClipboard, .codesAutoCopy, .codesModel, .codesPhoneLink, .focusShortcuts,
@@ -387,7 +401,7 @@ final class SetupCenter: ObservableObject {
 
     func showWhatsNew(reviewSetup: Bool) {
         let content = WhatsNewContent.make(version: Self.currentVersion, notes: currentNotes, reviewSetup: reviewSetup)
-        whatsNewWindow?.close()
+        BridgeyWindows.close(whatsNewWindow)
         let view = BrandRoot(reduceMotion: settings?.reduceMotion ?? false) {
             WhatsNewView(
                 content: content,
@@ -414,7 +428,7 @@ final class SetupCenter: ObservableObject {
     }
 
     private func closeWhatsNew() {
-        whatsNewWindow?.close()
+        BridgeyWindows.close(whatsNewWindow)
         whatsNewWindow = nil
     }
 
@@ -430,6 +444,7 @@ final class SetupCenter: ObservableObject {
             notifications: settings.globalFeatures[.notifications] != false,
             calls: settings.globalFeatures[.calls] != false,
             codes: settings.codesEnabled,
+            messages: settings.smsEnabled,
             remoteControl: settings.globalFeatures[.remoteInput] == true,
             media: settings.globalFeatures[.media] == true,
             mediaPlayer: pairing?.mediaController.player ?? .off,
@@ -586,6 +601,8 @@ final class SetupCenter: ObservableObject {
             // v0.9: the Mac actions log and the connection health counters.
             pairing?.macActions.audit.clear()
             pairing?.clearConnectionHealth()
+            // Text messages kept on this Mac, in memory and on disk.
+            pairing?.textMessages.deleteAll()
             reset.perform(.activity)
         case .caches:
             pairing?.codeModel.remove()
@@ -682,7 +699,7 @@ final class SetupWindowDelegate: NSObject, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) { center?.setupWindowResignedKey() }
 
-    func windowWillClose(_ notification: Notification) { center?.stopPolling() }
+    func windowWillClose(_ notification: Notification) { center?.setupWindowWillClose() }
 }
 
 // MARK: - Sheets
@@ -701,7 +718,7 @@ enum BrandSheet {
         let dismiss: () -> Void = { [weak sheet] in
             guard !dismissed, let sheet else { return }
             dismissed = true
-            if let parent = sheet.sheetParent { parent.endSheet(sheet) } else { sheet.close() }
+            if let parent = sheet.sheetParent { parent.endSheet(sheet) } else { BridgeyWindows.close(sheet) }
         }
         let host = NSHostingController(rootView: BrandRoot(reduceMotion: reduceMotion) { content(dismiss) })
         host.sizingOptions = .preferredContentSize

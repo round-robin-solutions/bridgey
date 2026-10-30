@@ -18,7 +18,7 @@ import dev.bridgey.android.R
 import dev.bridgey.android.connect.ConnectRoute
 
 /** Where Connect anywhere is, in the words the page uses. */
-enum class ConnectState { OFF, UNAVAILABLE, LOCAL_ONLY, CONNECTING, ONLINE }
+enum class ConnectState { OFF, UNAVAILABLE, LOCAL_ONLY, CONNECTING, UNREACHABLE, ONLINE }
 
 /** Settings > Connect away from home. */
 data class ConnectSettingsState(
@@ -99,6 +99,7 @@ private fun connectStatusText(connect: ConnectSettingsState): Pair<String, Tint>
         else stringResource(R.string.connect_status_online)
         ) to Tint.GREEN
     ConnectState.CONNECTING -> stringResource(R.string.connect_status_connecting) to Tint.BLUE
+    ConnectState.UNREACHABLE -> stringResource(R.string.connect_status_unreachable) to Tint.NEUTRAL
     ConnectState.LOCAL_ONLY -> stringResource(R.string.connect_status_local) to Tint.BLUE
     ConnectState.UNAVAILABLE -> stringResource(R.string.connect_status_unavailable) to Tint.NEUTRAL
     ConnectState.OFF -> stringResource(R.string.connect_status_off) to Tint.NEUTRAL
@@ -110,6 +111,7 @@ internal fun connectSummary(connect: ConnectSettingsState): String = when {
     connect.state == ConnectState.UNAVAILABLE -> stringResource(R.string.connect_status_unavailable)
     !connect.on -> stringResource(R.string.connect_summary_off)
     connect.state == ConnectState.ONLINE -> stringResource(R.string.connect_summary_on)
+    connect.state == ConnectState.UNREACHABLE -> stringResource(R.string.connect_summary_unreachable)
     else -> stringResource(R.string.connect_status_connecting)
 }
 
@@ -117,7 +119,7 @@ internal fun connectSummary(connect: ConnectSettingsState): String = when {
 @Composable
 fun connectRouteLabel(route: ConnectRoute): String = when (route.route) {
     "lan" -> stringResource(R.string.ring_same_wifi)
-    "vpn" -> stringResource(R.string.route_private_network)
+    "vpn" -> stringResource(if (route.vpn == "tailscale") R.string.route_tailscale else R.string.route_private_network)
     "direct" -> stringResource(R.string.route_direct)
     else -> when (route.relay) {
         "bom" -> stringResource(R.string.route_relay_named, stringResource(R.string.relay_city_bom))

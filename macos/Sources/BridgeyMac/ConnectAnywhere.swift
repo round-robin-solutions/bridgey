@@ -11,6 +11,8 @@ struct ConnectTunnel: Equatable {
     let exporter: String
     var route: String
     var relay: String?
+    /// The private network's name (`tailscale`) when the route is a VPN address.
+    var vpn: String? = nil
     /// This side is the QUIC client: it sends pairing.offer.
     let quicClient: Bool
     /// The paired device the core dialled; nil for an inbound direct dial (the handshake says who).
@@ -27,7 +29,11 @@ struct ConnectPeer: Equatable {
 
     var command: [String: Any] {
         ["id": id, "side": side, "pairSecret": pairSecret.base64EncodedString(), "connected": connected,
-         "addresses": addresses.map { ["a": $0.a, "p": $0.p, "kind": $0.kind] as [String: Any] }]
+         "addresses": addresses.map { address -> [String: Any] in
+             var entry: [String: Any] = ["a": address.a, "p": address.p, "kind": address.kind]
+             if let vpn = address.vpn { entry["vpn"] = vpn }
+             return entry
+         }]
     }
 }
 
@@ -44,6 +50,8 @@ final class ConnectAnywhere: ObservableObject {
         /// Running without a control service: learned LAN and private network addresses only.
         case disabled
         case connecting
+        /// The control service cannot be reached (no internet, or it is down); LAN and VPN still work.
+        case unreachable
         case online
     }
 
@@ -224,8 +232,8 @@ final class ConnectAnywhere: ObservableObject {
                   let token = event["token"] as? String, token.utf8.count == 64,
                   let exporter = event["exporter"] as? String, let route = event["route"] as? String else { return }
             let tunnel = ConnectTunnel(id: id, port: port, token: token, exporter: exporter, route: route,
-                                       relay: event["relay"] as? String, quicClient: event["quicClient"] as? Bool ?? false,
-                                       peer: event["peer"] as? String)
+                                       relay: event["relay"] as? String, vpn: event["vpn"] as? String,
+                                       quicClient: event["quicClient"] as? Bool ?? false, peer: event["peer"] as? String)
             BridgeyLog.transport.notice("connect tunnel id=\(id, privacy: .public) route=\(route, privacy: .public) relay=\(tunnel.relay ?? "none", privacy: .public) client=\(tunnel.quicClient, privacy: .public) peer=\(tunnel.peer.map(shortDeviceID) ?? "unknown", privacy: .public) rttMs=\((event["rttMs"] as? NSNumber)?.intValue ?? -1, privacy: .public)")
             onTunnel?(tunnel)
         case "route":

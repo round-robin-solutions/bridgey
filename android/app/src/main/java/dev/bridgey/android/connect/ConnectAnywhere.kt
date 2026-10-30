@@ -29,7 +29,7 @@ internal object ConnectCore {
 }
 
 /** A route as the device page shows it: lan, vpn, direct or relay, and the relay's ID. */
-data class ConnectRoute(val route: String, val relay: String? = null)
+data class ConnectRoute(val route: String, val relay: String? = null, val vpn: String? = null)
 
 /** What the core says about a new tunnel; the app runs the normal session over its bridge socket. */
 data class TunnelInfo(
@@ -54,6 +54,9 @@ sealed interface ConnectStatus {
 
     /** On, with routes over learned addresses only: there is no control service in this build. */
     data object LocalOnly : ConnectStatus
+
+    /** On, but the control service cannot be reached (no internet, or the service is down). LAN and VPN still work. */
+    data object Unreachable : ConnectStatus
 
     data object Connecting : ConnectStatus
 
@@ -142,12 +145,24 @@ class ConnectAnywhere(
                 .put("side", peer.side)
                 .put("pairSecret", Base64.getEncoder().encodeToString(peer.pairSecret))
                 .put("connected", peer.connected)
-                .put("addresses", JSONArray(peer.addresses.map { JSONObject().put("a", it.a).put("p", it.port).put("kind", it.kind) }))
+                .put("addresses", JSONArray(peer.addresses.map { address ->
+                    JSONObject().put("a", address.a).put("p", address.port).put("kind", address.kind).apply { address.vpn?.let { put("vpn", it) } }
+                }))
         })
         command(JSONObject().put("c", "peers").put("peers", list))
     }
 
-    fun networkChanged(reason: String) {
+    /** A session on this tunnel authenticated: the core resets the peer's back-off. */
+    fun tunnelAuthenticated(tunnelId: String) {
+        command(JSONObject().put("c", "authenticated").put("tunnel", tunnelId))
+    }
+
+    /** Try every route to this device now (Connect on its page). */
+    fun connectNow(deviceId: String) {
+        command(JSONObject().put("c", "connect").put("peer", deviceId))
+    }
+
+        fun networkChanged(reason: String) {
         command(JSONObject().put("c", "network").put("reason", reason))
     }
 
@@ -191,6 +206,7 @@ class ConnectAnywhere(
                 mutableStatus.value = when (event.optString("state")) {
                     "online" -> ConnectStatus.Online(peers)
                     "disabled" -> ConnectStatus.LocalOnly
+                    "unreachable" -> ConnectStatus.Unreachable
                     else -> ConnectStatus.Connecting
                 }
             }
@@ -208,7 +224,11 @@ class ConnectAnywhere(
         val info = TunnelInfo(
             tunnelId = event.getString("tunnel"),
             exporter = event.getString("exporter"),
-            route = ConnectRoute(event.getString("route"), event.optString("relay").takeIf { it.isNotEmpty() && it != "null" }),
+            route = ConnectRoute(
+                event.getString("route"),
+                event.optString("relay").takeIf { it.isNotEmpty() && it != "null" },
+                event.optString("vpn").takeIf { it.isNotEmpty() && it != "null" },
+            ),
             quicClient = event.getBoolean("quicClient"),
             peer = event.optString("peer").takeIf { it.isNotEmpty() && it != "null" },
         )

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Text messages (sms_draft1): SMS conversations on the Mac. -->
+<resources>
+    <string name="feature_sms">Text messages</string>
+    <string name="feature_sms_detail">Read and answer your texts on your Mac</string>
+    <string name="feature_sms_device_detail">%1$s shows your conversations and sends texts from this phone</string>
+    <string name="messages_sms_access">SMS access</string>
+    <string name="messages_sms_access_on">Allowed: your Macs see conversations and can send</string>
+    <string name="messages_sms_access_off">Not allowed yet: your Macs see no conversations</string>
+    <string name="messages_contacts_access">Contacts</string>
+    <string name="messages_contacts_access_on">Names show instead of numbers</string>
+    <string name="messages_contacts_access_off">Not allowed: your Macs show numbers only</string>
+    <string name="messages_sims_access">SIM cards</string>
+    <string name="messages_sims_access_on">Your Mac can pick the SIM to send from</string>
+    <string name="messages_sims_access_off">Not allowed: texts go from the default SIM</string>
+    <string name="messages_reply_as_sms">Send replies as SMS</string>
+    <string name="messages_reply_as_sms_detail">For messaging apps whose own reply does not send. Plain SMS, no chat features.</string>
+    <string name="messages_allow">Allow</string>
+    <string name="messages_note">Messages go only to your paired Macs, encrypted. Bridgey keeps no copy on this phone and never becomes your default SMS app.</string>
+    <string name="settings_summary_messages_access">SMS access needed</string>
+    <string name="settings_summary_messages_on">Conversations on your Mac</string>
+    <string name="settings_summary_messages_sms">On, replies sent as SMS</string>
+    <string name="setup_bundle_messages">Read and answer your texts on your Mac.</string>
+    <string name="setup_q_messages_title">How should replies from your Mac be sent?</string>
+    <string name="setup_q_messages_context">Your Mac shows your texts and you answer them there. They travel encrypted, only between your devices.</string>
+    <string name="setup_q_messages_summary">Text messages on your Mac</string>
+    <string name="setup_a_messages_app">Through my messaging app</string>
+    <string name="setup_a_messages_app_detail">Keeps chat features where the app offers a reply.</string>
+    <string name="setup_a_messages_sms">As plain SMS from this phone</string>
+    <string name="setup_a_messages_sms_detail">Use this if your messaging app\'s own reply does not send.</string>
+    <string name="perm_contacts_name">Contacts</string>
+    <string name="perm_contacts_why">Text messages: shows names instead of numbers on your Mac and finds a contact for a new message.</string>
+    <string name="perm_contacts_without">Your Mac shows numbers only.</string>
+</resources>

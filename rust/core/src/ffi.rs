@@ -98,6 +98,10 @@ pub fn command(id: u64, json_text: &str) -> String {
                 node.sign_result(id, sig);
                 json!({"ok": true}).to_string()
             }
+            "authenticated" => {
+                node.tunnel_authenticated(cmd.get("tunnel").and_then(Value::as_str).unwrap_or_default());
+                json!({"ok": true}).to_string()
+            }
             "close" => {
                 node.close_tunnel(cmd.get("tunnel").and_then(Value::as_str).unwrap_or_default());
                 json!({"ok": true}).to_string()

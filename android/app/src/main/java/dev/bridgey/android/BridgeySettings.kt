@@ -34,16 +34,29 @@ enum class BridgeyFeature(val key: String, val title: String) {
 
     /** Draft, edition only: a Mac may ask this phone for a photo; the person takes it. On by default. */
     CAMERA("camera_draft1", "Take photos for the Mac"),
+
+    /**
+     * Draft, edition only (v0.9 prototype, view only): a Mac may see this phone's screen. The person confirms in
+     * Android's dialog every time; off by default on every install.
+     */
+    SCREEN("screen_draft1", "Share screen with Macs"),
+
+    /**
+     * Draft, edition only: the Mac shows this phone's SMS conversations, sends texts and answers SMS
+     * notifications. Off by default on every install, including ones from before off-until-chosen.
+     */
+    SMS("sms_draft1", "Text messages"),
 }
 
 internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
     feature !in setOf(
         BridgeyFeature.CALLS, BridgeyFeature.PING, BridgeyFeature.LINKS, BridgeyFeature.MEDIA,
-        BridgeyFeature.REMOTE_INPUT, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA,
+        BridgeyFeature.REMOTE_INPUT, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA, BridgeyFeature.SCREEN, BridgeyFeature.SMS,
     )
 
 /** Features that start off until the person turns them on. */
-internal fun featureOnByDefault(feature: BridgeyFeature): Boolean = feature != BridgeyFeature.REMOTE_INPUT
+internal fun featureOnByDefault(feature: BridgeyFeature): Boolean =
+    feature != BridgeyFeature.REMOTE_INPUT && feature != BridgeyFeature.SCREEN && feature != BridgeyFeature.SMS
 
 data class BridgeySettingsState(
     val deviceName: String,
@@ -94,6 +107,13 @@ data class BridgeySettingsState(
     val focusShare: Boolean = false,
     /** Notifications > Follow the Mac's Focus: Do Not Disturb follows the Macs. Off by default. */
     val focusFollow: Boolean = false,
+    /**
+     * Updates > Let paired devices start updates on this phone (updates_draft1). On by default: it only
+     * starts Bridgey's own update from this phone's channel, with its own checks (docs/rr-edition.md).
+     */
+    val updatesRemoteStart: Boolean = true,
+    /** Text messages > Send replies as SMS: answers to SMS notifications skip the messaging app's own reply. Off by default. */
+    val smsReplyAsSms: Boolean = false,
     /**
      * Connect away from home (draft connect_draft1): reach paired devices off the local network
      * through the QUIC tunnel, directly or through a Round Robin relay. Off until chosen.
@@ -244,10 +264,23 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(focusShare = enabled)
     }
 
+    fun setUpdatesRemoteStart(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_UPDATES_REMOTE_START, enabled).apply()
+        mutableState.value = mutableState.value.copy(updatesRemoteStart = enabled)
+    }
+
     fun setFocusFollow(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_FOCUS_FOLLOW, enabled).apply()
         mutableState.value = mutableState.value.copy(focusFollow = enabled)
     }
+
+    fun setSmsReplyAsSms(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_SMS_REPLY_AS_SMS, enabled).apply()
+        mutableState.value = mutableState.value.copy(smsReplyAsSms = enabled)
+    }
+
+    /** Text messages is on for at least one Mac (its global switch). */
+    fun smsOn(): Boolean = mutableState.value.globalFeatures[BridgeyFeature.SMS] == true
 
     fun setConnectAway(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_CONNECT_AWAY, enabled).apply()
@@ -305,6 +338,9 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         preferences.edit().putString(KEY_FOLDER_RECENT, encodeDestinations(list)).apply()
         mutableState.value = mutableState.value.copy(recentFolderDestinations = list)
     }
+
+    /** Settings sync (8.4): the person stored [key] before, so the first sync stamp counts it as chosen. */
+    internal fun hasStored(key: String): Boolean = preferences.contains(key)
 
     /** Automatic clipboard for [deviceId], falling back to the global switch when unset. */
     fun isAutoClipboardEnabled(deviceId: String?): Boolean {
@@ -372,6 +408,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             logging = loggingPolicyFrom { key, default -> preferences.getBoolean(key, default) },
             focusShare = preferences.getBoolean(KEY_FOCUS_SHARE, false),
             focusFollow = preferences.getBoolean(KEY_FOCUS_FOLLOW, false),
+            updatesRemoteStart = preferences.getBoolean(KEY_UPDATES_REMOTE_START, true),
+            smsReplyAsSms = preferences.getBoolean(KEY_SMS_REPLY_AS_SMS, false),
             connectAway = preferences.getBoolean(KEY_CONNECT_AWAY, false),
         )
     }
@@ -381,22 +419,24 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         private const val KEY_NOTIFICATION_APPLICATION_PREFIX = "notification.application."
         private const val KEY_DISABLED_NOTIFICATION_PACKAGES = "notification.disabled_packages"
         private const val KEY_DIRECT_CALLS_ENABLED = "calls.direct_enabled"
-        private const val KEY_AUTO_CLIPBOARD_GLOBAL = "clipboard.auto.global"
+        internal const val KEY_AUTO_CLIPBOARD_GLOBAL = "clipboard.auto.global"
         private const val KEY_AUTO_CLIPBOARD_DEVICE_PREFIX = "clipboard.auto.device."
         private const val KEY_BACKGROUND_CLIPBOARD = "clipboard.background.enabled"
-        private const val KEY_CLIPBOARD_FILES = "clipboard.files.enabled"
+        internal const val KEY_CLIPBOARD_FILES = "clipboard.files.enabled"
         private const val KEY_CLIPBOARD_EAGER_LIMIT = "clipboard.files.eager_limit"
         private const val KEY_SCREENSHOT_SEND = "clipboard.screenshot.enabled"
         private const val KEY_KEEP_WIFI_AWAKE = "connection.keep_wifi_awake"
-        private const val KEY_FOLDER_MODE = "files.folder_destination"
-        private const val KEY_FOLDER_CONFLICT = "files.folder_conflict"
+        internal const val KEY_FOLDER_MODE = "files.folder_destination"
+        internal const val KEY_FOLDER_CONFLICT = "files.folder_conflict"
         private const val KEY_FOLDER_DEFAULT_PLACE = "files.folder_default_place"
         private const val KEY_FOLDER_ALLOW_REPLACE = "files.folder_allow_replace"
         private const val KEY_FILES_ALLOW_BROWSE = "files.allow_browse"
         private const val KEY_FOLDER_RECENT = "files.folder_recent"
-        private const val KEY_FOCUS_SHARE = "focus.share"
-        private const val KEY_FOCUS_FOLLOW = "focus.follow"
-        private const val KEY_CONNECT_AWAY = "connect.away"
+        internal const val KEY_FOCUS_SHARE = "focus.share"
+        internal const val KEY_FOCUS_FOLLOW = "focus.follow"
+        private const val KEY_UPDATES_REMOTE_START = "updates.remote_start"
+        private const val KEY_SMS_REPLY_AS_SMS = "sms.reply_as_sms"
+        internal const val KEY_CONNECT_AWAY = "connect.away"
         private const val KEY_CONNECT_DEBUG_URL = "connect.debug.controlUrl"
         private const val KEY_CONNECT_DEBUG_RELAY_ONLY = "connect.debug.relayOnly"
     }

@@ -66,6 +66,9 @@ pub struct Learned {
     pub p: u16,
     #[serde(default)]
     pub kind: String,
+    /// `tailscale` or `other` for a private-network address, as the peer reported it.
+    #[serde(default)]
+    pub vpn: Option<String>,
 }
 
 struct Peer {
@@ -84,6 +87,11 @@ struct Tunnel {
     token: [u8; 32],
     quic_client: bool,
     claimed: AtomicBool,
+    /// The app finished the session handshake on it (command "authenticated"). Until then it counts
+    /// against the inbound caps, and a close is a failure that backs off instead of redialling at once.
+    authenticated: AtomicBool,
+    /// The source address of an inbound direct dial, for the per-address cap.
+    remote_ip: Option<std::net::IpAddr>,
     ice: Option<String>,
 }
 
@@ -328,7 +336,10 @@ impl Node {
                 self.rdv_connected.store(false, Ordering::Relaxed);
                 self.online.lock().unwrap().clear();
                 self.log(&format!("control service disconnected: {reason}"));
-                self.publish_presence("connecting");
+                // A connection that worked and dropped is retried quietly; one that cannot be made at all is
+                // reported, so the app can say the Round Robin service is out of reach (LAN and VPN still work).
+                let lost = matches!(reason.as_str(), "closed" | "keepalive_timeout" | "send_failed");
+                self.publish_presence(if lost { "connecting" } else { "unreachable" });
             }
             RdvEvent::Msg(msg) => self.on_rdv_msg(msg),
         }
@@ -432,25 +443,28 @@ impl Node {
         tokio::spawn(async move {
             let started = Instant::now();
             let relay_only = self.mux.relay_only.load(Ordering::Relaxed);
-            let addresses: Vec<(SocketAddr, Route)> = {
+            let addresses: Vec<(SocketAddr, Route, Option<String>)> = {
                 let peers = self.peers.lock().unwrap();
                 peers.get(&peer).map(|p| p.cfg.addresses.clone()).unwrap_or_default()
             }
             .into_iter()
-            .filter_map(|l| addrs::parse_learned(&l.a, l.p).map(|a| (a, addrs::route_of(a.ip()))))
-            .filter(|(_, route)| better_than.map(|b| *route < b).unwrap_or(true))
+            .filter_map(|l| {
+                let vpn = l.vpn.clone();
+                addrs::parse_learned(&l.a, l.p).map(|a| (a, addrs::route_of(a.ip()), vpn))
+            })
+            .filter(|(_, route, _)| better_than.map(|b| *route < b).unwrap_or(true))
             .take(8)
             .collect();
             let mut attempts = tokio::task::JoinSet::new();
             if !relay_only {
-                for (i, (addr, route)) in addresses.into_iter().enumerate() {
+                for (i, (addr, route, vpn)) in addresses.into_iter().enumerate() {
                     let node = self.clone();
                     let peer = peer.clone();
                     // Two at a time, 150 ms apart (spec 4.3).
                     let delay = Duration::from_millis(150 * (i as u64 / 2));
                     attempts.spawn(async move {
                         tokio::time::sleep(delay).await;
-                        node.dial_direct(peer, addr, route).await
+                        node.dial_direct(peer, addr, route, vpn).await
                     });
                 }
             }
@@ -477,7 +491,7 @@ impl Node {
             if let Some(p) = peers.get_mut(&peer) {
                 match won {
                     Some(route) => {
-                        p.failures = 0;
+                        // Failures reset only when the app authenticates a session on the tunnel.
                         p.next_attempt = Instant::now() + Duration::from_secs(1);
                         drop(peers);
                         self.log(&format!("race {reason} won {} in {} ms", route.as_str(), started.elapsed().as_millis()));
@@ -497,7 +511,7 @@ impl Node {
         });
     }
 
-    async fn dial_direct(self: Arc<Self>, peer: String, addr: SocketAddr, route: Route) {
+    async fn dial_direct(self: Arc<Self>, peer: String, addr: SocketAddr, route: Route, vpn: Option<String>) {
         let config = quic::client_config(&self.identity.read().unwrap(), None, keep_alive(route));
         let Ok(connecting) = self.endpoint.connect_with(config, addr, "bridgey") else { return };
         let Ok(Ok(conn)) = tokio::time::timeout(Duration::from_secs(3), connecting).await else { return };
@@ -505,7 +519,9 @@ impl Node {
             conn.close(0u32.into(), b"superseded");
             return;
         }
-        self.register_tunnel(conn, true, route, None, Some(peer), None);
+        // Tailscale is named only when the peer said so or the address is Tailscale's own IPv6 range (spec 4.1).
+        let label = (route == Route::Vpn).then(|| if addrs::is_tailscale(addr.ip()) { Some("tailscale".to_string()) } else { vpn }).flatten();
+        self.register_tunnel_labelled(conn, true, route, None, Some(peer), None, label);
     }
 
     // endregion
@@ -851,7 +867,15 @@ impl Node {
 
     async fn accept_loop(self: Arc<Self>) {
         while let Some(incoming) = self.endpoint.accept().await {
-            if self.tunnels.lock().unwrap().values().filter(|t| !t.claimed.load(Ordering::Relaxed)).count() >= 16 {
+            // Caps before the handshake: tunnels the app has not authenticated yet, in all and per source
+            // address (ICE tunnels come from virtual addresses and were set up through sealed signalling).
+            let source = addrs::canonical(incoming.remote_address());
+            let (pending_total, pending_here) = {
+                let tunnels = self.tunnels.lock().unwrap();
+                let pending: Vec<_> = tunnels.values().filter(|t| !t.authenticated.load(Ordering::Relaxed)).collect();
+                (pending.len(), pending.iter().filter(|t| t.remote_ip == Some(source.ip())).count())
+            };
+            if pending_total >= 16 || (!is_virtual(source) && pending_here >= 3) {
                 incoming.refuse();
                 continue;
             }
@@ -881,6 +905,21 @@ impl Node {
     }
 
     fn register_tunnel(self: &Arc<Self>, conn: quinn::Connection, quic_client: bool, route: Route, relay: Option<String>, peer: Option<String>, ice: Option<Arc<IceSession>>) {
+        self.register_tunnel_labelled(conn, quic_client, route, relay, peer, ice, None);
+    }
+
+    /// [register_tunnel] with the private network's name (`tailscale`) when the route is a VPN address.
+    #[allow(clippy::too_many_arguments)]
+    fn register_tunnel_labelled(
+        self: &Arc<Self>,
+        conn: quinn::Connection,
+        quic_client: bool,
+        route: Route,
+        relay: Option<String>,
+        peer: Option<String>,
+        ice: Option<Arc<IceSession>>,
+        vpn: Option<String>,
+    ) {
         let Some(exporter) = quic::exporter(&conn) else {
             conn.close(0u32.into(), b"exporter");
             return;
@@ -898,6 +937,8 @@ impl Node {
             token,
             quic_client,
             claimed: AtomicBool::new(false),
+            authenticated: AtomicBool::new(false),
+            remote_ip: (!quic_client).then(|| addrs::canonical(conn.remote_address()).ip()).filter(|ip| !is_virtual(SocketAddr::new(*ip, 1))),
             ice: ice.as_ref().map(|s| s.agent.sid.clone()),
         });
         self.tunnels.lock().unwrap().insert(id.clone(), tunnel.clone());
@@ -909,6 +950,7 @@ impl Node {
             "exporter": exporter,
             "route": route.as_str(),
             "relay": relay,
+            "vpn": vpn,
             "quicClient": quic_client,
             "peer": peer,
             "rttMs": conn.rtt().as_millis() as u64,
@@ -919,6 +961,10 @@ impl Node {
                 tokio::time::sleep(Duration::from_secs(15)).await;
                 if !tunnel.claimed.load(Ordering::Relaxed) {
                     tunnel.conn.close(0u32.into(), b"unclaimed");
+                }
+                tokio::time::sleep(Duration::from_secs(15)).await;
+                if !tunnel.authenticated.load(Ordering::Relaxed) {
+                    tunnel.conn.close(0u32.into(), b"unauthenticated");
                 }
                 std::future::pending::<()>().await
             };
@@ -931,14 +977,24 @@ impl Node {
                 node.end_ice(sid, "closed");
             }
             node.event(json!({"e": "tunnel.closed", "tunnel": tunnel.id, "reason": reason}));
-            // A tunnel that carried the only session with a peer: find another route at once.
+            // A tunnel that carried the only session with a peer: find another route at once. One the app never
+            // authenticated (refused, held, forgotten, lost the duplicate rule) backs off instead, so a refusal
+            // cannot turn into a redial loop through the relay.
             if let Some(peer) = &tunnel.peer {
+                let authenticated = tunnel.authenticated.load(Ordering::Relaxed);
                 let reconnect = {
                     let mut peers = node.peers.lock().unwrap();
                     match peers.get_mut(peer) {
-                        Some(p) if !p.cfg.connected => {
+                        Some(p) if !p.cfg.connected && authenticated => {
                             p.next_attempt = Instant::now();
                             true
+                        }
+                        Some(p) if !authenticated => {
+                            p.failures = p.failures.saturating_add(1);
+                            let cap = (2_000u64 << p.failures.min(6)).min(120_000);
+                            let wait = u64::from_be_bytes(random_bytes::<8>()) % cap;
+                            p.next_attempt = Instant::now() + Duration::from_millis(wait.max(2_000));
+                            false
                         }
                         _ => false,
                     }
@@ -1057,7 +1113,12 @@ impl Node {
             best.into_iter().filter(|(_, r)| *r > Route::Lan).collect()
         };
         for (peer, route) in candidates {
-            self.clone().race(peer, reason.to_string(), Some(route));
+            // Only the lower device ID upgrades: its dial wins the duplicate rule on both ends, so the other
+            // side's better route would be refused every minute (it still answers the lower side's dials).
+            let lower = self.peers.lock().unwrap().get(&peer).map(|p| p.cfg.side == 0).unwrap_or(false);
+            if lower {
+                self.clone().race(peer, reason.to_string(), Some(route));
+            }
         }
     }
 
@@ -1096,6 +1157,21 @@ impl Node {
             p.next_attempt = Instant::now();
         }
         self.clone().race(peer.to_string(), "requested".into(), None);
+    }
+
+    /// The app authenticated a session on this tunnel: the peer's failures reset.
+    pub fn tunnel_authenticated(&self, id: &str) {
+        let peer = {
+            let tunnels = self.tunnels.lock().unwrap();
+            let Some(t) = tunnels.get(id) else { return };
+            t.authenticated.store(true, Ordering::Relaxed);
+            t.peer.clone()
+        };
+        if let Some(peer) = peer {
+            if let Some(p) = self.peers.lock().unwrap().get_mut(&peer) {
+                p.failures = 0;
+            }
+        }
     }
 
     pub fn close_tunnel(&self, id: &str) {

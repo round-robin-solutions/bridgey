@@ -19,6 +19,12 @@ data class DeviceLinkState(
     val remoteLinksOpen: Boolean = false,
     /** The device advertised focus_sync_draft1: it understands focus.state. */
     val remoteFocusSync: Boolean = false,
+    /** The device advertised updates_draft1: it sends updates.status and understands updates.start. */
+    val remoteUpdates: Boolean = false,
+    /** Its latest updates.status (version, channel, where its update stands), or null before the first. */
+    val updateStatus: dev.bridgey.android.updates.UpdateStatus? = null,
+    /** The device advertised settings_sync_draft1: it syncs settings with this phone (both its switches on). */
+    val remoteSettingsSync: Boolean = false,
     /** The device advertised connect_draft1: it runs Connect anywhere and understands connect.*. */
     val remoteConnect: Boolean = false,
     /** The session's tunnel route (Connect anywhere); null for a plain LAN session. */
@@ -35,16 +41,44 @@ data class DeviceConnection(
     val state: DeviceLinkState,
 )
 
-/** Why a pairing attempt ended; the UI shows [message]. */
-enum class PairingFailure(val message: String) {
-    COULD_NOT_CONNECT("Could not reach the device. Check that both are on the same Wi-Fi and Bridgey is open."),
-    TIMEOUT("Pairing timed out. Start again and confirm the code on both devices within two minutes."),
-    CANCELLED_REMOTE("Pairing was cancelled on the other device, or its code was rejected there."),
-    CODE_REJECTED("The devices could not verify each other. Check that the codes match and try again."),
-    IDENTITY_CHANGED("This device's identity changed. Forget it on both devices, then pair again."),
-    CONNECTION_LOST("The connection was lost before pairing finished. Try again."),
-    BUSY("Another pairing is waiting for confirmation. Finish or cancel it first."),
-    INVALID("The other device sent something unexpected. Update Bridgey on both devices and try again."),
+/**
+ * Why a pairing did not finish. The words are in strings_pairing.xml (pairing_failed_*), with the other device's
+ * name; the Mac shows the same ones.
+ */
+enum class PairingFailure {
+    COULD_NOT_CONNECT,
+
+    /** The handshake (before the code) took longer than 20 s. */
+    TIMEOUT,
+
+    /** The other end tapped Don't match. */
+    MISMATCH_REMOTE,
+
+    /** This end tapped Don't match. */
+    MISMATCH_LOCAL,
+
+    /** The code timer ran out: this end confirmed, the other did not. */
+    TIMEOUT_REMOTE,
+
+    /** The code timer ran out: the other end confirmed, this one did not. */
+    TIMEOUT_LOCAL,
+    TIMEOUT_NEITHER,
+    CANCELLED_REMOTE,
+
+    /** The other end runs a Bridgey without protocol 2 (0.9 or older). */
+    OLD_VERSION,
+
+    /** A committed offer got no answer: the other end closed or said nothing for 20 s (likely an older Bridgey). */
+    NO_ANSWER,
+
+    /** The other end did not tap Allow pairing within two minutes. */
+    NOT_ALLOWED,
+    CODE_REJECTED,
+    IDENTITY_CHANGED,
+    CONNECTION_LOST,
+    BUSY,
+    RATE_LIMITED,
+    INVALID,
 }
 
 /**
@@ -78,6 +112,13 @@ internal class SessionRegistry<S : Any>(private val localDeviceId: String) {
 
     fun addPending(session: S, initiatedLocally: Boolean) = synchronized(lock) {
         pending[session] = Entry(session, initiatedLocally)
+    }
+
+    /** Adds [session] as pending only when [admit], given the pending sessions, agrees; check and add are one step. */
+    fun addPendingIf(session: S, initiatedLocally: Boolean, admit: (List<S>) -> Boolean): Boolean = synchronized(lock) {
+        if (!admit(pending.keys.toList())) return@synchronized false
+        pending[session] = Entry(session, initiatedLocally)
+        true
     }
 
     fun pendingSessions(): List<S> = synchronized(lock) { pending.keys.toList() }
@@ -175,6 +216,7 @@ internal fun connectionStatus(connections: List<DeviceConnection>, pairing: Pair
     connections.size == 1 -> "Connected to ${connections.single().peerName}"
     connections.size > 1 -> connectedSummary(connections)
     pairing is PairingState.Connecting -> "Connecting to ${pairing.peerName}…"
+    pairing is PairingState.WaitingForAllow -> "Waiting for ${pairing.peerName} to allow pairing"
     pairing is PairingState.Failed -> "Not connected"
     else -> "Not connected · waiting for paired device"
 }

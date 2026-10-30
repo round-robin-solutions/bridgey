@@ -101,6 +101,8 @@ struct PhoneItemInteraction: NSViewRepresentable {
 final class PhoneFilePromises: NSObject, NSFilePromiseProviderDelegate {
     weak var model: PhoneFilesModel?
     private var live: [ObjectIdentifier: (provider: NSFilePromiseProvider, entry: PhoneFileEntry)] = [:]
+    /// File names by provider, readable from any thread: AppKit asks for the name wherever the drag runs.
+    nonisolated private let names = PhoneLockedMap<ObjectIdentifier, String>()
 
     init(model: PhoneFilesModel?) {
         self.model = model
@@ -110,16 +112,18 @@ final class PhoneFilePromises: NSObject, NSFilePromiseProviderDelegate {
         let provider = NSFilePromiseProvider(fileType: PhoneFilesText.uniformType(entry).identifier, delegate: self)
         provider.userInfo = entry.id
         live[ObjectIdentifier(provider)] = (provider, entry)
+        names[ObjectIdentifier(provider)] = entry.name
         return provider
     }
 
     nonisolated func filePromiseProvider(_ provider: NSFilePromiseProvider, fileNameForType fileType: String) -> String {
-        MainActor.assumeIsolated { live[ObjectIdentifier(provider)]?.entry.name ?? "Bridgey item" }
+        names[ObjectIdentifier(provider)] ?? "Bridgey item"
     }
 
     nonisolated func operationQueue(for provider: NSFilePromiseProvider) -> OperationQueue { .main }
 
     nonisolated func filePromiseProvider(_ provider: NSFilePromiseProvider, writePromiseTo url: URL, completionHandler: @escaping (Error?) -> Void) {
+        // The operation queue above is the main queue.
         MainActor.assumeIsolated {
             guard let entry = live[ObjectIdentifier(provider)]?.entry, let model else {
                 completionHandler(CocoaError(.fileWriteUnknown))
@@ -127,6 +131,7 @@ final class PhoneFilePromises: NSObject, NSFilePromiseProviderDelegate {
             }
             model.download([entry], into: url.deletingLastPathComponent(), purpose: .dragOut) { [weak self] result in
                 self?.live.removeValue(forKey: ObjectIdentifier(provider))
+                self?.names[ObjectIdentifier(provider)] = nil
                 switch result {
                 case .success: completionHandler(nil)
                 case let .failure(error): completionHandler(error == .cancelled ? CocoaError(.userCancelled) : CocoaError(.fileWriteUnknown))
@@ -136,26 +141,82 @@ final class PhoneFilePromises: NSObject, NSFilePromiseProviderDelegate {
     }
 }
 
-/// The Phone files window: its own class so it can drive the Quick Look panel and the space bar.
+/// A small dictionary behind a lock, for values AppKit reads off the main thread.
+final class PhoneLockedMap<Key: Hashable, Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Key: Value] = [:]
+
+    subscript(key: Key) -> Value? {
+        get { lock.withLock { values[key] } }
+        set { lock.withLock { values[key] = newValue } }
+    }
+}
+
+/// Quick Look's data source: a fixed list of local files. The panel holds its data source without retaining it
+/// (`assign`), so the window controller keeps this object alive, and the panel may ask from any thread, so the
+/// list is a snapshot behind a lock rather than main-actor state.
+final class PhoneQuickLookSource: NSObject, QLPreviewPanelDataSource, QLPreviewPanelDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var urls: [URL] = []
+
+    var items: [URL] {
+        get { lock.withLock { urls } }
+        set { lock.withLock { urls = newValue } }
+    }
+
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int { items.count }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
+        let list = items
+        return list.indices.contains(index) ? list[index] as NSURL : nil
+    }
+}
+
+/// The Phone files window: its own class so it can drive Quick Look and the keys of the viewer.
 @MainActor
-final class PhoneFilesNSWindow: NSWindow, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
-    var quickLookURLs: [URL] = []
+final class PhoneFilesNSWindow: NSWindow {
+    let quickLookSource = PhoneQuickLookSource()
     var onSpace: (() -> Void)?
     var onEscape: (() -> Bool)?
+    /// Left and right while the viewer is open; true when handled.
+    var onArrow: ((Int) -> Bool)?
+    /// Command-Y when the grid does not have the keyboard (the file lists, the viewer's buttons).
+    var onQuickLook: (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.keyCode == 16, event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command, let onQuickLook {
+            onQuickLook()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 49, !(firstResponder is NSTextView), let onSpace {
-            onSpace()
-            return
+        if !(firstResponder is NSTextView) {
+            switch event.keyCode {
+            case 49:
+                if let onSpace {
+                    onSpace()
+                    return
+                }
+            case 53:
+                if onEscape?() == true { return }
+            case 123:
+                if onArrow?(-1) == true { return }
+            case 124:
+                if onArrow?(1) == true { return }
+            default:
+                break
+            }
         }
-        if event.keyCode == 53, onEscape?() == true { return }
         super.keyDown(with: event)
     }
 
     func showQuickLook(_ urls: [URL]) {
-        quickLookURLs = urls
+        guard !urls.isEmpty else { return }
+        quickLookSource.items = urls
         guard let panel = QLPreviewPanel.shared() else { return }
-        if QLPreviewPanel.sharedPreviewPanelExists(), panel.isVisible {
+        if QLPreviewPanel.sharedPreviewPanelExists(), panel.isVisible, panel.dataSource === quickLookSource {
             panel.reloadData()
         } else {
             makeKeyAndOrderFront(nil)
@@ -163,30 +224,34 @@ final class PhoneFilesNSWindow: NSWindow, QLPreviewPanelDataSource, QLPreviewPan
         }
     }
 
+    /// Closes the panel when it shows this window's files; true when it did.
+    @discardableResult
     func toggleQuickLook() -> Bool {
         guard QLPreviewPanel.sharedPreviewPanelExists(), let panel = QLPreviewPanel.shared(), panel.isVisible else { return false }
         panel.orderOut(nil)
         return true
     }
 
-    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { !quickLookSource.items.isEmpty }
 
     override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        panel.dataSource = self
-        panel.delegate = self
+        panel.dataSource = quickLookSource
+        panel.delegate = quickLookSource
     }
 
     override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        panel.dataSource = nil
-        panel.delegate = nil
+        if panel.dataSource === quickLookSource { panel.dataSource = nil }
+        if panel.delegate === quickLookSource { panel.delegate = nil }
     }
 
-    nonisolated func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
-        MainActor.assumeIsolated { quickLookURLs.count }
-    }
-
-    nonisolated func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
-        MainActor.assumeIsolated { quickLookURLs.indices.contains(index) ? quickLookURLs[index] as NSURL : nil }
+    override func close() {
+        // The panel keeps a pointer to the data source; let it go before the window does.
+        if QLPreviewPanel.sharedPreviewPanelExists(), let panel = QLPreviewPanel.shared(), panel.dataSource === quickLookSource {
+            panel.orderOut(nil)
+            panel.dataSource = nil
+            panel.delegate = nil
+        }
+        super.close()
     }
 }
 

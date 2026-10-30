@@ -35,6 +35,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,6 +72,9 @@ import dev.bridgey.android.ui.HomeActions
 import dev.bridgey.android.ui.HomeScreen
 import dev.bridgey.android.ui.HomeState
 import dev.bridgey.android.ui.LiveActions
+import dev.bridgey.android.ui.PairingReadyCard
+import dev.bridgey.android.ui.PairingSheet
+import dev.bridgey.android.ui.PairingSheetActions
 import dev.bridgey.android.ui.LiveCard
 import dev.bridgey.android.ui.lastSeenText
 import dev.bridgey.android.ui.LocalShowPreviews
@@ -238,6 +243,7 @@ class MainActivity : ComponentActivity() {
                     pairing = pairing,
                     settings = bridgey.settings,
                     updater = bridgey.updater,
+                    updateAll = bridgey.updateAll,
                     activityLog = bridgey.activityLog,
                     uiPreferences = bridgey.uiPreferences,
                     remoteInput = bridgey.remoteInput,
@@ -395,6 +401,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun releaseSmsAccess() {
+        // Text messages keeps SMS access while it is on.
+        if (::bridgeySettings.isInitialized && bridgeySettings.smsOn()) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
         ) {
@@ -447,10 +455,11 @@ class MainActivity : ComponentActivity() {
     private fun Intent.toSharedContent(): SharedContent? {
         if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return null
 
+        // Only another app's content URIs: never file:// paths or Bridgey's own providers (its keys, its cache).
         val streams = when (action) {
             Intent.ACTION_SEND_MULTIPLE -> streamUris()
             else -> listOfNotNull(streamUri())
-        }.distinct()
+        }.distinct().filter { isShareableStream(it.scheme, it.authority, packageName) }
         val sharedText = getCharSequenceExtra(Intent.EXTRA_TEXT)
             ?.toString()
             ?.takeIf { it.isNotBlank() && streams.isEmpty() }
@@ -478,6 +487,10 @@ class MainActivity : ComponentActivity() {
         readLogsGranted = checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
         batteryExempt = PowerFacts.ignoringBatteryOptimizations(this)
         dndAccess = getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted
+        // Text messages: a permission changed in App info reaches the Macs' status.
+        if (::pairing.isInitialized) pairing.smsPermissionsChanged()
+        // Settings sync: a permission given just now ends "waiting for permission" on the Macs too.
+        (application as? BridgeyApplication)?.syncPermissionsChanged()
         if (
             ::bridgeySettings.isInitialized && bridgeySettings.state.value.directCallsEnabled &&
             !hasCallIntegrationPermissions()
@@ -598,11 +611,13 @@ private val PermissionOrder = listOf(
     listOf(BridgeyFeature.CLIPBOARD),
     listOf(BridgeyFeature.FILES),
     listOf(BridgeyFeature.NOTIFICATIONS),
+    listOf(BridgeyFeature.SMS),
     listOf(BridgeyFeature.CALLS),
     listOf(BridgeyFeature.MEDIA),
     listOf(BridgeyFeature.REMOTE_INPUT),
     listOf(BridgeyFeature.MAC_ACTIONS),
     listOf(BridgeyFeature.CAMERA),
+    listOf(BridgeyFeature.SCREEN),
     listOf(BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING),
     listOf(BridgeyFeature.LINKS),
     listOf(BridgeyFeature.BATTERY),
@@ -614,6 +629,7 @@ private fun BridgeyApp(
     pairing: PairingCoordinator,
     settings: BridgeySettings,
     updater: AppUpdater,
+    updateAll: dev.bridgey.android.updates.UpdateAllCoordinator,
     activityLog: ActivityLog,
     uiPreferences: UiPreferences,
     remoteInput: RemoteInputController,
@@ -651,6 +667,8 @@ private fun BridgeyApp(
     val peers by discovery.peers.collectAsStateWithLifecycle()
     val pairingState by pairing.state.collectAsStateWithLifecycle()
     val pairingFlow by pairing.pairingFlow.collectAsStateWithLifecycle()
+    val pairingRequest by pairing.pairingRequest.collectAsStateWithLifecycle()
+    val armedSeconds by pairing.armedRemainingSeconds.collectAsStateWithLifecycle()
     val connections by pairing.connections.collectAsStateWithLifecycle()
     val fileTransfers by pairing.fileTransfers.collectAsStateWithLifecycle()
     val phoneRinging by pairing.phoneRinging.collectAsStateWithLifecycle()
@@ -659,10 +677,17 @@ private fun BridgeyApp(
     val media by pairing.quickActions.media.collectAsStateWithLifecycle()
     val macCatalogs by pairing.macActions.catalogs.collectAsStateWithLifecycle()
     val macLive by pairing.macActions.live.collectAsStateWithLifecycle()
+    // Share screen with Macs: the hub lives in the application (absent in previews and tests).
+    val screenHub = (LocalContext.current.applicationContext as? BridgeyApplication)?.takeIf { it.isPrimaryUser }?.screenShare
+    val screenState by (screenHub?.state ?: remember { kotlinx.coroutines.flow.MutableStateFlow(dev.bridgey.android.screen.ScreenShareState()) })
+        .collectAsStateWithLifecycle()
     val macRunning by pairing.macActions.running.collectAsStateWithLifecycle()
     val healthTick by pairing.health.changes.collectAsStateWithLifecycle()
     val settingsState by settings.state.collectAsStateWithLifecycle()
     val updateState by updater.state.collectAsStateWithLifecycle()
+    val updateRun by updateAll.state.collectAsStateWithLifecycle()
+    val updateOverview by updateAll.overview.collectAsStateWithLifecycle()
+    var updateAllSheet by rememberSaveable { mutableStateOf(false) }
     val activity by activityLog.items.collectAsStateWithLifecycle()
     val reduceMotion by uiPreferences.reduceMotion.collectAsStateWithLifecycle()
     val showPreviews by uiPreferences.showPreviews.collectAsStateWithLifecycle()
@@ -675,6 +700,7 @@ private fun BridgeyApp(
     val codeAccessStatus by codes.access.status.collectAsStateWithLifecycle()
     val companionLink by codes.linker.state.collectAsStateWithLifecycle()
     val codeTestState by dev.bridgey.android.codes.CodeTestSession.state.collectAsStateWithLifecycle()
+    val syncUi by pairing.settingsSync.ui.collectAsStateWithLifecycle()
     var permissionPrompt by remember { mutableStateOf<PermissionPrompt?>(null) }
     var pairDialog by rememberSaveable { mutableStateOf(false) }
     var forgetting by remember { mutableStateOf<DeviceRing?>(null) }
@@ -741,6 +767,7 @@ private fun BridgeyApp(
     fun reconnectCard(ring: DeviceRing?): LiveCard.Reconnecting? {
         if (ring?.canRetry != true) return null
         val retry = ring.reconnect ?: return null
+        if (retry.disconnectedByUser) return null
         val seen = retry.lastSeenMillis?.let {
             lastSeenText(it, now, java.time.ZoneId.systemDefault(), java.util.Locale.getDefault(), android.text.format.DateFormat.is24HourFormat(context))
         }
@@ -760,7 +787,26 @@ private fun BridgeyApp(
             ?: item.deviceName.ifBlank { context.getString(R.string.stream_file_unnamed) }
     }
     val linksAvailable = BridgeyFeature.LINKS in availableWith(connected?.deviceId)
+    val updateAllState = dev.bridgey.android.ui.UpdateAllUiState(
+        plan = updateOverview.plan,
+        run = updateRun.run,
+        now = updateRun.now,
+        devices = updateOverview.devices,
+        remoteStart = settingsState.updatesRemoteStart,
+    )
+    val updateAllActions = dev.bridgey.android.ui.UpdateAllActions(
+        open = { updateAllSheet = true },
+        start = updateAll::runUpdateAll,
+        retry = updateAll::retry,
+        later = updateAll::later,
+        dismiss = updateAll::dismiss,
+        close = { updateAllSheet = false },
+        setRemoteStart = settings::setUpdatesRemoteStart,
+    )
     val homeLive = buildList {
+        // A Mac asked to pair while this phone was not taking pairings, or Allow pairing is counting down.
+        pairingRequest?.let { add(LiveCard.PairingRequest(it)) } ?: armedSeconds.takeIf { it > 0 }?.let { add(LiveCard.PairingReady(it)) }
+        if (updateAllState.offered) add(LiveCard.UpdateAll(updateAllState))
         reconnectCard(target)?.let(::add)
         if (phoneRinging && connected != null) add(LiveCard.Ringing(connected.peerName))
         receivedLink?.takeIf { linksAvailable && connected != null }?.let { add(LiveCard.Link(it, connected!!.peerName)) }
@@ -779,6 +825,10 @@ private fun BridgeyApp(
         media = { action, value -> pairing.quickActions.request(BridgeyFeature.MEDIA, action, value) },
         retryDevice = pairing::retryNow,
         answerFolder = folderUi.showQuestion,
+        allowPairing = pairing::armPairing,
+        dismissPairingRequest = pairing::dismissPairingRequest,
+        stopPairing = pairing::disarmPairing,
+        updateAll = updateAllActions,
     )
     // Files 2.0: the in-app attach sheet is the main way to send; the system pickers are its Browse… fallback.
     val attach = rememberAttachUi(pairing, snackbar)
@@ -806,8 +856,9 @@ private fun BridgeyApp(
 
     // The Code reader test reached its report: ask Android to drop SMS access at the next restart.
     LaunchedEffect(codeTestState is dev.bridgey.android.codes.CodeTestState.Report) {
+        // Text messages keeps SMS access while it is on.
         if (codeTestState is dev.bridgey.android.codes.CodeTestState.Report && android.os.Build.VERSION.SDK_INT >= 33 &&
-            context.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+            context.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED && !settings.smsOn()
         ) {
             context.revokeSelfPermissionOnKill(Manifest.permission.READ_SMS)
         }
@@ -820,10 +871,21 @@ private fun BridgeyApp(
         onRemoteTargetHandled()
     }
 
+    // Settings sync, first connect with a Mac: asked once, in the app.
+    syncUi.questions.firstOrNull()?.let { question ->
+        dev.bridgey.android.ui.FirstConnectQuestion(
+            question.deviceName,
+            onUse = { pairing.settingsSync.answer(question.deviceId, use = true) },
+            onKeep = { pairing.settingsSync.answer(question.deviceId, use = false) },
+        )
+    }
+
     // A notification opens its Settings page, e.g. the update notification opens Updates.
     LaunchedEffect(settingsTarget) {
-        val section = SettingsDeepLink.section(settingsTarget ?: return@LaunchedEffect)
-        if (section != null) stack.openSettings(settingsRoute(section))
+        val target = settingsTarget ?: return@LaunchedEffect
+        val section = SettingsDeepLink.section(target)
+        if (target == SettingsDeepLink.PERMISSIONS) stack.openSettings(Route.Permissions)
+        else if (section != null) stack.openSettings(settingsRoute(section))
         onSettingsTargetHandled()
     }
 
@@ -864,7 +926,7 @@ private fun BridgeyApp(
                         openSettings = { stack.push(Route.Settings) },
                         selectRing = { ring -> pickedTarget = ring.deviceId; pairing.selectDevice(ring.deviceId) },
                         openDevice = { ring -> ring.deviceId?.let { stack.push(Route.Device(it)) } },
-                        pairRing = { ring -> ring.peer?.host?.let { pairing.pair(it, ring.peer.port ?: 42_458, ring.peer.deviceNameHint) } ?: run { pairDialog = true } },
+                        pairRing = { ring -> ring.peer?.host?.let { pairing.pair(it, ring.peer.port ?: 42_458, ring.peer.deviceNameHint, ring.peer.deviceIdHint) } ?: run { pairDialog = true } },
                         addDevice = { pairDialog = true },
                         pickTarget = { pickedTarget = it; pairing.selectDevice(it) },
                         sendClipboard = {
@@ -921,10 +983,20 @@ private fun BridgeyApp(
                                 macActions = ring.deviceId?.takeIf { it in macLive && BridgeyFeature.MAC_ACTIONS in available }?.let { macCatalogs[it] },
                                 runningActions = macRunning.filter { it.first == ring.deviceId }.map { it.second }.toSet(),
                                 health = remember(healthTick, now, ring.deviceId, isConnected) { ring.deviceId?.let(pairing::healthOf) },
+                                screen = screenState.takeIf { it.deviceId == ring.deviceId },
+                                sync = ring.deviceId?.let { id ->
+                                    dev.bridgey.android.ui.DeviceSyncState(
+                                        on = syncUi.switches.devices[id] != false,
+                                        globalOn = syncUi.switches.enabled,
+                                        offRemote = isConnected && id in syncUi.offOn,
+                                    )
+                                },
                             ),
                             actions = DeviceActions(
                                 back = { stack.pop() },
                                 forget = { forgetting = ring },
+                                disconnect = { ring.deviceId?.let(pairing::disconnectByUser) },
+                                connect = { ring.deviceId?.let(pairing::retryNow) },
                                 sendFile = { attach.open(ring.deviceId) },
                                 sendLink = {
                                     pairing.selectDevice(ring.deviceId)
@@ -948,7 +1020,10 @@ private fun BridgeyApp(
                                 },
                                 sendText = { pairing.sendText(it, deviceId = ring.deviceId) },
                                 remoteControl = { ring.deviceId?.let { stack.push(Route.Remote(it)) } },
+                                shareScreen = { ring.deviceId?.let { id -> screenHub?.ask(context, id, ring.name, null) } },
+                                stopScreen = { screenHub?.stop(dev.bridgey.android.screen.ScreenStopReason.USER) },
                                 runMacAction = { id, value -> ring.deviceId?.let { pairing.macActions.run(it, id, value) } },
+                                setSync = { on -> ring.deviceId?.let { pairing.settingsSync.setDeviceEnabled(it, on) } },
                                 live = liveActions,
                             ),
                             snackbar = snackbar,
@@ -983,11 +1058,17 @@ private fun BridgeyApp(
                         connections.size == 1 -> stringResource(R.string.settings_status_connected, connections.single().peerName)
                         else -> when (val s = pairingFlow) {
                             is PairingState.Connecting -> stringResource(R.string.settings_status_connecting, s.peerName)
+                            is PairingState.WaitingForAllow -> stringResource(R.string.settings_status_connecting, s.peerName)
                             is PairingState.Verification -> stringResource(R.string.settings_status_connecting, s.peerName)
                             else -> stringResource(R.string.settings_status_not_connected)
                         }
                     }
                     val codeTargets = connections.filter { it.state.remoteSmsCodes }.map { dev.bridgey.android.codes.CodeLinkMac(it.deviceId, it.peerName) }
+                    val messagesPermissions = dev.bridgey.android.ui.rememberMessagesPermissions(
+                        replyAsSms = settingsState.smsReplyAsSms,
+                        dualSim = remember { dev.bridgey.android.sms.isDualSim(context) },
+                        onChanged = pairing::smsPermissionsChanged,
+                    )
                     val settingsUi =
                         SettingsState(
                             deviceName = settingsState.deviceName,
@@ -1034,6 +1115,9 @@ private fun BridgeyApp(
                             ),
                             setup = dev.bridgey.android.ui.SetupSettingsState(oem = setup.oem),
                             focus = FocusSettingsState(settingsState.focusShare, settingsState.focusFollow, dndAccess),
+                            sync = syncUi,
+                            updateAll = updateAllState,
+                            messages = messagesPermissions.state,
                             connect = connectSettingsState(settingsState.connectAway, connectStatus),
                         )
                     val settingsUiActions =
@@ -1052,7 +1136,11 @@ private fun BridgeyApp(
                                 else permissionPrompt = PermissionPrompt.NotificationForwarding
                             },
                             rename = onDeviceNameChanged,
-                            setGlobal = onSetGlobalFeature,
+                            setGlobal = { feature, on ->
+                                onSetGlobalFeature(feature, on)
+                                // Text messages asks for SMS and contacts only now, when it is turned on.
+                                if (feature == BridgeyFeature.SMS && on) messagesPermissions.askAll()
+                            },
                             setDirectCalls = onSetDirectCalls,
                             setAutoClipboard = settings::setAutoClipboardGlobal,
                             setBackgroundClipboard = settings::setBackgroundClipboardEnabled,
@@ -1099,6 +1187,13 @@ private fun BridgeyApp(
                                 openOemStep = { dev.bridgey.android.setup.OemBattery.open(context, it) },
                                 addToObtainium = { dev.bridgey.android.setup.Obtainium.open(context, updateState.channel) },
                             ),
+                            sync = dev.bridgey.android.ui.SyncSettingsActions(
+                                setEnabled = pairing.settingsSync::setEnabled,
+                                setSyncs = pairing.settingsSync::setSyncs,
+                                applyToAll = pairing.settingsSync::applyToAll,
+                                allow = { stack.openSettings(Route.Permissions) },
+                            ),
+                            updateAll = updateAllActions,
                             connect = dev.bridgey.android.ui.ConnectSettingsActions(
                                 setOn = settings::setConnectAway,
                                 resetIdentity = bridgeyApp::resetConnectIdentity,
@@ -1111,6 +1206,12 @@ private fun BridgeyApp(
                                     if (on && !dndAccess) onOpenDndAccess()
                                 },
                                 openAccess = onOpenDndAccess,
+                            ),
+                            messages = dev.bridgey.android.ui.MessagesSettingsActions(
+                                setReplyAsSms = settings::setSmsReplyAsSms,
+                                allowSms = messagesPermissions.askSms,
+                                allowContacts = messagesPermissions.askContacts,
+                                allowSims = messagesPermissions.askSims,
                             ),
                             codes = CodesSettingsActions(
                                 link = codes.linker::start,
@@ -1136,8 +1237,16 @@ private fun BridgeyApp(
                                 dev.bridgey.android.ui.SetupNearbyMac(peer.key, peer.deviceNameHint, trustedDevices.any { it.id == peer.deviceIdHint })
                             },
                             onPair = { mac ->
-                                peers.firstOrNull { it.key == mac.key }?.let { peer -> peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint) } }
+                                peers.firstOrNull { it.key == mac.key }?.let { peer -> peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint, peer.deviceIdHint) } }
                             },
+                            pairingReady = SetupPairing(
+                                request = pairingRequest,
+                                armedSeconds = armedSeconds,
+                                hold = pairing::holdPairingArmed,
+                                allow = pairing::armPairing,
+                                dismiss = pairing::dismissPairingRequest,
+                                stop = pairing::disarmPairing,
+                            ),
                             onAddDevice = { pairDialog = true },
                             onLookForDevices = pairing::lookForDevices,
                             onOpenNotificationAccess = onOpenNotificationAccessSettings,
@@ -1148,7 +1257,9 @@ private fun BridgeyApp(
                                 if (openSettings) stack.openSettings(Route.Settings)
                             },
                             onExit = { stack.pop() },
-                            apply = { change -> applySetupChange(change, settings, onSetGlobalFeature, uiPreferences, remotePreferences, updater) },
+                            apply = { change ->
+                                applySetupChange(change, settings, onSetGlobalFeature, uiPreferences, remotePreferences, updater, pairing.settingsSync::setEnabled)
+                            },
                         )
                         Route.Permissions -> PermissionsRoute(
                             hooks = setup,
@@ -1256,11 +1367,12 @@ private fun BridgeyApp(
     }
 
     UpdatePrompts(updater)
+    dev.bridgey.android.ui.UpdateAllSheetHost(updateAllSheet, updateAllState, updateAllActions)
     FolderQuestionHost(folderUi)
     AttachSheetHost(attach)
 
     // Asked once, after the first connection, while Android may still pause Bridgey in Doze.
-    if (!batteryExempt && !batteryPromptShown && !showOnboarding && connections.isNotEmpty() && pairingFlow !is PairingState.Verification) {
+    if (!batteryExempt && !batteryPromptShown && !showOnboarding && connections.isNotEmpty() && pairingFlow == PairingState.Idle) {
         AlertDialog(
             onDismissRequest = uiPreferences::setBatteryPromptShown,
             title = { Text(stringResource(R.string.battery_prompt_title)) },
@@ -1293,9 +1405,15 @@ private fun BridgeyApp(
             peers = peers,
             trustedIds = trustedDevices.mapTo(HashSet()) { it.id },
             connectedIds = connections.mapTo(HashSet()) { it.deviceId },
+            request = pairingRequest,
+            armedSeconds = armedSeconds,
+            onHold = pairing::holdPairingArmed,
+            onAllow = pairing::armPairing,
+            onNotNow = pairing::dismissPairingRequest,
+            onStop = pairing::disarmPairing,
             onPair = { peer ->
                 pairDialog = false
-                peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint) }
+                peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint, peer.deviceIdHint) }
             },
             onDismiss = { pairDialog = false },
         )
@@ -1317,27 +1435,17 @@ private fun BridgeyApp(
     }
 
     // The pairing flow only: connected devices never hide or replace the prompt.
-    when (val state = pairingFlow) {
-        is PairingState.Verification -> AlertDialog(
-            onDismissRequest = pairing::cancel,
-            title = { Text("Verify this device") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Check that this code also appears on ${state.peerName}.")
-                    Text(state.code, style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
-                }
-            },
-            confirmButton = { Button(onClick = pairing::confirm) { Text("Codes match") } },
-            dismissButton = { TextButton(onClick = pairing::cancel) { Text("Cancel") } },
-        )
-        is PairingState.Failed -> AlertDialog(
-            onDismissRequest = pairing::cancel,
-            title = { Text("Pairing failed") },
-            text = { Text(state.message) },
-            confirmButton = { Button(onClick = pairing::cancel) { Text("OK") } },
-        )
-        else -> Unit
-    }
+    PairingSheet(
+        pairingFlow,
+        PairingSheetActions(
+            confirm = pairing::confirm,
+            reject = pairing::reject,
+            cancel = pairing::cancel,
+            // The dialled end retries by finding the device nearby; when it is not there, the nearby list opens.
+            retry = { if (!pairing.retryPairing()) pairDialog = true },
+            dismiss = pairing::dismiss,
+        ),
+    )
 
     ScreenshotAccessDialog(screenshotAccess)
 
@@ -1417,21 +1525,34 @@ private fun BridgeyApp(
 
 /** Add: devices on this Wi-Fi, to pair or reconnect. */
 @Composable
-private fun PairDialog(
+internal fun PairDialog(
     peers: List<DiscoveredPeer>,
     trustedIds: Set<String>,
     connectedIds: Set<String>,
     onPair: (DiscoveredPeer) -> Unit,
     onDismiss: () -> Unit,
+    request: PairingRequest? = null,
+    armedSeconds: Int = 0,
+    onHold: (Boolean) -> Unit = {},
+    onAllow: () -> Unit = {},
+    onNotNow: () -> Unit = {},
+    onStop: () -> Unit = {},
 ) {
     val colors = BridgeyTheme.colors
     val visible = peers.filter { it.deviceIdHint == null || it.deviceIdHint !in connectedIds }
+    // While this screen is open a Mac can start pairing from its side too.
+    val hold by rememberUpdatedState(onHold)
+    DisposableEffect(Unit) {
+        hold(true)
+        onDispose { hold(false) }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.pair_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.pair_body), style = BridgeyType.bodyText, color = colors.onSurfaceVariant)
+                PairingReadyCard(request, armedSeconds, onAllow, onNotNow, onStop, Modifier.padding(top = 4.dp))
                 if (visible.isEmpty()) {
                     Text(stringResource(R.string.pair_searching), style = BridgeyType.bodyText, modifier = Modifier.padding(top = 8.dp))
                 }
@@ -1493,6 +1614,14 @@ private fun rediscoverMessage(context: android.content.Context, result: Rediscov
 }
 
 /** The snackbar line for a Mac action status, or null when the screen already shows it. */
+/** A shared stream Bridgey may read: a content URI from another app, not a file path or one of Bridgey's own providers. */
+internal fun isShareableStream(scheme: String?, authority: String?, applicationId: String): Boolean {
+    if (!scheme.equals(android.content.ContentResolver.SCHEME_CONTENT, ignoreCase = true) || authority.isNullOrEmpty()) return false
+    val owner = authority.substringAfterLast('@').lowercase()
+    val id = applicationId.lowercase()
+    return owner != id && !owner.startsWith("$id.")
+}
+
 internal fun macActionMessage(
     context: android.content.Context,
     status: dev.bridgey.android.actions.MacActionStatus,
@@ -1528,6 +1657,7 @@ internal fun connectSettingsState(on: Boolean, status: dev.bridgey.android.conne
         !on -> dev.bridgey.android.ui.ConnectState.OFF
         status is dev.bridgey.android.connect.ConnectStatus.Online -> dev.bridgey.android.ui.ConnectState.ONLINE
         status is dev.bridgey.android.connect.ConnectStatus.LocalOnly -> dev.bridgey.android.ui.ConnectState.LOCAL_ONLY
+        status is dev.bridgey.android.connect.ConnectStatus.Unreachable -> dev.bridgey.android.ui.ConnectState.UNREACHABLE
         else -> dev.bridgey.android.ui.ConnectState.CONNECTING
     }
     val reachable = (status as? dev.bridgey.android.connect.ConnectStatus.Online)?.peersOnline?.size ?: 0

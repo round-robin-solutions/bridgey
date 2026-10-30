@@ -140,5 +140,15 @@ func ringingRemoteCallIdentities(
     return calls.filter { $0.type == "incoming" }.map(identity).filter { !silenced.contains($0) }
 }
 
+/// The phone's id is per notification, not per call: a dialer posts every call under the same
+/// notification, so two calls in a row arrive with the same id. A post for a call whose card is
+/// already going (retracted without the end flag) with another caller is a new call.
+func isNewCallOnSameNotification(previous: RemoteCallStatus, pendingRemoval: Bool, caller: String) -> Bool {
+    guard pendingRemoval else { return false }
+    let before = previous.caller.trimmingCharacters(in: .whitespacesAndNewlines)
+    let now = caller.trimmingCharacters(in: .whitespacesAndNewlines)
+    return !before.isEmpty && !now.isEmpty && before != now
+}
+
 /// The first eight characters of an Android notification id, for logs and diagnostics.
 func shortCallID(_ notificationID: String) -> String { String(notificationID.prefix(8)) }
