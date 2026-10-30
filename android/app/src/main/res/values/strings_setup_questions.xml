@@ -121,7 +121,7 @@
 
     <!-- Short path: the switches page, the permissions page, the start's preview, Essentials -->
     <string name="setup_switches_title">Anything else?</string>
-    <string name="setup_switches_context">Everything here stays off until you turn it on.</string>
+    <string name="setup_switches_context">Turn on what you want. Connect away from home is already on, so your devices stay connected off Wi-Fi.</string>
     <string name="setup_switches_details">Change details in Settings</string>
     <string name="setup_continue">Continue</string>
     <string name="setup_permissions_title">Allow what these need</string>

@@ -119,14 +119,14 @@
 "setup.bundle.files" = "Send files and photos both ways.";
 "setup.bundle.notifications" = "Your phone’s notifications on this Mac.";
 "setup.bundle.remote" = "Your phone as a touchpad and slide clicker, and its screen on this Mac.";
-"setup.done.body" = "The Essentials are on: clipboard when you click Send, and your phone’s notifications. Everything else stays off until you turn it on in Settings.";
+"setup.done.body" = "The Essentials are on: clipboard when you click Send, and your phone’s notifications. Connect away from home is on too. Everything else stays off until you turn it on in Settings.";
 "setup.done.openSettings" = "Open Settings";
 "setup.done.skipped" = "Skipped: %@. Allow it any time in Settings > Privacy > Permissions.";
 "setup.done.start" = "Start";
 "setup.done.title" = "You’re set";
 "setup.feature.away.detail" = "Reach your devices from any network, with no VPN on the phone.";
 "setup.intro.apply" = "Turn these on and continue";
-"setup.intro.body" = "Pick what brought you here or type it in your own words. Everything else stays off until you turn it on.";
+"setup.intro.body" = "Pick what brought you here or type it in your own words. Everything else stays off until you turn it on, except Connect away from home.";
 "setup.intro.bundles" = "What brought you here?";
 "setup.intro.matched" = "Bridgey will set these. Nothing changes until you continue.";
 "setup.intro.nothing" = "Nothing matched. Try words like notifications, photos, calls or clipboard.";
