@@ -154,6 +154,26 @@ onto a relayed path at any moment, and larger packets would black-hole there).
 | The first STUN request of a new node | Sometimes refused by the socket and resent 250 ms later | Waits for writability |
 | The probe example never reported a working session (since the beta fit) | Its failover test backed off instead of redialling | Reports it like the apps |
 
+## Open questions
+
+- **LAN on TCP.** Without the 1.5 s grace, a peer that drops is raced at once; the app's LAN TCP connection gets a
+  300 ms head start only when the peer's LAN address is on this device's subnet. If the race finds the LAN first
+  (seen live: the emulator reaches the Mac's LAN address through its own NAT, not on its subnet), the session runs
+  on a QUIC tunnel over the LAN and replaces the TCP one under the duplicate rule. Rahul decided on 2026-10-27 that
+  LAN stays on TCP for now: either keep this (it is also fast and encrypted end to end), or give TCP a longer head
+  start whenever the peer has any LAN address (costing that much on every failover from a LAN).
+- **Earlier stalls.** Two after-B sets on intermediate builds, and one after-C set, had clusters of runs where the
+  pair was selected quickly and then QUIC waited out retransmit timers. They did not recur on the final head
+  (B: 20 of 20 between 0.57 and 0.62 s, C: none above 2 s), but the cause was not proven. If they come back, the
+  next step is a capture at relay-sg during one.
+
+## Deployment
+
+The control service (Dokploy app `bridgey-rendezvous`, rr-web) follows branch `rr/connect-fast` with auto-deploy
+since 2026-10-30, so the live service runs this branch (backward compatible with beta 13 both ways, tested). When
+the branch merges, point it back at `rr/main` (`server/deploy/switch-branch.sh rr/main`). The relays did not
+change.
+
 ## Security review
 
 Two rounds by separate Claude reviewers, each given the code and the invariants. Round one (no high findings)
@@ -205,11 +225,22 @@ Emulator bridgey-api36 and the Mac test instance, both on the personal Mac in In
 relay-sg; 20 runs each unless noted. "Before" is beta 13 (rr/main 0aed845) plus the timing marks only; "after" is
 this branch. The personal Mac was busy throughout (load average 8 to 11, another app using about 5 cores).
 
-| Measure | Before: median | Before: p95 | After: median | After: p95 |
-| --- | --- | --- | --- | --- |
-| **A. Cold start** (process start to the phone's session on the relay) | 2.35 s | 3.29 s | **1.01 s** | 1.65 s |
-| **B. Failover** (LAN dropped to the session on the relay on both devices) | 1.49 s | 1.53 s | **0.61 s** | 0.66 s |
-| **C. Warm reconnect** (foreground to the session back) | no session within 40 s in 5 of 5 runs | | see below | |
+| Measure | Before: median / p95 | After (final head): median / p95 | After, without the emulator's control-service TCP and TLS |
+| --- | --- | --- | --- |
+| **A. Cold start** (process start to the phone's session on the relay) | 2.35 s / 3.29 s | 1.73 s / 2.30 s, and 1.63 s / 2.43 s in a second set | 0.67 s from the control service answering to the session (median) |
+| **B. Failover** (LAN dropped to the session on the relay on both devices) | 1.49 s / 1.53 s | **0.58 s / 0.60 s** (20 of 20 between 0.57 and 0.62 s) | |
+| **C. Warm reconnect** (foreground to the session back) | no session within 40 s in 5 of 5 runs | 1.63 s / 1.98 s (20 of 20 between 0.94 and 1.99 s) | 0.51 s from the control service answering to the session (median) |
+
+Where A and C lose their second: the emulator's TCP and TLS to the control service. In the final sets TLS took
+about 0.5 s on a cold start (A) and TCP plus TLS about 0.95 s right after the network came back (C); the same core
+on the Mac does TCP in 35 ms and TLS in 39 ms, and one earlier emulator set did TLS in about 100 ms (A then had a
+median of 0.87 s and a p95 of 0.97 s, on the build before the rr/main merge and the throughput change). With the
+Mac's numbers, A would be about 0.25 s (app start) + 0.15 s + 0.67 s and C about 0.15 s + 0.51 s: under a second
+for C, at about a second for A. That is an inference from the Mac's timings, not a measurement on a phone; the
+next step is the same harness on a real phone (Rahul's OnePlus 11, mobile data).
+
+Also measured on the way: after the rr/main merge the phone starts its core about 250 ms after its process starts
+(about 90 ms before the merge), because the core starts only once the rest of the app has set itself up.
 
 How the harness differs from the 2026-10-30 beta measurements (3.4 s for B, about 4 s for A): the LAN drop is
 seen at once (the Mac test instance closes the LAN session, so the phone gets the close immediately), and turning
