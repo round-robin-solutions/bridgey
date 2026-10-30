@@ -273,6 +273,7 @@ version, the other connected devices update first and it restarts last.
   activity stream lists what happened, for example "Updated automatically to 0.10.0-rr.1-beta.11"
   or "Waiting: call in progress".
 - Settings > Updates shows what it is doing now and how the last automatic update went.
+- With settings sync on, turning it on or off on one device does the same on your other devices.
 
 On a Mac you can also start it from Terminal: `"/Applications/Bridgey by Round Robin.app/Contents/MacOS/BridgeyMac" --update-all`
 checks now, updates the connected phones and then the Mac, and prints what it did.

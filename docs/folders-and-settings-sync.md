@@ -987,7 +987,7 @@ Macs.
 | `codes.enabled` | Stored and relayed | Notifications > Codes from messages | Mac: the consent and model that turning codes on asks for there |
 | `feature.screen` | Share screen with Macs | Remote control > Show phone screens (a preference here) | Each share is still asked on the phone, every time |
 | `feature.sms` | Text messages | Text messages | Android: SMS permission (read and send) |
-| `updates.auto_all` | Update all devices automatically | Same | Stored and relayed until that setting lands (rr/auto-update-all); then a preference on both |
+| `updates.auto_all` | Settings > Updates > Update all devices automatically | Same | Each device follows its own channel until someone chooses: a value nobody chose is never sent, asked about or shown as different; a synced value is that device's choice too |
 
 A feature added later joins by adding its key to this table on both platforms; older builds skip
 the key, so nothing else changes.
@@ -1053,9 +1053,8 @@ only the list changes), and the other devices show "Turned on, needs permission 
 **Switches.** Settings > General > "Sync settings with paired devices" (on); setup's summary has the
 same switch as "Settings stay the same on your devices". On each device's page,
 "Sync settings with this device" (on). The device page shows "Off on <device>" when the other
-device's latest `features.update` shows the key false. "Choose what syncs" lists the settings this device has (22 on each: the
-phone leaves out the Mac's codes, the Mac the phone's camera, and neither lists Update all devices
-automatically until it lands)
+device's latest `features.update` shows the key false. "Choose what syncs" lists the settings this device has (23 on each: the
+phone leaves out the Mac's codes, the Mac the phone's camera)
 with a check each; an unchecked setting stays on this device (it is not sent, and records for it
 are skipped). Turning sync off keeps every value as it is.
 

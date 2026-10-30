@@ -57,12 +57,18 @@ class AndroidSyncPermissions(private val context: Context) : SyncPermissions {
 }
 
 /**
- * The phone's settings behind the 24 keys. `codes.enabled` and `updates.auto_all` (until it lands) have no setting on
- * the phone: they are stored and relayed so two Macs share them. Messages' pinned, muted, archived and read state is
+ * The phone's settings behind the 24 keys. `codes.enabled` has no setting on the phone: it is stored and relayed so two
+ * Macs share it. `updates.auto_all` is Update all devices automatically: it follows the release channel
+ * ([autoUpdateDefault]) until the person, or a synced value, chooses. Messages' pinned, muted, archived and read state is
  * per Mac and never syncs. Per-device overrides, grants, paths and the file access guards are not here, so they never
  * sync.
  */
-fun phoneSyncedSettings(settings: BridgeySettings, ui: UiPreferences, permissions: SyncPermissions): Map<SyncKey, SyncedSetting> {
+fun phoneSyncedSettings(
+    settings: BridgeySettings,
+    ui: UiPreferences,
+    permissions: SyncPermissions,
+    autoUpdateDefault: () -> Boolean = { false },
+): Map<SyncKey, SyncedSetting> {
     val state = { settings.state.value }
     fun switch(key: String, get: () -> Boolean, set: (Boolean) -> Unit, waiting: () -> Boolean = { false }, stored: () -> Boolean) = object : SyncedSetting {
         override fun read(): Any = get()
@@ -116,5 +122,12 @@ fun phoneSyncedSettings(settings: BridgeySettings, ui: UiPreferences, permission
         "focus_follow", { state().focusFollow }, settings::setFocusFollow, { !permissions.doNotDisturb() },
         stored = { settings.hasStored(BridgeySettings.KEY_FOCUS_FOLLOW) },
     )
+    result[SyncKey.AUTO_UPDATE_ALL] = object : SyncedSetting {
+        override fun read(): Any = state().updatesAutoAll ?: autoUpdateDefault()
+        override fun write(value: Any) { if (value is Boolean) settings.setUpdatesAutoAll(value) }
+        override fun stored(): Boolean = state().updatesAutoAll != null
+        override fun followsDefault(): Boolean = state().updatesAutoAll == null
+        override fun toString(): String = "auto_update_all"
+    }
     return result
 }

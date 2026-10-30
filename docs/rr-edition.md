@@ -495,6 +495,9 @@ signature checks, and a device whose "Let paired devices start updates" is off i
   follows the channel; their own choice then stays, whatever the channel. Existing installs keep the
   channel they picked. Setup: Steady turns it off, Early and Newest turn it on, and typing "update
   automatically" or "no automatic updates" sets it on its own. On the Mac it needs automatic checks.
+  With settings sync on, a choice reaches the paired devices (`updates.auto_all`) and counts as
+  their own choice too; a value that only follows the channel is never sent. Keep mine and Apply to
+  all on it are choices as well.
 - **Checks.** Every 30 minutes on Beta and Nightly and every 6 hours on Stable, plus on wake and on a
   network change, at most once every 10 minutes for those.
 - **Waits for the person.** It does not start while any connected device reports a call (ringing or

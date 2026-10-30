@@ -204,7 +204,17 @@ class BridgeyApplication : Application() {
      */
     private fun startSettingsSync() {
         val sync = pairing.settingsSync
-        sync.attach(dev.bridgey.android.sync.phoneSyncedSettings(settings, uiPreferences, dev.bridgey.android.sync.AndroidSyncPermissions(this)))
+        sync.attach(
+            dev.bridgey.android.sync.phoneSyncedSettings(
+                settings, uiPreferences, dev.bridgey.android.sync.AndroidSyncPermissions(this),
+                // Update all devices automatically follows the channel until chosen (here or on a synced device).
+                autoUpdateDefault = {
+                    dev.bridgey.android.updates.AutoUpdateRules.defaultOn(
+                        dev.bridgey.android.updates.WireChannel.fromWire(updater.state.value.channel.key) ?: dev.bridgey.android.updates.WireChannel.STABLE,
+                    )
+                },
+            ),
+        )
         sync.onSynced = { deviceId, deviceName, changes ->
             activityLog.record(
                 dev.bridgey.android.activity.ActivityKind.SETTINGS_SYNCED, deviceId, deviceName,

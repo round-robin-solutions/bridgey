@@ -155,7 +155,13 @@ final class AutoUpdateCoordinator: ObservableObject {
         return AutoUpdateRules.enabled(stored: storedChoice, channel: updater.channel)
     }
 
-    /// The switch in Settings > Updates and setup. On also turns on automatic checks (it needs them).
+    /// The setting as chosen, or the channel's default while nobody chose (settings sync reads this).
+    var settingValue: Bool {
+        AutoUpdateRules.enabled(stored: storedChoice, channel: updater?.channel ?? UpdateChannel.stored(in: defaults))
+    }
+
+    /// The switch in Settings > Updates and setup, and a value settings sync brings. On also turns on automatic
+    /// checks (it needs them).
     func setEnabled(_ value: Bool) {
         storedChoice = value
         defaults.set(value, forKey: Self.choiceKey)
