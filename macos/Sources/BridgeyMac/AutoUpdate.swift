@@ -100,6 +100,8 @@ struct AutoFacts: Equatable {
     var updatingForPeer: Bool
     /// The Mac is idle (no input for 5 minutes), locked, or its display sleeps.
     var idle: Bool
+    /// `--update-all` is deciding: its own check may find the build, and it starts the run itself.
+    var commandLine = false
 }
 
 /// What the automatic run remembers between decisions (stored, so a relaunch keeps Later and the waits).
@@ -214,6 +216,9 @@ enum AutoUpdatePolicy {
         let now = facts.now
         guard facts.enabled else { return AutoStep(decision: .off, memory: AutoMemory()) }
         if facts.runActive || facts.updatingForPeer { return AutoStep(decision: .running, memory: memory) }
+        // The command line's check finding a build must not start a second run under it (it would answer
+        // "blocked: run_active" while its own update went ahead).
+        if facts.commandLine { return AutoStep(decision: .running, memory: memory) }
         let mine = localTarget(facts.local)
         guard let target = target(facts) else {
             let didNotApply = facts.local.state == .failed && facts.local.reason == .notApplied

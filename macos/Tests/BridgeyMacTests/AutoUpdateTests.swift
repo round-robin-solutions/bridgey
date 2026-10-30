@@ -115,6 +115,18 @@ final class AutoUpdateTests: XCTestCase {
         XCTAssertEqual(AutoUpdatePolicy.decide(facts(updatingForPeer: true), memory: AutoMemory()).decision, .running)
     }
 
+    /// `--update-all` checks and starts the run itself: a build its check finds never starts an automatic run
+    /// under it, and the memory stays as it was.
+    func testTheCommandLineStartsTheRunItselfNotTheAutomaticRules() {
+        var during = facts()
+        during.commandLine = true
+        let step = AutoUpdatePolicy.decide(during, memory: AutoMemory())
+        XCTAssertEqual(step.decision, .running)
+        XCTAssertEqual(step.memory, AutoMemory())
+        XCTAssertNil(AutoUpdatePolicy.commandLineBlocked(during))
+        XCTAssertEqual(AutoUpdatePolicy.decide(facts(), memory: AutoMemory()).decision, .start(targetBuild: 263_020_900, refreshBefore: t0))
+    }
+
     func testBusyHereOrOnAPeerWaitsAndLooksAgainEveryFiveMinutes() {
         var step = AutoUpdatePolicy.decide(facts(localBusy: .transfer), memory: AutoMemory())
         XCTAssertEqual(step.decision, .wait(.transfer, device: nil, until: t0.addingTimeInterval(300)))

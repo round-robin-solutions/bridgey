@@ -130,6 +130,8 @@ final class AutoUpdateCoordinator: ObservableObject {
     /// The last scheduled check this coordinator asked for (a failed one is not retried every minute).
     private var lastScheduledCheck: Date?
     private var checkWaiters: [(Bool) -> Void] = []
+    /// `--update-all` requests being answered: the automatic rules stand aside until each one has.
+    private var commandLineRequests = 0
     private var lastHoldLogged: String?
     private let launchedAt = Date()
     private var settleLookScheduled = false
@@ -297,7 +299,8 @@ final class AutoUpdateCoordinator: ObservableObject {
         }()
         let idle = macIdleSeconds() >= AutoUpdateRules.idleAfter || BridgeyWindows.screenUnavailable()
         return AutoFacts(now: now, enabled: enabled, localID: localID, localName: UpdateAllText.thisMac, local: local,
-                         localBusy: busy.current, peers: peers, runActive: updateAll.runActive, updatingForPeer: updating, idle: idle)
+                         localBusy: busy.current, peers: peers, runActive: updateAll.runActive, updatingForPeer: updating, idle: idle,
+                         commandLine: commandLineRequests > 0)
     }
 
     /// What the person is doing on any connected device (this Mac first), and where (nil: this Mac):
@@ -458,6 +461,11 @@ final class AutoUpdateCoordinator: ObservableObject {
             return reply.finish(.blocked, reason: "not_ready", text: nil)
         }
         reply.info(version: updater.shortVersion, build: updater.buildNumber, channel: updater.channel.rawValue)
+        commandLineRequests += 1
+        defer {
+            commandLineRequests -= 1
+            scheduleEvaluate()
+        }
         if request.launched { await waitForPhones(pairing, seconds: 20) }
         if let blocked = blockedNow() { return reply.blocked(blocked) }
         if updater.isAvailable {
