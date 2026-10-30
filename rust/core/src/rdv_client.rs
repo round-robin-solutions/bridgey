@@ -2,7 +2,7 @@
 //!
 //! Authenticates with the node key (signed by the app's keystore through `Signer`), keeps the
 //! socket warm with an adaptive keep-alive (60 s, doubling after 3 clean intervals up to 270 s,
-//! halving after a drop) and reconnects with full jitter (2 s base, 5 minute cap).
+//! halving after a drop) and reconnects with full jitter (2 s base, 5 minute cap) after one quick retry.
 
 use bridgey_connect_proto::b64;
 use bridgey_connect_proto::rdv::{self, Msg};
@@ -89,7 +89,9 @@ pub fn start(url: String, node_public_key: Vec<u8>, app: String, signer: Signer,
                 attempt = attempt.saturating_add(1);
                 keepalive = (keepalive / 2).max(60);
             }
-            let wait = full_jitter(attempt);
+            // The first failure retries almost at once (a process Android has just started can be refused the
+            // network for its first moments); later ones back off with full jitter.
+            let wait = if attempt == 1 && outcome != "clean" { Duration::from_millis(500) } else { full_jitter(attempt) };
             tokio::select! {
                 _ = tokio::time::sleep(wait) => {}
                 _ = stop_rx.changed() => break,

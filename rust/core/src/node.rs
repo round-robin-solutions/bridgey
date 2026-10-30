@@ -20,7 +20,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -122,6 +122,8 @@ pub struct Node {
     peers: Mutex<HashMap<String, Peer>>,
     rdv: Mutex<Option<RdvClient>>,
     rdv_connected: AtomicBool,
+    /// Control service connection attempts that failed in a row since the last success.
+    rdv_failures: AtomicU32,
     online: Mutex<HashSet<String>>,
     rdv_ids: Mutex<HashMap<String, String>>,
     tunnels: Mutex<HashMap<String, Arc<Tunnel>>>,
@@ -185,6 +187,7 @@ impl Node {
             peers: Mutex::new(HashMap::new()),
             rdv: Mutex::new(None),
             rdv_connected: AtomicBool::new(false),
+            rdv_failures: AtomicU32::new(0),
             online: Mutex::new(HashSet::new()),
             rdv_ids: Mutex::new(HashMap::new()),
             tunnels: Mutex::new(HashMap::new()),
@@ -329,6 +332,7 @@ impl Node {
         match event {
             RdvEvent::Connected => {
                 self.rdv_connected.store(true, Ordering::Relaxed);
+                self.rdv_failures.store(0, Ordering::Relaxed);
                 self.register();
                 self.publish_presence("online");
             }
@@ -338,8 +342,11 @@ impl Node {
                 self.log(&format!("control service disconnected: {reason}"));
                 // A connection that worked and dropped is retried quietly; one that cannot be made at all is
                 // reported, so the app can say the Round Robin service is out of reach (LAN and VPN still work).
+                // A single failure is not reported either: a process Android has just started can be refused
+                // the network for its first moments, and the client retries within a second.
                 let lost = matches!(reason.as_str(), "closed" | "keepalive_timeout" | "send_failed");
-                self.publish_presence(if lost { "connecting" } else { "unreachable" });
+                let failures = if lost { 0 } else { self.rdv_failures.fetch_add(1, Ordering::Relaxed) + 1 };
+                self.publish_presence(if failures >= 2 { "unreachable" } else { "connecting" });
             }
             RdvEvent::Msg(msg) => self.on_rdv_msg(msg),
         }
@@ -348,21 +355,30 @@ impl Node {
     fn on_rdv_msg(self: &Arc<Self>, msg: Msg) {
         match msg {
             Msg::Registered { online } => {
+                let peers: Vec<String> = {
+                    let ids = self.rdv_ids.lock().unwrap();
+                    online.iter().filter_map(|rdv| ids.get(rdv).cloned()).collect()
+                };
                 *self.online.lock().unwrap() = online.into_iter().collect();
                 self.publish_presence("online");
+                self.peers_seen_online(&peers);
                 self.connect_waiting("presence");
             }
             Msg::Presence { rdv, online } => {
                 {
                     let mut set = self.online.lock().unwrap();
                     if online {
-                        set.insert(rdv);
+                        set.insert(rdv.clone());
                     } else {
                         set.remove(&rdv);
                     }
                 }
                 self.publish_presence("online");
                 if online {
+                    let peer = self.rdv_ids.lock().unwrap().get(&rdv).cloned();
+                    if let Some(peer) = peer {
+                        self.peers_seen_online(&[peer]);
+                    }
                     self.connect_waiting("presence");
                 }
             }
@@ -427,7 +443,18 @@ impl Node {
         }
     }
 
-    fn has_tunnel(&self, peer: &str, at_least: Route) -> bool {
+    /// The control service just saw these peers online: a race that failed before it could signal them (the
+    /// presence connection was still coming up) is not a reason to wait out its back-off.
+    fn peers_seen_online(&self, ids: &[String]) {
+        let mut peers = self.peers.lock().unwrap();
+        for id in ids {
+            if let Some(p) = peers.get_mut(id) {
+                p.next_attempt = p.next_attempt.min(Instant::now());
+            }
+        }
+    }
+
+        fn has_tunnel(&self, peer: &str, at_least: Route) -> bool {
         self.tunnels.lock().unwrap().values().any(|t| t.peer.as_deref() == Some(peer) && t.route.lock().unwrap().0 <= at_least)
     }
 
@@ -490,6 +517,11 @@ impl Node {
             let mut peers = self.peers.lock().unwrap();
             if let Some(p) = peers.get_mut(&peer) {
                 match won {
+                    // An upgrade race that found nothing better than the tunnel it started from.
+                    Some(route) if better_than.is_some_and(|b| route >= b) => {
+                        drop(peers);
+                        self.log(&format!("race {reason} kept {} after {} ms", route.as_str(), started.elapsed().as_millis()));
+                    }
                     Some(route) => {
                         // Failures reset only when the app authenticates a session on the tunnel.
                         p.next_attempt = Instant::now() + Duration::from_secs(1);
