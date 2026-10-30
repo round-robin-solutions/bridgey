@@ -98,7 +98,11 @@ restart each relay (a few seconds; grants last 2 hours).
   branch `rr/main` (after the merge), build server `rr-dev-1-builder`, Dockerfile
   `server/rendezvous/Dockerfile`, registry GHCR (`registryId`, not a username: DEPLOYMENT.md rule 4).
   1 replica, 256 MiB, 0.5 CPU, port 8080, swarm health check
-  `["CMD", "/bridgey-rendezvous", "--health"]`, start-first updates. Clients reconnect with jitter.
+  `["CMD", "/bridgey-rendezvous", "--health"]`, **stop-first updates** (`updateConfigSwarm`). The
+  port is published in host mode, so a start-first update can never place the new task ("host-mode
+  port already in use") and the old container keeps running while Dokploy reports the deploy as
+  done; that hid every redeploy from 2026-10-27 to 2026-10-30. Stop-first costs a few seconds of
+  downtime; clients reconnect with jitter. After a deploy, `/v1/status` counters start from zero.
 - **Environment:** the three `TURN_SECRET_*` only. Every other setting is in
   `server/rendezvous/bridgey-rendezvous.toml` (listen, limits, relays and their URLs and penalties).
 - **No volume:** phase 1 keeps presence and rate limits in memory. Nothing to back up or migrate.
