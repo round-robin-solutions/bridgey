@@ -113,6 +113,10 @@ final class ConnectAnywhere: ObservableObject {
             "relayOnly": Self.relayOnly,
         ]
         if let url = Self.controlURL { config["controlUrl"] = url }
+        // A Mac keeps its relay warm (a keep-alive every 25 s costs it nothing noticeable), so a phone that
+        // starts or fails over finds this side's relay path already open.
+        config["relayKeepaliveS"] = 25
+        if let state = store.coreState() { config["state"] = state }
         let reply = library.start(config)
         guard reply["ok"] as? Bool == true, let started = (reply["handle"] as? NSNumber)?.uint64Value else {
             lastError = reply["error"] as? String ?? "start failed"
@@ -248,6 +252,11 @@ final class ConnectAnywhere: ObservableObject {
             BridgeyLog.transport.notice("connect failed peer=\((event["peer"] as? String).map(shortDeviceID) ?? "", privacy: .public) reason=\(event["reason"] as? String ?? "", privacy: .public)")
         case "log":
             BridgeyLog.transport.notice("connect core \(event["msg"] as? String ?? "", privacy: .public)")
+        case "state":
+            if let state = event["state"] as? [String: Any] { store.setCoreState(state) }
+        case "timing":
+            ConnectTiming.mark("core." + (event["step"] as? String ?? "?"), peer: event["peer"] as? String, detail: event["detail"] as? String,
+                               at: (event["at"] as? NSNumber)?.doubleValue ?? Date().timeIntervalSince1970 * 1000)
         default:
             break
         }

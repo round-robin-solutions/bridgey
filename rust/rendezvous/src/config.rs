@@ -24,6 +24,10 @@ pub struct Server {
     /// Deployment name shown by `/v1/status` (`production`, `staging`, `local`).
     #[serde(default = "default_environment")]
     pub environment: String,
+    /// The host name clients connect to (`connect.roundrobin.in`). A single-flight sign-in signs it, so a
+    /// signature made for another service is refused. Unset: no single-flight sign-ins (the challenge only).
+    #[serde(default)]
+    pub public_host: Option<String>,
 }
 
 fn default_environment() -> String {
@@ -42,6 +46,8 @@ pub struct Limits {
     /// Proof-of-work bits asked of every node (0 = off).
     pub pow_bits: u32,
     pub grant_lifetime_s: u64,
+    /// How long a node's warm relay credentials last (it re-asks before then).
+    pub warm_grant_lifetime_s: u64,
     pub auth_timeout_s: u64,
 }
 
@@ -56,6 +62,7 @@ impl Default for Limits {
             max_connections: 20_000,
             pow_bits: 0,
             grant_lifetime_s: 7_200,
+            warm_grant_lifetime_s: 43_200,
             auth_timeout_s: 10,
         }
     }
@@ -79,6 +86,20 @@ pub struct Relay {
     pub spki: Option<String>,
     #[serde(default = "yes")]
     pub enabled: bool,
+}
+
+impl Relay {
+    /// `host:port` of the first UDP TURN URL, where the relay's STUN answers.
+    pub fn stun(&self) -> Option<String> {
+        self.urls.iter().find_map(|u| {
+            let rest = u.strip_prefix("turn:")?;
+            let (hostport, query) = rest.split_once('?').unwrap_or((rest, ""));
+            if !query.is_empty() && query != "transport=udp" {
+                return None;
+            }
+            Some(if hostport.rsplit_once(':').is_some_and(|(h, _)| !h.ends_with(']') || h.starts_with('[')) && !hostport.ends_with(']') { hostport.to_string() } else { format!("{hostport}:3478") })
+        })
+    }
 }
 
 fn default_kbps() -> u32 {
@@ -124,6 +145,14 @@ mod tests {
         assert_eq!(config.limits.max_ids, 64);
         let secrets = config.secrets(|name| (name == "TURN_SECRET_BOM").then(|| "x".to_string()));
         assert_eq!(secrets.len(), 1);
+    }
+
+    #[test]
+    fn stun_addresses() {
+        let relay = |url: &str| Relay { id: "x".into(), kind: "coturn".into(), urls: vec![url.into()], secret_env: "X".into(), penalty_ms: 0, max_kbps: 1, spki: None, enabled: true };
+        assert_eq!(relay("turn:relay-sg.roundrobin.in:3478?transport=udp").stun().as_deref(), Some("relay-sg.roundrobin.in:3478"));
+        assert_eq!(relay("turn:a").stun().as_deref(), Some("a:3478"));
+        assert_eq!(relay("turns:a:5349?transport=tcp").stun(), None);
     }
 
     #[test]

@@ -1019,6 +1019,7 @@ final class PairingCoordinator: ObservableObject {
     /// One phone's session ended: only its calls, transfers and clipboard fetches go, and its
     /// reconnect starts.
     private func deviceDisconnected(_ id: String, reason: String) {
+        ConnectTiming.mark("app.disconnected", peer: id, detail: reason)
         cancelTransfers(for: id)
         focusSync.forget(id)
         remoteInput.disconnected(deviceID: id)
@@ -3263,7 +3264,10 @@ final class PairingCoordinator: ObservableObject {
             return
         case let .accepted(replaced):
             // The core resets its back-off for this phone only once a session on the tunnel authenticated.
-            if let tunnel = current.tunnel { _ = connect.command(["c": "authenticated", "tunnel": tunnel.id]) }
+            if let tunnel = current.tunnel {
+                ConnectTiming.mark("app.authenticated", peer: id, detail: tunnel.route)
+                _ = connect.command(["c": "authenticated", "tunnel": tunnel.id])
+            }
             if let replaced {
                 BridgeyLog.transport.notice("duplicate session replaced peer=\(shortDeviceID(id), privacy: .public)")
                 diagnostics.record(category: "transport", event: "duplicate_replaced", device: id)
@@ -3846,6 +3850,7 @@ final class PairingCoordinator: ObservableObject {
     private func configureConnect() {
         connect.onTunnel = { [weak self] tunnel in self?.acceptTunnel(tunnel) }
         connect.onRoute = { [weak self] id, route, relay in self?.tunnelRouteChanged(id, route: route, relay: relay) }
+        connect.onTunnelClosed = { [weak self] id in self?.tunnelClosed(id) }
         connectCancellable = settings.$connectAway.removeDuplicates().sink { [weak self] enabled in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -3869,6 +3874,15 @@ final class PairingCoordinator: ObservableObject {
 
     /// A tunnel is up: run a session on its loopback bridge, exactly as on a LAN socket. The QUIC
     /// client sends pairing.offer; the signatures bind to the tunnel's exporter.
+    /// The core's tunnel ended: the session on it ends now rather than when its loopback socket notices, so the
+    /// reconnect starts at once.
+    private func tunnelClosed(_ id: String) {
+        for (_, current) in registry.broadcastTargets({ _, _ in true }) where current.tunnel?.id == id {
+            current.dropReason = "tunnel_closed"
+            current.close()
+        }
+    }
+
     private func acceptTunnel(_ tunnel: ConnectTunnel) {
         guard identity != nil, settings.connectAway, let port = NWEndpoint.Port(rawValue: tunnel.port) else {
             connect.command(["c": "close", "tunnel": tunnel.id])
@@ -3992,14 +4006,14 @@ final class PairingCoordinator: ObservableObject {
     }
 
     /// The network changed while Connect anywhere runs: tell the core, and drop every session that
-    /// does not answer a ping within 3 s, so a phone that left this network reconnects at once.
+    /// does not answer a ping within 1.5 s, so a phone that left this network reconnects at once.
     private func probeAfterNetworkChange(_ reason: String) {
         guard connect.running else { return }
         connect.network(reason)
         let sent = Date()
         for (_, current) in registry.broadcastTargets({ _, _ in true }) {
             current.send(PairingMessage(kind: "heartbeat.ping", sessionId: current.id, messageId: UUID().uuidString.lowercased()))
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self, weak current] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self, weak current] in
                 guard let self, let current, self.registry.isActive(current), current.lastReceivedAt < sent else { return }
                 BridgeyLog.transport.notice("no answer after \(reason, privacy: .public) peer=\(shortDeviceID(current.remoteDeviceID), privacy: .public)")
                 current.dropReason = "network_changed"
@@ -6141,7 +6155,9 @@ enum SmsPhoneDisplay: Equatable {
 
 /// Commands for live tests, as files in `/tmp/<bundle id>-control/` (each is deleted once read):
 /// `pair` ("host:port", dials that phone like a pairing the user started), `drop-lan` (closes every LAN
-/// session, refuses new ones and turns on relay only: the phone left home), `clipboard` (sends this Mac's
+/// session, refuses new ones and turns on relay only: the phone left home), `restore-lan` ("host:port": ends
+/// relay only and tunnel sessions, listens again and dials the trusted phone there over the LAN; the phone came
+/// home, so the next `drop-lan` can be timed again), `clipboard` (sends this Mac's
 /// clipboard), `send-file` (a path), and `autoconfirm` (kept: "Codes match" is pressed for any prompt). Every
 /// second the instance writes `status.json` with its sessions, so a test can time connects and failovers.
 extension PairingCoordinator {
@@ -6150,7 +6166,9 @@ extension PairingCoordinator {
     fileprivate func startTestControl() {
         guard TestInstance.enabled, testControlTimer == nil else { return }
         try? FileManager.default.createDirectory(at: testControlDirectory, withIntermediateDirectories: true)
-        testControlTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        // Five times a second, so a timed step (drop-lan) starts within 200 ms of the file appearing; its
+        // events.jsonl line has the exact moment.
+        testControlTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.testControlTick() }
         }
     }
@@ -6168,15 +6186,31 @@ extension PairingCoordinator {
             if parts.count == 2, let port = Int(parts[1]) { pair(host: String(parts[0]), port: port, peerName: "Test phone") }
         }
         if takeTestCommand("drop-lan") != nil {
+            ConnectTiming.mark("test.drop_lan")
             testLanBlocked = true
             connect.setRelayOnly(true)
             listener?.cancel()
             listener = nil
-            for (_, current) in registry.broadcastTargets({ _, _ in true }) where current.tunnel == nil {
+            // LAN sessions on TCP, and tunnels on a LAN or private-network address (a race can carry the LAN too).
+            for (_, current) in registry.broadcastTargets({ _, _ in true }) where current.tunnel == nil || current.tunnel?.route == "lan" || current.tunnel?.route == "vpn" {
                 current.dropReason = "test_drop_lan"
                 current.close()
             }
             BridgeyLog.transport.notice("test: LAN dropped, relay only")
+        }
+        if let target = takeTestCommand("restore-lan") {
+            ConnectTiming.mark("test.restore_lan")
+            testLanBlocked = false
+            connect.setRelayOnly(false)
+            if listener == nil { startListener() }
+            for (_, current) in registry.broadcastTargets({ _, _ in true }) where current.tunnel != nil {
+                current.dropReason = "test_restore_lan"
+                current.close()
+            }
+            let parts = target.split(separator: ":")
+            if parts.count == 2, let port = UInt16(parts[1]).flatMap(NWEndpoint.Port.init(rawValue:)), let phone = trustedDeviceIDs.first {
+                dial(host: String(parts[0]), port: port, peerName: trustedName(phone), deviceID: phone)
+            }
         }
         if takeTestCommand("clipboard") != nil { sendClipboard() }
         if let path = takeTestCommand("send-file") { _ = sendDroppedFiles([URL(fileURLWithPath: path)], to: nil) }

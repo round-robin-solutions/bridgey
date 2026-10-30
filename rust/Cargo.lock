@@ -151,6 +151,7 @@ dependencies = [
  "serde_json",
  "socket2",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite 0.28.0",
  "webpki-roots 1.0.11",
 ]

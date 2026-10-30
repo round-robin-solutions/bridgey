@@ -129,6 +129,16 @@ Found in the live test and left for later:
   devices ran out, and with neither side holding a relay the emulator behind the Mac's NAT could not
   connect. The limit is 120 now (`server/rendezvous/bridgey-rendezvous.toml`).
 
+### Faster connects (2026-10-30, branch `rr/connect-fast`)
+
+Rahul's goal: under 1 s from the moment a connection is needed to an authenticated session through the relay.
+What changed and the measured before and after: [connect-anywhere-latency.md](connect-anywhere-latency.md). In
+short, the timers above changed: no 1.5 s wait before a race (300 ms only when the peer's LAN address is on this
+network), no 1 s relay grace (a 50 ms head start for direct pairs instead), no 300 ms nomination window
+(aggressive nomination), a 1.5 s network change probe instead of 3 s; the control service sign-in is one flight;
+each device keeps its own relay warm (off mobile data) with permissions for the whole pool; and a killed app
+reclaims the allocation it left on the relay instead of losing that relay for 10 minutes.
+
 ## 1. Summary
 
 Connect anywhere lets two paired devices reach each other from any network, with no VPN on the

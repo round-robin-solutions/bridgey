@@ -159,7 +159,9 @@ struct LocalDataLocations {
         case .trustedDevices: [support.appendingPathComponent(MacPairingStore.fileName)]
         // Connect anywhere's node key and pair secrets (connect-v1.json) go with the identity.
         case .identityKeys: [support.appendingPathComponent(MacPairingStore.fileName), support.appendingPathComponent(ConnectStore.fileName)]
-        case .reconnectAddresses, .appRecords: []
+        // Connect anywhere's relay round trips and warm relay (docs/connect-anywhere-latency.md).
+        case .reconnectAddresses: [support.appendingPathComponent(ConnectStore.coreStateFileName)]
+        case .appRecords: []
         }
     }
 }

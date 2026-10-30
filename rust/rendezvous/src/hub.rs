@@ -4,7 +4,7 @@
 //! rate-limit counters. Nothing here is logged with an address, an ID or a body.
 
 use crate::config::{Config, Relay};
-use bridgey_connect_proto::rdv::{self, Msg, RelayGrant};
+use bridgey_connect_proto::rdv::{self, Msg, RelayGrant, RelayInfo, WarmRequest};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -73,6 +73,10 @@ pub struct Counters {
     pub grants: u64,
     pub denied: u64,
     pub rejected_auth: u64,
+    pub warm_grants: u64,
+    pub reclaimed: u64,
+    /// Sign-ins that took the single flight (hello in the upgrade request).
+    pub fast_hellos: u64,
 }
 
 /// What a connection must do after a message.
@@ -151,6 +155,7 @@ impl Hub {
             Msg::Signal { rdv, side, sid, body } => self.signal(id, rdv, side, sid, body, now),
             Msg::RelayRequest { rdv, sid, side, rtts, exclude, .. } => self.relay(id, rdv, sid, side, rtts, exclude.unwrap_or_default(), false, now),
             Msg::RelayClaim { rdv, sid, side } => self.relay(id, rdv, sid, side, None, Vec::new(), true, now),
+            Msg::RelayWarm { request } => self.warm(id, request, now),
             Msg::RelayRelease { .. } => Outcome::Continue,
             _ => {
                 self.send(id, Msg::Error { code: "bad_request".into(), retry_after_ms: None });
@@ -311,6 +316,53 @@ impl Hub {
         Outcome::Continue
     }
 
+    /// The relays a node may use, for `welcome`: it probes them and keeps permissions for all of them.
+    pub fn relay_infos(&self) -> Vec<RelayInfo> {
+        self.config.relays.iter().filter(|r| r.enabled && self.secrets.contains_key(&r.id)).filter_map(|r| Some(RelayInfo { id: r.id.clone(), stun: r.stun()? })).collect()
+    }
+
+    /// A node's own relay credentials, kept warm across sessions (docs/connect-anywhere-latency.md): the username
+    /// is tied to the node, so after a crash the node (and only it, signed in with its key) can get the
+    /// credential of its earlier allocation back and end it, instead of waiting out the relay's 437.
+    pub fn warm(&mut self, id: ConnId, request: WarmRequest, now: Instant) -> Outcome {
+        let Some(node) = self.conns.get(&id).map(|c| c.node_id.clone()) else { return Outcome::Close };
+        let limit = self.config.limits.grants_per_hour;
+        let window = self.grants_per_node.entry(node.clone()).or_insert_with(|| Window::new(Duration::from_secs(3_600)));
+        if !window.hit(limit, now) {
+            let retry = window.retry_after(now);
+            self.counters.denied += 1;
+            self.send(id, Msg::RelayDenied { sid: rdv::WARM_SID.into(), code: "rate_limited".into(), retry_after_ms: retry });
+            return Outcome::Continue;
+        }
+        let unix_s = unix_ms() / 1_000;
+        if let Some(reclaim) = &request.reclaim {
+            let found = self.config.relays.iter().find(|r| r.id == reclaim.relay && self.secrets.contains_key(&r.id)).cloned();
+            if let Some(relay) = found {
+                let secret = &self.secrets[&relay.id];
+                // Only a username made for this node, and not expired, gets its credential back.
+                if let Some(expiry) = rdv::warm_username_expiry(secret, &reclaim.username, &node).filter(|e| *e > unix_s) {
+                    let credential = rdv::turn_rest_credential(secret, &reclaim.username);
+                    self.counters.reclaimed += 1;
+                    self.send(id, Msg::RelayGrantMsg { sid: rdv::RECLAIM_SID.into(), relay: grant(&relay, reclaim.username.clone(), credential, expiry) });
+                }
+            }
+        }
+        let exclude = request.exclude.unwrap_or_default();
+        let Some(relay) = self.pick(request.rtts.as_ref(), &exclude).cloned() else {
+            self.counters.denied += 1;
+            self.send(id, Msg::RelayDenied { sid: rdv::WARM_SID.into(), code: "pool_exhausted".into(), retry_after_ms: 60_000 });
+            return Outcome::Continue;
+        };
+        let expiry = unix_s + self.config.limits.warm_grant_lifetime_s;
+        let secret = &self.secrets[&relay.id];
+        let username = rdv::warm_username(secret, expiry, &node);
+        let credential = rdv::turn_rest_credential(secret, &username);
+        self.counters.grants += 1;
+        self.counters.warm_grants += 1;
+        self.send(id, Msg::RelayGrantMsg { sid: rdv::WARM_SID.into(), relay: grant(&relay, username, credential, expiry) });
+        Outcome::Continue
+    }
+
     /// Lowest round trip plus penalty among enabled relays with a secret (spec 9.3, phase 1:
     /// no allowance tiers yet). Unknown round trips count as 200 ms.
     fn pick(&self, rtts: Option<&BTreeMap<String, u32>>, exclude: &[String]) -> Option<&Relay> {
@@ -319,6 +371,19 @@ impl Hub {
             .iter()
             .filter(|r| r.enabled && self.secrets.contains_key(&r.id) && !exclude.contains(&r.id))
             .min_by_key(|r| rtts.and_then(|m| m.get(&r.id)).copied().unwrap_or(200).saturating_add(r.penalty_ms))
+    }
+}
+
+fn grant(relay: &Relay, username: String, credential: String, expiry_unix_s: u64) -> RelayGrant {
+    RelayGrant {
+        id: relay.id.clone(),
+        kind: relay.kind.clone(),
+        urls: relay.urls.clone(),
+        username,
+        credential,
+        spki: relay.spki.clone(),
+        expires_at: expiry_unix_s * 1_000,
+        max_kbps: relay.max_kbps,
     }
 }
 
@@ -405,6 +470,38 @@ penalty_ms = 10
         // Leaving tells the other side.
         hub.leave(b);
         assert_eq!(drain(&mut rx_a), vec![Msg::Presence { rdv: RDV.into(), online: false }]);
+    }
+
+    #[test]
+    fn warm_grants_and_reclaim() {
+        let mut hub = hub();
+        let (tx, mut rx) = mpsc::channel(16);
+        let a = hub.join("node-a".into(), tx).unwrap();
+        // No rendezvous ID needed: the grant is the node's own.
+        let rtts = BTreeMap::from([("bom".to_string(), 100), ("sin".to_string(), 50)]);
+        hub.handle(a, Msg::RelayWarm { request: WarmRequest { rtts: Some(rtts), ..Default::default() } });
+        let Some(Msg::RelayGrantMsg { sid, relay }) = drain(&mut rx).pop() else { panic!() };
+        assert_eq!((sid.as_str(), relay.id.as_str()), (rdv::WARM_SID, "sin"));
+        assert!(relay.username.contains(":w."));
+        assert_eq!(relay.credential, rdv::turn_rest_credential(b"s2", &relay.username));
+        // The same node gets its earlier username's credential back, and a new grant.
+        let reclaim = rdv::Reclaim { relay: "sin".into(), username: relay.username.clone() };
+        hub.handle(a, Msg::RelayWarm { request: WarmRequest { reclaim: Some(reclaim.clone()), ..Default::default() } });
+        let got = drain(&mut rx);
+        assert!(matches!(&got[0], Msg::RelayGrantMsg { sid, relay: r } if sid == rdv::RECLAIM_SID && r.username == relay.username && r.credential == relay.credential));
+        assert!(matches!(&got[1], Msg::RelayGrantMsg { sid, .. } if sid == rdv::WARM_SID));
+        // Another node never does.
+        let (tx_b, mut rx_b) = mpsc::channel(16);
+        let b = hub.join("node-b".into(), tx_b).unwrap();
+        hub.handle(b, Msg::RelayWarm { request: WarmRequest { reclaim: Some(reclaim), ..Default::default() } });
+        let got = drain(&mut rx_b);
+        assert_eq!(got.len(), 1);
+        assert!(matches!(&got[0], Msg::RelayGrantMsg { sid, .. } if sid == rdv::WARM_SID));
+        // Session usernames are never reclaimable.
+        let session = rdv::turn_rest_credentials(b"s2", unix_ms() / 1_000 + 60, SID, 0).0;
+        hub.handle(a, Msg::RelayWarm { request: WarmRequest { reclaim: Some(rdv::Reclaim { relay: "sin".into(), username: session }), ..Default::default() } });
+        assert_eq!(drain(&mut rx).len(), 1);
+        assert_eq!(hub.relay_infos().len(), 2);
     }
 
     #[test]

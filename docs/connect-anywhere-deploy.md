@@ -104,7 +104,9 @@ restart each relay (a few seconds; grants last 2 hours).
   done; that hid every redeploy from 2026-10-27 to 2026-10-30. Stop-first costs a few seconds of
   downtime; clients reconnect with jitter. After a deploy, `/v1/status` counters start from zero.
 - **Environment:** the three `TURN_SECRET_*` only. Every other setting is in
-  `server/rendezvous/bridgey-rendezvous.toml` (listen, limits, relays and their URLs and penalties).
+  `server/rendezvous/bridgey-rendezvous.toml` (listen, limits, relays and their URLs and penalties, and
+  `public_host`, which single-flight sign-ins sign: it must be the name clients connect to, because nginx
+  forwards another Host). `/v1/status` counts `fastHellos`, `warmGrants` and `reclaimed` (docs/connect-anywhere-latency.md).
 - **No volume:** phase 1 keeps presence and rate limits in memory. Nothing to back up or migrate.
 - **nginx on rr-web** (`/etc/nginx/sites-available/connect.roundrobin.in.conf`, then certbot webroot):
 

@@ -12,13 +12,13 @@ use crate::ice::{IceAgent, IceEvent, Local};
 use crate::mux::{is_virtual, Mux, Via};
 use crate::quic::{self, Identity};
 use crate::rdv_client::{self, RdvClient, RdvEvent, Signer};
-use crate::turn::{self, Allocation};
-use bridgey_connect_proto::rdv::{Msg, RelayGrant};
+use crate::turn::{self, Allocation, Realm};
+use bridgey_connect_proto::rdv::{self as rdvproto, Msg, Reclaim, RelayGrant, RelayInfo, WarmRequest};
 use bridgey_connect_proto::signal::{Candidate, Description, Signal};
 use bridgey_connect_proto::{b64, derive, seal};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -39,11 +39,62 @@ pub struct StartConfig {
     pub node_key: String,
     #[serde(default)]
     pub relay_only: bool,
+    /// What the app kept from the last run (the `state` event): relay round trips, the pool, and the warm
+    /// allocation, so a restart probes at once and can end an allocation a killed process left behind.
+    #[serde(default)]
+    pub state: Option<Value>,
+    /// Keep a relay allocation warm, with a keep-alive this often (seconds). 0: credentials only, and an
+    /// allocation when a session needs one (metered networks, where every keep-alive wakes the radio).
+    #[serde(default = "default_relay_keepalive")]
+    pub relay_keepalive_s: u32,
 }
 
 fn default_port() -> u16 {
     42_458
 }
+
+fn default_relay_keepalive() -> u32 {
+    25
+}
+
+/// The node's own relay (docs/connect-anywhere-latency.md): credentials from the sign-in, and on networks where it
+/// is cheap an allocation kept open with permissions for every relay in the pool, so a session's relay path is
+/// ready before the session starts.
+#[derive(Default)]
+struct Warm {
+    /// Keep-alive for the allocation; zero means no allocation is kept (credentials only).
+    keepalive: Duration,
+    grant: Option<(RelayGrant, SocketAddr)>,
+    allocation: Option<Arc<Allocation>>,
+    allocating: bool,
+    /// The pool from `welcome`, resolved.
+    relays: Vec<(String, SocketAddr)>,
+    rtts: BTreeMap<String, u32>,
+    /// Our server-reflexive address (STUN to the nearest relay) and when it was seen.
+    srflx: Option<(SocketAddr, Instant)>,
+    /// From the last run: an allocation that may still hold this socket on that relay.
+    left_behind: Option<LeftBehind>,
+    exclude: Vec<String>,
+    failures: u32,
+    /// When a left-behind allocation was ended: the relay frees it on its next second, so a 437 until then is
+    /// retried rather than taken as a reason to move to another relay.
+    reclaimed_at: Option<Instant>,
+}
+
+#[derive(Clone)]
+struct LeftBehind {
+    relay: String,
+    server: SocketAddr,
+    username: String,
+    realm: Option<Realm>,
+}
+
+/// Saved state older than this cannot have a live allocation (they last 10 minutes from the last refresh).
+const LEFT_BEHIND_MAX_AGE_MS: u64 = 11 * 60 * 1000;
+/// When a peer's LAN address is on this network, the app's LAN connection gets this long before the race.
+const LAN_HEAD_START: Duration = Duration::from_millis(300);
+/// The control service connection is trusted without a check for this long after it last heard anything.
+const RDV_QUIET_LIMIT: Duration = Duration::from_secs(25);
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,9 +156,31 @@ struct IceSession {
     remote_cert: Mutex<Option<String>>,
     route: Mutex<(Route, Option<String>)>,
     allocation: Mutex<Option<Arc<Allocation>>>,
-    started: Instant,
     tunnel: Mutex<Option<String>>,
     relay_retried: AtomicBool,
+    /// The control service connection it was signalled on: one that ends takes unanswered signals with it.
+    generation: u64,
+    /// The other side's description arrived (the offer we answered, or the answer to ours).
+    described: AtomicBool,
+    created: Instant,
+    /// When ICE first selected a path.
+    selected_at: Mutex<Option<Instant>>,
+}
+
+/// A session with a selected path but no tunnel this long after is not going to get one (the controlled side waits
+/// for a QUIC dial that never came, and no agent timer ends a selected session); nor is one this old overall.
+const ICE_STALE_SELECTED: Duration = Duration::from_secs(10);
+const ICE_STALE: Duration = Duration::from_secs(25);
+/// Offers that cross within this long are glare (signals through the control service take one of its round trips).
+const GLARE_WINDOW: Duration = Duration::from_secs(1);
+/// Copy buffer of the loopback bridge, each way.
+const BRIDGE_BUFFER: usize = 256 * 1024;
+
+impl IceSession {
+    fn pending(&self) -> bool {
+        let selected_long_ago = self.selected_at.lock().unwrap().is_some_and(|t| t.elapsed() >= ICE_STALE_SELECTED);
+        self.tunnel.lock().unwrap().is_none() && self.created.elapsed() < ICE_STALE && !selected_long_ago
+    }
 }
 
 pub type EventSink = Arc<dyn Fn(String) + Send + Sync>;
@@ -141,6 +214,19 @@ pub struct Node {
     bridge_port: u16,
     stopped: AtomicBool,
     last_presence: Mutex<String>,
+    /// When the node started, for the connection waterfall (`timing` events).
+    started: Instant,
+    /// What the next sign-in carries (registration, warm relay request).
+    rdv_shared: Arc<rdv_client::Shared>,
+    /// Counts control service connections; signalling on an older one is redone.
+    rdv_generation: AtomicU64,
+    /// Woken when the control service connection or presence changes, so a race waits for it without polling.
+    rdv_changed: tokio::sync::Notify,
+    warm: Mutex<Warm>,
+    /// Each relay's realm and nonce, so an allocation there carries credentials at once.
+    realms: Mutex<HashMap<SocketAddr, Realm>>,
+    /// When foreground last asked for a fresh control connection.
+    last_refresh: Mutex<Option<Instant>>,
 }
 
 fn now_ms() -> u64 {
@@ -204,10 +290,19 @@ impl Node {
             bridge_port,
             stopped: AtomicBool::new(false),
             last_presence: Mutex::new(String::new()),
+            started: Instant::now(),
+            rdv_shared: Arc::new(rdv_client::Shared::default()),
+            rdv_generation: AtomicU64::new(0),
+            rdv_changed: tokio::sync::Notify::new(),
+            warm: Mutex::new(Warm::default()),
+            realms: Mutex::new(HashMap::new()),
+            last_refresh: Mutex::new(None),
         });
+        node.restore_state();
         tokio::spawn(node.clone().accept_loop());
         tokio::spawn(node.clone().bridge_loop(bridge));
         tokio::spawn(node.clone().tick_loop());
+        tokio::spawn(node.clone().warm_loop());
         node.start_rdv();
         node.log(&format!("started udp={} bridge={}", node.mux.port(), bridge_port));
         Ok(node)
@@ -221,12 +316,22 @@ impl Node {
         self.event(json!({"e": "log", "msg": msg}));
     }
 
+    /// One step of a connection, for the waterfall: milliseconds since the node started and the wall clock.
+    /// Never carries an address; `peer` is a paired device ID the app already knows.
+    fn mark(&self, step: &str, peer: Option<&str>, detail: Option<&str>) {
+        self.event(json!({"e": "timing", "step": step, "ms": self.started.elapsed().as_millis() as u64, "at": now_ms(), "peer": peer, "detail": detail}));
+    }
+
     pub fn udp_port(&self) -> u16 {
         self.mux.port()
     }
 
     pub fn bridge_port(&self) -> u16 {
         self.bridge_port
+    }
+
+    fn weak(self: &Arc<Self>) -> std::sync::Weak<Node> {
+        Arc::downgrade(self)
     }
 
     // region Rendezvous
@@ -245,7 +350,7 @@ impl Node {
                 node.sign(message).await
             })
         });
-        let client = rdv_client::start(url, self.node_key.clone(), self.cfg.app.clone(), signer, tx);
+        let client = rdv_client::start(url, self.node_key.clone(), self.cfg.app.clone(), signer, self.rdv_shared.clone(), tx);
         *self.rdv.lock().unwrap() = Some(client);
         self.publish_presence("connecting");
         let node = Arc::downgrade(self);
@@ -257,13 +362,17 @@ impl Node {
         });
     }
 
+    /// A new control service connection now (the old one may be gone with the network it ran on). Registration,
+    /// the warm relay request and the signalling of sessions under way carry over.
     fn restart_rdv(self: &Arc<Self>) {
-        if let Some(old) = self.rdv.lock().unwrap().take() {
-            old.stop();
+        let client = self.rdv.lock().unwrap();
+        match client.as_ref() {
+            Some(client) => client.refresh(),
+            None => {
+                drop(client);
+                self.start_rdv();
+            }
         }
-        self.rdv_connected.store(false, Ordering::Relaxed);
-        self.online.lock().unwrap().clear();
-        self.start_rdv();
     }
 
     async fn sign(&self, message: Vec<u8>) -> Option<Vec<u8>> {
@@ -305,6 +414,8 @@ impl Node {
         list.sort();
         list.truncate(64);
         *self.rdv_ids.lock().unwrap() = ids;
+        // The next sign-in registers these in the same flight.
+        *self.rdv_shared.ids.lock().unwrap() = list.clone();
         if self.rdv_connected.load(Ordering::Relaxed) {
             self.rdv_send(Msg::Register { ids: list });
         }
@@ -333,22 +444,54 @@ impl Node {
 
     fn on_rdv(self: &Arc<Self>, event: RdvEvent) {
         match event {
-            RdvEvent::Connected => {
+            RdvEvent::Timing(step) => self.mark(&format!("rdv.{step}"), None, None),
+            RdvEvent::Connected { inline_ids, warm_inline, relays } => {
+                self.mark("rdv.welcome", None, Some(if inline_ids.is_some() || warm_inline { "fast" } else { "challenge" }));
+                let generation = self.rdv_generation.fetch_add(1, Ordering::Relaxed) + 1;
                 self.rdv_connected.store(true, Ordering::Relaxed);
                 self.rdv_failures.store(0, Ordering::Relaxed);
                 *self.rdv_since.lock().unwrap() = Some(Instant::now());
-                self.register();
+                // Registered in the same flight unless the set changed meanwhile (the service answers `registered`).
+                let current = self.rdv_shared.ids.lock().unwrap().clone();
+                if inline_ids.as_ref() != Some(&current) {
+                    self.register();
+                }
+                if !warm_inline {
+                    if let Some(request) = self.rdv_shared.warm.lock().unwrap().clone() {
+                        self.rdv_send(Msg::RelayWarm { request });
+                    }
+                }
+                // A reclaim is asked once; the next sign-in asks only for credentials.
+                if let Some(request) = self.rdv_shared.warm.lock().unwrap().as_mut() {
+                    request.reclaim = None;
+                }
+                if !relays.is_empty() {
+                    let node = self.clone();
+                    tokio::spawn(async move { node.probe_relays(relays).await });
+                }
+                self.resignal(generation);
                 self.publish_presence("online");
+                self.rdv_changed.notify_waiters();
             }
             RdvEvent::Disconnected(reason) => {
+                // Credentials that are missing, expired or in their last hour are asked for in the next sign-in.
+                let renew = self.warm.lock().unwrap().grant.as_ref().is_none_or(|(g, _)| g.expires_at < now_ms() + 3_600_000);
+                if renew {
+                    let mut request = self.rdv_shared.warm.lock().unwrap();
+                    if request.is_none() {
+                        let w = self.warm.lock().unwrap();
+                        *request = Some(WarmRequest { rtts: Some(w.rtts.clone()).filter(|r| !r.is_empty()), exclude: Some(w.exclude.clone()).filter(|e| !e.is_empty()), reclaim: None });
+                    }
+                }
                 self.rdv_connected.store(false, Ordering::Relaxed);
+                self.rdv_changed.notify_waiters();
                 self.online.lock().unwrap().clear();
                 self.log(&format!("control service disconnected: {reason}"));
                 // A connection that worked and dropped is retried quietly; one that cannot be made at all is
                 // reported, so the app can say the Round Robin service is out of reach (LAN and VPN still work).
                 // A single failure is not reported either: a process Android has just started can be refused
                 // the network for its first moments, and the client retries within a second.
-                let lost = matches!(reason.as_str(), "closed" | "keepalive_timeout" | "send_failed");
+                let lost = matches!(reason.as_str(), "closed" | "keepalive_timeout" | "send_failed" | "refresh");
                 let failures = if lost { 0 } else { self.rdv_failures.fetch_add(1, Ordering::Relaxed) + 1 };
                 self.publish_presence(if failures >= 2 { "unreachable" } else { "connecting" });
             }
@@ -363,9 +506,11 @@ impl Node {
                     let ids = self.rdv_ids.lock().unwrap();
                     online.iter().filter_map(|rdv| ids.get(rdv).cloned()).collect()
                 };
+                self.mark("rdv.registered", None, Some(&peers.len().to_string()));
                 *self.online.lock().unwrap() = online.into_iter().collect();
                 self.publish_presence("online");
                 self.peers_seen_online(&peers);
+                self.rdv_changed.notify_waiters();
                 self.connect_waiting("presence");
             }
             Msg::Presence { rdv, online } => {
@@ -378,9 +523,11 @@ impl Node {
                     }
                 }
                 self.publish_presence("online");
+                self.rdv_changed.notify_waiters();
                 if online {
                     let peer = self.rdv_ids.lock().unwrap().get(&rdv).cloned();
                     if let Some(peer) = peer {
+                        self.mark("presence.online", Some(&peer), None);
                         self.peers_seen_online(&[peer]);
                     }
                     self.connect_waiting("presence");
@@ -388,6 +535,8 @@ impl Node {
             }
             Msg::Signal { rdv, side, sid, body } => self.on_signal(rdv, side, sid, body),
             Msg::Undeliverable { sid, .. } => self.end_ice(&sid, "undeliverable"),
+            Msg::RelayGrantMsg { sid, relay } if sid == rdvproto::WARM_SID => self.on_warm_grant(relay),
+            Msg::RelayGrantMsg { sid, relay } if sid == rdvproto::RECLAIM_SID => self.on_reclaim(relay),
             Msg::RelayGrantMsg { sid, relay } => self.on_grant(sid, relay),
             Msg::RelayDenied { sid, code, .. } => self.log(&format!("relay denied for {}: {code}", &sid[..4.min(sid.len())])),
             Msg::Error { code, .. } => self.log(&format!("control service error: {code}")),
@@ -400,6 +549,8 @@ impl Node {
     // region Peers and the race
 
     pub fn set_peers(self: &Arc<Self>, list: Vec<PeerConfig>) -> Result<(), String> {
+        let relay_only = self.mux.relay_only.load(Ordering::Relaxed);
+        let mut now_connected = Vec::new();
         {
             let mut peers = self.peers.lock().unwrap();
             let mut next = HashMap::new();
@@ -409,22 +560,43 @@ impl Node {
                     return Err("side must be 0 or 1".into());
                 }
                 let previous = peers.remove(&cfg.id);
-                let (next_attempt, failures) = match &previous {
-                    // A peer that just dropped is raced after 1.5 s, so a LAN TCP reconnect can win first.
-                    Some(p) if p.cfg.connected && !cfg.connected => (Instant::now() + Duration::from_millis(1_500), 0),
-                    Some(p) => (p.next_attempt, p.failures),
-                    None => (Instant::now() + Duration::from_millis(1_500), 0),
+                // A peer that just dropped, or is new to this process, is raced at once. Only when one of its LAN
+                // addresses is on this network does the app's own LAN connection get a short head start, so a
+                // working LAN is not raced onto the relay (happy eyeballs, docs/connect-anywhere-latency.md).
+                let head_start = if relay_only || !cfg.addresses.iter().any(|a| a.kind == "lan" && a.a.parse().map(addrs::on_link).unwrap_or(false)) {
+                    Duration::ZERO
+                } else {
+                    LAN_HEAD_START
                 };
+                let (next_attempt, failures) = match &previous {
+                    Some(p) if p.cfg.connected && !cfg.connected => (Instant::now() + head_start, 0),
+                    Some(p) => (p.next_attempt, p.failures),
+                    None => (Instant::now() + head_start, 0),
+                };
+                if cfg.connected && !previous.as_ref().is_some_and(|p| p.cfg.connected) {
+                    now_connected.push(cfg.id.clone());
+                }
                 next.insert(cfg.id.clone(), Peer { sig_key: derive::sig_key(&secret), secret, cfg, next_attempt, failures });
             }
             *peers = next;
         }
         self.register();
-        let node = self.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(1_600)).await;
-            node.connect_waiting("disconnected");
-        });
+        // A peer the app just connected (on the LAN, or a tunnel) needs no ICE session still looking for it.
+        for peer in now_connected {
+            let pending: Vec<String> = self.ice.lock().unwrap().values().filter(|s| s.peer == peer && s.tunnel.lock().unwrap().is_none()).map(|s| s.agent.sid.clone()).collect();
+            for sid in pending {
+                self.end_ice(&sid, "connected");
+            }
+        }
+        self.connect_waiting("disconnected");
+        let due = self.peers.lock().unwrap().values().filter(|p| !p.cfg.connected).map(|p| p.next_attempt).filter(|t| *t > Instant::now()).min();
+        if let Some(due) = due {
+            let node = self.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep_until(due.into()).await;
+                node.connect_waiting("disconnected");
+            });
+        }
         Ok(())
     }
 
@@ -458,7 +630,11 @@ impl Node {
         }
     }
 
-        fn has_tunnel(&self, peer: &str, at_least: Route) -> bool {
+        fn peer_connected(&self, peer: &str) -> bool {
+        self.peers.lock().unwrap().get(peer).is_some_and(|p| p.cfg.connected)
+    }
+
+    fn has_tunnel(&self, peer: &str, at_least: Route) -> bool {
         self.tunnels.lock().unwrap().values().any(|t| t.peer.as_deref() == Some(peer) && t.route.lock().unwrap().0 <= at_least)
     }
 
@@ -471,6 +647,7 @@ impl Node {
         if !self.racing.lock().unwrap().insert(peer.clone()) {
             return;
         }
+        self.mark("race.start", Some(&peer), Some(&reason));
         tokio::spawn(async move {
             let started = Instant::now();
             let relay_only = self.mux.relay_only.load(Ordering::Relaxed);
@@ -507,21 +684,33 @@ impl Node {
                 let node = self.clone();
                 let peer = peer.clone();
                 attempts.spawn(async move {
-                    for _ in 0..80 {
-                        if node.has_tunnel(&peer, Route::Relay) {
+                    let deadline = Instant::now() + Duration::from_secs(11);
+                    while Instant::now() < deadline {
+                        if node.has_tunnel(&peer, Route::Relay) || node.peer_connected(&peer) {
                             return;
                         }
+                        // Woken by any change of the connection or presence (no polling delay on the way in).
+                        let changed = node.rdv_changed.notified();
                         if node.rdv_connected.load(Ordering::Relaxed) {
                             if node.peer_online(&peer) {
-                                node.offer_ice(peer).await;
-                                return;
+                                let generation = node.rdv_generation.load(Ordering::Relaxed);
+                                node.clone().offer_ice(peer.clone()).await;
+                                // The control service connection was replaced while the signals were out (a refresh,
+                                // a network change): they may be lost, so offer again on the new one.
+                                if node.has_tunnel(&peer, Route::Relay) || node.rdv_generation.load(Ordering::Relaxed) == generation {
+                                    return;
+                                }
+                                continue;
                             }
                             let settled = node.rdv_since.lock().unwrap().map(|t| t.elapsed() > Duration::from_secs(2)).unwrap_or(true);
                             if settled {
                                 return;
                             }
                         }
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        tokio::select! {
+                            _ = changed => {}
+                            _ = tokio::time::sleep(Duration::from_millis(250)) => {}
+                        }
                     }
                 });
             }
@@ -551,6 +740,7 @@ impl Node {
                         p.next_attempt = Instant::now() + Duration::from_secs(1);
                         drop(peers);
                         self.log(&format!("race {reason} won {} in {} ms", route.as_str(), started.elapsed().as_millis()));
+                        self.mark("race.won", Some(&peer), Some(route.as_str()));
                     }
                     None if better_than.is_none() => {
                         p.failures = p.failures.saturating_add(1);
@@ -559,6 +749,7 @@ impl Node {
                         let wait = u64::from_be_bytes(random_bytes::<8>()) % cap;
                         p.next_attempt = Instant::now() + Duration::from_millis(wait.max(500));
                         drop(peers);
+                        self.mark("race.failed", Some(&peer), None);
                         self.event(json!({"e": "connect.failed", "peer": peer, "reason": "unreachable"}));
                     }
                     None => {}
@@ -623,10 +814,29 @@ impl Node {
     fn new_session(self: &Arc<Self>, peer: &str, sid: String, rdv: String) -> Option<Arc<IceSession>> {
         let side = self.side_of(peer)?;
         let (agent, events) = IceAgent::new(self.mux.clone(), sid.clone(), side == 0);
-        if !self.mux.relay_only.load(Ordering::Relaxed) {
+        let relay_only = self.mux.relay_only.load(Ordering::Relaxed);
+        if !relay_only {
             for local in IceAgent::host_candidates(self.mux.port()) {
                 agent.add_local(local);
             }
+        }
+        // The warm relay's candidates go in the first description: no grant, allocation or STUN to wait for.
+        let (srflx, warm) = {
+            let w = self.warm.lock().unwrap();
+            (w.srflx.filter(|(_, at)| at.elapsed() < Duration::from_secs(120)).map(|(a, _)| a), w.allocation.clone())
+        };
+        if let Some(mapped) = srflx.filter(|_| !relay_only) {
+            agent.add_local(Local { via: Via::Direct, addr: mapped, kind: "srflx", pri: crate::ice::priority(crate::ice::TYPE_SRFLX, mapped.ip()), relay: None, net: None });
+        }
+        if let Some(allocation) = &warm {
+            agent.add_local(Local {
+                via: Via::Turn(allocation.server),
+                addr: allocation.relayed,
+                kind: "relay",
+                pri: crate::ice::priority(crate::ice::TYPE_RELAY, allocation.relayed.ip()),
+                relay: Some(allocation.relay_id.clone()),
+                net: None,
+            });
         }
         let session = Arc::new(IceSession {
             agent,
@@ -638,19 +848,59 @@ impl Node {
             remote_cert: Mutex::new(None),
             route: Mutex::new((Route::Relay, None)),
             allocation: Mutex::new(None),
-            started: Instant::now(),
             tunnel: Mutex::new(None),
             relay_retried: AtomicBool::new(false),
+            generation: self.rdv_generation.load(Ordering::Relaxed),
+            described: AtomicBool::new(false),
+            created: Instant::now(),
+            selected_at: Mutex::new(None),
         });
+        *session.allocation.lock().unwrap() = warm;
         self.ice.lock().unwrap().insert(sid, session.clone());
         tokio::spawn(self.clone().ice_events(session.clone(), events));
+        if srflx.is_none() && !relay_only {
+            // No fresh server-reflexive address: find it now and trickle it.
+            let node = self.clone();
+            let session = session.clone();
+            tokio::spawn(async move { node.trickle_srflx(&session).await });
+        }
         Some(session)
+    }
+
+    /// Our server-reflexive address from the nearest relay's STUN, added to `session` and trickled.
+    async fn trickle_srflx(self: &Arc<Self>, session: &Arc<IceSession>) {
+        let Some(mapped) = self.refresh_srflx().await else { return };
+        let local = Local { via: Via::Direct, addr: mapped, kind: "srflx", pri: crate::ice::priority(crate::ice::TYPE_SRFLX, mapped.ip()), relay: None, net: None };
+        session.agent.add_local(local.clone());
+        self.trickle(session, vec![local.candidate()]);
+        self.mark("ice.srflx", Some(&session.peer), None);
+    }
+
+    /// The relay grant this session should use when it has no allocation: the node's own (warm) credentials, or
+    /// none (then it asks the control service for a session grant, as older services require).
+    fn relay_for_session(self: &Arc<Self>, session: &Arc<IceSession>) -> bool {
+        if session.allocation.lock().unwrap().is_some() {
+            return true;
+        }
+        // Credentials with less than a minute left would fail on the relay; the session asks for its own instead.
+        let grant = self.warm.lock().unwrap().grant.clone().filter(|(g, _)| g.expires_at > now_ms() + 60_000);
+        match grant {
+            Some((grant, _)) => {
+                let node = self.clone();
+                let session = session.clone();
+                tokio::spawn(async move { node.use_grant(session, grant).await });
+                true
+            }
+            None => false,
+        }
     }
 
     /// The offering side: a new ICE session, the offer, and a relay request (spec 4.3).
     async fn offer_ice(self: Arc<Self>, peer: String) {
-        // An ICE session with this peer is already under way (we answered its offer): wait for it.
-        let existing = self.ice.lock().unwrap().values().find(|s| s.peer == peer && s.tunnel.lock().unwrap().is_none()).cloned();
+        // An ICE session with this peer is already under way (we answered its offer): wait for it. One that has been
+        // waiting too long for its tunnel ends here instead of blocking every later race.
+        self.end_stale(&peer);
+        let existing = self.ice.lock().unwrap().values().find(|s| s.peer == peer && s.pending()).cloned();
         if let Some(session) = existing {
             self.wait_for_tunnel(&session).await;
             return;
@@ -659,7 +909,11 @@ impl Node {
         let sid = b64::url_encode(&random_bytes::<16>());
         let Some(session) = self.new_session(&peer, sid.clone(), rdv.clone()) else { return };
         self.send_signal(&session, Signal::Offer(self.description(&session)));
-        self.rdv_send(Msg::RelayRequest { rdv, sid: sid.clone(), side: session.side, rtts: None, need: Some("udp".into()), est_bytes: None, exclude: None });
+        self.mark("ice.offer.sent", Some(&peer), None);
+        if !self.relay_for_session(&session) {
+            let rtts = Some(self.warm.lock().unwrap().rtts.clone()).filter(|r| !r.is_empty());
+            self.rdv_send(Msg::RelayRequest { rdv, sid: sid.clone(), side: session.side, rtts, need: Some("udp".into()), est_bytes: None, exclude: None });
+        }
         self.wait_for_tunnel(&session).await;
     }
 
@@ -673,7 +927,7 @@ impl Node {
                 Some(s) if s.tunnel.lock().unwrap().is_some() => return,
                 Some(_) => {}
                 None => {
-                    let replacement = self.ice.lock().unwrap().values().find(|s| s.peer == session.peer).map(|s| s.agent.sid.clone());
+                    let replacement = self.ice.lock().unwrap().values().find(|s| s.peer == session.peer && s.pending()).map(|s| s.agent.sid.clone());
                     match replacement {
                         Some(next) => sid = next,
                         None => return,
@@ -708,9 +962,18 @@ impl Node {
                 if existing.is_some() {
                     return;
                 }
-                // Glare: both offered at once. The lower device ID's offer wins.
-                let mine: Vec<Arc<IceSession>> = self.ice.lock().unwrap().values().filter(|s| s.peer == peer && s.tunnel.lock().unwrap().is_none()).cloned().collect();
-                if !mine.is_empty() && local_side == 0 {
+                // Glare: both offered, and the lower device ID's offer wins. The lower side keeps its unanswered offer and,
+                // if it is old enough that the other side should have answered, sends it again on the current connection
+                // (it may have gone into a control connection the other side had already lost). A session of ours the
+                // other side already answered means it started over: answer its new offer.
+                self.end_stale(&peer);
+                let mine: Vec<Arc<IceSession>> = self.ice.lock().unwrap().values().filter(|s| s.peer == peer && s.pending()).cloned().collect();
+                let unanswered: Vec<&Arc<IceSession>> = mine.iter().filter(|s| !s.described.load(Ordering::Relaxed)).collect();
+                if local_side == 0 && !unanswered.is_empty() {
+                    for s in unanswered.into_iter().filter(|s| s.created.elapsed() >= GLARE_WINDOW) {
+                        self.send_signal(s, Signal::Offer(self.description(s)));
+                        self.mark("ice.offer.resent", Some(&peer), None);
+                    }
                     return;
                 }
                 for s in mine {
@@ -719,14 +982,22 @@ impl Node {
                 if self.has_tunnel(&peer, Route::Relay) {
                     // Already connected: this is the other side's stale view; let it time out.
                 }
+                self.mark("ice.offer.received", Some(&peer), None);
                 let Some(session) = self.new_session(&peer, sid.clone(), rdv.clone()) else { return };
                 *session.last_remote_seq.lock().unwrap() = desc.seq;
-                self.apply_description(&session, &desc);
+                // Answer first (the offerer starts checking on it), then open our relay to the offerer's addresses. The
+                // offerer's certificate pin is in place before the answer leaves, so its QUIC dial is always pinned.
+                *session.remote_cert.lock().unwrap() = Some(desc.cert.clone());
                 self.send_signal(&session, Signal::Answer(self.description(&session)));
-                self.rdv_send(Msg::RelayClaim { rdv, sid, side: session.side });
+                self.mark("ice.answer.sent", Some(&peer), None);
+                self.apply_description(&session, &desc);
+                if !self.relay_for_session(&session) {
+                    self.rdv_send(Msg::RelayClaim { rdv, sid, side: session.side });
+                }
             }
             Signal::Answer(desc) => {
                 if let Some(session) = existing {
+                    self.mark("ice.answer.received", Some(&peer), None);
                     self.apply_description(&session, &desc);
                 }
             }
@@ -735,7 +1006,7 @@ impl Node {
                     for cand in &cands {
                         session.agent.add_remote(cand);
                     }
-                    self.bind_relay_channels(&session);
+                    self.prepare_relay_paths(&session);
                 }
             }
             Signal::Bye { .. } => self.end_ice(&sid, "bye"),
@@ -743,73 +1014,85 @@ impl Node {
         }
     }
 
-    fn apply_description(&self, session: &Arc<IceSession>, desc: &Description) {
+    fn apply_description(self: &Arc<Self>, session: &Arc<IceSession>, desc: &Description) {
         *session.remote_cert.lock().unwrap() = Some(desc.cert.clone());
+        session.described.store(true, Ordering::Relaxed);
         session.agent.set_remote_credentials(&desc.ufrag, &desc.pwd);
         for cand in &desc.cands {
             session.agent.add_remote(cand);
         }
-        self.bind_relay_channels(session);
+        self.prepare_relay_paths(session);
     }
 
     fn on_grant(self: &Arc<Self>, sid: String, grant: RelayGrant) {
         let Some(session) = self.ice.lock().unwrap().get(&sid).cloned() else { return };
+        self.mark("relay.grant", Some(&session.peer), Some(&grant.id));
+        if session.allocation.lock().unwrap().is_some() {
+            return;
+        }
         let node = self.clone();
-        tokio::spawn(async move {
-            let Some((host, port)) = grant.urls.iter().find_map(|u| turn::parse_udp_url(u)) else { return };
-            let Some(server) = tokio::net::lookup_host((host.as_str(), port)).await.ok().and_then(|mut it| it.next()) else { return };
-            let server = addrs::canonical(server);
-            // Server-reflexive candidate from the relay's STUN (hole punching, spec 6.5).
-            if !node.mux.relay_only.load(Ordering::Relaxed) {
-                if let Some((mapped, _)) = turn::reflexive(&node.mux, server).await {
-                    let local = Local { via: Via::Direct, addr: mapped, kind: "srflx", pri: crate::ice::priority(crate::ice::TYPE_SRFLX, mapped.ip()), relay: None, net: None };
-                    session.agent.add_local(local.clone());
-                    node.trickle(&session, vec![local.candidate()]);
-                }
-            }
-            // The relay waits 1 s for a direct pair, unless only the relay can work.
-            let grace = Duration::from_millis(1_000).saturating_sub(session.started.elapsed());
-            if !node.mux.relay_only.load(Ordering::Relaxed) {
-                tokio::time::sleep(grace).await;
-                if session.agent.is_selected() {
-                    return;
-                }
-            }
-            let allocation = match node.allocation(server, &grant).await {
-                Ok(a) => a,
-                Err(e) => {
-                    node.log(&format!("relay {} allocation failed: {e}", grant.id));
-                    // Ask for another relay once; ICE pairs relay addresses on different servers too.
-                    if !session.relay_retried.swap(true, Ordering::Relaxed) {
-                        node.rdv_send(Msg::RelayRequest {
-                            rdv: session.rdv.clone(),
-                            sid: session.agent.sid.clone(),
-                            side: session.side,
-                            rtts: None,
-                            need: Some("udp".into()),
-                            est_bytes: None,
-                            exclude: Some(vec![grant.id.clone()]),
-                        });
-                    }
-                    return;
-                }
-            };
-            *session.allocation.lock().unwrap() = Some(allocation.clone());
-            let local = Local {
-                via: Via::Turn(server),
-                addr: allocation.relayed,
-                kind: "relay",
-                pri: crate::ice::priority(crate::ice::TYPE_RELAY, allocation.relayed.ip()),
-                relay: Some(grant.id.clone()),
-                net: None,
-            };
-            session.agent.add_local(local.clone());
-            node.trickle(&session, vec![local.candidate()]);
-            node.bind_relay_channels(&session);
-        });
+        tokio::spawn(async move { node.use_grant(session, grant).await });
     }
 
-    async fn allocation(&self, server: SocketAddr, grant: &RelayGrant) -> Result<Arc<Allocation>, String> {
+    /// Allocates on `grant`'s relay for `session` (shared with any other session there) and adds the candidate.
+    /// No head start here: the ICE agent gives direct pairs theirs, so the relay is ready when it is needed.
+    async fn use_grant(self: Arc<Self>, session: Arc<IceSession>, grant: RelayGrant) {
+        let Some(server) = self.resolve_relay(&grant).await else { return };
+        let allocation = match self.allocate_on(server, &grant).await {
+            Ok(a) => a,
+            Err(e) => {
+                self.log(&format!("relay {} allocation failed: {e}", grant.id));
+                // Ask for another relay once; ICE pairs relay addresses on different servers too.
+                if !session.relay_retried.swap(true, Ordering::Relaxed) {
+                    self.rdv_send(Msg::RelayRequest {
+                        rdv: session.rdv.clone(),
+                        sid: session.agent.sid.clone(),
+                        side: session.side,
+                        rtts: None,
+                        need: Some("udp".into()),
+                        est_bytes: None,
+                        exclude: Some(vec![grant.id.clone()]),
+                    });
+                }
+                return;
+            }
+        };
+        {
+            let mut current = session.allocation.lock().unwrap();
+            if current.is_some() {
+                return;
+            }
+            *current = Some(allocation.clone());
+        }
+        self.mark("turn.allocated", Some(&session.peer), Some(&grant.id));
+        // Every relay in the pool may carry the other side's relay candidate.
+        let pool: Vec<std::net::IpAddr> = self.warm.lock().unwrap().relays.iter().map(|(_, a)| a.ip()).collect();
+        let _ = allocation.permit(&pool).await;
+        let local = Local {
+            via: Via::Turn(server),
+            addr: allocation.relayed,
+            kind: "relay",
+            pri: crate::ice::priority(crate::ice::TYPE_RELAY, allocation.relayed.ip()),
+            relay: Some(grant.id.clone()),
+            net: None,
+        };
+        session.agent.add_local(local.clone());
+        self.trickle(&session, vec![local.candidate()]);
+        self.prepare_relay_paths(&session);
+    }
+
+    async fn resolve_relay(&self, grant: &RelayGrant) -> Option<SocketAddr> {
+        let (host, port) = grant.urls.iter().find_map(|u| turn::parse_udp_url(u))?;
+        // The pool from `welcome` is already resolved.
+        if let Some(addr) = self.warm.lock().unwrap().relays.iter().find(|(id, _)| *id == grant.id).map(|(_, a)| *a) {
+            return Some(addr);
+        }
+        tokio::net::lookup_host((host.as_str(), port)).await.ok().and_then(|mut it| it.next()).map(addrs::canonical)
+    }
+
+    /// One allocation per relay for this socket, shared by every session (a second Allocate there is refused
+    /// with 437). Carries credentials in the first request when the relay's realm and nonce are known.
+    async fn allocate_on(&self, server: SocketAddr, grant: &RelayGrant) -> Result<Arc<Allocation>, String> {
         let _one = self.allocating.lock().await;
         let pending = self.releasing.lock().unwrap().remove(&server);
         if let Some(release) = pending {
@@ -818,7 +1101,9 @@ impl Node {
         if let Some(existing) = self.allocations.lock().unwrap().get(&server).cloned() {
             return Ok(existing);
         }
-        let allocation = Allocation::allocate(self.mux.clone(), server, &grant.id, &grant.username, &grant.credential).await?;
+        let cached = self.realms.lock().unwrap().get(&server).cloned();
+        let allocation = Allocation::allocate_with(self.mux.clone(), server, &grant.id, &grant.username, &grant.credential, cached).await?;
+        self.realms.lock().unwrap().insert(server, allocation.realm());
         self.allocations.lock().unwrap().insert(server, allocation.clone());
         Ok(allocation)
     }
@@ -828,26 +1113,43 @@ impl Node {
         self.send_signal(session, Signal::Cand { sid: session.agent.sid.clone(), cands, done: false, ts: now_ms(), seq });
     }
 
-    /// Our relay candidate reaches the peer's candidates through bound channels (permissions).
-    fn bind_relay_channels(&self, session: &Arc<IceSession>) {
+    /// Opens our relay to the other side's candidates: one CreatePermission for every address not yet allowed (pairs
+    /// can then send at once, as Send indications), then a channel per address in the background (smaller frames).
+    fn prepare_relay_paths(self: &Arc<Self>, session: &Arc<IceSession>) {
         let Some(allocation) = session.allocation.lock().unwrap().clone() else { return };
         let remotes: Vec<SocketAddr> = session.agent.remote_addresses().into_iter().filter(|a| a.is_ipv4() == allocation.relayed.is_ipv4()).collect();
-        for remote in remotes {
-            if self.mux.has_channel(allocation.server, remote) {
-                continue;
-            }
-            let allocation = allocation.clone();
-            tokio::spawn(async move {
-                let _ = allocation.bind(remote).await;
-            });
+        let mut ips: Vec<std::net::IpAddr> = remotes.iter().map(|a| a.ip()).filter(|ip| !self.mux.has_permission(allocation.server, *ip)).collect();
+        ips.sort();
+        ips.dedup();
+        let unbound: Vec<SocketAddr> = remotes.into_iter().filter(|r| !self.mux.has_channel(allocation.server, *r)).collect();
+        if ips.is_empty() && unbound.is_empty() {
+            return;
         }
+        let node = self.weak();
+        let peer = session.peer.clone();
+        tokio::spawn(async move {
+            if !ips.is_empty() && allocation.permit(&ips).await.is_ok() {
+                if let Some(node) = node.upgrade() {
+                    node.mark("turn.permitted", Some(&peer), None);
+                }
+            }
+            for remote in unbound {
+                let allocation = allocation.clone();
+                tokio::spawn(async move {
+                    let _ = allocation.bind(remote).await;
+                });
+            }
+        });
     }
 
     async fn ice_events(self: Arc<Self>, session: Arc<IceSession>, mut events: mpsc::UnboundedReceiver<IceEvent>) {
         let mut maintained = false;
         while let Some(event) = events.recv().await {
             match event {
+                IceEvent::FirstSuccess { route } => self.mark("ice.first_success", Some(&session.peer), Some(route.as_str())),
                 IceEvent::Selected { route, relay, rtt } => {
+                    self.mark("ice.selected", Some(&session.peer), Some(route.as_str()));
+                    session.selected_at.lock().unwrap().get_or_insert_with(Instant::now);
                     *session.route.lock().unwrap() = (route, relay.clone());
                     let tunnel = session.tunnel.lock().unwrap().clone();
                     match tunnel {
@@ -885,15 +1187,31 @@ impl Node {
 
     async fn dial_ice(self: Arc<Self>, session: Arc<IceSession>, route: Route, relay: Option<String>) {
         let pin = session.remote_cert.lock().unwrap().clone();
+        if pin.is_none() {
+            // Selection needs the other side's credentials, which come with its pin; never dial without one.
+            self.end_ice(&session.agent.sid, "no_pin");
+            return;
+        }
         let config = quic::client_config(&self.identity.read().unwrap(), pin, keep_alive(route));
         let Ok(connecting) = self.endpoint.connect_with(config, session.agent.vaddr, "bridgey") else { return };
         match tokio::time::timeout(Duration::from_secs(8), connecting).await {
             Ok(Ok(conn)) => {
+                self.mark("quic.connected", Some(&session.peer), None);
                 let route_now = session.route.lock().unwrap().clone();
                 let _ = relay;
                 self.register_tunnel(conn, true, route_now.0, route_now.1, Some(session.peer.clone()), Some(session.clone()));
             }
             _ => self.end_ice(&session.agent.sid, "quic_failed"),
+        }
+    }
+
+    fn end_stale(&self, peer: &str) {
+        let stale: Vec<Arc<IceSession>> = self.ice.lock().unwrap().values().filter(|s| s.peer == peer && s.tunnel.lock().unwrap().is_none() && !s.pending()).cloned().collect();
+        for session in stale {
+            // Checked again at the last moment: a tunnel may have just been registered on it.
+            if session.tunnel.lock().unwrap().is_none() {
+                self.end_ice(&session.agent.sid, "stale");
+            }
         }
     }
 
@@ -908,12 +1226,356 @@ impl Node {
         let allocation = session.allocation.lock().unwrap().take();
         if let Some(allocation) = allocation {
             let still_used = self.ice.lock().unwrap().values().any(|s| s.allocation.lock().unwrap().as_ref().map(|a| a.server) == Some(allocation.server));
-            if !still_used {
+            // The warm allocation outlives sessions; it is kept for the next one.
+            let warm = self.warm.lock().unwrap().allocation.as_ref().is_some_and(|w| Arc::ptr_eq(w, &allocation));
+            if !still_used && !warm {
                 self.allocations.lock().unwrap().remove(&allocation.server);
                 let server = allocation.server;
                 let release = tokio::spawn(async move { allocation.release().await });
                 self.releasing.lock().unwrap().insert(server, release);
             }
+        }
+    }
+
+    // endregion
+
+    // region The warm relay
+
+    /// What the app kept from the last run: relay round trips and the pool (probed again at once), and an
+    /// allocation that a killed process may have left on this socket (reclaimed after the sign-in).
+    fn restore_state(self: &Arc<Self>) {
+        let keepalive = Duration::from_secs(u64::from(self.cfg.relay_keepalive_s));
+        let mut warm = self.warm.lock().unwrap();
+        warm.keepalive = keepalive;
+        let state = self.cfg.state.clone().unwrap_or(Value::Null);
+        if let Some(rtts) = state.get("rtts").and_then(|r| serde_json::from_value::<BTreeMap<String, u32>>(r.clone()).ok()) {
+            warm.rtts = rtts;
+        }
+        let relays: Vec<(String, SocketAddr)> = state
+            .get("relays")
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter_map(|r| Some((r.get("id")?.as_str()?.to_string(), addrs::canonical(r.get("addr")?.as_str()?.parse().ok()?)))).collect())
+            .unwrap_or_default();
+        if let Some(w) = state.get("warm") {
+            let fresh = w.get("at").and_then(Value::as_u64).is_some_and(|at| now_ms().saturating_sub(at) < LEFT_BEHIND_MAX_AGE_MS);
+            let same_socket = state.get("port").and_then(Value::as_u64) == Some(u64::from(self.mux.port()));
+            let parsed = (|| {
+                Some(LeftBehind {
+                    relay: w.get("relay")?.as_str()?.to_string(),
+                    server: addrs::canonical(w.get("server")?.as_str()?.parse().ok()?),
+                    username: w.get("username")?.as_str()?.to_string(),
+                    realm: Some(Realm { realm: w.get("realm")?.as_str()?.to_string(), nonce: w.get("nonce")?.as_str()?.to_string() }),
+                })
+            })();
+            if let Some(left) = parsed.filter(|_| fresh && same_socket) {
+                self.realms.lock().unwrap().insert(left.server, left.realm.clone().unwrap_or_default());
+                warm.left_behind = Some(left);
+            }
+        }
+        // The sign-in asks for warm credentials (and the reclaim) in the same flight.
+        if self.cfg.control_url.as_deref().is_some_and(|u| !u.is_empty()) {
+            let reclaim = warm.left_behind.as_ref().map(|l| Reclaim { relay: l.relay.clone(), username: l.username.clone() });
+            *self.rdv_shared.warm.lock().unwrap() = Some(WarmRequest { rtts: Some(warm.rtts.clone()).filter(|r| !r.is_empty()), exclude: None, reclaim });
+        }
+        drop(warm);
+        if !relays.is_empty() {
+            // Last run's pool: the server-reflexive address and round trips are ready before the sign-in is.
+            let infos: Vec<RelayInfo> = relays.iter().map(|(id, addr)| RelayInfo { id: id.clone(), stun: addr.to_string() }).collect();
+            let node = self.clone();
+            tokio::spawn(async move { node.probe_relays(infos).await });
+        }
+    }
+
+    /// STUN to every relay in the pool at once: round trips (for the relay choice) and our server-reflexive address
+    /// (from the nearest). Skipped when the pool and a fresh address are already known.
+    async fn probe_relays(self: Arc<Self>, relays: Vec<RelayInfo>) {
+        let mut resolved = Vec::new();
+        for relay in relays {
+            let addr = match relay.stun.parse::<SocketAddr>() {
+                Ok(a) => Some(a),
+                Err(_) => tokio::net::lookup_host(relay.stun.as_str()).await.ok().and_then(|mut it| it.find(|a| a.is_ipv4())),
+            };
+            if let Some(addr) = addr {
+                resolved.push((relay.id, addrs::canonical(addr)));
+            }
+        }
+        {
+            let mut warm = self.warm.lock().unwrap();
+            let same = warm.relays == resolved;
+            let fresh = warm.srflx.is_some_and(|(_, at)| at.elapsed() < Duration::from_secs(60));
+            warm.relays = resolved.clone();
+            if same && fresh {
+                return;
+            }
+        }
+        if self.mux.relay_only.load(Ordering::Relaxed) && resolved.is_empty() {
+            return;
+        }
+        let mut probes = tokio::task::JoinSet::new();
+        for (id, addr) in resolved {
+            let mux = self.mux.clone();
+            probes.spawn(async move { (id, turn::reflexive(&mux, addr).await) });
+        }
+        let mut best: Option<(u32, SocketAddr)> = None;
+        while let Some(Ok((id, result))) = probes.join_next().await {
+            let Some((mapped, rtt)) = result else { continue };
+            let ms = rtt.as_millis() as u32;
+            let mut warm = self.warm.lock().unwrap();
+            warm.rtts.insert(id, ms);
+            if best.is_none_or(|(b, _)| ms < b) {
+                best = Some((ms, mapped));
+                // The first answer is the nearest relay's: sessions can use the address from now on.
+                warm.srflx = Some((mapped, Instant::now()));
+            }
+        }
+        let rtts = self.warm.lock().unwrap().rtts.clone();
+        if let Some(request) = self.rdv_shared.warm.lock().unwrap().as_mut() {
+            request.rtts = Some(rtts).filter(|r| !r.is_empty());
+        }
+        self.mark("relay.probed", None, best.map(|(ms, _)| ms.to_string()).as_deref());
+        self.emit_state();
+    }
+
+    /// Our server-reflexive address from the nearest relay (one STUN round trip), kept for new sessions.
+    async fn refresh_srflx(&self) -> Option<SocketAddr> {
+        let nearest = {
+            let warm = self.warm.lock().unwrap();
+            warm.relays.iter().min_by_key(|(id, _)| warm.rtts.get(id).copied().unwrap_or(u32::MAX)).map(|(_, a)| *a)
+        }?;
+        let (mapped, _) = turn::reflexive(&self.mux, nearest).await?;
+        self.warm.lock().unwrap().srflx = Some((mapped, Instant::now()));
+        Some(mapped)
+    }
+
+    /// The node's own relay credentials (from the sign-in). With a keep-alive, an allocation follows at once.
+    fn on_warm_grant(self: &Arc<Self>, grant: RelayGrant) {
+        self.mark("relay.warm_grant", None, Some(&grant.id));
+        let node = self.clone();
+        tokio::spawn(async move {
+            let Some(server) = node.resolve_relay(&grant).await else { return };
+            let replaced = {
+                let mut warm = node.warm.lock().unwrap();
+                let replaced = warm.grant.as_ref().is_some_and(|(old, _)| old.id != grant.id || old.username != grant.username);
+                warm.grant = Some((grant, server));
+                replaced
+            };
+            // Valid for hours: later sign-ins (reconnects, network changes) do not ask again; the warm loop renews
+            // in the last hour, so the allocation is not replaced at every reconnect.
+            *node.rdv_shared.warm.lock().unwrap() = None;
+            if replaced {
+                // New credentials (a renewal, or another relay): the allocation made with the old ones ends.
+                node.drop_warm_allocation(true);
+            }
+            node.ensure_warm().await;
+        });
+    }
+
+    /// The credential of the allocation the last run left on this socket: end it, so the new one is not refused.
+    fn on_reclaim(self: &Arc<Self>, grant: RelayGrant) {
+        let Some(left) = self.warm.lock().unwrap().left_behind.take() else { return };
+        if left.relay != grant.id || left.username != grant.username {
+            return;
+        }
+        self.mark("relay.reclaim", None, Some(&grant.id));
+        let mux = self.mux.clone();
+        let weak = self.weak();
+        self.warm.lock().unwrap().reclaimed_at = Some(Instant::now());
+        let release = tokio::spawn(async move {
+            // Credentials only ever go to the relay the grant names, resolved now from its URL (never from the pool a
+            // state file supplied).
+            let resolved = match grant.urls.iter().find_map(|u| turn::parse_udp_url(u)) {
+                Some((host, port)) => tokio::net::lookup_host((host.as_str(), port)).await.ok().and_then(|mut it| it.find(|a| a.is_ipv4())).map(addrs::canonical),
+                None => None,
+            };
+            if resolved != Some(left.server) {
+                return;
+            }
+            let result = turn::release_left_behind(mux, left.server, &grant.username, &grant.credential, left.realm).await;
+            if let Some(node) = weak.upgrade() {
+                node.mark("relay.reclaimed", None, Some(match result {
+                    Ok(true) => "ended",
+                    Ok(false) => "none",
+                    Err(_) => "failed",
+                }));
+            }
+        });
+        // The next Allocate on that relay waits for this release.
+        self.releasing.lock().unwrap().insert(left.server, release);
+    }
+
+    /// Makes sure the warm allocation exists when it should (keep-alive on, credentials known, not relay-only off).
+    async fn ensure_warm(self: &Arc<Self>) {
+        let (grant, server) = {
+            let mut warm = self.warm.lock().unwrap();
+            if warm.keepalive.is_zero() || warm.allocation.is_some() || warm.allocating {
+                return;
+            }
+            let Some((grant, server)) = warm.grant.clone() else { return };
+            warm.allocating = true;
+            (grant, server)
+        };
+        let result = self.allocate_on(server, &grant).await;
+        // Decided under the lock, acted on after it (no lock across an await).
+        let next = {
+            let mut warm = self.warm.lock().unwrap();
+            warm.allocating = false;
+            match result {
+                Ok(allocation) => {
+                    warm.failures = 0;
+                    warm.allocation = Some(allocation.clone());
+                    Ok((allocation, warm.relays.iter().map(|(_, a)| a.ip()).collect::<Vec<std::net::IpAddr>>()))
+                }
+                Err(e) if e == turn::MISMATCH && warm.reclaimed_at.is_some_and(|t| t.elapsed() < Duration::from_secs(3)) => {
+                    // The relay frees the reclaimed allocation on its next timer tick (about a second).
+                    warm.allocating = true;
+                    Err((e, None))
+                }
+                Err(e) => {
+                    warm.failures += 1;
+                    let mismatch = e == turn::MISMATCH;
+                    // A relay that keeps refusing (a rotated secret, an outage) is left for another after three tries.
+                    if (mismatch || warm.failures >= 3) && !warm.exclude.contains(&grant.id) {
+                        // A left-behind allocation we could not reclaim: use another relay until it lapses.
+                        warm.exclude.push(grant.id.clone());
+                    }
+                    let request = WarmRequest { rtts: Some(warm.rtts.clone()).filter(|r| !r.is_empty()), exclude: Some(warm.exclude.clone()), reclaim: None };
+                    let ask = mismatch || warm.failures == 3;
+                    Err((e, ask.then_some(request)))
+                }
+            }
+        };
+        match next {
+            Ok((allocation, pool)) => {
+                self.mark("relay.warm_allocated", None, Some(&grant.id));
+                // Every relay in the pool may carry a peer's relay candidate: permit them all now.
+                let _ = allocation.permit(&pool).await;
+                self.emit_state();
+            }
+            Err((e, retry)) => {
+                let waiting = self.warm.lock().unwrap().allocating;
+                if waiting {
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    self.warm.lock().unwrap().allocating = false;
+                    Box::pin(self.ensure_warm()).await;
+                    return;
+                }
+                self.log(&format!("warm relay {} failed: {e}", grant.id));
+                if let Some(request) = retry {
+                    self.rdv_send(Msg::RelayWarm { request });
+                }
+            }
+        }
+    }
+
+    /// Forgets the warm allocation (a network change moved this socket, or its credentials were replaced).
+    fn drop_warm_allocation(&self, release: bool) {
+        let old = self.warm.lock().unwrap().allocation.take();
+        if let Some(old) = old {
+            let used = self.ice.lock().unwrap().values().any(|s| s.allocation.lock().unwrap().as_ref().is_some_and(|a| Arc::ptr_eq(a, &old)));
+            if !used {
+                self.allocations.lock().unwrap().remove(&old.server);
+                let server = old.server;
+                if release {
+                    let task = tokio::spawn(async move { old.release().await });
+                    self.releasing.lock().unwrap().insert(server, task);
+                } else {
+                    self.mux.remove_turn(server);
+                }
+            }
+        }
+    }
+
+    /// Keeps the warm relay usable: a STUN round trip to it every keep-alive holds the NAT mapping open (and keeps
+    /// our server-reflexive address fresh); credentials are renewed before they expire; the state is saved.
+    async fn warm_loop(self: Arc<Self>) {
+        let mut since_state = Duration::ZERO;
+        let mut misses = 0u32;
+        loop {
+            let keepalive = self.warm.lock().unwrap().keepalive;
+            let wait = if keepalive.is_zero() { Duration::from_secs(60) } else { keepalive };
+            tokio::time::sleep(wait).await;
+            if self.stopped.load(Ordering::Relaxed) {
+                break;
+            }
+            since_state += wait;
+            let (allocation, grant) = {
+                let warm = self.warm.lock().unwrap();
+                (warm.allocation.clone(), warm.grant.clone())
+            };
+            if let Some(allocation) = allocation.filter(|_| !keepalive.is_zero()) {
+                match turn::reflexive(&self.mux, allocation.server).await {
+                    Some((mapped, _)) => {
+                        misses = 0;
+                        self.warm.lock().unwrap().srflx = Some((mapped, Instant::now()));
+                    }
+                    None => {
+                        misses += 1;
+                        if misses >= 2 {
+                            misses = 0;
+                            self.drop_warm_allocation(false);
+                        }
+                    }
+                }
+            }
+            if let Some((grant, _)) = grant {
+                // Renew in the credentials' last hour; the new grant replaces the allocation.
+                let left = grant.expires_at.saturating_sub(now_ms());
+                if left < 3_600_000 && self.rdv_connected.load(Ordering::Relaxed) {
+                    let rtts = Some(self.warm.lock().unwrap().rtts.clone()).filter(|r| !r.is_empty());
+                    let request = WarmRequest { rtts, ..Default::default() };
+                    self.rdv_send(Msg::RelayWarm { request });
+                }
+            }
+            self.ensure_warm().await;
+            if since_state >= Duration::from_secs(240) {
+                since_state = Duration::ZERO;
+                self.trim_permissions();
+                self.emit_state();
+            }
+        }
+    }
+
+    /// The warm allocation stays open to the pool and to the sessions using it now, not to every address it ever saw.
+    fn trim_permissions(&self) {
+        let (allocation, mut keep) = {
+            let warm = self.warm.lock().unwrap();
+            let Some(allocation) = warm.allocation.clone() else { return };
+            (allocation, warm.relays.iter().map(|(_, a)| a.ip()).collect::<HashSet<std::net::IpAddr>>())
+        };
+        for session in self.ice.lock().unwrap().values() {
+            if session.allocation.lock().unwrap().as_ref().is_some_and(|a| Arc::ptr_eq(a, &allocation)) {
+                keep.extend(session.agent.remote_addresses().into_iter().map(|a| a.ip()));
+            }
+        }
+        self.mux.retain_permitted(allocation.server, &keep);
+    }
+
+    /// What the app should keep for the next run (the `state` event): never a credential.
+    fn emit_state(&self) {
+        let warm = self.warm.lock().unwrap();
+        let relays: Vec<Value> = warm.relays.iter().map(|(id, addr)| json!({"id": id, "addr": addr.to_string()})).collect();
+        let allocation = warm.allocation.as_ref().map(|a| {
+            let realm = a.realm();
+            json!({"relay": a.relay_id, "server": a.server.to_string(), "username": a.username(), "realm": realm.realm, "nonce": realm.nonce, "at": now_ms()})
+        });
+        let state = json!({"v": 1, "port": self.mux.port(), "rtts": warm.rtts, "relays": relays, "warm": allocation});
+        drop(warm);
+        self.event(json!({"e": "state", "state": state}));
+    }
+
+    /// A new control service connection: signals sent on an older one may be lost. Sessions that never heard
+    /// back end (the race offers again); answered ones keep their paths.
+    fn resignal(&self, generation: u64) {
+        let stale: Vec<String> = self
+            .ice
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|s| s.generation < generation && s.tunnel.lock().unwrap().is_none() && !s.agent.is_selected() && !s.described.load(Ordering::Relaxed))
+            .map(|s| s.agent.sid.clone())
+            .collect();
+        for sid in stale {
+            self.end_ice(&sid, "resignal");
         }
     }
 
@@ -945,12 +1607,22 @@ impl Node {
                         conn.close(0u32.into(), b"unknown");
                         return;
                     };
-                    let pin = session.remote_cert.lock().unwrap().clone();
-                    if pin.is_some() && quic::peer_cert_hash(&conn) != pin {
+                    // The offering side learns the pin from the answer, and the other side's dial can arrive before it
+                    // (its checks and QUIC go straight to us, the answer through the control service): wait for it.
+                    let mut pin = session.remote_cert.lock().unwrap().clone();
+                    for _ in 0..150 {
+                        if pin.is_some() {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                        pin = session.remote_cert.lock().unwrap().clone();
+                    }
+                    if pin.is_none() || quic::peer_cert_hash(&conn) != pin {
                         conn.close(0u32.into(), b"pin");
                         return;
                     }
                     let (route, relay) = session.route.lock().unwrap().clone();
+                    node.mark("quic.accepted", Some(&session.peer), None);
                     node.register_tunnel(conn, false, route, relay, Some(session.peer.clone()), Some(session));
                 } else {
                     let route = addrs::route_of(remote.ip());
@@ -998,6 +1670,7 @@ impl Node {
             ice: ice.as_ref().map(|s| s.agent.sid.clone()),
         });
         self.tunnels.lock().unwrap().insert(id.clone(), tunnel.clone());
+        self.mark("tunnel", peer.as_deref(), Some(route.as_str()));
         self.event(json!({
             "e": "tunnel",
             "tunnel": id,
@@ -1101,13 +1774,17 @@ impl Node {
             tunnel.conn.close(0u32.into(), b"no_stream");
             return;
         };
+        self.mark("bridge.stream", tunnel.peer.as_deref(), None);
         let (mut app_read, mut app_write) = socket.into_split();
         let upstream = async {
-            let _ = tokio::io::copy(&mut app_read, &mut send).await;
+            // Large buffers both ways: tokio's default 8 KiB copy turns a file transfer into many small stream writes.
+            let mut app_read = tokio::io::BufReader::with_capacity(BRIDGE_BUFFER, &mut app_read);
+            let _ = tokio::io::copy_buf(&mut app_read, &mut send).await;
             let _ = send.finish();
         };
         let downstream = async {
-            let _ = tokio::io::copy(&mut recv, &mut app_write).await;
+            let mut recv = tokio::io::BufReader::with_capacity(BRIDGE_BUFFER, &mut recv);
+            let _ = tokio::io::copy_buf(&mut recv, &mut app_write).await;
             let _ = app_write.shutdown().await;
         };
         tokio::select! {
@@ -1135,6 +1812,11 @@ impl Node {
             if dates != last_dates {
                 last_dates = dates;
                 self.register();
+            }
+            // Sessions that never got their tunnel end (a selected path whose QUIC dial never came keeps no agent timer).
+            let peers: HashSet<String> = self.ice.lock().unwrap().values().filter(|s| s.tunnel.lock().unwrap().is_none() && !s.pending()).map(|s| s.peer.clone()).collect();
+            for peer in peers {
+                self.end_stale(&peer);
             }
             self.connect_waiting("retry");
             since_upgrade += Duration::from_secs(5);
@@ -1178,7 +1860,9 @@ impl Node {
         }
     }
 
-    pub fn network_changed(self: &Arc<Self>, reason: &str) {
+    /// The network changed. `metered` (when the app knows it) sets whether a relay allocation is kept warm: on
+    /// mobile data every keep-alive wakes the radio, so there the node keeps credentials only.
+    pub fn network_changed(self: &Arc<Self>, reason: &str, metered: Option<bool>) {
         {
             let mut peers = self.peers.lock().unwrap();
             for p in peers.values_mut() {
@@ -1186,12 +1870,32 @@ impl Node {
                 p.next_attempt = Instant::now();
             }
         }
+        {
+            let mut warm = self.warm.lock().unwrap();
+            if let Some(metered) = metered {
+                warm.keepalive = if metered { Duration::ZERO } else { Duration::from_secs(u64::from(self.cfg.relay_keepalive_s)) };
+            }
+            // This socket's mapping (and so the relay's view of it) belongs to the old network.
+            warm.srflx = None;
+            warm.exclude.clear();
+        }
+        self.drop_warm_allocation(false);
         self.restart_rdv();
+        let relays: Vec<RelayInfo> = self.warm.lock().unwrap().relays.iter().map(|(id, a)| RelayInfo { id: id.clone(), stun: a.to_string() }).collect();
+        let node = self.clone();
+        tokio::spawn(async move {
+            if !relays.is_empty() {
+                node.clone().probe_relays(relays).await;
+            }
+            node.ensure_warm().await;
+        });
         self.upgrade_all(reason);
         self.connect_waiting(reason);
     }
 
-    /// The app came to the foreground: try better routes and waiting peers, keep the presence socket.
+    /// The app came to the foreground: try better routes and waiting peers. A control service connection that has
+    /// been quiet for a while is replaced at once: after a phone slept, its socket may be one the network dropped
+    /// long ago, and signalling into it would wait out TCP retransmits.
     pub fn foreground(self: &Arc<Self>) {
         {
             let mut peers = self.peers.lock().unwrap();
@@ -1199,13 +1903,44 @@ impl Node {
                 p.next_attempt = p.next_attempt.min(Instant::now());
             }
         }
+        // Even with every peer still connected as far as the app knows: a session that died while the phone slept is
+        // often only noticed now, and its reconnect needs a control connection that works.
+        // Quiet for a while, or lost since (the refresh also cuts a back-off wait short). Never the first attempt of a
+        // process (a cold start is still making it when the app comes to the front).
+        let heard = self.rdv.lock().unwrap().as_ref().and_then(RdvClient::quiet_for);
+        let quiet = heard.is_some_and(|q| q > RDV_QUIET_LIMIT) || (heard.is_some() && !self.rdv_connected.load(Ordering::Relaxed));
+        // A second foreground right after the first leaves the attempt the first one started alone.
+        let refreshed_just_now = {
+            let mut last = self.last_refresh.lock().unwrap();
+            let recent = last.is_some_and(|t| t.elapsed() < Duration::from_secs(2));
+            if quiet && !recent {
+                *last = Some(Instant::now());
+            }
+            recent
+        };
+        if quiet && !refreshed_just_now {
+            self.mark("rdv.refresh", None, Some("foreground"));
+            self.restart_rdv();
+        }
+        let node = self.clone();
+        tokio::spawn(async move { node.ensure_warm().await });
         self.upgrade_all("foreground");
         self.connect_waiting("foreground");
     }
 
+    /// Debug and live tests: every route but the relay is blocked (or unblocked). Only the UDP paths change, so
+    /// the control service connection stays up, as it would when a LAN goes away without a network change.
     pub fn set_relay_only(self: &Arc<Self>, on: bool) {
         self.mux.relay_only.store(on, Ordering::Relaxed);
-        self.network_changed("relay_only");
+        {
+            let mut peers = self.peers.lock().unwrap();
+            for p in peers.values_mut() {
+                p.failures = 0;
+                p.next_attempt = p.next_attempt.min(Instant::now());
+            }
+        }
+        self.upgrade_all("relay_only");
+        self.connect_waiting("relay_only");
     }
 
     pub fn connect(self: &Arc<Self>, peer: &str) {
@@ -1223,6 +1958,7 @@ impl Node {
             t.authenticated.store(true, Ordering::Relaxed);
             t.peer.clone()
         };
+        self.mark("tunnel.authenticated", peer.as_deref(), None);
         if let Some(peer) = peer {
             if let Some(p) = self.peers.lock().unwrap().get_mut(&peer) {
                 p.failures = 0;

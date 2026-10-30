@@ -6,7 +6,7 @@
 
 use crate::addrs::canonical;
 use crate::stun::{self, Message};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::{self, IoSliceMut};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
@@ -55,6 +55,12 @@ pub struct Channels {
     /// Numbers handed out for binds in flight, so two binds never share one.
     reserved: HashMap<SocketAddr, u16>,
     next: u16,
+    /// Peer addresses with a permission (CreatePermission): datagrams to them go as Send indications
+    /// until a channel is bound, so a relay path works one round trip earlier.
+    permitted: HashSet<IpAddr>,
+    /// Channels no longer refreshed (their peer left), kept for 11 minutes: the relay holds a binding for up to 10,
+    /// keeps delivering that peer's data on it, and refuses a different number for the same peer.
+    retired: HashMap<SocketAddr, (u16, std::time::Instant)>,
 }
 
 #[derive(Default)]
@@ -109,7 +115,7 @@ impl Mux {
         std_sock.set_nonblocking(true)?;
         let sock = tokio::net::UdpSocket::from_std(std_sock)?;
         let local = sock.local_addr()?;
-        let (quic_tx, quic_rx) = mpsc::channel(2_048);
+        let (quic_tx, quic_rx) = mpsc::channel(QUIC_QUEUE);
         let mux = Arc::new(Mux {
             v6: local.is_ipv6(),
             sock,
@@ -236,9 +242,21 @@ impl Mux {
                 self.sock.try_send_to(data, self.family(path.remote)).map(|_| ())
             }
             Via::Turn(server) => {
-                let channel = self.state.lock().unwrap().turns.get(&server).and_then(|c| c.by_peer.get(&path.remote).copied());
-                let Some(channel) = channel else { return Ok(()) };
-                let framed = stun::channel_data(channel, data);
+                let (channel, permitted) = {
+                    let state = self.state.lock().unwrap();
+                    let c = state.turns.get(&server);
+                    (c.and_then(|c| c.by_peer.get(&path.remote).copied()), c.is_some_and(|c| c.permitted.contains(&path.remote.ip())))
+                };
+                let framed = match channel {
+                    Some(channel) => stun::channel_data(channel, data),
+                    None if permitted => {
+                        let mut m = Message::new(stun::SEND, stun::INDICATION, stun::random_txid());
+                        m.add(stun::ATTR_XOR_PEER_ADDRESS, stun::encode_xor_address(path.remote, &m.txid));
+                        m.add(stun::ATTR_DATA, data.to_vec());
+                        m.encode(None, false)
+                    }
+                    None => return Ok(()),
+                };
                 self.counters.relay_out.fetch_add(framed.len() as u64, Ordering::Relaxed);
                 self.sock.try_send_to(&framed, self.family(server)).map(|_| ())
             }
@@ -253,10 +271,19 @@ impl Mux {
 
     /// A STUN transaction with retransmits (250 ms, doubling, `tries` sends).
     pub async fn transact(&self, path: Path, bytes: &[u8], txid: [u8; 12], tries: u32, to_server: bool) -> Option<(Message, Path)> {
+        self.transact_rto(path, bytes, txid, tries, to_server, Duration::from_millis(250)).await
+    }
+
+    /// [Mux::transact] with the first retransmit after `rto` (ICE checks use 100 ms: a lost first check on a
+    /// relay path that was not open yet costs a tenth of a second, not a quarter).
+    pub async fn transact_rto(&self, path: Path, bytes: &[u8], txid: [u8; 12], tries: u32, to_server: bool, rto: Duration) -> Option<(Message, Path)> {
         let (tx, mut rx) = oneshot::channel();
         self.state.lock().unwrap().waiters.insert(txid, tx);
-        let mut rto = Duration::from_millis(250);
+        let mut rto = rto;
         for _ in 0..tries {
+            // A socket whose writability the reactor has not seen yet (just bound) refuses try_send with WouldBlock;
+            // waiting here keeps the first request of a fresh node from being lost to a retransmit timer.
+            let _ = tokio::time::timeout(Duration::from_millis(50), self.sock.writable()).await;
             let _ = if to_server { self.send_server(path.remote, bytes) } else { self.send_path(path, bytes) };
             tokio::select! {
                 answer = &mut rx => return answer.ok(),
@@ -287,12 +314,68 @@ impl Mux {
         self.state.lock().unwrap().turns.get(&server).map(|c| c.by_peer.contains_key(&peer)).unwrap_or(false)
     }
 
+    /// Datagrams to `peer` through our allocation on `server` can leave now (a channel or a permission).
+    pub fn can_send(&self, server: SocketAddr, peer: SocketAddr) -> bool {
+        self.state.lock().unwrap().turns.get(&server).map(|c| c.by_peer.contains_key(&peer) || c.permitted.contains(&peer.ip())).unwrap_or(false)
+    }
+
+    pub fn has_permission(&self, server: SocketAddr, ip: IpAddr) -> bool {
+        self.state.lock().unwrap().turns.get(&server).map(|c| c.permitted.contains(&ip)).unwrap_or(false)
+    }
+
+    /// The relay installed permissions for `ips` on our allocation there.
+    pub fn permit(&self, server: SocketAddr, ips: &[IpAddr]) {
+        if let Some(channels) = self.state.lock().unwrap().turns.get_mut(&server) {
+            channels.permitted.extend(ips.iter().copied());
+        }
+    }
+
+    /// Keeps only `keep` among the permitted addresses (a long-lived allocation would otherwise stay open to every
+    /// address a session ever used); the relay lets the others lapse after 5 minutes.
+    pub fn retain_permitted(&self, server: SocketAddr, keep: &HashSet<IpAddr>) {
+        if let Some(channels) = self.state.lock().unwrap().turns.get_mut(&server) {
+            channels.permitted.retain(|ip| keep.contains(ip));
+            // A bound channel is re-bound every 4 minutes, which would renew the relay's permission for its address
+            // too: channels to peers not kept stop being refreshed. Their numbers stay known until the relay must
+            // have let them go, because it keeps using them for that peer's data until then.
+            let now = std::time::Instant::now();
+            let gone: Vec<(SocketAddr, u16)> = channels.by_peer.iter().filter(|(peer, _)| !keep.contains(&peer.ip())).map(|(p, n)| (*p, *n)).collect();
+            for (peer, number) in gone {
+                channels.by_peer.remove(&peer);
+                channels.retired.insert(peer, (number, now));
+            }
+            channels.reserved.retain(|peer, _| keep.contains(&peer.ip()));
+            channels.retired.retain(|_, (_, at)| now.duration_since(*at) < Duration::from_secs(660));
+            let live: HashSet<u16> = channels.by_peer.values().chain(channels.retired.values().map(|(n, _)| n)).copied().collect();
+            channels.by_number.retain(|number, _| live.contains(number));
+        }
+    }
+
+    /// Every address with a permission on `server`, for refreshing them before the relay's 5 minutes run out.
+    pub fn permitted(&self, server: SocketAddr) -> Vec<IpAddr> {
+        self.state.lock().unwrap().turns.get(&server).map(|c| c.permitted.iter().copied().collect()).unwrap_or_default()
+    }
+
+    /// Channel numbers start at a random point for each allocation: a channel a killed process bound is never
+    /// reused by mistake if the relay still remembers it.
+    pub fn seed_channels(&self, server: SocketAddr, seed: u16) {
+        let mut state = self.state.lock().unwrap();
+        let channels = state.turns.entry(server).or_default();
+        if channels.by_peer.is_empty() && channels.reserved.is_empty() {
+            channels.next = seed % 0x0FFF;
+        }
+    }
+
     /// The channel number to bind for `peer`: its existing or reserved one, or the next free one.
     pub fn channel_for(&self, server: SocketAddr, peer: SocketAddr) -> u16 {
         let mut state = self.state.lock().unwrap();
         let channels = state.turns.entry(server).or_default();
         if let Some(n) = channels.by_peer.get(&peer).or(channels.reserved.get(&peer)) {
             return *n;
+        }
+        if let Some((n, _)) = channels.retired.remove(&peer) {
+            channels.reserved.insert(peer, n);
+            return n;
         }
         let n = 0x4000 + (channels.next % 0x0FFF);
         channels.next += 1;
@@ -302,6 +385,8 @@ impl Mux {
 
     pub fn bound(&self, server: SocketAddr, peer: SocketAddr, number: u16) {
         if let Some(channels) = self.state.lock().unwrap().turns.get_mut(&server) {
+            channels.reserved.remove(&peer);
+            channels.retired.remove(&peer);
             channels.by_peer.insert(peer, number);
             channels.by_number.insert(number, peer);
         }
@@ -349,11 +434,19 @@ impl Mux {
     }
 }
 
+const SOCKET_BUFFER: usize = 4 << 20;
+/// Datagrams waiting for QUIC: a full window of 1,200-byte packets (16 MiB) fits.
+const QUIC_QUEUE: usize = 16_384;
+
 fn bind_socket(port: u16) -> io::Result<std::net::UdpSocket> {
     use socket2::{Domain, Protocol, Socket, Type};
     match Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP)) {
         Ok(socket) => {
             socket.set_only_v6(false)?;
+            // Room for a burst at full speed (the defaults, around 200 KB, drop packets a QUIC window sends at once).
+            // The OS caps these at its own maximum; less is not an error.
+            let _ = socket.set_recv_buffer_size(SOCKET_BUFFER);
+            let _ = socket.set_send_buffer_size(SOCKET_BUFFER);
             socket.bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port).into())?;
             Ok(socket.into())
         }
@@ -385,16 +478,27 @@ impl quinn::AsyncUdpSocket for Mux {
 
     fn poll_recv(&self, cx: &mut Context, bufs: &mut [IoSliceMut<'_>], meta: &mut [quinn::udp::RecvMeta]) -> Poll<io::Result<usize>> {
         let mut rx = self.quic_rx.lock().unwrap();
-        match rx.poll_recv(cx) {
-            Poll::Ready(Some(datagram)) => {
-                let len = datagram.data.len().min(bufs[0].len());
-                bufs[0][..len].copy_from_slice(&datagram.data[..len]);
-                meta[0] = quinn::udp::RecvMeta { addr: datagram.src, len, stride: len, ecn: None, dst_ip: None };
-                Poll::Ready(Ok(1))
-            }
-            Poll::Ready(None) => Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "mux closed"))),
-            Poll::Pending => Poll::Pending,
+        // As many waiting datagrams as quinn has buffers for, in one call (one wake-up per batch, not per packet).
+        let mut filled = 0;
+        while filled < bufs.len().min(meta.len()) {
+            let next = if filled == 0 {
+                match rx.poll_recv(cx) {
+                    Poll::Ready(Some(d)) => d,
+                    Poll::Ready(None) => return Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "mux closed"))),
+                    Poll::Pending => return Poll::Pending,
+                }
+            } else {
+                match rx.try_recv() {
+                    Ok(d) => d,
+                    Err(_) => break,
+                }
+            };
+            let len = next.data.len().min(bufs[filled].len());
+            bufs[filled][..len].copy_from_slice(&next.data[..len]);
+            meta[filled] = quinn::udp::RecvMeta { addr: next.src, len, stride: len, ecn: None, dst_ip: None };
+            filled += 1;
         }
+        Poll::Ready(Ok(filled))
     }
 
     fn local_addr(&self) -> io::Result<SocketAddr> {
@@ -414,5 +518,43 @@ struct Poller {
 impl quinn::UdpPoller for Poller {
     fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
         self.mux.sock.poll_send_ready(cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Through a relay with a permission but no channel yet, a datagram leaves as a Send indication (so a relay
+    /// pair works before any ChannelBind); without either it is not sent at all.
+    #[tokio::test]
+    async fn send_indication_until_a_channel_is_bound() {
+        let relay = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let server = canonical(relay.local_addr().unwrap());
+        let mux = Mux::bind(0).unwrap();
+        mux.add_turn(server);
+        let peer: SocketAddr = "203.0.113.7:4000".parse().unwrap();
+        let path = Path { via: Via::Turn(server), remote: peer };
+        mux.sock.writable().await.unwrap();
+        mux.send_path(path, b"before").unwrap();
+        mux.permit(server, &[peer.ip()]);
+        assert!(mux.can_send(server, peer) && !mux.has_channel(server, peer));
+        mux.send_path(path, b"hello").unwrap();
+        let mut buf = [0u8; 2048];
+        let (n, _) = tokio::time::timeout(Duration::from_secs(2), relay.recv_from(&mut buf)).await.unwrap().unwrap();
+        let msg = Message::decode(&buf[..n]).expect("a STUN message");
+        assert_eq!((msg.method, msg.class), (stun::SEND, stun::INDICATION));
+        assert_eq!(msg.xor_address(stun::ATTR_XOR_PEER_ADDRESS), Some(peer));
+        assert_eq!(msg.get(stun::ATTR_DATA), Some(&b"hello"[..]));
+        // Once bound, ChannelData.
+        mux.bound(server, peer, 0x4001);
+        mux.send_path(path, b"bound").unwrap();
+        let (n, _) = tokio::time::timeout(Duration::from_secs(2), relay.recv_from(&mut buf)).await.unwrap().unwrap();
+        assert_eq!(stun::parse_channel_data(&buf[..n]), Some((0x4001, &b"bound"[..])));
+        // Trimmed: not refreshed any more, but its number still maps incoming data and is reused if bound again.
+        mux.retain_permitted(server, &HashSet::new());
+        assert!(mux.channel_peers(server).is_empty());
+        assert_eq!(mux.state.lock().unwrap().turns[&server].by_number.get(&0x4001), Some(&peer));
+        assert_eq!(mux.channel_for(server, peer), 0x4001);
     }
 }

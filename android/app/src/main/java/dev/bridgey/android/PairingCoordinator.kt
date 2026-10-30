@@ -2896,6 +2896,7 @@ class PairingCoordinator(
 
     /** One device's session ended: only its state, transfers and clipboard fetches go, and its reconnect starts. */
     private fun deviceDisconnected(deviceId: String, reason: String) {
+        dev.bridgey.android.connect.ConnectTiming.mark("app.disconnected", deviceId, reason)
         cancelTransfers(deviceId)
         clipboardSessionEnded(deviceId)
         if (phoneRingingFrom == deviceId) stopPhoneRinging()
@@ -4248,7 +4249,10 @@ class PairingCoordinator(
         }
         trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!)
         // The core resets its back-off for this peer only once a session on the tunnel authenticated.
-        current.tunnel?.let { tunnel -> connect?.tunnelAuthenticated(tunnel.tunnelId) }
+        current.tunnel?.let { tunnel ->
+            dev.bridgey.android.connect.ConnectTiming.mark("app.authenticated", current.remoteDeviceId, tunnel.route.route)
+            connect?.tunnelAuthenticated(tunnel.tunnelId)
+        }
         if (current.envelopeKey != null) trust.pinProtocol(current.remoteDeviceId, SessionSecurity.PROTOCOL_VERSION)
         // Fast transfers only on protocol 2: binary frames are bound to the sender's ID like envelope tags. Allowed
         // before the session becomes active, so the reader is ready before anything can tell the peer about them.
@@ -4534,6 +4538,7 @@ class PairingCoordinator(
         connect = core
         core.onTunnel = ::acceptTunnel
         core.onRoute = ::tunnelRouteChanged
+        core.onTunnelClosed = ::tunnelClosed
     }
 
     /** The core started or stopped: tell every device (the key changes) and refresh the core's peers. */
@@ -4557,6 +4562,16 @@ class PairingCoordinator(
         scope.launch {
             handle(socket, initiatedLocally = info.quicClient, peerHint = info.peer?.let(::trustedName), tunnel = info)
         }
+    }
+
+    /**
+     * The core's tunnel ended: the session on it ends now, rather than when its loopback socket notices (which can
+     * be much later after the phone slept), so the reconnect starts at once.
+     */
+    private fun tunnelClosed(tunnelId: String) {
+        val current = registry.connectedIds().mapNotNull(registry::session).firstOrNull { it.tunnel?.tunnelId == tunnelId } ?: return
+        current.dropReason = "tunnel_closed"
+        current.close()
     }
 
     private fun tunnelRouteChanged(tunnelId: String, route: dev.bridgey.android.connect.ConnectRoute, rttMillis: Long) {
@@ -4667,7 +4682,7 @@ class PairingCoordinator(
     }
 
     /**
-     * After a network change: every session must answer a ping within 3 s or it is dropped, so a
+     * After a network change: every session must answer a ping within 1.5 s or it is dropped, so a
      * device that moved away is found on another route at once instead of after 30 s of silence.
      */
     private fun probeSessions(reason: String) {
@@ -4884,7 +4899,8 @@ class PairingCoordinator(
             dev.bridgey.android.folders.FolderKinds.ENTRY_FAILED, dev.bridgey.android.folders.FolderKinds.RESULT,
         )
         const val REMOTE_INPUT_MAX_BYTES = 2_048
-        const val NETWORK_PROBE_MILLIS = 3_000L
+        /** Long enough for a ping over a relay with a transfer queued ahead of it, short enough to fail over quickly. */
+        const val NETWORK_PROBE_MILLIS = 1_500L
         val CONNECT_NETWORK_EVENTS = setOf("network_available", "network_lost", "local_network_available", "local_network_lost", "debug_relay_only")
         const val TUNNEL_HEARTBEAT_INTERVAL_MILLIS = 25_000L
         const val TUNNEL_HEARTBEAT_TIMEOUT_MILLIS = 75_000L
