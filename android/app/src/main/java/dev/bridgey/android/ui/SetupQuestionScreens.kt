@@ -619,6 +619,7 @@ private fun chosenLine(id: String, key: String): Pair<Int, Int>? {
             Answers.EARLY -> R.string.setup_a_updates_early
             else -> R.string.setup_a_updates_steady
         }
+        "updates_auto" -> R.string.setup_q_updates_auto_summary to if (key == Answers.NO) R.string.setup_a_no else R.string.setup_a_yes
         else -> null
     }
 }

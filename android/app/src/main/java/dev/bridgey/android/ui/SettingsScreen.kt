@@ -574,11 +574,11 @@ private fun PrivacyPage(state: SettingsState, actions: SettingsActions, listStat
     }
 }
 
-/** Updates: the status card, the channel and the daily check. */
+/** Updates: the status card, the channel and Update all devices automatically, then your devices. */
 @Composable
 private fun UpdatesPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
     SectionPage(SettingsSection.UPDATES, actions, listState) {
-        item(key = "updates") { UpdatesCard(state.update, state.installedVersion, state.now, actions) }
+        item(key = "updates") { UpdatesCard(state.update, state.installedVersion, state.now, actions, state.updateAll.auto) }
         item(key = "updates.devices") {
             val colors = BridgeyTheme.colors
             YourDevicesCard(
@@ -1131,11 +1131,18 @@ private fun channelDescription(channel: UpdateChannel): String = stringResource(
 )
 
 /**
- * Settings > Updates: one status card that shows one state at a time, then the channel and the
- * daily check. The version appears once, in the status card.
+ * Settings > Updates: one status card that shows one state at a time, then the channel and Update
+ * all devices automatically (how often it checks, what it waits for). The version appears once, in
+ * the status card.
  */
 @Composable
-fun UpdatesCard(state: UpdateUiState, installedVersion: String, now: Long, actions: SettingsActions) {
+fun UpdatesCard(
+    state: UpdateUiState,
+    installedVersion: String,
+    now: Long,
+    actions: SettingsActions,
+    auto: dev.bridgey.android.updates.AutoUpdateView = dev.bridgey.android.updates.AutoUpdateView(),
+) {
     val colors = BridgeyTheme.colors
     val cardModifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(colors.surface1)
     Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1146,8 +1153,7 @@ fun UpdatesCard(state: UpdateUiState, installedVersion: String, now: Long, actio
             Text(channelDescription(state.channel), style = BridgeyType.itemBody, color = colors.onSurface, modifier = Modifier.padding(top = 10.dp))
             Text(stringResource(R.string.updates_channel_note), style = BridgeyType.small, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
             Box(Modifier.padding(vertical = 14.dp).fillMaxWidth().height(1.dp).background(colors.outlineVariant))
-            Text(stringResource(R.string.updates_auto_title), style = BridgeyType.itemTitle)
-            Text(stringResource(R.string.updates_auto_detail), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
+            AutoUpdateSettings(auto, now, actions.updateAll.setAuto)
         }
     }
 }

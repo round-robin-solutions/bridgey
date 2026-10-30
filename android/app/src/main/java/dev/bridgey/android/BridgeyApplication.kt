@@ -51,6 +51,16 @@ class BridgeyApplication : Application() {
     /** Update all (draft updates_draft1): this phone's status to the Macs, their requests, and runs from here. */
     lateinit var updateAll: dev.bridgey.android.updates.UpdateAllCoordinator
         private set
+
+    /** What the person is doing on this phone (a call, screen sharing, transfers, setup), so automatic updates wait. */
+    lateinit var busyMonitor: dev.bridgey.android.updates.BusyMonitor
+        private set
+
+    /** The setup screens are open (set by the setup route while Bridgey is in front). */
+    val setupShowing = kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    /** The phone charges (from the battery broadcast while Bridgey is on). */
+    private val charging = kotlinx.coroutines.flow.MutableStateFlow(false)
     lateinit var activityLog: ActivityLog
         private set
     lateinit var activity: ActivityRecorder
@@ -93,6 +103,7 @@ class BridgeyApplication : Application() {
             intent ?: return
             lastBatteryIntent = intent
             publishBattery(intent)
+            chargingFrom(intent)
         }
     }
 
@@ -141,7 +152,11 @@ class BridgeyApplication : Application() {
         )
         // Reconnects: NSD sightings, network, Doze and screen events go to the coordinator, which
         // keeps dialling every trusted device that is not connected at its known addresses.
-        networkWatcher = NetworkWatcher(this, onRecoveryEvent = pairing::linkEvent, onObservation = pairing::observe)
+        networkWatcher = NetworkWatcher(
+            this, onRecoveryEvent = pairing::linkEvent, onObservation = pairing::observe,
+            // Update all devices automatically checks on waking up and on a network change, and looks again when the screen goes off.
+            onUpdateEvent = { event -> if (::updateAll.isInitialized) updateAll.deviceEvent(event) },
+        )
         pairing.restartDiscovery = discovery::restart
         connect = dev.bridgey.android.connect.ConnectAnywhere(dev.bridgey.android.connect.ConnectNodeKey(), BuildConfig.VERSION_NAME)
         pairing.attachConnect(connect)
@@ -186,6 +201,7 @@ class BridgeyApplication : Application() {
         startBlockedNumbers()
         screenShare = dev.bridgey.android.screen.ScreenShareHub(this, pairing) { startedActivityCount > 0 }
         pairing.screenListener = screenShare
+        busyMonitor.start()
         registerForegroundClipboardWatcher()
         if (preferences.getBoolean(PREFERENCE_ENABLED, true)) enableBridgey()
     }
@@ -197,7 +213,17 @@ class BridgeyApplication : Application() {
      */
     private fun startSettingsSync() {
         val sync = pairing.settingsSync
-        sync.attach(dev.bridgey.android.sync.phoneSyncedSettings(settings, uiPreferences, dev.bridgey.android.sync.AndroidSyncPermissions(this)))
+        sync.attach(
+            dev.bridgey.android.sync.phoneSyncedSettings(
+                settings, uiPreferences, dev.bridgey.android.sync.AndroidSyncPermissions(this),
+                // Update all devices automatically follows the channel until chosen (here or on a synced device).
+                autoUpdateDefault = {
+                    dev.bridgey.android.updates.AutoUpdateRules.defaultOn(
+                        dev.bridgey.android.updates.WireChannel.fromWire(updater.state.value.channel.key) ?: dev.bridgey.android.updates.WireChannel.STABLE,
+                    )
+                },
+            ),
+        )
         sync.onSynced = { deviceId, deviceName, changes ->
             activityLog.record(
                 dev.bridgey.android.activity.ActivityKind.SETTINGS_SYNCED, deviceId, deviceName,
@@ -281,9 +307,41 @@ class BridgeyApplication : Application() {
 
     private fun startUpdateAll() {
         updater.isForeground = { startedActivityCount > 0 }
-        updateAll = dev.bridgey.android.updates.UpdateAllCoordinator(this, applicationScope, pairing, updater, settings)
+        busyMonitor = dev.bridgey.android.updates.BusyMonitor(
+            this,
+            applicationScope,
+            dev.bridgey.android.updates.BusySources(
+                transfers = pairing.fileTransfers,
+                clipFetches = pairing.clipboardInbox.progress,
+                pairing = pairing.pairingFlow,
+                pairingArmed = pairing.pairingArmed,
+                setupShowing = setupShowing,
+                // Built after Update all; read when the monitor starts.
+                screen = { if (::screenShare.isInitialized) screenShare.state else null },
+                remote = { remoteInput.state },
+                callCards = BridgeyNotificationListenerService::callCardsShowing,
+            ),
+        )
+        val power = getSystemService(android.os.PowerManager::class.java)
+        updateAll = dev.bridgey.android.updates.UpdateAllCoordinator(
+            this, applicationScope, pairing, updater, settings,
+            busy = busyMonitor.busy,
+            refreshBusy = busyMonitor::refreshCalls,
+            idle = { !power.isInteractive && charging.value },
+            record = { kind, deviceId, deviceName, content -> activityLog.record(kind, deviceId, deviceName, content = content) },
+            notifier = dev.bridgey.android.updates.AutoUpdateNotifier(this),
+        )
         pairing.updates = updateAll
         updateAll.start()
+    }
+
+    private fun chargingFrom(intent: Intent) {
+        val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)
+        val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
+        val now = plugged || status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+        if (charging.value == now) return
+        charging.value = now
+        if (::updateAll.isInitialized) updateAll.idleChanged()
     }
 
     private fun startCodeAccess() {
@@ -360,6 +418,7 @@ class BridgeyApplication : Application() {
             batteryReceiverRegistered = true
         }
         lastBatteryIntent?.let(::publishBattery)
+        lastBatteryIntent?.let(::chargingFrom)
         if (!interruptionFilterReceiverRegistered) {
             val filter = IntentFilter(android.app.NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED)
             if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(interruptionFilterReceiver, filter, RECEIVER_NOT_EXPORTED)

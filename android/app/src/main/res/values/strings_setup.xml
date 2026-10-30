@@ -128,6 +128,7 @@
     <string name="reset_item_features">Feature switches, per-device settings, logging switches, Focus switches and this phone\'s name</string>
     <string name="reset_item_app">Previews, reduced motion, remote control, screenshot, attach sheet and widget choices</string>
     <string name="reset_item_channel">Update channel</string>
+    <string name="reset_item_update_records">Update all records: the last run, automatic update waits and Laters</string>
     <string name="reset_item_places">Folder destinations and places</string>
     <string name="reset_item_setup">Setup choices (setup runs again)</string>
     <string name="reset_item_trusted">Trusted devices</string>

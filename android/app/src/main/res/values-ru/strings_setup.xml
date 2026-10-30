@@ -127,6 +127,7 @@
     <string name="reset_item_features">Переключатели функций, настройки устройств, журналов и фокусирования, имя этого телефона</string>
     <string name="reset_item_app">Предпросмотр, уменьшение движения, выбор для удалённого управления, скриншотов, панели отправки и виджетов</string>
     <string name="reset_item_channel">Канал обновлений</string>
+    <string name="reset_item_update_records">Записи «Обновить всё»: последний запуск, ожидания и отсрочки автообновления</string>
     <string name="reset_item_places">Папки назначения и места</string>
     <string name="reset_item_setup">Выбор в настройке (она запустится заново)</string>
     <string name="reset_item_trusted">Доверенные устройства</string>

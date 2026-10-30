@@ -49,11 +49,10 @@ class SyncSettingsActions(
 )
 
 /**
- * The settings Choose what syncs offers: the ones this phone has (22). Codes from messages is a Mac setting and Update all
- * devices automatically has no setting yet (rr/auto-update-all adds it): the phone only stores and relays those, as the
- * Mac does for Photos for the Mac.
+ * The settings Choose what syncs offers: the ones this phone has (23). Codes from messages is a Mac setting: the phone
+ * only stores and relays it, as the Mac does for Photos for the Mac.
  */
-val ChoosableSyncKeys: List<SyncKey> = SyncKey.entries - SyncKey.CODES - SyncKey.AUTO_UPDATE_ALL
+val ChoosableSyncKeys: List<SyncKey> = SyncKey.entries - SyncKey.CODES
 
 /** The sync key behind a feature's global switch. */
 fun syncKeyFor(feature: BridgeyFeature): SyncKey? = SyncFeatureKeys.entries.firstOrNull { it.value == feature }?.key

@@ -147,6 +147,11 @@ fun ActivityKind.visual(): Pair<ImageVector, Tint> = when (this) {
     ActivityKind.CLIP_PASTE_FAILED -> BridgeyIcons.Error to Tint.NEUTRAL
     ActivityKind.FOLDER_SENT, ActivityKind.FOLDER_RECEIVED -> BridgeyIcons.Folder to Tint.GREEN
     ActivityKind.FOLDER_INCOMPLETE -> BridgeyIcons.Folder to Tint.NEUTRAL
+    ActivityKind.UPDATE_AUTO_DONE -> BridgeyIcons.SystemUpdate to Tint.GREEN
+    ActivityKind.UPDATE_AUTO_STARTED_BY -> BridgeyIcons.SystemUpdate to Tint.PURPLE
+    ActivityKind.UPDATE_AUTO_WAITING -> BridgeyIcons.Pause to Tint.NEUTRAL
+    ActivityKind.UPDATE_AUTO_SKIPPED -> BridgeyIcons.SystemUpdate to Tint.NEUTRAL
+    ActivityKind.UPDATE_AUTO_FAILED -> BridgeyIcons.Error to Tint.NEUTRAL
     ActivityKind.SETTINGS_SYNCED -> BridgeyIcons.Sync to Tint.BLUE
 }
 
@@ -245,6 +250,8 @@ private fun itemTitleWithoutPreview(item: ActivityItem, device: String): String 
     ActivityKind.CLIP_OFFER_SENT, ActivityKind.CLIP_OFFER_RECEIVED, ActivityKind.CLIP_PASTED, ActivityKind.CLIP_PASTE_FAILED ->
         clipTitle(item, device, null)
     ActivityKind.FOLDER_SENT, ActivityKind.FOLDER_RECEIVED, ActivityKind.FOLDER_INCOMPLETE -> FolderText.itemTitle(LocalContext.current, item, device)
+    ActivityKind.UPDATE_AUTO_DONE, ActivityKind.UPDATE_AUTO_WAITING, ActivityKind.UPDATE_AUTO_SKIPPED,
+    ActivityKind.UPDATE_AUTO_STARTED_BY, ActivityKind.UPDATE_AUTO_FAILED -> autoUpdateItemTitle(item, device)
     ActivityKind.SETTINGS_SYNCED -> stringResource(R.string.stream_settings_synced_title, device)
 }
 
@@ -272,6 +279,8 @@ fun itemDetail(item: ActivityItem, device: String): String = when (item.kind) {
     ActivityKind.FIND_MAC, ActivityKind.FIND_PHONE -> stringResource(R.string.stream_find_detail)
     ActivityKind.PAIRED -> stringResource(R.string.stream_paired_detail)
     ActivityKind.FOLDER_SENT, ActivityKind.FOLDER_RECEIVED, ActivityKind.FOLDER_INCOMPLETE -> FolderText.itemDetail(LocalContext.current, item, device)
+    ActivityKind.UPDATE_AUTO_DONE, ActivityKind.UPDATE_AUTO_WAITING, ActivityKind.UPDATE_AUTO_SKIPPED,
+    ActivityKind.UPDATE_AUTO_STARTED_BY, ActivityKind.UPDATE_AUTO_FAILED -> stringResource(R.string.stream_update_auto_detail)
     ActivityKind.SETTINGS_SYNCED -> syncChangesText(LocalContext.current, dev.bridgey.android.sync.SyncDetail.decode(item.detail))
         ?: stringResource(R.string.stream_settings_synced_detail)
 }

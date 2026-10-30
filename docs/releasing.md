@@ -59,3 +59,22 @@ Update all on a device starts each connected device's own updater, so a release 
 once its channel feed is published. Build numbers (Android `versionCode`, macOS
 `CFBundleVersion`) must grow with every release on every channel: a device compares the build it
 was installing with the build it restarts on, and reports "Update didn't apply" when they match.
+
+### After publishing: update every device
+
+Devices with **Update all devices automatically** on find a new build on their own within 30 minutes
+on Beta and Nightly (6 hours on Stable). To roll it out at once, the last release step is:
+
+```sh
+ssh <mac> '"/Applications/Bridgey by Round Robin.app/Contents/MacOS/BridgeyMac" --update-all'
+```
+
+Run it on one reachable Mac that is on the channel you published, after the channel feeds are live
+(RR CI's release run has finished). It checks now, then runs Update all on that Mac as an automatic
+run: its connected phones update first, the Mac restarts last after a 60-second countdown with Later.
+The command hands the request to the running app (starting it if needed), prints the plan, then
+`Result: started`, `Result: up to date (...)` or `Result: blocked because ...` (for example a call in
+progress on a phone), and exits 0, 3 or 2 (1 for anything else). Blocked means nothing was touched:
+run it again later, or leave it to the automatic checks. Other Macs update through a phone's
+automatic run or their own checks, because Macs are not connected to each other. Add `--json` for
+the raw answer lines.

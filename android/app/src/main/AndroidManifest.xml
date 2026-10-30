@@ -232,6 +232,10 @@
         <receiver
             android:name=".UpdateInstallReceiver"
             android:exported="false" />
+        <!-- Later on the Update all devices automatically notice: only Bridgey's own PendingIntent. -->
+        <receiver
+            android:name=".updates.AutoUpdateLaterReceiver"
+            android:exported="false" />
         <service
             android:name=".BridgeyNotificationListenerService"
             android:exported="false"

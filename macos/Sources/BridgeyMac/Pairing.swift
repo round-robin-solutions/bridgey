@@ -301,7 +301,7 @@ final class PairingCoordinator: ObservableObject {
     /// Settings sync with phones (draft settings_sync_draft1): folder, preview and motion preferences.
     private(set) lazy var settingsSync = SettingsSyncController.live(
         localDeviceID: deviceID, settings: settings, focus: focusSync, codes: codesSyncGate, screen: phoneScreen,
-        setTextMessages: { [unowned self] in self.setTextMessagesEnabled($0) })
+        setTextMessages: { [unowned self] in self.setTextMessagesEnabled($0) }, autoUpdate: AutoUpdateCoordinator.shared)
     /// Codes from messages turned on from another device waits here until this Mac gives its own consent.
     private(set) lazy var codesSyncGate = CodesSyncGate(
         isOn: { [unowned self] in self.settings.codesEnabled },

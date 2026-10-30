@@ -186,6 +186,24 @@ class SetupFlowTest {
     }
 
     @Test
+    fun theAutomaticUpdatesAnswerWinsOverTheChannelsDefault() {
+        val early = start(fresh(), SetupTyped.match("beta, but no automatic updates"))
+        assertEquals("BETA", early.facts.value(SetupSetting.UPDATE_CHANNEL))
+        assertEquals("false", early.facts.value(SetupSetting.AUTO_UPDATES))
+        val newest = start(fresh(), mapOf("updates" to Answers.NEWEST))
+        assertEquals("true", newest.facts.value(SetupSetting.AUTO_UPDATES))
+        val steady = start(fresh(), mapOf("updates" to Answers.STEADY, "updates_auto" to Answers.YES))
+        assertEquals("STABLE", steady.facts.value(SetupSetting.UPDATE_CHANNEL))
+        assertEquals("true", steady.facts.value(SetupSetting.AUTO_UPDATES))
+        // Both show on the summary as choices.
+        assertEquals(2, SetupSummary.items(early.state, early.facts).filterIsInstance<SummaryItem.Chosen>().size)
+        assertEquals(
+            listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "BETA"), SettingChange(SetupSetting.AUTO_UPDATES, "false")),
+            SetupFlow.startChanges(mapOf("updates" to Answers.EARLY, "updates_auto" to Answers.NO)),
+        )
+    }
+
+    @Test
     fun theSwitchesListEveryFeatureNotPickedAndTurnThemOn() {
         val walk = start(fresh(), SetupBundles.answers(setOf("files"), emptyMap()))
         walk.send(SetupEvent.Answer("files_browse", Answers.NO))

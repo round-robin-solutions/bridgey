@@ -113,8 +113,9 @@
     <!-- Updates -->
     <string name="setup_q_updates_summary">Updates</string>
     <string name="setup_a_updates_steady">Steady</string>
-    <string name="setup_a_updates_early">Early</string>
-    <string name="setup_a_updates_newest">Newest every day</string>
+    <string name="setup_a_updates_early">Early, all devices update automatically</string>
+    <string name="setup_a_updates_newest">Newest every day, all devices update automatically</string>
+    <string name="setup_q_updates_auto_summary">Update all devices automatically</string>
 
     <!-- General -->
 

@@ -65,6 +65,8 @@ internal class NetworkWatcher(
     context: Context,
     private val onRecoveryEvent: (String) -> Unit,
     private val onObservation: (String) -> Unit,
+    /** Update all devices automatically: "screen_on", "screen_off" and "network" (the default network came or changed). */
+    private val onUpdateEvent: (String) -> Unit = {},
 ) {
     private val appContext = context.applicationContext
     private val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
@@ -103,7 +105,10 @@ internal class NetworkWatcher(
             val previous = defaultNetwork
             defaultNetwork = network
             // The first callback describes the network at registration: not a change.
-            if (previous != null && previous != network) onRecoveryEvent("network_available")
+            if (previous != null && previous != network) {
+                onRecoveryEvent("network_available")
+                onUpdateEvent("network")
+            }
         }
 
         override fun onLost(network: Network) {
@@ -118,7 +123,10 @@ internal class NetworkWatcher(
             val signature = properties.linkAddresses.map { it.toString() }.sorted().joinToString(",") + "|" + properties.interfaceName
             val previous = defaultSignature
             defaultSignature = signature
-            if (previous != null && previous != signature) onRecoveryEvent("link_change")
+            if (previous != null && previous != signature) {
+                onRecoveryEvent("link_change")
+                onUpdateEvent("network")
+            }
         }
     }
 
@@ -146,8 +154,14 @@ internal class NetworkWatcher(
                     if (power.isDeviceIdleMode) onObservation("doze_enter") else onRecoveryEvent("doze_exit")
                 PowerManager.ACTION_POWER_SAVE_MODE_CHANGED ->
                     onObservation(if (power.isPowerSaveMode) "battery_saver_on" else "battery_saver_off")
-                Intent.ACTION_SCREEN_ON -> onRecoveryEvent("screen_on")
-                Intent.ACTION_SCREEN_OFF -> onObservation("screen_off")
+                Intent.ACTION_SCREEN_ON -> {
+                    onRecoveryEvent("screen_on")
+                    onUpdateEvent("screen_on")
+                }
+                Intent.ACTION_SCREEN_OFF -> {
+                    onObservation("screen_off")
+                    onUpdateEvent("screen_off")
+                }
             }
         }
     }

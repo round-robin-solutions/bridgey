@@ -89,6 +89,25 @@ class ActivityLogTest {
     }
 
     @Test
+    fun automaticUpdateEntriesKeepOnlyAShortTokenAndSurviveARestart() {
+        val file = File(folder.root, ActivityLog.FILE_NAME)
+        val log = log(file)
+        log.record(ActivityKind.UPDATE_AUTO_DONE, null, "This phone", content = "0.10.0-rr.1-beta.11")
+        log.record(ActivityKind.UPDATE_AUTO_WAITING, "mac", "Work Mac", content = "call")
+        log.record(ActivityKind.UPDATE_AUTO_SKIPPED, "mac", "Work Mac", content = "remote off, see notes")
+        log.record(ActivityKind.UPDATE_AUTO_STARTED_BY, "mac", "Work Mac", fileName = "x.txt", preview = "secret", content = null)
+        log.record(ActivityKind.PING_SENT, "mac", "Work Mac", content = "call")
+        val reloaded = log(file).items.value
+        assertEquals(listOf(null, null, null, "call", "0.10.0-rr.1-beta.11"), reloaded.map { it.content })
+        assertEquals(listOf(ActivityKind.PING_SENT, ActivityKind.UPDATE_AUTO_STARTED_BY, ActivityKind.UPDATE_AUTO_SKIPPED, ActivityKind.UPDATE_AUTO_WAITING, ActivityKind.UPDATE_AUTO_DONE), reloaded.map { it.kind })
+        assertTrue(reloaded.all { it.fileName == null && it.preview == null })
+        assertEquals(ActivityCategory.OTHER, ActivityKind.UPDATE_AUTO_FAILED.category)
+        // The Mac reads the same keys; a kind this build does not know is dropped.
+        assertEquals(ActivityKind.UPDATE_AUTO_FAILED, ActivityKind.fromKey("update_auto_failed"))
+        assertNull(ActivityKind.fromKey("update_auto_something_new"))
+    }
+
+    @Test
     fun theRecordHasNoContentFields() {
         val fields = ActivityItem::class.java.declaredFields
             .filterNot { java.lang.reflect.Modifier.isStatic(it.modifiers) }

@@ -89,6 +89,8 @@ class BridgeyConnectionService : Service() {
         serviceScope.launch { bridgey.pairing.folderQuestions.collect(::updateFolderQuestionNotifications) }
         serviceScope.launch { bridgey.pairing.clipboardInbox.progress.collect(::updatePasteNotifications) }
         serviceScope.launch { bridgey.updater.runPeriodicChecks() }
+        // Calls hold Update all devices automatically: looked at every few seconds while connected.
+        serviceScope.launch { bridgey.busyMonitor.watchCalls() }
         // Optional background clipboard: run the READ_LOGS source only while it is enabled, automatic
         // clipboard is on, and a device is connected. Stops on disconnect, when off, or when the
         // service stops.

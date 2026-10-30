@@ -80,6 +80,8 @@ enum class SetupSetting(val default: String) {
     /** The other Logging switches (calls, numbers, notification text, clipboard, file names, remote). */
     LOGGING_DETAIL(""),
     UPDATE_CHANNEL("STABLE"),
+    /** Updates > Update all devices automatically: off on Stable unless the person chose it (on for Beta and Nightly). */
+    AUTO_UPDATES("false"),
     BATTERY_EXEMPTION("false"),
     OEM_CHECKLIST(""),
     KEEP_WIFI_AWAKE("false"),
@@ -331,16 +333,19 @@ object SetupQuestions {
     )
 
     /**
-     * Answers only typing gives (no card): Do Not Disturb in step, and the update channel. Their
-     * settings are on their Settings pages too.
+     * Answers only typing gives (no card): Do Not Disturb in step, the update channel (which also sets
+     * Update all devices automatically: off for Steady, on for Early and Newest), and that setting on
+     * its own. Applied in this order (sorted by id, as on the Mac), so "beta, but no automatic
+     * updates" ends with automatic updates off. Their settings are on their Settings pages too.
      */
     val typedOnly: Map<String, Map<String, List<SettingChange>>> = mapOf(
         "focus" to mapOf(Answers.BOTH to listOf(on(SetupSetting.FOCUS_SHARE), on(SetupSetting.FOCUS_FOLLOW)), Answers.NO to listOf(off(SetupSetting.FOCUS_SHARE), off(SetupSetting.FOCUS_FOLLOW))),
         "updates" to mapOf(
-            Answers.STEADY to listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "STABLE")),
-            Answers.EARLY to listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "BETA")),
-            Answers.NEWEST to listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "NIGHTLY")),
+            Answers.STEADY to listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "STABLE"), off(SetupSetting.AUTO_UPDATES)),
+            Answers.EARLY to listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "BETA"), on(SetupSetting.AUTO_UPDATES)),
+            Answers.NEWEST to listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "NIGHTLY"), on(SetupSetting.AUTO_UPDATES)),
         ),
+        "updates_auto" to mapOf(Answers.YES to listOf(on(SetupSetting.AUTO_UPDATES)), Answers.NO to listOf(off(SetupSetting.AUTO_UPDATES))),
     )
 
     /** The permissions page: what the chosen features need, in the Permissions order. */
@@ -387,6 +392,7 @@ object SetupQuestions {
         SetupSetting.LOGGING_CONNECTION to "PRIVACY",
         SetupSetting.LOGGING_DETAIL to "PRIVACY",
         SetupSetting.UPDATE_CHANNEL to "UPDATES",
+        SetupSetting.AUTO_UPDATES to "UPDATES",
         SetupSetting.OEM_CHECKLIST to "GENERAL",
         SetupSetting.KEEP_WIFI_AWAKE to "GENERAL",
         SetupSetting.REDUCE_MOTION to "GENERAL",

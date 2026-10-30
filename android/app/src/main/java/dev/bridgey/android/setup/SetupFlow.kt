@@ -420,6 +420,7 @@ object SetupSummary {
         "updates" to (R.string.setup_q_updates_summary to mapOf(
             Answers.STEADY to R.string.setup_a_updates_steady, Answers.EARLY to R.string.setup_a_updates_early, Answers.NEWEST to R.string.setup_a_updates_newest,
         )),
+        "updates_auto" to (R.string.setup_q_updates_auto_summary to mapOf(Answers.YES to R.string.setup_a_yes, Answers.NO to R.string.setup_a_no)),
     )
 
     fun items(state: SetupState, facts: SetupFacts = SetupFacts()): List<SummaryItem> {
