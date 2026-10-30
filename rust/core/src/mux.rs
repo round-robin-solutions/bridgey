@@ -327,6 +327,14 @@ impl Mux {
         }
     }
 
+    /// Keeps only `keep` among the permitted addresses (a long-lived allocation would otherwise stay open to every
+    /// address a session ever used); the relay lets the others lapse after 5 minutes.
+    pub fn retain_permitted(&self, server: SocketAddr, keep: &HashSet<IpAddr>) {
+        if let Some(channels) = self.state.lock().unwrap().turns.get_mut(&server) {
+            channels.permitted.retain(|ip| keep.contains(ip));
+        }
+    }
+
     /// Every address with a permission on `server`, for refreshing them before the relay's 5 minutes run out.
     pub fn permitted(&self, server: SocketAddr) -> Vec<IpAddr> {
         self.state.lock().unwrap().turns.get(&server).map(|c| c.permitted.iter().copied().collect()).unwrap_or_default()

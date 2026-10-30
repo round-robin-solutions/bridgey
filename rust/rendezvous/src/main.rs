@@ -34,7 +34,33 @@ struct App {
     environment: String,
     public_host: Option<String>,
     /// Single-flight sign-ins already taken: (node ID, cnonce) until their window ends, so none is taken twice.
-    seen_hellos: Mutex<HashMap<(String, String), u64>>,
+    /// In memory: the service runs as one instance (stop-first deploys), so this covers every sign-in it takes.
+    seen_hellos: Mutex<SeenHellos>,
+}
+
+#[derive(Default)]
+struct SeenHellos {
+    entries: HashMap<(String, String), u64>,
+    /// Expired entries are swept at most once a second, so a flood of sign-ins cannot make each one scan the map.
+    swept_at: u64,
+}
+
+/// A connection's place in the per-address count, given back however the connection ends (a failed upgrade too).
+struct IpSlot {
+    app: Arc<App>,
+    ip: IpAddr,
+}
+
+impl Drop for IpSlot {
+    fn drop(&mut self) {
+        let mut per_ip = self.app.per_ip.lock().unwrap();
+        if let Some(count) = per_ip.get_mut(&self.ip) {
+            *count -= 1;
+            if *count == 0 {
+                per_ip.remove(&self.ip);
+            }
+        }
+    }
 }
 
 /// At most this many single-flight sign-ins are remembered; past it, they fall back to the challenge.
@@ -92,12 +118,17 @@ async fn main() {
         }
     }
     let listen: SocketAddr = config.server.listen.parse().unwrap_or_else(|_| fail("server.listen is not an address"));
+    if config.server.trust_proxy && config.server.public_host.is_none() {
+        // Behind a proxy the Host header is not the name clients signed; without public_host a sign-in made for
+        // this service could be replayed to another that shares node keys.
+        fail("server.public_host is required with trust_proxy");
+    }
     let app = Arc::new(App {
         trust_proxy: config.server.trust_proxy,
         limits: config.limits.clone(),
         environment: config.server.environment.clone(),
         public_host: config.server.public_host.clone(),
-        seen_hellos: Mutex::new(HashMap::new()),
+        seen_hellos: Mutex::new(SeenHellos::default()),
         hub: Mutex::new(Hub::new(config, secrets)),
         per_ip: Mutex::new(HashMap::new()),
     });
@@ -168,19 +199,14 @@ async fn upgrade(State(app): State<Arc<App>>, ConnectInfo(peer): ConnectInfo<Soc
         }
         *count += 1;
     }
+    let slot = IpSlot { app: app.clone(), ip };
     // The single-flight sign-in: a valid hello in the upgrade request skips the hello, challenge and auth frames.
     // Anything wrong with it (an old clock, a reused nonce) only means the client signs in the usual way.
     let fast = headers.get(rdv::HELLO_HEADER).and_then(|v| v.to_str().ok()).and_then(|v| fast_sign_in(&app, &headers, v));
     let accepted = fast.is_some();
     let mut response = ws.max_message_size(rdv::MAX_FRAME_BYTES).max_frame_size(rdv::MAX_FRAME_BYTES).on_upgrade(move |socket| async move {
+        let _slot = slot;
         session(app.clone(), socket, fast).await;
-        let mut per_ip = app.per_ip.lock().unwrap();
-        if let Some(count) = per_ip.get_mut(&ip) {
-            *count -= 1;
-            if *count == 0 {
-                per_ip.remove(&ip);
-            }
-        }
     });
     if accepted {
         response.headers_mut().insert(rdv::WELCOME_HEADER, axum::http::HeaderValue::from_static("1"));
@@ -217,14 +243,15 @@ fn fast_sign_in(app: &App, headers: &HeaderMap, value: &str) -> Option<FastSignI
     let node_id = derive::node_id(&node_key);
     {
         let mut seen = app.seen_hellos.lock().unwrap();
-        if seen.len() >= MAX_SEEN_HELLOS / 2 {
-            seen.retain(|_, until| *until > now);
+        if seen.entries.len() >= MAX_SEEN_HELLOS / 2 && now.saturating_sub(seen.swept_at) >= 1_000 {
+            seen.swept_at = now;
+            seen.entries.retain(|_, until| *until > now);
         }
-        if seen.len() >= MAX_SEEN_HELLOS {
+        if seen.entries.len() >= MAX_SEEN_HELLOS {
             return None;
         }
         // Remembered until the timestamp can no longer pass the window check.
-        if seen.insert((node_id.clone(), hello.cnonce.clone()), hello.ts + rdv::FAST_HELLO_WINDOW_MS + 1_000).is_some() {
+        if seen.entries.insert((node_id.clone(), hello.cnonce.clone()), hello.ts + rdv::FAST_HELLO_WINDOW_MS + 1_000).is_some() {
             return None;
         }
     }
@@ -365,7 +392,7 @@ mod tests {
             limits: config.limits.clone(),
             environment: "test".into(),
             public_host: config.server.public_host.clone(),
-            seen_hellos: Mutex::new(HashMap::new()),
+            seen_hellos: Mutex::new(SeenHellos::default()),
             hub: Mutex::new(Hub::new(config, HashMap::new())),
             per_ip: Mutex::new(HashMap::new()),
         }

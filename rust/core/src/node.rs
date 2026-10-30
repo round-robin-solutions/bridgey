@@ -849,7 +849,8 @@ impl Node {
         if session.allocation.lock().unwrap().is_some() {
             return true;
         }
-        let grant = self.warm.lock().unwrap().grant.clone();
+        // Credentials with less than a minute left would fail on the relay; the session asks for its own instead.
+        let grant = self.warm.lock().unwrap().grant.clone().filter(|(g, _)| g.expires_at > now_ms() + 60_000);
         match grant {
             Some((grant, _)) => {
                 let node = self.clone();
@@ -940,7 +941,9 @@ impl Node {
                 self.mark("ice.offer.received", Some(&peer), None);
                 let Some(session) = self.new_session(&peer, sid.clone(), rdv.clone()) else { return };
                 *session.last_remote_seq.lock().unwrap() = desc.seq;
-                // Answer first (the offerer starts checking on it), then open our relay to the offerer's addresses.
+                // Answer first (the offerer starts checking on it), then open our relay to the offerer's addresses. The
+                // offerer's certificate pin is in place before the answer leaves, so its QUIC dial is always pinned.
+                *session.remote_cert.lock().unwrap() = Some(desc.cert.clone());
                 self.send_signal(&session, Signal::Answer(self.description(&session)));
                 self.mark("ice.answer.sent", Some(&peer), None);
                 self.apply_description(&session, &desc);
@@ -1296,6 +1299,9 @@ impl Node {
                 warm.grant = Some((grant, server));
                 replaced
             };
+            // Valid for hours: later sign-ins (reconnects, network changes) do not ask again; the warm loop renews
+            // in the last hour, so the allocation is not replaced at every reconnect.
+            *node.rdv_shared.warm.lock().unwrap() = None;
             if replaced {
                 // New credentials (a renewal, or another relay): the allocation made with the old ones ends.
                 node.drop_warm_allocation(true);
@@ -1315,6 +1321,14 @@ impl Node {
         let weak = self.weak();
         self.warm.lock().unwrap().reclaimed_at = Some(Instant::now());
         let release = tokio::spawn(async move {
+            // Credentials only ever go to the relay the grant names (as resolved now), never to an address from disk.
+            let resolved = match weak.upgrade() {
+                Some(node) => node.resolve_relay(&grant).await,
+                None => None,
+            };
+            if resolved != Some(left.server) {
+                return;
+            }
             let result = turn::release_left_behind(mux, left.server, &grant.username, &grant.credential, left.realm).await;
             if let Some(node) = weak.upgrade() {
                 node.mark("relay.reclaimed", None, Some(match result {
@@ -1444,16 +1458,33 @@ impl Node {
                 // Renew in the credentials' last hour; the new grant replaces the allocation.
                 let left = grant.expires_at.saturating_sub(now_ms());
                 if left < 3_600_000 && self.rdv_connected.load(Ordering::Relaxed) {
-                    let request = self.rdv_shared.warm.lock().unwrap().clone().unwrap_or_default();
+                    let rtts = Some(self.warm.lock().unwrap().rtts.clone()).filter(|r| !r.is_empty());
+                    let request = WarmRequest { rtts, ..Default::default() };
                     self.rdv_send(Msg::RelayWarm { request });
                 }
             }
             self.ensure_warm().await;
             if since_state >= Duration::from_secs(240) {
                 since_state = Duration::ZERO;
+                self.trim_permissions();
                 self.emit_state();
             }
         }
+    }
+
+    /// The warm allocation stays open to the pool and to the sessions using it now, not to every address it ever saw.
+    fn trim_permissions(&self) {
+        let (allocation, mut keep) = {
+            let warm = self.warm.lock().unwrap();
+            let Some(allocation) = warm.allocation.clone() else { return };
+            (allocation, warm.relays.iter().map(|(_, a)| a.ip()).collect::<HashSet<std::net::IpAddr>>())
+        };
+        for session in self.ice.lock().unwrap().values() {
+            if session.allocation.lock().unwrap().as_ref().is_some_and(|a| Arc::ptr_eq(a, &allocation)) {
+                keep.extend(session.agent.remote_addresses().into_iter().map(|a| a.ip()));
+            }
+        }
+        self.mux.retain_permitted(allocation.server, &keep);
     }
 
     /// What the app should keep for the next run (the `state` event): never a credential.
@@ -1514,7 +1545,7 @@ impl Node {
                         return;
                     };
                     let pin = session.remote_cert.lock().unwrap().clone();
-                    if pin.is_some() && quic::peer_cert_hash(&conn) != pin {
+                    if pin.is_none() || quic::peer_cert_hash(&conn) != pin {
                         conn.close(0u32.into(), b"pin");
                         return;
                     }

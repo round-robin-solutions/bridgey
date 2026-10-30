@@ -76,6 +76,8 @@ struct Pair {
     streak: u32,
     misses: u32,
     last_ok: Option<Instant>,
+    /// The controlling side nominated it; the controlled side selects it once its own check on it passes.
+    nominated: bool,
 }
 
 /// What the agent reports to its owner.
@@ -239,7 +241,7 @@ impl IceAgent {
         let pri = (1u64 << 32) * u64::from(g.min(d)) + 2 * u64::from(g.max(d)) + u64::from(g > d);
         // A relay pair waits for the permission (or channel) that lets its datagrams through.
         let frozen = matches!(local.via, Via::Turn(server) if !self.mux.can_send(server, remote.addr));
-        st.pairs.push(Pair { local: li, remote: ri, pri, state: if frozen { PairState::Frozen } else { PairState::Waiting }, streak: 0, misses: 0, last_ok: None });
+        st.pairs.push(Pair { local: li, remote: ri, pri, state: if frozen { PairState::Frozen } else { PairState::Waiting }, streak: 0, misses: 0, last_ok: None, nominated: false });
         st.pairs.sort_by_key(|p| std::cmp::Reverse(p.pri));
         if frozen {
             if let Via::Turn(server) = local.via {
@@ -321,23 +323,8 @@ impl IceAgent {
                 tokio::spawn(async move { agent.check(i, path, false).await });
             }
         }
-        // Until a pair is selected the controlling side nominates aggressively (every check carries
-        // USE-CANDIDATE and the first that answers is selected); this regular nomination is for later moves.
-        if self.controlling && st.selected.is_none() && !st.nominating && st.first_success.is_none() {
-            if let Some(first) = st.first_success {
-                let best_succeeded = st.pairs.iter().position(|p| p.state == PairState::Succeeded);
-                let pending_better = st.pairs.iter().take_while(|p| p.state != PairState::Succeeded).any(|p| matches!(p.state, PairState::Waiting | PairState::InProgress | PairState::Frozen));
-                // "First that answers wins", with a 300 ms preference window for a better pair.
-                if let Some(best) = best_succeeded {
-                    if !pending_better || first.elapsed() >= Duration::from_millis(300) {
-                        st.nominating = true;
-                        let path = Self::path(&st, &st.pairs[best]);
-                        let agent = self.clone();
-                        tokio::spawn(async move { agent.check(best, path, true).await });
-                    }
-                }
-            }
-        }
+        // No nomination step here: until a pair is selected the controlling side nominates aggressively (every check
+        // carries USE-CANDIDATE and the first pair that answers is selected); later moves nominate in maintain().
         true
     }
 
@@ -387,6 +374,10 @@ impl IceAgent {
             let aggressive = self.controlling && st.selected.is_none();
             if nominate || aggressive {
                 st.nominating = false;
+                self.select(&mut st, i, rtt);
+            } else if !self.controlling && st.pairs[i].nominated && self.follows(&st, i) {
+                // The controlled side takes a nomination only on a pair its own check proved (RFC 8445 7.3.1.5):
+                // a check replayed from another address creates a pair whose check can never pass.
                 self.select(&mut st, i, rtt);
             }
         } else {
@@ -452,18 +443,33 @@ impl IceAgent {
             let agent = self.clone();
             tokio::spawn(async move { agent.check(i, path, false).await });
         }
-        self.mux.map_path(path, self.vaddr);
-        // With aggressive nomination several pairs arrive nominated: keep the best one, and follow any move once
-        // the current pair has been quiet for a while (the controlling side replaced a pair that failed).
-        let follow = match st.selected.and_then(|sel| st.pairs.iter().find(|p| Self::path(&st, p) == sel)) {
+        if nominated {
+            st.pairs[i].nominated = true;
+            if st.pairs[i].state == PairState::Succeeded && self.follows(&st, i) {
+                let path = Self::path(&st, &st.pairs[i]);
+                self.mux.map_path(path, self.vaddr);
+                self.select(&mut st, i, Duration::ZERO);
+                return;
+            }
+        }
+        if Some(path) == st.selected {
+            // The controlling side's keep-alive on the selected pair: it still works.
+            st.pairs[i].last_ok = Some(Instant::now());
+        }
+        // Until something is selected, answer QUIC on the first pair that reached us with a valid check (the peer's
+        // checks arrive before any replay of them could).
+        if st.selected.is_none() && !self.controlling && self.mux.selected(self.vaddr).is_none() {
+            self.mux.map_path(path, self.vaddr);
+            self.mux.select_path(self.vaddr, path);
+        }
+    }
+
+    /// With aggressive nomination several pairs arrive nominated: keep the best one, and follow any move once the
+    /// current pair has been quiet for a while (the controlling side replaced a pair that failed).
+    fn follows(&self, st: &State, i: usize) -> bool {
+        match st.selected.and_then(|sel| st.pairs.iter().find(|p| Self::path(st, p) == sel)) {
             None => true,
             Some(current) => st.pairs[i].pri > current.pri || current.last_ok.is_none_or(|t| t.elapsed() > Duration::from_secs(5)),
-        };
-        if nominated && follow {
-            self.select(&mut st, i, Duration::ZERO);
-        } else if st.selected.is_none() && !self.controlling {
-            // Until the controlling side nominates, answer QUIC on the pair that reached us.
-            self.mux.select_path(self.vaddr, path);
         }
     }
 
@@ -610,6 +616,30 @@ mod tests {
         assert!(a.is_selected() && b.is_selected());
     }
 
+    /// A valid nominated check replayed from another address (someone who saw it on the path) creates a pair the
+    /// controlled side's own check can never prove, so it is never selected.
+    #[tokio::test]
+    async fn replayed_nomination_is_not_selected() {
+        let mux_a = Mux::bind(0).unwrap();
+        let mux_b = Mux::bind(0).unwrap();
+        let (a, _events_a) = IceAgent::new(mux_a.clone(), "sid-a".into(), true);
+        let (b, _events_b) = IceAgent::new(mux_b.clone(), "sid-b".into(), false);
+        b.add_local(host(&mux_b));
+        a.set_remote_credentials(&b.local_ufrag, &b.local_pwd);
+        b.set_remote_credentials(&a.local_ufrag, &a.local_pwd);
+        // A's nominated check, as captured, sent again from the attacker's socket (which never answers B).
+        let (bytes, _) = {
+            let st = a.state.lock().unwrap();
+            a.request(&st, true).unwrap()
+        };
+        let attacker = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        for _ in 0..3 {
+            attacker.send_to(&bytes, ("127.0.0.1", mux_b.port())).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(!b.is_selected());
+    }
+
     #[test]
     fn relay_pairs_are_their_own_lane() {
         let st = State {
@@ -627,7 +657,7 @@ mod tests {
             checks_started: None,
             closed: false,
         };
-        let pair = |local| Pair { local, remote: 0, pri: 0, state: PairState::Waiting, streak: 0, misses: 0, last_ok: None };
+        let pair = |local| Pair { local, remote: 0, pri: 0, state: PairState::Waiting, streak: 0, misses: 0, last_ok: None, nominated: false };
         assert!(!IceAgent::relayed(&st, &pair(0)));
         assert!(IceAgent::relayed(&st, &pair(1)));
     }
