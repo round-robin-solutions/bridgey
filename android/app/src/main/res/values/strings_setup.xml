@@ -48,6 +48,11 @@
     <string name="perm_continue">Continue</string>
     <string name="perm_notification_access_name">Notification access</string>
     <string name="perm_notification_access_why">Shows your phone\'s notifications and calls on your Mac.</string>
+    <string name="perm_notification_access_why_restricted">Shows your phone\'s notifications and calls on your Mac. On Android 13 and later, an app installed from a file or a browser may need Allow restricted settings in App info first.</string>
+    <string name="restricted_hint_title">Android may be blocking this</string>
+    <string name="restricted_hint_body">On Android 13 and later, an app installed from a file or a browser cannot turn on %1$s until you allow restricted settings.</string>
+    <string name="restricted_hint_steps">1. Tap Open App info.\n2. Tap the three dots at the top right, then Allow restricted settings.\n3. Come back here and tap Allow again.</string>
+    <string name="restricted_hint_open">Open App info</string>
     <string name="perm_notification_access_without">No phone notifications, call alerts or codes on the Mac.</string>
     <string name="perm_post_notifications_name">Notifications</string>
     <string name="perm_post_notifications_why">Lets Bridgey show transfers, find-my-phone, call prompts and screen sharing.</string>
@@ -160,15 +165,21 @@
     <string name="oem_title">Keep Bridgey running on %1$s</string>
     <string name="oem_intro">This phone stops apps in the background beyond Android\'s own battery settings. Change these once, and check them again after a system update.</string>
     <string name="oem_source">Steps from dontkillmyapp.com</string>
+    <string name="oem_intro_pixel">Android can limit or pause an app you have not opened for a while. Change these once, and check them again after a system update.</string>
+    <string name="oem_source_pixel">Steps from Pixel Phone Help</string>
     <string name="oem_vendor_oneplus">OnePlus</string>
     <string name="oem_vendor_coloros">Oppo and Realme (ColorOS)</string>
     <string name="oem_vendor_xiaomi">Xiaomi, Redmi and Poco (HyperOS and MIUI)</string>
     <string name="oem_vendor_samsung">Samsung (One UI)</string>
     <string name="oem_vendor_vivo">Vivo and iQOO</string>
+    <string name="oem_vendor_pixel">Google Pixel</string>
     <string name="oem_step_auto_start">Auto-start</string>
     <string name="oem_step_background">Background activity</string>
     <string name="oem_step_battery">Battery optimisation</string>
     <string name="oem_step_never_sleeping">Never sleeping apps</string>
+    <string name="oem_step_app_battery_usage">App battery usage</string>
+    <string name="oem_step_adaptive_battery">Adaptive Battery</string>
+    <string name="oem_step_pause_if_unused">Pause app activity if unused</string>
     <string name="oem_oneplus_auto_start">Settings, Apps, Auto launch: turn on Bridgey.</string>
     <string name="oem_oneplus_background">App info, Battery usage: allow background activity.</string>
     <string name="oem_oneplus_battery">Battery, Battery optimisation: choose Don\'t optimise for Bridgey. Under Advanced optimisation, turn off Deep optimisation and Sleep standby optimisation.</string>
@@ -184,6 +195,9 @@
     <string name="oem_vivo_auto_start">i Manager, App manager, Autostart manager: turn on Bridgey.</string>
     <string name="oem_vivo_background">Battery, Background power consumption: allow Bridgey.</string>
     <string name="oem_vivo_battery">App info, Battery: choose Don\'t restrict background activity.</string>
+    <string name="oem_pixel_app_battery_usage">Settings, Apps, Bridgey, App battery usage: tap Allow background usage, then choose Unrestricted.</string>
+    <string name="oem_pixel_adaptive_battery">Settings, Battery, Battery Saver, Adaptive Battery. Unrestricted already keeps Bridgey out of it, so it can stay on. If notifications still arrive late, turn it off.</string>
+    <string name="oem_pixel_pause_if_unused">Settings, Apps, Bridgey, Unused app settings: turn off Pause app activity if unused. Some versions call it Manage app if unused.</string>
 
     <!-- Settings > About -->
     <string name="obtainium_title">Add to Obtainium</string>

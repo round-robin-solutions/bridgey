@@ -34,6 +34,29 @@ class FolderSettingsTest {
     }
 
     @Test
+    fun hiddenAndSystemFilesAreOffByDefaultLikeTheMac() {
+        val state = BridgeySettings(context, "Phone").state.value
+        assertFalse(state.folderIncludeHidden)
+        assertFalse(state.folderIncludeSystem)
+        assertEquals(dev.bridgey.android.folders.FolderScanOptions(includeHidden = false, includeSystem = false), state.folderScanOptions)
+    }
+
+    @Test
+    fun hiddenAndSystemChoicesPersistAndReachTheScanOptions() {
+        val settings = BridgeySettings(context, "Phone")
+        settings.setFolderIncludeHidden(true)
+        assertEquals(dev.bridgey.android.folders.FolderScanOptions(includeHidden = true, includeSystem = false), settings.state.value.folderScanOptions)
+        settings.setFolderIncludeSystem(true)
+        val reloaded = BridgeySettings(context, "Phone").state.value
+        assertTrue(reloaded.folderIncludeHidden)
+        assertTrue(reloaded.folderIncludeSystem)
+        assertEquals(dev.bridgey.android.folders.FolderScanOptions(includeHidden = true, includeSystem = true), reloaded.folderScanOptions)
+        settings.setFolderIncludeHidden(false)
+        assertFalse(BridgeySettings(context, "Phone").state.value.folderIncludeHidden)
+        assertTrue(BridgeySettings(context, "Phone").state.value.folderIncludeSystem)
+    }
+
+    @Test
     fun choicesPersistAndRecentDestinationsStayShortAndUnique() {
         val settings = BridgeySettings(context, "Phone")
         settings.setFolderMode(DestinationMode.FIXED)

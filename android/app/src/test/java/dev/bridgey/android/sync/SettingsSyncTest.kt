@@ -171,6 +171,34 @@ class SettingsSyncTest {
         assertEquals(4, net.kinds().size)
     }
 
+    @Test fun hiddenAndSystemFileChoicesSyncUnderTheDocumentedKeys() {
+        assertEquals("files.folder_include_hidden", SyncKey.FOLDER_INCLUDE_HIDDEN.key)
+        assertEquals("files.folder_include_system", SyncKey.FOLDER_INCLUDE_SYSTEM.key)
+        assertEquals(false, SyncKey.FOLDER_INCLUDE_HIDDEN.default)
+        assertEquals(false, SyncKey.FOLDER_INCLUDE_SYSTEM.default)
+        // The Mac's call policy is a Mac-only setting: no key carries it.
+        assertTrue(SyncKey.entries.none { it.key.contains("other_apps") || it.key.contains("otherApps") })
+        val (net, phone, mac) = pair()
+        net.link(phone, mac)
+        net.pump()
+        now = 1_000
+        phone.edit(SyncKey.FOLDER_INCLUDE_HIDDEN, true)
+        now = 2_000
+        mac.edit(SyncKey.FOLDER_INCLUDE_SYSTEM, true)
+        net.pump()
+        assertEquals(true, mac[SyncKey.FOLDER_INCLUDE_HIDDEN])
+        assertEquals(true, phone[SyncKey.FOLDER_INCLUDE_SYSTEM])
+        assertEquals(phone.sync.record(SyncKey.FOLDER_INCLUDE_HIDDEN), mac.sync.record(SyncKey.FOLDER_INCLUDE_HIDDEN))
+        assertEquals(phone.sync.record(SyncKey.FOLDER_INCLUDE_SYSTEM), mac.sync.record(SyncKey.FOLDER_INCLUDE_SYSTEM))
+        // They share nothing that needs a permission, so no device is told to allow anything.
+        assertTrue(phone.turnedOn.isEmpty() && mac.turnedOn.isEmpty())
+        // Turning one off on the Mac comes back to the phone.
+        now = 3_000
+        mac.edit(SyncKey.FOLDER_INCLUDE_HIDDEN, false)
+        net.pump()
+        assertEquals(false, phone[SyncKey.FOLDER_INCLUDE_HIDDEN])
+    }
+
     @Test fun aLiveChangeAppliesOnTheOtherDeviceAndIsNeverSentBack() {
         val (net, phone, mac) = pair()
         net.link(phone, mac)
@@ -752,7 +780,7 @@ class SettingsSyncTest {
         val detail = SyncDetail.encode(changes)
         assertEquals("folder_destination=2,reduce_motion=0,calls=1", detail)
         assertEquals(listOf(changes[1], changes[0], changes[2]), SyncDetail.decode(detail))
-        assertEquals(25, SyncDetail.decode(SyncDetail.encode(SyncKey.entries.map { SyncChange(it, it.default) })).size)
+        assertEquals(27, SyncDetail.decode(SyncDetail.encode(SyncKey.entries.map { SyncChange(it, it.default) })).size)
         assertTrue(SyncDetail.decode("calls=1,evil text").isEmpty())
     }
 }

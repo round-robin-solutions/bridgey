@@ -87,6 +87,9 @@ final class BridgeySettings: ObservableObject {
     /// Settings > Calls > Ring for incoming calls: a soft ring repeats until the call is answered,
     /// declined, hidden or ends. On by default.
     @Published private(set) var ringForIncomingCalls: Bool
+    /// Settings > Calls > When another app asks to call (tel: links, the Call with Bridgey Service).
+    /// Ask every time by default; calls started inside Bridgey are not affected.
+    @Published private(set) var otherAppCallPolicy: MacOtherAppCallPolicy
     /// Settings > General > Reduce motion: cross-fades only, like the system setting.
     @Published private(set) var reduceMotion: Bool
     /// Automatic clipboard for every device. On by default, like Universal Clipboard.
@@ -139,6 +142,7 @@ final class BridgeySettings: ObservableObject {
         showActivityPreviews = storedDefaults.object(forKey: "settings.activity.previews") as? Bool ?? true
         reduceMotion = storedDefaults.bool(forKey: "settings.reduceMotion")
         ringForIncomingCalls = storedDefaults.object(forKey: "settings.calls.ring") as? Bool ?? true
+        otherAppCallPolicy = MacOtherAppCallPolicy(rawValue: storedDefaults.string(forKey: "settings.calls.otherApps") ?? "") ?? .ask
         let logging = loggingPolicy { key, fallback in storedDefaults.object(forKey: key) as? Bool ?? fallback }
         self.logging = logging
         BridgeyLog.policy = logging
@@ -282,6 +286,11 @@ final class BridgeySettings: ObservableObject {
     func setRingForIncomingCalls(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.calls.ring")
         ringForIncomingCalls = enabled
+    }
+
+    func setOtherAppCallPolicy(_ policy: MacOtherAppCallPolicy) {
+        defaults.set(policy.rawValue, forKey: "settings.calls.otherApps")
+        otherAppCallPolicy = policy
     }
 
     func setReduceMotion(_ enabled: Bool) {

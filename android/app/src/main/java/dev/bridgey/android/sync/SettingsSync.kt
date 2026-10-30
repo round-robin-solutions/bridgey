@@ -75,6 +75,9 @@ enum class SyncKey(val key: String, val token: String, val default: Any, val val
     AUTO_UPDATE_ALL("updates.auto_all", "auto_update_all", false),
     /** Connect away from home (connect_draft1): both ends need it on, so it follows the other devices. */
     CONNECT_AWAY("connect.away", "connect_away", false, feature = true),
+    /** Appended, so the order of the earlier keys never changes. The same two switches as the Mac's Files card. */
+    FOLDER_INCLUDE_HIDDEN("files.folder_include_hidden", "folder_include_hidden", false),
+    FOLDER_INCLUDE_SYSTEM("files.folder_include_system", "folder_include_system", false),
     ;
 
     fun accepts(value: Any?): Boolean = if (values != null) value is String && value in values else value is Boolean

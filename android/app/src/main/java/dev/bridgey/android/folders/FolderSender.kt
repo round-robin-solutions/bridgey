@@ -41,6 +41,8 @@ class FolderSender(
     private val clock: () -> Long = System::currentTimeMillis,
     private val log: (String) -> Unit = {},
     private val makeId: () -> String = { UUID.randomUUID().toString() },
+    /** Settings > Files > Include hidden files and Include system files, read when a folder or download is scanned. */
+    private val scanOptions: () -> FolderScanOptions = { FolderScanOptions() },
 ) {
     private enum class State { PREPARING, QUEUED, ACTIVE, INTERRUPTED, DONE }
 
@@ -94,7 +96,7 @@ class FolderSender(
         }
         emit(item, force = true)
         prepare {
-            val scan = FolderScanner.scanFolder(root, cancelled = { item.cancelled })
+            val scan = FolderScanner.scanFolder(root, scanOptions(), cancelled = { item.cancelled })
             prepared(item, scan)
         }
         return item.id
@@ -105,7 +107,7 @@ class FolderSender(
      * then sent `into` the folder the device chose. Throws [DownloadRefused] with a places.error code.
      */
     fun download(deviceId: String, deviceName: String, requestId: String, roots: List<SendNode>): DownloadTicket {
-        val scan = FolderScanner.scanItems(roots)
+        val scan = FolderScanner.scanItems(roots, scanOptions())
         scan.problem?.let { throw DownloadRefused(if (it == FolderCodes.UNREADABLE) FolderCodes.PLACE_UNAVAILABLE else it) }
         val item = synchronized(this) {
             Item(makeId(), deviceId, deviceName, scan.rootName, download = true, downloadRequestId = requestId, releaseTree = null, queuedAt = clock())

@@ -215,7 +215,8 @@ sync mark, so it is clear they change the other device too.
 | Default folder | Place picker (default `Download/Bridgey`) | Existing "Received files" folder | No |
 | When a folder already exists | Ask each time / Merge / Replace files / Save as new folder | Same | Yes |
 | Places | List: label, storage, "Access lost" state; **Add folder…**; **Remove**; rename the label; `Download/Bridgey` row with **Allow full access** until granted | Not in the first build (comes with phone to Mac) | No |
-| Include hidden files when sending folders | Later (phone to Mac) | Switch, off | No |
+| Include hidden files when sending folders | Switch, off (0.10) | Switch, off | No |
+| Include system files when sending folders | Switch, off (0.10) | Switch, off | No |
 
 **General:** "Sync settings with paired devices" (on). Detail: "Keeps folder, clipboard,
 preview and motion preferences the same on your devices. Names, folders and update channels
@@ -914,6 +915,13 @@ the Received files folder plus folders added in Settings (bookmarks). Journal in
   launch at login, update channel, every feature switch and per-device feature override,
   notification app filters, phone links, shortcuts, the Mac's media player, "Include hidden
   files", the last destination, and the sync switches themselves.
+- "Include hidden files" and "Include system files" are the same two switches on both devices (bool,
+  default off, same names and help text; the phone applies them to folders it sends and to folders a Mac
+  downloads). They are stored as `settings.folders.includeHidden` and `settings.folders.includeSystem` on
+  the Mac and `files.folder_include_hidden` and `files.folder_include_system` on the phone. They sync
+  under those two keys (bool, default false, no migration), appended to schema 1 after
+  `updates.auto_all` and `connect.away` (0.10.0-rr.1); a build without them skips the keys. The Mac's call policy for other
+  apps (`settings.calls.otherApps`) is Mac-only and has no key.
 - The `clipboard.*` keys are reserved now; a platform implements them once automatic clipboard
   ships there.
 
@@ -964,7 +972,7 @@ T3 Code works" (a change made in Settings is saved to every connected device tha
 device that was offline or still differs shows it, with Apply to all). That replaces the earlier
 rule that sync never turns a feature on.
 
-**What syncs.** An allowlist of 24 schema 1 keys, the same on both platforms. A device that has no
+**What syncs.** An allowlist of 27 schema 1 keys, the same on both platforms. A device that has no
 such setting stores the record and relays it, so a phone carries a Mac-only setting between two
 Macs.
 
@@ -972,6 +980,8 @@ Macs.
 | --- | --- | --- | --- |
 | `files.folder_destination` | Files > Folders sent to this phone | Files > Folders from the phone (see below) | |
 | `files.folder_conflict` | Files > When a folder already exists | Same | |
+| `files.folder_include_hidden` | Files > Include hidden files when sending folders | Files > Include hidden files when sending folders | |
+| `files.folder_include_system` | Files > Include system files when sending folders | Files > Include system files when sending folders | |
 | `activity.previews` | Privacy > Show previews in activity | Privacy > Show previews | |
 | `display.reduce_motion` | General > Reduce motion | General > Reduce motion | |
 | `feature.clipboard`, `feature.files`, `feature.battery`, `feature.find_device`, `feature.ping`, `feature.links`, `feature.media` | The feature's switch | The feature's switch | |

@@ -99,11 +99,12 @@ final class SettingsSyncTests: XCTestCase {
         XCTAssertEqual(SettingsSyncDetail.detail("folder_destination=1,auto_clipboard=1"), "Folders: ask where to save, Automatic clipboard turned on")
         let all = SettingsSyncDetail.encode(Dictionary(uniqueKeysWithValues: SyncKey.allCases.map { ($0, $0.defaultValue) }))
         XCTAssertNotNil(SettingsSyncDetail.clean(all))
-        XCTAssertEqual(SettingsSyncDetail.decode(all).count, 25)
-        XCTAssertEqual(SyncKey.allCases.count, 25)
-        XCTAssertEqual(SyncKey.allCases.suffix(4).map(\.token), ["screen", "sms", "auto_update_all", "connect_away"])
+        XCTAssertEqual(SettingsSyncDetail.decode(all).count, 27)
+        XCTAssertEqual(SyncKey.allCases.count, 27)
+        XCTAssertEqual(SyncKey.allCases.suffix(6).map(\.token),
+                       ["screen", "sms", "auto_update_all", "connect_away", "folder_include_hidden", "folder_include_system"])
         // Update all devices automatically is a setting on the Mac too; Photos for the Mac is only stored and relayed.
-        XCTAssertEqual(SyncKey.listedOnMac.count, 24)
+        XCTAssertEqual(SyncKey.listedOnMac.count, 26)
         XCTAssertTrue(SyncKey.allCases.allSatisfy { $0.token.count <= 24 })
         XCTAssertNil(SettingsSyncDetail.clean("reduce motion on"))
         let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
@@ -179,6 +180,38 @@ final class SettingsSyncTests: XCTestCase {
         XCTAssertEqual(net.values[macA]![.featureCalls], .bool(true))
         XCTAssertEqual(net.controllers[macA]!.status(.featureCalls).differentOn, [])
         XCTAssertEqual(net.controllers[phone]!.status(.featureCalls).differentOn, [])
+    }
+
+    /// "Include hidden files" and "Include system files" are the phone's two switches under the documented keys,
+    /// and the Mac-only call policy has no key.
+    func testHiddenAndSystemFileChoicesSyncUnderTheDocumentedKeys() {
+        XCTAssertEqual(SyncKey.folderIncludeHidden.rawValue, "files.folder_include_hidden")
+        XCTAssertEqual(SyncKey.folderIncludeSystem.rawValue, "files.folder_include_system")
+        XCTAssertEqual(SyncKey.folderIncludeHidden.defaultValue, .bool(false))
+        XCTAssertEqual(SyncKey.folderIncludeSystem.defaultValue, .bool(false))
+        XCTAssertFalse(SyncKey.folderIncludeHidden.sharesWhenOn || SyncKey.folderIncludeSystem.sharesWhenOn)
+        XCTAssertNil(SyncKey.folderIncludeHidden.feature)
+        XCTAssertTrue(SyncKey.allCases.allSatisfy { !$0.rawValue.lowercased().contains("otherapps") && !$0.rawValue.contains("other_apps") })
+        XCTAssertEqual(SyncKey.folderIncludeHidden.name, "Hidden files in folders")
+        XCTAssertEqual(SettingsSyncDetail.detail("folder_include_hidden=1,folder_include_system=0"),
+                       "Hidden files in folders turned on, System files in folders turned off")
+        // A Mac that stored the switches before sync stamps them as chosen; one that never did keeps the default.
+        let stored = settingsSyncStoredValues(["settings.folders.includeHidden": true, "settings.folders.includeSystem": false])
+        XCTAssertEqual(stored[.folderIncludeHidden], .bool(true))
+        XCTAssertEqual(stored[.folderIncludeSystem], .bool(false))
+        XCTAssertNil(settingsSyncStoredValues(["settings.calls.otherApps": "allow"])[.folderIncludeHidden])
+
+        let net = Net(self)
+        net.add(phone, clock: 1000); net.add(macA, clock: 1200)
+        net.connect(phone, macA)
+        net.deliverAll()
+        net.values[phone]![.folderIncludeHidden] = .bool(true)
+        net.values[macA]![.folderIncludeSystem] = .bool(true)
+        net.controllers[phone]!.localChanged(); net.controllers[phone]!.flush()
+        net.controllers[macA]!.localChanged(); net.controllers[macA]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(net.values[macA]![.folderIncludeHidden], .bool(true))
+        XCTAssertEqual(net.values[phone]![.folderIncludeSystem], .bool(true))
     }
 
     /// Section 8.2 with live updates: the later of two edits made at the same moment wins on both, after one

@@ -101,6 +101,21 @@ class SettingsSyncMigrationTest {
     }
 
     @Test
+    fun hiddenAndSystemFileChoicesAreStampedOnlyWhenThePersonMadeThem() {
+        MigrationFixtures.installSharedPrefs(context, 13)
+        val (fresh, _) = start()
+        assertEquals(unchosen(false), fresh.record(SyncKey.FOLDER_INCLUDE_HIDDEN))
+        assertEquals(unchosen(false), fresh.record(SyncKey.FOLDER_INCLUDE_SYSTEM))
+        // The phone's own switches are the ones behind the keys, so a change there is a stamped edit.
+        val (sync, settings) = start()
+        settings.setFolderIncludeHidden(true)
+        sync.localChanged()
+        assertEquals(true, sync.record(SyncKey.FOLDER_INCLUDE_HIDDEN)!!.value)
+        assertEquals(1L, sync.record(SyncKey.FOLDER_INCLUDE_HIDDEN)!!.version)
+        assertEquals(unchosen(false), sync.record(SyncKey.FOLDER_INCLUDE_SYSTEM))
+    }
+
+    @Test
     fun theStampHappensOnceAndSurvivesARestart() {
         MigrationFixtures.installSharedPrefs(context, 13)
         start()

@@ -352,6 +352,11 @@
 "settings.media.detail" = "macOS запросит доступ к автоматизации плеера. Сначала откройте плеер на этом Mac.";
 "settings.calls.ring" = "Сигнал при входящих звонках";
 "settings.calls.ring.detail" = "Тихий сигнал повторяется, пока вы не ответите, не отклоните или не скроете звонок.";
+"settings.calls.otherApps" = "Когда другое приложение просит позвонить";
+"settings.calls.otherApps.detail" = "Касается ссылок tel: и пункта Call with Bridgey RR в меню «Службы». Звонки, начатые в самом Bridgey, выполняются без вопросов.";
+"settings.calls.otherApps.ask" = "Спрашивать каждый раз";
+"settings.calls.otherApps.callNow" = "Звонить сразу";
+"settings.calls.otherApps.refuse" = "Не разрешать";
 "settings.media.pauseForCalls" = "Ставить медиа на паузу во время звонков";
 "settings.media.pauseForCalls.detail" = "После звонка воспроизведение остаётся на паузе; продолжите, когда будете готовы.";
 "settings.media.player" = "Плеер";
@@ -1177,6 +1182,8 @@
 "call.confirm.title.anyPhone" = "Позвонить на %@ с вашего телефона?";
 "call.confirm.detail" = "Другое приложение попросило Bridgey позвонить на этот номер.";
 "call.confirm.call" = "Позвонить";
+"call.confirm.dontAsk" = "Больше не спрашивать";
+"call.refused" = "Звонки из других приложений выключены в Настройках, раздел «Звонки»";
 
 /* Update all (UpdateAll.swift) */
 "updateAll.thisMac" = "Этот Mac";
@@ -1532,3 +1539,5 @@
 "sync.name.autoUpdateAll" = "Обновлять все устройства автоматически";
 "connect.route.tailscale" = "Tailscale";
 "connect.status.unreachable" = "Включено, но сервис Round Robin недоступен. Одна сеть Wi-Fi и частные сети работают; Bridgey продолжает попытки.";
+"sync.name.folderHidden" = "Скрытые файлы в папках";
+"sync.name.folderSystem" = "Системные файлы в папках";

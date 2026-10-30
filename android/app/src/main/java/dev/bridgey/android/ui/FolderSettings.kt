@@ -41,7 +41,7 @@ import dev.bridgey.android.folders.DestinationMode
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import dev.bridgey.android.ui.theme.BridgeyType
 
-/** Settings › Files rows for folders (3.6), after the File transfer switch. Phone only; not synced yet. */
+/** Settings › Files rows for folders (3.6), after the File transfer switch. Folder destination, conflict policy and the two hidden/system switches sync. */
 data class FolderSettingsState(
     val mode: DestinationMode = DestinationMode.SENDER_PICKS,
     val policy: ConflictPolicy = ConflictPolicy.ASK,
@@ -49,6 +49,10 @@ data class FolderSettingsState(
     /** Places the default folder can be: Download/Bridgey first. */
     val places: List<SheetPlace> = listOf(SheetPlace(dev.bridgey.android.folders.DEFAULT_PLACE_ID, "Download/Bridgey", true, isDefault = true)),
     val allowReplace: Boolean = false,
+    /** "Include hidden files when sending folders": off by default, as on the Mac. */
+    val includeHidden: Boolean = false,
+    /** "Include system files when sending folders": off by default, as on the Mac. */
+    val includeSystem: Boolean = false,
     /** "Let other devices browse this phone": on by default. */
     val allowBrowse: Boolean = true,
     /** Android 10 or newer (receiving folders, like files, needs scoped storage). */
@@ -65,6 +69,8 @@ class FolderSettingsActions(
     val setPolicy: (ConflictPolicy) -> Unit = {},
     val setDefaultPlace: (String) -> Unit = {},
     val setAllowReplace: (Boolean) -> Unit = {},
+    val setIncludeHidden: (Boolean) -> Unit = {},
+    val setIncludeSystem: (Boolean) -> Unit = {},
     val setAllowBrowse: (Boolean) -> Unit = {},
     val openPlaces: () -> Unit = {},
 )
@@ -121,6 +127,22 @@ internal fun GroupScope.folderRows(
             BridgeyIcons.Sync, if (state.allowReplace) Tint.BLUE else Tint.NEUTRAL, state.allowReplace, actions.setAllowReplace,
         )
     }
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.settings_folder_hidden), stringResource(R.string.settings_folder_hidden_detail),
+            BridgeyIcons.Description, if (state.includeHidden) Tint.BLUE else Tint.NEUTRAL, state.includeHidden, actions.setIncludeHidden,
+            synced = sync.syncs(dev.bridgey.android.sync.SyncKey.FOLDER_INCLUDE_HIDDEN),
+        )
+    }
+    syncRows(dev.bridgey.android.sync.SyncKey.FOLDER_INCLUDE_HIDDEN, sync, syncActions)
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.settings_folder_system), stringResource(R.string.settings_folder_system_detail),
+            BridgeyIcons.Settings, if (state.includeSystem) Tint.BLUE else Tint.NEUTRAL, state.includeSystem, actions.setIncludeSystem,
+            synced = sync.syncs(dev.bridgey.android.sync.SyncKey.FOLDER_INCLUDE_SYSTEM),
+        )
+    }
+    syncRows(dev.bridgey.android.sync.SyncKey.FOLDER_INCLUDE_SYSTEM, sync, syncActions)
     row { shape ->
         val detail = if (state.addedPlaces == 0) stringResource(R.string.settings_places_detail_none)
         else pluralStringResource(R.plurals.settings_places_detail, state.addedPlaces, state.addedPlaces)

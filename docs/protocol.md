@@ -1327,8 +1327,9 @@ one; an unsupported schema is answered `settings.error` `{schema, code, maxSchem
 (`unsupported_schema`), and a payload that fails validation `invalid_message`.
 
 As built in v0.10 ([section 8.4](folders-and-settings-sync.md#84-as-built-v010-2026-10-27)):
-24 keys sync, feature switches included (`feature.<key>`, `clipboard.automatic`,
-`clipboard.files`, `focus.share`, `focus.follow`, `codes.enabled`) next to the four preferences;
+26 keys sync, feature switches included (`feature.<key>`, `clipboard.automatic`,
+`clipboard.files`, `focus.share`, `focus.follow`, `codes.enabled`) next to the four preferences and
+the two folder switches `files.folder_include_hidden` and `files.folder_include_system`;
 per-device grants and overrides, permissions, pairing, paths and the file access guards never
 sync. Live updates apply when they win by the rule above and are relayed to the device's other
 peers, so a phone with two Macs carries one Mac's change to the other. A snapshot never overwrites
