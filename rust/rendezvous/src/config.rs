@@ -51,7 +51,7 @@ impl Default for Limits {
             max_ids: 64,
             sockets_per_node: 3,
             signals_per_minute: 120,
-            grants_per_hour: 30,
+            grants_per_hour: 120,
             connections_per_ip: 32,
             max_connections: 20_000,
             pow_bits: 0,

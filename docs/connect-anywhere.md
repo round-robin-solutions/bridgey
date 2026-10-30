@@ -66,6 +66,59 @@ the network check, port mapping, network tags in `connect.addresses`, remote pai
 connection stats, and the mobile data question for large transfers (it belongs to the transfer
 engine).
 
+### Beta fit (2026-10-30)
+
+Rahul asked for the feature urgently on 2026-10-30. The branch was merged with rr/main (protocol 2
+pairing, settings sync, calmer reconnects) and fitted to it:
+
+- **Protocol 2 on tunnels.** A tunnel offer must come from a trusted device, carry
+  `protocolVersion` 2 or later and no pairing commitment; anything else closes the tunnel
+  (`tunnel_untrusted`) without a prompt. A session on a tunnel needs a trusted device that confirms
+  without a prompt and an envelope key, so every frame carries its `bridgey-envelope-v2` tag and
+  replay check. An inbound tunnel whose offer names a different device than the one the core
+  signalled is closed. Pairing and "Allow pairing" stay on the local network.
+- **No redial loops.** The app tells the core when a tunnel session is authenticated. A tunnel that
+  closes without one backs off (2 s base, 120 s cap); unauthenticated tunnels close after 30 s, and
+  inbound tunnels are capped (16 waiting, 3 per source address). Only the lower device ID runs the
+  minute upgrade race, so upgrades no longer lose the duplicate rule on the other side.
+- **Fast relay takeover.** The away back-off and moved-address skipping apply to LAN dials only. A
+  peer the control service reports online is raced at once, and the ICE attempt joins a race that
+  started before the control service was up instead of the race failing first.
+- **Settings sync.** "Connect away from home" syncs as a feature switch (`connect.away`, after
+  rr/main's keys); older builds skip it.
+- **Route on the device row.** "Same Wi-Fi", "Relay (Singapore)", "Tailscale" and the other route
+  names from section 4 ("Direct", "Private network").
+- **Service out of reach.** After two failed connections in a row to the control service the
+  settings say so ("On, but the Round Robin service can't be reached. Same Wi-Fi and private
+  networks still work; Bridgey keeps trying."). The
+  first failure retries after 500 ms, because Android can refuse the network to a process it has
+  just started.
+- **Keep-alives.** Tunnel heartbeats every 25 s (75 s timeout), ICE checks every 15 s once
+  connected, the presence socket's adaptive keep-alive (60 s up to 270 s).
+- **Test hooks.** Debug Mac builds with `BridgeyTestInstance` in Info.plist run as a separate
+  instance (own bundle ID, support folder and port) driven by files in `/tmp/<bundle id>-control/`.
+  Release builds compile none of it.
+
+Live test through the public servers (connect.roundrobin.in and relay-sg; Mac test instance on the
+personal Mac, signed release APK on the emulator, LAN blocked after pairing):
+
+| Measure | Result |
+| --- | --- |
+| Failover, LAN session to relay session | 3.4 s from blocking the LAN (the phone saw the close at 0.8 s) |
+| Over the relay | clipboard Mac to phone, a notification phone to Mac, a 300,041-byte file Mac to phone in about 1.8 s (SHA-256 matches) |
+| Cold start to a relay session | 3.4, 4.2 and 3.5 s from the app process starting to the authenticated relay session (10.8 s before ICE could join a race in progress) |
+| What the relay saw | 4,022 packets on rb-vps; no test marker, device name, device ID or message kind |
+
+Found in the live test and left for later:
+
+- **A killed app loses that relay for up to 10 minutes.** The core shares one UDP socket, so a process
+  that was killed (not quit) leaves its allocation on the relay, and the next process on the same NAT
+  mapping gets 437 (allocation mismatch) until it expires. The core then uses the other relay (in
+  the test, Strasbourg at about 330 ms instead of Singapore at 160 ms). A quit releases it.
+- **Relay grants were rate limited** at 30 an hour per node; repeated app restarts on both test
+  devices ran out, and with neither side holding a relay the emulator behind the Mac's NAT could not
+  connect. The limit is 120 now (`server/rendezvous/bridgey-rendezvous.toml`).
+
 ## 1. Summary
 
 Connect anywhere lets two paired devices reach each other from any network, with no VPN on the
@@ -528,7 +581,7 @@ These phone timings are estimates.
 | `presence` | S to C | `rdv`, `online` | Debounced 2 s |
 | `signal` | C to S to C | `to`/`rdv`, `side`, `sid` (base64url 16 bytes), `body` (sealed) | Body 6 KiB; 120 a minute per node |
 | `undeliverable` | S to C | `rdv`, `sid` | The other side is offline |
-| `relay.request` | C to S | `rdv`, `sid`, `side`, `rtts` (ms per relay, for example `{"bom":31,"sin":72,"sxb":139,"cf":22}`), `need` (`udp` or `tls443`), optional `estBytes`, `exclude` | 30 grants an hour per node |
+| `relay.request` | C to S | `rdv`, `sid`, `side`, `rtts` (ms per relay, for example `{"bom":31,"sin":72,"sxb":139,"cf":22}`), `need` (`udp` or `tls443`), optional `estBytes`, `exclude` | 120 grants an hour per node (raised from 30 on 2026-10-30: each ICE session takes one per side) |
 | `relay.claim` | C to S | `rdv`, `sid`, `side` | The other side picks up its grant; it must come from a socket registered for `rdv` |
 | `relay.grant` | S to C | `sid`, `relay` (see below) | |
 | `relay.denied` | S to C | `sid`, `code` (`pool_exhausted`, `node_capped`, `rate_limited`), `retryAfterMs` | |

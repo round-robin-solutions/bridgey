@@ -12,7 +12,9 @@ environment = "production"
 max_ids = 64
 sockets_per_node = 3
 signals_per_minute = 120
-grants_per_hour = 30
+# Every ICE session takes one grant per side (a claim counts too), and a Mac answers for all its phones;
+# 30 ran out in an hour of app restarts during the 2026-10-30 live test.
+grants_per_hour = 120
 connections_per_ip = 32
 max_connections = 20000
 pow_bits = 0
