@@ -1048,7 +1048,8 @@
     <string name="speed_failed_busy">The Mac is already running a speed test.</string>
     <string name="speed_failed_disconnected">The Mac disconnected during the test.</string>
     <string name="speed_failed_no_answer">The Mac did not answer. Make sure Bridgey is running there and try again.</string>
-    <string name="speed_failed">The test stopped because data stopped arriving. Try again closer to the router.</string>
+    <string name="speed_failed_unavailable">Could not reach the Mac. Check that it is connected and try again.</string>
+    <string name="speed_failed">The test stopped because data stopped arriving. Try again; on Wi-Fi, move closer to the router.</string>
     <string name="speed_round_trip_both">%1$.0f ms idle, %2$.0f ms during the test</string>
     <string name="speed_round_trip_idle">%1$.0f ms</string>
     <string name="speed_round_trip_loaded">%1$.0f ms during the test</string>

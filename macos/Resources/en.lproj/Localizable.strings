@@ -1474,11 +1474,12 @@
 "speed.route.unknown" = "Route: not Wi-Fi or Ethernet on both sides (for example a cable, a VPN or an emulator), so there is no estimate to compare with.";
 "speed.verdict.ok" = "The test reached the estimate.";
 "speed.verdict.slow" = "The test was slower than the estimate.";
-"speed.failed" = "The test stopped because data stopped arriving. Try again closer to the router.";
+"speed.failed" = "The test stopped because data stopped arriving. Try again; on Wi-Fi, move closer to the router.";
 "speed.failed.busy" = "The phone is already running a speed test.";
 "speed.failed.cancelled" = "Stopped.";
 "speed.failed.disconnected" = "The phone disconnected during the test.";
 "speed.failed.noAnswer" = "The phone did not answer. Open Bridgey on the phone and try again.";
+"speed.failed.unavailable" = "Could not reach the phone. Check that it is connected and try again.";
 "speed.link.band" = "%@ GHz";
 "speed.link.ethernet" = "Ethernet";
 "speed.link.hotspot" = "Sharing its hotspot";

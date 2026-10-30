@@ -193,52 +193,90 @@ object FolderScanner {
     }
 }
 
-/** Reads every file once with SHA-256. A file that cannot be read is dropped and counted; a changed size keeps what was read. */
+/**
+ * Reads every file once with SHA-256. A file that cannot be read is dropped and counted; a changed size keeps what was
+ * read. Files are hashed [THREADS] at a time (live test 2026-10-30: one at a time, preparing a Phone files download of
+ * 100 photos of 5 MB took 8.4 s on the emulator before the first byte went out, while four readers through shared
+ * storage take about half the time of one). The result keeps manifest order.
+ */
 object FolderHashing {
     const val READ_SIZE = 256 * 1024
+    const val THREADS = 4
 
-    /** Null when cancelled. [progress] gets bytes hashed so far and the total. */
-    fun hash(scan: FolderScanResult, progress: (Long, Long) -> Unit = { _, _ -> }, cancelled: () -> Boolean = { false }): FolderScanResult? {
-        val entries = ArrayList<ManifestEntry>(scan.entries.size)
-        val nodes = ArrayList<SendNode>(scan.nodes.size)
-        var unreadable = 0
-        var done = 0L
+    private class Hashed(val size: Long, val sha256: String)
+
+    /** Null when cancelled. [progress] gets bytes hashed so far and the total (from any of the hashing threads). */
+    fun hash(
+        scan: FolderScanResult,
+        progress: (Long, Long) -> Unit = { _, _ -> },
+        cancelled: () -> Boolean = { false },
+        threads: Int = THREADS,
+    ): FolderScanResult? {
         val total = scan.totalSize.coerceAtLeast(1)
-        val buffer = ByteArray(READ_SIZE)
-        for ((entry, node) in scan.entries.zip(scan.nodes)) {
-            if (entry.isDirectory) {
-                entries += entry
-                nodes += node
-                continue
-            }
-            if (cancelled()) return null
+        val done = java.util.concurrent.atomic.AtomicLong()
+        val stop = java.util.concurrent.atomic.AtomicBoolean(false)
+        val files = scan.entries.indices.filter { !scan.entries[it].isDirectory }
+        val results = arrayOfNulls<Hashed>(scan.entries.size)
+        val next = java.util.concurrent.atomic.AtomicInteger()
+        val reportLock = Any()
+
+        fun hashOne(index: Int, buffer: ByteArray): Hashed? {
             val digest = MessageDigest.getInstance("SHA-256")
             var read = 0L
-            val ok = try {
-                node.open().use { input ->
+            return try {
+                scan.nodes[index].open().use { input ->
                     while (true) {
-                        if (cancelled()) return null
+                        if (stop.get() || cancelled()) {
+                            stop.set(true)
+                            return null
+                        }
                         val count = input.read(buffer)
                         if (count < 0) break
                         digest.update(buffer, 0, count)
                         read += count
-                        progress((done + read).coerceAtMost(total), total)
+                        val sofar = done.addAndGet(count.toLong())
+                        synchronized(reportLock) { progress(sofar.coerceAtMost(total), total) }
                         if (read > FolderLimits.MAX_FILE_SIZE) throw IOException("too large")
                     }
                 }
-                true
+                Hashed(read, java.util.Base64.getEncoder().encodeToString(digest.digest()))
             } catch (_: IOException) {
-                false
+                null
             } catch (_: SecurityException) {
-                false
+                null
             }
-            done += entry.size
-            if (!ok) {
+        }
+
+        val worker = Runnable {
+            val buffer = ByteArray(READ_SIZE)
+            while (!stop.get()) {
+                val slot = next.getAndIncrement()
+                if (slot >= files.size) break
+                results[files[slot]] = hashOne(files[slot], buffer)
+            }
+        }
+        val count = threads.coerceIn(1, files.size.coerceAtLeast(1))
+        val pool = List(count - 1) { Thread(worker, "bridgey-hash-$it").apply { start() } }
+        worker.run()
+        pool.forEach(Thread::join)
+        if (stop.get() || cancelled()) return null
+
+        val entries = ArrayList<ManifestEntry>(scan.entries.size)
+        val nodes = ArrayList<SendNode>(scan.nodes.size)
+        var unreadable = 0
+        for ((index, entry) in scan.entries.withIndex()) {
+            if (entry.isDirectory) {
+                entries += entry
+                nodes += scan.nodes[index]
+                continue
+            }
+            val hashed = results[index]
+            if (hashed == null) {
                 unreadable++
                 continue
             }
-            entries += entry.copy(size = read, sha256 = java.util.Base64.getEncoder().encodeToString(digest.digest()))
-            nodes += node
+            entries += entry.copy(size = hashed.size, sha256 = hashed.sha256)
+            nodes += scan.nodes[index]
         }
         progress(total, total)
         val skipped = scan.skipped.copy(unreadable = scan.skipped.unreadable + unreadable)

@@ -158,6 +158,7 @@ private fun failureText(reason: String?): String = stringResource(
         "busy" -> R.string.speed_failed_busy
         "disconnected" -> R.string.speed_failed_disconnected
         "noAnswer" -> R.string.speed_failed_no_answer
+        "unavailable" -> R.string.speed_failed_unavailable
         else -> R.string.speed_failed
     },
 )

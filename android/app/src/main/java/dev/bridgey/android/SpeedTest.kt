@@ -426,7 +426,15 @@ internal class SpeedTest(
     private val lock = Any()
     private var run: Run? = null
 
-    fun start(deviceId: String): Unit = synchronized(lock) {
+    /**
+     * Starts a test with [deviceId]. Called from the screen, so the first messages go out on [scope], never on the
+     * calling (main) thread: Android refuses socket writes there (NetworkOnMainThreadException).
+     */
+    fun start(deviceId: String) {
+        scope.launch { begin(deviceId) }
+    }
+
+    private fun begin(deviceId: String): Unit = synchronized(lock) {
         if (run != null) return
         val link = linkFor(deviceId) ?: return fail(null, "unavailable")
         power.acquire(HOLDER)
@@ -439,7 +447,12 @@ internal class SpeedTest(
         BridgeyLogging.i(LogCategory.FILES, "SPEED start test=${testId.take(8)}")
     }
 
-    fun cancel(): Unit = synchronized(lock) {
+    /** Stop, from the screen: like [start], the cancel goes out on [scope]. */
+    fun cancel() {
+        scope.launch { stop() }
+    }
+
+    private fun stop(): Unit = synchronized(lock) {
         val current = run ?: return
         current.link.sendOuter(SpeedKinds.CANCEL, current.testId, null)
         end(current, SpeedTestState.Phase.FAILED, "cancelled")

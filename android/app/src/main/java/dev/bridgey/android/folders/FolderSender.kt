@@ -126,7 +126,9 @@ class FolderSender(
         item.bytesTotal = scan.totalSize
         item.skipped = scan.skipped
         emit(item, force = true)
+        val hashStarted = clock()
         val hashed = FolderHashing.hash(scan, cancelled = { item.cancelled }) ?: return end(item, FolderEnd.CANCELLED, FolderCodes.CANCELLED, here = true)
+        log("FOLDER ${item.id.take(8)} hashed bytes=${scan.totalSize} ms=${clock() - hashStarted}")
         val nodes = hashed.nodes
         val plan = FolderSendPlan(item.id, hashed.rootName, hashed.entries, { index -> nodes[index].open() }, hashed.skipped,
             hashed.into, item.downloadRequestId, resume = false)

@@ -609,6 +609,7 @@ class FolderReceiveSession(
         val siblings = listings[incoming.parentId]
         try {
             var fileId = incoming.fileId
+            var published = false
             if (incoming.usesPart) {
                 val old = incoming.replaceId
                 if (old != null) {
@@ -625,11 +626,12 @@ class FolderReceiveSession(
                     }
                     fileId = renamed.getOrThrow()
                 } else {
-                    fileId = opened.rename(fileId, incoming.finalName)
+                    fileId = opened.renameAndPublish(fileId, incoming.finalName)
+                    published = true
                 }
                 siblings?.remove(caseKey(incoming.writeName))
             }
-            opened.publish(fileId)
+            if (!published) opened.publish(fileId)
             siblings?.set(caseKey(incoming.finalName), TreeNode(fileId, incoming.finalName, false))
         } catch (error: IOException) {
             return failCurrent(incoming, storageErrorCode(error), closed = true)

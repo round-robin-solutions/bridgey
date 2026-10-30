@@ -1112,7 +1112,8 @@
     <string name="speed_failed_busy">На Mac уже идёт проверка скорости.</string>
     <string name="speed_failed_disconnected">Mac отключился во время проверки.</string>
     <string name="speed_failed_no_answer">Mac не ответил. Убедитесь, что Bridgey там запущен, и попробуйте снова.</string>
-    <string name="speed_failed">Проверка остановилась: данные перестали приходить. Попробуйте ближе к роутеру.</string>
+    <string name="speed_failed_unavailable">Не удалось связаться с Mac. Проверьте подключение и попробуйте снова.</string>
+    <string name="speed_failed">Проверка остановилась: данные перестали приходить. Попробуйте снова; в Wi-Fi подойдите ближе к роутеру.</string>
     <string name="speed_round_trip_both">%1$.0f мс в покое, %2$.0f мс во время проверки</string>
     <string name="speed_round_trip_idle">%1$.0f мс</string>
     <string name="speed_round_trip_loaded">%1$.0f мс во время проверки</string>

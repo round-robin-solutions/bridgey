@@ -93,7 +93,8 @@ struct SpeedTestCard: View {
         case "busy": return L10n.text("speed.failed.busy", fallback: "The phone is already running a speed test.")
         case "disconnected": return L10n.text("speed.failed.disconnected", fallback: "The phone disconnected during the test.")
         case "noAnswer": return L10n.text("speed.failed.noAnswer", fallback: "The phone did not answer. Open Bridgey on the phone and try again.")
-        default: return L10n.text("speed.failed", fallback: "The test stopped because data stopped arriving. Try again closer to the router.")
+        case "unavailable": return L10n.text("speed.failed.unavailable", fallback: "Could not reach the phone. Check that it is connected and try again.")
+        default: return L10n.text("speed.failed", fallback: "The test stopped because data stopped arriving. Try again; on Wi-Fi, move closer to the router.")
         }
     }
 }

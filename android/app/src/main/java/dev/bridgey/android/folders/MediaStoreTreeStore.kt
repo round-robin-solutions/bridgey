@@ -122,6 +122,17 @@ class MediaStoreTreeStore(private val resolver: ContentResolver) : TreeStore {
         return id
     }
 
+    /** One update instead of two: each is a round trip to MediaProvider (live test 2026-10-30: about a quarter of the
+     * receiving thread's time per 5 MB file on the emulator went to these updates). */
+    override fun renameAndPublish(id: String, name: String): String {
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, name)
+            put(MediaStore.Downloads.IS_PENDING, 0)
+        }
+        if (resolver.update(Uri.parse(id), values, null, null) < 1) throw IOException("rename failed")
+        return id
+    }
+
     override fun delete(id: String) {
         if (!id.startsWith("content://")) return
         resolver.delete(Uri.parse(id), null, null)
