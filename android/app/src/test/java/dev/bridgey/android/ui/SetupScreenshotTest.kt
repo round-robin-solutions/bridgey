@@ -377,10 +377,15 @@ class SetupScreenshotTest {
 
     @Test @Config(qualifiers = "+night") fun quickNotificationsRestrictedDark() = quickNotificationsRestricted()
 
-    /** Settings > Files with the two new switches, scrolled down to them. */
+    /** Settings > Files with the two new switches (synced), scrolled down to them; hidden files differ on a Mac. */
     private fun filesHidden() = capture("settings-files-hidden") {
         SettingsScreen(
-            state = settings,
+            state = settings.copy(
+                folders = settings.folders.copy(includeHidden = true),
+                sync = dev.bridgey.android.sync.SyncUiState(
+                    rows = mapOf(dev.bridgey.android.sync.SyncKey.FOLDER_INCLUDE_HIDDEN to dev.bridgey.android.sync.SyncRowStatus(differentOn = listOf("Work Mac"))),
+                ),
+            ),
             actions = SettingsActions(),
             listState = androidx.compose.foundation.lazy.LazyListState(firstVisibleItemIndex = 0, firstVisibleItemScrollOffset = 1100),
             section = SettingsSection.FILES,
