@@ -352,7 +352,8 @@ enum FeatureStateDecoding: Equatable {
 /// Draft feature keys this client reads from features.update.
 /// Files 2.0 (BrowseMessages.swift): the Mac reads files_browse_draft1 (the phone serves browsing); it reads
 /// folders_receive_draft1 too, so both platforms decode the golden vectors alike, though only phones act on it.
-/// Update all (UpdateAllProtocol.swift) adds updates_draft1, then screen sharing screen_draft1. Android has the same
+/// Update all (UpdateAllProtocol.swift) adds updates_draft1, then screen sharing screen_draft1, text messages sms_draft1
+/// settings sync settings_sync_draft1 and fast transfers files_fast_draft1 (last). Android has the same
 /// list in the same order.
 let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, placesFeatureKey, smsCodesFeatureKey,
                              foldersReceiveFeatureKey, filesBrowseFeatureKey,
@@ -363,6 +364,8 @@ let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, places
                              screenFeatureKey,
                              // Text messages (SmsProtocol.swift).
                              smsFeatureKey,
+                             // Settings sync (v0.10, SettingsSync.swift).
+                             settingsSyncFeatureKey,
                              // Fast transfers (FastTransfer.swift).
                              filesFastFeatureKey]
 

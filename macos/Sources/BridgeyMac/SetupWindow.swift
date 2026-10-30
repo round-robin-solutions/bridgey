@@ -125,7 +125,7 @@ struct SetupWindowView: View {
         case .permissions:
             SetupPermissionsView(flow: flow, facts: facts, model: model, setup: setup, send: send)
         case .summary:
-            SetupSummaryView(flow: flow, facts: facts, model: model, setup: setup, send: send, change: { morePane = $0 })
+            SetupSummaryView(flow: flow, facts: facts, model: model, actions: actions, setup: setup, send: send, change: { morePane = $0 })
         case .done: SetupDoneView(flow: flow, setup: setup)
         }
     }
@@ -1193,6 +1193,7 @@ private struct SetupSummaryView: View {
     let flow: SetupFlow
     let facts: SetupFacts
     let model: SettingsModel
+    let actions: SettingsActions
     let setup: SetupActions
     let send: (SetupEvent) -> Void
     let change: (SettingsPane) -> Void
@@ -1220,6 +1221,12 @@ private struct SetupSummaryView: View {
                     section(L10n.setup("setup.summary.on", fallback: "Turned on"), items.filter { if case .featureOn = $0 { true } else { false } })
                     section(L10n.setup("setup.summary.choices", fallback: "Your choices"), items.filter { if case .chosen = $0 { true } else { false } })
                     section(L10n.setup("setup.summary.notAllowed", fallback: "Not allowed"), items.filter { if case .notAllowed = $0 { true } else { false } })
+                    // Settings sync (v0.10): one switch, the same as Settings > General.
+                    SettingsCard {
+                        SettingsToggle(title: L10n.setup("setup.summary.sync", fallback: "Settings stay the same on your devices"),
+                                       subtitle: L10n.setup("setup.summary.sync.detail", fallback: "Change what syncs any time in Settings > General."),
+                                       divider: false, isOn: model.settingsSyncEnabled, set: actions.setSettingsSync)
+                    }
                 }
             }
             SetupBottomBar(back: { send(.back) }) {

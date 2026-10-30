@@ -50,6 +50,9 @@ enum class ActivityKind(val key: String, val category: ActivityCategory, val mer
     FOLDER_SENT("folder_sent", ActivityCategory.FILES),
     FOLDER_RECEIVED("folder_received", ActivityCategory.FILES),
     FOLDER_INCOMPLETE("folder_incomplete", ActivityCategory.FILES),
+
+    /** Settings sync: a paired device changed settings here. The changes are tokens in detail ([SyncDetail]). */
+    SETTINGS_SYNCED("settings_synced", ActivityCategory.OTHER),
     ;
 
     val isFolder: Boolean get() = this == FOLDER_SENT || this == FOLDER_RECEIVED || this == FOLDER_INCOMPLETE
@@ -64,6 +67,13 @@ enum class ActivityKind(val key: String, val category: ActivityCategory, val mer
     val carriesPreview: Boolean get() = this == CLIPBOARD_SENT || this == CLIPBOARD_RECEIVED || this == CALL_SHOWN
 
     val carriesAppName: Boolean get() = this == NOTIFICATIONS_SHOWN
+
+    /** The detail field: folder tokens, or settings sync tokens. */
+    fun cleanDetail(value: String?): String? = when {
+        isFolder -> FolderDetail.clean(value)
+        this == SETTINGS_SYNCED -> dev.bridgey.android.sync.SyncDetail.clean(value)
+        else -> null
+    }
 
     companion object {
         fun fromKey(key: String?): ActivityKind? = entries.firstOrNull { it.key == key }
@@ -100,7 +110,7 @@ data class ActivityItem(
     val destination: String? = null,
     /**
      * Folders: what the detail line says, as tokens without names ("merged=12,links=3,failed=2", "timeout").
-     * See [FolderDetail].
+     * See [FolderDetail]. Settings synced: the changes as tokens ("calls=1,reduce_motion=0"), see SyncDetail.
      */
     val detail: String? = null,
 )
@@ -233,7 +243,7 @@ object ActivityHistory {
             content = cleanContent,
             fileCount = if (kind.isFolder) fileCount?.coerceIn(0, 1_000_000) else null,
             destination = if (kind.isFolder) destination?.trim()?.take(MAX_DESTINATION_LENGTH)?.ifBlank { null } else null,
-            detail = if (kind.isFolder) FolderDetail.clean(detail) else null,
+            detail = kind.cleanDetail(detail),
         )
         return prune(listOf(item) + items, now)
     }
@@ -293,7 +303,7 @@ object ActivityHistory {
                 } else {
                     null
                 },
-                detail = if (kind.isFolder && value.has("detail") && !value.isNull("detail")) FolderDetail.clean(value.optString("detail")) else null,
+                detail = if (value.has("detail") && !value.isNull("detail")) kind.cleanDetail(value.optString("detail")) else null,
             )
         }
         return prune(items, now)

@@ -49,6 +49,9 @@ enum ActivityKind: String, CaseIterable, Codable {
     case folderReceived = "folder_received"
     /// A folder transfer ended before every file arrived.
     case folderIncomplete = "folder_incomplete"
+    /// A paired phone changed synced settings here (settings_sync_draft1). The changes are tokens in
+    /// `content` ("previews=0,reduce_motion=1"), never free text.
+    case settingsSynced = "settings_synced"
 
     var category: ActivityCategory {
         switch self {
@@ -76,6 +79,7 @@ enum ActivityKind: String, CaseIterable, Codable {
     var carriesPreview: Bool { self == .clipboardSent || self == .clipboardReceived || self == .callShown }
     var carriesAppName: Bool { self == .notificationsShown }
     var isFolder: Bool { self == .folderSent || self == .folderReceived || self == .folderIncomplete }
+    var isSettingsSync: Bool { self == .settingsSynced }
 }
 
 /// One stream item. These fields are the whole record, in memory and on disk.
@@ -289,6 +293,7 @@ enum ActivityHistory {
     private static func cleanContentValue(_ value: String?, kind: ActivityKind) -> String? {
         if kind.isClipOffer { return ["text", "image", "file"].contains(value ?? "") ? value : nil }
         if kind.isFolder { return clean(value, limit: FolderActivityDetail.maximumLength) }
+        if kind.isSettingsSync { return SettingsSyncDetail.clean(value) }
         return nil
     }
 

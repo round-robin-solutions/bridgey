@@ -87,8 +87,14 @@ fun conflictPolicyLabel(policy: ConflictPolicy): String = stringResource(
 )
 
 /** The folder rows inside the Files group. */
-internal fun GroupScope.folderRows(state: FolderSettingsState, actions: FolderSettingsActions) {
-    row { shape -> FolderModeRow(shape, state, actions) }
+internal fun GroupScope.folderRows(
+    state: FolderSettingsState,
+    actions: FolderSettingsActions,
+    sync: dev.bridgey.android.sync.SyncUiState = dev.bridgey.android.sync.SyncUiState(),
+    syncActions: SyncSettingsActions = SyncSettingsActions(),
+) {
+    row { shape -> FolderModeRow(shape, state, actions, sync.syncs(dev.bridgey.android.sync.SyncKey.FOLDER_DESTINATION)) }
+    syncRows(dev.bridgey.android.sync.SyncKey.FOLDER_DESTINATION, sync, syncActions)
     row { shape ->
         ChoiceRow(
             shape, stringResource(R.string.settings_default_folder), state.defaultLabel, BridgeyIcons.Folder,
@@ -99,8 +105,10 @@ internal fun GroupScope.folderRows(state: FolderSettingsState, actions: FolderSe
         ChoiceRow(
             shape, stringResource(R.string.settings_folder_conflict), conflictPolicyLabel(state.policy), BridgeyIcons.SwapHoriz,
             ConflictPolicy.entries.map { it to conflictPolicyLabel(it) }, state.policy, actions.setPolicy,
+            synced = sync.syncs(dev.bridgey.android.sync.SyncKey.FOLDER_CONFLICT),
         )
     }
+    syncRows(dev.bridgey.android.sync.SyncKey.FOLDER_CONFLICT, sync, syncActions)
     row { shape ->
         SwitchRow(
             shape, stringResource(R.string.settings_allow_browse), stringResource(R.string.settings_allow_browse_detail),
@@ -124,9 +132,9 @@ internal fun GroupScope.folderRows(state: FolderSettingsState, actions: FolderSe
 
 /** "Folders sent to this phone": three radio choices in one row. */
 @Composable
-private fun FolderModeRow(shape: Shape, state: FolderSettingsState, actions: FolderSettingsActions) {
+private fun FolderModeRow(shape: Shape, state: FolderSettingsState, actions: FolderSettingsActions, synced: Boolean = false) {
     Column(Modifier.fillMaxWidth().clip(shape).background(BridgeyTheme.colors.surface1).padding(bottom = 6.dp).selectableGroup()) {
-        ListRow(androidx.compose.ui.graphics.RectangleShape, stringResource(R.string.settings_folders_mode), null, BridgeyIcons.Folder, Tint.GREEN)
+        ListRow(androidx.compose.ui.graphics.RectangleShape, stringResource(R.string.settings_folders_mode), null, BridgeyIcons.Folder, Tint.GREEN, synced = synced)
         DestinationMode.entries.forEach { mode ->
             val selected = mode == state.mode
             Row(
@@ -163,11 +171,12 @@ private fun <T> ChoiceRow(
     choices: List<Pair<T, String>>,
     selected: T,
     onSelect: (T) -> Unit,
+    synced: Boolean = false,
 ) {
     val colors = BridgeyTheme.colors
     var open by remember { mutableStateOf(false) }
     Box {
-        ListRow(shape, title, current, icon, Tint.BLUE, onClick = { open = true }, role = Role.DropdownList) {
+        ListRow(shape, title, current, icon, Tint.BLUE, onClick = { open = true }, role = Role.DropdownList, synced = synced) {
             Icon(BridgeyIcons.ArrowDropDown, null, tint = colors.onSurfaceVariant, modifier = Modifier.size(24.dp))
         }
         DropdownMenu(

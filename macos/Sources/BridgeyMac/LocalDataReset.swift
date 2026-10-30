@@ -211,6 +211,8 @@ struct LocalDataReset {
     /// send and menu-bar drop options and what the Phone files window remembers. The v0.9 automation
     /// settings are all `settings.` keys: `macActions.config`, `links.openRightAway`, `batteryAlerts.<id>.*`,
     /// `focusSync` and `camera.copyToClipboard`. Battery alert state is in memory and goes with the restart.
+    /// Settings sync (v0.10) keeps its records and switches under `settings.sync.`, so a reset device takes the
+    /// other devices' values the next time it connects.
     static let settingsPrefixes = ["settings.", "media.", "shortcuts.", "folders.lastDestination.", "setup.", "send.", "phoneFiles."]
     static let settingsKeys = [UpdateChannel.defaultsKey, "SUEnableAutomaticChecks", "SUAutomaticallyUpdate",
                                "SUScheduledCheckInterval", "SUSkippedVersion", "SUSkippedMajorVersion",
@@ -219,7 +221,8 @@ struct LocalDataReset {
     static let notSettingsKeys = ["settings.codes.installId", "settings.codes.model.acceptance"]
     static let identityKeys = ["deviceID", "settings.codes.installId"]
     /// Upstream's pre-file trust records, imported once by MacTrustRegistry.
-    static let trustKeys = ["trustedDeviceIDs"]
+    /// Settings sync's first-connect answers go with the trusted devices (Reset > Settings keeps them).
+    static let trustKeys = ["trustedDeviceIDs", "sync.answers"]
     static let trustPrefixes = ["trusted.", "protocolPin."]
     static let addressPrefixes = ["reconnect."]
     /// Update all keeps its last run and the version that did not apply (UpdateAllProtocol.swift) as records.

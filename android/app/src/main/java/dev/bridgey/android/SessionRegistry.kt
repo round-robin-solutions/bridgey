@@ -25,6 +25,8 @@ data class DeviceLinkState(
     val remoteFastTransfers: Boolean = false,
     /** Its latest updates.status (version, channel, where its update stands), or null before the first. */
     val updateStatus: dev.bridgey.android.updates.UpdateStatus? = null,
+    /** The device advertised settings_sync_draft1: it syncs settings with this phone (both its switches on). */
+    val remoteSettingsSync: Boolean = false,
     val battery: RemoteBatteryStatus? = null,
     /** The device reported that it is ringing (Find device). */
     val ringing: Boolean = false,

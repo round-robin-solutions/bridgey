@@ -102,7 +102,12 @@ data class DeviceState(
     val health: dev.bridgey.android.health.DeviceHealth? = null,
     /** Screen sharing with this Mac, while it is asked for, starting or running; null otherwise. */
     val screen: dev.bridgey.android.screen.ScreenShareState? = null,
+    /** Settings sync with this device; null hides the row. */
+    val sync: DeviceSyncState? = null,
 )
+
+/** "Sync settings with this device": this side's switch, the global switch, and the other side's. */
+data class DeviceSyncState(val on: Boolean, val globalOn: Boolean, val offRemote: Boolean)
 
 class DeviceActions(
     val back: () -> Unit = {},
@@ -128,6 +133,7 @@ class DeviceActions(
     val stopScreen: () -> Unit = {},
     /** Runs one Mac action; the value only for volume_set. */
     val runMacAction: (String, Int?) -> Unit = { _, _ -> },
+    val setSync: (Boolean) -> Unit = {},
     val live: LiveActions = LiveActions(),
 )
 
@@ -505,6 +511,31 @@ private fun PermissionsList(state: DeviceState, actions: DeviceActions, contentP
                                 compact = true,
                             )
                         }
+                    }
+                }
+            }
+        }
+        state.sync?.let { sync ->
+            item(key = "sync") {
+                RowGroup(Modifier.padding(top = 16.dp)) {
+                    row { shape ->
+                        val shown = sync.on && sync.globalOn && !sync.offRemote
+                        SwitchRow(
+                            shape = shape,
+                            title = stringResource(R.string.devices_sync_title),
+                            detail = when {
+                                !sync.globalOn -> stringResource(R.string.permission_off_everywhere)
+                                sync.on && sync.offRemote -> stringResource(R.string.permission_off_remote, state.ring.name)
+                                else -> stringResource(R.string.devices_sync_detail)
+                            },
+                            icon = BridgeyIcons.Sync,
+                            tint = if (shown) Tint.BLUE else Tint.NEUTRAL,
+                            checked = sync.on && sync.globalOn,
+                            onCheckedChange = actions.setSync,
+                            enabled = sync.globalOn,
+                            compact = true,
+                            detailWarning = !sync.globalOn || (sync.on && sync.offRemote),
+                        )
                     }
                 }
             }

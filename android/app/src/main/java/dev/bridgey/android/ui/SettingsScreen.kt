@@ -120,6 +120,8 @@ data class SettingsState(
     val setup: SetupSettingsState = SetupSettingsState(),
     /** Notifications > Focus sync with the Macs. */
     val focus: FocusSettingsState = FocusSettingsState(),
+    /** Settings sync: the switches, and what each synced row says about the other devices. */
+    val sync: dev.bridgey.android.sync.SyncUiState = dev.bridgey.android.sync.SyncUiState(),
     /** Updates > Your devices and Update all. */
     val updateAll: UpdateAllUiState = UpdateAllUiState(),
     /** Text messages: permissions and how replies are sent. */
@@ -174,6 +176,7 @@ class SettingsActions(
     /** v0.10: Permissions, Reset, Run setup again, OEM steps, Obtainium. */
     val setup: SetupSettingsActions = SetupSettingsActions(),
     val focus: FocusSettingsActions = FocusSettingsActions(),
+    val sync: SyncSettingsActions = SyncSettingsActions(),
     val updateAll: UpdateAllActions = UpdateAllActions(),
     val messages: MessagesSettingsActions = MessagesSettingsActions(),
 )
@@ -312,21 +315,25 @@ private fun ClipboardPage(state: SettingsState, actions: SettingsActions, listSt
     SectionPage(SettingsSection.CLIPBOARD, actions, listState) {
         item(key = "clipboard") {
             RowGroup(Modifier.padding(top = 8.dp)) {
-                row { shape -> FeatureSwitch(shape, BridgeyFeature.CLIPBOARD, state, actions) }
+                featureRows(BridgeyFeature.CLIPBOARD, state, actions)
                 row { shape ->
                     SwitchRow(
                         shape, stringResource(R.string.auto_clipboard_title), stringResource(R.string.auto_clipboard_detail),
                         BridgeyIcons.Sync, if (state.autoClipboardEnabled) Tint.BLUE else Tint.NEUTRAL,
                         state.autoClipboardEnabled, actions.setAutoClipboard,
+                        synced = state.sync.syncs(dev.bridgey.android.sync.SyncKey.AUTO_CLIPBOARD),
                     )
                 }
+                syncRows(dev.bridgey.android.sync.SyncKey.AUTO_CLIPBOARD, state.sync, actions.sync)
                 row { shape ->
                     SwitchRow(
                         shape, stringResource(R.string.clipboard_files_title), stringResource(R.string.clipboard_files_detail),
                         BridgeyIcons.Image, if (state.clipboardFilesEnabled) Tint.BLUE else Tint.NEUTRAL,
                         state.clipboardFilesEnabled, actions.setClipboardFiles,
+                        synced = state.sync.syncs(dev.bridgey.android.sync.SyncKey.CLIPBOARD_FILES),
                     )
                 }
+                syncRows(dev.bridgey.android.sync.SyncKey.CLIPBOARD_FILES, state.sync, actions.sync)
                 row { shape -> EagerLimitRow(shape, state, actions) }
                 row { shape ->
                     // A screenshot goes as an image offer, so it follows Copy images and files.
@@ -383,8 +390,10 @@ private fun NotificationsPage(state: SettingsState, actions: SettingsActions, li
                         stringResource(R.string.settings_notifications_detail),
                         BridgeyIcons.Notifications, if (on) Tint.PURPLE else Tint.NEUTRAL, on,
                         { actions.setGlobal(BridgeyFeature.NOTIFICATIONS, it) },
+                        synced = state.sync.syncs(dev.bridgey.android.sync.SyncKey.NOTIFICATIONS),
                     )
                 }
+                syncRows(dev.bridgey.android.sync.SyncKey.NOTIFICATIONS, state.sync, actions.sync)
                 if (notificationsOn) {
                     row { shape ->
                         ListRow(
@@ -419,7 +428,7 @@ private fun NotificationsPage(state: SettingsState, actions: SettingsActions, li
         }
         item(key = "notifications.focus.label") { SectionLabel(stringResource(R.string.focus_section), Modifier.padding(top = 20.dp)) }
         item(key = "notifications.focus") {
-            RowGroup { focusRows(state.focus, actions.focus) }
+            RowGroup { focusRows(state.focus, actions.focus, state.sync, actions.sync) }
         }
         item(key = "notifications.focus.note") {
             Note(stringResource(R.string.focus_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp))
@@ -434,7 +443,7 @@ private fun MessagesPage(state: SettingsState, actions: SettingsActions, listSta
         val on = state.featureOn(BridgeyFeature.SMS)
         item(key = "messages") {
             RowGroup(Modifier.padding(top = 8.dp)) {
-                row { shape -> FeatureSwitch(shape, BridgeyFeature.SMS, state, actions) }
+                featureRows(BridgeyFeature.SMS, state, actions)
                 if (on) messagesRows(state.messages, actions.messages)
             }
         }
@@ -449,7 +458,7 @@ private fun CallsPage(state: SettingsState, actions: SettingsActions, listState:
         val callsOn = state.featureOn(BridgeyFeature.CALLS)
         item(key = "calls") {
             RowGroup(Modifier.padding(top = 8.dp)) {
-                row { shape -> FeatureSwitch(shape, BridgeyFeature.CALLS, state, actions) }
+                featureRows(BridgeyFeature.CALLS, state, actions)
                 if (callsOn) {
                     row { shape ->
                         SwitchRow(
@@ -471,8 +480,8 @@ private fun FilesPage(state: SettingsState, actions: SettingsActions, listState:
             val filesOn = state.featureOn(BridgeyFeature.FILES)
             Column {
                 RowGroup(Modifier.padding(top = 8.dp)) {
-                    row { shape -> FeatureSwitch(shape, BridgeyFeature.FILES, state, actions) }
-                    if (filesOn && state.folders.supported) folderRows(state.folders, actions.folders)
+                    featureRows(BridgeyFeature.FILES, state, actions)
+                    if (filesOn && state.folders.supported) folderRows(state.folders, actions.folders, state.sync, actions.sync)
                 }
                 if (filesOn && state.folders.supported) {
                     Note(stringResource(if (state.folders.allowBrowse) R.string.settings_folders_note_browse else R.string.settings_folders_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp))
@@ -489,7 +498,7 @@ private fun MediaPage(state: SettingsState, actions: SettingsActions, listState:
         item(key = "media") {
             RowGroup(Modifier.padding(top = 8.dp)) {
                 MediaSectionFeatures.forEach { feature ->
-                    row { shape -> FeatureSwitch(shape, feature, state, actions) }
+                    featureRows(feature, state, actions)
                 }
             }
         }
@@ -503,7 +512,7 @@ private fun RemoteControlPage(state: SettingsState, actions: SettingsActions, li
         val remoteOn = state.featureOn(BridgeyFeature.REMOTE_INPUT)
         item(key = "remote") {
             RowGroup(Modifier.padding(top = 8.dp)) {
-                row { shape -> FeatureSwitch(shape, BridgeyFeature.REMOTE_INPUT, state, actions) }
+                featureRows(BridgeyFeature.REMOTE_INPUT, state, actions)
                 if (remoteOn) {
                     row { shape -> PointerSpeedRow(shape, state, actions) }
                     row { shape ->
@@ -531,8 +540,10 @@ private fun PrivacyPage(state: SettingsState, actions: SettingsActions, listStat
                     SwitchRow(
                         shape, stringResource(R.string.settings_show_previews), stringResource(R.string.settings_show_previews_detail),
                         BridgeyIcons.ContentPaste, if (state.showPreviews) Tint.BLUE else Tint.NEUTRAL, state.showPreviews, actions.setShowPreviews,
+                        synced = state.sync.syncs(dev.bridgey.android.sync.SyncKey.ACTIVITY_PREVIEWS),
                     )
                 }
+                syncRows(dev.bridgey.android.sync.SyncKey.ACTIVITY_PREVIEWS, state.sync, actions.sync)
                 row { shape ->
                     ListRow(shape, stringResource(R.string.settings_activity), stringResource(R.string.settings_activity_detail), BridgeyIcons.Update, Tint.PURPLE) {
                         OutlinePillButton(
@@ -622,14 +633,17 @@ private fun GeneralPage(state: SettingsState, actions: SettingsActions, listStat
         }
         item(key = "general.background.note") { Note(stringResource(R.string.settings_background_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) }
         item(key = "general.oem") { GeneralOemChecklist(state.setup, actions.setup, actions.openUrl) }
+        item(key = "general.sync") { SyncSettingsGroup(state.sync, actions.sync, Modifier.padding(top = 24.dp)) }
         item(key = "general") {
             RowGroup(Modifier.padding(top = 24.dp)) {
                 row { shape ->
                     SwitchRow(
                         shape, stringResource(R.string.settings_reduce_motion), stringResource(R.string.settings_reduce_motion_detail),
                         BridgeyIcons.Animation, Tint.NEUTRAL, state.reduceMotion, actions.setReduceMotion,
+                        synced = state.sync.syncs(dev.bridgey.android.sync.SyncKey.REDUCE_MOTION),
                     )
                 }
+                syncRows(dev.bridgey.android.sync.SyncKey.REDUCE_MOTION, state.sync, actions.sync)
                 row { shape ->
                     ListRow(
                         shape, stringResource(R.string.settings_turn_off), stringResource(R.string.settings_turn_off_detail),
@@ -976,6 +990,12 @@ private fun PointerSpeedRow(shape: androidx.compose.ui.graphics.Shape, state: Se
     }
 }
 
+/** A feature's global switch, then its sync lines (Different on, waiting for permission). */
+private fun GroupScope.featureRows(feature: BridgeyFeature, state: SettingsState, actions: SettingsActions) {
+    row { shape -> FeatureSwitch(shape, feature, state, actions) }
+    syncRows(syncKeyFor(feature), state.sync, actions.sync)
+}
+
 /** A feature's global on/off switch row. Title, generic detail, icon and tint from the feature. */
 @Composable
 private fun FeatureSwitch(shape: androidx.compose.ui.graphics.Shape, feature: BridgeyFeature, state: SettingsState, actions: SettingsActions) {
@@ -985,6 +1005,7 @@ private fun FeatureSwitch(shape: androidx.compose.ui.graphics.Shape, feature: Br
         shape, featureSettingTitle(feature), globalFeatureDetail(feature),
         icon, if (on) tint else Tint.NEUTRAL, on,
         { actions.setGlobal(feature, it) },
+        synced = syncKeyFor(feature)?.let(state.sync::syncs) == true,
     )
 }
 

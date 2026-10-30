@@ -487,6 +487,8 @@ class MainActivity : ComponentActivity() {
         dndAccess = getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted
         // Text messages: a permission changed in App info reaches the Macs' status.
         if (::pairing.isInitialized) pairing.smsPermissionsChanged()
+        // Settings sync: a permission given just now ends "waiting for permission" on the Macs too.
+        (application as? BridgeyApplication)?.syncPermissionsChanged()
         if (
             ::bridgeySettings.isInitialized && bridgeySettings.state.value.directCallsEnabled &&
             !hasCallIntegrationPermissions()
@@ -695,6 +697,7 @@ private fun BridgeyApp(
     val codeAccessStatus by codes.access.status.collectAsStateWithLifecycle()
     val companionLink by codes.linker.state.collectAsStateWithLifecycle()
     val codeTestState by dev.bridgey.android.codes.CodeTestSession.state.collectAsStateWithLifecycle()
+    val syncUi by pairing.settingsSync.ui.collectAsStateWithLifecycle()
     var permissionPrompt by remember { mutableStateOf<PermissionPrompt?>(null) }
     var pairDialog by rememberSaveable { mutableStateOf(false) }
     var forgetting by remember { mutableStateOf<DeviceRing?>(null) }
@@ -865,10 +868,21 @@ private fun BridgeyApp(
         onRemoteTargetHandled()
     }
 
+    // Settings sync, first connect with a Mac: asked once, in the app.
+    syncUi.questions.firstOrNull()?.let { question ->
+        dev.bridgey.android.ui.FirstConnectQuestion(
+            question.deviceName,
+            onUse = { pairing.settingsSync.answer(question.deviceId, use = true) },
+            onKeep = { pairing.settingsSync.answer(question.deviceId, use = false) },
+        )
+    }
+
     // A notification opens its Settings page, e.g. the update notification opens Updates.
     LaunchedEffect(settingsTarget) {
-        val section = SettingsDeepLink.section(settingsTarget ?: return@LaunchedEffect)
-        if (section != null) stack.openSettings(settingsRoute(section))
+        val target = settingsTarget ?: return@LaunchedEffect
+        val section = SettingsDeepLink.section(target)
+        if (target == SettingsDeepLink.PERMISSIONS) stack.openSettings(Route.Permissions)
+        else if (section != null) stack.openSettings(settingsRoute(section))
         onSettingsTargetHandled()
     }
 
@@ -967,6 +981,13 @@ private fun BridgeyApp(
                                 runningActions = macRunning.filter { it.first == ring.deviceId }.map { it.second }.toSet(),
                                 health = remember(healthTick, now, ring.deviceId, isConnected) { ring.deviceId?.let(pairing::healthOf) },
                                 screen = screenState.takeIf { it.deviceId == ring.deviceId },
+                                sync = ring.deviceId?.let { id ->
+                                    dev.bridgey.android.ui.DeviceSyncState(
+                                        on = syncUi.switches.devices[id] != false,
+                                        globalOn = syncUi.switches.enabled,
+                                        offRemote = isConnected && id in syncUi.offOn,
+                                    )
+                                },
                             ),
                             actions = DeviceActions(
                                 back = { stack.pop() },
@@ -999,6 +1020,7 @@ private fun BridgeyApp(
                                 shareScreen = { ring.deviceId?.let { id -> screenHub?.ask(context, id, ring.name, null) } },
                                 stopScreen = { screenHub?.stop(dev.bridgey.android.screen.ScreenStopReason.USER) },
                                 runMacAction = { id, value -> ring.deviceId?.let { pairing.macActions.run(it, id, value) } },
+                                setSync = { on -> ring.deviceId?.let { pairing.settingsSync.setDeviceEnabled(it, on) } },
                                 live = liveActions,
                             ),
                             snackbar = snackbar,
@@ -1089,6 +1111,7 @@ private fun BridgeyApp(
                             ),
                             setup = dev.bridgey.android.ui.SetupSettingsState(oem = setup.oem),
                             focus = FocusSettingsState(settingsState.focusShare, settingsState.focusFollow, dndAccess),
+                            sync = syncUi,
                             updateAll = updateAllState,
                             messages = messagesPermissions.state,
                         )
@@ -1160,6 +1183,12 @@ private fun BridgeyApp(
                                 openOemStep = { dev.bridgey.android.setup.OemBattery.open(context, it) },
                                 addToObtainium = { dev.bridgey.android.setup.Obtainium.open(context, updateState.channel) },
                             ),
+                            sync = dev.bridgey.android.ui.SyncSettingsActions(
+                                setEnabled = pairing.settingsSync::setEnabled,
+                                setSyncs = pairing.settingsSync::setSyncs,
+                                applyToAll = pairing.settingsSync::applyToAll,
+                                allow = { stack.openSettings(Route.Permissions) },
+                            ),
                             updateAll = updateAllActions,
                             focus = FocusSettingsActions(
                                 setShare = settings::setFocusShare,
@@ -1220,7 +1249,9 @@ private fun BridgeyApp(
                                 if (openSettings) stack.openSettings(Route.Settings)
                             },
                             onExit = { stack.pop() },
-                            apply = { change -> applySetupChange(change, settings, onSetGlobalFeature, uiPreferences, remotePreferences, updater) },
+                            apply = { change ->
+                                applySetupChange(change, settings, onSetGlobalFeature, uiPreferences, remotePreferences, updater, pairing.settingsSync::setEnabled)
+                            },
                         )
                         Route.Permissions -> PermissionsRoute(
                             hooks = setup,
