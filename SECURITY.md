@@ -93,8 +93,14 @@ all pairings.
 ## Privacy defaults
 
 There is no telemetry, advertising identifier, account, or remote analytics.
-LAN features communicate directly between paired devices. The one exception is
-opt-in: "Codes from messages" set to the cloud option on the Mac sends the
+LAN features communicate directly between paired devices. "Connect away from
+home" (draft `connect_draft1`, on by default since 0.10.0-rr.1; turn it off in
+Settings > Devices > Connect away from home, and an explicit off stays off)
+keeps a connection to the Round Robin control service at `connect.roundrobin.in`
+and uses a Round Robin relay only when the devices cannot reach each other on
+the same Wi-Fi. The relay and the control service see only ciphertext: public
+addresses, timing and volume, never device names, identity keys or content
+(`docs/connect-anywhere.md`, section 5.4). The other exception is opt-in: "Codes from messages" set to the cloud option on the Mac sends the
 message text (at most 600 characters) and its sender to a Round Robin Cloudflare
 Worker that asks Workers AI for the code; the worker keeps no logs. Sensitive
 OS access requires explicit permission. Global and per-device switches gate

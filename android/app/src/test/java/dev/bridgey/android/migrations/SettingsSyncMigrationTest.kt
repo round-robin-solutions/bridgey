@@ -116,6 +116,26 @@ class SettingsSyncMigrationTest {
     }
 
     @Test
+    fun connectAwayIsOnUntilChosenAndItsDefaultIsNeverStampedAsAChoice() {
+        MigrationFixtures.installSharedPrefs(context, 13)
+        val (sync, settings) = start()
+        // Never set: on, not a choice, and a local scan stamps nothing.
+        assertEquals(true, settings.state.value.connectAway)
+        assertEquals(unchosen(true), sync.record(SyncKey.CONNECT_AWAY))
+        sync.localChanged()
+        assertEquals(unchosen(true), sync.record(SyncKey.CONNECT_AWAY))
+        // An explicit off is a choice, and it survives a restart (an upgrade reads the same stored value).
+        settings.setConnectAway(false)
+        sync.localChanged()
+        val off = sync.record(SyncKey.CONNECT_AWAY)!!
+        assertEquals(false, off.value)
+        assertEquals(1L, off.version)
+        val (again, reloaded) = start()
+        assertEquals(false, reloaded.state.value.connectAway)
+        assertEquals(off, again.record(SyncKey.CONNECT_AWAY))
+    }
+
+    @Test
     fun theStampHappensOnceAndSurvivesARestart() {
         MigrationFixtures.installSharedPrefs(context, 13)
         start()

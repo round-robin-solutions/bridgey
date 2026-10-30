@@ -55,6 +55,9 @@ internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
     )
 
 /** Features that start off until the person turns them on. */
+/** Connect away from home while nobody chose: on (Rahul, 2026-10-30). */
+const val CONNECT_AWAY_DEFAULT = true
+
 internal fun featureOnByDefault(feature: BridgeyFeature): Boolean =
     feature != BridgeyFeature.REMOTE_INPUT && feature != BridgeyFeature.SCREEN && feature != BridgeyFeature.SMS
 
@@ -133,10 +136,15 @@ data class BridgeySettingsState(
     val smsReplyAsSms: Boolean = false,
     /**
      * Connect away from home (draft connect_draft1): reach paired devices off the local network
-     * through the QUIC tunnel, directly or through a Round Robin relay. Off until chosen.
+     * through the QUIC tunnel, directly or through a Round Robin relay. The person's choice (or a
+     * synced one), or null when nobody chose: then it is on ([connectAway]), an exception to
+     * off until chosen (Rahul, 2026-10-30). An explicit off stays off.
      */
-    val connectAway: Boolean = false,
+    val connectAwayChoice: Boolean? = null,
 ) {
+    /** What Connect away from home does now: the choice, or on while there is none. */
+    val connectAway: Boolean get() = connectAwayChoice ?: CONNECT_AWAY_DEFAULT
+
     /** What a folder transfer to this phone reads when it decides. */
     val folderReceiveSettings: FolderReceiveSettings
         get() = FolderReceiveSettings(folderMode, folderConflict, folderDefaultPlace, allowReplaceFromOtherDevices)
@@ -309,9 +317,10 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
     /** Text messages is on for at least one Mac (its global switch). */
     fun smsOn(): Boolean = mutableState.value.globalFeatures[BridgeyFeature.SMS] == true
 
+    /** The person's own choice (or a synced one) for Connect away from home: from now on it no longer follows the default. */
     fun setConnectAway(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_CONNECT_AWAY, enabled).apply()
-        mutableState.value = mutableState.value.copy(connectAway = enabled)
+        mutableState.value = mutableState.value.copy(connectAwayChoice = enabled)
     }
 
     /**
@@ -450,7 +459,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             updatesRemoteStart = preferences.getBoolean(KEY_UPDATES_REMOTE_START, true),
             updatesAutoAll = if (preferences.contains(KEY_UPDATES_AUTO_ALL)) preferences.getBoolean(KEY_UPDATES_AUTO_ALL, false) else null,
             smsReplyAsSms = preferences.getBoolean(KEY_SMS_REPLY_AS_SMS, false),
-            connectAway = preferences.getBoolean(KEY_CONNECT_AWAY, false),
+            connectAwayChoice = if (preferences.contains(KEY_CONNECT_AWAY)) preferences.getBoolean(KEY_CONNECT_AWAY, true) else null,
         )
     }
 

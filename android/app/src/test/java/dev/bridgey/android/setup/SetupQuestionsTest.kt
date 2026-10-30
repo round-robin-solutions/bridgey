@@ -79,8 +79,8 @@ class SetupQuestionsTest {
         assertEquals(mapOf(SetupSetting.ALLOW_BROWSE to "true", SetupSetting.ALLOW_REPLACE to "true"), changes("files_browse", Answers.CHANGE))
         assertEquals(mapOf(SetupSetting.HIDDEN_NOTIFICATION_APPS to "com.whatsapp"), changes("notification_apps", Answers.PICKED + "com.whatsapp"))
         assertEquals(mapOf(SetupSetting.CODES_LINK to "true"), changes("codes", Answers.YES))
-        // Connect away from home: off until chosen; Yes turns it on, Not now leaves it off.
-        assertEquals("false", SetupSetting.CONNECT_AWAY.default)
+        // Connect away from home: on until chosen (Rahul, 2026-10-30); Yes keeps it on, Not now turns it off.
+        assertEquals("true", SetupSetting.CONNECT_AWAY.default)
         assertEquals(mapOf(SetupSetting.CONNECT_AWAY to "true"), changes("away", Answers.YES))
         assertEquals(mapOf(SetupSetting.CONNECT_AWAY to "false"), changes("away", Answers.NO))
         assertEquals(Coverage.ANSWER, SetupQuestions.coverage.getValue(SetupSetting.CONNECT_AWAY).second)

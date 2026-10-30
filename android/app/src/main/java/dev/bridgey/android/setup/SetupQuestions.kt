@@ -88,8 +88,8 @@ enum class SetupSetting(val default: String) {
     REDUCE_MOTION("false"),
     /** v0.10 settings sync: "Settings stay the same on your devices", on the summary (on by default). */
     SETTINGS_SYNC("true"),
-    /** Connect away from home (Connect anywhere). Off until chosen. */
-    CONNECT_AWAY("false"),
+    /** Connect away from home (Connect anywhere). On until chosen (Rahul, 2026-10-30), so the summary lists it on. */
+    CONNECT_AWAY("true"),
 }
 
 /** One setting set to a value by an answer or a switch. */

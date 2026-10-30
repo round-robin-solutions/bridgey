@@ -34,7 +34,7 @@ enum SetupSection: String, CaseIterable {
 enum SetupSetting: String, CaseIterable {
     // Devices
     case pairing, deviceFeatures, deviceAutoClipboard, batteryAlerts
-    /// Devices > Connect away from home (connect_draft1), off until chosen.
+    /// Devices > Connect away from home (connect_draft1), on until chosen (Rahul, 2026-10-30).
     case connectAway
     // Clipboard
     case featureClipboard, autoClipboard, clipboardFiles, clipboardEagerLimit, shortcutClipboard
@@ -70,7 +70,7 @@ enum SetupSetting: String, CaseIterable {
         switch self {
         case .featureClipboard, .autoClipboard, .clipboardFiles, .featureNotifications, .featureCalls, .ringForCalls,
              .featureFiles, .featureLinks, .featurePing, .featureFindDevice, .featureBattery, .showPreviews,
-             .loggingConnection, .updatesAutomatic, .smsKeepOnMac, .settingsSync:
+             .loggingConnection, .updatesAutomatic, .smsKeepOnMac, .settingsSync, .connectAway:
             "true"
         case .codesEngine: "local"
         case .folderReceiveMode: "fixed"

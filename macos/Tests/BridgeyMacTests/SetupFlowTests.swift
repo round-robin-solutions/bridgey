@@ -193,6 +193,26 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(detail, SetupQuestions.question("media")?.answer(SetupAnswerKey.spotify)?.label)
     }
 
+    /// A fresh install never set Connect away from home, so it is on: the summary lists it with its switch, and
+    /// Get started quickly leaves it on. An explicit off from before stays off.
+    func testConnectAwayIsOnInTheSummaryAndAfterTheEssentials() {
+        var facts = paired
+        facts.current[.connectAway] = nil
+        XCTAssertEqual(facts.value(.connectAway), "true")
+        let flow = walk(facts).flow
+        let on = SetupSummary.items(flow, facts: facts).compactMap { item -> (String, Bool)? in
+            if case let .featureOn(feature, on, _) = item { (feature.id, on) } else { nil }
+        }
+        XCTAssertEqual(on.map { $0.0 }, ["away"])
+        XCTAssertEqual(on.map { $0.1 }, [true])
+        XCTAssertNil(flow.effective(facts).overlay[.connectAway], "nothing in the run sets it, so it keeps following the default")
+        XCTAssertTrue(flow.changes(for: .summarySwitch("away", false), facts: facts).contains(.off(.connectAway)))
+        XCTAssertFalse(SetupBundles.essentialChanges(SetupEffective(facts: facts)).contains { $0.setting == .connectAway })
+        XCTAssertFalse(SetupFlow().changes(for: .chooseQuick, facts: facts).contains { $0.setting == .connectAway })
+        let off = walk(paired).flow
+        XCTAssertFalse(SetupSummary.items(off, facts: paired).contains { if case .featureOn = $0 { true } else { false } })
+    }
+
     func testSummaryListsWhatIsOnChoicesAndRefusals() {
         var flow = run([.chooseAdvanced, .startQuestions(["remote": SetupAnswerKey.pick, "updates": SetupAnswerKey.early, "focus": SetupAnswerKey.both])], facts: askingFacts)
         while flow.screen != .summary { flow.send(.proceed, facts: askingFacts) }
@@ -303,9 +323,10 @@ final class SetupFlowTests: XCTestCase {
         for feature in SetupFeatures.all { XCTAssertTrue(names.contains(feature.title), feature.title) }
     }
 
-    /// Connect away from home: off until chosen, its own switch, follow-up and bundle (same ids as Android).
+    /// Connect away from home: on until chosen (Rahul, 2026-10-30), its own switch, follow-up and bundle (same ids as
+    /// Android).
     func testConnectAwayIsAFeatureAQuestionAndABundle() {
-        XCTAssertEqual(SetupSetting.connectAway.defaultValue, "false")
+        XCTAssertEqual(SetupSetting.connectAway.defaultValue, "true")
         XCTAssertEqual(SetupFeatures.feature("away")?.on, [.on(.connectAway)])
         let question = SetupQuestions.question("away")!
         XCTAssertEqual(question.section, .devices)

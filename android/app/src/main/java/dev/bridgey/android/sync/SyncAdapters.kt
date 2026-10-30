@@ -59,7 +59,7 @@ class AndroidSyncPermissions(private val context: Context) : SyncPermissions {
 /**
  * The phone's settings behind the 27 keys. `codes.enabled` has no setting on the phone: it is stored and relayed so two
  * Macs share it. `updates.auto_all` is Update all devices automatically: it follows the release channel
- * ([autoUpdateDefault]) until the person, or a synced value, chooses. Messages' pinned, muted, archived and read state is
+ * ([autoUpdateDefault]) until the person, or a synced value, chooses; `connect.away` is on until then. Messages' pinned, muted, archived and read state is
  * per Mac and never syncs. Per-device overrides, grants, paths and the file access guards are not here, so they never
  * sync.
  */
@@ -126,9 +126,14 @@ fun phoneSyncedSettings(
     result[SyncKey.FOCUS_SHARE] = switch(
         "focus_share", { state().focusShare }, settings::setFocusShare, stored = { settings.hasStored(BridgeySettings.KEY_FOCUS_SHARE) },
     )
-    result[SyncKey.CONNECT_AWAY] = switch(
-        "connect_away", { state().connectAway }, settings::setConnectAway, stored = { settings.hasStored(BridgeySettings.KEY_CONNECT_AWAY) },
-    )
+    // On while nobody chose (an unset default is not a choice: never sent, never shown as different).
+    result[SyncKey.CONNECT_AWAY] = object : SyncedSetting {
+        override fun read(): Any = state().connectAway
+        override fun write(value: Any) { if (value is Boolean) settings.setConnectAway(value) }
+        override fun stored(): Boolean = state().connectAwayChoice != null
+        override fun followsDefault(): Boolean = state().connectAwayChoice == null
+        override fun toString(): String = "connect_away"
+    }
     result[SyncKey.FOCUS_FOLLOW] = switch(
         "focus_follow", { state().focusFollow }, settings::setFocusFollow, { !permissions.doNotDisturb() },
         stored = { settings.hasStored(BridgeySettings.KEY_FOCUS_FOLLOW) },

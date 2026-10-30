@@ -128,8 +128,13 @@ final class BridgeySettings: ObservableObject {
     /// Settings > Text messages > Keep conversations on this Mac: the cache is written (0600) so
     /// conversations open instantly. On by default; off keeps them in memory only.
     @Published private(set) var smsKeepOnMac: Bool
-    /// Devices > Connect away from home (draft connect_draft1). Off until chosen.
+    /// Devices > Connect away from home (draft connect_draft1): what it does now, the choice or on while there
+    /// is none (an exception to off until chosen, Rahul 2026-10-30). An explicit off stays off.
     @Published private(set) var connectAway: Bool
+    /// The person's choice for Connect away from home (or a synced one); nil when nobody chose.
+    @Published private(set) var connectAwayChoice: Bool?
+    /// Connect away from home while nobody chose.
+    nonisolated static let connectAwayDefault = true
 
     private let defaults = UserDefaults.standard
 
@@ -168,7 +173,9 @@ final class BridgeySettings: ObservableObject {
         openLinksRightAway = storedDefaults.bool(forKey: "settings.links.openRightAway")
         smsEnabled = storedDefaults.bool(forKey: "settings.sms.enabled")
         smsKeepOnMac = storedDefaults.object(forKey: "settings.sms.keepOnMac") as? Bool ?? true
-        connectAway = storedDefaults.bool(forKey: "settings.connect.away")
+        let awayChoice = storedDefaults.object(forKey: "settings.connect.away") as? Bool
+        connectAwayChoice = awayChoice
+        connectAway = awayChoice ?? Self.connectAwayDefault
         let engine = CodeEngine.stored(storedDefaults.string(forKey: "settings.codes.engine"), codesWereEnabled: codesOn)
         // Settle the choice once, so turning codes on later never reads as an old cloud opt-in.
         storedDefaults.set(engine.rawValue, forKey: "settings.codes.engine")
@@ -240,8 +247,10 @@ final class BridgeySettings: ObservableObject {
         openLinksRightAway = enabled
     }
 
+    /// The person's own choice (or a synced one): from now on it no longer follows the default.
     func setConnectAway(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.connect.away")
+        connectAwayChoice = enabled
         connectAway = enabled
     }
 

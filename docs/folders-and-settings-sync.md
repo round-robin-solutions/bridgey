@@ -998,7 +998,7 @@ Macs.
 | `feature.screen` | Share screen with Macs | Remote control > Show phone screens (a preference here) | Each share is still asked on the phone, every time |
 | `feature.sms` | Text messages | Text messages | Android: SMS permission (read and send) |
 | `updates.auto_all` | Settings > Updates > Update all devices automatically | Same | Each device follows its own channel until someone chooses: a value nobody chose is never sent, asked about or shown as different; a synced value is that device's choice too |
-| `connect.away` | Connect away from home | Connect away from home | Both ends need it on for a phone to reach a Mac away from home, so it follows the other devices (Rahul's call, 2026-10-30) |
+| `connect.away` | Connect away from home | Connect away from home | Both ends need it on for a phone to reach a Mac away from home, so it follows the other devices (Rahul's call, 2026-10-30). On until someone chooses (Rahul, 2026-10-30): like `updates.auto_all`, a value nobody chose is never sent, asked about or shown as different |
 
 A feature added later joins by adding its key to this table on both platforms; older builds skip
 the key, so nothing else changes.

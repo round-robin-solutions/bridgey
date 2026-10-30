@@ -1,12 +1,13 @@
 # User guide
 
-Bridgey by Round Robin connects an Android phone and a Mac over your own Wi-Fi. It has no
-account and no cloud service for normal use. This guide covers the common tasks. For what has
+Bridgey by Round Robin connects an Android phone and a Mac over your own Wi-Fi, and away from
+home through Round Robin's connect service (on by default, see
+[Connect away from home](#connect-away-from-home)). It has no account. This guide covers the common tasks. For what has
 been tried on which devices, see [compatibility](compatibility.md).
 
 Contents: [install](#install), [pair](#pair-a-phone-and-a-mac), [clipboard and files](#send-the-clipboard-and-files),
 [notifications](#notifications), [calls](#calls), [codes from messages](#codes-from-messages),
-[remote control](#remote-control), [updates](#update-channels-and-updates), [permissions](#permissions),
+[remote control](#remote-control), [connect away from home](#connect-away-from-home), [updates](#update-channels-and-updates), [permissions](#permissions),
 [reset](#reset-local-data), [uninstall](#uninstall), [troubleshooting](#troubleshooting).
 
 ## Install
@@ -221,6 +222,21 @@ until you turn it on, and only works between two Round Robin edition apps.
 
 The Mac keeps a 30-day session record (device, times and counts, never what you typed) that you can
 clear in the same pane.
+
+## Connect away from home
+
+Your paired devices stay connected when they are not on the same Wi-Fi, with no VPN on the phone.
+It is on by default.
+
+- **What it contacts.** While it is on, Bridgey keeps a connection to `connect.roundrobin.in`, which
+  helps your devices find each other. When they cannot reach each other on the same Wi-Fi (or a
+  private network such as Tailscale, or directly over the internet), the traffic goes through a
+  Round Robin relay.
+- **What the relay sees.** Only encrypted data: your devices' public addresses, and the timing and
+  size of the traffic. Never device names, content or file names.
+- **Turn it off.** Settings > Devices > Connect away from home, on the phone or the Mac. With
+  settings sync on, your other devices turn it off too. Once you turn it off it stays off, including
+  after updates. Same Wi-Fi keeps working either way.
 
 ## Update channels and updates
 

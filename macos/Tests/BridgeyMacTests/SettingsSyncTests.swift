@@ -433,6 +433,47 @@ final class SettingsSyncTests: XCTestCase {
         XCTAssertEqual(fresh.choice, true, "the phone's choice reaches a newly connected Mac")
     }
 
+    /// Connect away from home on by default on both: nobody chose, so nothing is sent, asked or shown as different,
+    /// and a phone from before (its old default off, never chosen) is not different either. An explicit off syncs.
+    func testConnectAwayOnByDefaultIsNeitherSentNorShownAsDifferent() {
+        let net = Net(self)
+        let phoneAway = Following(defaultOn: true)
+        let macAway = Following(defaultOn: true)
+        net.add(phone, override: [.connectAway: phoneAway.setting], isPhone: true)
+        net.add(macA, override: [.connectAway: macAway.setting], fresh: true)
+        net.connect(phone, macA)
+        net.deliverAll()
+        net.log.removeAll()
+        net.controllers[macA]!.localChanged()
+        net.controllers[macA]!.flush()
+        net.controllers[phone]!.localChanged()
+        net.controllers[phone]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(net.log.count, 0)
+        XCTAssertEqual(net.controllers[macA]!.questions, [])
+        XCTAssertEqual(net.controllers[macA]!.status(.connectAway).differentOn, [])
+        XCTAssertEqual(net.controllers[phone]!.status(.connectAway).differentOn, [])
+        XCTAssertFalse(net.controllers[macA]!.engine.record(.connectAway).chosen)
+        XCTAssertEqual(phoneAway.writes + macAway.writes, 0)
+        // The Mac's person turns it off: a choice, and the phone takes it as its own.
+        macAway.choice = false
+        net.controllers[macA]!.localChanged()
+        net.controllers[macA]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(phoneAway.choice, false)
+        // A phone from before: the old default (off), never chosen. Not a difference on this Mac either.
+        let older = Net(self)
+        let newMac = Following(defaultOn: true)
+        var olderWrites = 0
+        older.add(phone, override: [.connectAway: SyncedSetting(read: { .bool(false) }, write: { _ in olderWrites += 1 })], isPhone: true)
+        older.add(macB, override: [.connectAway: newMac.setting])
+        older.connect(phone, macB)
+        older.deliverAll()
+        XCTAssertEqual(older.controllers[macB]!.status(.connectAway).differentOn, [])
+        XCTAssertNil(newMac.choice)
+        XCTAssertEqual(olderWrites, 0)
+    }
+
     /// A new Mac on Beta (on by default) meets a phone on Stable (off by default); `phoneChoice` nil: the phone
     /// follows its channel too.
     private func autoUpdatePair(phoneChoice: Bool?) -> (Net, Following, Following) {

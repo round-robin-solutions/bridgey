@@ -775,6 +775,47 @@ class SettingsSyncTest {
         assertEquals(true, macAuto.choice)
     }
 
+    @Test fun connectAwayOnByDefaultIsNeitherSentNorShownAsDifferent() {
+        clear("phone", "mac")
+        val net = Net()
+        // Both on by default, nobody chose; and a Mac from before still holds the old default (off, never chosen).
+        val phoneAway = Following(defaultOn = true)
+        val macAway = Following(defaultOn = true)
+        val phone = Device("phone", "OnePlus 11", net, fakes() + (SyncKey.CONNECT_AWAY to phoneAway), veteran = false)
+        val mac = Device("mac", "Work Mac", net, fakes() + (SyncKey.CONNECT_AWAY to macAway))
+        net.link(phone, mac)
+        net.pump()
+        net.log.clear()
+        phone.sync.localChanged()
+        mac.sync.localChanged()
+        net.pump()
+        assertTrue(net.kinds().isEmpty())
+        assertTrue(phone.sync.ui.value.questions.isEmpty())
+        assertNull(phone.sync.ui.value.row(SyncKey.CONNECT_AWAY))
+        assertNull(mac.sync.ui.value.row(SyncKey.CONNECT_AWAY))
+        assertFalse(phone.sync.record(SyncKey.CONNECT_AWAY)!!.chosen)
+        assertEquals(0, phoneAway.writes + macAway.writes)
+        assertNull(phoneAway.choice)
+        // An explicit off on the Mac is a choice: it syncs, and the phone keeps it as its own.
+        mac.edit(SyncKey.CONNECT_AWAY, false)
+        net.pump()
+        assertEquals(false, phoneAway.choice)
+        assertEquals(false, phone[SyncKey.CONNECT_AWAY])
+    }
+
+    @Test fun connectAwayOnByDefaultIsNotDifferentFromAnOlderBuildsUnchosenOff() {
+        clear("phone", "mac")
+        val net = Net()
+        val phoneAway = Following(defaultOn = true)
+        val phone = Device("phone", "OnePlus 11", net, fakes() + (SyncKey.CONNECT_AWAY to phoneAway))
+        val mac = Device("mac", "Work Mac", net, fakes() + (SyncKey.CONNECT_AWAY to Fake(false)))
+        net.link(phone, mac)
+        net.pump()
+        assertNull(phone.sync.ui.value.row(SyncKey.CONNECT_AWAY))
+        assertNull(phoneAway.choice)
+        assertEquals(true, phone[SyncKey.CONNECT_AWAY])
+    }
+
     @Test fun activityDetailRoundTrips() {
         val changes = listOf(SyncChange(SyncKey.REDUCE_MOTION, false), SyncChange(SyncKey.FOLDER_DESTINATION, "fixed"), SyncChange(SyncKey.CALLS, true))
         val detail = SyncDetail.encode(changes)

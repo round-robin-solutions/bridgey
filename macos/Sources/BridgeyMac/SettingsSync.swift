@@ -83,7 +83,8 @@ enum SyncKey: String, CaseIterable, Comparable {
     case featureSms = "feature.sms"
     /// Update all devices automatically: follows the release channel until chosen; a synced value is a choice.
     case updatesAutoAll = "updates.auto_all"
-    /// Connect away from home (connect_draft1): both ends need it on, so it follows the other devices.
+    /// Connect away from home (connect_draft1): both ends need it on, so it follows the other devices. On until
+    /// chosen; like updates.auto_all, a value nobody chose is not sent as a choice.
     case connectAway = "connect.away"
     /// Appended after the earlier keys. The same two switches as the phone's Files group.
     case folderIncludeHidden = "files.folder_include_hidden"
@@ -108,6 +109,7 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .folderDestination: .string("sender_picks")
         case .folderConflict: .string("ask")
         case .activityPreviews: .bool(true)
+        case .connectAway: .bool(BridgeySettings.connectAwayDefault)
         default: .bool(false)
         }
     }
@@ -1111,6 +1113,7 @@ final class SettingsSyncController: ObservableObject {
             focus.$settings.map { _ in () }.eraseToAnyPublisher(),
             screen.$enabled.map { _ in () }.eraseToAnyPublisher(),
             settings.$smsEnabled.map { _ in () }.eraseToAnyPublisher(),
+            settings.$connectAwayChoice.map { _ in () }.eraseToAnyPublisher(),
         ]
         if let autoUpdate { changes.append(autoUpdate.$storedChoice.map { _ in () }.eraseToAnyPublisher()) }
         // @Published fires before the property changes: read it on the next turn of the main queue.
@@ -1156,7 +1159,7 @@ final class SettingsSyncController: ObservableObject {
             .focusShare: bool({ focus.settings.share }, { on in focus.update { $0.share = on } }),
             .focusFollow: bool({ focus.settings.follow }, { on in focus.update { $0.follow = on } }),
             .codesEnabled: codes?.setting ?? bool({ settings.codesEnabled }, settings.setCodesEnabled),
-            .connectAway: bool({ settings.connectAway }, settings.setConnectAway),
+            .connectAway: connectAwaySetting(settings),
         ]
         if let screen { out[.featureScreen] = screenSetting(screen) }
         if let setTextMessages { out[.featureSms] = bool({ settings.smsEnabled }, setTextMessages) }
@@ -1168,6 +1171,13 @@ final class SettingsSyncController: ObservableObject {
                             { settings.setGlobal(feature, enabled: $0) })
         }
         return out
+    }
+
+    /// Connect away from home: the person's choice, or on while there is none (an unset default is not a choice).
+    static func connectAwaySetting(_ settings: BridgeySettings) -> SyncedSetting {
+        SyncedSetting(read: { .bool(settings.connectAway) },
+                      write: { value in if case let .bool(on) = value { settings.setConnectAway(on) } },
+                      followsDefault: { settings.connectAwayChoice == nil })
     }
 
     /// Update all devices automatically: the person's choice, or the channel's default while there is none.
