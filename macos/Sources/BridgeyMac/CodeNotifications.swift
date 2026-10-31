@@ -29,8 +29,9 @@ struct LiveCodeCard: Identifiable, Equatable {
     let postedAt: Date
     /// This Mac's arrival counter: breaks ties between cards posted at the same moment.
     let arrival: Int
-    /// `codeServiceKey(sender)`, for duplicates and Latest or Older.
-    let serviceKey: String
+    /// `codeServiceKey(sender)`, for duplicates and Latest or Older. A card from an unknown sender (a phone
+    /// number) takes the service of the first duplicate that names one.
+    private(set) var serviceKey: String
     /// Every way the code came, first arrival first: by text, or by email from one or more mail apps.
     var sources: [CodeSource]
 
@@ -59,8 +60,9 @@ struct LiveCodeCard: Identifiable, Equatable {
     }
 
     /// Adds a way the code came (a duplicate by another channel or mail app); one already listed is kept once.
-    mutating func add(_ source: CodeSource) {
+    mutating func add(_ source: CodeSource, serviceKey key: String = "") {
         if !sources.contains(source) { sources.append(source) }
+        if serviceKey.isEmpty { serviceKey = key }
     }
 }
 

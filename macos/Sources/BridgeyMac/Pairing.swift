@@ -4204,7 +4204,7 @@ final class PairingCoordinator: ObservableObject {
         switch CodeCards.arrival(code: code, serviceKey: codeServiceKey(sender), posted: posted, arrival: codeArrivals,
                                  live: Array(liveCodes.values), now: now) {
         case let .duplicate(cardID):
-            liveCodes[cardID]?.add(source)
+            liveCodes[cardID]?.add(source, serviceKey: codeServiceKey(sender))
             recordNotificationHistory(payload, deviceID: deviceID, codeShown: true)
             diagnostics.record(category: "notification", event: "code_duplicate")
             publishCodes()

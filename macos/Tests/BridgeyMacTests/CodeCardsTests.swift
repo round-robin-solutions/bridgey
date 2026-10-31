@@ -223,6 +223,26 @@ final class CodeCardsTests: XCTestCase {
         XCTAssertEqual(CodeCards.ordered([late, newer]).map(\.id), ["new", "late"])
     }
 
+    /// Found in the live test: a text from a phone number (an unknown service) is still a duplicate of the same
+    /// code, but it never marks another service's code replaced, and is never marked by one.
+    func testACodeFromAPhoneNumberReplacesNothing() {
+        let microsoft = card("ms", code: "902731", sender: "Microsoft account team", posted: 0, arrival: 1,
+                             sources: [CodeSource(channel: .email, app: "Outlook")])
+        XCTAssertEqual(CodeCards.arrival(code: "448812", serviceKey: codeServiceKey("555-1234"), posted: start.addingTimeInterval(10),
+                                         arrival: 2, live: [microsoft], now: start.addingTimeInterval(11)),
+                       .fresh(late: false, replaces: nil))
+        var sms = card("sms", code: "448812", sender: "555-1234", posted: 10, arrival: 2)
+        XCTAssertEqual(CodeCards.marks([microsoft, sms]), [:])
+        XCTAssertEqual(CodeCards.arrival(code: "448812", serviceKey: codeServiceKey("HDFC Bank"), posted: start.addingTimeInterval(20),
+                                         arrival: 3, live: [microsoft, sms], now: start.addingTimeInterval(21)),
+                       .duplicate(cardID: "sms"), "the same code by email is still one card")
+        // The duplicate names the service; from then on the card takes part in Latest and Older for it.
+        sms.add(CodeSource(channel: .email, app: "Spark"), serviceKey: codeServiceKey("HDFC Bank"))
+        XCTAssertEqual(sms.serviceKey, codeServiceKey("HDFC Bank"))
+        let resend = card("new", code: "590144", sender: "HDFC Bank", posted: 40, arrival: 4)
+        XCTAssertEqual(CodeCards.marks([microsoft, sms, resend]), ["sms": .older, "new": .latest])
+    }
+
     // MARK: Marks and text
 
     func testLatestAndOlderMarks() {

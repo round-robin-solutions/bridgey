@@ -115,8 +115,10 @@ enum CodeCards {
             return .duplicate(cardID: duplicate.id)
         }
         let probe = LiveCodeCard(id: "", code: code, sender: "", deviceName: "", receivedAt: now, postedAt: posted, arrival: arrival)
-        let late = sameService.contains { isNewer($0, than: probe) }
-        let replaces = ordered(sameService.filter { isNewer(probe, than: $0) }).first?.id
+        // Latest and Older need a named service on both sides: a code from a phone number replaces nothing.
+        let rivals = sameService.filter { codeServicesKnownMatch($0.serviceKey, serviceKey) }
+        let late = rivals.contains { isNewer($0, than: probe) }
+        let replaces = ordered(rivals.filter { isNewer(probe, than: $0) }).first?.id
         return .fresh(late: late, replaces: replaces)
     }
 
@@ -125,7 +127,7 @@ enum CodeCards {
         var marks: [String: CodeCardMark] = [:]
         for card in cards {
             let rivals = cards.filter {
-                $0.id != card.id && codeServicesMatch($0.serviceKey, card.serviceKey)
+                $0.id != card.id && codeServicesKnownMatch($0.serviceKey, card.serviceKey)
                     && normalizedCode($0.code) != normalizedCode(card.code)
             }
             if rivals.contains(where: { isNewer($0, than: card) }) {
@@ -178,6 +180,12 @@ func codeServiceKey(_ sender: String) -> String {
 func codeServicesMatch(_ a: String, _ b: String) -> Bool {
     if a.isEmpty || b.isEmpty || a == b || a.hasPrefix(b) || b.hasPrefix(a) { return true }
     return a.count >= 4 && b.count >= 4 && a.prefix(4) == b.prefix(4)
+}
+
+/// The same named service: unlike `codeServicesMatch`, an unknown service matches nothing. Latest and Older use
+/// this, so a code from a phone number never marks another service's code replaced.
+func codeServicesKnownMatch(_ a: String, _ b: String) -> Bool {
+    !a.isEmpty && !b.isEmpty && codeServicesMatch(a, b)
 }
 
 /// The name a code card and banner show: the notification title (an SMS contact or sender ID, a mail's
