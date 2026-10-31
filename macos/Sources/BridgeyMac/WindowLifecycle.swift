@@ -381,6 +381,7 @@ final class WindowWatchdog: NSObject {
 
     private static func kind(_ window: NSWindow) -> String {
         if window.identifier == callOverlayWindowIdentifier { return "call_card" }
+        if window.identifier == codeFloatWindowIdentifier { return "code_card" }
         if window.className.contains("Popover") { return "popover" }
         return window is NSPanel ? "panel" : "window"
     }

@@ -120,6 +120,7 @@ struct SettingsModel {
     /// Notifications > Codes from messages.
     var codesEnabled = false
     var codesAutoCopy = false
+    var codesFloat: CodeFloatSetting = .default
     /// The build has a relay address (rr-edition.properties OTP_PROXY_URL).
     var codesAvailable = true
     var codesEngine: CodeEngine = .local
@@ -256,6 +257,7 @@ struct SettingsActions {
     var setHistoryEnabled: (Bool) -> Void = { _ in }
     var setCodesEnabled: (Bool) -> Void = { _ in }
     var setCodesAutoCopy: (Bool) -> Void = { _ in }
+    var setCodesFloat: (CodeFloatSetting) -> Void = { _ in }
     var setCodesEngine: (CodeEngine) -> Void = { _ in }
     /// Records the acceptance of the model's terms, then downloads the newest model.
     var acceptAndDownloadCodeModel: () -> Void = {}
@@ -1795,6 +1797,7 @@ struct LiveSettingsView: View {
         model.history = pairing.notificationHistory
         model.codesEnabled = settings.codesEnabled
         model.codesAutoCopy = settings.codesAutoCopy
+        model.codesFloat = settings.codesFloat
         model.codesAvailable = CodeRelay.baseURL != nil
         model.codesEngine = settings.codesEngine
         model.codeModel = codeModelDisplay
@@ -1954,6 +1957,7 @@ struct LiveSettingsView: View {
             settings.setCodesEnabled(on)
         }
         actions.setCodesAutoCopy = { settings.setCodesAutoCopy($0) }
+        actions.setCodesFloat = { settings.setCodesFloat($0) }
         actions.setCodesEngine = { settings.setCodesEngine($0) }
         actions.acceptAndDownloadCodeModel = {
             guard let manifest = codeModel.manifest else { return }

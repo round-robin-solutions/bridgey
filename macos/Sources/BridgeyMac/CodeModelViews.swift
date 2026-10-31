@@ -217,6 +217,14 @@ struct CodesCard: View {
                            subtitle: L10n.text("codes.autoCopy.detail", fallback: "Only while you are using this Mac. Any app can read the clipboard, so this is off by default."),
                            isOn: model.codesAutoCopy, set: actions.setCodesAutoCopy)
                 .disabled(!model.codesEnabled)
+            SettingsRow(title: L10n.text("codes.float.title", fallback: "Keep the copy button on screen for"),
+                        subtitle: L10n.text("codes.float.detail", fallback: "A small card with the code and a Copy button at the top right. Only the notification turns the card off.")) {
+                ChoiceButton(value: model.codesFloat.title) {
+                    CodeFloatSetting.allCases.map { option in
+                        PopUpMenuItem(title: option.title, checked: option == model.codesFloat) { actions.setCodesFloat(option) }
+                    }
+                }
+            }
             SettingsRow(title: L10n.text("codes.access", fallback: "Code access"),
                         subtitle: model.codeLinkStatus ?? model.codeAccess.text,
                         subtitleIsWarning: model.codeLinkStatus == nil && model.codeAccess.isWarning) {
