@@ -271,7 +271,7 @@ final class CallOverlayWindowTests: XCTestCase {
         let controller = makeController(system)
         controller.show(call("A"))
         controller.hide()
-        weak let ghost = controller.panel
+        weak var ghost = controller.panel
         system.windowServerShows = true
         controller.verify()
         XCTAssertEqual(repairs, ["window_server_ghost"])
