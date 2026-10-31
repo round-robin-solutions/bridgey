@@ -102,7 +102,11 @@ the same Wi-Fi. The relay and the control service see only ciphertext: public
 addresses, timing and volume, never device names, identity keys or content
 (`docs/connect-anywhere.md`, section 5.4). The other exception is opt-in: "Codes from messages" set to the cloud option on the Mac sends the
 message text (at most 600 characters) and its sender to a Round Robin Cloudflare
-Worker that asks Workers AI for the code; the worker keeps no logs. Sensitive
+Worker that asks Workers AI for the code; the worker keeps no logs. Codes from email
+never use that worker: the preview of a Gmail, Outlook, Proton Mail or Spark notification
+(at most 600 characters, only when it looks like it holds a code) travels inside the
+encrypted session to the paired Mac and is read by the model on that Mac. Mail text,
+previews and codes are never written to logs or diagnostics on either side. Sensitive
 OS access requires explicit permission. Global and per-device switches gate
 feature execution; permission-light features default on. Mac media control
 defaults off and requires a locally selected player and Automation consent. Bridgey

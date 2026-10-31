@@ -1,7 +1,26 @@
 # Codes from email: plan
 
-Status: **plan only, nothing built.** Bridgey by Round Robin edition. Written 2026-10-31 after Rahul
+Status: **Phase 1 built** (branch `rr/codes-email`); Phase 2 not built. Bridgey by Round Robin edition. Written 2026-10-31 after Rahul
 asked: "I also want to plan support for adding OTP detection through email."
+
+**Rahul's decisions (2026-10-31)**, which win over the recommendations below:
+
+1. Inboxes: Gmail, Outlook, Proton Mail and Spark (Rahul reads all his mail in Spark), all from the
+   phone's mirrored notifications (`com.google.android.gm`, `com.microsoft.office.outlook`,
+   `ch.protonmail.android`, `com.readdle.spark`; checked on Google Play: the rewritten Proton Mail
+   app kept its package, and no other Proton Mail or Spark package is published).
+2. Gmail's Updates tab: handled outside the app, by a Gmail filter that puts code emails in Primary.
+3. Phase 2: decided after Phase 1; not built.
+4. Engine: always the model on this Mac, even when Cloud reads text messages. With no model
+   downloaded, email codes wait: a one-time prompt to download it, never the cloud.
+5. Same code by SMS and email within 10 minutes: one banner, the card says "also by email". Also
+   across mail apps (Gmail and Spark syncing one account): one card, "by email, Gmail and Spark".
+   Key: the code plus the service, so two different codes from one service are two cards.
+6. "Also read codes in email" is on whenever Codes from messages is on.
+7. Codes (SMS too) are listed newest first by the phone's post time, with "now", "40 s ago",
+   "2 min ago". A newer code from the same service is marked "Latest, use this one" and the older
+   ones "Older, replaced", dimmed; the floating Copy panel shows the newest code and, when an older
+   one from that service is still up, "Replaces the code from 1 min ago".
 
 Today "Codes from messages" (draft `sms_codes_draft1`, [protocol.md](protocol.md#codes-from-messages-sms_codes_draft1))
 shows "Code 482913 from HDFC Bank" with Copy code on the Mac, but only for text messages. This plan

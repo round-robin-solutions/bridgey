@@ -66,7 +66,11 @@ is unchanged; the upstream app declares none of these permissions.
   "Send replies as SMS" is on. Without Text messages, the permission-free notification reply
   described above still works for apps that offer one.
 - **Codes from messages** still need no SMS permission: they come from the SMS notifications Bridgey
-  already receives. The lab-only Code reader test now uses the same `READ_SMS` declaration. It still
+  already receives. **Codes from email** (draft `email_codes_draft1`, on whenever Codes from
+  messages is on, its own switch on both apps) needs none either: it reads the Gmail, Outlook, Proton
+  Mail and Spark notifications the phone already mirrors, adds at most 600 characters of preview only
+  when it looks like a code, and the Mac reads it with the model on the Mac only, never the cloud.
+  Mail text, previews and codes are never logged on either side. The lab-only Code reader test now uses the same `READ_SMS` declaration. It still
   asks at Start, and when it ends it asks Android to drop the permission only if Text messages is
   off for every Mac.
 
