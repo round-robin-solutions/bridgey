@@ -57,13 +57,18 @@ final class ThumbnailLaneBenchmark: XCTestCase {
         return result
     }
 
+    /// 500 ms on a Mac (about 115 to 140 ms measured on an M4). Shared CI runners (CI=1, as RR CI's
+    /// GitHub-hosted lane sets) run the simulated link 5 to 7 times slower: 320 to 870 ms over three
+    /// runs on macos-15 on 2026-10-31, so there the budget only catches a lane that got several times slower.
+    private static var coldBudget: TimeInterval { ProcessInfo.processInfo.environment["CI"] == nil ? 0.5 : 2.0 }
+
     func testThumbnailLaneOverSimulatedLAN() {
         for size in [9_000, 20_000] {
             let result = run(thumbBytes: size)
             let efficiency = Double(result.imageBytes) / Double(max(1, result.payloadBytes))
             print(String(format: "BENCH thumbnails %d B each: first 30 in %.0f ms, 200 in %.0f ms, %d requests, %d batches, %.1f%% of batch plaintext is image data",
                          size, result.first30 * 1_000, result.all * 1_000, result.requests, result.batches, efficiency * 100))
-            XCTAssertLessThan(result.first30, 0.5, "first screen within the 500 ms cold budget")
+            XCTAssertLessThan(result.first30, Self.coldBudget, "first screen within the \(Int(Self.coldBudget * 1_000)) ms cold budget")
             XCTAssertGreaterThan(efficiency, 0.9)
         }
     }
