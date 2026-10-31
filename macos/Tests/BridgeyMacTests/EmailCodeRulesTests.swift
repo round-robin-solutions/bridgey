@@ -62,10 +62,14 @@ final class EmailCodeReadTests: XCTestCase {
             return seen
         }
 
-        func answer(text: String, sender: String?) async -> CodeRelayAnswer {
+        private func record(_ text: String) {
             lock.lock()
             seen.append(text)
             lock.unlock()
+        }
+
+        func answer(text: String, sender: String?) async -> CodeRelayAnswer {
+            record(text)
             return answer(text)
         }
     }
