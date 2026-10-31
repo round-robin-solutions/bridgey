@@ -122,7 +122,10 @@ final class CodeFloatWindowTests: XCTestCase {
         NSApp.windows.filter { $0.identifier == codeFloatWindowIdentifier && $0.isVisible }
     }
 
+    /// The card is off the screen and holds no code. A fade out leaves the code on the card until the
+    /// cleanup step (after the fade's deadline), so that step runs first.
     private func assertGone(_ message: String, file: StaticString = #filePath, line: UInt = #line) {
+        if system.live.contains(where: { $0.delay == 0.8 }) { system.fire(delay: 0.8) }
         XCTAssertFalse(controller.isShowing, message, file: file, line: line)
         XCTAssertEqual(visibleCodeWindows.count, 0, "the card is still on screen: \(message)", file: file, line: line)
         XCTAssertNil(controller.content.card, "the code is still held: \(message)", file: file, line: line)
@@ -303,8 +306,8 @@ final class CodeFloatWindowTests: XCTestCase {
     }
 
     func testClosesAtOnceWhenTheDisplaySleeps() {
-        BridgeyWindows.animateAlpha = { _, _, _, _ in XCTFail("no fade when the screen goes") }
         controller.show(card("482913"), seconds: 60)
+        BridgeyWindows.animateAlpha = { _, _, _, _ in XCTFail("no fade when the screen goes") }
         NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.screensDidSleepNotification, object: NSWorkspace.shared)
         spin(0.05)
         assertGone("display sleep")
@@ -420,6 +423,7 @@ final class CodeFloatWindowTests: XCTestCase {
         controller.show(card("482913"), seconds: 60)
         controller.dismiss()
         spin(0.05)
+        system.fire(delay: 0.8)
         XCTAssertNil(controller.content.card)
         XCTAssertFalse(controller.content.copied)
     }

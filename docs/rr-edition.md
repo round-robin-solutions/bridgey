@@ -234,6 +234,17 @@ When a one-time code arrives by SMS, the Mac can show it as "Code 482913 from HD
   something else was copied since; Bridgey compares change counts and never reads the clipboard.
   "Copy automatically" (off by default) copies a new code only when the Mac is unlocked and was
   used in the last two minutes.
+- **Floating Copy code card (Mac, 2026-10-31):** the banner is gone after a few seconds, so a new code
+  also shows on a small card at the top right with the code, where it came from and a large Copy code
+  button. It stays 60 seconds, or until the code is copied (it shows "Copied" for a moment) or the card
+  is closed; a newer code replaces it and starts the 60 seconds again. It never takes focus (a
+  non-activating panel), closes through the shared window close path, closes at once when the screen
+  locks or sleeps, and is hidden from screenshots and screen sharing. Esc closes it while it has
+  keyboard focus. Settings > Codes from messages > "Keep the copy button on screen for": 60 seconds
+  (default), 30 seconds, or Only the notification (no card). The setting is `settings.codes.float`,
+  stays on that Mac and is not synced. The notification keeps its normal level: Time Sensitive needs a
+  restricted entitlement from a provisioning profile that these builds do not have. The phone posts no
+  Copy code notification of its own, so Android is unchanged.
 - **Privacy:** codes and message text are never logged on either side, whatever Settings > Privacy
   > Logging says (SMS-app notifications log without title and text). Notification history, when on,
   keeps "Sent a one-time code" for a code message, never the code. Diagnostics record only the
