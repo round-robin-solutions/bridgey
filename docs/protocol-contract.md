@@ -140,6 +140,7 @@ the tables at the end of this page are generated from it with
 | `clipboard_files_draft1` | edition-draft | no | false |
 | `remote_input_draft1` | edition-draft | no | false |
 | `sms_codes_draft1` | edition-draft | no | false |
+| `email_codes_draft1` | edition-draft | no | false |
 | `folders_draft1` | edition-draft | no | false |
 | `places_draft1` | edition-draft | no | false |
 | `files_browse_draft1` | edition-draft | no | false |
@@ -376,7 +377,9 @@ Idempotent.
 - `callType`: optional: incoming | ongoing | screening | unknown
 - `actions`: array of at most 4 {actionToken (at most 64), title (at most 64), allowsReply}
 - `smsDefaultApp`: boolean, edition extension (sms_codes_draft1)
-- `redacted`: boolean, edition extension, only with smsDefaultApp true
+- `redacted`: boolean, edition extension, only with smsDefaultApp true or (email_codes_draft1) emailApp true
+- `emailApp`: boolean, edition extension (email_codes_draft1), only to a Mac that shows the key: the notification came from a supported mail app (Gmail, Outlook, Proton Mail, Spark) and is not a group summary
+- `preview`: string, optional, edition extension (email_codes_draft1), only with emailApp true: the expanded text (subject and body start), at most 600 UTF-16 units, cut only at whitespace; sent only when it looks like it holds a code. Never logged
 - `smsReply`: boolean, edition extension (sms_draft1), only to a Mac that shows the key: the phone answers this notification by sms.send with notificationId
 - `smsThreadId`: integer, optional, edition extension (sms_draft1): the conversation the message belongs to, when the phone found it
 
