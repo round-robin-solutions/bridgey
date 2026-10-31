@@ -43,7 +43,8 @@ class SpeedTestThreadTest {
         test.cancel()
         assertTrue("speed.cancel sent", waitFor { link.threads.any { it.first == SpeedKinds.CANCEL } })
         assertTrue("never on the caller's thread: ${link.threads}", link.threads.none { it.second === caller })
-        assertEquals("cancelled", test.state.value.failure)
+        // The state is set on the speed test's own thread, possibly just after speed.cancel goes out.
+        assertTrue("state cancelled: ${test.state.value}", waitFor { test.state.value.failure == "cancelled" })
         scope.cancel()
     }
 
