@@ -15,6 +15,8 @@ data class DeviceLinkState(
     val remoteFoldersReceive: Boolean = false,
     /** The device advertised sms_codes_draft1: it reads codes and advertises for the companion link. */
     val remoteSmsCodes: Boolean = false,
+    /** The device advertised email_codes_draft1: it reads codes in mail previews (emailApp, preview). */
+    val remoteEmailCodes: Boolean = false,
     /** The device advertised links_open_draft1: Web links understands `action: "open"`. */
     val remoteLinksOpen: Boolean = false,
     /** The device advertised focus_sync_draft1: it understands focus.state. */

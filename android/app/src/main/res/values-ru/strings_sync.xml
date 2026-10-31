@@ -26,6 +26,7 @@
     <string name="sync_name_auto_update_all">Обновлять все устройства автоматически</string>
     <string name="sync_name_folder_include_hidden">Скрытые файлы в папках</string>
     <string name="sync_name_folder_include_system">Системные файлы в папках</string>
+    <string name="sync_name_codes_email">Коды из писем</string>
     <string name="sync_turned_on">%1$s: включено</string>
     <string name="sync_turned_off">%1$s: выключено</string>
     <string name="sync_folder_sender_picks">Папки: выбирает отправитель</string>

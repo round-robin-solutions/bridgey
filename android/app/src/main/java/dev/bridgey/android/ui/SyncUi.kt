@@ -49,7 +49,7 @@ class SyncSettingsActions(
 )
 
 /**
- * The settings Choose what syncs offers: the ones this phone has (26). Codes from messages is a Mac setting: the phone
+ * The settings Choose what syncs offers: the ones this phone has (27). Codes from messages is a Mac setting: the phone
  * only stores and relays it, as the Mac does for Photos for the Mac.
  */
 val ChoosableSyncKeys: List<SyncKey> = SyncKey.entries - SyncKey.CODES
@@ -87,6 +87,7 @@ fun syncKeyName(context: Context, key: SyncKey): String = context.getString(
         SyncKey.AUTO_UPDATE_ALL -> R.string.sync_name_auto_update_all
         SyncKey.FOLDER_INCLUDE_HIDDEN -> R.string.sync_name_folder_include_hidden
         SyncKey.FOLDER_INCLUDE_SYSTEM -> R.string.sync_name_folder_include_system
+        SyncKey.EMAIL_CODES -> R.string.sync_name_codes_email
     },
 )
 

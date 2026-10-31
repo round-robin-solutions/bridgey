@@ -141,9 +141,18 @@ data class BridgeySettingsState(
      * off until chosen (Rahul, 2026-10-30). An explicit off stays off.
      */
     val connectAwayChoice: Boolean? = null,
+    /**
+     * Notifications > Codes > Also read codes in email (email_codes_draft1, docs/codes-from-email.md): forward the
+     * preview of mail-app notifications to Macs that read codes. The person's choice (or a synced one), or null when
+     * nobody chose: then it is on ([emailCodes]). Synced as `codes.email`.
+     */
+    val emailCodesChoice: Boolean? = null,
 ) {
     /** What Connect away from home does now: the choice, or on while there is none. */
     val connectAway: Boolean get() = connectAwayChoice ?: CONNECT_AWAY_DEFAULT
+
+    /** What Also read codes in email does now: the choice, or on while there is none. */
+    val emailCodes: Boolean get() = emailCodesChoice ?: dev.bridgey.android.codes.EMAIL_CODES_DEFAULT
 
     /** What a folder transfer to this phone reads when it decides. */
     val folderReceiveSettings: FolderReceiveSettings
@@ -323,6 +332,12 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(connectAwayChoice = enabled)
     }
 
+    /** The person's own choice (or a synced one) for Also read codes in email. */
+    fun setEmailCodes(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_EMAIL_CODES, enabled).apply()
+        mutableState.value = mutableState.value.copy(emailCodesChoice = enabled)
+    }
+
     /**
      * Test builds only (debuggable): a control service URL and relay-only mode, set with
      * `adb shell run-as <app> ...` or the debug intent; release builds ignore both.
@@ -460,6 +475,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             updatesAutoAll = if (preferences.contains(KEY_UPDATES_AUTO_ALL)) preferences.getBoolean(KEY_UPDATES_AUTO_ALL, false) else null,
             smsReplyAsSms = preferences.getBoolean(KEY_SMS_REPLY_AS_SMS, false),
             connectAwayChoice = if (preferences.contains(KEY_CONNECT_AWAY)) preferences.getBoolean(KEY_CONNECT_AWAY, true) else null,
+            emailCodesChoice = if (preferences.contains(KEY_EMAIL_CODES)) preferences.getBoolean(KEY_EMAIL_CODES, true) else null,
         )
     }
 
@@ -490,6 +506,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         private const val KEY_UPDATES_AUTO_ALL = "updates.auto_all"
         private const val KEY_SMS_REPLY_AS_SMS = "sms.reply_as_sms"
         internal const val KEY_CONNECT_AWAY = "connect.away"
+        internal const val KEY_EMAIL_CODES = "codes.email"
         private const val KEY_CONNECT_DEBUG_URL = "connect.debug.controlUrl"
         private const val KEY_CONNECT_DEBUG_RELAY_ONLY = "connect.debug.relayOnly"
     }

@@ -27,6 +27,11 @@ import android.telephony.TelephonyManager
 import android.util.Base64
 import androidx.annotation.RequiresApi
 import java.io.ByteArrayOutputStream
+import dev.bridgey.android.codes.EmailNotificationContent
+import dev.bridgey.android.codes.StyleMessage
+import dev.bridgey.android.codes.emailPreview
+import dev.bridgey.android.codes.isEmailAppNotification
+import dev.bridgey.android.codes.isRedactedEmailNotification
 import dev.bridgey.android.codes.isRedactedNotificationText
 import java.security.MessageDigest
 
@@ -129,8 +134,24 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         // know when Android hid the text from Bridgey. The text is looked at here, never logged.
         val codeAccess = bridgey.codeAccess
         val smsDefaultApp = !isCall && sbn.packageName == codeAccess.defaultSmsPackage()
-        val redacted = if (smsDefaultApp) isRedactedNotificationText(text, codeAccess.redactedPlaceholder) else null
+        // A group summary ("2 new messages") stands for several conversations or mails.
+        val groupSummary = notification.flags and Notification.FLAG_GROUP_SUMMARY != 0
+        // Codes from email: the four supported mail apps, not summaries, not calls. Same rule for hidden text as SMS.
+        val emailApp = !smsDefaultApp && isEmailAppNotification(sbn.packageName, packageName, groupSummary, isCall)
+        val emailContent = if (emailApp) emailNotificationContent(notification, text) else null
+        val redacted = when {
+            smsDefaultApp -> isRedactedNotificationText(text, codeAccess.redactedPlaceholder)
+            emailContent != null -> isRedactedEmailNotification(emailContent, codeAccess.redactedPlaceholder)
+            else -> null
+        }
         if (smsDefaultApp) codeAccess.observeSms(redacted == true, text)
+        if (emailApp) codeAccess.observeEmail(redacted == true)
+        // Built only while Also read codes in email is on; each Mac then gets it only if it showed the key.
+        val mailPreview = if (emailContent != null && bridgey.settings.state.value.emailCodes) {
+            emailPreview(emailContent, redacted == true)
+        } else {
+            null
+        }
 
         val isTelephonyCall = isCall && (callLifecycle.isTelephonyCall(sbn.key) || isTelephonyCallSource(sbn.packageName))
         val telephonyCallType = if (isTelephonyCall) currentTelephonyCallType() else null
@@ -157,8 +178,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         // by SMS to the conversation it belongs to. Found here once; the text is matched, never logged.
         var smsReply = false
         var smsThreadId: Long? = null
-        // A group summary ("2 new messages") stands for several conversations: no reply from the Mac.
-        val groupSummary = notification.flags and Notification.FLAG_GROUP_SUMMARY != 0
+        // A group summary stands for several conversations: no reply from the Mac.
         if (smsDefaultApp && !groupSummary && bridgey.settings.smsOn()) {
             val provider = dev.bridgey.android.sms.SmsProvider(this)
             val replyToken = actions.firstOrNull { it.allowsReply }?.token
@@ -200,6 +220,8 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
                 redacted = redacted,
                 smsReply = smsReply,
                 smsThreadId = smsThreadId,
+                emailApp = emailApp,
+                preview = mailPreview,
             )
             if (callType != null) {
                 callLifecycle.forwarded(notificationId, sbn.key, sbn.packageName, isTelephonyCall)
@@ -658,6 +680,28 @@ private data class NotificationActionCandidate(
 )
 
 internal enum class SystemCallAction { ANSWER, END }
+
+/**
+ * A mail notification's text as the pure rules in EmailCodes.kt read it: EXTRA_TEXT, EXTRA_BIG_TEXT, InboxStyle lines
+ * and MessagingStyle messages. Read here, never logged.
+ */
+internal fun emailNotificationContent(notification: Notification, text: String): EmailNotificationContent {
+    val extras = notification.extras
+    @Suppress("DEPRECATION")
+    val messages = runCatching { extras.getParcelableArray(Notification.EXTRA_MESSAGES) }.getOrNull()
+        ?.mapNotNull { it as? Bundle }
+        ?.map { StyleMessage(it.getCharSequence(MESSAGE_TEXT_KEY)?.toString(), it.getLong(MESSAGE_TIME_KEY)) }
+    return EmailNotificationContent(
+        text = text,
+        bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString(),
+        textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.map { it?.toString().orEmpty() },
+        messages = messages,
+    )
+}
+
+/** The keys Notification.MessagingStyle.Message writes into each EXTRA_MESSAGES bundle. */
+private const val MESSAGE_TEXT_KEY = "text"
+private const val MESSAGE_TIME_KEY = "time"
 
 internal fun canPerformSystemCallAction(
     action: SystemCallAction,

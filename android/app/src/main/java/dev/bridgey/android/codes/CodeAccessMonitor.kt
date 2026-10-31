@@ -26,6 +26,10 @@ class CodeAccessMonitor(private val context: Context) {
     val smsSeen = AtomicInteger()
     val smsHidden = AtomicInteger()
 
+    /** Mail-app notifications seen since the app started, and how many Android hid (codes from email). */
+    val emailSeen = AtomicInteger()
+    val emailHidden = AtomicInteger()
+
     /** Android's own placeholder in the phone's language, read once. */
     val redactedPlaceholder: String? by lazy { systemRedactedPlaceholder() }
 
@@ -51,8 +55,24 @@ class CodeAccessMonitor(private val context: Context) {
             PatternBaseline.extract(text) != null -> false
             else -> return
         }
-        if (preferences.getInt(KEY_LAST, UNKNOWN) != (if (evidence) HIDDEN else VISIBLE)) {
-            preferences.edit().putInt(KEY_LAST, if (evidence) HIDDEN else VISIBLE).apply()
+        recordEvidence(evidence)
+    }
+
+    /**
+     * A notification from a supported mail app reached the listener. Hidden text counts like a hidden SMS (the
+     * companion link lifts both). A visible mail is no proof either way: Android may simply not have seen a code
+     * in it, and mail is noisier than SMS, so only the hidden case is recorded.
+     */
+    fun observeEmail(redacted: Boolean) {
+        emailSeen.incrementAndGet()
+        if (!redacted) return
+        emailHidden.incrementAndGet()
+        recordEvidence(hidden = true)
+    }
+
+    private fun recordEvidence(hidden: Boolean) {
+        if (preferences.getInt(KEY_LAST, UNKNOWN) != (if (hidden) HIDDEN else VISIBLE)) {
+            preferences.edit().putInt(KEY_LAST, if (hidden) HIDDEN else VISIBLE).apply()
         }
         refresh()
     }

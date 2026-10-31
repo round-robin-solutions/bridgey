@@ -431,7 +431,7 @@ private fun NotificationsPage(state: SettingsState, actions: SettingsActions, li
                             BridgeyIcons.Notifications, Tint.PURPLE, onClick = actions.openNotificationApps,
                         ) { Chevron() }
                     }
-                    codesRows(state.codes, actions.codes)
+                    codesRows(state.codes, actions.codes, state.sync, actions.sync)
                 }
                 row { shape ->
                     ListRow(

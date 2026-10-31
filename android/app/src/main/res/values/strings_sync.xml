@@ -27,6 +27,7 @@
     <string name="sync_name_auto_update_all">Update all devices automatically</string>
     <string name="sync_name_folder_include_hidden">Hidden files in folders</string>
     <string name="sync_name_folder_include_system">System files in folders</string>
+    <string name="sync_name_codes_email">Codes from email</string>
     <string name="sync_turned_on">%1$s turned on</string>
     <string name="sync_turned_off">%1$s turned off</string>
     <string name="sync_folder_sender_picks">Folders: sending device chooses</string>

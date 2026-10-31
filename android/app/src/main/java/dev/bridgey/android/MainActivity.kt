@@ -1126,6 +1126,7 @@ private fun BridgeyApp(
                                 linkTargets = codeTargets,
                                 linkTarget = dev.bridgey.android.codes.CodeLinkTargets.current(codeTargets, codes.pickedTarget, pairing.companionLinkTarget()),
                                 linkedMac = remember(companionLink) { codes.linkRecord.linked() },
+                                emailCodes = settingsState.emailCodes,
                             ),
                             setup = dev.bridgey.android.ui.SetupSettingsState(oem = setup.oem),
                             focus = FocusSettingsState(settingsState.focusShare, settingsState.focusFollow, dndAccess),
@@ -1259,6 +1260,7 @@ private fun BridgeyApp(
                                     )
                                     android.widget.Toast.makeText(context, context.getString(R.string.codes_adb_copied), android.widget.Toast.LENGTH_SHORT).show()
                                 },
+                                setEmailCodes = settings::setEmailCodes,
                             ),
                         )
                     when (route) {

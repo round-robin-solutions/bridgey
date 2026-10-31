@@ -29,6 +29,7 @@ import dev.bridgey.android.codes.CodeLinkMac
 import dev.bridgey.android.codes.CodeLinkTargets
 import dev.bridgey.android.codes.CompanionLinkState
 import dev.bridgey.android.codes.LinkFailure
+import dev.bridgey.android.sync.SyncUiState
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import dev.bridgey.android.ui.theme.BridgeyType
 
@@ -47,6 +48,8 @@ data class CodesSettingsState(
     val linkTarget: CodeLinkMac? = null,
     /** The Mac recorded when the last link succeeded. */
     val linkedMac: CodeLinkMac? = null,
+    /** Also read codes in email: mail-app previews go to Macs that read codes. On until chosen; synced as codes.email. */
+    val emailCodes: Boolean = true,
 ) {
     val showAdb: Boolean get() = linkApplies && access != CodeAccessStatus.ALLOWED
 }
@@ -56,6 +59,7 @@ class CodesSettingsActions(
     /** The picker's choice: link with this Mac. */
     val linkTo: (String) -> Unit = {},
     val copyCommand: () -> Unit = {},
+    val setEmailCodes: (Boolean) -> Unit = {},
 )
 
 @Composable
@@ -88,8 +92,16 @@ fun linkStateText(state: CompanionLinkState): String = when (state) {
     )
 }
 
-/** The status row, then "Link this phone to the Mac" while Android may hide codes (or a link is under way). */
-internal fun GroupScope.codesRows(state: CodesSettingsState, actions: CodesSettingsActions) {
+/**
+ * The status row, then "Link this phone to the Mac" while Android may hide codes (or a link is under way), then
+ * Also read codes in email with its synced mark and sync lines.
+ */
+internal fun GroupScope.codesRows(
+    state: CodesSettingsState,
+    actions: CodesSettingsActions,
+    sync: SyncUiState = SyncUiState(),
+    syncActions: SyncSettingsActions = SyncSettingsActions(),
+) {
     row { shape ->
         val ok = state.access == CodeAccessStatus.ALLOWED
         ListRow(
@@ -102,6 +114,14 @@ internal fun GroupScope.codesRows(state: CodesSettingsState, actions: CodesSetti
     if (state.linkApplies) {
         row { shape -> CodesLinkRow(shape, state, actions, busy) }
     }
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.codes_email), stringResource(R.string.codes_email_detail),
+            BridgeyIcons.Notifications, if (state.emailCodes) Tint.BLUE else Tint.NEUTRAL, state.emailCodes, actions.setEmailCodes,
+            synced = sync.syncs(dev.bridgey.android.sync.SyncKey.EMAIL_CODES),
+        )
+    }
+    syncRows(dev.bridgey.android.sync.SyncKey.EMAIL_CODES, sync, syncActions)
 }
 
 /** "Link to Personal Mac": which Mac the phone is linked to, and a picker when two or more read codes. */
