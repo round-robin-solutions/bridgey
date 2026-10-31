@@ -22,7 +22,7 @@ fi
 # Never leave the source tree or signing files on the Mac, even when the build fails.
 trap 'ssh "$HOST" "rm -rf $REMOTE" || true' EXIT
 
-tar -C "$(dirname -- "$RR_ROOT")" -czf - --exclude=.git --exclude=android --exclude=macos/.build --exclude=dist \
+tar -C "$(dirname -- "$RR_ROOT")" -czf - --exclude=.git --exclude=android --exclude=macos/.build --exclude=dist --exclude=rust/target \
   "$(basename -- "$RR_ROOT")" |
   ssh "$HOST" "rm -rf $REMOTE && mkdir -p $REMOTE && tar -C $REMOTE -xzf - && mv $REMOTE/$(basename -- "$RR_ROOT") $REMOTE/src"
 
