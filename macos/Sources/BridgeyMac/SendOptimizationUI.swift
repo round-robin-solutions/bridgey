@@ -422,12 +422,14 @@ final class SendPreviewModel: ObservableObject {
             let elapsed = Date().timeIntervalSince(started)
             let output = item?.output ?? sample
             let longEdge = options.imageMode == .optimize ? options.maxEdge : nil
-            let image = Self.crop(output, longEdge: longEdge)
+            // CGImage is Sendable on every SDK we build with; NSImage is not on the macOS 15 SDK
+            // (Xcode 16, GitHub's macos-15 runners), so the NSImage is made on the main actor.
+            let pixels = Self.cropPixels(output, longEdge: longEdge)
             let bytes = item?.outputBytes ?? Int64((try? output.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
             let dimensions = Self.dimensions(output)
             await MainActor.run { [weak self] in
                 guard let self, !Task.isCancelled else { return }
-                self.state.optimized = image
+                self.state.optimized = pixels.map(Self.previewImage)
                 self.state.optimizedBytes = bytes
                 self.state.working = false
                 self.state.detail = String(format: L10n.text("optimize.preview.detail", fallback: "Sample photo, %@ sent as %@ (%d ms on this Mac)"),
@@ -445,6 +447,10 @@ final class SendPreviewModel: ObservableObject {
 
     /// The centre 360 x 240 of the original's pixel grid (a resized copy is scaled back up to match).
     nonisolated static func crop(_ url: URL, longEdge: Int?) -> NSImage? {
+        cropPixels(url, longEdge: longEdge).map(previewImage)
+    }
+
+    nonisolated static func cropPixels(_ url: URL, longEdge: Int?) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
         let sampleWidth = 2400.0
         let scale = Double(image.width) / sampleWidth
@@ -452,8 +458,11 @@ final class SendPreviewModel: ObservableObject {
         let cropHeight = 240.0 * scale
         let rect = CGRect(x: (Double(image.width) - cropWidth) / 2 + Double(image.width) * 0.12, y: (Double(image.height) - cropHeight) / 2,
                           width: cropWidth, height: cropHeight).integral
-        guard let cropped = image.cropping(to: rect) else { return nil }
         _ = longEdge
-        return NSImage(cgImage: cropped, size: NSSize(width: 360, height: 240))
+        return image.cropping(to: rect)
+    }
+
+    nonisolated static func previewImage(_ pixels: CGImage) -> NSImage {
+        NSImage(cgImage: pixels, size: NSSize(width: 360, height: 240))
     }
 }
