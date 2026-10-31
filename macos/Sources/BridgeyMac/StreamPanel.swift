@@ -1495,7 +1495,12 @@ struct BridgeyPanel: View {
         model.available = Set(BridgeyFeature.allCases.filter { pairing.isFeatureAvailable($0) })
         model.clipboardLine = clipboard.line
         model.clipboardHidden = clipboard.hidden
-        model.status = pairing.rediscoverStatus ?? pairing.clipboardStatus ?? pairing.callStatus ?? pairing.pingStatus ?? quickActions.status ?? camera.status ?? phoneScreen.status ?? pairing.fileTransferStatus.flatMap { pairing.fileTransferActive ? nil : $0 }
+        // The first status that is set, in priority order. Kept as a typed list: one long `??` chain is too
+        // slow for older Swift compilers to type-check.
+        let fileStatus: String? = pairing.fileTransferActive ? nil : pairing.fileTransferStatus
+        let statuses: [String?] = [pairing.rediscoverStatus, pairing.clipboardStatus, pairing.callStatus, pairing.pingStatus,
+                                   quickActions.status, camera.status, phoneScreen.status, fileStatus]
+        model.status = statuses.lazy.compactMap { $0 }.first
         if pairing.isFeatureAvailable(.notifications) && !pairing.notificationsAuthorized {
             model.notificationPrompt = pairing.notificationPermissionDetermined ? .openSettings : .request
         }
