@@ -122,6 +122,7 @@ struct SettingsModel {
     var codesAutoCopy = false
     /// Also read codes in email (on until chosen).
     var codesEmail = true
+    var codesFloat: CodeFloatSetting = .default
     /// The build has a relay address (rr-edition.properties OTP_PROXY_URL).
     var codesAvailable = true
     var codesEngine: CodeEngine = .local
@@ -259,6 +260,7 @@ struct SettingsActions {
     var setCodesEnabled: (Bool) -> Void = { _ in }
     var setCodesAutoCopy: (Bool) -> Void = { _ in }
     var setCodesEmail: (Bool) -> Void = { _ in }
+    var setCodesFloat: (CodeFloatSetting) -> Void = { _ in }
     var setCodesEngine: (CodeEngine) -> Void = { _ in }
     /// Records the acceptance of the model's terms, then downloads the newest model.
     var acceptAndDownloadCodeModel: () -> Void = {}
@@ -1821,6 +1823,7 @@ struct LiveSettingsView: View {
         model.codesEnabled = settings.codesEnabled
         model.codesAutoCopy = settings.codesAutoCopy
         model.codesEmail = settings.codesEmail
+        model.codesFloat = settings.codesFloat
         model.codesAvailable = CodeRelay.baseURL != nil
         model.codesEngine = settings.codesEngine
         model.codeModel = codeModelDisplay
@@ -1981,6 +1984,7 @@ struct LiveSettingsView: View {
         }
         actions.setCodesAutoCopy = { settings.setCodesAutoCopy($0) }
         actions.setCodesEmail = { settings.setCodesEmail($0) }
+        actions.setCodesFloat = { settings.setCodesFloat($0) }
         actions.setCodesEngine = { settings.setCodesEngine($0) }
         actions.acceptAndDownloadCodeModel = {
             guard let manifest = codeModel.manifest else { return }

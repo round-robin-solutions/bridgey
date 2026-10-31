@@ -28,6 +28,30 @@ adds one-time codes that arrive by email, reusing the same engines (the fine-tun
 the Mac, or the opt-in Cloudflare relay), the same verbatim guard (`CodeGuard`) and the same Copy
 code card, including the floating 60 s copy panel being built on `rr/code-copy-float`.
 
+## Phase 0 eval (2026-10-31)
+
+The shipped model (Gemma 3 270M v3, Q4_K_M, llama.cpp on the personal Mac) was run through the whole
+email path on synthetic Gmail, Outlook, Proton Mail and Spark previews (no real mail; details and
+reruns in `outputs/bridgey/research/otp-tiny-model/email/` in PA). Bar: at least 97% of codes exact,
+no wrong code, at most 1% codes shown on mail without one.
+
+| Rule | Set | Codes exact | Wrong | Codes on no-code mail |
+| --- | --- | --- | --- | --- |
+| Initial pre-check (section 6 as written) | blind set, untouched | 104 of 120 (86.7%) | 0 | 4 of 120 (3.3%) |
+| Final rule, frozen before the second blind set | second blind set (the honest number) | 116 of 120 (96.7%) | 0 | 0 of 120 |
+| Final rule | own held-out templates | 182 of 184 (98.9%) | 0 | 0 of 96 |
+
+The model weights and its prompt are unchanged. What changed is the email rule, now in
+`macos/Sources/BridgeyMac/EmailCodeRules.swift` and checked against the eval's reference answers in
+`protocol/test-vectors/email-codes-v1.json`: a code word within 100 characters (not 60); "login",
+"sign in" and "confirmation" alone are not code words; expired or used codes, tokens in links and
+copyright years, and meeting passcodes do not count; marketing words match whole words only; split
+codes such as "7Q3-9XT" count; codes flattened from HTML digit boxes ("4 8 2 9 1 3") are joined first,
+on the phone's gate too; and when the whole preview gives nothing, up to two short pieces around the
+best tokens are read again inside the same 2 s. The honest number is one code short of the bar; the
+misses are the model saying "no code" on long mails and a 9-character code the guard's 8-character
+cap refuses.
+
 ## 1. Summary
 
 - **Email codes are not caught today.** The Mac only reads notifications from the phone's SMS app

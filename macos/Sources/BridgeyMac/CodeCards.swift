@@ -235,25 +235,3 @@ func codeReplacesLine(_ older: LiveCodeCard, now: Date) -> String {
     if seconds < 10 { return L10n.text("codes.replaces.now", fallback: "Replaces the code from a moment ago") }
     return String(format: L10n.text("codes.replaces", fallback: "Replaces the code from %@"), codeRelativeTime(older.postedAt, now: now))
 }
-
-// MARK: - Floating panel
-
-/// The floating Copy code panel (CodeFloatWindow.swift on rr/main). The coordinator calls it with the newest
-/// code only: never for a duplicate, never for an older code that arrived late.
-@MainActor
-protocol CodeFloatPresenting: AnyObject {
-    /// Shows `newest`. `replacesAgo` is the whole line "Replaces the code from 1 min ago" (`codeReplacesLine`)
-    /// when an older, different code from the same service is still live, else nil.
-    func show(newest: LiveCodeCard, replacesAgo: String?)
-    /// The code with this reference was copied (by the banner, the panel card or automatically).
-    func markCopied(_ reference: String)
-    func dismiss()
-}
-
-/// Until the real window is wired: nothing on screen.
-@MainActor
-final class NoCodeFloat: CodeFloatPresenting {
-    func show(newest: LiveCodeCard, replacesAgo: String?) {}
-    func markCopied(_ reference: String) {}
-    func dismiss() {}
-}

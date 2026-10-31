@@ -126,6 +126,8 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var codesEmailChoice: Bool?
     /// Also read codes in email while nobody chose.
     nonisolated static let codesEmailDefault = true
+    /// Notifications > Codes from messages > Keep the copy button on screen for. This Mac only, not synced.
+    @Published private(set) var codesFloat: CodeFloatSetting
     /// Media and actions > Open links from phones right away (links_open_draft1). Off by default:
     /// a link waits for Open on this Mac.
     @Published private(set) var openLinksRightAway: Bool
@@ -180,6 +182,7 @@ final class BridgeySettings: ObservableObject {
         let emailChoice = storedDefaults.object(forKey: "settings.codes.email") as? Bool
         codesEmailChoice = emailChoice
         codesEmail = emailChoice ?? Self.codesEmailDefault
+        codesFloat = CodeFloatSetting.stored(storedDefaults.string(forKey: CodeFloatSetting.defaultsKey))
         openLinksRightAway = storedDefaults.bool(forKey: "settings.links.openRightAway")
         smsEnabled = storedDefaults.bool(forKey: "settings.sms.enabled")
         smsKeepOnMac = storedDefaults.object(forKey: "settings.sms.keepOnMac") as? Bool ?? true
@@ -235,6 +238,11 @@ final class BridgeySettings: ObservableObject {
     func setCodesEnabled(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.codes.enabled")
         codesEnabled = enabled
+    }
+
+    func setCodesFloat(_ setting: CodeFloatSetting) {
+        defaults.set(setting.rawValue, forKey: CodeFloatSetting.defaultsKey)
+        codesFloat = setting
     }
 
     func setSmsEnabled(_ enabled: Bool) {

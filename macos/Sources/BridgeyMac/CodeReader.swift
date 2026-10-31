@@ -96,8 +96,8 @@ func looksLikeOtpTraffic(_ text: String) -> Bool {
     return otpTokenPattern.firstMatch(in: text, range: range) != nil || otpSplitPattern.firstMatch(in: text, range: range) != nil
 }
 
-private let otpTokenPattern = try! NSRegularExpression(pattern: "(?<![0-9A-Za-z])(?=[0-9A-Za-z]*[0-9])[0-9A-Za-z]{4,10}(?![0-9A-Za-z])")
-private let otpSplitPattern = try! NSRegularExpression(pattern: "(?<![0-9A-Za-z])[0-9]{2,5}[ -][0-9]{2,5}(?![0-9A-Za-z])")
+let otpTokenPattern = try! NSRegularExpression(pattern: "(?<![0-9A-Za-z])(?=[0-9A-Za-z]*[0-9])[0-9A-Za-z]{4,10}(?![0-9A-Za-z])")
+let otpSplitPattern = try! NSRegularExpression(pattern: "(?<![0-9A-Za-z])[0-9]{2,5}[ -][0-9]{2,5}(?![0-9A-Za-z])")
 
 /// Android packages that are SMS apps, for phones that do not yet say which app is the default.
 let knownSmsPackages: Set<String> = [
@@ -164,7 +164,9 @@ func codeCandidate(packageName: String, smsDefaultApp: Bool?, redacted: Bool?, t
     guard emailCodes, emailApp == true, knownMailPackages.contains(packageName) else { return nil }
     let source = preview.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } ?? text
     guard let trimmed = readableCodeText(source) else { return nil }
-    return emailCodePrecheck(trimmed) ? .email(trimmed) : nil
+    // Codes flattened from HTML digit boxes are joined first; the model and the guard read the joined text.
+    let joined = normaliseEmailText(trimmed)
+    return emailCodePrecheck(joined) ? .email(joined) : nil
 }
 
 /// Trimmed, non-empty and at most 600 UTF-16 units (as the relay counts them). A longer message is never
@@ -173,64 +175,6 @@ private func readableCodeText(_ text: String) -> String? {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty, trimmed.utf16.count <= CodeRelay.maximumTextLength else { return nil }
     return trimmed
-}
-
-// MARK: - Email pre-check
-
-/*
- * The stricter pre-check for mail previews (docs/codes-from-email.md section 6). This is the one place
- * the rule lives: the Phase 0 email eval (outputs/bridgey/research/otp-tiny-model, email sets) may tune
- * the word lists and the window here.
- *
- * A preview passes when it passes `looksLikeOtpTraffic`, some code-shaped token (the same two patterns)
- * has a code word within `emailCodeWordWindow` characters before or after it, and that code word is not
- * part of a marketing phrase ("promo code", "use code", "20% off"). A mail that says "unsubscribe" and
- * has a marketing phrase anywhere is refused outright.
- */
-
-/// Characters (UTF-16 units) before and after a token that are searched for a code word.
-let emailCodeWordWindow = 60
-
-/// Code words, case-insensitive, whole words. Russian stems take their usual endings.
-private let emailCodeWords = try! NSRegularExpression(
-    pattern: wordEdgeLeft + "(?:"
-        + "codes?|otp|one[- ]time|passcodes?|verification|verify|pin|2fa|two[- ]factor|two[- ]step|security code"
-        + "|sign[- ]in|log[- ]?in|authentication|confirm|confirmation"
-        + "|код(?:а|у|ом|ы|е)?|парол(?:ь|я|ю|ем|и)|подтвержд[\\p{L}]*"
-        + "|ओटीपी|कोड"
-        + ")" + wordEdgeRight,
-    options: [.caseInsensitive]
-)
-
-/// Marketing phrases: a code word inside one of these does not count.
-private let emailMarketingPhrases = try! NSRegularExpression(
-    pattern: wordEdgeLeft + "(?:promo(?:tional)? codes?|coupon(?: codes?)?|discount codes?|vouchers?(?: codes?)?|gift codes?"
-        + "|referral codes?|offer codes?|use (?:the )?code)" + wordEdgeRight
-        + "|\\d+ ?% ?off" + wordEdgeRight,
-    options: [.caseInsensitive]
-)
-
-private let emailUnsubscribe = try! NSRegularExpression(pattern: "unsubscribe", options: [.caseInsensitive])
-
-private let wordEdgeLeft = "(?<![\\p{L}\\p{M}\\p{N}])"
-private let wordEdgeRight = "(?![\\p{L}\\p{M}\\p{N}])"
-
-/// Whether a mail preview may hold a one-time code, before the model reads it. Pure, so it is tested.
-func emailCodePrecheck(_ text: String) -> Bool {
-    guard looksLikeOtpTraffic(text) else { return false }
-    let whole = NSRange(location: 0, length: (text as NSString).length)
-    let marketing = emailMarketingPhrases.matches(in: text, range: whole).map(\.range)
-    if !marketing.isEmpty, emailUnsubscribe.firstMatch(in: text, range: whole) != nil { return false }
-    let words = emailCodeWords.matches(in: text, range: whole).map(\.range)
-        .filter { word in !marketing.contains { NSIntersectionRange($0, word).length > 0 } }
-    guard !words.isEmpty else { return false }
-    let tokens = (otpTokenPattern.matches(in: text, range: whole) + otpSplitPattern.matches(in: text, range: whole)).map(\.range)
-    return tokens.contains { token in
-        let start = max(0, token.location - emailCodeWordWindow)
-        let end = min(whole.length, NSMaxRange(token) + emailCodeWordWindow)
-        let window = NSRange(location: start, length: end - start)
-        return words.contains { NSIntersectionRange($0, window).length > 0 && NSIntersectionRange($0, token).length == 0 }
-    }
 }
 
 // MARK: - Relay
@@ -402,7 +346,29 @@ struct CodeReader: Sendable {
         self.init(source: baseURL.map { CloudCodeSource(baseURL: $0, installID: installID, transport: transport) }, budget: budget)
     }
 
-    func read(text: String, sender: String?) async -> CodeReadOutcome {
+    /// A mail preview (already joined by `normaliseEmailText`): the whole text first, then, if that gives
+    /// no code the guard accepts, up to two snippets around the best tokens, all inside one budget. The
+    /// guard always checks against the whole preview with links blanked (EmailCodeRules.swift).
+    func readEmail(text: String, sender: String?) async -> CodeReadOutcome {
+        let deadline = Date().addingTimeInterval(budget)
+        let guardText = emailGuardText(text)
+        var outcome = CodeReadOutcome.noCode
+        for (index, piece) in ([text] + emailModelSnippets(text)).enumerated() {
+            let left = deadline.timeIntervalSinceNow
+            guard left > 0.05 else { return index == 0 ? .fallback(.timeout) : outcome }
+            var pass = self
+            pass.budget = left
+            outcome = await pass.read(text: piece, sender: sender, guardText: guardText)
+            switch outcome {
+            case .code, .fallback: return outcome
+            case .noCode: continue
+            }
+        }
+        return outcome
+    }
+
+    /// One read. `guardText` is what the answer must appear in (the message itself unless given).
+    func read(text: String, sender: String?, guardText: String? = nil) async -> CodeReadOutcome {
         guard let source else { return .fallback(.notConfigured) }
         // Whichever comes first, the answer or the budget. The engine is not waited for after the
         // budget: the model on this Mac cannot be stopped mid-answer, and the plain notification
@@ -418,7 +384,7 @@ struct CodeReader: Sendable {
         }
         switch answer {
         case let .candidate(code):
-            return CodeGuard.accept(code, in: text).map(CodeReadOutcome.code) ?? .noCode
+            return CodeGuard.accept(code, in: guardText ?? text).map(CodeReadOutcome.code) ?? .noCode
         case .noCode:
             return .noCode
         case let .failed(reason):

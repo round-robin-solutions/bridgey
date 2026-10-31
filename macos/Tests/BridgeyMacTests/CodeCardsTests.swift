@@ -59,7 +59,7 @@ final class CodeCardsTests: XCTestCase {
         XCTAssertEqual(knownMailPackages, ["com.google.android.gm", "com.microsoft.office.outlook", "ch.protonmail.android", "com.readdle.spark"])
     }
 
-    // MARK: Email pre-check
+    // MARK: Email pre-check (the full rule is checked against email_guard.py in EmailCodeRulesTests)
 
     func testEmailPrecheckNeedsACodeWordNearTheToken() {
         XCTAssertTrue(emailCodePrecheck("Your Microsoft account security code is 482913."))
@@ -70,25 +70,39 @@ final class CodeCardsTests: XCTestCase {
         XCTAssertTrue(emailCodePrecheck("Confirm with 482 913 within 5 minutes"), "split codes count")
         XCTAssertFalse(emailCodePrecheck("No digits here, just a verification email."), "no token")
         XCTAssertFalse(emailCodePrecheck("Invoice INV-2026 for order 4417 is attached."), "no code word")
-        // A code word further than 60 characters away does not count.
-        let far = "Your code" + String(repeating: " and some more text", count: 5) + " 482913"
+        // A code word further than 100 characters away does not count.
+        let far = "Your code" + String(repeating: " and some more text", count: 6) + " 482913"
         XCTAssertFalse(emailCodePrecheck(far))
-        XCTAssertEqual(emailCodeWordWindow, 60)
-        // Words inside a longer word do not count.
+        XCTAssertEqual(emailCodeWordWindow, 100)
+        // Words inside a longer word do not count; "login" alone is not a code word.
         XCTAssertFalse(emailCodePrecheck("Encoded order 482913 shipped"))
+        XCTAssertFalse(emailCodePrecheck("Login alert: new sign-in from Chrome, customer ID 5531209"))
     }
 
-    func testEmailPrecheckRefusesMarketing() {
+    func testEmailPrecheckRefusesMarketingDeadCodesLinksAndMeetings() {
         XCTAssertFalse(emailCodePrecheck("Promo code WELCOME10 gives you 10 off your first order."))
-        XCTAssertFalse(emailCodePrecheck("Use code SAVE2026 today"))
         XCTAssertFalse(emailCodePrecheck("Your referral code is RAHUL2026. Share it with friends."))
         XCTAssertFalse(emailCodePrecheck("Gift code 4821-9930 inside"))
         // Unsubscribe with a marketing phrase anywhere: refused even with a code word.
         XCTAssertFalse(emailCodePrecheck("Verify your email to get 20% off. Code 482913. Unsubscribe"))
-        // A real code word outside the marketing phrase still counts.
+        // "Use code" is not marketing: real code mails say it.
         XCTAssertTrue(emailCodePrecheck("Use code 482913 to sign in to Slack."))
-        // Unsubscribe alone (account mail footers) is fine.
         XCTAssertTrue(emailCodePrecheck("Your verification code is 482913. Unsubscribe from these alerts."))
+        XCTAssertFalse(emailCodePrecheck("Your code 551204 has expired. Request a new one."), "dead code")
+        XCTAssertFalse(emailCodePrecheck("Join Zoom meeting. Meeting ID 812 3345 9921. Passcode: 81329"), "meeting passcode")
+        XCTAssertFalse(emailCodePrecheck("Verify here: https://example.com/verify/a8F3k29Q code below"), "link token")
+        XCTAssertTrue(emailCodePrecheck("Sign in with your one-time code 7Q3-9XT"), "split letters and digits")
+    }
+
+    func testEmailTextJoinsDigitBoxes() {
+        XCTAssertEqual(normaliseEmailText("Your code is 4 8 2 9 1 3"), "Your code is 482913")
+        XCTAssertEqual(normaliseEmailText("Your code is 48 29 13"), "Your code is 482913")
+        XCTAssertEqual(normaliseEmailText("OTP 6-0-2-7-3-1."), "OTP 602731.")
+        XCTAssertEqual(normaliseEmailText("Due 31-10-26, call 1 2"), "Due 31-10-26, call 1 2", "dates and short runs stay")
+        let gmail = "com.google.android.gm"
+        XCTAssertEqual(codeCandidate(packageName: gmail, smsDefaultApp: false, redacted: nil, text: "x", emailApp: true,
+                                     preview: "Your verification code is 4 8 2 9 1 3", emailCodes: true),
+                       .email("Your verification code is 482913"))
     }
 
     // MARK: Order
@@ -259,15 +273,5 @@ final class CodeCardsTests: XCTestCase {
         older.copiedAt = start.addingTimeInterval(120)
         XCTAssertEqual(CodeCards.detail(older, mark: nil, now: start.addingTimeInterval(130)),
                        "Copied. Clears in 50 s.\nby email, Gmail \u{00B7} 2 min ago")
-    }
-
-    // MARK: Floating panel hook
-
-    @MainActor
-    func testTheDefaultFloatingPanelDoesNothing() {
-        let float: CodeFloatPresenting = NoCodeFloat()
-        float.show(newest: card("n", code: "482913", sender: "GitHub", arrival: 1), replacesAgo: nil)
-        float.markCopied("n")
-        float.dismiss()
     }
 }

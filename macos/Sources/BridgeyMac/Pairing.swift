@@ -437,13 +437,21 @@ final class PairingCoordinator: ObservableObject {
     private var dismissedCodes: Set<String> = []
     /// Arrival order of code cards on this Mac (CodeCards.swift breaks post-time ties with it).
     private var codeArrivals = 0
-    /// The floating Copy code panel. A no-op until the real window (CodeFloatWindow.swift) is wired here.
-    var codeFloat: CodeFloatPresenting = NoCodeFloat()
     /// The card the floating panel shows, if any.
     private var floatedCode: String?
     /// Opens a Settings pane (BridgeyApp wires the Settings window).
     var openSettingsPane: ((SettingsPane) -> Void)?
     private let codeClipboard = CodeClipboard()
+    /// The floating Copy code card (Settings > Codes from messages > Keep the copy button on screen for).
+    private lazy var codeFloat: CodeFloatWindowController = {
+        let controller = CodeFloatWindowController()
+        controller.onCopy = { [weak self] reference in self?.copyCode(reference: reference) }
+        controller.avoid = { [weak self] in
+            guard let panel = self?.callOverlayWindow.panel, panel.isVisible else { return nil }
+            return panel.frame
+        }
+        return controller
+    }()
     private let companionAdvertiser = CompanionLinkAdvertiser()
     private var lastCodesAdvertiseAt = Date.distantPast
     private var remoteNotificationCategories: [String: UNNotificationCategory] = [:]
@@ -4157,7 +4165,9 @@ final class PairingCoordinator: ObservableObject {
                                 relay: CodeRelay.baseURL, installID: settings.codesInstallID)
         let sender = candidate.isEmail ? codeSender(title: payload.title, applicationName: payload.applicationName) : payload.title
         codeReads[identifier] = Task { @MainActor [weak self] in
-            let outcome = await reader.read(text: candidate.text, sender: sender)
+            let outcome = candidate.isEmail
+                ? await reader.readEmail(text: candidate.text, sender: sender)
+                : await reader.read(text: candidate.text, sender: sender)
             guard let self, !Task.isCancelled else { return }
             self.codeReads.removeValue(forKey: identifier)
             self.diagnostics.record(category: "notification", event: candidate.isEmail ? "email_code_read" : "code_read",
@@ -4205,7 +4215,10 @@ final class PairingCoordinator: ObservableObject {
             rememberCode(card)
             if !late {
                 floatedCode = card.id
-                codeFloat.show(newest: card, replacesAgo: replaces.flatMap { liveCodes[$0] }.map { codeReplacesLine($0, now: now) })
+                // The floating card always shows the newest code; it says which older one it replaces.
+                if let seconds = settings.codesFloat.seconds {
+                    codeFloat.show(card, seconds: seconds, replaces: replaces.flatMap { liveCodes[$0] }.map { codeReplacesLine($0, now: now) })
+                }
             }
             postCodeNotification(payload, card: card, deviceID: deviceID)
             if late {

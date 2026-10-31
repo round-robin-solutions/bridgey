@@ -95,14 +95,40 @@ fun capEmailPreview(text: String, limit: Int = EMAIL_PREVIEW_MAX_LENGTH): String
 
 /**
  * The `preview` field for a mail notification, or null: not for a hidden (redacted) notification, not for a
- * multi-mail summary, and only when the capped text passes [looksLikeOtpTraffic] (the relay's pre-check), so a
- * mail without anything code-shaped never leaves the phone as a preview.
+ * multi-mail summary, and only when the capped text passes [looksLikeEmailCode], so a mail without anything
+ * code-shaped never leaves the phone as a preview.
  */
 fun emailPreview(content: EmailNotificationContent, redacted: Boolean): String? {
     if (redacted) return null
     val expanded = emailExpandedText(content) ?: return null
     val capped = capEmailPreview(expanded) ?: return null
-    return capped.takeIf(::looksLikeOtpTraffic)
+    return capped.takeIf(::looksLikeEmailCode)
+}
+
+/** 3 to 8 groups of 1 or 2 digits split by single spaces: a code flattened from HTML digit boxes. */
+private val SPACED_DIGITS = Regex("(?<![0-9A-Za-z])[0-9]{1,2}(?: [0-9]{1,2}){2,7}(?![0-9A-Za-z])")
+/** 4 to 8 single digits joined by hyphens ("6-0-2-7-3-1"); dates have two-digit parts and stay. */
+private val HYPHEN_DIGITS = Regex("(?<![0-9A-Za-z\\-])[0-9](?:-[0-9]){3,7}(?![0-9A-Za-z\\-])")
+/** A split letters-and-digits code, each half with a digit: "7Q3-9XT". */
+private val ALNUM_SPLIT = Regex("(?<![0-9A-Za-z])(?=[A-Za-z]*[0-9])[0-9A-Za-z]{3,4}-(?=[A-Za-z]*[0-9])[0-9A-Za-z]{3,4}(?![0-9A-Za-z])")
+
+/** Joins digit-box codes the way the Mac does before it reads a preview (EmailCodeRules.swift). */
+fun joinEmailDigitBoxes(text: String): String {
+    val spaced = SPACED_DIGITS.replace(text) { match ->
+        val digits = match.value.replace(" ", "")
+        if (digits.length in 4..8) digits else match.value
+    }
+    return HYPHEN_DIGITS.replace(spaced) { it.value.replace("-", "") }
+}
+
+/**
+ * The phone's gate for sending a preview: the relay's pre-check after joining digit-box codes, or a split
+ * letters-and-digits code. Same as `looks_like_email_code` in the Phase 0 email eval, whose answers are in
+ * protocol/test-vectors/email-codes-v1.json (`phoneGate`).
+ */
+fun looksLikeEmailCode(text: String): Boolean {
+    val joined = joinEmailDigitBoxes(text)
+    return looksLikeOtpTraffic(joined) || ALNUM_SPLIT.containsMatchIn(joined)
 }
 
 /** The notification's text (or big text) is Android's "Sensitive notification content hidden". */
