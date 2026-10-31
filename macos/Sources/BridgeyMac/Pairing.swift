@@ -4165,9 +4165,7 @@ final class PairingCoordinator: ObservableObject {
                                 relay: CodeRelay.baseURL, installID: settings.codesInstallID)
         let sender = candidate.isEmail ? codeSender(title: payload.title, applicationName: payload.applicationName) : payload.title
         codeReads[identifier] = Task { @MainActor [weak self] in
-            let outcome = candidate.isEmail
-                ? await reader.readEmail(text: candidate.text, sender: sender)
-                : await reader.read(text: candidate.text, sender: sender)
+            let outcome = await reader.read(text: candidate.text, sender: sender, channel: candidate.isEmail ? .email : .sms)
             guard let self, !Task.isCancelled else { return }
             self.codeReads.removeValue(forKey: identifier)
             self.diagnostics.record(category: "notification", event: candidate.isEmail ? "email_code_read" : "code_read",

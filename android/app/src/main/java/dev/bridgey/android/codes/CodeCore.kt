@@ -119,6 +119,35 @@ private val OTP_SPLIT = Regex("(?<![0-9A-Za-z])[0-9]{2,5}[ -][0-9]{2,5}(?![0-9A-
 /** The relay's pre-check: a 4 to 10 character token with a digit, or two digit groups ("591-047"). */
 fun looksLikeOtpTraffic(text: String): Boolean = OTP_TOKEN.containsMatchIn(text) || OTP_SPLIT.containsMatchIn(text)
 
+/** 3 to 8 groups of 1 or 2 digits split by single spaces: a code flattened from HTML digit boxes. */
+private val SPACED_DIGITS = Regex("(?<![0-9A-Za-z])[0-9]{1,2}(?: [0-9]{1,2}){2,7}(?![0-9A-Za-z])")
+/** 4 to 8 single digits joined by hyphens ("6-0-2-7-3-1"); dates have two-digit parts and stay. */
+private val HYPHEN_DIGITS = Regex("(?<![0-9A-Za-z\\-])[0-9](?:-[0-9]){3,7}(?![0-9A-Za-z\\-])")
+/** A split letters-and-digits code, each half with a digit: "7Q3-9XT". */
+private val ALNUM_SPLIT = Regex("(?<![0-9A-Za-z])(?=[A-Za-z]*[0-9])[0-9A-Za-z]{3,4}-(?=[A-Za-z]*[0-9])[0-9A-Za-z]{3,4}(?![0-9A-Za-z])")
+
+/**
+ * Joins codes flattened from HTML digit boxes ("4 8 2 9 1 3"), the same join the Mac makes before it reads any
+ * code message, SMS or mail (CodeText.swift `codeReadText`).
+ */
+fun joinCodeDigitBoxes(text: String): String {
+    val spaced = SPACED_DIGITS.replace(text) { match ->
+        val digits = match.value.replace(" ", "")
+        if (digits.length in 4..8) digits else match.value
+    }
+    return HYPHEN_DIGITS.replace(spaced) { it.value.replace("-", "") }
+}
+
+/**
+ * The shared gate before the model, for SMS and mail alike (the Mac's `looksLikeCodeText`): [looksLikeOtpTraffic]
+ * after [joinCodeDigitBoxes], or a split letters-and-digits code. Its answers for the Phase 0 email eval's
+ * previews are pinned in protocol/test-vectors/email-codes-v1.json (`phoneGate`).
+ */
+fun looksLikeCodeText(text: String): Boolean {
+    val joined = joinCodeDigitBoxes(text)
+    return looksLikeOtpTraffic(joined) || ALNUM_SPLIT.containsMatchIn(joined)
+}
+
 /**
  * Comparison only (Code reader test): a context-word pattern matcher in the spirit of Android's own
  * detector. Rahul does not want it to decide, and it never shows a code.

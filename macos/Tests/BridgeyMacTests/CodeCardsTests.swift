@@ -95,10 +95,10 @@ final class CodeCardsTests: XCTestCase {
     }
 
     func testEmailTextJoinsDigitBoxes() {
-        XCTAssertEqual(normaliseEmailText("Your code is 4 8 2 9 1 3"), "Your code is 482913")
-        XCTAssertEqual(normaliseEmailText("Your code is 48 29 13"), "Your code is 482913")
-        XCTAssertEqual(normaliseEmailText("OTP 6-0-2-7-3-1."), "OTP 602731.")
-        XCTAssertEqual(normaliseEmailText("Due 31-10-26, call 1 2"), "Due 31-10-26, call 1 2", "dates and short runs stay")
+        XCTAssertEqual(codeReadText("Your code is 4 8 2 9 1 3"), "Your code is 482913")
+        XCTAssertEqual(codeReadText("Your code is 48 29 13"), "Your code is 482913")
+        XCTAssertEqual(codeReadText("OTP 6-0-2-7-3-1."), "OTP 602731.")
+        XCTAssertEqual(codeReadText("Due 31-10-26, call 1 2"), "Due 31-10-26, call 1 2", "dates and short runs stay")
         let gmail = "com.google.android.gm"
         XCTAssertEqual(codeCandidate(packageName: gmail, smsDefaultApp: false, redacted: nil, text: "x", emailApp: true,
                                      preview: "Your verification code is 4 8 2 9 1 3", emailCodes: true),

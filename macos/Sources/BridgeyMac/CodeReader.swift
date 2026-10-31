@@ -158,14 +158,16 @@ func codeCandidate(packageName: String, smsDefaultApp: Bool?, redacted: Bool?, t
     guard redacted != true else { return nil }
     let fromSmsApp = smsDefaultApp ?? knownSmsPackages.contains(packageName)
     if fromSmsApp {
+        // The shared path: digit boxes joined, then the shared gate (CodeText.swift).
         guard let trimmed = readableCodeText(text) else { return nil }
-        return looksLikeOtpTraffic(trimmed) ? .sms(trimmed) : nil
+        let joined = codeReadText(trimmed)
+        return looksLikeCodeText(joined) ? .sms(joined) : nil
     }
     guard emailCodes, emailApp == true, knownMailPackages.contains(packageName) else { return nil }
     let source = preview.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } ?? text
     guard let trimmed = readableCodeText(source) else { return nil }
-    // Codes flattened from HTML digit boxes are joined first; the model and the guard read the joined text.
-    let joined = normaliseEmailText(trimmed)
+    // The same join as text messages; then the email-only pre-check (EmailCodeRules.swift), which includes the gate.
+    let joined = codeReadText(trimmed)
     return emailCodePrecheck(joined) ? .email(joined) : nil
 }
 
@@ -346,35 +348,30 @@ struct CodeReader: Sendable {
         self.init(source: baseURL.map { CloudCodeSource(baseURL: $0, installID: installID, transport: transport) }, budget: budget)
     }
 
-    /// A mail preview (already joined by `normaliseEmailText`): the whole text first, then, if that gives
-    /// no code the guard accepts, up to two snippets around the best tokens, all inside one budget. The
-    /// guard always checks against the whole preview with links blanked (EmailCodeRules.swift).
-    func readEmail(text: String, sender: String?) async -> CodeReadOutcome {
+    /// One message, SMS or mail, through the same model, prompt and guard. The guard checks the answer against
+    /// the whole message with links and copyright years blanked (`codeGuardText`). A mail that gives no code on
+    /// the first read gets up to two more on snippets around its best tokens (`emailModelSnippets`), all inside
+    /// one budget; a text message is read once.
+    func read(text: String, sender: String?, channel: CodeChannel = .sms) async -> CodeReadOutcome {
         let deadline = Date().addingTimeInterval(budget)
-        let guardText = emailGuardText(text)
+        let guardText = codeGuardText(text)
+        let pieces = channel == .email ? [text] + emailModelSnippets(text) : [text]
         var outcome = CodeReadOutcome.noCode
-        for (index, piece) in ([text] + emailModelSnippets(text)).enumerated() {
+        for (index, piece) in pieces.enumerated() {
             let left = deadline.timeIntervalSinceNow
             guard left > 0.05 else { return index == 0 ? .fallback(.timeout) : outcome }
-            var pass = self
-            pass.budget = left
-            outcome = await pass.read(text: piece, sender: sender, guardText: guardText)
-            switch outcome {
-            case .code, .fallback: return outcome
-            case .noCode: continue
-            }
+            outcome = await readOnce(text: piece, sender: sender, guardText: guardText, budget: left)
+            if outcome != .noCode { return outcome }
         }
         return outcome
     }
 
-    /// One read. `guardText` is what the answer must appear in (the message itself unless given).
-    func read(text: String, sender: String?, guardText: String? = nil) async -> CodeReadOutcome {
+    private func readOnce(text: String, sender: String?, guardText: String, budget: TimeInterval) async -> CodeReadOutcome {
         guard let source else { return .fallback(.notConfigured) }
         // Whichever comes first, the answer or the budget. The engine is not waited for after the
         // budget: the model on this Mac cannot be stopped mid-answer, and the plain notification
         // must not wait for it.
         let race = CodeAnswerRace()
-        let budget = budget
         let answer: CodeRelayAnswer = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 race.start(continuation, budget: budget) { await source.answer(text: text, sender: sender) }
@@ -384,7 +381,7 @@ struct CodeReader: Sendable {
         }
         switch answer {
         case let .candidate(code):
-            return CodeGuard.accept(code, in: guardText ?? text).map(CodeReadOutcome.code) ?? .noCode
+            return CodeGuard.accept(code, in: guardText).map(CodeReadOutcome.code) ?? .noCode
         case .noCode:
             return .noCode
         case let .failed(reason):

@@ -1,27 +1,24 @@
 import Foundation
 
 /*
- * Codes from email (email_codes_draft1): the stricter rules a mail preview passes before and after the
- * model on this Mac. A port of `email_precheck` (the final rule) in
- * outputs/bridgey/research/otp-tiny-model/email/email_guard.py, measured on synthetic Gmail, Outlook,
- * Proton Mail and Spark previews (docs/codes-from-email.md, "Phase 0 eval"). The shared vectors in
- * protocol/test-vectors/email-codes-v1.json hold that file's answers; EmailCodeRulesTests checks this
- * port against every one of them.
+ * Codes from email (email_codes_draft1): the thin email-only layer in front of the shared code reader. A
+ * port of `email_precheck` (the final rule) in outputs/bridgey/research/otp-tiny-model/email/email_guard.py,
+ * measured on synthetic Gmail, Outlook, Proton Mail and Spark previews (docs/codes-from-email.md, "Phase 0
+ * eval"); protocol/test-vectors/email-codes-v1.json holds that file's answers and EmailCodeRulesTests checks
+ * this port against every one.
  *
- * 1. `normaliseEmailText` joins codes that HTML digit boxes flattened into "4 8 2 9 1 3", "48 29 13"
- *    or "6-0-2-7-3-1". The model and the guard read the joined text.
- * 2. `emailCodePrecheck`: a code-shaped token (the relay's two shapes, or a split letters-and-digits
- *    code such as "7Q3-9XT") with a code word within 100 characters, where:
- *    - tokens inside links and copyright years ("(c) 2026") never count;
- *    - a token whose own sentence says the code expired or was used does not count;
- *    - in a meeting invite or a mail with a marketing phrase ("promo code", "20% off") only strong
- *      words count (OTP, one-time, verification, 2FA, security code ...), and a marketing mail that
- *      says "unsubscribe" is refused outright;
- *    - "login", "sign in" and "confirmation" alone are not code words (customer IDs and booking numbers
- *      sit next to them).
- * 3. `emailGuardText`: the guard checks the model's answer against the text with links blanked.
- * 4. `emailModelSnippets`: when the first read finds nothing, up to two short pieces around the best
- *    tokens are read again (within the same 2 s budget).
+ * Everything else (the digit-box join, the gate, the guard with links blanked, the model, its prompt, the
+ * card, duplicates and order) is the same path text messages take (CodeText.swift, CodeReader.swift).
+ *
+ * 1. `emailCodePrecheck` decides whether a mail is worth reading: a code-shaped token with a code word within
+ *    100 characters, where tokens in links and copyright years do not count; a token whose own sentence says
+ *    the code expired or was used does not count; in a meeting invite or a mail with a marketing phrase
+ *    ("promo code", "20% off") only strong words count (OTP, one-time, verification, 2FA, security code ...),
+ *    and a marketing mail that says "unsubscribe" is refused outright; "login", "sign in" and "confirmation"
+ *    alone are not code words (customer IDs and booking numbers sit next to them).
+ * 2. `emailModelSnippets`: when the first read of a mail finds nothing, the shared reader reads up to two
+ *    short pieces around the best tokens (within the same 2 s budget). Text messages are short, so they get
+ *    one read.
  *
  * Mail text and codes are never logged.
  */
@@ -58,56 +55,10 @@ private let emailUnsubscribePattern = emailRegex("unsubscribe")
 private let emailMeetingPattern = emailRegex(
     "meeting id|meeting number|conference id|join zoom|zoom meeting|teams meeting|microsoft teams|webex|google meet|join by phone|webinar"
 )
-private let emailURLPattern = emailRegex(
-    "(?:https?://|www\\.)[^\\s<>\"]+|(?<![0-9A-Za-z@.])[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*\\.[A-Za-z]{2,}/[^\\s<>\"]*",
-    caseInsensitive: false
-)
-private let emailCopyrightPattern = emailRegex("(?:\u{00A9}|\\(c\\)|copyright)\\s*(?:[0-9]{4}\\s*[-,]\\s*)?[0-9]{4}")
-/// 3 to 8 groups of 1 or 2 digits split by single spaces: "4 8 2 9 1 3", "48 29 13".
-private let emailSpacedDigits = emailRegex(latinEdgeLeft + "[0-9]{1,2}(?: [0-9]{1,2}){2,7}" + latinEdgeRight, caseInsensitive: false)
-/// 4 to 8 single digits joined by hyphens: "6-0-2-7-3-1" (dates have two-digit parts and stay).
-private let emailHyphenDigits = emailRegex("(?<![0-9A-Za-z\\-])[0-9](?:-[0-9]){3,7}(?![0-9A-Za-z\\-])", caseInsensitive: false)
-/// A split letters-and-digits code, each half with a digit: "7Q3-9XT", "AB12-CD34".
-let emailAlnumSplitPattern = emailRegex(
-    latinEdgeLeft + "(?=[A-Za-z]*[0-9])[0-9A-Za-z]{3,4}-(?=[A-Za-z]*[0-9])[0-9A-Za-z]{3,4}" + latinEdgeRight,
-    caseInsensitive: false
-)
 
 /// Characters (UTF-16 units) between a token and the nearest code word.
 let emailCodeWordWindow = 100
 
-private func emailMatches(_ pattern: NSRegularExpression, _ text: String) -> [NSRange] {
-    pattern.matches(in: text, range: NSRange(location: 0, length: (text as NSString).length)).map(\.range)
-}
-
-/// Replaces each match of `pattern` with what `transform` returns for it (nil keeps the match).
-private func emailReplacing(_ pattern: NSRegularExpression, in text: String, _ transform: (String) -> String?) -> String {
-    let source = text as NSString
-    var result = ""
-    var last = 0
-    for range in emailMatches(pattern, text) {
-        result += source.substring(with: NSRange(location: last, length: range.location - last))
-        let match = source.substring(with: range)
-        result += transform(match) ?? match
-        last = NSMaxRange(range)
-    }
-    return result + source.substring(from: last)
-}
-
-/// Joins codes flattened from HTML digit boxes. The phone's preview gate does the same join.
-func normaliseEmailText(_ text: String) -> String {
-    let spaced = emailReplacing(emailSpacedDigits, in: text) { match in
-        let digits = match.replacingOccurrences(of: " ", with: "")
-        return (4...8).contains(digits.count) ? digits : nil
-    }
-    return emailReplacing(emailHyphenDigits, in: spaced) { $0.replacingOccurrences(of: "-", with: "") }
-}
-
-/// Links and copyright years replaced by spaces of the same length (UTF-16), so offsets stay.
-func emailGuardText(_ text: String) -> String {
-    let blank: (String) -> String? = { String(repeating: " ", count: ($0 as NSString).length) }
-    return emailReplacing(emailCopyrightPattern, in: emailReplacing(emailURLPattern, in: text, blank), blank)
-}
 
 /// A qualifying token, its distance to the nearest code word, and that word.
 private struct EmailToken {
@@ -118,7 +69,7 @@ private struct EmailToken {
 
 private func emailSentence(_ text: String, around token: NSRange) -> String {
     let source = text as NSString
-    let ends = emailMatches(emailSentenceEnd, text)
+    let ends = codeTextMatches(emailSentenceEnd, text)
     let start = ends.last(where: { NSMaxRange($0) <= token.location }).map(NSMaxRange) ?? 0
     let end = ends.first(where: { $0.location >= NSMaxRange(token) })?.location ?? source.length
     return source.substring(with: NSRange(location: start, length: max(0, end - start)))
@@ -126,17 +77,17 @@ private func emailSentence(_ text: String, around token: NSRange) -> String {
 
 /// Every token that passes, closest to a code word first (then by position). Empty: not a code mail.
 private func emailQualifyingTokens(_ text: String) -> [EmailToken] {
-    let scan = emailGuardText(text)
+    let scan = codeGuardText(text)
     let whole = NSRange(location: 0, length: (scan as NSString).length)
-    guard looksLikeOtpTraffic(scan) || emailAlnumSplitPattern.firstMatch(in: scan, range: whole) != nil else { return [] }
-    let marketing = emailMatches(emailMarketingPattern, scan)
+    guard looksLikeOtpTraffic(scan) || codeAlnumSplitPattern.firstMatch(in: scan, range: whole) != nil else { return [] }
+    let marketing = codeTextMatches(emailMarketingPattern, scan)
     if !marketing.isEmpty, emailUnsubscribePattern.firstMatch(in: scan, range: whole) != nil { return [] }
     let strongOnly = !marketing.isEmpty || emailMeetingPattern.firstMatch(in: scan, range: whole) != nil
-    let words = emailMatches(strongOnly ? emailStrongWordPattern : emailCodeWordPattern, scan)
+    let words = codeTextMatches(strongOnly ? emailStrongWordPattern : emailCodeWordPattern, scan)
         .filter { word in !marketing.contains { $0.location <= word.location && NSMaxRange(word) <= NSMaxRange($0) } }
     guard !words.isEmpty else { return [] }
     var tokens: [NSRange] = []
-    for range in emailMatches(otpTokenPattern, scan) + emailMatches(otpSplitPattern, scan) + emailMatches(emailAlnumSplitPattern, scan)
+    for range in codeTextMatches(otpTokenPattern, scan) + codeTextMatches(otpSplitPattern, scan) + codeTextMatches(codeAlnumSplitPattern, scan)
     where !tokens.contains(where: { NSEqualRanges($0, range) }) {
         tokens.append(range)
     }
@@ -185,8 +136,8 @@ private let emailImagePlaceholder = emailRegex("\\[(?:image|cid):[^\\]]*\\]")
 
 /// HTML leftovers removed and every run of whitespace made one space.
 func emailFlattened(_ text: String) -> String {
-    var value = emailReplacing(emailEntitySpace, in: text) { _ in " " }
-    value = emailReplacing(emailInvisible, in: value) { _ in "" }
-    value = emailReplacing(emailImagePlaceholder, in: value) { _ in " " }
+    var value = codeTextReplacing(emailEntitySpace, in: text) { _ in " " }
+    value = codeTextReplacing(emailInvisible, in: value) { _ in "" }
+    value = codeTextReplacing(emailImagePlaceholder, in: value) { _ in " " }
     return value.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
 }

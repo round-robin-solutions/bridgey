@@ -41,9 +41,16 @@ no wrong code, at most 1% codes shown on mail without one.
 | Final rule, frozen before the second blind set | second blind set (the honest number) | 116 of 120 (96.7%) | 0 | 0 of 120 |
 | Final rule | own held-out templates | 182 of 184 (98.9%) | 0 | 0 of 96 |
 
-The model weights and its prompt are unchanged. What changed is the email rule, now in
-`macos/Sources/BridgeyMac/EmailCodeRules.swift` and checked against the eval's reference answers in
-`protocol/test-vectors/email-codes-v1.json`: a code word within 100 characters (not 60); "login",
+The model weights and its prompt are unchanged, and mail goes through the same reader, guard, card,
+duplicates and order as text messages (Rahul: "Same model that works for SMS OTP"). The rules the eval
+added that are not about mail now run for text messages too (`macos/Sources/BridgeyMac/CodeText.swift`):
+the digit-box join, the gate that also takes split codes such as "7Q3-9XT", and a guard that ignores links
+and copyright years. On the SMS sets they changed no outcome (synth 1,127 of 1,130, hard2 106 of 110,
+hard3 118 of 120, hard4 103 of 120, bench 30 of 30, before and after; `email/sms_shared_rescore.py`).
+Refusing a code whose sentence says "expired" was measured for SMS too and left out: it lost 17 codes
+("Use 683392 (NOT 679014, that one has EXPIRED)"). Only the email pre-check
+(`macos/Sources/BridgeyMac/EmailCodeRules.swift`, checked against the eval's answers in
+`protocol/test-vectors/email-codes-v1.json`) is mail-only. In full, the email rule is: a code word within 100 characters (not 60); "login",
 "sign in" and "confirmation" alone are not code words; expired or used codes, tokens in links and
 copyright years, and meeting passcodes do not count; marketing words match whole words only; split
 codes such as "7Q3-9XT" count; codes flattened from HTML digit boxes ("4 8 2 9 1 3") are joined first,
