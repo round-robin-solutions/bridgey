@@ -650,7 +650,7 @@
 "codes.float.60" = "60 seconds";
 "codes.float.close" = "Close";
 "codes.float.copied" = "Copied";
-"codes.float.detail" = "A small card with the code and a Copy button at the top right. Only the notification turns the card off.";
+"codes.float.detail" = "A small card at the top right with the code and a Copy button.";
 "codes.float.from" = "Code from %@";
 "codes.float.off" = "Only the notification";
 "codes.float.title" = "Keep the copy button on screen for";

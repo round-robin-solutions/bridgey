@@ -218,7 +218,7 @@ struct CodesCard: View {
                            isOn: model.codesAutoCopy, set: actions.setCodesAutoCopy)
                 .disabled(!model.codesEnabled)
             SettingsRow(title: L10n.text("codes.float.title", fallback: "Keep the copy button on screen for"),
-                        subtitle: L10n.text("codes.float.detail", fallback: "A small card with the code and a Copy button at the top right. Only the notification turns the card off.")) {
+                        subtitle: L10n.text("codes.float.detail", fallback: "A small card at the top right with the code and a Copy button.")) {
                 ChoiceButton(value: model.codesFloat.title) {
                     CodeFloatSetting.allCases.map { option in
                         PopUpMenuItem(title: option.title, checked: option == model.codesFloat) { actions.setCodesFloat(option) }
