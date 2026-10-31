@@ -99,12 +99,12 @@ final class SettingsSyncTests: XCTestCase {
         XCTAssertEqual(SettingsSyncDetail.detail("folder_destination=1,auto_clipboard=1"), "Folders: ask where to save, Automatic clipboard turned on")
         let all = SettingsSyncDetail.encode(Dictionary(uniqueKeysWithValues: SyncKey.allCases.map { ($0, $0.defaultValue) }))
         XCTAssertNotNil(SettingsSyncDetail.clean(all))
-        XCTAssertEqual(SettingsSyncDetail.decode(all).count, 27)
-        XCTAssertEqual(SyncKey.allCases.count, 27)
-        XCTAssertEqual(SyncKey.allCases.suffix(6).map(\.token),
-                       ["screen", "sms", "auto_update_all", "connect_away", "folder_include_hidden", "folder_include_system"])
+        XCTAssertEqual(SettingsSyncDetail.decode(all).count, 28)
+        XCTAssertEqual(SyncKey.allCases.count, 28)
+        XCTAssertEqual(SyncKey.allCases.suffix(7).map(\.token),
+                       ["screen", "sms", "auto_update_all", "connect_away", "folder_include_hidden", "folder_include_system", "codes_email"])
         // Update all devices automatically is a setting on the Mac too; Photos for the Mac is only stored and relayed.
-        XCTAssertEqual(SyncKey.listedOnMac.count, 26)
+        XCTAssertEqual(SyncKey.listedOnMac.count, 27)
         XCTAssertTrue(SyncKey.allCases.allSatisfy { $0.token.count <= 24 })
         XCTAssertNil(SettingsSyncDetail.clean("reduce motion on"))
         let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
@@ -212,6 +212,44 @@ final class SettingsSyncTests: XCTestCase {
         net.deliverAll()
         XCTAssertEqual(net.values[macA]![.folderIncludeHidden], .bool(true))
         XCTAssertEqual(net.values[phone]![.folderIncludeSystem], .bool(true))
+    }
+
+    /// Also read codes in email is codes.email, appended last, on until chosen: nobody chose, so nothing is sent or
+    /// shown as different; an explicit off syncs and becomes the other device's choice.
+    func testCodesFromEmailSyncsUnderCodesEmailAndOnlyAsAChoice() {
+        XCTAssertEqual(SyncKey.codesEmail.rawValue, "codes.email")
+        XCTAssertEqual(SyncKey.allCases.last, .codesEmail)
+        XCTAssertEqual(SyncKey.codesEmail.defaultValue, .bool(true))
+        XCTAssertTrue(SyncKey.codesEmail.sharesWhenOn)
+        XCTAssertNil(SyncKey.codesEmail.feature)
+        XCTAssertTrue(SyncKey.listedOnMac.contains(.codesEmail))
+        XCTAssertEqual(SyncKey.codesEmail.name, "Codes from email")
+        XCTAssertEqual(SettingsSyncDetail.detail("codes_email=0"), "Codes from email turned off")
+        // A Mac that stored a choice before sync stamps it as chosen; one that never did keeps following the default.
+        XCTAssertEqual(settingsSyncStoredValues(["settings.codes.email": false])[.codesEmail], .bool(false))
+        XCTAssertNil(settingsSyncStoredValues([:])[.codesEmail])
+
+        let net = Net(self)
+        let phoneEmail = Following(defaultOn: true)
+        let macEmail = Following(defaultOn: true)
+        net.add(phone, override: [.codesEmail: phoneEmail.setting], isPhone: true)
+        net.add(macA, override: [.codesEmail: macEmail.setting])
+        net.connect(phone, macA)
+        net.deliverAll()
+        net.log.removeAll()
+        net.controllers[macA]!.localChanged()
+        net.controllers[macA]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(net.log.count, 0)
+        XCTAssertFalse(net.controllers[macA]!.engine.record(.codesEmail).chosen)
+        XCTAssertEqual(net.controllers[macA]!.status(.codesEmail).differentOn, [])
+        // The phone's person turns it off: the Mac takes it as its own choice.
+        phoneEmail.choice = false
+        net.controllers[phone]!.localChanged()
+        net.controllers[phone]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(macEmail.choice, false)
+        XCTAssertEqual(macEmail.writes, 1)
     }
 
     /// Section 8.2 with live updates: the later of two edits made at the same moment wins on both, after one

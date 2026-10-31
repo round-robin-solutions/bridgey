@@ -120,6 +120,8 @@ struct SettingsModel {
     /// Notifications > Codes from messages.
     var codesEnabled = false
     var codesAutoCopy = false
+    /// Also read codes in email (on until chosen).
+    var codesEmail = true
     /// The build has a relay address (rr-edition.properties OTP_PROXY_URL).
     var codesAvailable = true
     var codesEngine: CodeEngine = .local
@@ -256,6 +258,7 @@ struct SettingsActions {
     var setHistoryEnabled: (Bool) -> Void = { _ in }
     var setCodesEnabled: (Bool) -> Void = { _ in }
     var setCodesAutoCopy: (Bool) -> Void = { _ in }
+    var setCodesEmail: (Bool) -> Void = { _ in }
     var setCodesEngine: (CodeEngine) -> Void = { _ in }
     /// Records the acceptance of the model's terms, then downloads the newest model.
     var acceptAndDownloadCodeModel: () -> Void = {}
@@ -1310,8 +1313,12 @@ struct NotificationHistoryCard: View {
                             HStack {
                                 Text(item.applicationName).font(BrandFont.body(13, .semibold)).foregroundStyle(c.on)
                                 Spacer()
-                                Text(item.receivedAt, format: .dateTime.day().month().hour().minute())
-                                    .font(BrandFont.body(12)).foregroundStyle(c.on2)
+                                if let age = item.codeAge(now: Date()) {
+                                    Text(age).font(BrandFont.body(12)).foregroundStyle(c.on2)
+                                } else {
+                                    Text(item.receivedAt, format: .dateTime.day().month().hour().minute())
+                                        .font(BrandFont.body(12)).foregroundStyle(c.on2)
+                                }
                             }
                             if !item.title.isEmpty { Text(item.title).font(BrandFont.body(13, .medium)).foregroundStyle(c.on) }
                             if !item.text.isEmpty { Text(item.text).font(BrandFont.body(12)).foregroundStyle(c.on2).lineLimit(3) }
@@ -1667,6 +1674,19 @@ final class SettingsWindowController {
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }
+
+    /// Opens Settings at `pane` (a notification that points at a setting, such as the email code model prompt).
+    func show(pane: SettingsPane) {
+        SettingsPaneRequest.shared.pane = pane
+        show()
+    }
+}
+
+/// A pane the Settings window should switch to; the window takes it and clears it.
+@MainActor
+final class SettingsPaneRequest: ObservableObject {
+    static let shared = SettingsPaneRequest()
+    @Published var pane: SettingsPane?
 }
 
 struct LiveSettingsView: View {
@@ -1757,6 +1777,11 @@ struct LiveSettingsView: View {
         .onChange(of: pane) { shown in
             if shown == .media || shown == .notifications { loadShortcuts() }
         }
+        .onReceive(SettingsPaneRequest.shared.$pane.compactMap { $0 }) { requested in
+            guard !inSetup else { return }
+            pane = requested
+            SettingsPaneRequest.shared.pane = nil
+        }
     }
 
     private var model: SettingsModel {
@@ -1795,6 +1820,7 @@ struct LiveSettingsView: View {
         model.history = pairing.notificationHistory
         model.codesEnabled = settings.codesEnabled
         model.codesAutoCopy = settings.codesAutoCopy
+        model.codesEmail = settings.codesEmail
         model.codesAvailable = CodeRelay.baseURL != nil
         model.codesEngine = settings.codesEngine
         model.codeModel = codeModelDisplay
@@ -1954,6 +1980,7 @@ struct LiveSettingsView: View {
             settings.setCodesEnabled(on)
         }
         actions.setCodesAutoCopy = { settings.setCodesAutoCopy($0) }
+        actions.setCodesEmail = { settings.setCodesEmail($0) }
         actions.setCodesEngine = { settings.setCodesEngine($0) }
         actions.acceptAndDownloadCodeModel = {
             guard let manifest = codeModel.manifest else { return }

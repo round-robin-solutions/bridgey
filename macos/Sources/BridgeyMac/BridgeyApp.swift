@@ -44,6 +44,7 @@ struct BridgeyApp: App {
         AutoUpdateCoordinator.shared.start()
         let settingsWindow = SettingsWindowController(discovery: discovery, pairing: pairing, settings: settings, updater: updater)
         self.settingsWindow = settingsWindow
+        pairing.openSettingsPane = { [weak settingsWindow] pane in settingsWindow?.show(pane: pane) }
         appDelegate.configure { [weak pairing] number in pairing?.sendCallWhenConnected(number, source: .link) }
         // The Share extension's hand-off: what it put on the private pasteboard goes to the chooser.
         appDelegate.configure(onShare: { QuickSendController.shared.present(ShareHandoff.take()) })

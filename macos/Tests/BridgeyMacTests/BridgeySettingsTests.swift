@@ -5,13 +5,15 @@ final class BridgeySettingsTests: XCTestCase {
     private let otherAppsKey = "settings.calls.otherApps"
     /// `BridgeySettings()` reads and settles keys in the test runner's own defaults; put them back afterwards.
     private let connectAwayKey = "settings.connect.away"
-    private lazy var touchedKeys = [otherAppsKey, "settings.codes.engine", connectAwayKey]
+    private let codesEmailKey = "settings.codes.email"
+    private lazy var touchedKeys = [otherAppsKey, "settings.codes.engine", connectAwayKey, codesEmailKey]
     private var savedValues: [String: Any] = [:]
 
     override func setUp() {
         savedValues = touchedKeys.reduce(into: [:]) { $0[$1] = UserDefaults.standard.object(forKey: $1) }
         UserDefaults.standard.removeObject(forKey: otherAppsKey)
         UserDefaults.standard.removeObject(forKey: connectAwayKey)
+        UserDefaults.standard.removeObject(forKey: codesEmailKey)
     }
 
     override func tearDown() {
@@ -70,6 +72,21 @@ final class BridgeySettingsTests: XCTestCase {
         // A synced value counts as a choice too.
         SettingsSyncController.connectAwaySetting(reloaded).write(.bool(true))
         XCTAssertEqual(BridgeySettings().connectAwayChoice, true)
+    }
+
+    /// Also read codes in email is on until chosen (Rahul, 2026-10-31); an explicit off is a choice that stays.
+    @MainActor
+    func testCodesFromEmailIsOnUntilChosen() {
+        let settings = BridgeySettings()
+        XCTAssertTrue(settings.codesEmail)
+        XCTAssertNil(settings.codesEmailChoice)
+        XCTAssertEqual(SettingsSyncController.codesEmailSetting(settings).followsDefault(), true)
+        settings.setCodesEmail(false)
+        let reloaded = BridgeySettings()
+        XCTAssertFalse(reloaded.codesEmail)
+        XCTAssertEqual(reloaded.codesEmailChoice, false)
+        XCTAssertEqual(SettingsSyncController.codesEmailSetting(reloaded).followsDefault(), false)
+        XCTAssertEqual(settingsSyncStoredValues(UserDefaults.standard.dictionaryRepresentation())[.codesEmail], .bool(false))
     }
 
     @MainActor

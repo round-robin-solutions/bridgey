@@ -113,15 +113,124 @@ let knownSmsPackages: Set<String> = [
     "com.truecaller",
 ]
 
+/// The four mail apps whose notifications may carry a code (email_codes_draft1, docs/codes-from-email.md):
+/// Gmail, Outlook, Proton Mail and Spark. Only these, never other apps in the email category.
+let knownMailPackages: Set<String> = [
+    "com.google.android.gm",
+    "com.microsoft.office.outlook",
+    "ch.protonmail.android",
+    "com.readdle.spark",
+]
+
+/// What the code reader may look at in one forwarded notification, and which text it reads.
+enum CodeCandidate: Equatable {
+    /// A text message: the notification text.
+    case sms(String)
+    /// A mail-app notification: the phone's `preview` if present, else the notification text.
+    case email(String)
+
+    var text: String {
+        switch self {
+        case let .sms(text), let .email(text): text
+        }
+    }
+
+    var isEmail: Bool {
+        if case .email = self { return true }
+        return false
+    }
+}
+
 /// Whether a forwarded notification is a message the code reader may look at.
-func isCodeCandidate(packageName: String, smsDefaultApp: Bool?, redacted: Bool?, text: String) -> Bool {
-    guard redacted != true else { return false }
+func isCodeCandidate(packageName: String, smsDefaultApp: Bool?, redacted: Bool?, text: String,
+                     emailApp: Bool? = nil, preview: String? = nil, emailCodes: Bool = false) -> Bool {
+    codeCandidate(packageName: packageName, smsDefaultApp: smsDefaultApp, redacted: redacted, text: text,
+                  emailApp: emailApp, preview: preview, emailCodes: emailCodes) != nil
+}
+
+/// The text to read, or nil when the notification is not a code candidate. Codes from messages being on is
+/// checked by the caller; `emailCodes` is its "Also read codes in email" switch.
+///
+/// A mail notification counts only when the phone marked it `emailApp` (it does so only for the four mail
+/// apps and never for a group summary) and, as a second check, its package is one of `knownMailPackages`.
+func codeCandidate(packageName: String, smsDefaultApp: Bool?, redacted: Bool?, text: String,
+                   emailApp: Bool? = nil, preview: String? = nil, emailCodes: Bool = false) -> CodeCandidate? {
+    guard redacted != true else { return nil }
     let fromSmsApp = smsDefaultApp ?? knownSmsPackages.contains(packageName)
-    guard fromSmsApp else { return false }
+    if fromSmsApp {
+        guard let trimmed = readableCodeText(text) else { return nil }
+        return looksLikeOtpTraffic(trimmed) ? .sms(trimmed) : nil
+    }
+    guard emailCodes, emailApp == true, knownMailPackages.contains(packageName) else { return nil }
+    let source = preview.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } ?? text
+    guard let trimmed = readableCodeText(source) else { return nil }
+    return emailCodePrecheck(trimmed) ? .email(trimmed) : nil
+}
+
+/// Trimmed, non-empty and at most 600 UTF-16 units (as the relay counts them). A longer message is never
+/// cut (that could drop the code).
+private func readableCodeText(_ text: String) -> String? {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    // UTF-16 units, as the relay counts them. A longer message is never cut (that could drop the code).
-    guard !trimmed.isEmpty, trimmed.utf16.count <= CodeRelay.maximumTextLength else { return false }
-    return looksLikeOtpTraffic(trimmed)
+    guard !trimmed.isEmpty, trimmed.utf16.count <= CodeRelay.maximumTextLength else { return nil }
+    return trimmed
+}
+
+// MARK: - Email pre-check
+
+/*
+ * The stricter pre-check for mail previews (docs/codes-from-email.md section 6). This is the one place
+ * the rule lives: the Phase 0 email eval (outputs/bridgey/research/otp-tiny-model, email sets) may tune
+ * the word lists and the window here.
+ *
+ * A preview passes when it passes `looksLikeOtpTraffic`, some code-shaped token (the same two patterns)
+ * has a code word within `emailCodeWordWindow` characters before or after it, and that code word is not
+ * part of a marketing phrase ("promo code", "use code", "20% off"). A mail that says "unsubscribe" and
+ * has a marketing phrase anywhere is refused outright.
+ */
+
+/// Characters (UTF-16 units) before and after a token that are searched for a code word.
+let emailCodeWordWindow = 60
+
+/// Code words, case-insensitive, whole words. Russian stems take their usual endings.
+private let emailCodeWords = try! NSRegularExpression(
+    pattern: wordEdgeLeft + "(?:"
+        + "codes?|otp|one[- ]time|passcodes?|verification|verify|pin|2fa|two[- ]factor|two[- ]step|security code"
+        + "|sign[- ]in|log[- ]?in|authentication|confirm|confirmation"
+        + "|код(?:а|у|ом|ы|е)?|парол(?:ь|я|ю|ем|и)|подтвержд[\\p{L}]*"
+        + "|ओटीपी|कोड"
+        + ")" + wordEdgeRight,
+    options: [.caseInsensitive]
+)
+
+/// Marketing phrases: a code word inside one of these does not count.
+private let emailMarketingPhrases = try! NSRegularExpression(
+    pattern: wordEdgeLeft + "(?:promo(?:tional)? codes?|coupon(?: codes?)?|discount codes?|vouchers?(?: codes?)?|gift codes?"
+        + "|referral codes?|offer codes?|use (?:the )?code)" + wordEdgeRight
+        + "|\\d+ ?% ?off" + wordEdgeRight,
+    options: [.caseInsensitive]
+)
+
+private let emailUnsubscribe = try! NSRegularExpression(pattern: "unsubscribe", options: [.caseInsensitive])
+
+private let wordEdgeLeft = "(?<![\\p{L}\\p{M}\\p{N}])"
+private let wordEdgeRight = "(?![\\p{L}\\p{M}\\p{N}])"
+
+/// Whether a mail preview may hold a one-time code, before the model reads it. Pure, so it is tested.
+func emailCodePrecheck(_ text: String) -> Bool {
+    guard looksLikeOtpTraffic(text) else { return false }
+    let whole = NSRange(location: 0, length: (text as NSString).length)
+    let marketing = emailMarketingPhrases.matches(in: text, range: whole).map(\.range)
+    if !marketing.isEmpty, emailUnsubscribe.firstMatch(in: text, range: whole) != nil { return false }
+    let words = emailCodeWords.matches(in: text, range: whole).map(\.range)
+        .filter { word in !marketing.contains { NSIntersectionRange($0, word).length > 0 } }
+    guard !words.isEmpty else { return false }
+    let tokens = (otpTokenPattern.matches(in: text, range: whole) + otpSplitPattern.matches(in: text, range: whole)).map(\.range)
+    return tokens.contains { token in
+        let start = max(0, token.location - emailCodeWordWindow)
+        let end = min(whole.length, NSMaxRange(token) + emailCodeWordWindow)
+        let window = NSRange(location: start, length: end - start)
+        return words.contains { NSIntersectionRange($0, window).length > 0 && NSIntersectionRange($0, token).length == 0 }
+    }
 }
 
 // MARK: - Relay

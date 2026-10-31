@@ -89,6 +89,9 @@ enum SyncKey: String, CaseIterable, Comparable {
     /// Appended after the earlier keys. The same two switches as the phone's Files group.
     case folderIncludeHidden = "files.folder_include_hidden"
     case folderIncludeSystem = "files.folder_include_system"
+    /// Codes from messages > Also read codes in email (email_codes_draft1). The phone's switch forwards mail
+    /// previews, the Mac's reads them. On until chosen; like connect.away, a value nobody chose is not sent as a choice.
+    case codesEmail = "codes.email"
 
     static func < (lhs: SyncKey, rhs: SyncKey) -> Bool {
         allCases.firstIndex(of: lhs)! < allCases.firstIndex(of: rhs)!
@@ -110,6 +113,7 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .folderConflict: .string("ask")
         case .activityPreviews: .bool(true)
         case .connectAway: .bool(BridgeySettings.connectAwayDefault)
+        case .codesEmail: .bool(BridgeySettings.codesEmailDefault)
         default: .bool(false)
         }
     }
@@ -156,6 +160,7 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .connectAway: "connect_away"
         case .folderIncludeHidden: "folder_include_hidden"
         case .folderIncludeSystem: "folder_include_system"
+        case .codesEmail: "codes_email"
         default: String(rawValue.dropFirst("feature.".count))
         }
     }
@@ -190,6 +195,7 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .connectAway: L10n.text("settings.away", fallback: "Connect away from home")
         case .folderIncludeHidden: L10n.text("sync.name.folderHidden", fallback: "Hidden files in folders")
         case .folderIncludeSystem: L10n.text("sync.name.folderSystem", fallback: "System files in folders")
+        case .codesEmail: L10n.text("sync.name.codesEmail", fallback: "Codes from email")
         }
     }
 
@@ -363,6 +369,7 @@ func settingsSyncStoredValues(_ defaults: [String: Any]) -> [SyncKey: SyncValue]
     bool(.autoClipboard, "settings.autoClipboard.enabled")
     bool(.clipboardFiles, "settings.clipboardFiles.enabled")
     bool(.codesEnabled, "settings.codes.enabled")
+    bool(.codesEmail, "settings.codes.email")
     bool(.featureScreen, "settings.screen.show")
     bool(.featureSms, "settings.sms.enabled")
     bool(.connectAway, "settings.connect.away")
@@ -377,7 +384,7 @@ func settingsSyncStoredValues(_ defaults: [String: Any]) -> [SyncKey: SyncValue]
 // MARK: Payloads
 
 struct SettingsPayload: Equatable {
-    /// The records of the 27 keys; skipped entries are counted, never kept.
+    /// The records of the 28 keys; skipped entries are counted, never kept.
     var records: [SyncKey: SyncRecord]
     /// The keys the sender has on but waiting for a permission there, in schema order.
     var waiting: [SyncKey]
@@ -1114,6 +1121,7 @@ final class SettingsSyncController: ObservableObject {
             screen.$enabled.map { _ in () }.eraseToAnyPublisher(),
             settings.$smsEnabled.map { _ in () }.eraseToAnyPublisher(),
             settings.$connectAwayChoice.map { _ in () }.eraseToAnyPublisher(),
+            settings.$codesEmailChoice.map { _ in () }.eraseToAnyPublisher(),
         ]
         if let autoUpdate { changes.append(autoUpdate.$storedChoice.map { _ in () }.eraseToAnyPublisher()) }
         // @Published fires before the property changes: read it on the next turn of the main queue.
@@ -1160,6 +1168,7 @@ final class SettingsSyncController: ObservableObject {
             .focusFollow: bool({ focus.settings.follow }, { on in focus.update { $0.follow = on } }),
             .codesEnabled: codes?.setting ?? bool({ settings.codesEnabled }, settings.setCodesEnabled),
             .connectAway: connectAwaySetting(settings),
+            .codesEmail: codesEmailSetting(settings),
         ]
         if let screen { out[.featureScreen] = screenSetting(screen) }
         if let setTextMessages { out[.featureSms] = bool({ settings.smsEnabled }, setTextMessages) }
@@ -1178,6 +1187,13 @@ final class SettingsSyncController: ObservableObject {
         SyncedSetting(read: { .bool(settings.connectAway) },
                       write: { value in if case let .bool(on) = value { settings.setConnectAway(on) } },
                       followsDefault: { settings.connectAwayChoice == nil })
+    }
+
+    /// Also read codes in email: the person's choice, or on while there is none (an unset default is not a choice).
+    static func codesEmailSetting(_ settings: BridgeySettings) -> SyncedSetting {
+        SyncedSetting(read: { .bool(settings.codesEmail) },
+                      write: { value in if case let .bool(on) = value { settings.setCodesEmail(on) } },
+                      followsDefault: { settings.codesEmailChoice == nil })
     }
 
     /// Update all devices automatically: the person's choice, or the channel's default while there is none.
