@@ -816,12 +816,51 @@ class SettingsSyncTest {
         assertEquals(true, phone[SyncKey.CONNECT_AWAY])
     }
 
+    @Test fun codesFromEmailIsOnUntilChosenAndSyncsUnderItsKey() {
+        assertEquals("codes.email", SyncKey.EMAIL_CODES.key)
+        assertEquals(true, SyncKey.EMAIL_CODES.default)
+        // Appended after the folder switches, so earlier keys and tokens keep their order.
+        assertEquals(SyncKey.EMAIL_CODES, SyncKey.entries.last())
+        assertEquals(SyncKey.FOLDER_INCLUDE_SYSTEM, SyncKey.entries[SyncKey.entries.size - 2])
+        assertEquals(28, SyncKey.entries.size)
+        clear("phone", "mac")
+        val net = Net()
+        val phoneEmail = Following(defaultOn = true)
+        val macEmail = Following(defaultOn = true)
+        val phone = Device("phone", "OnePlus 11", net, fakes() + (SyncKey.EMAIL_CODES to phoneEmail), veteran = false)
+        val mac = Device("mac", "Work Mac", net, fakes() + (SyncKey.EMAIL_CODES to macEmail))
+        net.link(phone, mac)
+        net.pump()
+        net.log.clear()
+        // Nobody chose: the default is not a choice, so nothing is sent and nothing shows as different.
+        phone.sync.localChanged()
+        mac.sync.localChanged()
+        net.pump()
+        assertTrue(net.kinds().isEmpty())
+        assertNull(phone.sync.ui.value.row(SyncKey.EMAIL_CODES))
+        assertFalse(phone.sync.record(SyncKey.EMAIL_CODES)!!.chosen)
+        assertEquals(0, phoneEmail.writes + macEmail.writes)
+        // Turned off on the Mac: a choice, and the phone keeps it as its own. No permission is asked for.
+        now = 1_000
+        mac.edit(SyncKey.EMAIL_CODES, false)
+        net.pump()
+        assertEquals(false, phoneEmail.choice)
+        assertEquals(false, phone[SyncKey.EMAIL_CODES])
+        assertTrue(phone.turnedOn.isEmpty() && mac.turnedOn.isEmpty())
+        // And back on from the phone.
+        now = 2_000
+        phone.edit(SyncKey.EMAIL_CODES, true)
+        net.pump()
+        assertEquals(true, macEmail.choice)
+        assertEquals(phone.sync.record(SyncKey.EMAIL_CODES), mac.sync.record(SyncKey.EMAIL_CODES))
+    }
+
     @Test fun activityDetailRoundTrips() {
         val changes = listOf(SyncChange(SyncKey.REDUCE_MOTION, false), SyncChange(SyncKey.FOLDER_DESTINATION, "fixed"), SyncChange(SyncKey.CALLS, true))
         val detail = SyncDetail.encode(changes)
         assertEquals("folder_destination=2,reduce_motion=0,calls=1", detail)
         assertEquals(listOf(changes[1], changes[0], changes[2]), SyncDetail.decode(detail))
-        assertEquals(27, SyncDetail.decode(SyncDetail.encode(SyncKey.entries.map { SyncChange(it, it.default) })).size)
+        assertEquals(28, SyncDetail.decode(SyncDetail.encode(SyncKey.entries.map { SyncChange(it, it.default) })).size)
         assertTrue(SyncDetail.decode("calls=1,evil text").isEmpty())
     }
 }

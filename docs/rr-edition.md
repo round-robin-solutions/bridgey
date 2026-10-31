@@ -30,7 +30,7 @@ upstream clients.
 | Files 2.0 | planned for 0.8 | Folders both ways; Mac "Phone files" window (photos and videos, recent documents, granted folders) with instant thumbnails, Quick Look, drag out and in; Android attach sheet; Mac send sheet, Tray, menu-bar drops and send optimisation; Finder metadata and transfer history (drafts `folders_draft1`, `places_draft1`, `files_browse_draft1`, `folders_receive_draft1`; see [files-browse.md](files-browse.md)) |
 | Connect away from home | none (LAN only) | On by default, one switch to turn it off (Settings > Devices > Connect away from home): paired devices reach each other off the home network, directly or through a Round Robin relay that sees only ciphertext. It keeps a connection to `connect.roundrobin.in` and uses a relay only when the same Wi-Fi is not available (draft `connect_draft1`, see [Connect anywhere](connect-anywhere.md)) |
 | Settings sync | none | On by default, one switch to turn it off (and one per device): feature switches and shared preferences stay the same on paired devices; a phone with two Macs carries changes between them. Permissions, per-device grants, pairing and folders never sync; a device that differs shows "Different on <device>" with Apply to all, and every change from another device is in the activity stream (draft `settings_sync_draft1`, see [folders-and-settings-sync.md](folders-and-settings-sync.md) 8.4) |
-| Codes from text messages | none | Opt-in: the Mac shows "Code 482913 from HDFC Bank" with Copy code, read on the Mac by a small downloaded model (default) or, if chosen, through Round Robin's relay to Cloudflare Workers AI; a companion link lets Android 15+ show Bridgey the codes (draft `sms_codes_draft1`, see below) |
+| Codes from text messages | none | Opt-in: the Mac shows "Code 482913 from HDFC Bank" with Copy code, read on the Mac by a small downloaded model (default) or, if chosen, through Round Robin's relay to Cloudflare Workers AI; a companion link lets Android 15+ show Bridgey the codes (draft `sms_codes_draft1`, see below). Also from email: Gmail, Outlook, Proton Mail and Spark notifications, read on the Mac only (draft `email_codes_draft1`, [codes-from-email.md](codes-from-email.md)) |
 | Text messages | notification replies only | Opt-in, off by default: SMS conversations on the Mac (Messages window with conversations, new messages to a contact or number, delivery status, the SIM per conversation, MMS images read only) and a Reply field on every text message notification; incremental sync over the encrypted session, no cloud (draft `sms_draft1`, see below and [sms-call-policy.md](sms-call-policy.md)) |
 
 Unchanged on purpose: the wire protocol, the Bonjour service type `_bridgey._tcp`, the default
@@ -210,6 +210,13 @@ When a one-time code arrives by SMS, the Mac can show it as "Code 482913 from HD
 **Copy code**, instead of the plain mirrored notification. The messages are the draft
 `sms_codes_draft1` in `docs/protocol.md`.
 
+- **Codes from email** ([codes-from-email.md](codes-from-email.md), draft `email_codes_draft1`):
+  "Also read codes in email" on both apps, on whenever Codes from messages is on. The phone adds the
+  preview of Gmail, Outlook, Proton Mail and Spark notifications (at most 600 characters, only when
+  it looks like a code); the Mac reads it with the model on this Mac only, never the cloud, after a
+  stricter check that needs a code word and turns away promo codes. Codes are listed newest first by
+  the phone's post time with their age; the same code by SMS and email, or from two mail apps, is one
+  card; a newer code from the same service marks the older one "Older, replaced".
 - **Mac, Settings > Notifications > Codes from messages:** "Show codes from text messages" is off
   by default. Only an SMS that looks like it has a code (from the phone's default SMS app, not
   hidden by Android) is read. **Read codes** picks the engine:

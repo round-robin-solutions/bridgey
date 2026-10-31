@@ -81,6 +81,11 @@ enum class SyncKey(val key: String, val token: String, val default: Any, val val
     /** Appended, so the order of the earlier keys never changes. The same two switches as the Mac's Files card. */
     FOLDER_INCLUDE_HIDDEN("files.folder_include_hidden", "folder_include_hidden", false),
     FOLDER_INCLUDE_SYSTEM("files.folder_include_system", "folder_include_system", false),
+    /**
+     * Also read codes in email (docs/codes-from-email.md): a real switch on both devices (the phone forwards mail
+     * previews, the Mac reads them). On until chosen; like [CONNECT_AWAY], a value nobody chose is not sent as a choice.
+     */
+    EMAIL_CODES("codes.email", "codes_email", true),
     ;
 
     fun accepts(value: Any?): Boolean = if (values != null) value is String && value in values else value is Boolean

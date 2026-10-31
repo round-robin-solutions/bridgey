@@ -972,7 +972,7 @@ T3 Code works" (a change made in Settings is saved to every connected device tha
 device that was offline or still differs shows it, with Apply to all). That replaces the earlier
 rule that sync never turns a feature on.
 
-**What syncs.** An allowlist of 27 schema 1 keys, the same on both platforms. A device that has no
+**What syncs.** An allowlist of 28 schema 1 keys, the same on both platforms. A device that has no
 such setting stores the record and relays it, so a phone carries a Mac-only setting between two
 Macs.
 
@@ -995,6 +995,7 @@ Macs.
 | `focus.share` | Share Do Not Disturb with Macs | Share Focus with phones | |
 | `focus.follow` | Follow the Mac's Focus | Follow the phone's Do Not Disturb | Android: Do Not Disturb access |
 | `codes.enabled` | Stored and relayed | Notifications > Codes from messages | Mac: the consent and model that turning codes on asks for there |
+| `codes.email` | Codes > Also read codes in email (sends mail previews) | Codes from messages > Also read codes in email (reads them, on this Mac only) | On until someone chooses: a value nobody chose is never sent as a choice |
 | `feature.screen` | Share screen with Macs | Remote control > Show phone screens (a preference here) | Each share is still asked on the phone, every time |
 | `feature.sms` | Text messages | Text messages | Android: SMS permission (read and send) |
 | `updates.auto_all` | Settings > Updates > Update all devices automatically | Same | Each device follows its own channel until someone chooses: a value nobody chose is never sent, asked about or shown as different; a synced value is that device's choice too |

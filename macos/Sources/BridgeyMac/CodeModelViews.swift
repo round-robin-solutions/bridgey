@@ -207,9 +207,16 @@ struct CodesCard: View {
                 .disabled(!toggleAvailable && !model.codesEnabled)
             // Turned on from another device: Allow runs this card's own consent step (cloud question or model download).
             SyncStatusLine(key: .codesEnabled, model: model, actions: actions, allow: { setEnabled(true) })
+            // Mail previews are always read by the model here, whichever engine reads text messages.
+            SettingsToggle(title: L10n.text("codes.email", fallback: "Also read codes in email"),
+                           subtitle: L10n.text("codes.email.detail", fallback: "Gmail, Outlook, Proton Mail and Spark on your phone. Read on this Mac only, even when Cloud reads texts."),
+                           synced: model.syncs(.codesEmail), isOn: model.codesEmail, set: actions.setCodesEmail)
+                .disabled(!model.codesEnabled)
+            SyncStatusLine(key: .codesEmail, model: model, actions: actions)
             CodeEngineChoice(selected: model.codesEngine, cloudAvailable: model.codesAvailable, localAvailable: display.available,
                              size: display.size, select: selectEngine)
-            if local {
+            // Email codes need the model on this Mac even when Cloud reads text messages.
+            if local || (model.codesEnabled && model.codesEmail) {
                 CodeModelRow(model: display, actions: actions,
                              download: { showsDownload = true }, update: update, remove: { confirmRemove = true })
             }
@@ -257,7 +264,7 @@ struct CodesCard: View {
             }
             Button(L10n.text("action.cancel", fallback: "Cancel"), role: .cancel) { confirmCloud = nil }
         } message: {
-            Text(L10n.text("codes.confirm.body", fallback: "To find the code, Bridgey sends the text of each message that looks like it has one, code included, to Cloudflare Workers AI through Round Robin\u{2019}s relay. Nothing is stored there. You can turn this off at any time."))
+            Text(L10n.text("codes.confirm.body", fallback: "To find the code, Bridgey sends the text of each message that looks like it has one, code included, to Cloudflare Workers AI through Round Robin\u{2019}s relay. Nothing is stored there. You can turn this off at any time. Email previews are always read on this Mac."))
         }
         .confirmationDialog(L10n.text("codes.model.remove.title", fallback: "Remove the code model?"), isPresented: $confirmRemove) {
             Button(L10n.text("codes.model.remove", fallback: "Remove"), role: .destructive) { actions.removeCodeModel() }
@@ -272,7 +279,7 @@ struct CodesCard: View {
     private var footnote: String {
         local
             ? L10n.text("codes.privacy.local", fallback: "On this Mac, a small model finds the code here, so message text and codes never leave this Mac. Bridgey never saves or logs codes, and clears a copied code from the clipboard after 60 seconds. The model is Gemma 3 270M by Google, fine-tuned by Round Robin, under the Gemma Terms of Use (About > Licences).")
-            : L10n.text("codes.privacy", fallback: "When on, a text message that looks like it has a code goes from this Mac, through Round Robin\u{2019}s relay, to Cloudflare Workers AI, which finds the code. So that message text, code included, leaves your devices. Cloudflare does not use it to train models, and the relay keeps no copy and logs nothing. Bridgey never saves or logs codes, and clears a copied code from the clipboard after 60 seconds.")
+            : L10n.text("codes.privacy", fallback: "When on, a text message that looks like it has a code goes from this Mac, through Round Robin\u{2019}s relay, to Cloudflare Workers AI, which finds the code. So that message text, code included, leaves your devices. Cloudflare does not use it to train models, and the relay keeps no copy and logs nothing. Bridgey never saves or logs codes, and clears a copied code from the clipboard after 60 seconds. Email previews are always read on this Mac.")
     }
 
     private func setEnabled(_ on: Bool) {
@@ -323,7 +330,7 @@ struct CodeEngineChoice: View {
                        detail: String(format: L10n.text("codes.engine.local.detail", fallback: "Runs here; message text never leaves this Mac. One download of %@."), CodeModelText.megabytes(size)),
                        symbol: "lock.laptopcomputer", enabled: localAvailable)
                 option(.cloud, title: CodeModelText.cloudTitle,
-                       detail: L10n.text("codes.engine.cloud.detail", fallback: "Sends message text to Cloudflare Workers AI through Round Robin\u{2019}s relay. No download."),
+                       detail: L10n.text("codes.engine.cloud.detail", fallback: "Sends message text to Cloudflare Workers AI through Round Robin\u{2019}s relay. No download. Email previews are always read on this Mac."),
                        symbol: "cloud", enabled: cloudAvailable)
             }
             // Both cards as tall as the taller one.

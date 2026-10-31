@@ -4,21 +4,49 @@ import Foundation
 /// Draft, edition only: SMS notifications carry `smsDefaultApp` and `redacted`, and both sides speak
 /// the `codes.*` messages (code access status and the companion link). See docs/protocol.md.
 let smsCodesFeatureKey = "sms_codes_draft1"
+/// Draft, edition only (docs/codes-from-email.md): mail-app notifications carry `emailApp`, `preview` and
+/// `redacted` for this Mac. Needs `sms_codes_draft1` too.
+let emailCodesFeatureKey = "email_codes_draft1"
 
 let codeCopyActionIdentifier = "bridgey.code.copy"
 /// The notification's userInfo holds this reference, never the code.
 let codeReferenceUserInfoKey = "bridgeyCodeRef"
+/// A notification whose click opens a Settings pane (the pane's raw value).
+let openSettingsPaneUserInfoKey = "bridgeyOpenSettingsPane"
 
 /// A code the Mac found, kept in memory for the panel card and Copy code.
 struct LiveCodeCard: Identifiable, Equatable {
     let id: String
     let code: String
-    /// The SMS title (contact or sender ID), else the app's name.
+    /// The SMS title (contact or sender ID) or the mail's sender, else the app's name.
     let sender: String
     let deviceName: String
+    /// When this Mac got it.
     let receivedAt: Date
     var copiedAt: Date?
     var copiedAutomatically = false
+    /// When the phone posted it (its clock), clamped near `receivedAt` (`CodeCards.postedAt`). Cards sort by this.
+    let postedAt: Date
+    /// This Mac's arrival counter: breaks ties between cards posted at the same moment.
+    let arrival: Int
+    /// `codeServiceKey(sender)`, for duplicates and Latest or Older. A card from an unknown sender (a phone
+    /// number) takes the service of the first duplicate that names one.
+    private(set) var serviceKey: String
+    /// Every way the code came, first arrival first: by text, or by email from one or more mail apps.
+    var sources: [CodeSource]
+
+    init(id: String, code: String, sender: String, deviceName: String, receivedAt: Date, postedAt: Date? = nil,
+         arrival: Int = 0, sources: [CodeSource] = [CodeSource(channel: .sms, app: "")]) {
+        self.id = id
+        self.code = code
+        self.sender = sender
+        self.deviceName = deviceName
+        self.receivedAt = receivedAt
+        self.postedAt = postedAt ?? receivedAt
+        self.arrival = arrival
+        serviceKey = codeServiceKey(sender)
+        self.sources = sources
+    }
 
     /// "Copied. Clears in 42 s." while the clipboard may still hold it.
     func copiedLine(now: Date) -> String? {
@@ -29,6 +57,12 @@ struct LiveCodeCard: Identifiable, Equatable {
             ? L10n.text("codes.copied.auto", fallback: "Copied automatically. Clears in %d s.")
             : L10n.text("codes.copied", fallback: "Copied. Clears in %d s.")
         return String(format: format, left)
+    }
+
+    /// Adds a way the code came (a duplicate by another channel or mail app); one already listed is kept once.
+    mutating func add(_ source: CodeSource, serviceKey key: String = "") {
+        if !sources.contains(source) { sources.append(source) }
+        if serviceKey.isEmpty { serviceKey = key }
     }
 }
 

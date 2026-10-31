@@ -87,7 +87,7 @@ features_all = {"clipboard":True,"files":True,"notifications":True,"battery":Tru
 drafts_none = {"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False,"folders_receive_draft1":False,"files_browse_draft1":False,
                "mac_actions_draft1":False,"links_open_draft1":False,"focus_sync_draft1":False,"camera_draft1":False,
                "updates_draft1":False,"screen_draft1":False,"sms_draft1":False,"settings_sync_draft1":False,
-               "connect_draft1":False,"files_fast_draft1":False}
+               "connect_draft1":False,"files_fast_draft1":False,"email_codes_draft1":False}
 feat = []
 def fe(name, plaintext, expect, raw=False):
     feat.append({"name": name, ("plaintextString" if raw else "plaintext"): plaintext, "expect": expect})
@@ -135,6 +135,11 @@ fe("Connect anywhere on", {"version":1,"features":{**features_all,"connect_draft
    {"features":features_all,"drafts":{**drafts_none,"connect_draft1":True}})
 fe("Connect anywhere key that is not a boolean counts as false", {"version":1,"features":{**features_all,"connect_draft1":"true"}},
    {"features":features_all,"drafts":drafts_none})
+# Codes from email (email_codes_draft1, docs/codes-from-email.md): a draft key like the others, true only for JSON true.
+fe("Mac and phone with codes from email on", {"version":1,"features":{**features_all,"sms_codes_draft1":True,"email_codes_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"sms_codes_draft1":True,"email_codes_draft1":True}})
+fe("email_codes_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"sms_codes_draft1":True,"email_codes_draft1":"true"}},
+   {"features":features_all,"drafts":{**drafts_none,"sms_codes_draft1":True}})
 fe("first-slice Mac (folders_draft1 only, no Files 2.0 keys)", {"version":1,"features":{**features_all,"folders_draft1":True,"places_draft1":False}},
    {"features":features_all,"drafts":{**drafts_none,"folders_draft1":True}})
 legacy = {"clipboard":True,"files":False,"notifications":True,"battery":True,"find_device":False}
@@ -916,7 +921,7 @@ sms_b("over 1 KiB", sized('{"version":1,"requestId":"%s","result":"opened","pad"
 
 # Settings sync (settings_sync_draft1, docs/folders-and-settings-sync.md sections 4.9, 8 and 8.4). settingsPayload: a
 # settings.snapshot or settings.update plaintext as the receiver reads it. expect is {records, waiting, skipped} (the
-# records of the 27 schema 1 keys, the keys the sender says wait for a permission there, and how many record entries were
+# records of the 28 schema 1 keys, the keys the sender says wait for a permission there, and how many record entries were
 # skipped one by one: unknown or per-device keys, wrong types, values out of range), "invalid" (the whole message is
 # dropped and answered settings.error invalid_message) or {"unsupportedSchema": N}.
 DA = "7e57d00d-0000-4000-8000-00000000000a"
@@ -928,8 +933,8 @@ SYNC_BOOL_KEYS = ["activity.previews","display.reduce_motion",
                   "feature.links","feature.media","feature.calls","feature.remote_input","feature.mac_actions","feature.camera",
                   "clipboard.automatic","clipboard.files","focus.share","focus.follow","codes.enabled",
                   "feature.screen","feature.sms","updates.auto_all","connect.away",
-                  "files.folder_include_hidden","files.folder_include_system"]
-assert len(SYNC_STRING_KEYS) + len(SYNC_BOOL_KEYS) == 27
+                  "files.folder_include_hidden","files.folder_include_system","codes.email"]
+assert len(SYNC_STRING_KEYS) + len(SYNC_BOOL_KEYS) == 28
 spay = []
 def sp(name, kind, p, expect, raw=False): spay.append({"name":name, "kind":kind, ("plaintextString" if raw else "plaintext"):p, "expect":expect})
 def ok(records, skipped=0, waiting=None, first=False, new=False, answered=False):

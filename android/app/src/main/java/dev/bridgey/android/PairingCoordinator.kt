@@ -2215,6 +2215,8 @@ class PairingCoordinator(
         redacted: Boolean? = null,
         smsReply: Boolean = false,
         smsThreadId: Long? = null,
+        emailApp: Boolean = false,
+        preview: String? = null,
     ): List<DeviceConnection> {
         val targets = broadcastTargets(BridgeyFeature.NOTIFICATIONS)
         if (targets.isEmpty()) return emptyList()
@@ -2246,23 +2248,28 @@ class PairingCoordinator(
                 }
             })
         // Text messages (sms_draft1): only a Mac that shows the key hears that it can reply by SMS.
-        fun body(callsEnabled: Boolean, sms: Boolean): ByteArray = payload(callsEnabled).apply {
+        // Codes from email (email_codes_draft1): only a Mac that shows the key gets emailApp, redacted and preview.
+        fun body(callsEnabled: Boolean, sms: Boolean, email: Map<String, Any>): ByteArray = payload(callsEnabled).apply {
             if (sms) {
                 put("smsReply", true)
                 smsThreadId?.takeIf { it >= 1 }?.let { put("smsThreadId", it) }
             }
+            email.forEach { (key, value) -> put(key, value) }
         }.toString().toByteArray()
+        val emailSwitchOn = settings.state.value.emailCodes
         val smsCapable = smsDefaultApp && smsReply
         scope.launch {
             targets.forEach { current ->
                 val callsEnabled = callType == null || settings.isEnabled(BridgeyFeature.CALLS, current.remoteDeviceId)
                 val sms = smsCapable && isFeatureAvailable(BridgeyFeature.SMS, current.remoteDeviceId)
-                if (sendEncrypted(current, "notifications.post", body(callsEnabled, sms))) {
-                    // Text messages can carry codes: their content never reaches the log, whatever Logging says.
+                val email = dev.bridgey.android.codes.emailPayloadFields(
+                    emailApp, preview, redacted, registry.state(current.remoteDeviceId)?.remoteEmailCodes == true, emailSwitchOn,
+                )
+                if (sendEncrypted(current, "notifications.post", body(callsEnabled, sms, email))) {
+                    // Text messages and mail can carry codes: their content never reaches the log, whatever Logging says.
                     BridgeyLogging.line(
-                        LogLines.notification(
-                            BridgeyLogging.policy, "sent", applicationName,
-                            if (smsDefaultApp) null else title, if (smsDefaultApp) null else text,
+                        dev.bridgey.android.codes.forwardedNotificationLogLine(
+                            BridgeyLogging.policy, applicationName, packageName, smsDefaultApp, title, text,
                         ),
                     )
                 }
@@ -4333,6 +4340,14 @@ class PairingCoordinator(
         // Draft, edition only: SMS notifications are marked for the Mac's code reader, and this phone
         // reports code access and makes the companion link.
         featureValues.put(dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY, settings.isEnabled(BridgeyFeature.NOTIFICATIONS, current.remoteDeviceId))
+        // Draft, edition only: mail-app notifications carry emailApp and preview for this Mac, while notifications
+        // are on for it and Also read codes in email is on (settings.state changes re-advertise).
+        featureValues.put(
+            dev.bridgey.android.codes.EMAIL_CODES_FEATURE_KEY,
+            dev.bridgey.android.codes.emailCodesAdvertised(
+                settings.isEnabled(BridgeyFeature.NOTIFICATIONS, current.remoteDeviceId), settings.state.value.emailCodes,
+            ),
+        )
         // Draft, edition only: Focus and Do Not Disturb sync, while either direction is on.
         featureValues.put(dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY, focusSync.advertised())
         // Draft, edition only: Update all. Always advertised; whether paired devices may start this phone's
@@ -4380,6 +4395,7 @@ class PairingCoordinator(
                 remotePlaces = drafts[dev.bridgey.android.folders.PLACES_FEATURE_KEY] == true,
                 remoteFoldersReceive = drafts[dev.bridgey.android.folders.FOLDERS_RECEIVE_FEATURE_KEY] == true,
                 remoteSmsCodes = drafts[dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY] == true,
+                remoteEmailCodes = drafts[dev.bridgey.android.codes.EMAIL_CODES_FEATURE_KEY] == true,
                 remoteLinksOpen = drafts[dev.bridgey.android.actions.LINKS_OPEN_FEATURE_KEY] == true,
                 remoteFocusSync = drafts[dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY] == true,
                 remoteUpdates = drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true,

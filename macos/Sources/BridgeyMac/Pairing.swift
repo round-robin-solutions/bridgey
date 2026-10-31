@@ -125,6 +125,11 @@ private struct RemoteNotificationPayload: Codable {
     var smsReply: LenientFlag? = nil
     /// Edition (sms_draft1): the conversation it belongs to, so a click opens it.
     var smsThreadId: LenientInteger? = nil
+    /// Edition (email_codes_draft1): the notification came from one of the four supported mail apps and is
+    /// not a group summary. Read leniently, like smsReply.
+    var emailApp: LenientFlag? = nil
+    /// Edition (email_codes_draft1), only with emailApp: the expanded text, at most 600 UTF-16 units. Never logged.
+    var preview: LenientText? = nil
 }
 
 private struct RemoteNotificationActionPayload: Codable {
@@ -192,6 +197,8 @@ private final class NotificationPresenter: NSObject, UNUserNotificationCenterDel
     var onSmsReply: ((String, String, String) -> Void)?
     /// Text messages: a click on an SMS notification opens its conversation (phone, thread when known).
     var onOpenConversation: ((String, Int?) -> Void)?
+    /// A Bridgey notification that points at Settings (the email code model prompt): the pane's raw value.
+    var onOpenSettingsPane: ((String) -> Void)?
 
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
@@ -210,6 +217,10 @@ private final class NotificationPresenter: NSObject, UNUserNotificationCenterDel
         let userInfo = response.notification.request.content.userInfo
         if response.notification.request.content.categoryIdentifier == receivedNotificationCategory {
             onReceived?(ReceivedNotificationAction.route(actionIdentifier: response.actionIdentifier, userInfo: userInfo))
+            return
+        }
+        if let pane = userInfo[openSettingsPaneUserInfoKey] as? String {
+            if response.actionIdentifier == UNNotificationDefaultActionIdentifier { onOpenSettingsPane?(pane) }
             return
         }
         if let codeReference = userInfo[codeReferenceUserInfoKey] as? String,
@@ -410,8 +421,11 @@ final class PairingCoordinator: ObservableObject {
     private var clipboardSendID: String?
     private var clipboardTimeoutWorkItem: DispatchWorkItem?
     private let notificationPresenter = NotificationPresenter()
-    /// Codes from messages: the newest code card in the panel (ten minutes), and its link status line.
-    @Published private(set) var liveCode: LiveCodeCard?
+    /// Codes from messages: the live code cards for the panel (ten minutes each, at most five, newest first,
+    /// without the ones dismissed there), and its link status line.
+    @Published private(set) var liveCodeCards: [LiveCodeCard] = []
+    /// The newest code card in the panel.
+    var liveCode: LiveCodeCard? { liveCodeCards.first }
     @Published private(set) var codeLinkStatus: String?
     /// Codes from messages > On this Mac: the model file, its download and the engine.
     let codeModel: CodeModelStore
@@ -419,8 +433,14 @@ final class PairingCoordinator: ObservableObject {
     private var codeReads: [String: Task<Void, Never>] = [:]
     /// Codes that can still be copied, in memory only.
     private var liveCodes: [String: LiveCodeCard] = [:]
-    private var liveCodeOrder: [String] = []
-    private let liveCodeLifetime: TimeInterval = 10 * 60
+    /// Cards dismissed in the panel: still live for Copy code, duplicates and Latest or Older.
+    private var dismissedCodes: Set<String> = []
+    /// Arrival order of code cards on this Mac (CodeCards.swift breaks post-time ties with it).
+    private var codeArrivals = 0
+    /// The card the floating panel shows, if any.
+    private var floatedCode: String?
+    /// Opens a Settings pane (BridgeyApp wires the Settings window).
+    var openSettingsPane: ((SettingsPane) -> Void)?
     private let codeClipboard = CodeClipboard()
     /// The floating Copy code card (Settings > Codes from messages > Keep the copy button on screen for).
     private lazy var codeFloat: CodeFloatWindowController = {
@@ -514,6 +534,11 @@ final class PairingCoordinator: ObservableObject {
         }
         notificationPresenter.onCopyCode = { [weak self] reference in
             Task { @MainActor [weak self] in self?.copyCode(reference: reference) }
+        }
+        notificationPresenter.onOpenSettingsPane = { [weak self] raw in
+            Task { @MainActor [weak self] in
+                if let pane = SettingsPane(rawValue: raw) { self?.openSettingsPane?(pane) }
+            }
         }
         notificationPresenter.onSmsReply = { [weak self] notificationID, deviceID, text in
             Task { @MainActor [weak self] in self?.sendSmsReply(notificationID, deviceID: deviceID, text: text) }
@@ -2653,6 +2678,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remotePlaces = draftKeys[placesFeatureKey] == true
                     link.remoteBrowse = draftKeys[filesBrowseFeatureKey] == true
                     link.remoteSmsCodes = draftKeys[smsCodesFeatureKey] == true
+                    link.remoteEmailCodes = draftKeys[emailCodesFeatureKey] == true
                     link.remoteFocusSync = draftKeys[focusSyncFeatureKey] == true
                     link.remoteCamera = draftKeys[cameraFeatureKey] == true
                     link.remoteUpdates = draftKeys[updatesFeatureKey] == true
@@ -3355,6 +3381,9 @@ final class PairingCoordinator: ObservableObject {
         features[filesBrowseFeatureKey] = false
         // Draft, edition only: this Mac reads codes from SMS and can advertise for the phone's companion link.
         features[smsCodesFeatureKey] = settings.isEnabled(.notifications, for: current.remoteDeviceID)
+        // Draft, edition only: this Mac reads codes in mail previews from this phone (always on this Mac).
+        features[emailCodesFeatureKey] = settings.isEnabled(.notifications, for: current.remoteDeviceID)
+            && settings.codesEnabled && settings.codesEmail
         // Draft, edition only: this Mac understands links "open" (Open on Mac from the phone).
         features[linksOpenFeatureKey] = settings.isEnabled(.links, for: current.remoteDeviceID)
         // Draft, edition only: focus.state, while either Focus direction is on.
@@ -4088,15 +4117,15 @@ final class PairingCoordinator: ObservableObject {
             content: content,
             trigger: nil
         )
-        // Text messages can carry codes: their content never reaches the log, whatever Logging says.
-        let fromSmsApp = isSmsNotification(packageName: payload.packageName, smsDefaultApp: payload.smsDefaultApp)
+        // Text messages and mail can carry codes: their content never reaches the log, whatever Logging says.
+        let privateContent = isSmsNotification(packageName: payload.packageName, smsDefaultApp: payload.smsDefaultApp) || isMailNotification(payload)
         UNUserNotificationCenter.current().add(request) { error in
             if let error {
                 BridgeyLog.notifications.error("notification delivery failed error=\(String(describing: error), privacy: .private)")
             } else {
                 BridgeyLog.line(BridgeyLog.notifications, LogLines.notification(
                     BridgeyLog.policy, event: "shown", appName: payload.applicationName,
-                    title: fromSmsApp ? nil : payload.title, text: fromSmsApp ? nil : payload.text
+                    title: privateContent ? nil : payload.title, text: privateContent ? nil : payload.text
                 ))
             }
         }
@@ -4104,8 +4133,9 @@ final class PairingCoordinator: ObservableObject {
 
     // MARK: Codes from messages
 
-    /// A forwarded notification: an SMS that may hold a code waits up to two seconds for the code
-    /// reader; everything else (and every failure) posts the plain notification as before.
+    /// A forwarded notification: an SMS (or, with Also read codes in email, a mail preview) that may hold a code
+    /// waits up to two seconds for the code reader; everything else (and every failure) posts the plain
+    /// notification as before.
     private func deliverNotification(_ payload: RemoteNotificationPayload, deviceID: String, deviceName: String) {
         let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: payload.notificationId)
         codeReads.removeValue(forKey: identifier)?.cancel()
@@ -4116,29 +4146,36 @@ final class PairingCoordinator: ObservableObject {
             diagnostics.record(category: "notification", event: "sms_muted")
             return
         }
-        if payload.redacted == true, isSmsNotification(packageName: payload.packageName, smsDefaultApp: payload.smsDefaultApp) {
+        if payload.redacted == true,
+           isSmsNotification(packageName: payload.packageName, smsDefaultApp: payload.smsDefaultApp) || payload.emailApp?.value == true {
             // Android hid the text from Bridgey on the phone: Settings shows it until the phone reports otherwise.
             registry.update(deviceID) { $0.codeAccess = .hidden }
             publish()
         }
         guard settings.codesEnabled,
-              isCodeCandidate(packageName: payload.packageName, smsDefaultApp: payload.smsDefaultApp, redacted: payload.redacted, text: payload.text) else {
+              let candidate = codeCandidate(packageName: payload.packageName, smsDefaultApp: payload.smsDefaultApp, redacted: payload.redacted,
+                                            text: payload.text, emailApp: payload.emailApp?.value, preview: payload.preview?.value,
+                                            emailCodes: settings.codesEmail) else {
             recordNotificationHistory(payload, deviceID: deviceID)
             postNotification(payload, deviceID: deviceID)
             return
         }
-        let reader = codeReader(engine: settings.codesEngine, local: codeModel.engine, relay: CodeRelay.baseURL, installID: settings.codesInstallID)
+        // Email is always read by the model on this Mac, even when Cloud reads text messages; never the cloud.
+        let reader = codeReader(engine: candidate.isEmail ? .local : settings.codesEngine, local: codeModel.engine,
+                                relay: CodeRelay.baseURL, installID: settings.codesInstallID)
+        let sender = candidate.isEmail ? codeSender(title: payload.title, applicationName: payload.applicationName) : payload.title
         codeReads[identifier] = Task { @MainActor [weak self] in
-            let outcome = await reader.read(text: payload.text, sender: payload.title)
+            let outcome = await reader.read(text: candidate.text, sender: sender, channel: candidate.isEmail ? .email : .sms)
             guard let self, !Task.isCancelled else { return }
             self.codeReads.removeValue(forKey: identifier)
-            self.diagnostics.record(category: "notification", event: "code_read", outcome: outcome.diagnosticName)
+            self.diagnostics.record(category: "notification", event: candidate.isEmail ? "email_code_read" : "code_read",
+                                    outcome: outcome.diagnosticName)
             if case let .code(code) = outcome {
-                self.recordNotificationHistory(payload, deviceID: deviceID, codeShown: true)
-                self.postCodeNotification(payload, code: code, deviceID: deviceID, deviceName: deviceName)
+                self.acceptCode(payload, code: code, channel: candidate.isEmail ? .email : .sms, deviceID: deviceID, deviceName: deviceName)
             } else {
                 self.recordNotificationHistory(payload, deviceID: deviceID)
                 self.postNotification(payload, deviceID: deviceID)
+                if candidate.isEmail, outcome == .fallback(.modelMissing) { self.promptForEmailCodeModel() }
             }
         }
     }
@@ -4147,21 +4184,55 @@ final class PairingCoordinator: ObservableObject {
         smsDefaultApp ?? knownSmsPackages.contains(packageName)
     }
 
+    /// One of the four mail apps, whatever the phone said: for logging, which treats mail like SMS.
+    private func isMailNotification(_ payload: RemoteNotificationPayload) -> Bool {
+        payload.emailApp?.value == true || knownMailPackages.contains(payload.packageName)
+    }
+
+    /// A code passed the guard. A duplicate (same code, same service, card still live; any channel, mail app or
+    /// phone) goes to history only and its card lists the extra way it came. A new code gets its card and banner;
+    /// only the newest of its service is copied automatically and floated.
+    private func acceptCode(_ payload: RemoteNotificationPayload, code: String, channel: CodeChannel, deviceID: String, deviceName: String) {
+        let now = Date()
+        pruneCodes(now: now)
+        codeArrivals += 1
+        let sender = codeSender(title: payload.title, applicationName: payload.applicationName)
+        let posted = CodeCards.postedAt(phoneMillis: payload.timestamp, receivedAt: now)
+        let source = CodeSource(channel: channel, app: payload.applicationName)
+        switch CodeCards.arrival(code: code, serviceKey: codeServiceKey(sender), posted: posted, arrival: codeArrivals,
+                                 live: Array(liveCodes.values), now: now) {
+        case let .duplicate(cardID):
+            liveCodes[cardID]?.add(source, serviceKey: codeServiceKey(sender))
+            recordNotificationHistory(payload, deviceID: deviceID, codeShown: true)
+            diagnostics.record(category: "notification", event: "code_duplicate")
+            publishCodes()
+        case let .fresh(late, replaces):
+            let card = LiveCodeCard(id: UUID().uuidString.lowercased(), code: code, sender: sender, deviceName: deviceName,
+                                    receivedAt: now, postedAt: posted, arrival: codeArrivals, sources: [source])
+            recordNotificationHistory(payload, deviceID: deviceID, codeShown: true)
+            rememberCode(card)
+            if !late {
+                floatedCode = card.id
+                // The floating card always shows the newest code; it says which older one it replaces.
+                if let seconds = settings.codesFloat.seconds {
+                    codeFloat.show(card, seconds: seconds, replaces: replaces.flatMap { liveCodes[$0] }.map { codeReplacesLine($0, now: now) })
+                }
+            }
+            postCodeNotification(payload, card: card, deviceID: deviceID)
+            if late {
+                diagnostics.record(category: "notification", event: "code_late")
+            } else if shouldAutoCopyCode(enabled: settings.codesAutoCopy, screenLocked: macScreenIsLocked(), idleSeconds: macIdleSeconds()) {
+                copyCode(reference: card.id, automatic: true)
+            }
+        }
+    }
+
     /// "Code 482913 from HDFC Bank" in place of the plain notification (same identifier, so never two
     /// banners), with Copy code. The code itself stays in memory; the notification only carries a reference.
-    private func postCodeNotification(_ payload: RemoteNotificationPayload, code: String, deviceID: String, deviceName: String) {
+    private func postCodeNotification(_ payload: RemoteNotificationPayload, card: LiveCodeCard, deviceID: String) {
         let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: payload.notificationId)
-        let card = LiveCodeCard(
-            id: UUID().uuidString.lowercased(),
-            code: code,
-            sender: payload.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? payload.applicationName : payload.title,
-            deviceName: deviceName,
-            receivedAt: Date()
-        )
-        rememberCode(card)
-        if let seconds = settings.codesFloat.seconds { codeFloat.show(card, seconds: seconds) }
         let content = UNMutableNotificationContent()
-        content.title = codeNotificationTitle(code: code, sender: payload.title, applicationName: payload.applicationName)
+        content.title = codeNotificationTitle(code: card.code, sender: card.sender, applicationName: payload.applicationName)
         content.body = payload.text
         content.sound = alertedNotificationIdentifiers.insert(identifier) ? .default : nil
         content.categoryIdentifier = notificationCategoryIdentifier(for: payload, deviceID: deviceID, copyCode: true)
@@ -4181,26 +4252,57 @@ final class PairingCoordinator: ObservableObject {
                 BridgeyLog.line(BridgeyLog.notifications, LogLines.notification(BridgeyLog.policy, event: "code_shown", appName: payload.applicationName))
             }
         }
-        if shouldAutoCopyCode(enabled: settings.codesAutoCopy, screenLocked: macScreenIsLocked(), idleSeconds: macIdleSeconds()) {
-            copyCode(reference: card.id, automatic: true)
-        }
+    }
+
+    /// Email codes need the model on this Mac. Without it, once ever: a notification that opens Settings >
+    /// Notifications, where Codes from messages offers the download.
+    private func promptForEmailCodeModel() {
+        guard !settings.codesEmailModelPrompted, codeModel.isAvailable else { return }
+        settings.setCodesEmailModelPrompted()
+        diagnostics.record(category: "notification", event: "email_model_prompt")
+        let content = UNMutableNotificationContent()
+        content.title = L10n.text("codes.email.modelPrompt.title", fallback: "Download the code model to read codes from email")
+        content.body = L10n.text("codes.email.modelPrompt.body", fallback: "Email codes are read only on this Mac. Download it once in Settings.")
+        content.userInfo = [openSettingsPaneUserInfoKey: SettingsPane.notifications.rawValue]
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "bridgey.codes.email-model", content: content, trigger: nil))
     }
 
     /// Codes stay in memory for ten minutes (the panel card's life); the newest five can be copied.
     private func rememberCode(_ card: LiveCodeCard) {
         liveCodes[card.id] = card
-        liveCodeOrder.append(card.id)
-        while liveCodeOrder.count > 5 { liveCodes.removeValue(forKey: liveCodeOrder.removeFirst()) }
-        liveCode = card
+        pruneCodes(now: Date())
         let expiry = DispatchWorkItem { [weak self] in self?.expireCode(card.id) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + liveCodeLifetime, execute: expiry)
+        DispatchQueue.main.asyncAfter(deadline: .now() + CodeCards.lifetime, execute: expiry)
+    }
+
+    /// Drops expired cards and all but the newest five, then republishes the panel's list.
+    private func pruneCodes(now: Date) {
+        let kept = Set(CodeCards.kept(Array(liveCodes.values), now: now).map(\.id))
+        for id in liveCodes.keys where !kept.contains(id) { forgetCode(id) }
+        publishCodes()
     }
 
     private func expireCode(_ reference: String) {
-        liveCodes.removeValue(forKey: reference)
-        liveCodeOrder.removeAll { $0 == reference }
-        if liveCode?.id == reference { liveCode = nil }
+        forgetCode(reference)
+        publishCodes()
     }
+
+    private func forgetCode(_ reference: String) {
+        liveCodes.removeValue(forKey: reference)
+        dismissedCodes.remove(reference)
+        if floatedCode == reference {
+            floatedCode = nil
+            codeFloat.dismiss()
+        }
+    }
+
+    private func publishCodes() {
+        let shown = CodeCards.ordered(liveCodes.values.filter { !dismissedCodes.contains($0.id) })
+        if shown != liveCodeCards { liveCodeCards = shown }
+    }
+
+    /// Latest or Older for the panel's cards, among every live card (dismissed ones too).
+    var liveCodeMarks: [String: CodeCardMark] { CodeCards.marks(Array(liveCodes.values)) }
 
     /// Copy code (banner, button or panel card): concealed, this Mac only, cleared after 60 s if unchanged.
     func copyCode(reference: String, automatic: Bool = false) {
@@ -4210,14 +4312,15 @@ final class PairingCoordinator: ObservableObject {
         copied.copiedAt = Date()
         copied.copiedAutomatically = automatic
         liveCodes[reference] = copied
-        if liveCode?.id == reference { liveCode = copied }
+        publishCodes()
         codeFloat.markCopied(reference)
         diagnostics.record(category: "notification", event: automatic ? "code_copied_auto" : "code_copied")
     }
 
-    /// The panel card's Dismiss: the card goes; the notification and the copy stay as they are.
-    func dismissLiveCode() {
-        liveCode = nil
+    /// A panel card's Dismiss: the card goes; the notification, the copy and the code's other uses stay.
+    func dismissLiveCode(_ reference: String) {
+        dismissedCodes.insert(reference)
+        publishCodes()
     }
 
     /// Settings > Notifications > Link this phone to the Mac: asks the selected phone to start the
@@ -4386,6 +4489,14 @@ final class PairingCoordinator: ObservableObject {
         }
         settings.$codesEnabled
             .sink { [weak self] on in self?.codesSyncGate.codesChanged(on: on) }
+            .store(in: &settingsSyncCancellables)
+        // email_codes_draft1 follows Codes from messages and Also read codes in email: phones learn at once.
+        settings.$codesEnabled.combineLatest(settings.$codesEmail)
+            .map { $0 && $1 }
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.sendFeatureState() }
             .store(in: &settingsSyncCancellables)
         settingsSync.onApplied = { [weak self] id, content in
             guard let self else { return }
@@ -4821,7 +4932,8 @@ final class PairingCoordinator: ObservableObject {
             deviceID: deviceID,
             notificationID: payload.notificationId,
             smsThreadID: payload.smsThreadId?.value,
-            smsReply: payload.smsReply?.value == true ? true : nil
+            smsReply: payload.smsReply?.value == true ? true : nil,
+            code: codeShown ? true : nil
         )
         notificationHistory = notificationHistoryStore.record(item, in: notificationHistory)
     }
@@ -6004,6 +6116,19 @@ struct LenientFlag: Codable, Equatable {
     init(_ value: Bool) { self.value = value }
     init(from decoder: Decoder) throws {
         value = (try? decoder.singleValueContainer().decode(Bool.self)) ?? false
+    }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(value)
+    }
+}
+
+/// A JSON string read leniently: anything else is nil, never a decoding error.
+struct LenientText: Codable, Equatable {
+    let value: String?
+    init(_ value: String?) { self.value = value }
+    init(from decoder: Decoder) throws {
+        value = try? decoder.singleValueContainer().decode(String.self)
     }
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()

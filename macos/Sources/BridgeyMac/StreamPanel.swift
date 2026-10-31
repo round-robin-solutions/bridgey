@@ -44,8 +44,10 @@ struct PanelModel {
     var receivedLink: String?
     var ringing: RingingState?
     var call: RemoteCallStatus?
-    /// Codes from messages: the newest code, for ten minutes.
-    var code: LiveCodeCard?
+    /// Codes from messages and email: every live code (ten minutes each, at most five), newest first.
+    var codes: [LiveCodeCard] = []
+    /// Latest, use this one or Older, replaced, by card.
+    var codeMarks: [String: CodeCardMark] = [:]
     /// Codes from messages > On this Mac: the model download, then "ready" until dismissed.
     var codeModel: CodeModelPanelState?
     var rows: [StreamRow] = []
@@ -143,7 +145,7 @@ struct PanelActions {
     var resumeTransfer: (String) -> Void = { _ in }
     var callAction: (RemoteCallAction) -> Void = { _ in }
     var copyCode: (String) -> Void = { _ in }
-    var dismissCode: () -> Void = {}
+    var dismissCode: (String) -> Void = { _ in }
     var codeModel = CodeModelPanelActions()
     var enableNotifications: () -> Void = {}
     var retryDevice: (String) -> Void = { _ in }
@@ -244,7 +246,7 @@ struct StreamPanelView: View {
     }
 
     private var hasLiveCards: Bool {
-        !model.transfers.isEmpty || model.receivedLink != nil || model.ringing != nil || model.call != nil || model.code != nil || model.codeModel != nil || model.showsUpdateCard || model.updateAll.showsPanelCard
+        !model.transfers.isEmpty || model.receivedLink != nil || model.ringing != nil || model.call != nil || !model.codes.isEmpty || model.codeModel != nil || model.showsUpdateCard || model.updateAll.showsPanelCard
     }
 
     @ViewBuilder private var stateCard: some View {
@@ -713,17 +715,19 @@ private struct LiveCards: View {
                 .id("call")
                 .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
             }
-            if let code = model.code {
+            ForEach(model.codes) { code in
+                let mark = model.codeMarks[code.id]
                 LiveCard(symbol: "key.fill", tint: .blue,
                          title: String(format: L10n.text("codes.card.title", fallback: "Code %@"), code.code),
-                         detail: code.copiedLine(now: model.now)
-                             ?? String(format: L10n.text("codes.card.detail", fallback: "From %1$@ on %2$@"), code.sender, code.deviceName)) {
-                    Button(L10n.text("action.dismiss", fallback: "Dismiss"), action: actions.dismissCode)
+                         detail: CodeCards.detail(code, mark: mark, now: model.now), detailLines: 3) {
+                    Button(L10n.text("action.dismiss", fallback: "Dismiss")) { actions.dismissCode(code.id) }
                         .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
+                    // An older, replaced code can still be copied, but the newer one is the one to use.
                     Button(L10n.text("codes.copy", fallback: "Copy code")) { actions.copyCode(code.id) }
-                        .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                        .buttonStyle(PillButtonStyle(kind: mark == .older ? .neutral : .tonal, height: 28))
                 }
-                .id("code")
+                .opacity(mark == .older ? 0.6 : 1)
+                .id("code:\(code.id)")
                 .transition(BrandMotion.arrival(reduce: reduce).animation(BrandMotion.animation(BrandMotion.pop, reduce: reduce)))
             }
             if let state = model.codeModel {
@@ -817,7 +821,7 @@ private struct LiveCards: View {
     private var cardKeys: [String] {
         var keys: [String] = []
         if model.call != nil { keys.append("call") }
-        if model.code != nil { keys.append("code") }
+        keys += model.codes.map { "code:\($0.id)" }
         if model.codeModel != nil { keys.append("codeModel") }
         if model.ringing != nil { keys.append("ringing") }
         if model.receivedLink != nil { keys.append("link") }
@@ -983,6 +987,7 @@ private struct LiveCard<Buttons: View>: View {
     var progress: Double?? = nil
     /// The code model's bar (transform-only fill); same meaning as `progress`.
     var modelProgress: Double?? = nil
+    var detailLines = 2
     @ViewBuilder let buttons: Buttons
     @Environment(\.brand) private var c
 
@@ -990,7 +995,7 @@ private struct LiveCard<Buttons: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
                 IconTile(symbol: symbol, tint: tint, size: 28, corner: 8)
-                CardText(title: title, detail: detail)
+                CardText(title: title, detail: detail, detailLines: detailLines)
             }
             if let progress {
                 UpdateProgressBar(progress: progress)
@@ -1451,9 +1456,13 @@ struct BridgeyPanel: View {
         .onReceive(ticker) { date in
             let latest = PasteboardPreview.current(previous: clipboard)
             if latest != clipboard { clipboard = latest }
-            // A copied code counts down "Clears in 42 s" every second; otherwise once a minute is enough.
-            let countingDown = pairing.liveCode?.copiedLine(now: date) != nil || pairing.liveCode?.copiedLine(now: now) != nil
-            if countingDown || Calendar.current.component(.minute, from: date) != Calendar.current.component(.minute, from: now) { now = date }
+            // A copied code counts down "Clears in 42 s" and a code's age ("40 s ago") moves while its card is up;
+            // otherwise once a minute is enough. Only when a line would change, never per frame.
+            let codesMoved = pairing.liveCodeCards.contains { card in
+                card.copiedLine(now: date) != card.copiedLine(now: now)
+                    || codeRelativeTime(card.postedAt, now: date) != codeRelativeTime(card.postedAt, now: now)
+            }
+            if codesMoved || Calendar.current.component(.minute, from: date) != Calendar.current.component(.minute, from: now) { now = date }
         }
     }
 
@@ -1487,7 +1496,8 @@ struct BridgeyPanel: View {
             if pairing.macRinging { model.ringing = .mac(name) } else if pairing.androidRinging { model.ringing = .phone(name) }
         }
         model.call = pairing.remoteCall
-        model.code = pairing.liveCode
+        model.codes = Array(pairing.liveCodeCards.prefix(CodeCards.maximumLive))
+        model.codeMarks = pairing.liveCodeMarks
         model.codeModel = CodeModelPanelState.shown(download: codeModel.download, finished: codeModel.justFinished)
         model.rows = streamRows(activity.items, now: now)
         model.showPreviews = settings.showActivityPreviews
@@ -1568,7 +1578,7 @@ struct BridgeyPanel: View {
         actions.resumeTransfer = { pairing.resumeFolderTransfer(id: $0) }
         actions.callAction = { pairing.performRemoteCallAction($0) }
         actions.copyCode = { pairing.copyCode(reference: $0) }
-        actions.dismissCode = { pairing.dismissLiveCode() }
+        actions.dismissCode = { pairing.dismissLiveCode($0) }
         actions.codeModel = CodeModelPanelActions(
             pause: { codeModel.pause() }, resume: { codeModel.resume() }, cancel: { codeModel.cancel() },
             retry: { codeModel.retry() }, dismiss: { codeModel.dismissFinished() }

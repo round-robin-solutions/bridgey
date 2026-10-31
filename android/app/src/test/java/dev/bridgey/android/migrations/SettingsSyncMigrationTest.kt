@@ -136,6 +136,26 @@ class SettingsSyncMigrationTest {
     }
 
     @Test
+    fun codesFromEmailIsOnUntilChosenAndItsDefaultIsNeverStampedAsAChoice() {
+        MigrationFixtures.installSharedPrefs(context, 13)
+        val (sync, settings) = start()
+        // Never set: on, not a choice, and a local scan stamps nothing.
+        assertEquals(true, settings.state.value.emailCodes)
+        assertEquals(unchosen(true), sync.record(SyncKey.EMAIL_CODES))
+        sync.localChanged()
+        assertEquals(unchosen(true), sync.record(SyncKey.EMAIL_CODES))
+        // An explicit off is a choice, and it survives a restart.
+        settings.setEmailCodes(false)
+        sync.localChanged()
+        val off = sync.record(SyncKey.EMAIL_CODES)!!
+        assertEquals(false, off.value)
+        assertEquals(1L, off.version)
+        val (again, reloaded) = start()
+        assertEquals(false, reloaded.state.value.emailCodes)
+        assertEquals(off, again.record(SyncKey.EMAIL_CODES))
+    }
+
+    @Test
     fun theStampHappensOnceAndSurvivesARestart() {
         MigrationFixtures.installSharedPrefs(context, 13)
         start()

@@ -96,8 +96,8 @@ func looksLikeOtpTraffic(_ text: String) -> Bool {
     return otpTokenPattern.firstMatch(in: text, range: range) != nil || otpSplitPattern.firstMatch(in: text, range: range) != nil
 }
 
-private let otpTokenPattern = try! NSRegularExpression(pattern: "(?<![0-9A-Za-z])(?=[0-9A-Za-z]*[0-9])[0-9A-Za-z]{4,10}(?![0-9A-Za-z])")
-private let otpSplitPattern = try! NSRegularExpression(pattern: "(?<![0-9A-Za-z])[0-9]{2,5}[ -][0-9]{2,5}(?![0-9A-Za-z])")
+let otpTokenPattern = try! NSRegularExpression(pattern: "(?<![0-9A-Za-z])(?=[0-9A-Za-z]*[0-9])[0-9A-Za-z]{4,10}(?![0-9A-Za-z])")
+let otpSplitPattern = try! NSRegularExpression(pattern: "(?<![0-9A-Za-z])[0-9]{2,5}[ -][0-9]{2,5}(?![0-9A-Za-z])")
 
 /// Android packages that are SMS apps, for phones that do not yet say which app is the default.
 let knownSmsPackages: Set<String> = [
@@ -113,15 +113,70 @@ let knownSmsPackages: Set<String> = [
     "com.truecaller",
 ]
 
+/// The four mail apps whose notifications may carry a code (email_codes_draft1, docs/codes-from-email.md):
+/// Gmail, Outlook, Proton Mail and Spark. Only these, never other apps in the email category.
+let knownMailPackages: Set<String> = [
+    "com.google.android.gm",
+    "com.microsoft.office.outlook",
+    "ch.protonmail.android",
+    "com.readdle.spark",
+]
+
+/// What the code reader may look at in one forwarded notification, and which text it reads.
+enum CodeCandidate: Equatable {
+    /// A text message: the notification text.
+    case sms(String)
+    /// A mail-app notification: the phone's `preview` if present, else the notification text.
+    case email(String)
+
+    var text: String {
+        switch self {
+        case let .sms(text), let .email(text): text
+        }
+    }
+
+    var isEmail: Bool {
+        if case .email = self { return true }
+        return false
+    }
+}
+
 /// Whether a forwarded notification is a message the code reader may look at.
-func isCodeCandidate(packageName: String, smsDefaultApp: Bool?, redacted: Bool?, text: String) -> Bool {
-    guard redacted != true else { return false }
+func isCodeCandidate(packageName: String, smsDefaultApp: Bool?, redacted: Bool?, text: String,
+                     emailApp: Bool? = nil, preview: String? = nil, emailCodes: Bool = false) -> Bool {
+    codeCandidate(packageName: packageName, smsDefaultApp: smsDefaultApp, redacted: redacted, text: text,
+                  emailApp: emailApp, preview: preview, emailCodes: emailCodes) != nil
+}
+
+/// The text to read, or nil when the notification is not a code candidate. Codes from messages being on is
+/// checked by the caller; `emailCodes` is its "Also read codes in email" switch.
+///
+/// A mail notification counts only when the phone marked it `emailApp` (it does so only for the four mail
+/// apps and never for a group summary) and, as a second check, its package is one of `knownMailPackages`.
+func codeCandidate(packageName: String, smsDefaultApp: Bool?, redacted: Bool?, text: String,
+                   emailApp: Bool? = nil, preview: String? = nil, emailCodes: Bool = false) -> CodeCandidate? {
+    guard redacted != true else { return nil }
     let fromSmsApp = smsDefaultApp ?? knownSmsPackages.contains(packageName)
-    guard fromSmsApp else { return false }
+    if fromSmsApp {
+        // The shared path: digit boxes joined, then the shared gate (CodeText.swift).
+        guard let trimmed = readableCodeText(text) else { return nil }
+        let joined = codeReadText(trimmed)
+        return looksLikeCodeText(joined) ? .sms(joined) : nil
+    }
+    guard emailCodes, emailApp == true, knownMailPackages.contains(packageName) else { return nil }
+    let source = preview.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } ?? text
+    guard let trimmed = readableCodeText(source) else { return nil }
+    // The same join as text messages; then the email-only pre-check (EmailCodeRules.swift), which includes the gate.
+    let joined = codeReadText(trimmed)
+    return emailCodePrecheck(joined) ? .email(joined) : nil
+}
+
+/// Trimmed, non-empty and at most 600 UTF-16 units (as the relay counts them). A longer message is never
+/// cut (that could drop the code).
+private func readableCodeText(_ text: String) -> String? {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    // UTF-16 units, as the relay counts them. A longer message is never cut (that could drop the code).
-    guard !trimmed.isEmpty, trimmed.utf16.count <= CodeRelay.maximumTextLength else { return false }
-    return looksLikeOtpTraffic(trimmed)
+    guard !trimmed.isEmpty, trimmed.utf16.count <= CodeRelay.maximumTextLength else { return nil }
+    return trimmed
 }
 
 // MARK: - Relay
@@ -293,13 +348,30 @@ struct CodeReader: Sendable {
         self.init(source: baseURL.map { CloudCodeSource(baseURL: $0, installID: installID, transport: transport) }, budget: budget)
     }
 
-    func read(text: String, sender: String?) async -> CodeReadOutcome {
+    /// One message, SMS or mail, through the same model, prompt and guard. The guard checks the answer against
+    /// the whole message with links and copyright years blanked (`codeGuardText`). A mail that gives no code on
+    /// the first read gets up to two more on snippets around its best tokens (`emailModelSnippets`), all inside
+    /// one budget; a text message is read once.
+    func read(text: String, sender: String?, channel: CodeChannel = .sms) async -> CodeReadOutcome {
+        let deadline = Date().addingTimeInterval(budget)
+        let guardText = codeGuardText(text)
+        let pieces = channel == .email ? [text] + emailModelSnippets(text) : [text]
+        var outcome = CodeReadOutcome.noCode
+        for (index, piece) in pieces.enumerated() {
+            let left = deadline.timeIntervalSinceNow
+            guard left > 0.05 else { return index == 0 ? .fallback(.timeout) : outcome }
+            outcome = await readOnce(text: piece, sender: sender, guardText: guardText, budget: left)
+            if outcome != .noCode { return outcome }
+        }
+        return outcome
+    }
+
+    private func readOnce(text: String, sender: String?, guardText: String, budget: TimeInterval) async -> CodeReadOutcome {
         guard let source else { return .fallback(.notConfigured) }
         // Whichever comes first, the answer or the budget. The engine is not waited for after the
         // budget: the model on this Mac cannot be stopped mid-answer, and the plain notification
         // must not wait for it.
         let race = CodeAnswerRace()
-        let budget = budget
         let answer: CodeRelayAnswer = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 race.start(continuation, budget: budget) { await source.answer(text: text, sender: sender) }
@@ -309,7 +381,7 @@ struct CodeReader: Sendable {
         }
         switch answer {
         case let .candidate(code):
-            return CodeGuard.accept(code, in: text).map(CodeReadOutcome.code) ?? .noCode
+            return CodeGuard.accept(code, in: guardText).map(CodeReadOutcome.code) ?? .noCode
         case .noCode:
             return .noCode
         case let .failed(reason):

@@ -814,6 +814,8 @@
     <string name="codes_channel_detail">Просит связать телефон, когда вы начинаете это на Mac</string>
     <string name="codes_link_notification_title">Свяжите телефон с %1$s</string>
     <string name="codes_link_notification_text">Нажмите, чтобы Android показывал Bridgey коды из SMS. Android спросит один раз.</string>
+    <string name="codes_email">Также читать коды в письмах</string>
+    <string name="codes_email_detail">Gmail, Outlook, Proton Mail и Spark. Bridgey отправляет на Mac текст уведомления, который телефон уже показывает, а коды читает Mac.</string>
     <string name="codetest_title">Тест распознавания кодов</string>
     <string name="codetest_open_detail">Насколько хорошо Bridgey находит коды в ваших SMS</string>
     <string name="codetest_intro">Тест читает последние SMS на этом телефоне и проверяет, насколько хорошо Bridgey находит коды. Ничего не покидает телефон, если вы не отметите пункт ниже. Сохраняются только итоги: ни сообщений, ни кодов, ни отправителей. Android попросит доступ к SMS; после теста его можно отозвать.</string>

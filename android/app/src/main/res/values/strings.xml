@@ -758,6 +758,8 @@
     <string name="codes_channel_detail">Asks you to link this phone when you start it from the Mac</string>
     <string name="codes_link_notification_title">Link this phone to %1$s</string>
     <string name="codes_link_notification_text">Tap to let Android show Bridgey the codes in your text messages. Android asks once.</string>
+    <string name="codes_email">Also read codes in email</string>
+    <string name="codes_email_detail">Gmail, Outlook, Proton Mail and Spark. Bridgey sends the preview your phone already shows to your Mac, where codes are read.</string>
     <string name="codetest_title">Code reader test</string>
     <string name="codetest_open_detail">How well Bridgey finds codes in your text messages</string>
     <string name="codetest_intro">This test reads your recent text messages on this phone to see how well Bridgey finds codes. Nothing leaves the phone unless you tick the box below. Only totals are kept: no message, code or sender. Android will ask for SMS access; you can remove it when the test ends.</string>

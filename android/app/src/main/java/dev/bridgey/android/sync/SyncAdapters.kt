@@ -57,9 +57,9 @@ class AndroidSyncPermissions(private val context: Context) : SyncPermissions {
 }
 
 /**
- * The phone's settings behind the 27 keys. `codes.enabled` has no setting on the phone: it is stored and relayed so two
+ * The phone's settings behind the 28 keys. `codes.enabled` has no setting on the phone: it is stored and relayed so two
  * Macs share it. `updates.auto_all` is Update all devices automatically: it follows the release channel
- * ([autoUpdateDefault]) until the person, or a synced value, chooses; `connect.away` is on until then. Messages' pinned, muted, archived and read state is
+ * ([autoUpdateDefault]) until the person, or a synced value, chooses; `connect.away` and `codes.email` are on until then. Messages' pinned, muted, archived and read state is
  * per Mac and never syncs. Per-device overrides, grants, paths and the file access guards are not here, so they never
  * sync.
  */
@@ -133,6 +133,14 @@ fun phoneSyncedSettings(
         override fun stored(): Boolean = state().connectAwayChoice != null
         override fun followsDefault(): Boolean = state().connectAwayChoice == null
         override fun toString(): String = "connect_away"
+    }
+    // Also read codes in email: on while nobody chose, and that default is never sent as a choice.
+    result[SyncKey.EMAIL_CODES] = object : SyncedSetting {
+        override fun read(): Any = state().emailCodes
+        override fun write(value: Any) { if (value is Boolean) settings.setEmailCodes(value) }
+        override fun stored(): Boolean = state().emailCodesChoice != null
+        override fun followsDefault(): Boolean = state().emailCodesChoice == null
+        override fun toString(): String = "codes_email"
     }
     result[SyncKey.FOCUS_FOLLOW] = switch(
         "focus_follow", { state().focusFollow }, settings::setFocusFollow, { !permissions.doNotDisturb() },

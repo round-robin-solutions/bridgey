@@ -95,12 +95,16 @@ struct CodeFloatEnvironment {
 final class CodeFloatContent: ObservableObject {
     @Published var card: LiveCodeCard?
     @Published var copied = false
+    /// "Replaces the code from 1 min ago" while an older code from the same service is still live.
+    @Published var replaces: String?
 }
 
 let codeFloatWindowIdentifier = NSUserInterfaceItemIdentifier("in.roundrobin.bridgey.code-float")
 /// Below the call card (`.statusBar`) and above notification banners (measured at 21 on macOS 26).
 let codeFloatWindowLevel = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue - 1)
 let codeFloatSize = NSSize(width: 348, height: 172)
+/// The card with its "Replaces the code from ..." line.
+let codeFloatReplacesSize = NSSize(width: 348, height: 192)
 
 /// A panel that never activates the app. Esc closes it while it has keyboard focus.
 final class CodeFloatPanel: NSPanel {
@@ -132,14 +136,23 @@ final class CodeFloatWindowController {
     }
 
     /// Shows `card` for `seconds`. A card already on screen takes the new code and starts the time
-    /// again, without moving. Nothing shows while the screen is locked or asleep.
-    func show(_ card: LiveCodeCard, seconds: TimeInterval) {
+    /// again, without moving its top edge. Nothing shows while the screen is locked or asleep. The
+    /// coordinator only ever passes the newest code; `replaces` names the older one it replaces.
+    func show(_ card: LiveCodeCard, seconds: TimeInterval, replaces: String? = nil) {
         guard seconds > 0, !environment.screenUnavailable() else { return }
         cancelCleanup?()
         cancelCleanup = nil
         content.card = card
         content.copied = false
+        content.replaces = replaces
         let panel = self.panel ?? makePanel()
+        let size = replaces == nil ? codeFloatSize : codeFloatReplacesSize
+        if panel.frame.size != size {
+            // Keep the top edge where it was, so the Copy button only moves down.
+            let top = panel.frame.maxY
+            panel.setContentSize(size)
+            if panel.isVisible { panel.setFrameOrigin(NSPoint(x: panel.frame.minX, y: top - panel.frame.height)) }
+        }
         let wasOnScreen = panel.isVisible && isShowing
         isShowing = true
         BridgeyWindows.cancelFade(panel)
@@ -205,6 +218,7 @@ final class CodeFloatWindowController {
     private func empty() {
         content.card = nil
         content.copied = false
+        content.replaces = nil
     }
 
     private func makePanel() -> CodeFloatPanel {
@@ -289,10 +303,13 @@ struct CodeFloatView: View {
                                 .font(BrandFont.body(13, .semibold))
                                 .foregroundStyle(c.on)
                                 .lineLimit(1)
-                            Text(card.deviceName)
-                                .font(BrandFont.body(12))
-                                .foregroundStyle(c.on2)
-                                .lineLimit(1)
+                            // The phone and how old the code is ("now", "40 s ago"), refreshed every 5 s.
+                            TimelineView(.periodic(from: .now, by: 5)) { context in
+                                Text("\(card.deviceName) \u{00B7} \(codeRelativeTime(card.postedAt, now: context.date))")
+                                    .font(BrandFont.body(12))
+                                    .foregroundStyle(c.on2)
+                                    .lineLimit(1)
+                            }
                         }
                         Spacer(minLength: 4)
                         Button(action: close) {
@@ -313,6 +330,13 @@ struct CodeFloatView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    if let replaces = content.replaces {
+                        Text(replaces)
+                            .font(BrandFont.body(12))
+                            .foregroundStyle(c.on2)
+                            .lineLimit(1)
+                            .padding(.top, -6)
+                    }
                     Button(action: copy) {
                         HStack(spacing: 7) {
                             if content.copied { Image(systemName: "checkmark").font(.system(size: 13, weight: .bold)) }
@@ -323,7 +347,7 @@ struct CodeFloatView: View {
                     .buttonStyle(PillButtonStyle(kind: content.copied ? .good : .gradient, height: 40))
                 }
                 .padding(16)
-                .frame(width: codeFloatSize.width, height: codeFloatSize.height)
+                .frame(width: codeFloatSize.width, height: content.replaces == nil ? codeFloatSize.height : codeFloatReplacesSize.height)
                 .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(c.s1))
                 .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(c.panelBorder, lineWidth: 1))
             } else {

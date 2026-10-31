@@ -119,6 +119,13 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var codeModelAcceptances: [CodeModelAcceptance]
     /// Notifications > Codes from messages > Copy automatically. Off by default.
     @Published private(set) var codesAutoCopy: Bool
+    /// Notifications > Codes from messages > Also read codes in email (draft email_codes_draft1): the choice, or on
+    /// while there is none. It does something only while Codes from messages is on.
+    @Published private(set) var codesEmail: Bool
+    /// The person's choice for Also read codes in email (or a synced one); nil when nobody chose.
+    @Published private(set) var codesEmailChoice: Bool?
+    /// Also read codes in email while nobody chose.
+    nonisolated static let codesEmailDefault = true
     /// Notifications > Codes from messages > Keep the copy button on screen for. This Mac only, not synced.
     @Published private(set) var codesFloat: CodeFloatSetting
     /// Media and actions > Open links from phones right away (links_open_draft1). Off by default:
@@ -172,6 +179,9 @@ final class BridgeySettings: ObservableObject {
         let codesOn = storedDefaults.bool(forKey: "settings.codes.enabled")
         codesEnabled = codesOn
         codesAutoCopy = storedDefaults.bool(forKey: "settings.codes.autoCopy")
+        let emailChoice = storedDefaults.object(forKey: "settings.codes.email") as? Bool
+        codesEmailChoice = emailChoice
+        codesEmail = emailChoice ?? Self.codesEmailDefault
         codesFloat = CodeFloatSetting.stored(storedDefaults.string(forKey: CodeFloatSetting.defaultsKey))
         openLinksRightAway = storedDefaults.bool(forKey: "settings.links.openRightAway")
         smsEnabled = storedDefaults.bool(forKey: "settings.sms.enabled")
@@ -248,6 +258,20 @@ final class BridgeySettings: ObservableObject {
     func setCodesAutoCopy(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.codes.autoCopy")
         codesAutoCopy = enabled
+    }
+
+    /// The person's own choice (or a synced one): from now on it no longer follows the default.
+    func setCodesEmail(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.codes.email")
+        codesEmailChoice = enabled
+        codesEmail = enabled
+    }
+
+    /// The one-time "Download the code model to read codes from email" notification was shown.
+    var codesEmailModelPrompted: Bool { defaults.bool(forKey: "settings.codes.emailModelPrompted") }
+
+    func setCodesEmailModelPrompted() {
+        defaults.set(true, forKey: "settings.codes.emailModelPrompted")
     }
 
     func setOpenLinksRightAway(_ enabled: Bool) {

@@ -14,6 +14,14 @@ struct NotificationHistoryItem: Codable, Identifiable, Equatable {
     var notificationID: String? = nil
     var smsThreadID: Int? = nil
     var smsReply: Bool? = nil
+    /// Codes from messages: the row stands for a code ("Sent a one-time code"), so it shows its age ("2 min ago").
+    var code: Bool? = nil
+
+    /// The row's time: a code's age for its first hour, else nil (the date and time are shown).
+    func codeAge(now: Date) -> String? {
+        guard code == true, now.timeIntervalSince(receivedAt) < 3600 else { return nil }
+        return codeRelativeTime(receivedAt, now: now)
+    }
 
     /// Reply opens the conversation in the Messages window.
     var opensConversation: Bool { deviceID != nil && (smsThreadID != nil || smsReply == true) }

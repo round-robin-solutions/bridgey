@@ -353,8 +353,8 @@ enum FeatureStateDecoding: Equatable {
 /// Files 2.0 (BrowseMessages.swift): the Mac reads files_browse_draft1 (the phone serves browsing); it reads
 /// folders_receive_draft1 too, so both platforms decode the golden vectors alike, though only phones act on it.
 /// Update all (UpdateAllProtocol.swift) adds updates_draft1, then screen sharing screen_draft1, text messages sms_draft1
-/// settings sync settings_sync_draft1 and fast transfers files_fast_draft1 (last). Android has the same
-/// list in the same order.
+/// settings sync settings_sync_draft1, fast transfers files_fast_draft1 and codes from email email_codes_draft1
+/// (last). Android has the same list in the same order.
 let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, placesFeatureKey, smsCodesFeatureKey,
                              foldersReceiveFeatureKey, filesBrowseFeatureKey,
                              // Automation (v0.9). Connection health has no key (no wire change).
@@ -368,8 +368,10 @@ let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, places
                              settingsSyncFeatureKey,
                              // Connect anywhere (ConnectProtocol.swift).
                              connectFeatureKey,
-                             // Fast transfers (FastTransfer.swift), last.
-                             filesFastFeatureKey]
+                             // Fast transfers (FastTransfer.swift).
+                             filesFastFeatureKey,
+                             // Codes from email (CodeCards.swift, docs/codes-from-email.md), last.
+                             emailCodesFeatureKey]
 
 func decodeFeatureState(_ plaintext: Data) -> FeatureStateDecoding {
     guard isStrictJSONObject(plaintext),

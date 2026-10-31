@@ -161,6 +161,25 @@ final class CodeFloatWindowTests: XCTestCase {
         XCTAssertGreaterThan(panel.frame.midY, visible.midY, "top half")
     }
 
+    func testNewerCodeFromTheSameServiceSaysWhatItReplacesAndKeepsItsTopEdge() throws {
+        controller.show(card("111111", id: "a"), seconds: 60)
+        let top = try XCTUnwrap(controller.panel).frame.maxY
+        XCTAssertNil(controller.content.replaces)
+        controller.show(card("222222", id: "b"), seconds: 60, replaces: "Replaces the code from 1 min ago")
+        let panel = try XCTUnwrap(controller.panel)
+        XCTAssertEqual(controller.content.card?.code, "222222", "the newest code")
+        XCTAssertEqual(controller.content.replaces, "Replaces the code from 1 min ago")
+        XCTAssertEqual(panel.frame.height, codeFloatReplacesSize.height, accuracy: 0.5, "room for the line")
+        XCTAssertEqual(panel.frame.maxY, top, accuracy: 0.5, "the top edge stays put")
+        controller.show(card("333333", id: "c"), seconds: 60)
+        XCTAssertNil(controller.content.replaces, "a code from another service has no line")
+        XCTAssertEqual(panel.frame.height, codeFloatSize.height, accuracy: 0.5)
+        system.fire(delay: 60)
+        spin(0.05)
+        assertGone("after the 60 s")
+        XCTAssertNil(controller.content.replaces, "emptied with the code")
+    }
+
     func testNewerCodeReplacesTheCardAndRestartsTheTime() {
         controller.show(card("111111", id: "a"), seconds: 60)
         let firstPanel = controller.panel

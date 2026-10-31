@@ -107,7 +107,7 @@ available only when both peers report the corresponding feature as enabled. Clie
 predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
-`sms_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`, `updates_draft1`,
+`sms_codes_draft1`, `email_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`, `updates_draft1`,
 `screen_draft1`, `connect_draft1`, `files_fast_draft1`)
 are optional booleans described in their own sections; a missing draft key means `false`.
 
@@ -660,6 +660,37 @@ listener (Android decides trust when a listener connects) and sends `codes.adver
 `linked: true`. Nothing ever connects over Bluetooth. A Mac that receives `codes.advertise` while
 notifications are off for that phone ignores it, and the phone gives up after 45 seconds. The
 one-time fallback is `adb shell cmd appops set --user 0 <package> RECEIVE_SENSITIVE_NOTIFICATIONS allow`.
+
+### Codes from email (`email_codes_draft1`)
+
+Status: **Draft, edition only.** Phase 1 of [codes-from-email.md](codes-from-email.md): the Mac also
+reads one-time codes from the mail notifications the phone already mirrors, from four apps only:
+Gmail (`com.google.android.gm`), Outlook (`com.microsoft.office.outlook`), Proton Mail
+(`ch.protonmail.android`) and Spark (`com.readdle.spark`). No new permission, account or server.
+
+**Negotiation.** `features.update` gains the boolean key `email_codes_draft1`. The phone sets it for a
+Mac while notifications and its "Also read codes in email" switch are on for that Mac; the Mac sets it
+for a phone while notifications for that phone, "Codes from messages" and "Also read codes in email"
+are on. It needs `sms_codes_draft1` too (it reuses `codes.status` and the companion link). A missing
+or non-boolean key means `false`.
+
+**Fields on `notifications.post`**, sent only to a Mac whose latest `features.update` showed
+`email_codes_draft1: true` (every other peer gets exactly the payload it got before):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `emailApp` | boolean | the notification came from one of the four mail apps, and is not a group summary or a call |
+| `preview` | string, optional, only with `emailApp: true` | the expanded text: the big text (subject and the start of the body), with the subject in front when the big text lacks it; for messaging-style notifications the newest message. At most 600 UTF-16 units, cut only at whitespace so a code is never split. Sent only when it looks like it holds a code (the relay's pre-check). An inbox-style summary of several mails has none |
+| `redacted` | boolean, now also with `emailApp: true` | Android's "Sensitive notification content hidden" placeholder replaced the text; it counts towards `codes.status` like a hidden SMS |
+
+**On the Mac.** Mail codes are always read by the model on this Mac, even when Cloud reads text
+messages; with no model downloaded, mail notifications stay plain and the Mac asks once to download
+it. Before the model runs, a stricter pre-check than for SMS needs a code word near the code and
+turns away promo, coupon and referral codes. The guard, the 2 second budget and the Copy code card
+are the same as for SMS. Codes are ordered by the phone's post time (`timestamp`). The same code from
+the same service within the card's 10 minutes (by SMS, or from two mail apps syncing one account)
+shows one banner; the card lists every way it came. A newer code from the same service marks the
+older one replaced. `preview` and codes are never logged.
 
 ### Find device (`find-device.v1`)
 
@@ -1329,7 +1360,7 @@ one; an unsupported schema is answered `settings.error` `{schema, code, maxSchem
 (`unsupported_schema`), and a payload that fails validation `invalid_message`.
 
 As built in v0.10 ([section 8.4](folders-and-settings-sync.md#84-as-built-v010-2026-10-27)):
-26 keys sync, feature switches included (`feature.<key>`, `clipboard.automatic`,
+28 keys sync, feature switches included (`feature.<key>`, `clipboard.automatic`,
 `clipboard.files`, `focus.share`, `focus.follow`, `codes.enabled`) next to the four preferences and
 the two folder switches `files.folder_include_hidden` and `files.folder_include_system`;
 per-device grants and overrides, permissions, pairing, paths and the file access guards never
