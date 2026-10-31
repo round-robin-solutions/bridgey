@@ -221,6 +221,8 @@ final class WindowLifecycleTests: XCTestCase {
         }
         BridgeyWindows.fadeDeadline = 0.05
         let toast = DropToastController()
+        // Pinned: the machine's own Reduce Motion setting would otherwise pick the path under test.
+        toast.reduceMotion = { false }
         for round in 0..<20 {
             toast.show(DropToastModel(text: "Sent \(round)", actions: []), near: nil, seconds: 60)
             if round.isMultiple(of: 3) { pendingFades.forEach { $0() }; pendingFades = [] }
@@ -236,6 +238,31 @@ final class WindowLifecycleTests: XCTestCase {
         XCTAssertEqual(toast.panel?.alphaValue, 1)
         toast.hide()
         spin(0.2)
+        XCTAssertFalse(toast.panel?.isVisible ?? true, "the toast stayed after its hide")
+        if let panel = toast.panel { windows.append(panel) }
+    }
+
+    func testDropToastRapidShowAndHideWithReduceMotion() {
+        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, completion in
+            pendingFades.append {
+                window.alphaValue = alpha
+                completion()
+            }
+        }
+        BridgeyWindows.fadeDeadline = 0.05
+        let toast = DropToastController()
+        toast.reduceMotion = { true }
+        for round in 0..<20 {
+            toast.show(DropToastModel(text: "Sent \(round)", actions: []), near: nil, seconds: 60)
+            toast.hide()
+        }
+        toast.show(DropToastModel(text: "Last", actions: []), near: nil, seconds: 60)
+        XCTAssertTrue(pendingFades.isEmpty, "Reduce Motion: no fades")
+        pendingFades.forEach { $0() }
+        spin(0.2)
+        XCTAssertTrue(toast.panel?.isVisible ?? false)
+        XCTAssertEqual(toast.panel?.alphaValue, 1, "an older hide left the new toast transparent")
+        toast.hide()
         XCTAssertFalse(toast.panel?.isVisible ?? true, "the toast stayed after its hide")
         if let panel = toast.panel { windows.append(panel) }
     }
