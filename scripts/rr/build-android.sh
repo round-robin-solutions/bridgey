@@ -44,7 +44,9 @@ done
 [ -n "$BUILD_TOOLS" ] || die "no build-tools with apksigner and aapt2 under $SDK"
 EXPECTED_CERT=$(edition_value ANDROID_CERT_SHA256 | tr -d ':' | tr 'A-F' 'a-f')
 CERTS=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK") || die "apksigner could not verify the APK"
-ACTUAL_CERT=$(printf '%s\n' "$CERTS" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr -d ':' | tr 'A-F' 'a-f')
+# Every signer's certificate, whatever apksigner calls it: build-tools 36 prints "Signer #1 certificate
+# SHA-256 digest:", 37 prints "V2 Signer: certificate SHA-256 digest:". All of them must be ours.
+ACTUAL_CERT=$(printf '%s\n' "$CERTS" | sed -n '/^Source Stamp/d; s/^.*[Ss]igner.* certificate SHA-256 digest: //p' | tr -d ':' | tr 'A-F' 'a-f' | sort -u | tr '\n' ' ' | sed 's/ $//')
 # Certificate fingerprints are public, so a mismatch names both.
 [ "$ACTUAL_CERT" = "$EXPECTED_CERT" ] || die "APK is not signed with the Round Robin release key (signed with ${ACTUAL_CERT:-nothing}, expected $EXPECTED_CERT; $(basename "$BUILD_TOOLS") apksigner)"
 for abi in arm64-v8a x86_64; do
