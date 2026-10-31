@@ -350,9 +350,14 @@ final class PhoneFilesUITests: XCTestCase {
         spin(0.25)
         XCTAssertEqual(fake.previewRequests, 0, "not on relay")
         prefetch.route = .lan
+        let began = Date()
         prefetch.hoverBegan(entry)
         spin(0.05)
-        XCTAssertEqual(fake.previewRequests, 0, "not before 150 ms")
+        // A loaded runner can return from a 50 ms spin after the 150 ms timer is due; the early
+        // check only means something while the delay has really not passed.
+        if Date().timeIntervalSince(began) < PhoneHoverPrefetcher.delay {
+            XCTAssertEqual(fake.previewRequests, 0, "not before 150 ms")
+        }
         spin(0.2)
         XCTAssertEqual(fake.previewRequests, 1)
     }
