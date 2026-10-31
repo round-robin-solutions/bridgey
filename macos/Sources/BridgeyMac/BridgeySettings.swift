@@ -119,6 +119,8 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var codeModelAcceptances: [CodeModelAcceptance]
     /// Notifications > Codes from messages > Copy automatically. Off by default.
     @Published private(set) var codesAutoCopy: Bool
+    /// Notifications > Codes from messages > Keep the copy button on screen for. This Mac only, not synced.
+    @Published private(set) var codesFloat: CodeFloatSetting
     /// Media and actions > Open links from phones right away (links_open_draft1). Off by default:
     /// a link waits for Open on this Mac.
     @Published private(set) var openLinksRightAway: Bool
@@ -170,6 +172,7 @@ final class BridgeySettings: ObservableObject {
         let codesOn = storedDefaults.bool(forKey: "settings.codes.enabled")
         codesEnabled = codesOn
         codesAutoCopy = storedDefaults.bool(forKey: "settings.codes.autoCopy")
+        codesFloat = CodeFloatSetting.stored(storedDefaults.string(forKey: CodeFloatSetting.defaultsKey))
         openLinksRightAway = storedDefaults.bool(forKey: "settings.links.openRightAway")
         smsEnabled = storedDefaults.bool(forKey: "settings.sms.enabled")
         smsKeepOnMac = storedDefaults.object(forKey: "settings.sms.keepOnMac") as? Bool ?? true
@@ -225,6 +228,11 @@ final class BridgeySettings: ObservableObject {
     func setCodesEnabled(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.codes.enabled")
         codesEnabled = enabled
+    }
+
+    func setCodesFloat(_ setting: CodeFloatSetting) {
+        defaults.set(setting.rawValue, forKey: CodeFloatSetting.defaultsKey)
+        codesFloat = setting
     }
 
     func setSmsEnabled(_ enabled: Bool) {

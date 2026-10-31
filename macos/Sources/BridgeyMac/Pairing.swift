@@ -422,6 +422,16 @@ final class PairingCoordinator: ObservableObject {
     private var liveCodeOrder: [String] = []
     private let liveCodeLifetime: TimeInterval = 10 * 60
     private let codeClipboard = CodeClipboard()
+    /// The floating Copy code card (Settings > Codes from messages > Keep the copy button on screen for).
+    private lazy var codeFloat: CodeFloatWindowController = {
+        let controller = CodeFloatWindowController()
+        controller.onCopy = { [weak self] reference in self?.copyCode(reference: reference) }
+        controller.avoid = { [weak self] in
+            guard let panel = self?.callOverlayWindow.panel, panel.isVisible else { return nil }
+            return panel.frame
+        }
+        return controller
+    }()
     private let companionAdvertiser = CompanionLinkAdvertiser()
     private var lastCodesAdvertiseAt = Date.distantPast
     private var remoteNotificationCategories: [String: UNNotificationCategory] = [:]
@@ -4149,6 +4159,7 @@ final class PairingCoordinator: ObservableObject {
             receivedAt: Date()
         )
         rememberCode(card)
+        if let seconds = settings.codesFloat.seconds { codeFloat.show(card, seconds: seconds) }
         let content = UNMutableNotificationContent()
         content.title = codeNotificationTitle(code: code, sender: payload.title, applicationName: payload.applicationName)
         content.body = payload.text
@@ -4200,6 +4211,7 @@ final class PairingCoordinator: ObservableObject {
         copied.copiedAutomatically = automatic
         liveCodes[reference] = copied
         if liveCode?.id == reference { liveCode = copied }
+        codeFloat.markCopied(reference)
         diagnostics.record(category: "notification", event: automatic ? "code_copied_auto" : "code_copied")
     }
 
