@@ -119,6 +119,8 @@ class ActivityLogTest {
             setOf(
                 "id", "kind", "deviceId", "deviceName", "fileName", "preview", "appName", "sensitive", "automatic", "count", "atMillis", "bytes", "content",
                 "fileCount", "destination", "detail",
+                // One copy to several devices (2026-11-01): device names and delivery states only. Changed on purpose.
+                "peers",
             ),
             fields,
         )

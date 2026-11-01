@@ -1227,6 +1227,14 @@ private struct SetupSummaryView: View {
                                        subtitle: L10n.setup("setup.summary.sync.detail", fallback: "Change what syncs any time in Settings > General."),
                                        divider: false, isOn: model.settingsSyncEnabled, set: actions.setSettingsSync)
                     }
+                    // Let Bridgey handle copy and paste: while the clipboard is on, the same switch as Settings > Clipboard.
+                    if flow.effective(facts).on(.featureClipboard) {
+                        SettingsCard {
+                            SettingsToggle(title: L10n.setup("setup.summary.handoff", fallback: "Let Bridgey handle copy and paste"),
+                                           subtitle: L10n.setup("setup.summary.handoff.detail", fallback: "Turns off Apple Handoff on this Mac, so it does not clash with Bridgey when you copy. Change it any time in Settings > Clipboard."),
+                                           divider: false, isOn: model.handoff.takeover, set: actions.setHandoffTakeover)
+                        }
+                    }
                 }
             }
             SetupBottomBar(back: { send(.back) }) {

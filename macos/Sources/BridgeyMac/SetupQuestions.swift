@@ -64,6 +64,9 @@ enum SetupSetting: String, CaseIterable {
     case launchAtLogin, reduceMotion, shortcutShift
     // Settings sync: the summary's own switch (v0.10)
     case settingsSync
+    /// Clipboard > Let Bridgey handle copy and paste (HandoffTakeover.swift): a summary switch while the clipboard
+    /// is on. Mac only.
+    case handoffTakeover
 
     /// The value on an install from before the off-until-chosen defaults (BridgeySettings' old defaults).
     var defaultValue: String {
@@ -444,7 +447,7 @@ enum SetupQuestions {
     ]
 
     /// Settings with their own switch on the summary.
-    static let bySummary: [SetupSetting] = [.settingsSync]
+    static let bySummary: [SetupSetting] = [.settingsSync, .handoffTakeover]
 
     /// Settings the permissions page turns on by asking.
     static let byPermission: [SetupSetting: SetupPermission] = [.macNotifications: .notifications, .accessibility: .accessibility]
@@ -684,6 +687,7 @@ extension SetupFacts {
             .launchAtLogin: bool(model.launchAtLogin),
             .reduceMotion: bool(model.reduceMotion),
             .settingsSync: bool(model.settingsSyncEnabled),
+            .handoffTakeover: bool(model.handoff.takeover),
         ]
         var allowed = Set(model.setup.permissions.filter { $0.system == .allowed }.map(\.permission))
         if model.accessibilityTrusted { allowed.insert(.accessibility) }

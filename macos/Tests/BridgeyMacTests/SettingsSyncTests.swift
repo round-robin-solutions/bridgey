@@ -99,12 +99,14 @@ final class SettingsSyncTests: XCTestCase {
         XCTAssertEqual(SettingsSyncDetail.detail("folder_destination=1,auto_clipboard=1"), "Folders: ask where to save, Automatic clipboard turned on")
         let all = SettingsSyncDetail.encode(Dictionary(uniqueKeysWithValues: SyncKey.allCases.map { ($0, $0.defaultValue) }))
         XCTAssertNotNil(SettingsSyncDetail.clean(all))
-        XCTAssertEqual(SettingsSyncDetail.decode(all).count, 28)
-        XCTAssertEqual(SyncKey.allCases.count, 28)
-        XCTAssertEqual(SyncKey.allCases.suffix(7).map(\.token),
-                       ["screen", "sms", "auto_update_all", "connect_away", "folder_include_hidden", "folder_include_system", "codes_email"])
+        XCTAssertEqual(SettingsSyncDetail.decode(all).count, 29)
+        XCTAssertEqual(SyncKey.allCases.count, 29)
+        // handoff_takeover is Mac only (never sent to a phone), so Android's list ends at codes_email.
+        XCTAssertEqual(SyncKey.allCases.suffix(8).map(\.token),
+                       ["screen", "sms", "auto_update_all", "connect_away", "folder_include_hidden", "folder_include_system", "codes_email",
+                        "handoff_takeover"])
         // Update all devices automatically is a setting on the Mac too; Photos for the Mac is only stored and relayed.
-        XCTAssertEqual(SyncKey.listedOnMac.count, 27)
+        XCTAssertEqual(SyncKey.listedOnMac.count, 28)
         XCTAssertTrue(SyncKey.allCases.allSatisfy { $0.token.count <= 24 })
         XCTAssertNil(SettingsSyncDetail.clean("reduce motion on"))
         let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
@@ -218,7 +220,8 @@ final class SettingsSyncTests: XCTestCase {
     /// shown as different; an explicit off syncs and becomes the other device's choice.
     func testCodesFromEmailSyncsUnderCodesEmailAndOnlyAsAChoice() {
         XCTAssertEqual(SyncKey.codesEmail.rawValue, "codes.email")
-        XCTAssertEqual(SyncKey.allCases.last, .codesEmail)
+        // Last of the keys phones know; only the Mac-only handoff.takeover comes after it.
+        XCTAssertEqual(SyncKey.allCases.filter { !SyncKey.onlyBetweenMacs.contains($0) }.last, .codesEmail)
         XCTAssertEqual(SyncKey.codesEmail.defaultValue, .bool(true))
         XCTAssertTrue(SyncKey.codesEmail.sharesWhenOn)
         XCTAssertNil(SyncKey.codesEmail.feature)
@@ -250,6 +253,45 @@ final class SettingsSyncTests: XCTestCase {
         net.deliverAll()
         XCTAssertEqual(macEmail.choice, false)
         XCTAssertEqual(macEmail.writes, 1)
+    }
+
+    /// Let Bridgey handle copy and paste syncs between Macs that advertise handoff_takeover_draft1 and never goes to a
+    /// phone: not in a snapshot or an update to it, not taken from it, and never "Different" because of it.
+    func testHandoffTakeoverSyncsOnlyBetweenMacs() {
+        XCTAssertEqual(SyncKey.handoffTakeover.rawValue, "handoff.takeover")
+        XCTAssertEqual(SyncKey.handoffTakeover.defaultValue, .bool(false))
+        XCTAssertEqual(SyncKey.onlyBetweenMacs, [.handoffTakeover])
+        XCTAssertTrue(SyncKey.listedOnMac.contains(.handoffTakeover))
+        XCTAssertEqual(settingsSyncStoredValues([HandoffTakeoverStore.choiceKey: true])[.handoffTakeover], .bool(true))
+        XCTAssertEqual(SettingsSyncDetail.detail("handoff_takeover=1"), "\(SyncKey.handoffTakeover.name) turned on")
+
+        let net = Net(self)
+        net.macs = [macA, macB]
+        net.add(phone, isPhone: true); net.add(macA); net.add(macB)
+        net.edit(macA, .handoffTakeover, .bool(true))
+        net.connect(phone, macA); net.connect(macA, macB)
+        net.deliverAll()
+        XCTAssertEqual(net.values[macB]![.handoffTakeover], .bool(true), "the other Mac takes it")
+        XCTAssertEqual(net.values[phone]![.handoffTakeover], .bool(false), "the phone never gets it")
+        func carries(_ sent: Net.Sent) -> Bool { (sent.payload["records"] as? [String: Any])?["handoff.takeover"] != nil }
+        XCTAssertFalse(net.log.contains { $0.to == phone && carries($0) })
+        XCTAssertTrue(net.log.contains { $0.from == macA && $0.to == macB && carries($0) })
+
+        // A live change reaches the other Mac only.
+        net.log.removeAll()
+        net.edit(macB, .handoffTakeover, .bool(false))
+        net.controllers[macB]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(net.values[macA]![.handoffTakeover], .bool(false))
+        XCTAssertFalse(net.log.contains { $0.to == phone && carries($0) })
+
+        // Something the phone holds under that key (an older or odd build) is not taken by a Mac.
+        net.edit(phone, .handoffTakeover, .bool(true))
+        net.controllers[phone]!.flush()
+        net.deliverAll()
+        XCTAssertEqual(net.values[macA]![.handoffTakeover], .bool(false))
+        XCTAssertEqual(net.controllers[macA]!.status(.handoffTakeover).differentOn, [])
+        XCTAssertEqual(net.controllers[phone]!.status(.handoffTakeover).differentOn, [])
     }
 
     /// Section 8.2 with live updates: the later of two edits made at the same moment wins on both, after one
@@ -980,6 +1022,8 @@ final class SettingsSyncTests: XCTestCase {
         var log: [Sent] = []
         var activity: [String] = []
         var turnedOn: [String] = []
+        /// Devices that advertise handoff_takeover_draft1 (Macs of this build): the Mac-only keys sync between them.
+        var macs: Set<String> = []
 
         init(_ test: SettingsSyncTests) { self.test = test }
 
@@ -1011,6 +1055,7 @@ final class SettingsSyncTests: XCTestCase {
                 self.links[id, default: []].contains(peer) && self.controllers[peer]!.advertised(for: id)
             }
             controller.connectedPhones = { [unowned self] in self.links[id, default: []].sorted() }
+            controller.peerIsMac = { [unowned self] peer in self.macs.contains(peer) }
             controller.peerName = { "Device \($0.suffix(1))" }
             controller.lacksPermission = { [unowned self] key in self.missing[id, default: []].contains(key) || lacks?(key) == true }
             controller.onSwitchChange = { [unowned self] in

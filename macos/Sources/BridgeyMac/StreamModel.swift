@@ -226,7 +226,11 @@ enum ActivityText {
             return format("stream.call.from", "Call from %@", caller)
         }
         switch item.kind {
-        case .clipboardSent: return format("stream.clipboard.sent", "Clipboard sent to %@", device)
+        case .clipboardSent:
+            if let names = peerNames(item, .delivered) {
+                return format("stream.clipboard.copiedTo", "Copied to %@", names)
+            }
+            return format("stream.clipboard.sent", "Clipboard sent to %@", device)
         case .clipboardReceived: return format("stream.clipboard.received", "Copied text from %@", device)
         case .fileSent:
             return format("stream.file.sent", "%@ sent", item.fileName ?? L10n.text("stream.file", fallback: "File"))
@@ -388,9 +392,10 @@ enum ActivityText {
         let device = item.deviceName.isEmpty ? L10n.text("stream.device.unknown", fallback: "your phone") : item.deviceName
         switch item.kind {
         case .clipOfferSent:
-            return item.automatic
-                ? format("stream.clip.sent.detail.auto", "Automatic, ready to paste on %@", device)
-                : format("stream.clip.sent.detail", "Ready to paste on %@", device)
+            let ready = item.automatic
+                ? format("stream.clip.sent.detail.auto", "Automatic, ready to paste on %@", peerNames(item, .delivered) ?? device)
+                : format("stream.clip.sent.detail", "Ready to paste on %@", peerNames(item, .delivered) ?? device)
+            return ([ready] + peerStates(item)).joined(separator: " \u{00B7} ")
         case .clipOfferReceived: return L10n.text("stream.clip.received.detail", fallback: "Ready to paste here")
         case .clipPasted: return L10n.text("stream.clip.pasted.detail", fallback: "Moved when you pasted")
         case .clipPasteFailed: return L10n.text("stream.clip.failed.detail", fallback: "Copy it again and paste")
@@ -402,6 +407,7 @@ enum ActivityText {
         guard item.kind.category == .clipboard else { return nil }
         var parts: [String] = []
         if item.automatic { parts.append(L10n.text("stream.automatic", fallback: "Automatic")) }
+        parts += peerStates(item)
         if item.sensitive {
             parts.append(L10n.text("stream.hidden", fallback: "Hidden"))
         } else if showPreviews, let preview = item.preview {
@@ -436,6 +442,32 @@ enum ActivityText {
 
     private static func format(_ key: String, _ fallback: String, _ value: String) -> String {
         String(format: L10n.text(key, fallback: fallback), value)
+    }
+
+    /// The devices of one copy in `state`, joined ("OnePlus 11 5G and MacBook Pro"); nil for none
+    /// and for items from before one copy became one item.
+    static func peerNames(_ item: ActivityItem, _ state: ActivityPeer.State) -> String? {
+        let names = (item.peers ?? []).filter { $0.state == state }.map(\.deviceName)
+        return names.isEmpty ? nil : DeviceList.join(names)
+    }
+
+    /// "Waiting for MacBook Pro", "Not delivered to Work Mac", "Clipboard is off on Pixel";
+    /// for an arrival, "Also came through MacBook Pro".
+    static func peerStates(_ item: ActivityItem) -> [String] {
+        guard let peers = item.peers, !peers.isEmpty else { return [] }
+        if item.kind == .clipboardReceived {
+            let others = peers.dropFirst().map(\.deviceName)
+            return others.isEmpty ? [] : [format("stream.clip.alsoFrom", "Also came through %@", DeviceList.join(others))]
+        }
+        var parts: [String] = []
+        if let names = peerNames(item, .pending) { parts.append(format("stream.clip.waiting", "Waiting for %@", names)) }
+        if let names = peerNames(item, .failed) { parts.append(format("stream.clip.missed", "Not delivered to %@", names)) }
+        if let names = peerNames(item, .off) {
+            parts.append(item.kind == .clipOfferSent
+                ? format("stream.clip.offersOff", "Copy images and files is off on %@", names)
+                : format("stream.clip.off", "Clipboard is off on %@", names))
+        }
+        return parts
     }
 }
 

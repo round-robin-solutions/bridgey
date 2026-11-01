@@ -92,6 +92,9 @@ enum SyncKey: String, CaseIterable, Comparable {
     /// Codes from messages > Also read codes in email (email_codes_draft1). The phone's switch forwards mail
     /// previews, the Mac's reads them. On until chosen; like connect.away, a value nobody chose is not sent as a choice.
     case codesEmail = "codes.email"
+    /// Let Bridgey handle copy and paste (HandoffTakeover.swift): turns Apple's Handoff off on each Mac. Appended last.
+    /// Only between Macs: sent only to peers that advertise handoff_takeover_draft1, never to a phone.
+    case handoffTakeover = "handoff.takeover"
 
     static func < (lhs: SyncKey, rhs: SyncKey) -> Bool {
         allCases.firstIndex(of: lhs)! < allCases.firstIndex(of: rhs)!
@@ -161,6 +164,7 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .folderIncludeHidden: "folder_include_hidden"
         case .folderIncludeSystem: "folder_include_system"
         case .codesEmail: "codes_email"
+        case .handoffTakeover: "handoff_takeover"
         default: String(rawValue.dropFirst("feature.".count))
         }
     }
@@ -196,6 +200,7 @@ enum SyncKey: String, CaseIterable, Comparable {
         case .folderIncludeHidden: L10n.text("sync.name.folderHidden", fallback: "Hidden files in folders")
         case .folderIncludeSystem: L10n.text("sync.name.folderSystem", fallback: "System files in folders")
         case .codesEmail: L10n.text("sync.name.codesEmail", fallback: "Codes from email")
+        case .handoffTakeover: L10n.text("sync.name.handoffTakeover", fallback: "Let Bridgey handle copy and paste")
         }
     }
 
@@ -374,6 +379,7 @@ func settingsSyncStoredValues(_ defaults: [String: Any]) -> [SyncKey: SyncValue]
     bool(.featureSms, "settings.sms.enabled")
     bool(.connectAway, "settings.connect.away")
     bool(.updatesAutoAll, AutoUpdateCoordinator.choiceKey)
+    bool(.handoffTakeover, HandoffTakeoverStore.choiceKey)
     if let data = defaults["settings.focusSync"] as? Data, let focus = try? JSONDecoder().decode(FocusSyncSettings.self, from: data) {
         values[.focusShare] = .bool(focus.share)
         values[.focusFollow] = .bool(focus.follow)
@@ -605,6 +611,8 @@ final class SettingsSyncEngine {
     var excluded: Set<SyncKey> = []
     /// The keys on here but waiting for a permission (before `excluded` is applied).
     var localWaiting: () -> [SyncKey] = { [] }
+    /// The peer is a Mac that applies the keys only Macs share (SyncKey.onlyBetweenMacs).
+    var peerIsMac: (_ peer: String) -> Bool = { _ in false }
     private let clock: () -> Int64
     private let save: ([SyncKey: SyncRecord]) -> Void
     private var peers: [String: Peer] = [:]
@@ -664,7 +672,15 @@ final class SettingsSyncEngine {
     /// The waiting list as it goes on the wire.
     var waitingList: [SyncKey] { Set(localWaiting()).subtracting(excluded).sorted() }
 
-    private var shared: [SyncKey: SyncRecord] { records.filter { !excluded.contains($0.key) } }
+    /// What is never sent to or taken from `peer`: the excluded keys, and the Mac-only keys for a phone.
+    private func skipped(_ peer: String) -> Set<SyncKey> {
+        peerIsMac(peer) ? excluded : excluded.union(SyncKey.onlyBetweenMacs)
+    }
+
+    private func shared(_ peer: String) -> [SyncKey: SyncRecord] {
+        let skipped = skipped(peer)
+        return records.filter { !skipped.contains($0.key) }
+    }
 
     /// Stamps every setting that no longer matches its record (a local edit made anywhere, excluded ones too).
     @discardableResult
@@ -713,7 +729,7 @@ final class SettingsSyncEngine {
         var state = Peer()
         state.sentFirst = first
         state.sentNew = new
-        let out = shared
+        let out = shared(peer)
         for (key, record) in out { state.sent[key] = record.stamp }
         state.inflight[messageID] = out
         state.lastWaitingSent = waitingList
@@ -728,11 +744,12 @@ final class SettingsSyncEngine {
 
     func receiveSnapshot(_ payload: SettingsPayload, from peer: String, asker: SettingsAsker = .none) -> SettingsSyncReceipt {
         var state = peers[peer] ?? Peer()
+        let skipped = skipped(peer)
         var receipt = SettingsSyncReceipt()
         state.waiting = Set(payload.waiting)
         if asker != .none {
             // First connect with a question: take nothing from this snapshot, and sync nothing with the peer, until the answer.
-            for key in payload.records.keys where !excluded.contains(key) {
+            for key in payload.records.keys where !skipped.contains(key) {
                 state.received[key] = payload.records[key]!.stamp
                 state.known[key] = payload.records[key]!
             }
@@ -741,7 +758,7 @@ final class SettingsSyncEngine {
             peers[peer] = state
             return receipt
         }
-        for key in payload.records.keys.sorted() where !excluded.contains(key) {
+        for key in payload.records.keys.sorted() where !skipped.contains(key) {
             let remote = payload.records[key]!
             state.received[key] = remote.stamp
             state.known[key] = remote
@@ -767,10 +784,11 @@ final class SettingsSyncEngine {
 
     func receiveUpdate(_ payload: SettingsPayload, from peer: String) -> SettingsSyncReceipt {
         var state = peers[peer] ?? Peer()
+        let skipped = skipped(peer)
         var receipt = SettingsSyncReceipt()
         state.waiting = Set(payload.waiting)
         if !state.ready {
-            for key in payload.records.keys where !excluded.contains(key) {
+            for key in payload.records.keys where !skipped.contains(key) {
                 state.received[key] = payload.records[key]!.stamp
                 state.known[key] = payload.records[key]!
             }
@@ -787,7 +805,7 @@ final class SettingsSyncEngine {
             state.ready = true
             receipt.answerReceived = true
         }
-        for key in payload.records.keys.sorted() where !excluded.contains(key) {
+        for key in payload.records.keys.sorted() where !skipped.contains(key) {
             let remote = payload.records[key]!
             state.received[key] = remote.stamp
             state.known[key] = remote
@@ -824,7 +842,7 @@ final class SettingsSyncEngine {
         guard var state = peers[peer], state.ready else { return nil }
         let waiting = waitingList
         var out: [SyncKey: SyncRecord] = [:]
-        for (key, record) in shared where (state.sent[key] != record.stamp && state.received[key] != record.stamp) || state.echo.contains(key) {
+        for (key, record) in shared(peer) where (state.sent[key] != record.stamp && state.received[key] != record.stamp) || state.echo.contains(key) {
             out[key] = record
         }
         let answered = state.sendAnswered
@@ -871,8 +889,9 @@ final class SettingsSyncEngine {
     /// Asking: the settings that differ between this device and the peer (what Use these would change).
     func differingKeys(_ peer: String) -> [SyncKey] {
         guard let state = peers[peer] else { return [] }
+        let skipped = skipped(peer)
         return SyncKey.allCases.filter { key in
-            guard !excluded.contains(key), let known = state.known[key], !bothFollow(key, known) else { return false }
+            guard !skipped.contains(key), let known = state.known[key], !bothFollow(key, known) else { return false }
             return !alreadyMeans(key, known.value)
         }
     }
@@ -910,7 +929,7 @@ final class SettingsSyncEngine {
     /// Ready peers whose value of `key` differs from what this device does.
     func differentOn(_ key: SyncKey) -> [String] {
         guard !excluded.contains(key) else { return [] }
-        return peers.filter { $0.value.ready && $0.value.known[key].map { !bothFollow(key, $0) && !alreadyMeans(key, $0.value) } == true }.keys.sorted()
+        return peers.filter { !skipped($0.key).contains(key) && $0.value.ready && $0.value.known[key].map { !bothFollow(key, $0) && !alreadyMeans(key, $0.value) } == true }.keys.sorted()
     }
 
     /// Peers that have `key` on but wait for a permission there.
@@ -1043,6 +1062,11 @@ final class SettingsSyncController: ObservableObject {
 
     /// When both sides are new, the phone asks. This Mac is never the phone; tests model a phone with it.
     var isPhone = false
+    /// The device advertised handoff_takeover_draft1: a Mac, so the keys only Macs share sync with it.
+    var peerIsMac: (_ deviceID: String) -> Bool {
+        get { engine.peerIsMac }
+        set { engine.peerIsMac = newValue }
+    }
 
     let engine: SettingsSyncEngine
     private let defaults: UserDefaults
@@ -1102,10 +1126,11 @@ final class SettingsSyncController: ObservableObject {
     /// The settings of this Mac, watched wherever they change (Settings, setup, Siri, reset).
     static func live(localDeviceID: String, settings: BridgeySettings, focus: FocusSync, codes: CodesSyncGate,
                      screen: PhoneScreen, setTextMessages: @escaping (Bool) -> Void,
-                     autoUpdate: AutoUpdateCoordinator? = nil) -> SettingsSyncController {
+                     autoUpdate: AutoUpdateCoordinator? = nil, handoff: HandoffTakeover? = nil) -> SettingsSyncController {
         let controller = SettingsSyncController(localDeviceID: localDeviceID,
                                                 settings: liveSettings(settings, focus: focus, codes: codes, screen: screen,
-                                                                       setTextMessages: setTextMessages, autoUpdate: autoUpdate))
+                                                                       setTextMessages: setTextMessages, autoUpdate: autoUpdate,
+                                                                       handoff: handoff))
         var changes: [AnyPublisher<Void, Never>] = [
             settings.$folderReceiveMode.map { _ in () }.eraseToAnyPublisher(),
             settings.$folderConflictPolicy.map { _ in () }.eraseToAnyPublisher(),
@@ -1124,6 +1149,7 @@ final class SettingsSyncController: ObservableObject {
             settings.$codesEmailChoice.map { _ in () }.eraseToAnyPublisher(),
         ]
         if let autoUpdate { changes.append(autoUpdate.$storedChoice.map { _ in () }.eraseToAnyPublisher()) }
+        if let handoff { changes.append(handoff.$takeover.removeDuplicates().map { _ in () }.eraseToAnyPublisher()) }
         // @Published fires before the property changes: read it on the next turn of the main queue.
         Publishers.MergeMany(changes)
             .dropFirst(changes.count)
@@ -1137,10 +1163,11 @@ final class SettingsSyncController: ObservableObject {
     /// `screen` and `setTextMessages`: the same paths as their Settings switches, so their side effects run (a
     /// stream stops when Show phone screens goes off; Text messages off deletes the conversations kept here). Nil
     /// (tests) leaves those keys stored and relayed only. `autoUpdate`: Update all devices automatically, which follows
-    /// the release channel until chosen; nil (tests) stores and relays it only.
+    /// the release channel until chosen; nil (tests) stores and relays it only. `handoff`: Let Bridgey handle copy and
+    /// paste, which turns Handoff off or back on here; nil (tests) stores and relays it only.
     static func liveSettings(_ settings: BridgeySettings, focus: FocusSync, codes: CodesSyncGate? = nil,
                              screen: PhoneScreen? = nil, setTextMessages: ((Bool) -> Void)? = nil,
-                             autoUpdate: AutoUpdateCoordinator? = nil) -> [SyncKey: SyncedSetting] {
+                             autoUpdate: AutoUpdateCoordinator? = nil, handoff: HandoffTakeover? = nil) -> [SyncKey: SyncedSetting] {
         func bool(_ read: @escaping () -> Bool, _ write: @escaping (Bool) -> Void) -> SyncedSetting {
             SyncedSetting(read: { .bool(read()) }, write: { value in if case let .bool(on) = value { write(on) } })
         }
@@ -1173,6 +1200,7 @@ final class SettingsSyncController: ObservableObject {
         if let screen { out[.featureScreen] = screenSetting(screen) }
         if let setTextMessages { out[.featureSms] = bool({ settings.smsEnabled }, setTextMessages) }
         if let autoUpdate { out[.updatesAutoAll] = autoUpdateSetting(autoUpdate) }
+        if let handoff { out[.handoffTakeover] = bool({ handoff.takeover }, { handoff.set($0) }) }
         for key in SyncKey.allCases {
             guard let feature = key.feature else { continue }
             // Grant features read on only when their global switch is explicitly on.
@@ -1480,6 +1508,8 @@ final class SettingsSyncController: ObservableObject {
 extension SyncKey {
     /// Keys the Mac only stores and relays (no setting here): left out of Choose what syncs.
     static let storeOnlyOnMac: Set<SyncKey> = [.featureCamera]
+    /// Never sent to a phone, and never taken from one: they mean something on a Mac only.
+    static let onlyBetweenMacs: Set<SyncKey> = [.handoffTakeover]
 }
 
 /// What a synced folder destination does on this Mac.

@@ -736,6 +736,15 @@
 "codes.replaces" = "Заменяет код, пришедший %@";
 "codes.replaces.now" = "Заменяет код, пришедший только что";
 "sync.name.codesEmail" = "Коды из почты";
+"sync.name.handoffTakeover" = "Пусть копированием и вставкой занимается Bridgey";
+"settings.handoff.title" = "Пусть копированием и вставкой занимается Bridgey";
+"settings.handoff.detail" = "Выключает Apple Handoff на этом Mac, чтобы он не мешал Bridgey при копировании. AirDrop продолжает работать. Выключите, чтобы вернуть Handoff как было.";
+"settings.handoff.stateOff" = "Apple Handoff: выключен";
+"settings.handoff.stateOn" = "Apple Handoff: включён";
+"settings.handoff.statePartly" = "Apple Handoff: включён частично";
+"settings.handoff.overridden" = "Handoff снова включили в Системных настройках.";
+"settings.handoff.reapply" = "Выключить снова";
+"settings.handoff.failed" = "Не удалось изменить Handoff. Попробуйте ещё раз или измените его в Системных настройках > Основные > AirDrop и Handoff.";
 "codes.sheet.private" = "Приватно";
 "codes.sheet.private.detail" = "Работает на этом Mac. Текст сообщений и коды его не покидают.";
 "codes.sheet.size" = "%@, один раз";
@@ -1641,3 +1650,17 @@
 "developer.tapsLeft.one" = "Ещё %d нажатие, и откроется раздел для разработчиков";
 "developer.transfers" = "Как файлы передаются сейчас";
 "settings.developer" = "Для разработчиков и эксперименты";
+
+/* One copy, one activity item */
+"stream.clipboard.copiedTo" = "Скопировано на %@";
+"stream.clip.alsoFrom" = "Также пришло через %@";
+"stream.clip.waiting" = "Ждём %@";
+"stream.clip.missed" = "Не доставлено на %@";
+"stream.clip.offersOff" = "Копирование изображений и файлов выключено на %@";
+"stream.clip.off" = "Буфер обмена выключен на %@";
+"clipboard.status.sending" = "Отправка…";
+"clipboard.status.delivered" = "Доставлено";
+"clipboard.status.offersOff" = "Копирование изображений и файлов выключено на %@";
+"clipboard.status.off" = "Буфер обмена выключен на %@";
+"clipboard.status.noAck" = "Нет подтверждения доставки";
+"clipboard.status.missed" = "Не доставлено на %@";

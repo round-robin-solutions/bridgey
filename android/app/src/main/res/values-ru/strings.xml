@@ -86,6 +86,13 @@
     </plurals>
     <string name="stream_call_title">Входящий звонок</string>
     <string name="stream_clipboard_hidden">Скрыто</string>
+    <string name="stream_clipboard_copied_to">Скопировано на %1$s</string>
+    <string name="stream_list_and">" и "</string>
+    <string name="stream_clip_waiting">Ждём %1$s</string>
+    <string name="stream_clip_missed">Не доставлено на %1$s</string>
+    <string name="stream_clip_off">Буфер обмена выключен на %1$s</string>
+    <string name="stream_clip_offers_off">Копирование изображений и файлов выключено на %1$s</string>
+    <string name="stream_clip_also_from">Пришло и через %1$s</string>
     <string name="stream_call_from_title">Звонок: %1$s</string>
     <plurals name="stream_app_alerts_title">
         <item quantity="one">%1$d уведомление %2$s</item>

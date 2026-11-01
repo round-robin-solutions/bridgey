@@ -399,6 +399,14 @@ func decodeFeatureState(_ plaintext: Data) -> FeatureStateDecoding {
     return .state(features: features, drafts: drafts)
 }
 
+/// One boolean key of a features.update that is not in knownDraftFeatureKeys (handoff_takeover_draft1, which only
+/// Macs send): true only when it is JSON true. Kept out of decodeFeatureState so the golden vectors stay as they are.
+func decodeFeatureFlag(_ plaintext: Data, _ key: String) -> Bool {
+    guard let object = (try? JSONSerialization.jsonObject(with: plaintext)) as? [String: Any],
+          let values = object["features"] as? [String: Any] else { return false }
+    return jsonBool(values[key]) == true
+}
+
 /// A battery.update payload, or nil when malformed or out of range.
 func decodeBatteryStatus(_ plaintext: Data) -> RemoteBatteryStatus? {
     guard isStrictJSONObject(plaintext),

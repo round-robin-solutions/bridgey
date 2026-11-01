@@ -11,6 +11,7 @@ import dev.bridgey.android.DeviceConnection
 import dev.bridgey.android.PairingState
 import dev.bridgey.android.PeerActivity
 import dev.bridgey.android.PeerEvent
+import dev.bridgey.android.ClipboardSendResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
@@ -103,9 +104,11 @@ class ActivityRecorder(
     private val showPreviews: () -> Boolean = { true },
 ) {
     private val recordedTransfers = LinkedHashSet<String>()
+    private val clipGroups = ClipActivityGroups()
 
     fun start() {
-        pairing.activityListener = { event -> recordPeerEvent(log, event, showPreviews()) }
+        // One event at a time: two devices answering together must not both record the copy's item.
+        pairing.activityListener = { event -> synchronized(clipGroups) { recordPeerEvent(log, event, showPreviews(), clipGroups) } }
         // Ping sent, Find Mac and Find phone arrive as PeerEvents tagged with their own device.
         scope.launch {
             pairing.quickActions.status.drop(1).collect { status ->
@@ -172,8 +175,11 @@ class ActivityRecorder(
     private fun connected(): PairingState.Connected? = pairing.state.value as? PairingState.Connected
 }
 
-/** Records a coordinator event; clipboard text becomes a preview only when previews are on. */
-internal fun recordPeerEvent(log: ActivityLog, event: PeerEvent, previews: Boolean) {
+/**
+ * Records a coordinator event; clipboard text becomes a preview only when previews are on. With [groups],
+ * one copy to several devices is one item, and one clip through several devices is one item.
+ */
+internal fun recordPeerEvent(log: ActivityLog, event: PeerEvent, previews: Boolean, groups: ClipActivityGroups? = null, now: () -> Long = System::currentTimeMillis) {
     val kind = when (event.activity) {
         PeerActivity.CLIPBOARD_SENT -> ActivityKind.CLIPBOARD_SENT
         PeerActivity.CLIPBOARD_RECEIVED -> ActivityKind.CLIPBOARD_RECEIVED
@@ -188,7 +194,30 @@ internal fun recordPeerEvent(log: ActivityLog, event: PeerEvent, previews: Boole
         PeerActivity.CLIP_PASTED -> ActivityKind.CLIP_PASTED
         PeerActivity.CLIP_PASTE_FAILED -> ActivityKind.CLIP_PASTE_FAILED
     }
-    if (kind.isClipOffer) {
+    val groupId = event.groupId
+    var peers: List<ActivityPeer>? = null
+    var arrivalHash: String? = null
+    if (groups != null && groupId != null && (kind == ActivityKind.CLIPBOARD_SENT || kind == ActivityKind.CLIP_OFFER_SENT)) {
+        val update = groups.answered(groupId, event.groupTargets, event.deviceId, event.deviceName, event.result.peerState()) ?: return
+        val itemId = update.itemId
+        if (itemId != null) {
+            log.updatePeers(itemId, update.peers)
+            return
+        }
+        peers = update.peers
+    } else if (event.result != ClipboardSendResult.DELIVERED) {
+        // Without a group, only a delivered send is an item.
+        return
+    } else if (groups != null && (kind == ActivityKind.CLIPBOARD_RECEIVED || kind == ActivityKind.CLIP_OFFER_RECEIVED)) {
+        arrivalHash = event.clipHash ?: event.clipboardText?.let(ClipActivityGroups::textHash)
+        if (arrivalHash != null) {
+            // An earlier item that was cleared or pruned meanwhile no longer counts: this arrival gets its own.
+            val update = groups.arrived(arrivalHash, event.deviceId, event.deviceName, now())
+            val joined = update?.itemId
+            if (update != null && joined != null && log.updatePeers(joined, update.peers)) return
+        }
+    }
+    val id = if (kind.isClipOffer) {
         // Names only with previews on, and never for a clip marked sensitive.
         log.record(
             kind,
@@ -199,17 +228,21 @@ internal fun recordPeerEvent(log: ActivityLog, event: PeerEvent, previews: Boole
             bytes = event.clipBytes,
             content = event.clipContent,
             itemCount = event.clipCount,
+            peers = peers,
         )
-        return
+    } else {
+        log.record(
+            kind,
+            event.deviceId,
+            event.deviceName,
+            preview = if (previews) event.clipboardText else null,
+            sensitive = event.sensitive,
+            automatic = event.automatic,
+            peers = peers,
+        )
     }
-    log.record(
-        kind,
-        event.deviceId,
-        event.deviceName,
-        preview = if (previews) event.clipboardText else null,
-        sensitive = event.sensitive,
-        automatic = event.automatic,
-    )
+    if (id != null && groupId != null && peers != null) groups?.recorded(groupId, id)
+    if (id != null && arrivalHash != null) groups?.rememberArrival(arrivalHash, id, event.deviceId, event.deviceName, now())
 }
 
 internal fun recordNotification(

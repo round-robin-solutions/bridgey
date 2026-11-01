@@ -35,6 +35,8 @@ struct PhoneLinkState: Equatable {
     var remoteSettingsSync = false
     /// The phone advertised `connect_draft1`: it understands connect.* (Connect anywhere).
     var remoteConnect = false
+    /// The peer advertised `handoff_takeover_draft1`: it is a Mac, so the settings only Macs share sync with it.
+    var remoteHandoffTakeover = false
     /// The phone's last `codes.status`: whether Android shows Bridgey the text of code messages.
     var codeAccess: CodeAccessStatus?
     var battery: RemoteBatteryStatus?

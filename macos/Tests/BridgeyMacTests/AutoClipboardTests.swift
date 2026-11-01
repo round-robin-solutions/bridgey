@@ -25,6 +25,13 @@ final class AutoClipboardTests: XCTestCase {
         }
     }
 
+    func testSkipsClipsThatCameThroughUniversalClipboard() {
+        var filter = AutoClipboardFilter()
+        XCTAssertEqual(filter.decide(snapshot("From the other Mac", types: plain + ["com.apple.is-remote-clipboard"])), .skip(.universalClipboard))
+        // The same text copied here afterwards is sent.
+        XCTAssertEqual(filter.decide(snapshot("From the other Mac", count: 2)), .send(text: "From the other Mac", html: nil))
+    }
+
     func testSkipsEmptyAndNonTextContent() {
         var filter = AutoClipboardFilter()
         XCTAssertEqual(filter.decide(snapshot(nil)), .skip(.empty))
