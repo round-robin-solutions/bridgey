@@ -341,9 +341,11 @@ enum SetupQuestions {
         SetupQuestion(
             id: "media", section: .macControl, feature: "media",
             title: L10n.setup("setup.q.media.title", fallback: "Which player do you use on this Mac?"),
-            context: L10n.setup("setup.q.media.context", fallback: "Play, pause and skip from your phone. macOS asks once to let Bridgey control the player."),
-            summary: L10n.setup("setup.q.media.summary", fallback: "Music controls from your phone"),
+            context: L10n.setup("setup.q.media.context", fallback: "Play, pause and skip from your phone. Automatic follows whatever is playing. For Music or Spotify, macOS asks once to let Bridgey control it. You can pick another app in Settings."),
+            summary: L10n.setup("setup.q.media.summary", fallback: "Media controls from your phone"),
             answers: [
+                SetupAnswer(key: SetupAnswerKey.auto, label: L10n.setup("setup.a.media.automatic", fallback: "Automatic (whatever is playing)"),
+                            changes: [.on(.featureMedia), .set(.mediaPlayer, "auto")]),
                 SetupAnswer(key: SetupAnswerKey.music, label: L10n.setup("setup.a.media.music", fallback: "Apple Music"),
                             changes: [.on(.featureMedia), .set(.mediaPlayer, "music")]),
                 SetupAnswer(key: SetupAnswerKey.spotify, label: L10n.setup("setup.a.media.spotify", fallback: "Spotify"),
@@ -420,8 +422,9 @@ enum SetupQuestions {
         SetupPermissionNeed(permission: .accessibility, features: ["remote", "mac_actions"],
                             needed: { $0.on(.featureRemoteInput) || ($0.on(.featureMacActions) && $0[.macActionSwitches].split(separator: ",").contains("lock")) },
                             offWhenRefused: [.off(.featureRemoteInput), .off(.remoteGrant), .set(.macActionSwitches, "sleep,volume")]),
+        // Only Music and Spotify ask; media turned on without a player gets Automatic, which does not.
         SetupPermissionNeed(permission: .automation, features: ["media"],
-                            needed: { $0.on(.featureMedia) },
+                            needed: { $0.on(.featureMedia) && MediaPlayer(rawValue: $0[.mediaPlayer])?.scripted == true },
                             offWhenRefused: [.off(.featureMedia)]),
         // The phone-to-Mac link (Android 15+) serves codes and Text messages: the Mac advertises over Bluetooth once.
         SetupPermissionNeed(permission: .bluetooth, features: ["notifications", "messages"],

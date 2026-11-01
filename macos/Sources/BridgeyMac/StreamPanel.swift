@@ -59,6 +59,7 @@ struct PanelModel {
     var status: String?
     var notificationPrompt: NotificationPrompt?
     var mediaPlayer: MediaPlayer = .off
+    var mediaChoices: [MediaPlayer] = MediaPlayer.fixed
     var mediaDetail = ""
     /// The browser "Send the current tab" asks (Safari or Chrome), nil when none is running.
     var browserName: String?
@@ -1213,8 +1214,8 @@ private struct QuickActionBar: View {
                   action: ringing ? actions.stopFinding : actions.find)
 
             PopUpMenuButton(items: {
-                var items = MediaPlayer.allCases.map { player in
-                    PopUpMenuItem(title: player.title, checked: player == model.mediaPlayer) { actions.setPlayer(player) }
+                var items = model.mediaChoices.map { player in
+                    PopUpMenuItem(title: player.menuTitle, checked: player == model.mediaPlayer) { actions.setPlayer(player) }
                 }
                 items.append(.separator)
                 items.append(PopUpMenuItem(title: L10n.text("quick.media.refresh", fallback: "Refresh Player"), enabled: model.mediaPlayer != .off, action: actions.refreshMedia))
@@ -1515,6 +1516,7 @@ struct BridgeyPanel: View {
             model.notificationPrompt = pairing.notificationPermissionDetermined ? .openSettings : .request
         }
         model.mediaPlayer = media.player
+        model.mediaChoices = media.choices
         model.mediaDetail = media.snapshot.detail
         model.browserName = browserTab.browser?.name
         if case let .connected(deviceID, name) = pairing.state, pairing.cameraAvailable(for: deviceID) { model.cameraPhone = name }

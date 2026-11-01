@@ -101,6 +101,7 @@
 "setup.a.focus.both" = "Yes, both ways";
 "setup.a.links.rightAway" = "Yes, open them right away";
 "setup.a.links.wait" = "No, let me open them";
+"setup.a.media.automatic" = "Automatic (whatever is playing)";
 "setup.a.media.music" = "Apple Music";
 "setup.a.media.spotify" = "Spotify";
 "setup.a.no" = "No";
@@ -181,8 +182,8 @@
 "setup.q.links.context" = "Share a link from your phone and it opens in your browser here.";
 "setup.q.links.summary" = "Open links on the other device";
 "setup.q.links.title" = "Open links from your phone right away?";
-"setup.q.media.context" = "Play, pause and skip from your phone. macOS asks once to let Bridgey control the player.";
-"setup.q.media.summary" = "Music controls from your phone";
+"setup.q.media.context" = "Play, pause and skip from your phone. Automatic follows whatever is playing. For Music or Spotify, macOS asks once to let Bridgey control it. You can pick another app in Settings.";
+"setup.q.media.summary" = "Media controls from your phone";
 "setup.q.media.title" = "Which player do you use on this Mac?";
 "setup.q.pair.context" = "Pairing happens once, so your phone and this Mac can trust each other.";
 "setup.q.pair.summary" = "Paired with your phone";

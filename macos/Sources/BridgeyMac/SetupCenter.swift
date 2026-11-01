@@ -311,8 +311,8 @@ final class SetupCenter: ObservableObject {
             for item in [MacActionSwitch.lock, .sleep, .volume] { pairing.macActions.setSwitch(item, enabled: listed.contains(item.rawValue)) }
         case .featureMedia:
             settings.setGlobal(.media, enabled: on)
-            // Turned on without a player: Music, which a follow-up or Settings can change.
-            if on && pairing.mediaController.player == .off { pairing.mediaController.player = .music }
+            // Turned on without a player: Automatic, which a follow-up or Settings can change.
+            if on && pairing.mediaController.player == .off { pairing.mediaController.player = .automatic }
         case .mediaPlayer: MediaPlayer(rawValue: change.value).map { pairing.mediaController.player = $0 }
         case .featureLinks: settings.setGlobal(.links, enabled: on)
         case .openLinksRightAway: settings.setOpenLinksRightAway(on)
@@ -467,7 +467,7 @@ final class SetupCenter: ObservableObject {
 
     private var automationBundleID: String {
         let player = pairing?.mediaController.player ?? .off
-        return player == .off ? MediaPlayer.music.bundleID : player.bundleID
+        return player.scripted ? player.bundleID ?? MediaPlayer.musicBundleID : MediaPlayer.musicBundleID
     }
 
     func refreshPermissions() {

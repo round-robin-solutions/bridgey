@@ -114,6 +114,8 @@
 
     <string name="media_title">%1$s on the Mac</string>
     <string name="media_player_unknown">Media</string>
+    <string name="media_in_player">In %1$s</string>
+    <string name="media_artist_in_player">%1$s, in %2$s</string>
     <string name="media_artwork">Album artwork</string>
     <string name="media_previous">Previous track</string>
     <string name="media_next">Next track</string>

@@ -11,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
 import org.json.JSONObject
 
 internal class QuickRequestSequence {
@@ -30,12 +31,47 @@ internal fun validatedWebLink(value: String): String? {
         !uri.host.isNullOrBlank() && uri.rawUserInfo == null && (uri.port == -1 || uri.port in 1..65535) }
 }
 
+/** What a Mac reports about its player. [controls] null: a Mac from before `controls`, so every command is allowed. */
 data class MacMediaState(
     val player: String = "", val title: String = "", val artist: String = "",
     val playing: Boolean = false, val position: Int = 0, val duration: Int = 0, val volume: Int = 0,
-    val detail: String = "Enable a player in Mac Settings → Media",
+    val detail: String = "Choose a player in Bridgey Settings on your Mac, under Media",
     val artwork: String? = null,
-)
+    val controls: Set<String>? = null,
+) {
+    /** The Mac named a player and has nothing to explain, whichever app it is. */
+    val ready: Boolean get() = player.isNotBlank() && player != "Off" && detail.isEmpty()
+
+    /** [control] (toggle, pause, next, previous, seek or volume) can be sent now. */
+    fun allows(control: String): Boolean = ready && (controls?.contains(control) ?: true)
+
+    companion object {
+        val CONTROLS = setOf("toggle", "pause", "next", "previous", "seek", "volume")
+
+        /** A `media.state` payload, or null when it is malformed. Unknown control names are dropped. */
+        fun parse(payload: JSONObject): MacMediaState? {
+            if (payload.opt("version") != 1) return null
+            val position = payload.opt("position") as? Int ?: return null
+            val duration = payload.opt("duration") as? Int ?: return null
+            val volume = payload.opt("volume") as? Int ?: return null
+            val playing = payload.opt("playing") as? Boolean ?: return null
+            if (position !in 0..604800 || duration !in 0..604800 || volume !in 0..100) return null
+            val controls = when (val list = payload.opt("controls")) {
+                null, JSONObject.NULL -> null
+                is JSONArray -> (0 until minOf(list.length(), 16)).mapNotNull { list.opt(it) as? String }
+                    .filter { it in CONTROLS }.toSet()
+                else -> return null
+            }
+            return MacMediaState(
+                payload.optString("player").take(64), payload.optString("title").take(256),
+                payload.optString("artist").take(256), playing,
+                position, duration, volume, payload.optString("detail").take(256),
+                (payload.opt("artwork") as? String)?.takeIf { it.length <= 21848 },
+                controls,
+            )
+        }
+    }
+}
 
 /** How a link sent with Open on Mac ended. [serial] tells two equal results apart. */
 data class LinkSendResult(val outcome: Outcome, val serial: Long) {
@@ -154,22 +190,12 @@ class QuickActions(
                 mutableStatus.value = if (accepted) {
                     if (opened) "Link opened on the Mac"
                     else if (feature == "links") "Link delivered — waiting for the user to open it" else "Media command completed"
-                } else if (feature == "media") "Player unavailable or busy — check Mac media settings and try again"
+                } else if (feature == "media") "The Mac could not do that. Check the player on your Mac and try again."
                 else "Link declined — check settings or dismiss the previous link"
             }
             "media.state" -> {
                 if (!available(BridgeyFeature.MEDIA)) return
-                val position = payload.opt("position") as? Int ?: return
-                val duration = payload.opt("duration") as? Int ?: return
-                val volume = payload.opt("volume") as? Int ?: return
-                if (position !in 0..604800 || duration !in 0..604800 || volume !in 0..100 ||
-                    payload.opt("playing") !is Boolean) return
-                mutableMedia.value = MacMediaState(
-                    payload.optString("player").take(64), payload.optString("title").take(256),
-                    payload.optString("artist").take(256), payload.getBoolean("playing"),
-                    position, duration, volume, payload.optString("detail").take(256),
-                    (payload.opt("artwork") as? String)?.takeIf { it.length <= 21848 },
-                )
+                mutableMedia.value = MacMediaState.parse(payload) ?: return
             }
         }
     }

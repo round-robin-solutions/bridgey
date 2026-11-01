@@ -487,7 +487,7 @@ Edition extension (links_open_draft1): Open on Mac sends links action open. The 
 `media.state`
 
 - `version`: integer, 1
-- `player`: string
+- `player`: string, the player's name, at most 64 chars
 - `title`: string, at most 256 chars
 - `artist`: string, at most 256 chars
 - `playing`: boolean
@@ -495,6 +495,7 @@ Edition extension (links_open_draft1): Open on Mac sends links action open. The 
 - `duration`: integer, 0 to 604800
 - `volume`: integer, 0 to 100
 - `detail`: string, bounded
+- `controls`: optional array of toggle | pause | next | previous | seek | volume (absent: all)
 - `artwork`: string, optional base64 JPEG, at most 16 KiB, at most 128x128
 
 `media.list`

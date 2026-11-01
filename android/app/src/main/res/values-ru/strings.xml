@@ -120,6 +120,8 @@
 
     <string name="media_title">%1$s на Mac</string>
     <string name="media_player_unknown">Медиа</string>
+    <string name="media_in_player">В %1$s</string>
+    <string name="media_artist_in_player">%1$s, в %2$s</string>
     <string name="media_artwork">Обложка альбома</string>
     <string name="media_previous">Предыдущий трек</string>
     <string name="media_next">Следующий трек</string>
