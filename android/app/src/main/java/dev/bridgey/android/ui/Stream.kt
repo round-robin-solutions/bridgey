@@ -656,34 +656,40 @@ internal fun compactTransferStatus(transfer: FileTransferState): String = transf
 private fun MediaCardContent(card: LiveCard.Media, actions: LiveActions) {
     val media = card.media
     val colors = BridgeyTheme.colors
-    val ready = media.player in setOf("Music", "Spotify") && media.detail.isEmpty()
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         card.artwork?.let {
             Image(it, contentDescription = stringResource(R.string.media_artwork), modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)))
         }
         Column(Modifier.weight(1f)) {
-            val title = media.title.ifBlank { stringResource(R.string.media_title, media.player.ifBlank { stringResource(R.string.media_player_unknown) }) }
-            CardText(title, media.artist.ifBlank { media.detail })
+            val player = media.player.ifBlank { stringResource(R.string.media_player_unknown) }
+            val title = media.title.ifBlank { stringResource(R.string.media_title, player) }
+            val detail = when {
+                media.detail.isNotEmpty() -> media.detail
+                media.title.isBlank() -> media.artist
+                media.artist.isBlank() -> stringResource(R.string.media_in_player, player)
+                else -> stringResource(R.string.media_artist_in_player, media.artist, player)
+            }
+            CardText(title, detail)
         }
     }
     Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-        BarIconButton(BridgeyIcons.SkipPrevious, stringResource(R.string.media_previous), { actions.media("previous", "") }, enabled = ready)
+        BarIconButton(BridgeyIcons.SkipPrevious, stringResource(R.string.media_previous), { actions.media("previous", "") }, enabled = media.allows("previous"))
         Spacer(Modifier.width(8.dp))
         GradientCircleButton(
             if (media.playing) BridgeyIcons.Pause else BridgeyIcons.PlayArrow,
             stringResource(if (media.playing) R.string.media_pause else R.string.media_play),
             { actions.media("toggle", "") },
-            enabled = ready,
+            enabled = media.allows("toggle"),
         )
         Spacer(Modifier.width(8.dp))
-        BarIconButton(BridgeyIcons.SkipNext, stringResource(R.string.media_next), { actions.media("next", "") }, enabled = ready)
+        BarIconButton(BridgeyIcons.SkipNext, stringResource(R.string.media_next), { actions.media("next", "") }, enabled = media.allows("next"))
     }
     val sliderColors = SliderDefaults.colors(thumbColor = colors.primary, activeTrackColor = colors.primary, inactiveTrackColor = colors.surface3)
     if (media.duration > 0) {
         var position by remember(media.position, media.duration) { mutableFloatStateOf(media.position.coerceAtMost(media.duration).toFloat()) }
         Slider(
             value = position,
-            enabled = ready,
+            enabled = media.allows("seek"),
             onValueChange = { position = it },
             valueRange = 0f..media.duration.toFloat(),
             onValueChangeFinished = { actions.media("seek", position.toInt().toString()) },
@@ -696,12 +702,14 @@ private fun MediaCardContent(card: LiveCard.Media, actions: LiveActions) {
             color = colors.onSurfaceVariant,
         )
     }
+    // Apps followed through Now Playing on the Mac have no volume of their own: the Mac leaves it out of controls.
+    if (media.controls?.contains("volume") == false) return
     var volume by remember(media.volume) { mutableFloatStateOf(media.volume.toFloat()) }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Icon(BridgeyIcons.VolumeUp, contentDescription = stringResource(R.string.media_volume), tint = colors.onSurfaceVariant, modifier = Modifier.size(20.dp))
         Slider(
             value = volume,
-            enabled = ready,
+            enabled = media.allows("volume"),
             onValueChange = { volume = it },
             valueRange = 0f..100f,
             onValueChangeFinished = { actions.media("volume", volume.toInt().toString()) },

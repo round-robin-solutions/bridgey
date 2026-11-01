@@ -97,3 +97,46 @@ class QuickActionsSenderTest {
         assertEquals("https://example.com/page", actions.receivedLink.value)
     }
 }
+
+/** media.state from any player reaches the card, with its controls; a refusal is reported in plain words. */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class)
+class QuickActionsMediaTest {
+    private val sent = mutableListOf<JSONObject>()
+    private fun quickActions(mediaOn: Boolean = true) = QuickActions(
+        ApplicationProvider.getApplicationContext(), CoroutineScope(Dispatchers.Unconfined),
+        available = { it == BridgeyFeature.MEDIA && mediaOn },
+        send = { _, payload -> sent += payload; true },
+    )
+    private fun state(player: String) = JSONObject().put("version", 1).put("player", player).put("title", "Quiet Track 1")
+        .put("artist", "Bridgey Test").put("playing", true).put("position", 3).put("duration", 600).put("volume", 0)
+        .put("detail", "").put("controls", org.json.JSONArray(listOf("toggle", "pause", "next", "previous", "seek")))
+
+    @Test fun anyPlayerTheMacReportsShowsWithItsControls() {
+        val actions = quickActions()
+        actions.receive("media.state", state("Bridgey Media Test Player"))
+        val media = actions.media.value
+        assertEquals("Bridgey Media Test Player", media.player)
+        assertTrue(media.allows("next"))
+        assertFalse(media.allows("volume"))
+        actions.receive("media.state", state("Spotify").apply { remove("controls") })
+        assertEquals("Spotify", actions.media.value.player)
+        assertTrue(actions.media.value.allows("volume"))
+    }
+
+    @Test fun mediaStateIsIgnoredWhileMediaIsOff() {
+        val actions = quickActions(mediaOn = false)
+        actions.receive("media.state", state("Safari"))
+        assertEquals("", actions.media.value.player)
+    }
+
+    @Test fun refusedCommandSaysSoWithoutDashes() {
+        val actions = quickActions()
+        actions.request(BridgeyFeature.MEDIA, "next")
+        val id = sent.single().getString("requestId")
+        actions.receive("quick.result", JSONObject().put("version", 1).put("requestId", id).put("feature", "media").put("accepted", false))
+        val status = actions.status.value!!
+        assertFalse(status.contains('—'))
+        assertEquals("The Mac could not do that. Check the player on your Mac and try again.", status)
+    }
+}
