@@ -2601,6 +2601,12 @@ final class PairingCoordinator: ObservableObject {
                                                           sourceAddress: current.remoteHost, target: crossedTarget,
                                                           ownPending: ownPending, committedOffer: revealed == nil)
                 if crossed == .keepOwn { crossedTarget?.keepOwnDial() }
+                if ownPending, revealed == nil,
+                   let detail = crossedTarget?.unverifiedSourceDetail(remoteDeviceID: remoteDeviceID, sourceAddress: current.remoteHost) {
+                    // Claims the tapped device's ID from an address this Mac never saw for it: no crossed pairing.
+                    diagnostics.record(category: "pairing", event: "crossed", outcome: "unverified_source", device: remoteDeviceID,
+                                       detail: detail)
+                }
                 if crossed != .none {
                     BridgeyLog.pairing.notice("crossed pairing peer=\(shortDeviceID(remoteDeviceID), privacy: .public) answer=\(crossed == .answer, privacy: .public)")
                     diagnostics.record(category: "pairing", event: "crossed", outcome: crossed == .answer ? "answered" : "kept_own",
@@ -2623,8 +2629,8 @@ final class PairingCoordinator: ObservableObject {
                 }
                 // The device the user is pairing with, at one of its addresses: answering its offer (crossed, or after
                 // Allow pairing here) sets the user's own pairing aside instead of refusing this one as busy.
-                if ownPending, revealed == nil,
-                   crossedTarget?.admits(remoteDeviceID: remoteDeviceID, sourceAddress: current.remoteHost) == true {
+                if PairingRules.yieldsOwnPairing(ownPending: ownPending, committedOffer: revealed == nil, target: crossedTarget,
+                                                 remoteDeviceID: remoteDeviceID, sourceAddress: current.remoteHost) {
                     yieldOwnPairing(to: current)
                 }
                 let key = P256.KeyAgreement.PrivateKey()

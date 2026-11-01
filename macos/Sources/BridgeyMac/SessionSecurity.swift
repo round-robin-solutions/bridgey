@@ -191,6 +191,16 @@ enum PairingRules {
         return remote < local ? .answer : .keepOwn
     }
 
+    /// Answering this offer sets the user's own pairing aside (parks it) instead of refusing the offer as busy at the
+    /// code: only for the tapped device's committed offer from one of its addresses, while that pairing is pending.
+    /// Allow pairing here does not widen this. Setup's pair step holds it while the user's own dial runs, so an offer
+    /// that only copies the tapped ID is answered like any other offer and then refused as busy; the own pairing stays.
+    static func yieldsOwnPairing(ownPending: Bool, committedOffer: Bool, target: CrossedPairingTarget?,
+                                 remoteDeviceID: String, sourceAddress: String?) -> Bool {
+        guard ownPending, committedOffer, let target else { return false }
+        return target.admits(remoteDeviceID: remoteDeviceID, sourceAddress: sourceAddress)
+    }
+
     /// Pairing frames on a session. After authentication only pairing.cancel is taken, and with an envelope key only
     /// with a valid tag. Before it, a tagged cancel must verify when this end has an envelope key; untagged ones are taken.
     static func admitsPairingFrame(kind: String, authenticated: Bool, hasEnvelopeKey: Bool, tagged: Bool, tagValid: Bool) -> Bool {
@@ -252,6 +262,18 @@ struct CrossedPairingTarget: Equatable {
     func admits(remoteDeviceID: String, sourceAddress: String?) -> Bool {
         guard remoteDeviceID.lowercased() == deviceID, let source = sourceAddress.flatMap(normalizedHost) else { return false }
         return addresses.contains(source)
+    }
+
+    /// An offer claims the tapped device's ID from an address this end never saw for it: the detail for the
+    /// `crossed unverified_source` diagnostic, the source's address tag and the known ones (`src_v6_known_name.v4.194.v6`;
+    /// tags only, never addresses). Nil for any other ID or an admitted address.
+    func unverifiedSourceDetail(remoteDeviceID: String, sourceAddress: String?) -> String? {
+        guard remoteDeviceID.lowercased() == deviceID, !admits(remoteDeviceID: remoteDeviceID, sourceAddress: sourceAddress) else {
+            return nil
+        }
+        let source = sourceAddress.flatMap(normalizedHost).map(addressTag) ?? "none"
+        let known = addresses.map(addressTag).sorted().joined(separator: ".")
+        return "src_\(source)_known_\(known.isEmpty ? "none" : known)"
     }
 
     /// The address the own dial reached (the resolved endpoint of a `.local` name).

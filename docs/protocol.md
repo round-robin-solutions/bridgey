@@ -208,8 +208,11 @@ on: the one from the lower device ID (compared as lowercase text).
   sets the user's own pairing aside and shows a code from the spoofer; it does
   not pair, because the user compares the code with the device they tapped,
   and the spoofer cannot steer the code. Hanging up before the code brings the
-  user's own pairing back. A spoofer that only copies the ID gets `not_armed`
-  and changes nothing.
+  user's own pairing back. A spoofer that only copies the ID gets the usual
+  rules and changes nothing: `not_armed`, or, while pairing is allowed here
+  (Allow pairing, or a pairing screen open), an answer and then `busy` before its
+  code shows, with the user's own pairing still going on. Allow pairing does not
+  widen the address check.
 - One case stays as before: an end that dialled by address only (no discovered
   ID) and then taps Allow pairing still refuses the other device's offer as
   busy while its own dial runs; cancelling its own pairing first works.

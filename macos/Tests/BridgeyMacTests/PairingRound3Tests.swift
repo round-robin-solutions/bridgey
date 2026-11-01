@@ -114,6 +114,37 @@ final class PairingRound3Tests: XCTestCase {
         XCTAssertFalse(target.admits(remoteDeviceID: work, sourceAddress: "192.168.29.50"))
     }
 
+    /// Security review: a spoofed-ID offer arrives while the user's own pairing waits for Allow pairing on the tapped
+    /// device, with Allow pairing on here too (setup's pair step holds it). It is answered like any armed offer, but it
+    /// does not set the user's pairing aside (so the code step refuses it as busy and the own pairing goes on); only
+    /// the tapped device at one of its addresses does. The spoofed one leaves an `unverified_source` diagnostic.
+    func testASpoofedOfferDuringTheAllowWaitLeavesTheUsersPairingInPlace() {
+        let work = "09cdc5a3-0000-4000-8000-000000000000"
+        let personal = "586c4581-0000-4000-8000-000000000000"
+        let target = CrossedPairingTarget(deviceID: work, addresses: ["Work-Mac.local.", "192.168.29.148"])
+        func yields(_ remote: String, from source: String?, pending: Bool = true, committed: Bool = true) -> Bool {
+            PairingRules.yieldsOwnPairing(ownPending: pending, committedOffer: committed, target: target,
+                                          remoteDeviceID: remote, sourceAddress: source)
+        }
+        // Armed here, so the offer itself is answered...
+        XCTAssertEqual(PairingRules.inboundOffer(trusted: false, committed: true, remoteProtocol: 2, armed: true), .answer(chargesLimiter: true))
+        // ...but the tapped ID from another address does not park the user's pairing.
+        XCTAssertFalse(yields(work, from: "192.168.29.50"))
+        XCTAssertFalse(yields(work.uppercased(), from: nil))
+        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: personal, remoteDeviceID: work, sourceAddress: "192.168.29.50",
+                                                   target: target, ownPending: true, committedOffer: true), .none)
+        XCTAssertEqual(target.unverifiedSourceDetail(remoteDeviceID: work, sourceAddress: "192.168.29.50"), "src_v4.50_known_name.v4.148")
+        XCTAssertEqual(target.unverifiedSourceDetail(remoteDeviceID: work, sourceAddress: nil), "src_none_known_name.v4.148")
+        // The tapped device itself does, and leaves no unverified diagnostic; another ID or an uncommitted offer never.
+        XCTAssertTrue(yields(work, from: "192.168.29.148"))
+        XCTAssertNil(target.unverifiedSourceDetail(remoteDeviceID: work, sourceAddress: "::ffff:192.168.29.148"))
+        XCTAssertNil(target.unverifiedSourceDetail(remoteDeviceID: personal, sourceAddress: "192.168.29.50"))
+        XCTAssertFalse(yields(work, from: "192.168.29.148", committed: false))
+        XCTAssertFalse(yields(work, from: "192.168.29.148", pending: false))
+        XCTAssertFalse(PairingRules.yieldsOwnPairing(ownPending: true, committedOffer: true, target: nil,
+                                                     remoteDeviceID: work, sourceAddress: "192.168.29.148"))
+    }
+
     /// Security review: only one end knows the other's ID (the other found it by address). The lower end keeps its own
     /// dial once, then its dial meets not_armed from that device too: it falls back to the usual rules for it, so the
     /// "wants to pair" card shows and Allow pairing answers, instead of refusing for two minutes.
