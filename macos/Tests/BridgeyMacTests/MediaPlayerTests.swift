@@ -138,6 +138,10 @@ final class MediaPlayerTests: XCTestCase {
         XCTAssertEqual(MediaResolution.resolve(.app("org.videolan.vlc"), read: .unavailable, running: none),
                        .message(name: "VLC", detail: MediaResolution.unavailableDetail))
         XCTAssertEqual(MediaResolution.resolve(.spotify, read: .item(vlc), running: none), .scripted(.spotify))
+        // An app the known list does not name takes the name Now Playing gives it.
+        let test = NowPlayingItem(bundleID: "in.roundrobin.bridgey.mediatest.player", name: "Bridgey Media Test Player")
+        XCTAssertEqual(MediaResolution.resolve(.app("in.roundrobin.bridgey.mediatest.player"), read: .item(test), running: none),
+                       .show(name: "Bridgey Media Test Player", item: test))
     }
 
     func testStatePayloadNamesThePlayerAndItsControls() {

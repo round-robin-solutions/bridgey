@@ -103,6 +103,11 @@ enum MediaApps {
 
     static func name(for bundleID: String) -> String {
         if let known = known.first(where: { $0.id == bundleID }) { return known.name }
+        // A running app's own name first: Launch Services may not know an app outside /Applications.
+        if let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.localizedName,
+           !running.isEmpty {
+            return String(running.prefix(64))
+        }
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
             let name = FileManager.default.displayName(atPath: url.path)
             return String((name.hasSuffix(".app") ? String(name.dropLast(4)) : name).prefix(64))

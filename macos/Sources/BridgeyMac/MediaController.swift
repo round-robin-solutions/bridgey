@@ -137,7 +137,8 @@ enum MediaResolution: Equatable {
         case .app(let id):
             let name = player.title
             switch read {
-            case .item(let item) where item.bundleID == id: return .show(name: name, item: item)
+            // Now Playing names the app as the system shows it, which beats a guess from the bundle ID.
+            case .item(let item) where item.bundleID == id: return .show(name: item.name.isEmpty ? name : item.name, item: item)
             case .unavailable: return .message(name: name, detail: unavailableDetail)
             default: return .message(name: name, detail: "Play something in \(name) on your Mac")
             }
