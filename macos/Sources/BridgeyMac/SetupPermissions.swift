@@ -168,7 +168,8 @@ struct PermissionNeeds: Equatable {
         case .notifications: notifications || calls || codes || messages
         case .bluetooth: codes
         case .accessibility: remoteControl || macActionsLock
-        case .automation: media && mediaPlayer != .off
+        // Only Music and Spotify are scripted; Automatic and other apps read Now Playing without asking.
+        case .automation: media && mediaPlayer.scripted
         case .browserAutomation: browserTab
         }
     }

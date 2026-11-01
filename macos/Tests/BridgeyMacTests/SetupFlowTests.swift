@@ -182,6 +182,19 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(SetupBack.decide(flow), .askLeave, "something was chosen")
     }
 
+    /// Automatic reads Now Playing, so only Music or Spotify puts Automation on the permissions page.
+    func testMediaAsksForAutomationOnlyForMusicOrSpotify() {
+        func needed(_ key: String) -> [SetupPermission] {
+            let flow = run([.chooseAdvanced, .startQuestions(["media": SetupAnswerKey.pick]), .answer("media", key)], facts: askingFacts)
+            return flow.neededPermissions(askingFacts).map(\.permission)
+        }
+        XCTAssertFalse(needed(SetupAnswerKey.auto).contains(.automation))
+        XCTAssertTrue(needed(SetupAnswerKey.music).contains(.automation))
+        XCTAssertTrue(needed(SetupAnswerKey.spotify).contains(.automation))
+        let auto = run([.chooseAdvanced, .startQuestions(["media": SetupAnswerKey.pick]), .answer("media", SetupAnswerKey.auto)], facts: paired)
+        XCTAssertEqual(auto.effective(paired)[.mediaPlayer], "auto")
+    }
+
     func testFollowUpsAnswerTheirFeature() {
         let flow = run([.chooseAdvanced, .startQuestions(["media": SetupAnswerKey.pick]), .answer("media", SetupAnswerKey.spotify)], facts: paired)
         XCTAssertEqual(flow.effective(paired)[.mediaPlayer], "spotify")
@@ -286,6 +299,8 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(changes("calls_ring", SetupAnswerKey.no), [.off(.ringForCalls)])
         XCTAssertEqual(changes("files_photos", SetupAnswerKey.yes), [.set(.sendImageMode, "optimize")])
         XCTAssertEqual(changes("media", SetupAnswerKey.music), [.on(.featureMedia), .set(.mediaPlayer, "music")])
+        XCTAssertEqual(changes("media", SetupAnswerKey.auto), [.on(.featureMedia), .set(.mediaPlayer, "auto")])
+        XCTAssertEqual(SetupQuestions.question("media")?.answers.map(\.key), [SetupAnswerKey.auto, SetupAnswerKey.music, SetupAnswerKey.spotify])
         XCTAssertEqual(changes("links", SetupAnswerKey.wait), [.on(.featureLinks), .off(.openLinksRightAway)])
         XCTAssertEqual(changes("messages", SetupAnswerKey.yes), [.on(.featureMessages), .on(.smsKeepOnMac)])
         XCTAssertEqual(changes("messages", SetupAnswerKey.no), [.on(.featureMessages), .off(.smsKeepOnMac)])

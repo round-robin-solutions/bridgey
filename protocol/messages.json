@@ -254,7 +254,7 @@
       "implemented": ["android", "macos"] },
     { "kind": "media.state", "status": "upstream-v1", "direction": "mac-to-phone", "feature": "media", "encrypted": true, "replay": "messageId", "maxPlaintextBytes": 32768,
       "outer": ["sessionId", "messageId", "nonce", "ciphertext"],
-      "payload": { "version": "integer, 1", "player": "string", "title": "string, at most 256 chars", "artist": "string, at most 256 chars", "playing": "boolean", "position": "integer, 0 to 604800", "duration": "integer, 0 to 604800", "volume": "integer, 0 to 100", "detail": "string, bounded", "artwork": "string, optional base64 JPEG, at most 16 KiB, at most 128x128" },
+      "payload": { "version": "integer, 1", "player": "string, the player's name, at most 64 chars", "title": "string, at most 256 chars", "artist": "string, at most 256 chars", "playing": "boolean", "position": "integer, 0 to 604800", "duration": "integer, 0 to 604800", "volume": "integer, 0 to 100", "detail": "string, bounded", "controls": "optional array of toggle | pause | next | previous | seek | volume (absent: all)", "artwork": "string, optional base64 JPEG, at most 16 KiB, at most 128x128" },
       "implemented": ["android", "macos"] },
     { "kind": "battery.update", "status": "upstream-v1", "direction": "either", "feature": "battery", "encrypted": true, "replay": "messageId",
       "outer": ["sessionId", "messageId", "nonce", "ciphertext"],

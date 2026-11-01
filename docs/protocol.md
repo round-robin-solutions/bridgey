@@ -191,18 +191,29 @@ that an operation definitely never reached the other peer.
   Acceptance means queued for explicit local Open/Dismiss, **not** opened.
 - `media`: Android → Mac, only `toggle`, `pause`, `next`, `previous`, `seek`
   (integer seconds 0…604800), `volume` (integer 0…100). The Mac must locally
-  opt in and select running Music or Spotify. Commands map to fixed player
-  AppleScript instructions, never received source code or a remote shell.
-  Automation failures and a busy player are reported as rejected. Accepted
-  means the player command completed, not that a particular track must exist.
-- `media.state`: Mac → Android; `version`, `player`, `title`/`artist` (256
-  characters each), boolean `playing`, integer `position`/`duration`
-  (0…604800), `volume` (0…100), bounded `detail`. Optional base64 `artwork`
-  contains at most 16 KiB JPEG, at most 128×128 pixels. The receiver validates
-  both encoded size and decoded dimensions before allocating a bitmap.
+  opt in and choose a player: Automatic (whatever is playing), Music, Spotify
+  or another app. Music and Spotify commands map to fixed player AppleScript
+  instructions; Automatic and other apps map to fixed MediaRemote command
+  numbers sent to the system's Now Playing app (a chosen app only while it is
+  the app playing). Never received source code or a remote shell. Automation
+  failures, a busy player and a command the player does not offer are reported
+  as rejected. Accepted means the player command completed, not that a
+  particular track must exist.
+- `media.state`: Mac → Android; `version`, `player` (the app's name, at most
+  64 characters: `Music`, `Spotify`, the app playing in Automatic, or `Off`),
+  `title`/`artist` (256 characters each), boolean `playing`, integer
+  `position`/`duration` (0…604800), `volume` (0…100), bounded `detail`.
+  Optional `controls` lists the commands the player takes (`toggle`, `pause`,
+  `next`, `previous`, `seek`, `volume`); Now Playing players have no volume.
+  Without `controls` (a Mac from before it), the phone offers every control.
+  The phone enables controls for any named player while `detail` is empty.
+  Optional base64 `artwork` contains at most 16 KiB JPEG, at most 128×128
+  pixels. The receiver validates both encoded size and decoded dimensions
+  before allocating a bitmap.
 
-Music artwork comes from player automation, not filesystem browsing; it is
-optional and may be unavailable. Spotify artwork is not downloaded. Metadata
+Music artwork comes from player automation, and Now Playing artwork from
+MediaRemote, not filesystem browsing; it is optional and may be unavailable.
+Spotify artwork is not downloaded. Metadata
 refreshes after commands/settings changes and on the ten-second heartbeat.
 
 ### Battery (`battery.send.v1`)

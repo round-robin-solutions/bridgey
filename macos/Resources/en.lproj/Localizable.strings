@@ -349,7 +349,7 @@
 "settings.macNotifications" = "Mac notifications";
 "settings.macNotifications.off" = "Not allowed yet; Android alerts can’t appear";
 "settings.macNotifications.on" = "Allowed, so Android alerts appear here";
-"settings.media.detail" = "macOS asks for Automation access to the player. Open the player on this Mac first.";
+"settings.media.detail" = "Music and Spotify: macOS asks once to let Bridgey control them. Other apps work while they show in Now Playing on this Mac.";
 "settings.calls.ring" = "Ring for incoming calls";
 "settings.calls.ring.detail" = "A soft ring repeats until you answer, decline or hide the call.";
 "settings.calls.otherApps" = "When another app asks to call";
@@ -360,7 +360,9 @@
 "settings.media.pauseForCalls" = "Pause media during phone calls";
 "settings.media.pauseForCalls.detail" = "Playback stays paused after the call; resume it when ready.";
 "settings.media.player" = "Player";
-"settings.media.player.detail" = "The Mac player the phone controls";
+"settings.media.player.detail" = "Automatic follows whatever is playing on this Mac. Or pick one app.";
+"media.player.automatic" = "Automatic (whatever is playing)";
+"media.player.off" = "Off";
 "settings.media.refresh" = "Refresh";
 "settings.mediaActions" = "Media and quick actions";
 "settings.mediaActions.short" = "Media and actions";

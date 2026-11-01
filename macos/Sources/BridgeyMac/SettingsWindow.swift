@@ -134,6 +134,7 @@ struct SettingsModel {
     var shortcutShift = false
     var shortcutError: String?
     var mediaPlayer: MediaPlayer = .off
+    var mediaChoices: [MediaPlayer] = MediaPlayer.fixed
     var pauseForCalls = false
     var ringForCalls = true
     var otherAppCallPolicy: MacOtherAppCallPolicy = .ask
@@ -905,7 +906,7 @@ private struct MediaActionsPane: View {
     let actions: SettingsActions
 
     var body: some View {
-        SettingsCard(footnote: model.mediaDetail.isEmpty ? L10n.text("settings.media.detail", fallback: "macOS asks for Automation access to the player. Open the player on this Mac first.") : model.mediaDetail) {
+        SettingsCard(footnote: model.mediaDetail.isEmpty ? L10n.text("settings.media.detail", fallback: "Music and Spotify: macOS asks once to let Bridgey control them. Other apps work while they show in Now Playing on this Mac.") : model.mediaDetail) {
             FeatureSwitch(feature: .media, model: model, actions: actions)
             MediaPlayerRow(model: model, actions: actions)
         }
@@ -1211,10 +1212,10 @@ struct MediaPlayerRow: View {
 
     var body: some View {
         SettingsRow(title: L10n.text("settings.media.player", fallback: "Player"),
-                    subtitle: L10n.text("settings.media.player.detail", fallback: "The Mac player the phone controls")) {
-            ChoiceButton(value: model.mediaPlayer.title) {
-                MediaPlayer.allCases.map { player in
-                    PopUpMenuItem(title: player.title, checked: player == model.mediaPlayer) { actions.setPlayer(player) }
+                    subtitle: L10n.text("settings.media.player.detail", fallback: "Automatic follows whatever is playing on this Mac. Or pick one app.")) {
+            ChoiceButton(value: model.mediaPlayer.menuTitle) {
+                model.mediaChoices.map { player in
+                    PopUpMenuItem(title: player.menuTitle, checked: player == model.mediaPlayer) { actions.setPlayer(player) }
                 }
             }
             Button(L10n.text("settings.media.refresh", fallback: "Refresh"), action: actions.refreshPlayer)
@@ -1833,6 +1834,7 @@ struct LiveSettingsView: View {
         model.shortcutShift = shortcuts.useShift
         model.shortcutError = shortcuts.error
         model.mediaPlayer = media.player
+        model.mediaChoices = media.choices
         model.pauseForCalls = media.pauseForCalls
         model.ringForCalls = settings.ringForIncomingCalls
         model.otherAppCallPolicy = settings.otherAppCallPolicy
