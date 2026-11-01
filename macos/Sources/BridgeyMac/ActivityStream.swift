@@ -121,6 +121,28 @@ struct ActivityItem: Codable, Equatable, Identifiable {
     var fileCount: Int? = nil
     /// Folders: where it landed, as a display path ("Pictures/Trip"), at most 128 characters.
     var destination: String? = nil
+    /// Clipboard sent: each device the copy went to, with its delivery state. Clipboard received:
+    /// each device the same clip came from (one copy, several paths). Nil on older items.
+    var peers: [ActivityPeer]? = nil
+}
+
+/// Where one copy went (or came from), stored with the clipboard item. Shared keys with Android.
+struct ActivityPeer: Codable, Equatable {
+    enum State: String, Codable {
+        /// Sent, no answer yet.
+        case pending
+        case delivered
+        /// No acknowledgement in time, or the session ended.
+        case failed
+        /// The device answered that Clipboard is off there.
+        case off
+    }
+
+    let deviceID: String?
+    let deviceName: String
+    var state: State
+
+    static let maximumCount = 16
 }
 
 /// The facts behind a folder item's detail line, stored in `content` as "key=value;..." (values
@@ -251,6 +273,7 @@ enum ActivityHistory {
         content: String? = nil,
         fileCount: Int? = nil,
         destination: String? = nil,
+        peers: [ActivityPeer]? = nil,
         now: Date,
         nextID: Int64
     ) -> [ActivityItem] {
@@ -298,9 +321,31 @@ enum ActivityHistory {
             bytes: cleanBytes,
             content: cleanContent,
             fileCount: kind.isFolder ? fileCount.map { min(max($0, 0), 1_000_000) } : nil,
-            destination: kind.isFolder ? clean(destination, limit: maximumNameLength) : nil
+            destination: kind.isFolder ? clean(destination, limit: maximumNameLength) : nil,
+            peers: cleanPeers(peers, kind: kind)
         )
         return prune([item] + items, now: now)
+    }
+
+    /// Replaces the peers of one item in place (a later acknowledgement of the same copy, or the
+    /// same clip arriving again through another device). Order and time stay as they were.
+    static func updatePeers(_ items: [ActivityItem], id: Int64, peers: [ActivityPeer]) -> [ActivityItem] {
+        items.map { item in
+            guard item.id == id else { return item }
+            var updated = item
+            updated.peers = cleanPeers(peers, kind: item.kind)
+            return updated
+        }
+    }
+
+    static func cleanPeers(_ peers: [ActivityPeer]?, kind: ActivityKind) -> [ActivityPeer]? {
+        guard kind == .clipboardSent || kind == .clipboardReceived || kind == .clipOfferSent,
+              let peers, !peers.isEmpty else { return nil }
+        let cleaned = peers.prefix(ActivityPeer.maximumCount).map {
+            ActivityPeer(deviceID: $0.deviceID.flatMap { $0.isEmpty ? nil : String($0.prefix(64)) },
+                         deviceName: cleanName($0.deviceName), state: $0.state)
+        }
+        return cleaned
     }
 
     private static func cleanContentValue(_ value: String?, kind: ActivityKind) -> String? {
@@ -344,7 +389,8 @@ enum ActivityHistory {
                 bytes: kind.isClipOffer || kind.isFolder ? value.bytes.map { max(0, $0) } : nil,
                 content: cleanContentValue(value.content, kind: kind),
                 fileCount: kind.isFolder ? value.fileCount.map { min(max($0, 0), 1_000_000) } : nil,
-                destination: kind.isFolder ? clean(value.destination, limit: maximumNameLength) : nil
+                destination: kind.isFolder ? clean(value.destination, limit: maximumNameLength) : nil,
+                peers: cleanPeers(value.peers?.compactMap(\.value), kind: kind)
             )
         }
         return prune(items, now: now)
@@ -356,7 +402,7 @@ enum ActivityHistory {
             id: item.id, kind: item.kind, deviceID: item.deviceID, deviceName: item.deviceName,
             fileName: item.kind.isClipOffer ? nil : item.fileName, preview: nil, appName: nil, sensitive: item.sensitive,
             automatic: item.automatic, count: item.count, at: item.at, bytes: item.bytes, content: item.content,
-            fileCount: item.fileCount, destination: item.destination
+            fileCount: item.fileCount, destination: item.destination, peers: item.peers
         )
     }
 
@@ -392,6 +438,13 @@ enum ActivityHistory {
         let content: String?
         let fileCount: Int?
         let destination: String?
+        let peers: [LenientPeer]?
+    }
+
+    /// A peer with an unknown state or a bad field is dropped on its own.
+    private struct LenientPeer: Decodable {
+        let value: ActivityPeer?
+        init(from decoder: Decoder) throws { value = try? ActivityPeer(from: decoder) }
     }
 }
 
@@ -468,6 +521,7 @@ final class ActivityLog: ObservableObject {
 
     /// `previews` is Settings > Privacy > Show previews in activity. Off: no preview text,
     /// app name or caller is kept for this event.
+    @discardableResult
     func record(
         _ kind: ActivityKind,
         deviceID: String?,
@@ -482,8 +536,9 @@ final class ActivityLog: ObservableObject {
         content: String? = nil,
         fileCount: Int? = nil,
         destination: String? = nil,
+        peers: [ActivityPeer]? = nil,
         previews: Bool
-    ) {
+    ) -> Int64? {
         let updated = ActivityHistory.add(
             items,
             kind: kind,
@@ -500,10 +555,22 @@ final class ActivityLog: ObservableObject {
             content: content,
             fileCount: fileCount,
             destination: destination,
+            peers: peers,
             now: clock(),
             nextID: nextID
         )
+        let recorded = updated.first?.id
         if updated.contains(where: { $0.id == nextID }) { nextID += 1 }
+        items = updated
+        store?.save(updated)
+        return recorded
+    }
+
+    /// Updates the devices of one copy's item; nothing happens if it was pruned or cleared.
+    func updatePeers(id: Int64, peers: [ActivityPeer]) {
+        guard items.contains(where: { $0.id == id }) else { return }
+        let updated = ActivityHistory.updatePeers(items, id: id, peers: peers)
+        guard updated != items else { return }
         items = updated
         store?.save(updated)
     }

@@ -123,12 +123,14 @@ final class ClipboardChunkSender: @unchecked Sendable {
     }
 }
 
+/// Every call names the device: one offer can go to several devices (Automatic clipboard), and each
+/// fetch, push and answer belongs to the device that asked.
 struct ClipboardOutboxTransport {
-    var isConnected: () -> Bool = { false }
-    /// Encrypts `payload` and sends it as `kind`, with `transferID` in the outer message.
-    var sendEncrypted: (_ kind: String, _ payload: Data, _ transferID: String?) -> Bool = { _, _, _ in false }
-    var sendCancel: (String) -> Void = { _ in }
-    var chunkSender: () -> ClipboardChunkSender? = { nil }
+    var isConnected: (_ deviceID: String) -> Bool = { _ in false }
+    /// Encrypts `payload` and sends it as `kind` to `deviceID`, with `transferID` in the outer message.
+    var sendEncrypted: (_ kind: String, _ payload: Data, _ transferID: String?, _ deviceID: String) -> Bool = { _, _, _, _ in false }
+    var sendCancel: (_ transferID: String, _ deviceID: String) -> Void = { _, _ in }
+    var chunkSender: (_ deviceID: String) -> ClipboardChunkSender? = { _ in nil }
 }
 
 enum ClipboardStreamError: Error, Equatable {
@@ -302,17 +304,25 @@ final class ClipboardOutbox {
         let sources: [ClipboardOutgoingSource]
         /// The pasteboard change count the offer describes.
         let changeCount: Int
-        let deviceID: String
+        /// The devices the offer went to, first one first.
+        var deviceIDs: [String]
+
+        /// The first device (one target for a manual send).
+        var deviceID: String { deviceIDs[0] }
+
+        func includes(_ deviceID: String) -> Bool { deviceIDs.contains(deviceID) }
     }
 
     private(set) var current: Current?
     private(set) var transfers: [String: ClipboardOutgoingTransfer] = [:]
+    /// The device each running transfer serves.
+    private var transferDevices: [String: String] = [:]
     var transport = ClipboardOutboxTransport()
     /// Clipboard and Copy images and files are on for both devices.
     var available: () -> Bool = { false }
     var pasteboardChangeCount: () -> Int = { NSPasteboard.general.changeCount }
     let cache: ClipboardCache
-    private var pushQueue: [Int] = []
+    private var pushQueue: [(deviceID: String, index: Int)] = []
     private var pushing: String?
     private var timeouts: [String: DispatchWorkItem] = [:]
     private var finishedTransferIDs: [String] = []
@@ -328,16 +338,27 @@ final class ClipboardOutbox {
         return transfers[transferID] != nil || finishedTransferIDs.contains(transferID)
     }
 
-    /// A running transfer, and `deviceID` is the phone the offer went to.
+    /// A running transfer that serves `deviceID`.
     func serves(_ transferID: String?, to deviceID: String) -> Bool {
         guard let transferID, transfers[transferID] != nil else { return false }
-        return current?.deviceID == deviceID
+        return transferDevices[transferID] == deviceID
+    }
+
+    /// The device a running transfer serves.
+    func device(for transferID: String?) -> String? {
+        transferID.flatMap { transferDevices[$0] }
     }
 
     /// A new outgoing offer replaces the previous one.
     func begin(offer: ClipboardOffer, sources: [ClipboardOutgoingSource], changeCount: Int, deviceID: String) {
         supersede()
-        current = Current(offer: offer, sources: sources, changeCount: changeCount, deviceID: deviceID)
+        current = Current(offer: offer, sources: sources, changeCount: changeCount, deviceIDs: [deviceID])
+    }
+
+    /// The same offer also went to another device.
+    func add(deviceID: String) {
+        guard current?.includes(deviceID) == false else { return }
+        current?.deviceIDs.append(deviceID)
     }
 
     /// Stops serving the current offer (a newer clip in either direction).
@@ -345,18 +366,20 @@ final class ClipboardOutbox {
         pushQueue = []
         pushing = nil
         for transfer in transfers.values {
-            transport.sendCancel(transfer.transferID)
+            if let deviceID = transferDevices[transfer.transferID] { transport.sendCancel(transfer.transferID, deviceID) }
             finish(transfer.transferID)
         }
         if let old = current { cache.removeOutgoing(offerID: old.offer.offerId) }
         current = nil
     }
 
-    /// The session ended: running transfers stop; the offer stays for the same phone.
-    func connectionLost() {
-        pushQueue = []
-        pushing = nil
-        for transfer in transfers.values { finish(transfer.transferID) }
+    /// A session ended: that device's running transfers stop (every device's when nil); the offer
+    /// stays for the same devices.
+    func connectionLost(deviceID: String? = nil) {
+        pushQueue.removeAll { deviceID == nil || $0.deviceID == deviceID }
+        for transfer in transfers.values where deviceID == nil || transferDevices[transfer.transferID] == deviceID {
+            finish(transfer.transferID)
+        }
     }
 
     func clearAll() {
@@ -365,18 +388,19 @@ final class ClipboardOutbox {
 
     // MARK: Fetches and eager pushes
 
-    /// Validates a fetch and either starts its transfer or answers clipboard.error.
-    func handleFetch(_ fetch: ClipboardFetchPayload) {
-        if let code = refusal(for: fetch) {
-            sendError(code, offerID: fetch.offerId, index: fetch.index, transferID: fetch.transferId)
+    /// Validates a fetch from `deviceID` and either starts its transfer or answers clipboard.error.
+    func handleFetch(_ fetch: ClipboardFetchPayload, from deviceID: String) {
+        if let code = refusal(for: fetch, from: deviceID) {
+            sendError(code, offerID: fetch.offerId, index: fetch.index, transferID: fetch.transferId, to: deviceID)
             return
         }
-        start(index: fetch.index, transferID: fetch.transferId, isFetch: true)
+        start(index: fetch.index, transferID: fetch.transferId, isFetch: true, deviceID: deviceID)
     }
 
-    func refusal(for fetch: ClipboardFetchPayload) -> ClipboardErrorCode? {
+    func refusal(for fetch: ClipboardFetchPayload, from deviceID: String? = nil) -> ClipboardErrorCode? {
         guard available() else { return .disabled }
-        guard let current, current.offer.offerId == fetch.offerId, current.offer.items.indices.contains(fetch.index) else { return .expired }
+        guard let current, current.offer.offerId == fetch.offerId, current.offer.items.indices.contains(fetch.index),
+              deviceID.map(current.includes) ?? true else { return .expired }
         guard transfers[fetch.transferId] == nil else { return .busy }
         guard pasteboardChangeCount() == current.changeCount else { return .changed }
         let item = current.offer.items[fetch.index]
@@ -396,27 +420,28 @@ final class ClipboardOutbox {
         return nil
     }
 
-    /// Pushes small items right after the offer, one at a time.
-    func startEagerPushes(limit: Int64) {
-        guard let current else { return }
-        pushQueue = clipboardEagerIndices(current.offer.items, limit: limit)
+    /// Pushes small items to `deviceID` right after it took the offer, one at a time.
+    func startEagerPushes(limit: Int64, for deviceID: String) {
+        guard let current, current.includes(deviceID) else { return }
+        pushQueue.removeAll { $0.deviceID == deviceID }
+        pushQueue += clipboardEagerIndices(current.offer.items, limit: limit).map { (deviceID, $0) }
         pumpPushes()
     }
 
     private func pumpPushes() {
-        guard pushing == nil, current != nil, activeCount < ClipboardOfferLimits.maximumConcurrentTransfers,
-              !pushQueue.isEmpty, transport.isConnected() else { return }
-        let index = pushQueue.removeFirst()
-        let transferID = UUID().uuidString.lowercased()
-        pushing = transferID
-        if !start(index: index, transferID: transferID, isFetch: false) {
+        guard pushing == nil, current != nil, activeCount < ClipboardOfferLimits.maximumConcurrentTransfers else { return }
+        while let next = pushQueue.first {
+            pushQueue.removeFirst()
+            guard transport.isConnected(next.deviceID) else { continue }
+            let transferID = UUID().uuidString.lowercased()
+            pushing = transferID
+            if start(index: next.index, transferID: transferID, isFetch: false, deviceID: next.deviceID) { return }
             pushing = nil
-            pumpPushes()
         }
     }
 
     @discardableResult
-    private func start(index: Int, transferID: String, isFetch: Bool) -> Bool {
+    private func start(index: Int, transferID: String, isFetch: Bool, deviceID: String) -> Bool {
         guard let current, current.offer.items.indices.contains(index) else { return false }
         let item = current.offer.items[index]
         let transfer = ClipboardOutgoingTransfer(transferID: transferID, offerID: current.offer.offerId, index: index,
@@ -425,7 +450,8 @@ final class ClipboardOutbox {
                                            size: item.size, sha256: item.sha256, offerId: current.offer.offerId, index: index)
         guard let payload = try? JSONEncoder().encode(offer) else { return false }
         transfers[transferID] = transfer
-        guard transport.sendEncrypted("files.offer", payload, transferID) else {
+        transferDevices[transferID] = deviceID
+        guard transport.sendEncrypted("files.offer", payload, transferID, deviceID) else {
             finish(transferID)
             return false
         }
@@ -436,9 +462,9 @@ final class ClipboardOutbox {
     // MARK: Messages from the phone
 
     func handleAccept(_ transferID: String) {
-        guard let transfer = transfers[transferID] else { return }
+        guard let transfer = transfers[transferID], let deviceID = transferDevices[transferID] else { return }
         timeouts.removeValue(forKey: transferID)?.cancel()
-        guard let sender = transport.chunkSender() else { finish(transferID); return }
+        guard let sender = transport.chunkSender(deviceID) else { finish(transferID); return }
         transfer.stream(with: sender) { [weak self] result in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.streamFinished(transfer, result) }
@@ -447,19 +473,19 @@ final class ClipboardOutbox {
     }
 
     private func streamFinished(_ transfer: ClipboardOutgoingTransfer, _ result: Result<String, ClipboardStreamError>) {
-        guard transfers[transfer.transferID] === transfer else { return }
+        guard transfers[transfer.transferID] === transfer, let deviceID = transferDevices[transfer.transferID] else { return }
         switch result {
         case let .success(hash):
             guard let payload = try? JSONEncoder().encode(ClipboardTransferComplete(transferId: transfer.transferID, sha256: hash)),
-                  transport.sendEncrypted("files.complete", payload, transfer.transferID) else {
+                  transport.sendEncrypted("files.complete", payload, transfer.transferID, deviceID) else {
                 finish(transfer.transferID)
                 return
             }
             schedule(timeout: 15, for: transfer.transferID)
         case let .failure(error):
             switch error {
-            case .changed: sendError(.changed, offerID: transfer.offerID, index: transfer.index, transferID: transfer.transferID)
-            case .unavailable: sendError(.unavailable, offerID: transfer.offerID, index: transfer.index, transferID: transfer.transferID)
+            case .changed: sendError(.changed, offerID: transfer.offerID, index: transfer.index, transferID: transfer.transferID, to: deviceID)
+            case .unavailable: sendError(.unavailable, offerID: transfer.offerID, index: transfer.index, transferID: transfer.transferID, to: deviceID)
             case .cancelled, .connection: break
             }
             finish(transfer.transferID)
@@ -482,9 +508,9 @@ final class ClipboardOutbox {
         finish(transferID)
     }
 
-    private func sendError(_ code: ClipboardErrorCode, offerID: String, index: Int, transferID: String) {
+    private func sendError(_ code: ClipboardErrorCode, offerID: String, index: Int, transferID: String, to deviceID: String) {
         guard let payload = try? JSONEncoder().encode(ClipboardErrorPayload(offerId: offerID, index: index, transferId: transferID, code: code)) else { return }
-        _ = transport.sendEncrypted("clipboard.error", payload, transferID)
+        _ = transport.sendEncrypted("clipboard.error", payload, transferID, deviceID)
     }
 
     private func schedule(timeout seconds: TimeInterval, for transferID: String) {
@@ -492,7 +518,7 @@ final class ClipboardOutbox {
         let work = DispatchWorkItem { [weak self] in
             guard let self, let transfer = self.transfers[transferID] else { return }
             transfer.cancel()
-            self.transport.sendCancel(transferID)
+            if let deviceID = self.transferDevices[transferID] { self.transport.sendCancel(transferID, deviceID) }
             self.finish(transferID)
         }
         timeouts[transferID] = work
@@ -502,6 +528,7 @@ final class ClipboardOutbox {
     private func finish(_ transferID: String) {
         timeouts.removeValue(forKey: transferID)?.cancel()
         guard let transfer = transfers.removeValue(forKey: transferID) else { return }
+        transferDevices[transferID] = nil
         transfer.cancel()
         finishedTransferIDs.append(transferID)
         if finishedTransferIDs.count > 64 { finishedTransferIDs.removeFirst(finishedTransferIDs.count - 64) }

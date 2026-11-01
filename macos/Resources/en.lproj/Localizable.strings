@@ -1641,3 +1641,17 @@
 "developer.tapsLeft.one" = "%d more click to open the developer pane";
 "developer.transfers" = "How files travel now";
 "settings.developer" = "Developer and experimental";
+
+/* One copy, one activity item */
+"stream.clipboard.copiedTo" = "Copied to %@";
+"stream.clip.alsoFrom" = "Also came through %@";
+"stream.clip.waiting" = "Waiting for %@";
+"stream.clip.missed" = "Not delivered to %@";
+"stream.clip.offersOff" = "Copy images and files is off on %@";
+"stream.clip.off" = "Clipboard is off on %@";
+"clipboard.status.sending" = "Sending…";
+"clipboard.status.delivered" = "Delivered";
+"clipboard.status.offersOff" = "Copy images and files is turned off on %@";
+"clipboard.status.off" = "Clipboard is turned off on %@";
+"clipboard.status.noAck" = "No delivery acknowledgement";
+"clipboard.status.missed" = "Not delivered to %@";

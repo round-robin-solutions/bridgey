@@ -1641,3 +1641,17 @@
 "developer.tapsLeft.one" = "Ещё %d нажатие, и откроется раздел для разработчиков";
 "developer.transfers" = "Как файлы передаются сейчас";
 "settings.developer" = "Для разработчиков и эксперименты";
+
+/* One copy, one activity item */
+"stream.clipboard.copiedTo" = "Скопировано на %@";
+"stream.clip.alsoFrom" = "Также пришло через %@";
+"stream.clip.waiting" = "Ждём %@";
+"stream.clip.missed" = "Не доставлено на %@";
+"stream.clip.offersOff" = "Копирование изображений и файлов выключено на %@";
+"stream.clip.off" = "Буфер обмена выключен на %@";
+"clipboard.status.sending" = "Отправка…";
+"clipboard.status.delivered" = "Доставлено";
+"clipboard.status.offersOff" = "Копирование изображений и файлов выключено на %@";
+"clipboard.status.off" = "Буфер обмена выключен на %@";
+"clipboard.status.noAck" = "Нет подтверждения доставки";
+"clipboard.status.missed" = "Не доставлено на %@";

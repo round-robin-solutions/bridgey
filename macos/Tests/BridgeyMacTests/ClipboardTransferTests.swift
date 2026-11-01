@@ -370,8 +370,8 @@ final class ClipboardTransferTests: XCTestCase {
         outbox.available = { true }
         outbox.pasteboardChangeCount = changeCount
         outbox.transport = ClipboardOutboxTransport(
-            isConnected: { true },
-            sendEncrypted: { kind, payload, _ in
+            isConnected: { _ in true },
+            sendEncrypted: { kind, payload, _, _ in
                 if kind == "clipboard.error", let error = try? JSONDecoder().decode(ClipboardErrorPayload.self, from: payload) {
                     log.append("error:\(error.code.rawValue)")
                 } else {
@@ -379,8 +379,8 @@ final class ClipboardTransferTests: XCTestCase {
                 }
                 return true
             },
-            sendCancel: { _ in log.append("cancel") },
-            chunkSender: { nil }
+            sendCancel: { _, _ in log.append("cancel") },
+            chunkSender: { _ in nil }
         )
         return (outbox, { log })
     }
@@ -410,8 +410,22 @@ final class ClipboardTransferTests: XCTestCase {
         XCTAssertEqual(outbox.refusal(for: fetch()), .unavailable)
         outbox.available = { false }
         XCTAssertEqual(outbox.refusal(for: fetch()), .disabled)
-        outbox.handleFetch(fetch())
+        outbox.handleFetch(fetch(), from: "phone")
         XCTAssertEqual(log(), ["error:disabled"])
+    }
+
+    /// One automatic copy goes to every device: each one it went to may fetch it, others may not.
+    @MainActor func testOneOfferServesEveryDeviceItWentTo() throws {
+        let (outbox, log) = makeOutbox()
+        let (draft, sources) = try XCTUnwrap(ClipboardOfferBuilder.images([ClipboardImageClip(data: Data(repeating: 1, count: 100), mime: "image/png")], cache: cache))
+        outbox.begin(offer: draft, sources: sources, changeCount: 1, deviceID: "phone")
+        outbox.add(deviceID: "mac")
+        func fetch() -> ClipboardFetchPayload { ClipboardFetchPayload(offerId: draft.offerId, index: 0, transferId: UUID().uuidString) }
+        XCTAssertNil(outbox.refusal(for: fetch(), from: "phone"))
+        XCTAssertNil(outbox.refusal(for: fetch(), from: "mac"))
+        XCTAssertEqual(outbox.refusal(for: fetch(), from: "stranger"), .expired)
+        outbox.handleFetch(fetch(), from: "stranger")
+        XCTAssertEqual(log(), ["error:expired"])
     }
 
     @MainActor func testEagerPushesStartOneAtATimeWithinTheLimit() throws {
@@ -421,7 +435,7 @@ final class ClipboardTransferTests: XCTestCase {
             ClipboardImageClip(data: small, mime: "image/png"), ClipboardImageClip(data: small, mime: "image/png"),
         ], cache: cache))
         outbox.begin(offer: draft, sources: sources, changeCount: 1, deviceID: "phone")
-        outbox.startEagerPushes(limit: ClipboardEagerLimit.twentyFiveMB.bytes)
+        outbox.startEagerPushes(limit: ClipboardEagerLimit.twentyFiveMB.bytes, for: "phone")
         XCTAssertEqual(log(), ["files.offer"], "pushes run one after another")
         XCTAssertEqual(outbox.activeCount, 1)
         outbox.supersede()
@@ -433,7 +447,7 @@ final class ClipboardTransferTests: XCTestCase {
         let (other, otherLog) = makeOutbox()
         let (again, againSources) = try XCTUnwrap(ClipboardOfferBuilder.images([ClipboardImageClip(data: small, mime: "image/png")], cache: cache))
         other.begin(offer: again, sources: againSources, changeCount: 1, deviceID: "phone")
-        other.startEagerPushes(limit: ClipboardEagerLimit.askWhenPasting.bytes)
+        other.startEagerPushes(limit: ClipboardEagerLimit.askWhenPasting.bytes, for: "phone")
         XCTAssertEqual(otherLog(), [], "Always ask when pasting pushes nothing")
     }
 
