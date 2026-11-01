@@ -4321,17 +4321,22 @@ class PairingCoordinator(
             return failHandshake(current, PairingFailure.INVALID, "Pairing without a key commitment refused")
         }
         // The code prompt belongs to one pairing at a time. A pairing this phone started keeps it even before its code
-        // is ready. The busy check, the claim and the published prompt are one step, so two pairings cannot race.
-        val claimed = pairingSlot.claim(current, busy = { existing -> !existing.closed && (existing.code != null || existing.initiatedLocally) }) {
-            current.prompted = true
-            current.promptedAtMillis = SystemClock.elapsedRealtime()
-            allowWaitStartedAt = null
-            allowRetryJob?.cancel()
-            // The code shows: a parked pairing does not come back after this.
-            parkedPairing = null
-            lastTarget = current.target ?: PairingTarget(current.peerName, deviceId = current.remoteDeviceId)
-            mutablePairingRequest.value?.takeIf { it.deviceId.equals(current.remoteDeviceId, ignoreCase = true) }?.let { mutablePairingRequest.value = null }
-            mutablePairingFlow.value = verificationState(current)
+        // is ready, also between its dials while it waits for Allow pairing on that device (the slot is empty then): only
+        // the tapped device's own offer sets that wait aside first ([yieldOwnPairing]). The busy check, the claim and the
+        // published prompt are one step, so two pairings cannot race.
+        val claimed = pairingSlot.locked {
+            val ownWaitForAllow = allowWaitStartedAt != null && !current.initiatedLocally && pairingSession !== current
+            !ownWaitForAllow && pairingSlot.claim(current, busy = { existing -> !existing.closed && (existing.code != null || existing.initiatedLocally) }) {
+                current.prompted = true
+                current.promptedAtMillis = SystemClock.elapsedRealtime()
+                allowWaitStartedAt = null
+                allowRetryJob?.cancel()
+                // The code shows: a parked pairing does not come back after this.
+                parkedPairing = null
+                lastTarget = current.target ?: PairingTarget(current.peerName, deviceId = current.remoteDeviceId)
+                mutablePairingRequest.value?.takeIf { it.deviceId.equals(current.remoteDeviceId, ignoreCase = true) }?.let { mutablePairingRequest.value = null }
+                mutablePairingFlow.value = verificationState(current)
+            }
         }
         if (!claimed) {
             BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING rejected: another pairing is waiting for confirmation")

@@ -90,7 +90,14 @@ class PairingCoordinatorCrossedTest {
     private fun notArmed(sessionId: String) = JSONObject().put("kind", "pairing.cancel").put("sessionId", sessionId).put("reason", "not_armed")
 
     /** A committed first-pairing offer to the phone from [from], claiming [deviceId]. */
-    private fun offerFrom(from: InetAddress, phone: Phone, deviceId: String): Peer {
+    private fun offerFrom(from: InetAddress, phone: Phone, deviceId: String): Peer = committedOffer(from, phone, deviceId).peer
+
+    /** A committed offer on [peer] with [sessionId], committing to [publicKey] (sent in a later pairing.reveal). */
+    private class Offer(val peer: Peer, val sessionId: String, val publicKey: String) {
+        fun reveal() = peer.write(JSONObject().put("kind", "pairing.reveal").put("sessionId", sessionId).put("publicKey", publicKey))
+    }
+
+    private fun committedOffer(from: InetAddress, phone: Phone, deviceId: String): Offer {
         val socket = Socket().apply {
             bind(InetSocketAddress(from, 0))
             connect(InetSocketAddress(loopback, phone.port), 5_000)
@@ -98,12 +105,12 @@ class PairingCoordinatorCrossedTest {
         }
         val sessionId = UUID.randomUUID().toString()
         val key = Crypto.encodePublicKey(Crypto.generateKeyPair())
-        return Peer(socket).also {
-            it.write(
-                JSONObject().put("kind", "pairing.offer").put("sessionId", sessionId).put("deviceId", deviceId)
-                    .put("deviceName", "Work Mac").put("commitment", SessionSecurity.commitment(sessionId, key)).put("protocolVersion", 2),
-            )
-        }
+        val peer = Peer(socket)
+        peer.write(
+            JSONObject().put("kind", "pairing.offer").put("sessionId", sessionId).put("deviceId", deviceId)
+                .put("deviceName", "Work Mac").put("commitment", SessionSecurity.commitment(sessionId, key)).put("protocolVersion", 2),
+        )
+        return Offer(peer, sessionId, key)
     }
 
     /**
@@ -149,6 +156,49 @@ class PairingCoordinatorCrossedTest {
             assertTrue(resumed.has("commitment"))
             pairing.cancel()
             listOf(first, second, third).forEach { it.socket.close() }
+        }
+    }
+
+    /**
+     * The same spoofer while this phone is armed (Allow pairing, or setup's pair step holds it) during the wait for
+     * Allow pairing on the tapped Mac: its offer is answered like any armed offer, but between the user's dials the
+     * prompt slot is empty, and its reveal must not take the code step from the user's pairing. It gets `busy`, the
+     * user's pairing keeps waiting and dialling, and the Mac's own answer still brings up the code.
+     */
+    @Test
+    fun aSpoofedOfferWhileArmedDuringTheAllowWaitIsBusyAndTheUsersPairingGoesOn() {
+        val macId = "00000000-0000-4000-8000-00000000000a"
+        ServerSocket(0, 8, loopback).use { mac ->
+            val phone = phone("ffffffff-ffff-4fff-bfff-ffffffffffff")
+            val pairing = phone.pairing
+            pairing.armPairing()
+            pairing.pair(loopback.hostAddress!!, mac.localPort, "Work Mac", macId, addresses = listOf(loopback.hostAddress!!))
+            val (first, offer) = nextDial(mac, 10_000) ?: error("no dial")
+            first.write(notArmed(offer.getString("sessionId")))
+            assertTrue(waitFor(5_000) { pairing.pairingFlow.value is PairingState.WaitingForAllow })
+
+            // Between the user's dials (one every 3 s): answered, as armed, then refused at the code step.
+            val spoofer = committedOffer(spooferAddress, phone, macId)
+            assertEquals("pairing.answer", spoofer.peer.read()?.getString("kind"))
+            spoofer.reveal()
+            val refused = spoofer.peer.read()
+            assertEquals("pairing.cancel", refused?.getString("kind"))
+            assertEquals("busy", refused?.getString("reason"))
+            spoofer.peer.socket.close()
+            assertTrue("still waiting: ${pairing.pairingFlow.value}", pairing.pairingFlow.value is PairingState.WaitingForAllow)
+
+            // The user's pairing dials again, and the Mac (now allowing pairing) answers it: its code shows.
+            val (second, again) = nextDial(mac, 8_000) ?: error("the user's pairing stopped dialling")
+            val sessionId = again.getString("sessionId")
+            assertTrue(again.has("commitment"))
+            second.write(
+                JSONObject().put("kind", "pairing.answer").put("sessionId", sessionId).put("deviceId", macId)
+                    .put("deviceName", "Work Mac").put("publicKey", Crypto.encodePublicKey(Crypto.generateKeyPair())).put("protocolVersion", 2),
+            )
+            assertEquals("pairing.reveal", second.read()?.getString("kind"))
+            assertTrue("the user's code shows: ${pairing.pairingFlow.value}", waitFor(5_000) { pairing.pairingFlow.value is PairingState.Verification })
+            pairing.cancel()
+            listOf(first, second).forEach { it.socket.close() }
         }
     }
 
