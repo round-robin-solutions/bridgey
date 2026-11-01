@@ -1502,14 +1502,14 @@ class PairingCoordinator(
             return
         }
         if (!registry.isActive(target)) {
-            mutableClipboardStatus.value = "Not connected — clipboard was not sent"
+            mutableClipboardStatus.value = "Not connected, so the clipboard was not sent"
             finish(ClipboardSendResult.NOT_CONNECTED)
             return
         }
         scope.launch {
             val current = target
             if (!registry.isActive(current)) {
-                mutableClipboardStatus.value = "Not connected — clipboard was not sent"
+                mutableClipboardStatus.value = "Not connected, so the clipboard was not sent"
                 finish(ClipboardSendResult.NOT_CONNECTED)
                 return@launch
             }

@@ -450,16 +450,18 @@ class ActivityLog(
         return if (created) newId else updated.firstOrNull { it.kind == kind && it.atMillis == now }?.id
     }
 
-    /** One copy's item follows each device's answer; the item keeps its place and time. */
+    /** One copy's item follows each device's answer; the item keeps its place and time. False when the item is gone. */
     @Synchronized
-    fun updatePeers(id: Long, peers: List<ActivityPeer>) {
+    fun updatePeers(id: Long, peers: List<ActivityPeer>): Boolean {
         val current = mutableItems.value
+        if (current.none { it.id == id }) return false
         val updated = current.map { item ->
             if (item.id == id) item.copy(peers = ActivityHistory.cleanPeers(item.kind, peers)) else item
         }
-        if (updated == current) return
+        if (updated == current) return true
         mutableItems.value = updated
         persist(updated)
+        return true
     }
 
     /** Drops expired items; called when the stream is shown. */

@@ -566,13 +566,15 @@ final class ActivityLog: ObservableObject {
         return recorded
     }
 
-    /// Updates the devices of one copy's item; nothing happens if it was pruned or cleared.
-    func updatePeers(id: Int64, peers: [ActivityPeer]) {
-        guard items.contains(where: { $0.id == id }) else { return }
+    /// Updates the devices of one copy's item. False when the item is gone (pruned or cleared).
+    @discardableResult
+    func updatePeers(id: Int64, peers: [ActivityPeer]) -> Bool {
+        guard items.contains(where: { $0.id == id }) else { return false }
         let updated = ActivityHistory.updatePeers(items, id: id, peers: peers)
-        guard updated != items else { return }
+        guard updated != items else { return true }
         items = updated
         store?.save(updated)
+        return true
     }
 
     /// Drops expired items; called when the stream is shown.

@@ -211,10 +211,10 @@ internal fun recordPeerEvent(log: ActivityLog, event: PeerEvent, previews: Boole
     } else if (groups != null && (kind == ActivityKind.CLIPBOARD_RECEIVED || kind == ActivityKind.CLIP_OFFER_RECEIVED)) {
         arrivalHash = event.clipHash ?: event.clipboardText?.let(ClipActivityGroups::textHash)
         if (arrivalHash != null) {
-            groups.arrived(arrivalHash, event.deviceId, event.deviceName, now())?.let { update ->
-                update.itemId?.let { log.updatePeers(it, update.peers) }
-                return
-            }
+            // An earlier item that was cleared or pruned meanwhile no longer counts: this arrival gets its own.
+            val update = groups.arrived(arrivalHash, event.deviceId, event.deviceName, now())
+            val joined = update?.itemId
+            if (update != null && joined != null && log.updatePeers(joined, update.peers)) return
         }
     }
     val id = if (kind.isClipOffer) {

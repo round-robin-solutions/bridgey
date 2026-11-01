@@ -104,6 +104,18 @@ class ClipActivityTest {
     }
 
     @Test
+    fun aClearedItemDoesNotSwallowTheSecondArrival() {
+        val log = log()
+        val groups = ClipActivityGroups()
+        val fromMbp = PeerEvent(PeerActivity.CLIPBOARD_RECEIVED, "mbp", "MacBook Pro", "Room 2 at 4", automatic = true)
+        recordPeerEvent(log, fromMbp, previews = true, groups = groups) { now }
+        log.clear()
+        now += 800
+        recordPeerEvent(log, fromMbp.copy(deviceId = "work", deviceName = "Work Mac"), previews = true, groups = groups) { now }
+        assertEquals("Work Mac", log.items.value.single().deviceName)
+    }
+
+    @Test
     fun offersMatchByItemHashes() {
         val log = log()
         val groups = ClipActivityGroups()

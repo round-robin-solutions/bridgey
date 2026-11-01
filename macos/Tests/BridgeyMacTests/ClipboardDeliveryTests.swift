@@ -88,10 +88,13 @@ final class ClipboardDeliveryTests: XCTestCase {
         XCTAssertNotNil(id)
         var delivered = peers
         delivered[1].state = .delivered
-        log.updatePeers(id: id!, peers: delivered)
+        XCTAssertTrue(log.updatePeers(id: id!, peers: delivered))
         XCTAssertEqual(log.items.count, 1)
         XCTAssertEqual(ActivityText.title(log.items[0], showPreviews: true), "Copied to OnePlus 11 5G and MacBook Pro")
         XCTAssertEqual(ActivityText.detail(log.items[0], showPreviews: true), "Automatic \u{00B7} \u{201C}hello\u{201D}")
+        // A cleared item is gone: the caller records a new one instead.
+        log.clear()
+        XCTAssertFalse(log.updatePeers(id: id!, peers: delivered))
     }
 
     func testRowWordsShowEachDevicesState() {

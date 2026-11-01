@@ -1683,9 +1683,10 @@ final class PairingCoordinator: ObservableObject {
     private func recordClipArrival(hash: String, in current: Session, record: () -> Int64?) {
         let now = Date()
         let peer = ActivityPeer(deviceID: current.remoteDeviceID, deviceName: current.peerName, state: .delivered)
+        // An earlier item that was cleared or pruned meanwhile no longer counts: this arrival gets its own.
         if let earlier = clipArrivals.match(hash: hash, deviceID: current.remoteDeviceID, now: now),
-           let peers = clipArrivals.add(peer: peer, to: earlier.activityID) {
-            activity.updatePeers(id: earlier.activityID, peers: peers)
+           let peers = clipArrivals.add(peer: peer, to: earlier.activityID),
+           activity.updatePeers(id: earlier.activityID, peers: peers) {
             return
         }
         guard let id = record() else { return }
