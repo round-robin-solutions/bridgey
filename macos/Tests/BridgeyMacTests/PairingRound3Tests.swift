@@ -66,19 +66,76 @@ final class PairingRound3Tests: XCTestCase {
     func testCrossedPairingHasOneWinnerAndOnlyForTheDeviceBeingPaired() {
         let work = "09cdc5a3-0000-4000-8000-000000000000"
         let personal = "586c4581-0000-4000-8000-000000000000"
+        let workAt = CrossedPairingTarget(deviceID: work, addresses: ["192.168.29.148"])
+        let personalAt = CrossedPairingTarget(deviceID: personal, addresses: ["rb1.local.", "192.168.29.194"])
+        func crossed(_ local: String, _ remote: String, from source: String?, _ target: CrossedPairingTarget?,
+                     pending: Bool = true, committed: Bool = true) -> CrossedPairing {
+            PairingRules.crossedPairing(localDeviceID: local, remoteDeviceID: remote, sourceAddress: source, target: target,
+                                        ownPending: pending, committedOffer: committed)
+        }
         // The higher ID answers the lower one's committed offer, even with pairing not armed...
-        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: personal, remoteDeviceID: work, ownPairingTarget: work, committedOffer: true), .answer)
+        XCTAssertEqual(crossed(personal, work, from: "192.168.29.148", workAt), .answer)
         // ...and the lower ID keeps its own dial (the other side answers it).
-        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: work, remoteDeviceID: personal, ownPairingTarget: personal, committedOffer: true), .keepOwn)
-        // IDs compare without case.
-        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: personal.uppercased(), remoteDeviceID: work, ownPairingTarget: work.uppercased(), committedOffer: true), .answer)
+        XCTAssertEqual(crossed(work, personal, from: "192.168.29.194", personalAt), .keepOwn)
+        // IDs compare without case; an IPv4-mapped source is the same address.
+        XCTAssertEqual(crossed(personal.uppercased(), work.uppercased(), from: "::ffff:192.168.29.148", workAt), .answer)
         // Only the device this end is pairing with: any other device still needs Allow pairing.
         let stranger = "00000000-0000-4000-8000-000000000001"
-        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: personal, remoteDeviceID: stranger, ownPairingTarget: work, committedOffer: true), .none)
-        // Not pairing at all, an uncommitted (reconnect) offer, or an offer under this end's own ID: the usual rules.
-        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: personal, remoteDeviceID: work, ownPairingTarget: nil, committedOffer: true), .none)
-        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: personal, remoteDeviceID: work, ownPairingTarget: work, committedOffer: false), .none)
-        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: personal, remoteDeviceID: personal, ownPairingTarget: personal, committedOffer: true), .none)
+        XCTAssertEqual(crossed(personal, stranger, from: "192.168.29.148", workAt), .none)
+        // Not pairing any more, an uncommitted (reconnect) offer, or an offer under this end's own ID: the usual rules.
+        XCTAssertEqual(crossed(personal, work, from: "192.168.29.148", nil), .none)
+        XCTAssertEqual(crossed(personal, work, from: "192.168.29.148", workAt, pending: false), .none)
+        XCTAssertEqual(crossed(personal, work, from: "192.168.29.148", workAt, committed: false), .none)
+        XCTAssertEqual(crossed(personal, personal, from: "192.168.29.194", personalAt), .none)
+    }
+
+    /// Security review of 0.10.0-rr.1-beta.19: the device ID in an offer is only a claim. A LAN device claiming the
+    /// tapped device's ID (or a lower one) from another address gets the usual rules, so it can neither end the user's
+    /// own dial nor take over the pairing.
+    func testACrossedOfferMustComeFromTheTappedDevicesAddress() {
+        let work = "09cdc5a3-0000-4000-8000-000000000000"
+        let personal = "586c4581-0000-4000-8000-000000000000"
+        let lowest = "00000000-0000-4000-8000-000000000000"
+        var target = CrossedPairingTarget(deviceID: work, addresses: ["Work-Mac.local.", "192.168.29.148", "fd07::1"])
+        // The user's dial to Work-Mac.local. reached this address.
+        target.note(address: "fd07:0:0:0:a617:db5e:ab7:e9f1")
+        func crossed(_ remote: String, from source: String?) -> CrossedPairing {
+            PairingRules.crossedPairing(localDeviceID: personal, remoteDeviceID: remote, sourceAddress: source, target: target,
+                                        ownPending: true, committedOffer: true)
+        }
+        // The spoofer at 192.168.29.50: under the tapped ID, a lower ID, or with no source address (link-local).
+        XCTAssertEqual(crossed(work, from: "192.168.29.50"), .none)
+        XCTAssertEqual(crossed(lowest, from: "192.168.29.50"), .none)
+        XCTAssertEqual(crossed(lowest, from: "192.168.29.148"), .none, "a lower ID is not the tapped device")
+        XCTAssertEqual(crossed(work, from: nil), .none)
+        // The tapped device itself, from a discovered address or the one the dial reached.
+        XCTAssertEqual(crossed(work, from: "192.168.29.148"), .answer)
+        XCTAssertEqual(crossed(work, from: "fd07:0:0:0:a617:db5e:ab7:e9f1"), .answer)
+        XCTAssertFalse(target.admits(remoteDeviceID: work, sourceAddress: "192.168.29.50"))
+    }
+
+    /// Security review: only one end knows the other's ID (the other found it by address). The lower end keeps its own
+    /// dial once, then its dial meets not_armed from that device too: it falls back to the usual rules for it, so the
+    /// "wants to pair" card shows and Allow pairing answers, instead of refusing for two minutes.
+    func testTheLowerEndFallsBackWhenTheOtherEndDoesNotKnowItsID() {
+        let work = "09cdc5a3-0000-4000-8000-000000000000"
+        let personal = "586c4581-0000-4000-8000-000000000000"
+        var target = CrossedPairingTarget(deviceID: personal, addresses: ["192.168.29.194"])
+        func crossed() -> CrossedPairing {
+            PairingRules.crossedPairing(localDeviceID: work, remoteDeviceID: personal, sourceAddress: "192.168.29.194", target: target,
+                                        ownPending: true, committedOffer: true)
+        }
+        // not_armed before any crossed offer is the ordinary wait for Allow pairing.
+        XCTAssertFalse(target.ownDialNotArmed())
+        XCTAssertEqual(crossed(), .keepOwn)
+        target.keepOwnDial()
+        XCTAssertTrue(target.ownDialNotArmed(), "kept its own dial, yet the other end is not armed for it")
+        XCTAssertFalse(target.ownDialNotArmed(), "falls back once")
+        XCTAssertEqual(crossed(), .none)
+        // The usual rules for that offer: refused (with the card) until Allow pairing, then answered.
+        XCTAssertEqual(PairingRules.inboundOffer(trusted: false, committed: true, remoteProtocol: 2, armed: false), .refuse(.notArmed))
+        XCTAssertEqual(PairingRules.inboundOffer(trusted: false, committed: true, remoteProtocol: 2, armed: true), .answer(chargesLimiter: true))
+        XCTAssertTrue(target.admits(remoteDeviceID: personal, sourceAddress: "192.168.29.194"), "and answering it sets the own dial aside")
     }
 
     func testAllowPairingArmsForTwoMinutesOnMonotonicTime() {

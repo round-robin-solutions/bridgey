@@ -173,16 +173,21 @@ enum PairingRules {
         return .answer(chargesLimiter: chargesInboundAttempt(initiatedLocally: false, trusted: trusted, committedOffer: true))
     }
 
-    /// Crossed pairing (docs/protocol.md): the user is pairing this end with a device, that pairing has not been
-    /// answered yet (its dial is in flight, or it waits for Allow pairing there), and a committed offer arrives from that
-    /// same device, because someone started pairing there too. Both people acted, so that one device's offer counts as
-    /// armed here, but only one of the two dials may go on: the one from the lower device ID, as for simultaneous
-    /// reconnects. Commit-reveal and the code confirmation run as for any first pairing.
-    static func crossedPairing(localDeviceID: String, remoteDeviceID: String, ownPairingTarget: String?,
-                               committedOffer: Bool) -> CrossedPairing {
+    /// Crossed pairing (docs/protocol.md): the user is pairing this end with a device (`target`), that committed pairing
+    /// has not been answered yet (`ownPending`: its dial is in flight, or it waits for Allow pairing there), and a
+    /// committed offer arrives from that same device, because someone started pairing there too. Both people acted, so
+    /// that one device's offer counts as armed here, but only one of the two dials may go on: the one from the lower
+    /// device ID, as for simultaneous reconnects. Commit-reveal and the code confirmation run as for any first pairing.
+    ///
+    /// A device ID is only a claim, so the offer must also come from an address this end dialled or discovery showed
+    /// for the device the user tapped; after the own dial met `not_armed` from a device whose offer this end refused
+    /// (it does not know this end's ID), the usual rules apply to it again.
+    static func crossedPairing(localDeviceID: String, remoteDeviceID: String, sourceAddress: String?,
+                               target: CrossedPairingTarget?, ownPending: Bool, committedOffer: Bool) -> CrossedPairing {
         let local = localDeviceID.lowercased()
         let remote = remoteDeviceID.lowercased()
-        guard committedOffer, let target = ownPairingTarget?.lowercased(), target == remote, remote != local else { return .none }
+        guard committedOffer, ownPending, let target, !target.fellBack, remote != local,
+              target.admits(remoteDeviceID: remote, sourceAddress: sourceAddress) else { return .none }
         return remote < local ? .answer : .keepOwn
     }
 
@@ -226,12 +231,50 @@ enum PairingRules {
     }
 }
 
+/// The user's own committed pairing, as crossed pairing sees it (`PairingRules.crossedPairing`).
+struct CrossedPairingTarget: Equatable {
+    /// The ID discovery showed for the device the user tapped (lowercase).
+    let deviceID: String
+    /// Where this end dialled that device and where discovery saw it (normalised): a crossed offer comes from one of these.
+    private(set) var addresses: Set<String>
+    /// This end has the lower ID and refused that device's offer, so that its own dial goes on.
+    private(set) var keptOwn = false
+    /// The own dial then met `not_armed` from that device: it does not know this end's ID, so the usual rules apply
+    /// (its offer shows the "wants to pair" card, and Allow pairing answers it).
+    private(set) var fellBack = false
+
+    init(deviceID: String, addresses: [String]) {
+        self.deviceID = deviceID.lowercased()
+        self.addresses = Set(addresses.compactMap(normalizedHost))
+    }
+
+    /// The offer claims the tapped device's ID and comes from one of its addresses.
+    func admits(remoteDeviceID: String, sourceAddress: String?) -> Bool {
+        guard remoteDeviceID.lowercased() == deviceID, let source = sourceAddress.flatMap(normalizedHost) else { return false }
+        return addresses.contains(source)
+    }
+
+    /// The address the own dial reached (the resolved endpoint of a `.local` name).
+    mutating func note(address: String) {
+        if let host = normalizedHost(address) { addresses.insert(host) }
+    }
+
+    mutating func keepOwnDial() { keptOwn = true }
+
+    /// The own dial met `not_armed`. True when this falls back to the usual rules now.
+    mutating func ownDialNotArmed() -> Bool {
+        guard keptOwn, !fellBack else { return false }
+        fellBack = true
+        return true
+    }
+}
+
 /// What a crossed pairing means for an offer (`PairingRules.crossedPairing`).
 enum CrossedPairing: Equatable {
     /// Not a crossed pairing: the usual rules.
     case none
     /// The other device's ID is the lower one, so its dial goes on: its offer is answered even when pairing is not armed
-    /// here, and this end's own dial (or wait for Allow pairing) ends quietly.
+    /// here, and this end's own dial (or wait for Allow pairing) is parked: it resumes if that offer fails before its code.
     case answer
     /// This end's ID is the lower one, so its own dial goes on: the other device's offer is refused with `not_armed`,
     /// without a "wants to pair" card. That device waits and answers this end's next dial.
