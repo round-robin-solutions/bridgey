@@ -736,6 +736,15 @@
 "codes.replaces" = "Заменяет код, пришедший %@";
 "codes.replaces.now" = "Заменяет код, пришедший только что";
 "sync.name.codesEmail" = "Коды из почты";
+"sync.name.handoffTakeover" = "Пусть копированием и вставкой занимается Bridgey";
+"settings.handoff.title" = "Пусть копированием и вставкой занимается Bridgey";
+"settings.handoff.detail" = "Выключает Apple Handoff на этом Mac, чтобы он не мешал Bridgey при копировании. AirDrop продолжает работать. Выключите, чтобы вернуть Handoff как было.";
+"settings.handoff.stateOff" = "Apple Handoff: выключен";
+"settings.handoff.stateOn" = "Apple Handoff: включён";
+"settings.handoff.statePartly" = "Apple Handoff: включён частично";
+"settings.handoff.overridden" = "Handoff снова включили в Системных настройках.";
+"settings.handoff.reapply" = "Выключить снова";
+"settings.handoff.failed" = "Не удалось изменить Handoff. Попробуйте ещё раз или измените его в Системных настройках > Основные > AirDrop и Handoff.";
 "codes.sheet.private" = "Приватно";
 "codes.sheet.private.detail" = "Работает на этом Mac. Текст сообщений и коды его не покидают.";
 "codes.sheet.size" = "%@, один раз";

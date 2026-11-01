@@ -332,6 +332,7 @@ final class SetupCenter: ObservableObject {
         case .launchAtLogin: settings.setLaunchAtLogin(on)
         case .reduceMotion: settings.setReduceMotion(on)
         case .settingsSync: pairing.settingsSync.setEnabled(on)
+        case .handoffTakeover: HandoffTakeover.shared.set(on)
         case .connectAway: settings.setConnectAway(on)
         case .pairing, .macNotifications, .accessibility, .deviceFeatures, .deviceAutoClipboard, .batteryAlerts,
              .clipboardEagerLimit, .shortcutClipboard, .codesAutoCopy, .codesModel, .codesPhoneLink, .focusShortcuts,

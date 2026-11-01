@@ -312,7 +312,8 @@ final class PairingCoordinator: ObservableObject {
     /// Settings sync with phones (draft settings_sync_draft1): folder, preview and motion preferences.
     private(set) lazy var settingsSync = SettingsSyncController.live(
         localDeviceID: deviceID, settings: settings, focus: focusSync, codes: codesSyncGate, screen: phoneScreen,
-        setTextMessages: { [unowned self] in self.setTextMessagesEnabled($0) }, autoUpdate: AutoUpdateCoordinator.shared)
+        setTextMessages: { [unowned self] in self.setTextMessagesEnabled($0) }, autoUpdate: AutoUpdateCoordinator.shared,
+        handoff: HandoffTakeover.shared)
     /// Codes from messages turned on from another device waits here until this Mac gives its own consent.
     private(set) lazy var codesSyncGate = CodesSyncGate(
         isOn: { [unowned self] in self.settings.codesEnabled },
@@ -2751,6 +2752,8 @@ final class PairingCoordinator: ObservableObject {
                     draftKeys = drafts
                 }
                 let clipboardFiles = draftKeys[clipboardFilesFeatureKey] == true
+                // Only Macs advertise it (outside knownDraftFeatureKeys): settings only Macs share go to this peer.
+                let handoffTakeover = decodeFeatureFlag(plaintext, handoffTakeoverFeatureKey)
                 let phoneID = current.remoteDeviceID
                 current.fastTransfers = draftKeys[filesFastFeatureKey] == true
                 BridgeyLog.transport.notice("fast transfers=\(current.fastTransfers, privacy: .public) peerKey=\(draftKeys[filesFastFeatureKey] == true, privacy: .public) protocol2=\(current.envelopeKey != nil, privacy: .public)")
@@ -2772,6 +2775,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteFastTransfers = draftKeys[filesFastFeatureKey] == true
                     link.remoteSettingsSync = draftKeys[settingsSyncFeatureKey] == true
                     link.remoteConnect = draftKeys[connectFeatureKey] == true
+                    link.remoteHandoffTakeover = handoffTakeover
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
                 }
@@ -3467,6 +3471,8 @@ final class PairingCoordinator: ObservableObject {
         features[connectFeatureKey] = connectAdvertised
         // Draft, edition only: binary chunk frames and a byte window (FastTransfer.swift). A capability, so always on.
         features[filesFastFeatureKey] = FastTransferSettings.enabled
+        // Mac only: this device applies Let Bridgey handle copy and paste, so other Macs sync it here. Phones never send it.
+        features[handoffTakeoverFeatureKey] = true
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
               let encrypted = try? encrypt(payload, key: key) else { return }
         current.send(PairingMessage(
@@ -4532,6 +4538,7 @@ final class PairingCoordinator: ObservableObject {
             return true
         }
         settingsSync.remoteEnabled = { [weak self] id in self?.registry.state(for: id)?.remoteSettingsSync == true }
+        settingsSync.peerIsMac = { [weak self] id in self?.registry.state(for: id)?.remoteHandoffTakeover == true }
         settingsSync.connectedPhones = { [weak self] in self?.registry.connectedIDs ?? [] }
         settingsSync.peerName = { [weak self] id in self?.settingsSyncPeerName(id) ?? "" }
         // Permissions are never granted remotely: a synced feature that is on here but lacks one waits.

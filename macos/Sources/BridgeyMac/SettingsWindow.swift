@@ -105,6 +105,8 @@ struct SettingsModel {
     var autoClipboardDevices: [String: Bool] = [:]
     var clipboardFiles = true
     var clipboardEagerLimit: ClipboardEagerLimit = .default
+    /// Clipboard > Let Bridgey handle copy and paste (HandoffTakeover.swift) and what Handoff is now.
+    var handoff = HandoffDisplay()
     var folderIncludeHidden = false
     var folderIncludeSystem = false
     var folderReceiveMode: MacFolderReceiveMode = .fixed
@@ -244,6 +246,8 @@ struct SettingsActions {
     var setAutoClipboardForDevice: (String, Bool) -> Void = { _, _ in }
     var setClipboardFiles: (Bool) -> Void = { _ in }
     var setClipboardEagerLimit: (ClipboardEagerLimit) -> Void = { _ in }
+    var setHandoffTakeover: (Bool) -> Void = { _ in }
+    var reapplyHandoffTakeover: () -> Void = {}
     var setFolderIncludeHidden: (Bool) -> Void = { _ in }
     var setFolderIncludeSystem: (Bool) -> Void = { _ in }
     var setFolderReceiveMode: (MacFolderReceiveMode) -> Void = { _ in }
@@ -775,6 +779,7 @@ private struct ClipboardPane: View {
                            synced: model.syncs(.clipboardFiles), isOn: model.clipboardFiles, set: actions.setClipboardFiles)
                 .disabled(!clipboardOn)
             SyncStatusLine(key: .clipboardFiles, model: model, actions: actions)
+            HandoffTakeoverRows(model: model, actions: actions)
             SettingsRow(title: L10n.text("settings.clipboardEager", fallback: "Send right away up to"),
                         subtitle: L10n.text("settings.clipboardEager.detail", fallback: "Smaller copies move as soon as you copy, so pasting is instant.")) {
                 ChoiceButton(value: eagerLimitTitle(model.clipboardEagerLimit)) {
@@ -1713,6 +1718,7 @@ struct LiveSettingsView: View {
     @ObservedObject var settingsSync: SettingsSyncController
     @ObservedObject var updateAll = UpdateAllCoordinator.shared
     @ObservedObject var autoUpdate = AutoUpdateCoordinator.shared
+    @ObservedObject var handoff = HandoffTakeover.shared
     @ObservedObject var phoneScreen: PhoneScreen
     @ObservedObject var connect: ConnectAnywhere
     @State private var pane: SettingsPane = .devices
@@ -1767,6 +1773,7 @@ struct LiveSettingsView: View {
             }
         }
         .onAppear {
+            if inSetup { handoff.refresh() } else { handoff.watch(pane == .clipboard) }
             pairing.refreshNotificationAuthorization()
             settings.refreshLoginItemStatus()
             remoteInput.refreshAccessibility()
@@ -1778,7 +1785,9 @@ struct LiveSettingsView: View {
         }
         .onChange(of: pane) { shown in
             if shown == .media || shown == .notifications { loadShortcuts() }
+            if !inSetup { handoff.watch(shown == .clipboard) }
         }
+        .onDisappear { handoff.watch(false) }
         .onReceive(SettingsPaneRequest.shared.$pane.compactMap { $0 }) { requested in
             guard !inSetup else { return }
             pane = requested
@@ -1807,6 +1816,7 @@ struct LiveSettingsView: View {
         model.autoClipboard = settings.autoClipboardEnabled
         model.autoClipboardDevices = settings.autoClipboardDevices
         model.clipboardFiles = settings.clipboardFilesEnabled
+        model.handoff = HandoffDisplay(takeover: handoff.takeover, state: handoff.state, overridden: handoff.overridden, failed: handoff.failed)
         model.folderIncludeHidden = settings.folderIncludeHidden
         model.folderIncludeSystem = settings.folderIncludeSystem
         model.folderReceiveMode = settings.folderReceiveMode
@@ -1961,6 +1971,8 @@ struct LiveSettingsView: View {
         actions.setAutoClipboard = { settings.setAutoClipboard($0) }
         actions.setAutoClipboardForDevice = { deviceID, enabled in settings.setAutoClipboard(enabled, for: deviceID) }
         actions.setClipboardFiles = { settings.setClipboardFilesEnabled($0) }
+        actions.setHandoffTakeover = { handoff.set($0) }
+        actions.reapplyHandoffTakeover = { handoff.reapply() }
         actions.setFolderIncludeHidden = { settings.setFolderIncludeHidden($0) }
         actions.setFolderIncludeSystem = { settings.setFolderIncludeSystem($0) }
         actions.setFolderReceiveMode = { settings.setFolderReceiveMode($0) }

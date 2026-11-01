@@ -736,6 +736,15 @@
 "codes.replaces" = "Replaces the code from %@";
 "codes.replaces.now" = "Replaces the code from a moment ago";
 "sync.name.codesEmail" = "Codes from email";
+"sync.name.handoffTakeover" = "Let Bridgey handle copy and paste";
+"settings.handoff.title" = "Let Bridgey handle copy and paste";
+"settings.handoff.detail" = "Turns off Apple Handoff on this Mac, so it does not clash with Bridgey when you copy. AirDrop keeps working. Turn this off to put Handoff back the way it was.";
+"settings.handoff.stateOff" = "Apple Handoff: off";
+"settings.handoff.stateOn" = "Apple Handoff: on";
+"settings.handoff.statePartly" = "Apple Handoff: partly on";
+"settings.handoff.overridden" = "Handoff was turned back on in System Settings.";
+"settings.handoff.reapply" = "Turn off again";
+"settings.handoff.failed" = "Could not change Handoff. Try again, or change it in System Settings > General > AirDrop & Handoff.";
 "codes.sheet.private" = "Private";
 "codes.sheet.private.detail" = "It runs on this Mac. Message text and codes never leave it.";
 "codes.sheet.size" = "%@, one time";

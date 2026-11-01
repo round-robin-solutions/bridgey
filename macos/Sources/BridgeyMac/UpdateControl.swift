@@ -16,19 +16,25 @@ import Foundation
  *            {"event":"progress","step":"checking"}
  *            {"event":"plan","refresh":bool,"devices":[{"name","platform","local","from","to","channel","action","reason"}]}
  *            {"event":"result","result":"started|up_to_date|blocked|refused","reason":..,"busy":..,"device":..}
+ *
+ * `BridgeyMac --handoff` (HandoffControl.swift) uses the same request and server on its own socket,
+ * handoff-control.sock: {"version":1,"command":"handoff","handoff":"off|on|status","launched":false}.
  */
 
 struct UpdateControlRequest: Equatable {
-    enum Command: String { case updateAll = "update-all" }
+    enum Command: String { case updateAll = "update-all", handoff }
 
     var command: Command
     /// The command line started Bridgey for this request: wait a little for phones to connect.
     var launched = false
+    /// `handoff` only: what to do with Handoff.
+    var handoff: HandoffCommand?
 
     static let maxBytes = 4096
 
     var line: Data {
-        let object: [String: Any] = ["version": 1, "command": command.rawValue, "launched": launched]
+        var object: [String: Any] = ["version": 1, "command": command.rawValue, "launched": launched]
+        if let handoff { object["handoff"] = handoff.rawValue }
         return ((try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()) + Data([0x0A])
     }
 
@@ -41,6 +47,10 @@ struct UpdateControlRequest: Equatable {
         if let value = object["launched"], !(value is NSNull) {
             guard let launched = jsonBool(value) else { return nil }
             request.launched = launched
+        }
+        if command == .handoff {
+            guard let handoff = (object["handoff"] as? String).flatMap(HandoffCommand.init(rawValue:)) else { return nil }
+            request.handoff = handoff
         }
         return request
     }
@@ -144,7 +154,7 @@ enum UpdateControlError: Error, Equatable {
 enum UpdateControlSocket {
     static let fileName = "update-control.sock"
 
-    static func defaultURL() -> URL {
+    static func defaultURL(fileName: String = fileName) -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
         return base.appendingPathComponent("\(Edition.supportFolderName)/\(fileName)")

@@ -26,7 +26,7 @@ import Foundation
 let handoffTakeoverFeatureKey = "handoff_takeover_draft1"
 
 /// One of the two Handoff keys as `defaults` shows it.
-enum HandoffKeyValue: String, Equatable {
+enum HandoffKeyValue: String, Equatable, Sendable {
     /// No key: the system default, which is on.
     case unset
     case yes
@@ -36,7 +36,7 @@ enum HandoffKeyValue: String, Equatable {
 }
 
 /// Handoff on this Mac.
-struct HandoffState: Equatable {
+struct HandoffState: Equatable, Sendable {
     var advertising: HandoffKeyValue
     var receiving: HandoffKeyValue
 
@@ -63,8 +63,8 @@ struct HandoffState: Equatable {
 }
 
 /// Runs `/usr/bin/defaults`. Tests swap it, so they never touch the real system.
-struct HandoffDefaultsRunner {
-    var run: (_ arguments: [String]) -> (status: Int32, output: String)?
+struct HandoffDefaultsRunner: Sendable {
+    var run: @Sendable (_ arguments: [String]) -> (status: Int32, output: String)?
 
     static let system = HandoffDefaultsRunner { arguments in
         let process = Process()
@@ -80,7 +80,7 @@ struct HandoffDefaultsRunner {
     }
 }
 
-enum HandoffError: Error, Equatable {
+enum HandoffError: Error, Equatable, Sendable {
     /// `defaults` did not run, or printed something that is not a boolean.
     case unreadable
     /// A write or delete failed: the key that failed.
@@ -88,7 +88,7 @@ enum HandoffError: Error, Equatable {
 }
 
 /// The keys, read and written with `defaults -currentHost`.
-struct HandoffDefaults {
+struct HandoffDefaults: Sendable {
     static let domain = "com.apple.coreservices.useractivityd"
     static let advertisingKey = "ActivityAdvertisingAllowed"
     static let receivingKey = "ActivityReceivingAllowed"
@@ -128,9 +128,26 @@ struct HandoffDefaults {
     }
 }
 
+/// What `--handoff` asks for: off turns Handoff off (Bridgey takes over), on puts it back the way it was.
+enum HandoffCommand: String, Sendable {
+    case off, on, status
+}
+
+/// The state after a step, and the error if it failed (`state` is then what could still be read).
+struct HandoffOutcome: Equatable, Sendable {
+    var takeover: Bool
+    var applied: Bool
+    var state: HandoffState?
+    var error: HandoffError?
+
+    /// Someone turned Handoff on again in System Settings while the takeover is on here.
+    var overridden: Bool { takeover && applied && state.map { !$0.isOff } == true }
+}
+
 /// The choice and what to restore, and the steps that apply them. Used by the app and by `--handoff`; the
-/// caller runs one at a time (the app on its own queue, the command line alone).
-struct HandoffTakeoverStore {
+/// caller runs one at a time (the app on its own queue, the command line alone). UserDefaults is thread safe
+/// and the runner is Sendable, so the store may go to that queue.
+struct HandoffTakeoverStore: @unchecked Sendable {
     /// The choice: synced, and cleared by Reset > Settings.
     static let choiceKey = "settings.handoff.takeover"
     /// What Handoff was before this Mac turned it off ("unset,unset"); set while the takeover is applied here.
@@ -173,11 +190,41 @@ struct HandoffTakeoverStore {
 
     /// The person turned Handoff back on in System Settings while the takeover is on here.
     func overridden(_ state: HandoffState) -> Bool { choice && applied && !state.isOff }
+
+    /// One step, start to end: `off` chooses the takeover and turns Handoff off (again, if System Settings turned
+    /// it on); `on` drops the choice and puts back what was there; `status` only reads. nil applies the stored
+    /// choice (launch, the switch, a synced change).
+    func perform(_ command: HandoffCommand?, force: Bool = false) -> HandoffOutcome {
+        var failure: HandoffError?
+        var state: HandoffState?
+        do {
+            switch command {
+            case .off?:
+                setChoice(true)
+                state = try reconcile(force: true)
+            case .on?:
+                setChoice(false)
+                state = try reconcile()
+            case .status?:
+                state = try system.read()
+            case nil:
+                state = try reconcile(force: force)
+            }
+        } catch {
+            failure = error as? HandoffError ?? .unreadable
+            state = try? system.read()
+        }
+        return HandoffOutcome(takeover: choice, applied: applied, state: state, error: failure)
+    }
 }
 
-/// Settings > Clipboard > Let Bridgey handle copy and paste, on the main actor. `defaults` runs on its own queue.
+
+/// Settings > Clipboard > Let Bridgey handle copy and paste, on the main actor. `defaults` runs on its own queue,
+/// one step at a time. It also serves `BridgeyMac --handoff` while the app runs (HandoffControl.swift).
 @MainActor
 final class HandoffTakeover: ObservableObject {
+    static let shared = HandoffTakeover.live()
+
     @Published private(set) var takeover: Bool
     /// Handoff now, as last read; nil until the first read or when `defaults` cannot be read.
     @Published private(set) var state: HandoffState?
@@ -190,6 +237,7 @@ final class HandoffTakeover: ObservableObject {
     private let queue = DispatchQueue(label: "in.roundrobin.bridgey.handoff")
     private var refreshTimer: Timer?
     private var activation: AnyCancellable?
+    private var controlServer: UpdateControlServer?
 
     init(store: HandoffTakeoverStore) {
         self.store = store
@@ -198,34 +246,29 @@ final class HandoffTakeover: ObservableObject {
 
     static func live() -> HandoffTakeover { HandoffTakeover(store: HandoffTakeoverStore(defaults: .standard)) }
 
-    /// At launch: apply the choice (or restore after a reset), then notice changes made in System Settings each
-    /// time Bridgey comes to the front.
+    /// At launch: apply the choice (or restore after a reset), notice changes made in System Settings each
+    /// time Bridgey comes to the front, and serve the command line.
     func start() {
-        apply()
+        guard activation == nil else { return }
+        Task { await run(nil) }
         activation = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in self?.refresh() }
+        startControlServer()
     }
 
-    /// The switch, setup, a synced change and the command line.
+    /// The switch, setup and a synced change.
     func set(_ on: Bool) {
+        guard on != takeover || on != store.choice else { return }
         store.setChoice(on)
         takeover = on
-        apply()
+        Task { await run(nil) }
     }
 
     /// Turn Handoff off again after it was turned on in System Settings.
-    func reapply() { apply(force: true) }
+    func reapply() { Task { await run(nil, force: true) } }
 
     /// Reads the current Handoff state (Settings shows it live).
-    func refresh() {
-        let store = store
-        queue.async {
-            let state = try? store.system.read()
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated { self?.show(state) }
-            }
-        }
-    }
+    func refresh() { Task { await run(.status) } }
 
     /// While Settings > Clipboard is open, check every few seconds for a change in System Settings.
     func watch(_ on: Bool) {
@@ -234,35 +277,57 @@ final class HandoffTakeover: ObservableObject {
         guard on else { return }
         refresh()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.refresh() } }
+            Task { @MainActor in self?.refresh() }
         }
     }
 
-    private func apply(force: Bool = false) {
+    /// One step on the queue, then what it shows. `command` nil applies the stored choice.
+    @discardableResult
+    func run(_ command: HandoffCommand?, force: Bool = false) async -> HandoffOutcome {
         let store = store
-        queue.async {
-            var failed = false
-            let state: HandoffState?
-            do {
-                state = try store.reconcile(force: force)
-            } catch {
-                failed = true
-                state = try? store.system.read()
-                BridgeyLog.clipboard.error("HANDOFF apply failed: \(String(describing: error), privacy: .public)")
+        let queue = queue
+        let outcome = await withCheckedContinuation { (continuation: CheckedContinuation<HandoffOutcome, Never>) in
+            queue.async { continuation.resume(returning: store.perform(command, force: force)) }
+        }
+        if let error = outcome.error {
+            BridgeyLog.clipboard.error("HANDOFF \(command?.rawValue ?? "apply", privacy: .public) failed: \(String(describing: error), privacy: .public)")
+        }
+        if command != .status { failed = outcome.error != nil }
+        show(outcome)
+        return outcome
+    }
+
+    private func show(_ outcome: HandoffOutcome) {
+        if takeover != outcome.takeover { takeover = outcome.takeover }
+        if state != outcome.state { state = outcome.state }
+        if overridden != outcome.overridden { overridden = outcome.overridden }
+    }
+
+    // MARK: Command line
+
+    private func startControlServer() {
+        let server = UpdateControlServer(path: UpdateControlSocket.defaultURL(fileName: HandoffControl.socketName).path) { [weak self] request, reply in
+            Task { @MainActor in
+                guard let self else { return reply.finish(.refused, reason: "not_ready", text: nil) }
+                await self.handle(request, reply: reply)
             }
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated {
-                    self?.failed = failed
-                    self?.show(state)
-                }
-            }
+        }
+        do {
+            try server.start()
+            controlServer = server
+        } catch {
+            BridgeyLog.clipboard.error("HANDOFF_CONTROL start failed: \(String(describing: error), privacy: .public)")
         }
     }
 
-    private func show(_ state: HandoffState?) {
-        if takeover != store.choice { takeover = store.choice }
-        if self.state != state { self.state = state }
-        let overridden = state.map(store.overridden) ?? false
-        if self.overridden != overridden { self.overridden = overridden }
+    /// `--handoff off|on|status` from the command line, answered with the state and a result.
+    func handle(_ request: UpdateControlRequest, reply: UpdateControlReply) async {
+        guard request.command == .handoff, let command = request.handoff else {
+            return reply.finish(.refused, reason: "bad_request", text: nil)
+        }
+        let outcome = await run(command)
+        reply.send(HandoffControl.stateEvent(outcome, running: true))
+        reply.send(HandoffControl.resultEvent(outcome))
+        reply.close()
     }
 }

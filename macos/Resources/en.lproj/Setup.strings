@@ -249,3 +249,5 @@
 "setup.a.updates.newestAuto" = "Newest every day, all devices update automatically";
 "setup.summary.sync" = "Settings stay the same on your devices";
 "setup.summary.sync.detail" = "Change what syncs any time in Settings > General.";
+"setup.summary.handoff" = "Let Bridgey handle copy and paste";
+"setup.summary.handoff.detail" = "Turns off Apple Handoff on this Mac, so it does not clash with Bridgey when you copy. Change it any time in Settings > Clipboard.";
