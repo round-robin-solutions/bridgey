@@ -82,6 +82,9 @@ enum class ActivityKind(val key: String, val category: ActivityCategory, val mer
 
     val carriesAppName: Boolean get() = this == NOTIFICATIONS_SHOWN
 
+    /** One copy to several devices, or one clip that came through several: each device and how it went. */
+    val carriesPeers: Boolean get() = this == CLIPBOARD_SENT || this == CLIPBOARD_RECEIVED || this == CLIP_OFFER_SENT || this == CLIP_OFFER_RECEIVED
+
     /** The detail field: folder tokens, or settings sync tokens. */
     fun cleanDetail(value: String?): String? = when {
         isFolder -> FolderDetail.clean(value)
@@ -127,7 +130,29 @@ data class ActivityItem(
      * See [FolderDetail]. Settings synced: the changes as tokens ("calls=1,reduce_motion=0"), see SyncDetail.
      */
     val detail: String? = null,
+    /**
+     * Clipboard: every device one copy went to (or one clip came through), with how each one went. Names and
+     * states only. Null for items from before, and for other kinds.
+     */
+    val peers: List<ActivityPeer>? = null,
 )
+
+/** How a copy went for one device. Keys are shared with the Mac. */
+enum class ActivityPeerState(val key: String) {
+    PENDING("pending"),
+    DELIVERED("delivered"),
+    FAILED("failed"),
+
+    /** Clipboard (or Copy images and files) is off there. */
+    OFF("off"),
+    ;
+
+    companion object {
+        fun fromKey(key: String?): ActivityPeerState? = entries.firstOrNull { it.key == key }
+    }
+}
+
+data class ActivityPeer(val deviceId: String?, val deviceName: String, val state: ActivityPeerState)
 
 /** The folder detail tokens (3.5): counts and states only, never names. */
 object FolderDetail {
@@ -192,6 +217,19 @@ object ActivityHistory {
     private const val MAX_NAME_LENGTH = 128
     private const val MAX_FILE_NAME_LENGTH = 255
     private const val MAX_DESTINATION_LENGTH = 128
+    const val MAX_PEERS = 16
+
+    /** The peers an item of [kind] may keep: bounded, names trimmed, at most one entry per device. */
+    fun cleanPeers(kind: ActivityKind, peers: List<ActivityPeer>?): List<ActivityPeer>? {
+        if (!kind.carriesPeers || peers.isNullOrEmpty()) return null
+        val seen = HashSet<String>()
+        return peers.asSequence()
+            .map { it.copy(deviceId = it.deviceId?.take(64), deviceName = cleanName(it.deviceName)) }
+            .filter { it.deviceName.isNotEmpty() && (it.deviceId == null || seen.add(it.deviceId)) }
+            .take(MAX_PEERS)
+            .toList()
+            .ifEmpty { null }
+    }
 
     fun prune(items: List<ActivityItem>, now: Long): List<ActivityItem> =
         items.asSequence()
@@ -219,7 +257,9 @@ object ActivityHistory {
         fileCount: Int? = null,
         destination: String? = null,
         detail: String? = null,
+        peers: List<ActivityPeer>? = null,
     ): List<ActivityItem> {
+        val cleanPeers = cleanPeers(kind, peers)
         val isSensitive = sensitive && kind.carriesPreview
         val cleanPreview = if (kind.carriesPreview && !isSensitive) clipboardPreview(preview) else null
         val cleanApp = if (kind.carriesAppName) appName?.trim()?.take(MAX_NAME_LENGTH)?.ifBlank { null } else null
@@ -229,6 +269,7 @@ object ActivityHistory {
         if (kind.isClipOffer && kind.mergeWindowMillis > 0) {
             val newest = items.firstOrNull()
             if (newest != null && newest.kind == kind && newest.deviceId == deviceId &&
+                newest.peers?.map { it.deviceId } == cleanPeers?.map { it.deviceId } &&
                 now >= newest.atMillis && now - newest.atMillis <= kind.mergeWindowMillis
             ) {
                 val merged = newest.copy(
@@ -268,6 +309,7 @@ object ActivityHistory {
             fileCount = if (kind.isFolder) fileCount?.coerceIn(0, 1_000_000) else null,
             destination = if (kind.isFolder) destination?.trim()?.take(MAX_DESTINATION_LENGTH)?.ifBlank { null } else null,
             detail = kind.cleanDetail(detail),
+            peers = cleanPeers,
         )
         return prune(listOf(item) + items, now)
     }
@@ -293,10 +335,37 @@ object ActivityHistory {
                     .put("content", item.content ?: JSONObject.NULL)
                     .put("fileCount", item.fileCount ?: JSONObject.NULL)
                     .put("destination", item.destination ?: JSONObject.NULL)
-                    .put("detail", item.detail ?: JSONObject.NULL),
+                    .put("detail", item.detail ?: JSONObject.NULL)
+                    .apply {
+                        item.peers?.let { peers ->
+                            put(
+                                "peers",
+                                JSONArray().apply {
+                                    peers.forEach { peer ->
+                                        put(
+                                            JSONObject()
+                                                .put("deviceId", peer.deviceId ?: JSONObject.NULL)
+                                                .put("deviceName", peer.deviceName)
+                                                .put("state", peer.state.key),
+                                        )
+                                    }
+                                },
+                            )
+                        }
+                    },
             )
         }
     }.toString()
+
+    private fun decodePeers(kind: ActivityKind, array: JSONArray?): List<ActivityPeer>? {
+        if (array == null || !kind.carriesPeers) return null
+        val peers = (0 until minOf(array.length(), MAX_PEERS)).mapNotNull { index ->
+            val value = array.optJSONObject(index) ?: return@mapNotNull null
+            val state = ActivityPeerState.fromKey(value.optString("state")) ?: return@mapNotNull null
+            ActivityPeer(value.optString("deviceId").takeIf { !value.isNull("deviceId") && it.isNotEmpty() }, value.optString("deviceName"), state)
+        }
+        return cleanPeers(kind, peers)
+    }
 
     fun decode(json: String, now: Long): List<ActivityItem> {
         val array = runCatching { JSONArray(json) }.getOrNull() ?: return emptyList()
@@ -328,6 +397,7 @@ object ActivityHistory {
                     null
                 },
                 detail = if (value.has("detail") && !value.isNull("detail")) kind.cleanDetail(value.optString("detail")) else null,
+                peers = decodePeers(kind, value.optJSONArray("peers")),
             )
         }
         return prune(items, now)
@@ -364,12 +434,30 @@ class ActivityLog(
         fileCount: Int? = null,
         destination: String? = null,
         detail: String? = null,
-    ) {
+        peers: List<ActivityPeer>? = null,
+    ): Long? {
+        val now = clock()
+        val newId = nextId
         val updated = ActivityHistory.add(
-            mutableItems.value, kind, deviceId, deviceName, fileName, clock(), nextId, preview, appName, sensitive, automatic,
-            bytes, content, itemCount, fileCount, destination, detail,
+            mutableItems.value, kind, deviceId, deviceName, fileName, now, newId, preview, appName, sensitive, automatic,
+            bytes, content, itemCount, fileCount, destination, detail, peers,
         )
-        if (updated.any { it.id == nextId }) nextId += 1
+        val created = updated.any { it.id == newId }
+        if (created) nextId += 1
+        mutableItems.value = updated
+        persist(updated)
+        // The new item, or the one it merged into (stamped now).
+        return if (created) newId else updated.firstOrNull { it.kind == kind && it.atMillis == now }?.id
+    }
+
+    /** One copy's item follows each device's answer; the item keeps its place and time. */
+    @Synchronized
+    fun updatePeers(id: Long, peers: List<ActivityPeer>) {
+        val current = mutableItems.value
+        val updated = current.map { item ->
+            if (item.id == id) item.copy(peers = ActivityHistory.cleanPeers(item.kind, peers)) else item
+        }
+        if (updated == current) return
         mutableItems.value = updated
         persist(updated)
     }

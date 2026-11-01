@@ -58,6 +58,8 @@ import dev.bridgey.android.MacMediaState
 import dev.bridgey.android.R
 import dev.bridgey.android.activity.ActivityItem
 import dev.bridgey.android.activity.ActivityKind
+import dev.bridgey.android.activity.ActivityPeerState
+import dev.bridgey.android.activity.joinDeviceNames
 import dev.bridgey.android.ui.motion.LocalMotion
 import dev.bridgey.android.ui.motion.MotionMode
 import dev.bridgey.android.ui.theme.BridgeyTheme
@@ -226,9 +228,45 @@ fun itemQuote(item: ActivityItem): String? {
     return "\u201C$preview\u201D"
 }
 
+/**
+ * One copy to several devices names the ones it reached ("OnePlus 11 5G and MacBook Pro"); other items,
+ * and arrivals (named by the first device), keep [device].
+ */
+@Composable
+fun deliveredNames(item: ActivityItem, device: String): String {
+    val peers = item.peers?.takeIf { it.size > 1 } ?: return device
+    if (item.kind != ActivityKind.CLIPBOARD_SENT && item.kind != ActivityKind.CLIP_OFFER_SENT) return device
+    val names = peers.filter { it.state == ActivityPeerState.DELIVERED }.map { it.deviceName }
+    return if (names.isEmpty()) device else joinDeviceNames(names, stringResource(R.string.stream_list_and))
+}
+
+/** "Waiting for Work Mac · Not delivered to Pixel" for a copy to several devices, "Also came through MacBook Pro" for an arrival; null when there is nothing to add. */
+@Composable
+fun peerStatesText(item: ActivityItem): String? {
+    val peers = item.peers?.takeIf { it.size > 1 } ?: return null
+    val and = stringResource(R.string.stream_list_and)
+    fun names(state: ActivityPeerState) = peers.filter { it.state == state }.map { it.deviceName }.takeIf { it.isNotEmpty() }?.let { joinDeviceNames(it, and) }
+    val parts = if (item.kind == ActivityKind.CLIPBOARD_RECEIVED || item.kind == ActivityKind.CLIP_OFFER_RECEIVED) {
+        listOf(stringResource(R.string.stream_clip_also_from, joinDeviceNames(peers.drop(1).map { it.deviceName }, and)))
+    } else {
+        listOfNotNull(
+            names(ActivityPeerState.PENDING)?.let { stringResource(R.string.stream_clip_waiting, it) },
+            names(ActivityPeerState.FAILED)?.let { stringResource(R.string.stream_clip_missed, it) },
+            names(ActivityPeerState.OFF)?.let {
+                stringResource(if (item.kind == ActivityKind.CLIP_OFFER_SENT) R.string.stream_clip_offers_off else R.string.stream_clip_off, it)
+            },
+        )
+    }
+    return parts.joinToString(" \u00B7 ").ifEmpty { null }
+}
+
 @Composable
 private fun itemTitleWithoutPreview(item: ActivityItem, device: String): String = when (item.kind) {
-    ActivityKind.CLIPBOARD_SENT -> stringResource(R.string.stream_clipboard_sent_title, device)
+    ActivityKind.CLIPBOARD_SENT -> if ((item.peers?.size ?: 0) > 1) {
+        stringResource(R.string.stream_clipboard_copied_to, device)
+    } else {
+        stringResource(R.string.stream_clipboard_sent_title, device)
+    }
     ActivityKind.CLIPBOARD_RECEIVED -> stringResource(R.string.stream_clipboard_received_title, device)
     ActivityKind.CLIPBOARD_RECEIVE_FAILED -> stringResource(R.string.stream_clipboard_failed_title)
     ActivityKind.FILE_SENT, ActivityKind.FILE_RECEIVED, ActivityKind.FILE_FAILED ->
@@ -426,9 +464,12 @@ private fun StreamItemRow(row: StreamRow.Item, device: String, now: Long, first:
     val colors = BridgeyTheme.colors
     val item = row.item
     val (icon, tint) = item.visual()
-    val title = itemTitle(item, device)
+    val names = deliveredNames(item, device)
+    val title = itemTitle(item, names)
     val quote = itemQuote(item)
-    val detail = quote ?: itemDetail(item, device)
+    // One copy to several devices: how it went on the others comes first.
+    val states = peerStatesText(item)
+    val detail = listOfNotNull(states, quote ?: itemDetail(item, names)).joinToString(" \u00B7 ")
     val time = timeLabel(item.atMillis, now, row.section)
     Row(
         Modifier
@@ -456,7 +497,7 @@ private fun StreamItemRow(row: StreamRow.Item, device: String, now: Long, first:
                 Text(
                     detail,
                     style = BridgeyType.itemBody,
-                    color = if (quote != null && !item.sensitive) colors.onSurface else colors.onSurfaceVariant,
+                    color = if (quote != null && states == null && !item.sensitive) colors.onSurface else colors.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp),

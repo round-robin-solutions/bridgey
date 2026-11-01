@@ -116,6 +116,15 @@ enum class ClipboardSendResult {
     TOO_LARGE,
 }
 
+/**
+ * What a received offer carried, for the stream's "same clip through two devices": the items' SHA-256 when
+ * the sender gave every one, else the offer id (which never matches another device's offer).
+ */
+internal fun clipOfferHash(offer: ClipOffer): String {
+    val hashes = offer.items.map { it.sha256 }
+    return if (hashes.isNotEmpty() && hashes.all { it != null }) hashes.joinToString(",") else "offer:${offer.offerId}"
+}
+
 /** A screenshot whose send ended like this did not reach the Mac, so a later tap may send it again. */
 internal val SCREENSHOT_NOT_SENT = setOf(
     ClipboardSendResult.EMPTY,
@@ -181,6 +190,15 @@ data class PeerEvent(
     val clipCount: Int = 1,
     val clipBytes: Long? = null,
     val clipName: String? = null,
+    /**
+     * Sends: one copy to several devices shares one id and lists every target (id to name), so the stream
+     * shows one item that follows each device's [result].
+     */
+    val groupId: String? = null,
+    val groupTargets: List<Pair<String, String>> = emptyList(),
+    val result: ClipboardSendResult = ClipboardSendResult.DELIVERED,
+    /** Arrivals: what the clip was (in memory only), so the same clip through a second device joins the first item. */
+    val clipHash: String? = null,
 )
 
 data class RemoteBatteryStatus(val level: Int, val isCharging: Boolean)
@@ -1211,15 +1229,15 @@ class PairingCoordinator(
             return
         }
         val offerTargets = mutableListOf<Session>()
+        val textTargets = mutableListOf<Session>()
         var invalidate = false
         devices.forEach { deviceId ->
             val current = registry.session(deviceId) ?: return@forEach
             val available = settings.isAutoClipboardEnabled(deviceId) && isFeatureAvailable(BridgeyFeature.CLIPBOARD, deviceId)
             when (autoClipDecision(clip, available, clipboardOffersAvailable(deviceId), autoClipboardTracker.lastHash(deviceId))) {
                 ClipboardAutoDecision.SEND -> {
-                    val text = clip as LocalClip.Text
-                    autoClipboardTracker.record(deviceId, clipboardHash(text.text))
-                    sendClipboardContent(text.text, html = null, sensitive = text.sensitive, automatic = true, target = current)
+                    autoClipboardTracker.record(deviceId, clipboardHash((clip as LocalClip.Text).text))
+                    textTargets += current
                 }
                 ClipboardAutoDecision.SEND_OFFER -> {
                     clip!!.hash()?.let { autoClipboardTracker.record(deviceId, it) }
@@ -1233,6 +1251,15 @@ class PairingCoordinator(
         }
         // Something else is on the clipboard now: the last offer no longer matches it.
         if (invalidate) clipboardOutbox.invalidate(currentClipLink())
+        if (textTargets.isNotEmpty()) {
+            // One copy, one stream item: every device's send shares the group.
+            val text = clip as LocalClip.Text
+            val groupId = UUID.randomUUID().toString()
+            val targets = textTargets.map { it.remoteDeviceId to it.peerName }
+            textTargets.forEach { current ->
+                sendClipboardContent(text.text, html = null, sensitive = text.sensitive, automatic = true, target = current, groupId = groupId, groupTargets = targets)
+            }
+        }
         if (offerTargets.isNotEmpty()) sendClipOffer(clip!!, automatic = true, targets = offerTargets)
     }
 
@@ -1276,19 +1303,21 @@ class PairingCoordinator(
             val sent = mutableListOf<SessionClipLink>()
             val messageIds = mutableListOf<String>()
             var reported = false
+            val groupId = offer.offerId
+            val groupTargets = live.map { it.remoteDeviceId to it.peerName }
             live.forEach { current ->
                 val link = SessionClipLink(current)
                 val messageId = UUID.randomUUID().toString()
                 pendingClipboardSends[messageId] = { result ->
-                    if (result == ClipboardSendResult.DELIVERED) {
-                        activityListener?.invoke(
-                            PeerEvent(
-                                PeerActivity.CLIP_OFFER_SENT, current.remoteDeviceId, current.peerName,
-                                sensitive = offer.sensitive, automatic = automatic,
-                                clipContent = summary.content, clipCount = summary.count, clipBytes = summary.bytes, clipName = summary.name,
-                            ),
-                        )
-                    }
+                    // Every device's answer, so the one item shows each device's state.
+                    activityListener?.invoke(
+                        PeerEvent(
+                            PeerActivity.CLIP_OFFER_SENT, current.remoteDeviceId, current.peerName,
+                            sensitive = offer.sensitive, automatic = automatic,
+                            clipContent = summary.content, clipCount = summary.count, clipBytes = summary.bytes, clipName = summary.name,
+                            groupId = groupId, groupTargets = groupTargets, result = result,
+                        ),
+                    )
                     // One result per send: the first device's answer (manual sends have one device).
                     if (!reported) {
                         reported = true
@@ -1299,7 +1328,7 @@ class PairingCoordinator(
                     sent += link
                     messageIds += messageId
                 } else {
-                    pendingClipboardSends.remove(messageId)
+                    pendingClipboardSends.remove(messageId)?.invoke(ClipboardSendResult.CONNECTION_LOST)
                 }
             }
             if (sent.isEmpty()) {
@@ -1373,6 +1402,7 @@ class PairingCoordinator(
                         PeerActivity.CLIP_OFFER_RECEIVED, event.received.deviceId, event.received.peerName,
                         sensitive = event.received.offer.sensitive, automatic = true,
                         clipContent = summary.content, clipCount = summary.count, clipBytes = summary.bytes, clipName = summary.name,
+                        clipHash = clipOfferHash(event.received.offer),
                     ),
                 )
             }
@@ -1423,41 +1453,48 @@ class PairingCoordinator(
         automatic: Boolean = false,
         target: Session,
         onResult: (ClipboardSendResult) -> Unit = {},
+        groupId: String = UUID.randomUUID().toString(),
+        groupTargets: List<Pair<String, String>> = listOf(target.remoteDeviceId to target.peerName),
     ) {
+        // Every ending reaches the stream, so one copy's item shows each device's state.
+        val finish: (ClipboardSendResult) -> Unit = { result ->
+            activityListener?.invoke(
+                PeerEvent(
+                    PeerActivity.CLIPBOARD_SENT, target.remoteDeviceId, target.peerName, text, sensitive, automatic,
+                    groupId = groupId, groupTargets = groupTargets, result = result,
+                ),
+            )
+            onResult(result)
+        }
         if (!isFeatureAvailable(BridgeyFeature.CLIPBOARD, target.remoteDeviceId)) {
             mutableClipboardStatus.value = "Clipboard is turned off on one of your devices"
-            onResult(ClipboardSendResult.DISABLED)
+            finish(ClipboardSendResult.DISABLED)
             return
         }
         if (text.isEmpty()) {
             mutableClipboardStatus.value = "Clipboard is empty"
-            onResult(ClipboardSendResult.EMPTY)
+            finish(ClipboardSendResult.EMPTY)
             return
         }
         if (!clipboardTextFits(text)) {
             mutableClipboardStatus.value = "Clipboard exceeds 32 KiB. Send large text or diagnostics as a file."
-            onResult(ClipboardSendResult.TOO_LARGE)
+            finish(ClipboardSendResult.TOO_LARGE)
             return
         }
         if (!registry.isActive(target)) {
             mutableClipboardStatus.value = "Not connected — clipboard was not sent"
-            onResult(ClipboardSendResult.NOT_CONNECTED)
+            finish(ClipboardSendResult.NOT_CONNECTED)
             return
         }
         scope.launch {
             val current = target
             if (!registry.isActive(current)) {
                 mutableClipboardStatus.value = "Not connected — clipboard was not sent"
-                onResult(ClipboardSendResult.NOT_CONNECTED)
+                finish(ClipboardSendResult.NOT_CONNECTED)
                 return@launch
             }
             val messageId = UUID.randomUUID().toString()
-            pendingClipboardSends[messageId] = { result ->
-                if (result == ClipboardSendResult.DELIVERED) {
-                    activityListener?.invoke(PeerEvent(PeerActivity.CLIPBOARD_SENT, current.remoteDeviceId, current.peerName, text, sensitive, automatic))
-                }
-                onResult(result)
-            }
+            pendingClipboardSends[messageId] = finish
             clipboardOutbox.supersede(SessionClipLink(current))
             clipboardInbox.supersede()
             val richContent = RichClipboardContent.create(text, html)

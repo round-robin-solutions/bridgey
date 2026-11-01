@@ -82,6 +82,13 @@
     </plurals>
     <string name="stream_call_title">Incoming call</string>
     <string name="stream_clipboard_hidden">Hidden</string>
+    <string name="stream_clipboard_copied_to">Copied to %1$s</string>
+    <string name="stream_list_and">" and "</string>
+    <string name="stream_clip_waiting">Waiting for %1$s</string>
+    <string name="stream_clip_missed">Not delivered to %1$s</string>
+    <string name="stream_clip_off">Clipboard is off on %1$s</string>
+    <string name="stream_clip_offers_off">Copy images and files is off on %1$s</string>
+    <string name="stream_clip_also_from">Also came through %1$s</string>
     <string name="stream_call_from_title">Call from %1$s</string>
     <plurals name="stream_app_alerts_title">
         <item quantity="one">%1$d %2$s alert</item>
