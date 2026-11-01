@@ -367,13 +367,49 @@ class SessionSecurityTest {
     fun crossedPairingHasOneWinnerAndOnlyForTheDeviceBeingPaired() {
         val mac = "09cdc5a3-0000-4000-8000-000000000000"
         val phone = "5dfae7ce-0000-4000-8000-000000000000"
-        assertEquals(CrossedPairing.ANSWER, PairingRules.crossedPairing(phone, mac, mac, committedOffer = true))
-        assertEquals(CrossedPairing.KEEP_OWN, PairingRules.crossedPairing(mac, phone, phone, committedOffer = true))
-        assertEquals(CrossedPairing.ANSWER, PairingRules.crossedPairing(phone.uppercase(), mac, mac.uppercase(), committedOffer = true))
+        val macAt = "192.168.29.148"
+        fun target(id: String) = CrossedPairingTarget(id, listOf(macAt, "fd07::1"))
+        fun crossed(local: String, remote: String, source: String? = macAt, target: CrossedPairingTarget? = target(remote), pending: Boolean = true, committed: Boolean = true) =
+            PairingRules.crossedPairing(local, remote, source, target, pending, committed)
+        assertEquals(CrossedPairing.ANSWER, crossed(phone, mac))
+        assertEquals(CrossedPairing.KEEP_OWN, crossed(mac, phone))
+        assertEquals(CrossedPairing.ANSWER, crossed(phone.uppercase(), mac, target = target(mac.uppercase())))
+        assertEquals("an IPv4-mapped source is the same address", CrossedPairing.ANSWER, crossed(phone, mac, source = "::ffff:$macAt"))
         val stranger = "00000000-0000-4000-8000-000000000001"
-        assertEquals(CrossedPairing.NONE, PairingRules.crossedPairing(phone, stranger, mac, committedOffer = true))
-        assertEquals(CrossedPairing.NONE, PairingRules.crossedPairing(phone, mac, null, committedOffer = true))
-        assertEquals(CrossedPairing.NONE, PairingRules.crossedPairing(phone, mac, mac, committedOffer = false))
-        assertEquals(CrossedPairing.NONE, PairingRules.crossedPairing(phone, phone, phone, committedOffer = true))
+        assertEquals(CrossedPairing.NONE, crossed(phone, stranger, target = target(mac)))
+        assertEquals(CrossedPairing.NONE, crossed(phone, mac, target = null))
+        assertEquals("no own committed pairing pending (a trusted reconnect, or answered)", CrossedPairing.NONE, crossed(phone, mac, pending = false))
+        assertEquals(CrossedPairing.NONE, crossed(phone, mac, committed = false))
+        assertEquals(CrossedPairing.NONE, crossed(phone, phone))
+    }
+
+    /** A device ID is a claim: the crossed offer must come from where this end dialled or discovered the tapped device. */
+    @Test
+    fun aCrossedOfferMustComeFromTheTappedDevicesAddress() {
+        val mac = "09cdc5a3-0000-4000-8000-000000000000"
+        val phone = "5dfae7ce-0000-4000-8000-000000000000"
+        val target = CrossedPairingTarget(mac, listOf("Work-Mac.local.", "192.168.29.148"))
+        val spoofer = "192.168.29.66"
+        assertEquals(CrossedPairing.NONE, PairingRules.crossedPairing(phone, mac, spoofer, target, ownPending = true, committedOffer = true))
+        assertEquals(CrossedPairing.NONE, PairingRules.crossedPairing(phone, mac, null, target, ownPending = true, committedOffer = true))
+        // The dial reached the Mac at another address (a .local name resolved): that one counts from then on.
+        target.note("fd07:b51a::9")
+        assertEquals(CrossedPairing.ANSWER, PairingRules.crossedPairing(phone, mac, "fd07:b51a::9", target, ownPending = true, committedOffer = true))
+        assertTrue(target.admits(mac.uppercase(), "192.168.29.148"))
+        assertFalse(target.admits("00000000-0000-4000-8000-000000000000", "192.168.29.148"))
+    }
+
+    /** The lower end keeps its dial once; when that dial meets not_armed, the other end does not know it, so usual rules. */
+    @Test
+    fun theLowerEndFallsBackWhenTheOtherEndDoesNotKnowItsID() {
+        val mac = "ffffffff-0000-4000-8000-000000000000"
+        val phone = "00000000-0000-4000-8000-000000000002"
+        val target = CrossedPairingTarget(mac, listOf("192.168.29.148"))
+        assertFalse("not_armed before any kept offer is the usual wait", target.ownDialNotArmed())
+        assertEquals(CrossedPairing.KEEP_OWN, PairingRules.crossedPairing(phone, mac, "192.168.29.148", target, ownPending = true, committedOffer = true))
+        target.keepOwnDial()
+        assertTrue(target.ownDialNotArmed())
+        assertFalse("only once", target.ownDialNotArmed())
+        assertEquals(CrossedPairing.NONE, PairingRules.crossedPairing(phone, mac, "192.168.29.148", target, ownPending = true, committedOffer = true))
     }
 }
