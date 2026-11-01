@@ -373,3 +373,69 @@ through `bridgey-ffi`.
 4. **Questions on the Mac:** should agents also be able to ask on the Macs (a Mac notification with
    buttons), or the phone only for now?
 5. **Default limits:** are the defaults in section 8 right? For example, 20 asks an hour.
+
+## 16. The Mac app's own command: `BridgeyMac --handoff`
+
+Separate from `bridgey`: a command built into the Mac app, so a script or an agent on the Mac can do
+what Settings > Clipboard > **Let Bridgey handle copy and paste** does. When that is on, Apple
+Handoff is off on this Mac, so Universal Clipboard and Handoff's file copy stop clashing with
+Bridgey's automatic clipboard. AirDrop has its own switch and keeps working.
+
+```sh
+BRIDGEY="/Applications/Bridgey by Round Robin.app/Contents/MacOS/BridgeyMac"
+"$BRIDGEY" --handoff off      # Bridgey takes over: Apple Handoff off on this Mac
+"$BRIDGEY" --handoff on       # Handoff back the way it was before
+"$BRIDGEY" --handoff status   # both, without changing anything
+"$BRIDGEY" --handoff status --json
+```
+
+What each one does:
+
+- **`off`** remembers each of the two Handoff keys as it is now (missing, YES or NO) and writes
+  both NO: `defaults -currentHost write com.apple.coreservices.useractivityd
+  ActivityAdvertisingAllowed -bool NO`, and the same for `ActivityReceivingAllowed`. These are the
+  keys System Settings > General > AirDrop & Handoff writes. They apply at once, with no restart or
+  log out. Running `off` again after someone turned Handoff on in System Settings turns it off
+  again, and still keeps the first state to restore.
+- **`on`** writes back exactly what was there: a key that was missing is deleted, so a Mac that
+  never changed Handoff goes back to `{}`. If Handoff was already off before Bridgey, it stays off.
+- **`status`** only reads.
+
+Like the switch, the choice syncs to the person's other Macs that run this build (feature flag
+`handoff_takeover_draft1`). Each Mac applies it and keeps its own earlier state. It never goes to a
+phone.
+
+**Running app or not.** Like `--update-all`, it hands the request to the running app, here on its
+own socket, `handoff-control.sock`, in the app's Application Support folder (folder 0700, socket
+0600, the caller's user checked with `getpeereid`). Going through the app keeps one writer and
+lets the other Macs follow at once. When the app is not running, the command does the same step
+itself on the app's preferences and **never starts the app**, so there is never a second copy. The
+other Macs then follow the next time Bridgey opens.
+
+**Output.** Plain lines by default, for example:
+
+```
+Let Bridgey handle copy and paste: on
+Apple Handoff on this Mac: off
+```
+
+`--json` prints the two answer lines instead, which is the stable form for scripts:
+
+```
+{"advertising":"no","applied":true,"event":"handoff","handoff":"off","overridden":false,"receiving":"no","running":true,"takeover":true}
+{"event":"result","result":"done"}
+```
+
+- `handoff` is `on`, `off`, `partly` (one direction only) or `unknown` (could not be read).
+- `advertising` and `receiving` are each `unset`, `yes` or `no`.
+- `applied` means this Mac turned Handoff off and has not put it back yet.
+- `overridden` means the takeover is on but Handoff was turned back on in System Settings.
+- `running` says whether the app answered.
+- A failure is `{"event":"result","result":"failed","reason":"unreadable"}` or
+  `"reason":"write_failed","key":"ActivityAdvertisingAllowed"`.
+
+**Exit codes:** 0 done, 1 failed (including permission denied on the socket), 2 usage.
+
+**Before deleting the app,** run `--handoff on` (or turn the switch off) so Handoff comes back the
+way it was. Reset > Settings and Reset > Everything clear the choice but keep the earlier state, so
+the next launch puts Handoff back on its own.
