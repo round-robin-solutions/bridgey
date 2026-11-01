@@ -232,6 +232,35 @@ final class ActivityStreamTests: XCTestCase {
         XCTAssertTrue(ActivityHistory.decode(Data("not json".utf8), now: now).isEmpty)
     }
 
+    // MARK: Pairing and reconnects
+
+    /// Every reconnect saved trust again and wrote a `paired` item (25 in 25 s with the MacBook Pro on a flapping
+    /// link). Only a pairing is an activity: a confirmed code, or a device trusted for the first time.
+    func testOnlyAPairingWritesAPairedItemNotAReconnect() {
+        XCTAssertTrue(ActivityRules.recordsPairing(confirmedCode: true, wasTrusted: false))
+        XCTAssertTrue(ActivityRules.recordsPairing(confirmedCode: true, wasTrusted: true), "pairing again with a code")
+        XCTAssertTrue(ActivityRules.recordsPairing(confirmedCode: false, wasTrusted: false))
+        XCTAssertFalse(ActivityRules.recordsPairing(confirmedCode: false, wasTrusted: true), "a reconnect")
+    }
+
+    /// Streams written before the fix hold a `paired` item per reconnect: on load each device keeps its oldest one.
+    func testLoadingFoldsRepeatedPairedItemsPerDevice() {
+        func item(_ id: Int64, _ kind: ActivityKind, _ device: String?, minutesAgo: Double) -> ActivityItem {
+            ActivityItem(id: id, kind: kind, deviceID: device, deviceName: device ?? "?", fileName: nil, preview: nil, appName: nil,
+                         sensitive: false, automatic: false, count: 1, at: now.addingTimeInterval(-minutesAgo * 60))
+        }
+        let items = [
+            item(1, .paired, "mbp", minutesAgo: 90),
+            item(2, .paired, "MBP", minutesAgo: 60),
+            item(3, .linkSent, "mbp", minutesAgo: 59),
+            item(4, .paired, "mbp", minutesAgo: 30),
+            item(5, .paired, "phone", minutesAgo: 20),
+            item(6, .paired, nil, minutesAgo: 10),
+        ]
+        let loaded = ActivityHistory.decode(try! ActivityHistory.encode(items), now: now)
+        XCTAssertEqual(loaded.map(\.id).sorted(), [1, 3, 5, 6])
+    }
+
     // MARK: Folders (Files 2.0)
 
     /// The record's field set, pinned on purpose: folders added fileCount, bytes (shared with clipboard offers)

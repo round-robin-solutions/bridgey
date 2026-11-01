@@ -162,6 +162,35 @@ grind the protocol 1 leg to the code it saw on the other. Update both apps to
 pair. Each answered offer from an untrusted device counts toward the three a
 minute, whether or not it reveals.
 
+Committed offers are answered only while this end allows pairing (Allow
+pairing for two minutes, or a pairing screen open); otherwise the answer is
+`pairing.cancel` with `not_armed`, and the dialler waits for Allow pairing and
+dials again every 3 s for two minutes.
+
+Crossed pairing (Round Robin edition, 0.10.0-rr.1-beta.19). When both people
+start pairing with each other at once, each end dials the other and holds an
+offer from the device it is itself pairing with. That mutual intent counts as
+Allow pairing for that one device only, and exactly one of the two dials goes
+on: the one from the lower device ID (compared as lowercase text).
+
+- The end with the higher device ID answers the lower one's committed offer
+  even when pairing is not allowed there, and ends its own dial or its wait for
+  Allow pairing quietly. Its pairing becomes the lower end's.
+- The end with the lower device ID refuses the higher one's committed offer with
+  `not_armed`, as before, but shows no "wants to pair" card: its own dial is
+  answered by the other end instead.
+- "The device it is pairing with" is the device ID discovery advertised for the
+  peer this end dialled (Bonjour TXT `id`), while this end's pairing is still
+  before the answer or waiting for Allow pairing. An offer from any other device
+  ID, an uncommitted (reconnect) offer, or an offer carrying this end's own ID
+  gets the usual rules. Without a discovered ID the rule never applies, and the
+  two ends behave as before.
+- Nothing else changes: the answered offer still counts toward the three a
+  minute, the initiator (the lower ID) still commits and reveals, and both people
+  still compare and confirm the six-digit code. A device that claims the other
+  device's ID gains nothing it could not get while pairing is allowed: it still
+  has to win the code comparison, which it cannot steer.
+
 Pairing offers expire after two minutes and cannot be silently retried. The
 short code is a human MITM check, not a password. Detailed primitive and storage
 requirements are in `SECURITY.md`.

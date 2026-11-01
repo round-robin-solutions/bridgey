@@ -60,6 +60,27 @@ final class PairingRound3Tests: XCTestCase {
         XCTAssertEqual(PairingRules.inboundOffer(trusted: true, committed: false, remoteProtocol: 1, armed: false), .answer(chargesLimiter: false))
     }
 
+    /// Seen live (2026-11-01): the Work Mac and the Personal Mac each started pairing with the other, refused each
+    /// other's offer as not_armed every 3 s for two minutes, and both failed with notAllowed. Mutual intent counts as
+    /// armed for that one device only, and the lower device ID's dial is the one that goes on.
+    func testCrossedPairingHasOneWinnerAndOnlyForTheDeviceBeingPaired() {
+        let work = "09cdc5a3-0000-4000-8000-000000000000"
+        let personal = "586c4581-0000-4000-8000-000000000000"
+        // The higher ID answers the lower one's committed offer, even with pairing not armed...
+        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: personal, remoteDeviceID: work, ownPairingTarget: work, committedOffer: true), .answer)
+        // ...and the lower ID keeps its own dial (the other side answers it).
+        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: work, remoteDeviceID: personal, ownPairingTarget: personal, committedOffer: true), .keepOwn)
+        // IDs compare without case.
+        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: personal.uppercased(), remoteDeviceID: work, ownPairingTarget: work.uppercased(), committedOffer: true), .answer)
+        // Only the device this end is pairing with: any other device still needs Allow pairing.
+        let stranger = "00000000-0000-4000-8000-000000000001"
+        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: personal, remoteDeviceID: stranger, ownPairingTarget: work, committedOffer: true), .none)
+        // Not pairing at all, an uncommitted (reconnect) offer, or an offer under this end's own ID: the usual rules.
+        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: personal, remoteDeviceID: work, ownPairingTarget: nil, committedOffer: true), .none)
+        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: personal, remoteDeviceID: work, ownPairingTarget: work, committedOffer: false), .none)
+        XCTAssertEqual(PairingRules.crossedPairing(localDeviceID: personal, remoteDeviceID: personal, ownPairingTarget: personal, committedOffer: true), .none)
+    }
+
     func testAllowPairingArmsForTwoMinutesOnMonotonicTime() {
         let clock = FakeClock()
         var arming = PairingArming(now: clock.read)

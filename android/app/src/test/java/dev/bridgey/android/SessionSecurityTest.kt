@@ -358,4 +358,22 @@ class SessionSecurityTest {
             assertFalse(SessionSecurity.tagMatches(key, sender, mutated))
         }
     }
+
+    /**
+     * Seen live (2026-11-01): two Macs each started pairing with the other and refused each other's offer as not_armed
+     * until both failed. Mutual intent counts as armed for that one device only; the lower device ID's dial goes on.
+     */
+    @Test
+    fun crossedPairingHasOneWinnerAndOnlyForTheDeviceBeingPaired() {
+        val mac = "09cdc5a3-0000-4000-8000-000000000000"
+        val phone = "5dfae7ce-0000-4000-8000-000000000000"
+        assertEquals(CrossedPairing.ANSWER, PairingRules.crossedPairing(phone, mac, mac, committedOffer = true))
+        assertEquals(CrossedPairing.KEEP_OWN, PairingRules.crossedPairing(mac, phone, phone, committedOffer = true))
+        assertEquals(CrossedPairing.ANSWER, PairingRules.crossedPairing(phone.uppercase(), mac, mac.uppercase(), committedOffer = true))
+        val stranger = "00000000-0000-4000-8000-000000000001"
+        assertEquals(CrossedPairing.NONE, PairingRules.crossedPairing(phone, stranger, mac, committedOffer = true))
+        assertEquals(CrossedPairing.NONE, PairingRules.crossedPairing(phone, mac, null, committedOffer = true))
+        assertEquals(CrossedPairing.NONE, PairingRules.crossedPairing(phone, mac, mac, committedOffer = false))
+        assertEquals(CrossedPairing.NONE, PairingRules.crossedPairing(phone, phone, phone, committedOffer = true))
+    }
 }

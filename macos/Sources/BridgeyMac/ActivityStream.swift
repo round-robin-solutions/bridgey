@@ -95,6 +95,13 @@ enum ActivityKind: String, CaseIterable, Codable {
     var isSettingsSync: Bool { self == .settingsSynced }
 }
 
+enum ActivityRules {
+    /// A `paired` item is written for a pairing: a code both people confirmed, or a device trusted for the first time.
+    /// A reconnect authenticates and saves trust too, but it is no activity (before 0.10.0-rr.1-beta.19 every reconnect
+    /// wrote a `paired` item, 25 in 25 s on a flapping link).
+    static func recordsPairing(confirmedCode: Bool, wasTrusted: Bool) -> Bool { confirmedCode || !wasTrusted }
+}
+
 /// One stream item. These fields are the whole record, in memory and on disk.
 struct ActivityItem: Codable, Equatable, Identifiable {
     let id: Int64
@@ -347,7 +354,22 @@ enum ActivityHistory {
                 destination: kind.isFolder ? clean(value.destination, limit: maximumNameLength) : nil
             )
         }
-        return prune(items, now: now)
+        return prune(foldingRepeatedPairings(items), now: now)
+    }
+
+    /// Streams written before 0.10.0-rr.1-beta.19 hold a `paired` item for every reconnect. A device pairs once, so
+    /// for each device only its oldest `paired` item within the stream's seven days stays.
+    static func foldingRepeatedPairings(_ items: [ActivityItem]) -> [ActivityItem] {
+        var oldest: [String: ActivityItem] = [:]
+        for item in items where item.kind == .paired {
+            guard let device = item.deviceID?.lowercased() else { continue }
+            if let kept = oldest[device], (kept.at, kept.id) <= (item.at, item.id) { continue }
+            oldest[device] = item
+        }
+        return items.filter { item in
+            guard item.kind == .paired, let device = item.deviceID?.lowercased() else { return true }
+            return oldest[device]?.id == item.id
+        }
     }
 
     /// The same item with its preview text, app name and caller removed.

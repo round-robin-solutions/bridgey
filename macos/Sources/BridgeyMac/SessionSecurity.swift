@@ -173,6 +173,19 @@ enum PairingRules {
         return .answer(chargesLimiter: chargesInboundAttempt(initiatedLocally: false, trusted: trusted, committedOffer: true))
     }
 
+    /// Crossed pairing (docs/protocol.md): the user is pairing this end with a device, that pairing has not been
+    /// answered yet (its dial is in flight, or it waits for Allow pairing there), and a committed offer arrives from that
+    /// same device, because someone started pairing there too. Both people acted, so that one device's offer counts as
+    /// armed here, but only one of the two dials may go on: the one from the lower device ID, as for simultaneous
+    /// reconnects. Commit-reveal and the code confirmation run as for any first pairing.
+    static func crossedPairing(localDeviceID: String, remoteDeviceID: String, ownPairingTarget: String?,
+                               committedOffer: Bool) -> CrossedPairing {
+        let local = localDeviceID.lowercased()
+        let remote = remoteDeviceID.lowercased()
+        guard committedOffer, let target = ownPairingTarget?.lowercased(), target == remote, remote != local else { return .none }
+        return remote < local ? .answer : .keepOwn
+    }
+
     /// Pairing frames on a session. After authentication only pairing.cancel is taken, and with an envelope key only
     /// with a valid tag. Before it, a tagged cancel must verify when this end has an envelope key; untagged ones are taken.
     static func admitsPairingFrame(kind: String, authenticated: Bool, hasEnvelopeKey: Bool, tagged: Bool, tagValid: Bool) -> Bool {
@@ -211,6 +224,18 @@ enum PairingRules {
         case .needsProtocol2, .notTrusted: .invalid
         }
     }
+}
+
+/// What a crossed pairing means for an offer (`PairingRules.crossedPairing`).
+enum CrossedPairing: Equatable {
+    /// Not a crossed pairing: the usual rules.
+    case none
+    /// The other device's ID is the lower one, so its dial goes on: its offer is answered even when pairing is not armed
+    /// here, and this end's own dial (or wait for Allow pairing) ends quietly.
+    case answer
+    /// This end's ID is the lower one, so its own dial goes on: the other device's offer is refused with `not_armed`,
+    /// without a "wants to pair" card. That device waits and answers this end's next dial.
+    case keepOwn
 }
 
 enum InboundOfferDecision: Equatable {

@@ -162,6 +162,20 @@ internal object PairingRules {
     }
 
     /**
+     * Crossed pairing (docs/protocol.md): the user is pairing this end with a device, that pairing has not been
+     * answered yet (its dial is in flight, or it waits for Allow pairing there), and a committed offer arrives from
+     * that same device, because someone started pairing there too. Both people acted, so that one device's offer
+     * counts as armed here, but only the dial from the lower device ID goes on, as for simultaneous reconnects.
+     * Commit-reveal and the code confirmation run as for any first pairing.
+     */
+    fun crossedPairing(localDeviceId: String, remoteDeviceId: String, ownPairingTarget: String?, committedOffer: Boolean): CrossedPairing {
+        val local = localDeviceId.lowercase()
+        val remote = remoteDeviceId.lowercase()
+        if (!committedOffer || ownPairingTarget?.lowercase() != remote || remote == local) return CrossedPairing.NONE
+        return if (remote < local) CrossedPairing.ANSWER else CrossedPairing.KEEP_OWN
+    }
+
+    /**
      * Which frames reach the session. Before authentication only pairing frames do; a pairing.cancel that carries a
      * tag must verify when this end already has the envelope key. After authentication every pairing frame is dropped
      * except pairing.cancel on this session, and that one needs a valid tag when the session has an envelope key.
@@ -237,6 +251,14 @@ internal object PairingRules {
 
 /** What the dialled end does with a pairing.offer; see [PairingRules.offerVerdict]. */
 internal enum class OfferVerdict { MALFORMED, NEEDS_PROTOCOL_2, NOT_TRUSTED, NOT_ARMED, ANSWER }
+
+/**
+ * What a crossed pairing means for an offer; see [PairingRules.crossedPairing]. [ANSWER]: the other device's ID is the
+ * lower one, so its offer is answered even when pairing is not armed here and this end's own dial (or wait for Allow
+ * pairing) ends quietly. [KEEP_OWN]: this end's ID is the lower one, so the other offer is refused with `not_armed`
+ * and no request card; that device waits and answers this end's next dial.
+ */
+internal enum class CrossedPairing { NONE, ANSWER, KEEP_OWN }
 
 /** Whether a frame reaches the session; see [PairingRules.admitFrame]. */
 internal enum class FrameVerdict { ADMIT, UNAUTHENTICATED, BAD_TAG, PAIRING_AFTER_AUTHENTICATION }

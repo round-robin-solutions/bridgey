@@ -640,6 +640,40 @@ class PairingCoordinator(
         }
     }
 
+    /**
+     * The device the user is pairing this phone with, until that device answers: the dial is in flight or it waits for
+     * Allow pairing there. Null for a pairing the other device started, or a target without an ID.
+     */
+    private fun ownPairingTarget(): String? = pairingSlot.locked {
+        val id = lastTarget?.deviceId ?: return@locked null
+        val own = pairingSession
+        val dialling = own != null && own.initiatedLocally && !own.closed && own.target != null &&
+            PairingRules.beforeAnswer(own.answered, own.pairingKey != null, own.prompted)
+        if (allowWaitStartedAt != null || dialling) id else null
+    }
+
+    /**
+     * Crossed pairing, the other device's dial won: this phone's own dial or wait for Allow pairing ends quietly, and the
+     * offer being answered becomes the user's pairing, so its code shows here and a failure shows on the pairing card.
+     */
+    private fun yieldOwnPairing(current: Session) {
+        val own = pairingSlot.locked {
+            val old = pairingSession?.takeIf { it !== current }
+            allowWaitStartedAt = null
+            allowRetryJob?.cancel()
+            pairingGeneration++
+            pairingSession = current
+            mutablePairingFlow.value = PairingState.Connecting(current.peerName)
+            mutablePairingRequest.value?.takeIf { it.deviceId.equals(current.remoteDeviceId, ignoreCase = true) }?.let { mutablePairingRequest.value = null }
+            old
+        }
+        own?.let {
+            it.dropReason = "pairing_crossed"
+            it.close()
+        }
+        publish()
+    }
+
     /** The other end answered `not_armed`: show WaitingForAllow and dial again in 3 s, for up to two minutes. */
     private fun scheduleAllowRetry(target: PairingTarget) {
         val generation = pairingGeneration
@@ -3272,9 +3306,18 @@ class PairingCoordinator(
                 current.peerName = sanitizedPeerName(message.deviceName, "Android device")
                 current.remoteProtocol = message.protocolVersion ?: 1L
                 val trusted = message.deviceId?.let { trust.identityKey(it) != null } == true
+                // Both ends started pairing with each other: one deterministic dial goes on (docs/protocol.md).
+                val crossed = message.deviceId?.let {
+                    PairingRules.crossedPairing(localDeviceId, it, ownPairingTarget(), committedOffer = message.publicKey == null && message.commitment != null)
+                } ?: CrossedPairing.NONE
+                if (crossed != CrossedPairing.NONE) {
+                    BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING crossed peer=${message.deviceId!!.take(8)} answer=${crossed == CrossedPairing.ANSWER}")
+                    diagnostics.record("pairing", "crossed", if (crossed == CrossedPairing.ANSWER) "answered" else "kept_own", device = message.deviceId)
+                }
                 val verdict = PairingRules.offerVerdict(
-                    message.deviceId, message.publicKey, message.commitment, current.remoteProtocol, trusted, arming.isArmed(),
-                )
+                    message.deviceId, message.publicKey, message.commitment, current.remoteProtocol, trusted,
+                    arming.isArmed() || crossed == CrossedPairing.ANSWER,
+                ).let { if (crossed == CrossedPairing.KEEP_OWN && it == OfferVerdict.ANSWER) OfferVerdict.NOT_ARMED else it }
                 if (verdict == OfferVerdict.MALFORMED) {
                     BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING malformed offer closed")
                     diagnostics.record("pairing", "inbound_refused", "malformed")
@@ -3294,7 +3337,8 @@ class PairingCoordinator(
                     OfferVerdict.NOT_TRUSTED -> return refuseOffer(current, PairingCancelReason.NOT_TRUSTED)
                     OfferVerdict.NOT_ARMED -> {
                         refuseOffer(current, PairingCancelReason.NOT_ARMED)
-                        publishPairingRequest(PairingRequest(current.remoteDeviceId, current.peerName, oldVersion = false))
+                        // A crossed pairing this phone's own dial wins needs no request card.
+                        if (crossed == CrossedPairing.NONE) publishPairingRequest(PairingRequest(current.remoteDeviceId, current.peerName, oldVersion = false))
                         return
                     }
                     else -> Unit
@@ -3307,6 +3351,7 @@ class PairingCoordinator(
                     BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING rejected: too many pairing attempts")
                     return refuseOffer(current, PairingCancelReason.RATE_LIMITED)
                 }
+                if (crossed == CrossedPairing.ANSWER) yieldOwnPairing(current)
                 current.keyPair = Crypto.generateKeyPair()
                 current.localEphemeralKey = Crypto.encodePublicKey(current.keyPair!!)
                 val answer = Message(
