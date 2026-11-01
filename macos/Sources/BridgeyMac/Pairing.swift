@@ -1056,7 +1056,8 @@ final class PairingCoordinator: ObservableObject {
 
     /// One phone's session ended: only its calls, transfers and clipboard fetches go, and its
     /// reconnect starts.
-    private func deviceDisconnected(_ id: String, reason: String) {
+    /// `detail`: the session's route, direction, age and silence (`disconnectDetail`), for diagnostics.
+    private func deviceDisconnected(_ id: String, reason: String, detail: String? = nil) {
         ConnectTiming.mark("app.disconnected", peer: id, detail: reason)
         cancelTransfers(for: id)
         focusSync.forget(id)
@@ -1089,7 +1090,7 @@ final class PairingCoordinator: ObservableObject {
         publish()
         connectSync()
         BridgeyLog.transport.notice("disconnected peer=\(shortDeviceID(id), privacy: .public) reason=\(reason, privacy: .public)")
-        diagnostics.record(category: "transport", event: "disconnected", outcome: reason, device: id)
+        diagnostics.record(category: "transport", event: "disconnected", outcome: reason, device: id, detail: detail)
         guard trustedDeviceIDs.contains(id) else { return }
         reconnect.disconnected(id)
         discoveryWindowStart = clock.now
@@ -2453,7 +2454,9 @@ final class PairingCoordinator: ObservableObject {
             self.dialFinished(current)
             let reason = current.dropReason ?? "closed"
             if let id = self.registry.remove(current) {
-                self.deviceDisconnected(id, reason: reason)
+                self.deviceDisconnected(id, reason: reason, detail: disconnectDetail(
+                    tunnel: current.tunnel != nil, initiatedLocally: current.initiatedLocally,
+                    createdAt: current.createdAt, lastReceivedAt: current.lastReceivedAt))
             } else if self.pairingSession === current {
                 if current.awaitingAllow {
                     self.waitForAllow(after: current)
@@ -2463,7 +2466,9 @@ final class PairingCoordinator: ObservableObject {
             } else if let dialed = current.dialDeviceID, !current.authenticated {
                 // A reconnect that never authenticated: the schedule tries again.
                 BridgeyLog.reconnect.notice("dial failed peer=\(shortDeviceID(dialed), privacy: .public) reason=\(reason, privacy: .public)")
-                self.diagnostics.record(category: "reconnect", event: "dial_failed", outcome: reason, device: dialed)
+                // Which address failed (v4.<last octet>, v6, name): a dial to an expired IPv6 temporary address shows here.
+                self.diagnostics.record(category: "reconnect", event: "dial_failed", outcome: reason, device: dialed,
+                                        detail: current.remoteHost.map(addressTag))
             }
         }
         current.connection.stateUpdateHandler = { [weak self, weak current] newState in
@@ -3325,7 +3330,8 @@ final class PairingCoordinator: ObservableObject {
     private func completeIfConfirmed(_ current: Session) {
         guard current.localConfirmed, current.remoteConfirmed, !current.authenticated, !current.ended else { return }
         let id = current.remoteDeviceID
-        switch registry.authenticate(current, deviceID: id, peerName: current.peerName) {
+        let stale: (Session) -> Bool = { sessionLooksStale(supported: $0.heartbeatSupported, lastReceivedAt: $0.lastReceivedAt, tunnel: $0.tunnel != nil) }
+        switch registry.authenticate(current, deviceID: id, peerName: current.peerName, isStale: stale) {
         case .rejected:
             // A live session for this phone wins the duplicate rule; this socket closes quietly.
             BridgeyLog.transport.notice("duplicate session closed peer=\(shortDeviceID(id), privacy: .public)")
@@ -3348,7 +3354,8 @@ final class PairingCoordinator: ObservableObject {
             }
             if let replaced {
                 BridgeyLog.transport.notice("duplicate session replaced peer=\(shortDeviceID(id), privacy: .public)")
-                diagnostics.record(category: "transport", event: "duplicate_replaced", device: id)
+                // "stale": the old session had gone silent, so the new one won whichever side dialled it.
+                diagnostics.record(category: "transport", event: "duplicate_replaced", device: id, detail: stale(replaced) ? "stale" : nil)
                 replaced.dropReason = "replaced"
                 replaced.connectionTimeout?.cancel()
                 replaced.heartbeat?.cancel()
@@ -3757,7 +3764,9 @@ final class PairingCoordinator: ObservableObject {
             publishHealth()
             let tag = addressTag(address.host)
             BridgeyLog.reconnect.notice("dial peer=\(shortDeviceID(id), privacy: .public) attempt=\(attempt, privacy: .public) reason=\(reason, privacy: .public) source=\(address.source.rawValue, privacy: .public) address=\(tag, privacy: .public)")
-            diagnostics.record(category: "reconnect", event: "dial", outcome: reason, device: id, detail: "n\(attempt)_\(address.source.rawValue)_\(tag)")
+            // seen<minutes>: how long ago the address was last seen working or in discovery.
+            diagnostics.record(category: "reconnect", event: "dial", outcome: reason, device: id,
+                               detail: "n\(attempt)_\(address.source.rawValue)_\(tag)_seen\(max(0, Int(Date().timeIntervalSince(address.lastSeen) / 60)))m")
         case let .noAddress(id, attempt, reason):
             BridgeyLog.reconnect.notice("no dialable address peer=\(shortDeviceID(id), privacy: .public) attempt=\(attempt, privacy: .public) reason=\(reason, privacy: .public)")
             diagnostics.record(category: "reconnect", event: "no_address", outcome: reason, device: id, detail: "n\(attempt)")

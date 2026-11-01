@@ -59,6 +59,13 @@ object ReconnectPolicy {
     const val HEARTBEAT_INTERVAL_MILLIS = 10_000L
     const val HEARTBEAT_TIMEOUT_MILLIS = 30_000L
 
+    /**
+     * A live session silent this long (one and a half heartbeat intervals; 40 s over a tunnel, whose heartbeat runs
+     * every 25 s) loses to a new session for the same device, whichever side dialled (SessionRegistry.authenticate).
+     */
+    const val STALE_SESSION_MILLIS = 15_000L
+    const val STALE_TUNNEL_SESSION_MILLIS = 40_000L
+
     /** Bridgey's listening port. Inbound connections come from a random port, so their address is stored with this one. */
     const val LISTENING_PORT = 42_458
 

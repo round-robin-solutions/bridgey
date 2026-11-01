@@ -4312,7 +4312,10 @@ class PairingCoordinator(
         if (sessionKey != null && current.envelopeKey != null) {
             current.allowBinaryFrames(SessionSecurity.fastFrameKey(sessionKey), current.tagSender, current.remoteDeviceId)
         }
-        when (val admission = registry.authenticate(current, current.remoteDeviceId, current.peerName)) {
+        val stale = { session: Session ->
+            sessionLooksStale(session.heartbeatSupported, session.lastReceivedAtMillis, SystemClock.elapsedRealtime(), session.tunnel != null)
+        }
+        when (val admission = registry.authenticate(current, current.remoteDeviceId, current.peerName, stale)) {
             SessionRegistry.Admission.Rejected -> {
                 // A live session for this device wins the duplicate rule; this socket closes quietly.
                 BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT duplicate session closed peerId=${current.remoteDeviceId.take(8)}")
@@ -4326,7 +4329,8 @@ class PairingCoordinator(
             }
             is SessionRegistry.Admission.Accepted -> admission.replaced?.let {
                 BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT duplicate session replaced peerId=${current.remoteDeviceId.take(8)}")
-                diagnostics.record("transport", "duplicate_replaced", device = current.remoteDeviceId)
+                // "stale": the old session had gone silent, so the new one won whichever side dialled it.
+                diagnostics.record("transport", "duplicate_replaced", device = current.remoteDeviceId, detail = if (stale(it)) "stale" else null)
                 it.dropReason = "replaced"
                 it.close()
             }

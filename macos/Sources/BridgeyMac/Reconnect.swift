@@ -43,6 +43,11 @@ enum ReconnectPolicy {
     /// Heartbeat: a ping every 10 s; a link silent for 30 s is dead.
     static let heartbeatInterval: TimeInterval = 10
     static let heartbeatTimeout: TimeInterval = 30
+    /// A live session silent this long (one and a half heartbeat intervals; 40 s over a tunnel, whose heartbeat runs
+    /// every 25 s) loses to a new session for the same device, whichever side dialled: the device has evidently
+    /// dropped it already (SessionRegistry.authenticate).
+    static let staleSessionAfter: TimeInterval = 15
+    static let staleTunnelSessionAfter: TimeInterval = 40
     /// The port Bridgey listens on. Inbound connections come from a random port, so an address
     /// learned from one is stored with this port.
     static let listeningPort = Int(TestInstance.listeningPort)

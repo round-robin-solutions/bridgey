@@ -90,6 +90,16 @@ Categories seen in the code, with example events (not a complete list):
 | `power` (Android) | screen off, Doze entered and similar, with the `power` token as detail |
 | `link` | connection-link changes, with a reason |
 
+On the Mac (from 0.10.0-rr.1-beta.19), `disconnected` events carry the session's route, who dialled it,
+its age and its silence in whole seconds as their detail, `tcp_in_age94_silent31` (route `tcp` or
+`tunnel`; `out` = this Mac dialled, `in` = the peer did). A link that drops after a steady 30 to
+90 s with a silence near 30 s is a peer that stopped answering (Doze or Wi-Fi power save), not a
+heartbeat that ran too fast. `dial` events end in `_seen<minutes>m`, how long ago that address was
+last seen working or in discovery, and `dial_failed` events carry the address tag that failed
+(`v4.<last octet>`, `v6` or `name`): a stream of `v6` failures on addresses seen hours ago is an
+expired IPv6 temporary address. On both apps `duplicate_replaced` has the detail `stale` when the
+new session won because the old one had gone silent (docs/reconnect-reliability.md, section 1).
+
 On Android, `disconnected` events carry the power token as their detail. This is how a report shows
 that Doze or battery saving was involved in an overnight drop.
 

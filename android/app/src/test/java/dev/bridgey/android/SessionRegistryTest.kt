@@ -244,4 +244,32 @@ class SessionRegistryTest {
         assertEquals("Connecting to Work Mac…", connectionStatus(emptyList(), PairingState.Connecting("Work Mac")))
         assertEquals("Not connected · waiting for paired device", connectionStatus(emptyList(), PairingState.Idle))
     }
+
+    /**
+     * Seen on the Work Mac (2026-11-01): the side with the lower id kept its own dial after the other end had dropped
+     * it, and refused 20 redials in 56 s. A silent live session loses to the new one whoever dialled it.
+     */
+    @Test
+    fun staleSessionLosesToNewSessionWhoeverDialled() {
+        val registry = registry()
+        val own = FakeSession("Phone dialled Work Mac")
+        assertEquals(SessionRegistry.Admission.Accepted(null), registry.connect(own, workMac, initiatedLocally = true))
+        val redial = FakeSession("Work Mac redial")
+        registry.addPending(redial, false)
+        assertEquals(SessionRegistry.Admission.Rejected, registry.authenticate(redial, workMac, redial.name) { false })
+        val second = FakeSession("Work Mac redial 2")
+        registry.addPending(second, false)
+        assertEquals(SessionRegistry.Admission.Accepted(own), registry.authenticate(second, workMac, second.name) { it === own })
+        assertSame(second, registry.session(workMac))
+    }
+
+    @Test
+    fun sessionLooksStaleAfterOneAndAHalfHeartbeats() {
+        val now = 1_000_000L
+        assertFalse(sessionLooksStale(true, now - 14_000, now, tunnel = false))
+        assertTrue(sessionLooksStale(true, now - 15_000, now, tunnel = false))
+        assertFalse(sessionLooksStale(true, now - 30_000, now, tunnel = true))
+        assertTrue(sessionLooksStale(true, now - 40_000, now, tunnel = true))
+        assertFalse(sessionLooksStale(false, now - 600_000, now, tunnel = false))
+    }
 }

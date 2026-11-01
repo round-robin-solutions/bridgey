@@ -130,7 +130,11 @@ internal class SessionRegistry<S : Any>(private val localDeviceId: String) {
     fun isPending(session: S): Boolean = synchronized(lock) { session in pending }
 
     /** Moves an authenticated [session] to the device map, resolving duplicates. */
-    fun authenticate(session: S, deviceId: String, peerName: String): Admission<S> = synchronized(lock) {
+    /**
+     * [isStale]: the session has heard nothing for longer than a healthy heartbeat allows ([sessionLooksStale]). A stale
+     * live session loses to [session] whichever side dialled it.
+     */
+    fun authenticate(session: S, deviceId: String, peerName: String, isStale: (S) -> Boolean = { false }): Admission<S> = synchronized(lock) {
         val entry = pending.remove(session) ?: active.values.firstOrNull { it.session === session }
             ?: return Admission.Rejected
         entry.deviceId = deviceId
@@ -140,7 +144,7 @@ internal class SessionRegistry<S : Any>(private val localDeviceId: String) {
             active[deviceId] = entry
             return Admission.Accepted(null)
         }
-        if (!prefers(entry, existing)) return Admission.Rejected
+        if (!isStale(existing.session) && !prefers(entry, existing)) return Admission.Rejected
         // The survivor keeps what the device already reported (features, battery) until it updates.
         entry.state = existing.state
         active.remove(deviceId)

@@ -23,7 +23,10 @@ meant for; a receiver with another device ID closes the socket without a
 pairing prompt, and a dialler whose `pairing.answer` names another device
 closes too. Older clients ignore the field. When both sides dial at once, both
 keep the socket dialled by the lower device ID (newer one if the same side
-dialled both). Values and trade-offs: `docs/reconnect-reliability.md`.
+dialled both), unless the live one has gone silent for one and a half
+heartbeat intervals (15 s; 40 s on a tunnel): then the new socket wins,
+whichever side dialled it, because the other end has evidently dropped the old
+one. Values and trade-offs: `docs/reconnect-reliability.md`.
 
 Payload encryption is application-layer protection, not TLS. Routing headers
 and some acknowledgements remain outside the encrypted payload; traffic
