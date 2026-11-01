@@ -243,22 +243,58 @@ final class ActivityStreamTests: XCTestCase {
         XCTAssertFalse(ActivityRules.recordsPairing(confirmedCode: false, wasTrusted: true), "a reconnect")
     }
 
-    /// Streams written before the fix hold a `paired` item per reconnect: on load each device keeps its oldest one.
-    func testLoadingFoldsRepeatedPairedItemsPerDevice() {
-        func item(_ id: Int64, _ kind: ActivityKind, _ device: String?, minutesAgo: Double) -> ActivityItem {
-            ActivityItem(id: id, kind: kind, deviceID: device, deviceName: device ?? "?", fileName: nil, preview: nil, appName: nil,
-                         sensitive: false, automatic: false, count: 1, at: now.addingTimeInterval(-minutesAgo * 60))
-        }
+    private func pairingItem(_ id: Int64, _ kind: ActivityKind, _ device: String?, minutesAgo: Double) -> ActivityItem {
+        ActivityItem(id: id, kind: kind, deviceID: device, deviceName: device ?? "?", fileName: nil, preview: nil, appName: nil,
+                     sensitive: false, automatic: false, count: 1, at: now.addingTimeInterval(-minutesAgo * 60))
+    }
+
+    /// Streams written before the fix hold a `paired` item per reconnect: the clean-up keeps each device's oldest one.
+    func testTheCleanUpFoldsRepeatedPairedItemsPerDevice() {
         let items = [
-            item(1, .paired, "mbp", minutesAgo: 90),
-            item(2, .paired, "MBP", minutesAgo: 60),
-            item(3, .linkSent, "mbp", minutesAgo: 59),
-            item(4, .paired, "mbp", minutesAgo: 30),
-            item(5, .paired, "phone", minutesAgo: 20),
-            item(6, .paired, nil, minutesAgo: 10),
+            pairingItem(1, .paired, "mbp", minutesAgo: 90),
+            pairingItem(2, .paired, "MBP", minutesAgo: 60),
+            pairingItem(3, .linkSent, "mbp", minutesAgo: 59),
+            pairingItem(4, .paired, "mbp", minutesAgo: 30),
+            pairingItem(5, .paired, "phone", minutesAgo: 20),
+            pairingItem(6, .paired, nil, minutesAgo: 10),
         ]
-        let loaded = ActivityHistory.decode(try! ActivityHistory.encode(items), now: now)
-        XCTAssertEqual(loaded.map(\.id).sorted(), [1, 3, 5, 6])
+        let data = try! ActivityHistory.encode(items)
+        XCTAssertEqual(ActivityHistory.decode(data, now: now, foldingPairings: true).map(\.id).sorted(), [1, 3, 5, 6])
+        XCTAssertEqual(ActivityHistory.decode(data, now: now).map(\.id).sorted(), [1, 2, 3, 4, 5, 6])
+    }
+
+    /// Security review: folding on every load hid real pairings (Forget and pair again, or a new identity key). The
+    /// clean-up runs once per stream; a `paired` item written after it stays.
+    func testThePairedCleanUpRunsOnceSoLaterPairingsStay() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("activity-fold-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ActivityStore(fileURL: directory.appendingPathComponent(ActivityStore.fileName))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // A stream from beta 18: three `paired` items for one Mac, from reconnects.
+        try ActivityHistory.encode([
+            pairingItem(1, .paired, "mbp", minutesAgo: 90),
+            pairingItem(2, .paired, "mbp", minutesAgo: 60),
+            pairingItem(3, .paired, "mbp", minutesAgo: 30),
+        ]).write(to: store.fileURL)
+        XCTAssertEqual(store.load(now: now).map(\.id), [1])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.foldedMarkerURL.path))
+        XCTAssertEqual(ActivityHistory.decode(try Data(contentsOf: store.fileURL), now: now).map(\.id), [1], "saved folded")
+        // Later the user forgets the Mac and pairs it again: both `paired` items stay on every load.
+        store.save([pairingItem(4, .paired, "mbp", minutesAgo: 1), pairingItem(1, .paired, "mbp", minutesAgo: 90)])
+        store.flush()
+        XCTAssertEqual(store.load(now: now).map(\.id), [4, 1])
+        XCTAssertEqual(store.load(now: now).map(\.id), [4, 1])
+    }
+
+    /// A new install has nothing to clean up: its first real pairings are never folded either.
+    func testANewStreamIsNeverFolded() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("activity-fold-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ActivityStore(fileURL: directory.appendingPathComponent(ActivityStore.fileName))
+        XCTAssertTrue(store.load(now: now).isEmpty)
+        store.save([pairingItem(2, .paired, "mbp", minutesAgo: 1), pairingItem(1, .paired, "mbp", minutesAgo: 5)])
+        store.flush()
+        XCTAssertEqual(store.load(now: now).map(\.id), [2, 1])
     }
 
     // MARK: Folders (Files 2.0)

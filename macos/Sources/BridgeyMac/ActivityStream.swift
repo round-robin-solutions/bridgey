@@ -325,8 +325,9 @@ enum ActivityHistory {
         return try encoder.encode(items)
     }
 
-    /// Lenient: unknown kinds and malformed items are dropped, fields are re-cleaned.
-    static func decode(_ data: Data, now: Date) -> [ActivityItem] {
+    /// Lenient: unknown kinds and malformed items are dropped, fields are re-cleaned. `foldingPairings`: the one-time
+    /// clean-up of a stream written before 0.10.0-rr.1-beta.19 (`foldingRepeatedPairings`).
+    static func decode(_ data: Data, now: Date, foldingPairings: Bool = false) -> [ActivityItem] {
         guard data.count <= maximumFileBytes else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .millisecondsSince1970
@@ -354,11 +355,12 @@ enum ActivityHistory {
                 destination: kind.isFolder ? clean(value.destination, limit: maximumNameLength) : nil
             )
         }
-        return prune(foldingRepeatedPairings(items), now: now)
+        return prune(foldingPairings ? foldingRepeatedPairings(items) : items, now: now)
     }
 
-    /// Streams written before 0.10.0-rr.1-beta.19 hold a `paired` item for every reconnect. A device pairs once, so
-    /// for each device only its oldest `paired` item within the stream's seven days stays.
+    /// Streams written before 0.10.0-rr.1-beta.19 hold a `paired` item for every reconnect: for each device only its
+    /// oldest `paired` item within the stream's seven days stays. This runs once per stream (`ActivityStore`), because
+    /// later `paired` items are real pairings (Forget and pair again, or a new identity) and must stay.
     static func foldingRepeatedPairings(_ items: [ActivityItem]) -> [ActivityItem] {
         var oldest: [String: ActivityItem] = [:]
         for item in items where item.kind == .paired {
@@ -428,10 +430,23 @@ final class ActivityStore {
         self.fileURL = fileURL
     }
 
+    /// Marks a stream that has had its one-time `paired` clean-up (next to the stream; it stays when the stream is cleared).
+    var foldedMarkerURL: URL {
+        fileURL.deletingLastPathComponent().appendingPathComponent(".\(fileURL.lastPathComponent).pairings-folded")
+    }
+
     func load(now: Date) -> [ActivityItem] {
         queue.sync {
-            guard let data = try? Data(contentsOf: fileURL) else { return [] }
-            return ActivityHistory.decode(data, now: now)
+            let manager = FileManager.default
+            let fold = !manager.fileExists(atPath: foldedMarkerURL.path)
+            let data = try? Data(contentsOf: fileURL)
+            let items = data.map { ActivityHistory.decode($0, now: now, foldingPairings: fold) } ?? []
+            if fold {
+                // The folded stream is on disk before the marker, so a crash in between folds again (harmlessly).
+                if data != nil, let folded = try? ActivityHistory.encode(items) { Self.write(folded, to: fileURL) }
+                Self.write(Data(), to: foldedMarkerURL)
+            }
+            return items
         }
     }
 
