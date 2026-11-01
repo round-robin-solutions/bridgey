@@ -362,6 +362,7 @@
 "settings.media.player" = "Плеер";
 "settings.media.player.detail" = "Автоматический режим управляет тем, что играет на этом Mac. Или выберите одно приложение.";
 "media.player.automatic" = "Автоматически (то, что играет)";
+"media.player.automatic.short" = "Автоматически";
 "media.player.off" = "Выключено";
 "settings.media.refresh" = "Обновить";
 "settings.mediaActions" = "Медиа и быстрые действия";

@@ -33,6 +33,8 @@ final class MediaPlayerTests: XCTestCase {
         XCTAssertEqual(MediaPlayer.spotify.title, "Spotify")
         XCTAssertEqual(MediaPlayer.automatic.title, "Automatic")
         XCTAssertEqual(MediaPlayer.automatic.menuTitle, "Automatic (whatever is playing)")
+        XCTAssertEqual(MediaPlayer.automatic.buttonTitle, "Automatic")
+        XCTAssertEqual(MediaPlayer.spotify.buttonTitle, "Spotify")
     }
 
     func testValidBundleIDs() {

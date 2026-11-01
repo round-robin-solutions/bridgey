@@ -362,6 +362,7 @@
 "settings.media.player" = "Player";
 "settings.media.player.detail" = "Automatic follows whatever is playing on this Mac. Or pick one app.";
 "media.player.automatic" = "Automatic (whatever is playing)";
+"media.player.automatic.short" = "Automatic";
 "media.player.off" = "Off";
 "settings.media.refresh" = "Refresh";
 "settings.mediaActions" = "Media and quick actions";

@@ -1218,7 +1218,7 @@ struct MediaPlayerRow: View {
     var body: some View {
         SettingsRow(title: L10n.text("settings.media.player", fallback: "Player"),
                     subtitle: L10n.text("settings.media.player.detail", fallback: "Automatic follows whatever is playing on this Mac. Or pick one app.")) {
-            ChoiceButton(value: model.mediaPlayer.menuTitle) {
+            ChoiceButton(value: model.mediaPlayer.buttonTitle) {
                 model.mediaChoices.map { player in
                     PopUpMenuItem(title: player.menuTitle, checked: player == model.mediaPlayer) { actions.setPlayer(player) }
                 }

@@ -86,6 +86,15 @@ enum MediaPlayer: Hashable, Identifiable {
         default: title
         }
     }
+
+    /// The name on the Settings button: Automatic without the explanation, which the row's subtitle gives
+    /// (the full menu name was cut off on the button).
+    var buttonTitle: String {
+        switch self {
+        case .automatic: L10n.text("media.player.automatic.short", fallback: "Automatic")
+        default: menuTitle
+        }
+    }
 }
 
 /// Apps that report to Now Playing, for the player menu: these show when installed or running.
