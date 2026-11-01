@@ -229,12 +229,12 @@ fun itemQuote(item: ActivityItem): String? {
 }
 
 /**
- * One copy to several devices names the ones it reached ("OnePlus 11 5G and MacBook Pro"); other items,
- * and arrivals (named by the first device), keep [device].
+ * One copy names the devices it reached ("OnePlus 11 5G and MacBook Pro"); other items, older items
+ * without devices, and arrivals (named by the first device) keep [device].
  */
 @Composable
 fun deliveredNames(item: ActivityItem, device: String): String {
-    val peers = item.peers?.takeIf { it.size > 1 } ?: return device
+    val peers = item.peers?.takeIf { it.isNotEmpty() } ?: return device
     if (item.kind != ActivityKind.CLIPBOARD_SENT && item.kind != ActivityKind.CLIP_OFFER_SENT) return device
     val names = peers.filter { it.state == ActivityPeerState.DELIVERED }.map { it.deviceName }
     return if (names.isEmpty()) device else joinDeviceNames(names, stringResource(R.string.stream_list_and))
@@ -243,11 +243,12 @@ fun deliveredNames(item: ActivityItem, device: String): String {
 /** "Waiting for Work Mac · Not delivered to Pixel" for a copy to several devices, "Also came through MacBook Pro" for an arrival; null when there is nothing to add. */
 @Composable
 fun peerStatesText(item: ActivityItem): String? {
-    val peers = item.peers?.takeIf { it.size > 1 } ?: return null
+    val peers = item.peers?.takeIf { it.isNotEmpty() } ?: return null
     val and = stringResource(R.string.stream_list_and)
     fun names(state: ActivityPeerState) = peers.filter { it.state == state }.map { it.deviceName }.takeIf { it.isNotEmpty() }?.let { joinDeviceNames(it, and) }
     val parts = if (item.kind == ActivityKind.CLIPBOARD_RECEIVED || item.kind == ActivityKind.CLIP_OFFER_RECEIVED) {
-        listOf(stringResource(R.string.stream_clip_also_from, joinDeviceNames(peers.drop(1).map { it.deviceName }, and)))
+        val others = peers.drop(1).map { it.deviceName }
+        listOfNotNull(others.takeIf { it.isNotEmpty() }?.let { stringResource(R.string.stream_clip_also_from, joinDeviceNames(it, and)) })
     } else {
         listOfNotNull(
             names(ActivityPeerState.PENDING)?.let { stringResource(R.string.stream_clip_waiting, it) },
@@ -262,7 +263,8 @@ fun peerStatesText(item: ActivityItem): String? {
 
 @Composable
 private fun itemTitleWithoutPreview(item: ActivityItem, device: String): String = when (item.kind) {
-    ActivityKind.CLIPBOARD_SENT -> if ((item.peers?.size ?: 0) > 1) {
+    // Same as the Mac: an item that follows its devices is "Copied to", older items keep "Sent to".
+    ActivityKind.CLIPBOARD_SENT -> if (!item.peers.isNullOrEmpty()) {
         stringResource(R.string.stream_clipboard_copied_to, device)
     } else {
         stringResource(R.string.stream_clipboard_sent_title, device)

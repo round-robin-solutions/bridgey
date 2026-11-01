@@ -107,7 +107,8 @@ class ActivityRecorder(
     private val clipGroups = ClipActivityGroups()
 
     fun start() {
-        pairing.activityListener = { event -> recordPeerEvent(log, event, showPreviews(), clipGroups) }
+        // One event at a time: two devices answering together must not both record the copy's item.
+        pairing.activityListener = { event -> synchronized(clipGroups) { recordPeerEvent(log, event, showPreviews(), clipGroups) } }
         // Ping sent, Find Mac and Find phone arrive as PeerEvents tagged with their own device.
         scope.launch {
             pairing.quickActions.status.drop(1).collect { status ->

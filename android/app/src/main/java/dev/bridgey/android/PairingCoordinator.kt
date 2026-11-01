@@ -41,6 +41,7 @@ import java.security.spec.ECPoint
 import java.security.spec.ECPublicKeySpec
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.crypto.KeyAgreement
 import javax.crypto.Mac
 import javax.crypto.Cipher
@@ -405,7 +406,8 @@ class PairingCoordinator(
     @Volatile private var localDeviceName = localDeviceName
     private val mutableClipboardStatus = MutableStateFlow<String?>(null)
     val clipboardStatus: StateFlow<String?> = mutableClipboardStatus.asStateFlow()
-    private val pendingClipboardSends = ConcurrentHashMap<String, (ClipboardSendResult) -> Unit>()
+    /** Clip sends waiting for an answer, by message id. Each one belongs to the device it went to. */
+    private val pendingClipboardSends = ConcurrentHashMap<String, PendingClipSend>()
     private val autoClipboardTracker = AutoClipboardTracker()
     private val pendingFileAccepts = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
     private val pendingFileCompletions = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
@@ -1302,14 +1304,14 @@ class PairingCoordinator(
             clipboardInbox.supersede()
             val sent = mutableListOf<SessionClipLink>()
             val messageIds = mutableListOf<String>()
-            var reported = false
+            val reported = AtomicBoolean(false)
             val groupId = offer.offerId
             val groupTargets = live.map { it.remoteDeviceId to it.peerName }
             live.forEach { current ->
                 val link = SessionClipLink(current)
                 val messageId = UUID.randomUUID().toString()
-                pendingClipboardSends[messageId] = { result ->
-                    // Every device's answer, so the one item shows each device's state.
+                // Every device's answer, so the one item shows each device's state.
+                val record: (ClipboardSendResult) -> Unit = { result ->
                     activityListener?.invoke(
                         PeerEvent(
                             PeerActivity.CLIP_OFFER_SENT, current.remoteDeviceId, current.peerName,
@@ -1318,21 +1320,22 @@ class PairingCoordinator(
                             groupId = groupId, groupTargets = groupTargets, result = result,
                         ),
                     )
+                }
+                pendingClipboardSends[messageId] = PendingClipSend(current.remoteDeviceId) { result ->
+                    record(result)
                     // One result per send: the first device's answer (manual sends have one device).
-                    if (!reported) {
-                        reported = true
-                        onResult(result)
-                    }
+                    if (reported.compareAndSet(false, true)) onResult(result)
                 }
                 if (link.sendWithId("clipboard.offer", messageId, offer.encode())) {
                     sent += link
                     messageIds += messageId
                 } else {
-                    pendingClipboardSends.remove(messageId)?.invoke(ClipboardSendResult.CONNECTION_LOST)
+                    // Only this device's state: the send as a whole goes on if another device took it.
+                    if (takePendingClip(messageId) != null) record(ClipboardSendResult.CONNECTION_LOST)
                 }
             }
             if (sent.isEmpty()) {
-                if (!reported) onResult(ClipboardSendResult.CONNECTION_LOST)
+                if (reported.compareAndSet(false, true)) onResult(ClipboardSendResult.CONNECTION_LOST)
                 mutableClipboardStatus.value = "Connection lost"
                 return@launch
             }
@@ -1345,7 +1348,7 @@ class PairingCoordinator(
             if (!automatic) mutableClipboardStatus.value = "Sending…"
             delay(6_000)
             messageIds.forEach { messageId ->
-                pendingClipboardSends.remove(messageId)?.let { callback ->
+                takePendingClip(messageId)?.let { callback ->
                     if (!automatic) mutableClipboardStatus.value = "No delivery acknowledgement"
                     callback(ClipboardSendResult.NO_ACKNOWLEDGEMENT)
                 }
@@ -1358,6 +1361,23 @@ class PairingCoordinator(
     private fun clipboardSessionEnded(deviceId: String?) {
         clipboardInbox.disconnected(deviceId)
         clipboardOutbox.disconnected(deviceId)
+    }
+
+    /**
+     * Takes the waiting send [messageId] so exactly one answer settles it. With [fromDeviceId] it
+     * only matches a send that went to that device: another device's ack never settles it.
+     */
+    private fun takePendingClip(messageId: String, fromDeviceId: String? = null): ((ClipboardSendResult) -> Unit)? {
+        val pending = pendingClipboardSends[messageId] ?: return null
+        if (fromDeviceId != null && pending.deviceId != fromDeviceId) return null
+        return if (pendingClipboardSends.remove(messageId, pending)) pending.callback else null
+    }
+
+    /** [deviceId]'s session ended: its waiting clip sends fail now instead of after the timeout. */
+    private fun failPendingClips(deviceId: String) {
+        pendingClipboardSends.entries.filter { it.value.deviceId == deviceId }.forEach { (messageId, _) ->
+            takePendingClip(messageId, deviceId)?.invoke(ClipboardSendResult.CONNECTION_LOST)
+        }
     }
 
     /** Clipboard offer messages on one device's session: encrypted payloads, unique message IDs. */
@@ -1494,7 +1514,7 @@ class PairingCoordinator(
                 return@launch
             }
             val messageId = UUID.randomUUID().toString()
-            pendingClipboardSends[messageId] = finish
+            pendingClipboardSends[messageId] = PendingClipSend(current.remoteDeviceId, finish)
             clipboardOutbox.supersede(SessionClipLink(current))
             clipboardInbox.supersede()
             val richContent = RichClipboardContent.create(text, html)
@@ -1508,7 +1528,7 @@ class PairingCoordinator(
                 ciphertext = encrypted.ciphertext,
             )
             if (!current.send(message)) {
-                pendingClipboardSends.remove(messageId)?.invoke(ClipboardSendResult.CONNECTION_LOST)
+                takePendingClip(messageId)?.invoke(ClipboardSendResult.CONNECTION_LOST)
                 mutableClipboardStatus.value = "Connection lost"
                 current.close()
                 return@launch
@@ -1518,13 +1538,13 @@ class PairingCoordinator(
             delay(3_000)
             if (pendingClipboardSends.containsKey(messageId) && registry.isActive(current)) {
                 if (!current.send(message)) {
-                    pendingClipboardSends.remove(messageId)?.invoke(ClipboardSendResult.CONNECTION_LOST)
+                    takePendingClip(messageId)?.invoke(ClipboardSendResult.CONNECTION_LOST)
                     mutableClipboardStatus.value = "Connection lost"
                     current.close()
                     return@launch
                 }
                 delay(3_000)
-                pendingClipboardSends.remove(messageId)?.let { callback ->
+                takePendingClip(messageId)?.let { callback ->
                     mutableClipboardStatus.value = "No delivery acknowledgement"
                     callback(ClipboardSendResult.NO_ACKNOWLEDGEMENT)
                 }
@@ -2901,8 +2921,7 @@ class PairingCoordinator(
         server = null
         acceptJob?.cancel()
         acceptJob = null
-        pendingClipboardSends.values.forEach { it(ClipboardSendResult.NOT_CONNECTED) }
-        pendingClipboardSends.clear()
+        pendingClipboardSends.keys.toList().forEach { takePendingClip(it)?.invoke(ClipboardSendResult.NOT_CONNECTED) }
         pendingFileAccepts.values.forEach { it.complete(false) }
         pendingFileAccepts.clear()
         pendingFileCompletions.values.forEach { it.complete(false) }
@@ -2943,6 +2962,7 @@ class PairingCoordinator(
         dev.bridgey.android.connect.ConnectTiming.mark("app.disconnected", deviceId, reason)
         cancelTransfers(deviceId)
         clipboardSessionEnded(deviceId)
+        failPendingClips(deviceId)
         if (phoneRingingFrom == deviceId) stopPhoneRinging()
         if (pendingPing?.first == deviceId) clearPingStatus()
         macActions.sessionEnded(deviceId)
@@ -3452,9 +3472,10 @@ class PairingCoordinator(
             "clipboard.offer" -> receiveClipboardOffer(current, message)
             "clipboard.fetch" -> receiveClipboardFetch(current, message)
             "clipboard.error" -> receiveClipboardError(current, message)
+            // An answer settles only a send that went to this session's device.
             "clipboard.ack" -> {
                 val messageId = message.messageId ?: return
-                pendingClipboardSends.remove(messageId)?.let { callback ->
+                takePendingClip(messageId, current.remoteDeviceId)?.let { callback ->
                     mutableClipboardStatus.value = "Delivered"
                     callback(ClipboardSendResult.DELIVERED)
                     BridgeyLogging.line(LogLines.clipboard(BridgeyLogging.policy, "acknowledged"))
@@ -3462,7 +3483,7 @@ class PairingCoordinator(
             }
             "clipboard.rejected" -> {
                 val messageId = message.messageId ?: return
-                pendingClipboardSends.remove(messageId)?.let { callback ->
+                takePendingClip(messageId, current.remoteDeviceId)?.let { callback ->
                     mutableClipboardStatus.value = "Clipboard is turned off on ${current.peerName}"
                     callback(ClipboardSendResult.DISABLED)
                 }
@@ -5536,3 +5557,6 @@ internal fun fileOfferPayload(transferId: String, name: String, mimeType: String
         .put("size", size)
         .put("sha256", sha256)
         .apply { cameraRequestId?.let { put("cameraRequestId", it) } }
+
+/** A clip send waiting for [deviceId]'s answer. */
+private class PendingClipSend(val deviceId: String, val callback: (ClipboardSendResult) -> Unit)
