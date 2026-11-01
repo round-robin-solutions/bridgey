@@ -364,6 +364,11 @@ final class PairingCoordinator: ObservableObject {
     private var allowWait: (startedAt: TimeInterval, retry: DispatchWorkItem?)?
     /// What Try again restarts: the peer of the last pairing.
     private var lastPairingPeer: PairingPeer?
+    /// The device the user tapped to pair, for crossed pairing: its ID and addresses (PairingRules.crossedPairing).
+    private var crossedTarget: CrossedPairingTarget?
+    /// The user's own pairing, set aside while a crossed offer from that device runs; it resumes if that offer ends
+    /// before its code shows.
+    private var parkedPairing: ParkedPairing?
     private var listener: NWListener?
     /// TestInstance only: "drop-lan" closed every LAN session and refuses new ones (the phone left home).
     fileprivate var testLanBlocked = false
@@ -765,8 +770,9 @@ final class PairingCoordinator: ObservableObject {
         connectTrustedPeerIfNeeded(lastPeers)
     }
 
-    /// A pairing (or reconnect) the user started. Never disturbs other connected phones.
-    func pair(host: String, port: Int, peerName: String) {
+    /// A pairing (or reconnect) the user started. Never disturbs other connected phones. `deviceIDHint` and
+    /// `addresses`: what discovery showed for the device the user tapped (crossed pairing checks both).
+    func pair(host: String, port: Int, peerName: String, deviceIDHint: String? = nil, addresses: [String] = []) {
         // Without the stored identity a pairing would bind the phone to a key we cannot keep.
         guard identity != nil else { return }
         diagnostics.record(category: "pairing", event: "connection_started")
@@ -776,7 +782,11 @@ final class PairingCoordinator: ObservableObject {
         }
         endAllowWait()
         endPairingSession(reason: .cancelled)
-        lastPairingPeer = PairingPeer(dialled: true, host: host, port: port, peerName: peerName, deviceID: nil)
+        // The tapped device's ID from discovery, when it is there: a committed offer meanwhile that claims that ID and
+        // comes from one of its addresses is a crossed pairing. This dial always commits (a first pairing or a pairing
+        // again with a code), never a trusted reconnect, which dials with `deviceID`.
+        crossedTarget = deviceIDHint.map { CrossedPairingTarget(deviceID: $0, addresses: [host] + addresses) }
+        lastPairingPeer = PairingPeer(dialled: true, host: host, port: port, peerName: peerName, deviceID: deviceIDHint?.lowercased())
         pairingFlow = .connecting(peerName)
         publish()
         BridgeyLog.pairing.notice("pairing started peer=\(peerName, privacy: .private)")
@@ -860,13 +870,14 @@ final class PairingCoordinator: ObservableObject {
             return
         }
         if peer.dialled, let host = peer.host, let port = peer.port {
-            pair(host: host, port: port, peerName: peer.peerName)
+            pair(host: host, port: port, peerName: peer.peerName, deviceIDHint: peer.deviceID,
+                 addresses: crossedTarget.map { Array($0.addresses) } ?? [])
             return
         }
         if let id = peer.deviceID?.lowercased(),
            let found = lastPeers.first(where: { $0.deviceIDHint?.lowercased() == id }),
            let host = found.host, let port = found.port {
-            pair(host: host, port: port, peerName: peer.peerName)
+            pair(host: host, port: port, peerName: peer.peerName, deviceIDHint: id, addresses: found.addresses)
             return
         }
         cancel()
@@ -1053,7 +1064,8 @@ final class PairingCoordinator: ObservableObject {
 
     /// One phone's session ended: only its calls, transfers and clipboard fetches go, and its
     /// reconnect starts.
-    private func deviceDisconnected(_ id: String, reason: String) {
+    /// `detail`: the session's route, direction, age and silence (`disconnectDetail`), for diagnostics.
+    private func deviceDisconnected(_ id: String, reason: String, detail: String? = nil) {
         ConnectTiming.mark("app.disconnected", peer: id, detail: reason)
         cancelTransfers(for: id)
         focusSync.forget(id)
@@ -1086,7 +1098,7 @@ final class PairingCoordinator: ObservableObject {
         publish()
         connectSync()
         BridgeyLog.transport.notice("disconnected peer=\(shortDeviceID(id), privacy: .public) reason=\(reason, privacy: .public)")
-        diagnostics.record(category: "transport", event: "disconnected", outcome: reason, device: id)
+        diagnostics.record(category: "transport", event: "disconnected", outcome: reason, device: id, detail: detail)
         guard trustedDeviceIDs.contains(id) else { return }
         reconnect.disconnected(id)
         discoveryWindowStart = clock.now
@@ -1134,6 +1146,62 @@ final class PairingCoordinator: ObservableObject {
     private func endAllowWait() {
         allowWait?.retry?.cancel()
         allowWait = nil
+        parkedPairing = nil
+    }
+
+    /// The user's own committed pairing, until the device it dials answers: the dial is in flight or it waits for Allow
+    /// pairing there. Nil for a pairing the other device started, or when discovery gave no ID.
+    private var ownPairingPending: Bool {
+        guard let peer = lastPairingPeer, peer.dialled, let target = crossedTarget, peer.deviceID == target.deviceID else {
+            return false
+        }
+        if allowWait != nil { return true }
+        guard let own = pairingSession, own.initiatedLocally, own.dialDeviceID == nil, !own.ended, own.pairingKey == nil else {
+            return false
+        }
+        return true
+    }
+
+    /// Crossed pairing, the other device's dial won: this Mac's own dial (or wait for Allow pairing) is parked, and the
+    /// offer just answered becomes the user's pairing, so its code shows here. If that offer ends before its code shows,
+    /// the parked pairing resumes (`resumeParkedPairing`); a later failure shows on the pairing card.
+    private func yieldOwnPairing(to current: Session) {
+        let parked = lastPairingPeer.map { ParkedPairing(peer: $0, allowStartedAt: allowWait?.startedAt, session: ObjectIdentifier(current)) }
+        allowWait?.retry?.cancel()
+        allowWait = nil
+        if let own = pairingSession, own !== current {
+            // The own dial in flight closes quietly; resuming dials again.
+            pairingSession = nil
+            own.dropReason = "pairing_crossed"
+            own.close()
+        }
+        parkedPairing = parked
+        if pairingRequest?.deviceID.lowercased() == current.remoteDeviceID.lowercased() { clearPairingRequest() }
+        pairingSession = current
+        pairingFlow = .connecting(current.peerName)
+        publish()
+    }
+
+    /// The crossed offer ended before its code showed: the user's own pairing goes on where it was (dialling again, and
+    /// still inside the two minutes of a wait for Allow pairing).
+    private func resumeParkedPairing(_ parked: ParkedPairing) {
+        parkedPairing = nil
+        pairingSession = nil
+        guard let host = parked.peer.host, let port = parked.peer.port, let endpointPort = NWEndpoint.Port(rawValue: UInt16(clamping: port)) else {
+            failPairing(.couldNotConnect, peerName: parked.peer.peerName)
+            return
+        }
+        BridgeyLog.pairing.notice("crossed pairing ended before its code: own pairing resumes")
+        diagnostics.record(category: "pairing", event: "crossed", outcome: "resumed", device: parked.peer.deviceID)
+        lastPairingPeer = parked.peer
+        if let startedAt = parked.allowStartedAt {
+            allowWait = (startedAt, nil)
+            pairingFlow = .waitingForAllow(parked.peer.peerName)
+        } else {
+            pairingFlow = .connecting(parked.peer.peerName)
+        }
+        publish()
+        pairingSession = dial(host: host, port: endpointPort, peerName: parked.peer.peerName, deviceID: nil)
     }
 
     func updateDeviceName(_ value: String) {
@@ -2417,14 +2485,20 @@ final class PairingCoordinator: ObservableObject {
         current.onFailure = { [weak self, weak current] in
             guard let self, let current, !current.ended else { return }
             current.ended = true
+            // A failed connection, or one whose peer went away, holds its socket until it is cancelled.
+            current.close()
             current.connectionTimeout?.cancel()
             current.heartbeat?.cancel()
             self.dialFinished(current)
             let reason = current.dropReason ?? "closed"
             if let id = self.registry.remove(current) {
-                self.deviceDisconnected(id, reason: reason)
+                self.deviceDisconnected(id, reason: reason, detail: disconnectDetail(
+                    tunnel: current.tunnel != nil, initiatedLocally: current.initiatedLocally,
+                    createdAt: current.createdAt, lastReceivedAt: current.lastReceivedAt))
             } else if self.pairingSession === current {
-                if current.awaitingAllow {
+                if let parked = self.parkedPairing, parked.session == ObjectIdentifier(current), current.token == nil {
+                    self.resumeParkedPairing(parked)
+                } else if current.awaitingAllow {
                     self.waitForAllow(after: current)
                 } else {
                     self.failPairing(current.failure ?? self.endedWithoutReason(current))
@@ -2432,7 +2506,9 @@ final class PairingCoordinator: ObservableObject {
             } else if let dialed = current.dialDeviceID, !current.authenticated {
                 // A reconnect that never authenticated: the schedule tries again.
                 BridgeyLog.reconnect.notice("dial failed peer=\(shortDeviceID(dialed), privacy: .public) reason=\(reason, privacy: .public)")
-                self.diagnostics.record(category: "reconnect", event: "dial_failed", outcome: reason, device: dialed)
+                // Which address failed (v4.<last octet>, v6, name): a dial to an expired IPv6 temporary address shows here.
+                self.diagnostics.record(category: "reconnect", event: "dial_failed", outcome: reason, device: dialed,
+                                        detail: current.remoteHost.map(addressTag))
             }
         }
         current.connection.stateUpdateHandler = { [weak self, weak current] newState in
@@ -2442,6 +2518,11 @@ final class PairingCoordinator: ObservableObject {
                 case .ready:
                     BridgeyLog.transport.info("socket ready outbound=\(current.initiatedLocally, privacy: .public)")
                     current.socketReady = true
+                    // Where the user's own pairing dial landed: a crossed offer from that device may come from there.
+                    if current.initiatedLocally, current.dialDeviceID == nil, self.pairingSession === current,
+                       let remote = current.connection.currentPath?.remoteEndpoint.flatMap(endpointHost) {
+                        self.crossedTarget?.note(address: remote)
+                    }
                     current.receive()
                     onReady()
                 case let .failed(error):
@@ -2514,18 +2595,43 @@ final class PairingCoordinator: ObservableObject {
                 }
                 current.remoteDeviceID = remoteDeviceID
                 current.remoteProtocol = remoteProtocol
+                // Both ends started pairing with each other: one deterministic dial goes on (docs/protocol.md).
+                let ownPending = current.tunnel == nil && ownPairingPending
+                let crossed = PairingRules.crossedPairing(localDeviceID: deviceID, remoteDeviceID: remoteDeviceID,
+                                                          sourceAddress: current.remoteHost, target: crossedTarget,
+                                                          ownPending: ownPending, committedOffer: revealed == nil)
+                if crossed == .keepOwn { crossedTarget?.keepOwnDial() }
+                if ownPending, revealed == nil,
+                   let detail = crossedTarget?.unverifiedSourceDetail(remoteDeviceID: remoteDeviceID, sourceAddress: current.remoteHost) {
+                    // Claims the tapped device's ID from an address this Mac never saw for it: no crossed pairing.
+                    diagnostics.record(category: "pairing", event: "crossed", outcome: "unverified_source", device: remoteDeviceID,
+                                       detail: detail)
+                }
+                if crossed != .none {
+                    BridgeyLog.pairing.notice("crossed pairing peer=\(shortDeviceID(remoteDeviceID), privacy: .public) answer=\(crossed == .answer, privacy: .public)")
+                    diagnostics.record(category: "pairing", event: "crossed", outcome: crossed == .answer ? "answered" : "kept_own",
+                                       device: remoteDeviceID)
+                }
                 // Refusals come before the answer and cost nothing; every answered offer that can reach a code costs a
                 // slot, even one that never reveals.
-                switch PairingRules.inboundOffer(trusted: trustedIdentityKey(remoteDeviceID) != nil, committed: revealed == nil,
-                                                 remoteProtocol: remoteProtocol, armed: arming.isArmed) {
+                let decision: InboundOfferDecision = crossed == .keepOwn ? .refuse(.notArmed)
+                    : PairingRules.inboundOffer(trusted: trustedIdentityKey(remoteDeviceID) != nil, committed: revealed == nil,
+                                                remoteProtocol: remoteProtocol, armed: arming.isArmed || crossed == .answer)
+                switch decision {
                 case let .refuse(reason):
-                    refuseOffer(current, reason: reason)
+                    refuseOffer(current, reason: reason, showRequest: crossed == .none)
                     return
                 case let .answer(chargesLimiter):
                     if chargesLimiter, !inboundPairingLimiter.tryAcquire() {
                         refuseOffer(current, reason: .rateLimited)
                         return
                     }
+                }
+                // The device the user is pairing with, at one of its addresses: answering its offer (crossed, or after
+                // Allow pairing here) sets the user's own pairing aside instead of refusing this one as busy.
+                if PairingRules.yieldsOwnPairing(ownPending: ownPending, committedOffer: revealed == nil, target: crossedTarget,
+                                                 remoteDeviceID: remoteDeviceID, sourceAddress: current.remoteHost) {
+                    yieldOwnPairing(to: current)
                 }
                 let key = P256.KeyAgreement.PrivateKey()
                 current.privateKey = key
@@ -2639,6 +2745,12 @@ final class PairingCoordinator: ObservableObject {
                 BridgeyLog.pairing.notice("pairing cancelled by peer reason=\(reason.rawValue, privacy: .public)")
                 if reason == .notArmed, pairingSession === current, current.initiatedLocally, current.pairingKey == nil {
                     current.awaitingAllow = true
+                    // This Mac kept its own dial, yet that device is not armed for it either: it does not know this
+                    // Mac's ID, so its offer gets the usual card and Allow pairing here (no two-minute stall).
+                    if current.dialDeviceID == nil, crossedTarget?.ownDialNotArmed() == true {
+                        BridgeyLog.pairing.notice("crossed pairing: the other device does not know this Mac, usual rules")
+                        diagnostics.record(category: "pairing", event: "crossed", outcome: "fell_back", device: crossedTarget?.deviceID)
+                    }
                 } else {
                     current.failure = PairingRules.failure(
                         forCancel: reason, localConfirmed: current.localConfirmed, remoteConfirmed: current.remoteConfirmed
@@ -3283,7 +3395,8 @@ final class PairingCoordinator: ObservableObject {
     private func completeIfConfirmed(_ current: Session) {
         guard current.localConfirmed, current.remoteConfirmed, !current.authenticated, !current.ended else { return }
         let id = current.remoteDeviceID
-        switch registry.authenticate(current, deviceID: id, peerName: current.peerName) {
+        let stale: (Session) -> Bool = { sessionLooksStale(supported: $0.heartbeatSupported, lastReceivedAt: $0.lastReceivedAt, tunnel: $0.tunnel != nil) }
+        switch registry.authenticate(current, deviceID: id, peerName: current.peerName, isStale: stale) {
         case .rejected:
             // A live session for this phone wins the duplicate rule; this socket closes quietly.
             BridgeyLog.transport.notice("duplicate session closed peer=\(shortDeviceID(id), privacy: .public)")
@@ -3306,7 +3419,8 @@ final class PairingCoordinator: ObservableObject {
             }
             if let replaced {
                 BridgeyLog.transport.notice("duplicate session replaced peer=\(shortDeviceID(id), privacy: .public)")
-                diagnostics.record(category: "transport", event: "duplicate_replaced", device: id)
+                // "stale": the old session had gone silent, so the new one won whichever side dialled it.
+                diagnostics.record(category: "transport", event: "duplicate_replaced", device: id, detail: stale(replaced) ? "stale" : nil)
                 replaced.dropReason = "replaced"
                 replaced.connectionTimeout?.cancel()
                 replaced.heartbeat?.cancel()
@@ -3585,6 +3699,8 @@ final class PairingCoordinator: ObservableObject {
         if !current.initiatedLocally {
             lastPairingPeer = PairingPeer(dialled: false, host: nil, port: nil, peerName: current.peerName, deviceID: current.remoteDeviceID)
         }
+        // The code shows: a parked pairing does not come back after this.
+        parkedPairing = nil
         current.token = UUID().uuidString.lowercased()
         current.promptedAt = systemUptimeClock()
         publishPrompt(current)
@@ -3602,7 +3718,8 @@ final class PairingCoordinator: ObservableObject {
 
     /// Refuses an offer before answering it: the other device learns why, nothing is charged, and an unarmed refusal
     /// shows "<name> wants to pair" here.
-    private func refuseOffer(_ current: Session, reason: PairingCancelReason) {
+    /// `showRequest` false: a crossed pairing this Mac's own dial wins, so no "wants to pair" card.
+    private func refuseOffer(_ current: Session, reason: PairingCancelReason, showRequest: Bool = true) {
         BridgeyLog.pairing.notice("offer refused reason=\(reason.rawValue, privacy: .public)")
         diagnostics.record(category: "pairing", event: "inbound_refused", outcome: reason.rawValue)
         current.dropReason = "pairing_refused"
@@ -3610,7 +3727,7 @@ final class PairingCoordinator: ObservableObject {
         let request = PairingRequest(deviceID: current.remoteDeviceID, peerName: current.peerName, oldVersion: reason == .needsProtocol2)
         switch reason {
         case .notArmed:
-            showPairingRequest(request)
+            if showRequest { showPairingRequest(request) }
         case .needsProtocol2:
             // Armed and free: the user is pairing from the phone right now, so say why it cannot work here.
             if arming.isArmed && pairingSession == nil && allowWait == nil {
@@ -3714,7 +3831,9 @@ final class PairingCoordinator: ObservableObject {
             publishHealth()
             let tag = addressTag(address.host)
             BridgeyLog.reconnect.notice("dial peer=\(shortDeviceID(id), privacy: .public) attempt=\(attempt, privacy: .public) reason=\(reason, privacy: .public) source=\(address.source.rawValue, privacy: .public) address=\(tag, privacy: .public)")
-            diagnostics.record(category: "reconnect", event: "dial", outcome: reason, device: id, detail: "n\(attempt)_\(address.source.rawValue)_\(tag)")
+            // seen<minutes>: how long ago the address was last seen working or in discovery.
+            diagnostics.record(category: "reconnect", event: "dial", outcome: reason, device: id,
+                               detail: "n\(attempt)_\(address.source.rawValue)_\(tag)_seen\(max(0, Int(Date().timeIntervalSince(address.lastSeen) / 60)))m")
         case let .noAddress(id, attempt, reason):
             BridgeyLog.reconnect.notice("no dialable address peer=\(shortDeviceID(id), privacy: .public) attempt=\(attempt, privacy: .public) reason=\(reason, privacy: .public)")
             diagnostics.record(category: "reconnect", event: "no_address", outcome: reason, device: id, detail: "n\(attempt)")
@@ -5169,13 +5288,17 @@ final class PairingCoordinator: ObservableObject {
     private func saveTrust(_ current: Session) {
         guard let identityKey = current.remoteIdentityKey else { return }
         if current.envelopeKey != nil { protocolPins.pin(current.remoteDeviceID, version: SessionSecurity.protocolVersion) }
+        let wasTrusted = trustedIdentityKey(current.remoteDeviceID) != nil
         if trustRegistry.remember(
             deviceID: current.remoteDeviceID,
             name: current.peerName,
             identityKey: identityKey
         ) {
             trustedDeviceIDs.insert(current.remoteDeviceID)
-            recordActivity(.paired, in: current)
+            // Every authentication saves trust again; only a pairing is an activity. Reconnects stay out of the stream.
+            if ActivityRules.recordsPairing(confirmedCode: current.token != nil, wasTrusted: wasTrusted) {
+                recordActivity(.paired, in: current)
+            }
         }
     }
 
@@ -5432,7 +5555,7 @@ extension PairingCoordinator: SpeedTestHost {
     }
 }
 
-private final class Session {
+final class Session {
     let connection: NWConnection
     var peerName: String
     var remoteDeviceID = ""
@@ -5667,6 +5790,9 @@ private final class Session {
                 if self.dropReason == nil {
                     self.dropReason = error.map(connectionDropReason) ?? "closed_by_peer"
                 }
+                // The peer closed or the read failed. Network.framework keeps the socket (lsof shows it CLOSED) until
+                // the connection is cancelled, so it is released here rather than never.
+                self.close()
                 self.onFailure?()
             } else if !readAhead, !self.closed {
                 self.receive()
@@ -5726,6 +5852,14 @@ struct PairingPeer: Equatable {
     var port: Int?
     var peerName: String
     var deviceID: String?
+}
+
+/// The user's own pairing set aside for a crossed offer: what to dial again, the start of its wait for Allow pairing
+/// (nil: it was dialling), and the crossed session it waits on.
+struct ParkedPairing {
+    let peer: PairingPeer
+    let allowStartedAt: TimeInterval?
+    let session: ObjectIdentifier
 }
 
 private final class FileCancellationToken: @unchecked Sendable {
@@ -6320,7 +6454,12 @@ extension PairingCoordinator {
     private func testControlTick() {
         if let target = takeTestCommand("pair") {
             let parts = target.split(separator: ":")
-            if parts.count == 2, let port = Int(parts[1]) { pair(host: String(parts[0]), port: port, peerName: "Test phone") }
+            if parts.count == 2, let port = Int(parts[1]) {
+                // As a tap on the nearby list: the discovered device at that host and port, with its ID and addresses.
+                let host = String(parts[0])
+                let found = lastPeers.first { $0.port == port && ($0.host == host || $0.addresses.contains(host)) }
+                pair(host: host, port: port, peerName: "Test phone", deviceIDHint: found?.deviceIDHint, addresses: found?.addresses ?? [])
+            }
         }
         if takeTestCommand("drop-lan") != nil {
             ConnectTiming.mark("test.drop_lan")

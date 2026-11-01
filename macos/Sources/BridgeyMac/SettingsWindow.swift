@@ -1971,7 +1971,8 @@ struct LiveSettingsView: View {
         actions.openPhoneFiles = { PhoneFilesWindowController.show(pairing: pairing, phoneID: $0) }
         actions.pair = { ring in
             guard let host = ring.peer?.host, let port = ring.peer?.port else { return }
-            pairing.pair(host: host, port: port, peerName: ring.name)
+            pairing.pair(host: host, port: port, peerName: ring.name, deviceIDHint: ring.peer?.deviceIDHint,
+                         addresses: ring.peer?.addresses ?? [])
         }
         actions.retryDevice = { pairing.retryNow(deviceID: $0) }
         actions.lookForDevices = { pairing.lookForDevices() }

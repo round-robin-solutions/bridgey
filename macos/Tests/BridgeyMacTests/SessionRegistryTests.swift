@@ -130,4 +130,40 @@ final class SessionRegistryTests: XCTestCase {
         XCTAssertEqual(connectionSummary(connected, pairing: .idle), "Connected to 2 devices")
         XCTAssertEqual(connectionSummary(Array(connected.prefix(1)), pairing: .idle), "Connected to OnePlus 11")
     }
+
+    /// Seen on the Work Mac (2026-11-01): it kept its own dial to the OnePlus (the Mac has the lower id) after the
+    /// phone had dropped it, and refused 20 redials from the phone in 56 s. A silent live session loses whoever dialled.
+    func testStaleSessionLosesToNewSessionWhoeverDialled() {
+        let registry = SessionRegistry<FakeSession>(localDeviceID: macID)
+        let own = FakeSession("Mac dialled")
+        XCTAssertEqual(connect(registry, own, phoneZ, local: true), .accepted(replaced: nil))
+        let redial = FakeSession("Phone redial")
+        registry.addPending(redial, initiatedLocally: false)
+        // Fresh: the lower id's socket stays (the duplicate rule).
+        XCTAssertEqual(registry.authenticate(redial, deviceID: phoneZ, peerName: "Phone redial", isStale: { _ in false }), .rejected)
+        let second = FakeSession("Phone redial 2")
+        registry.addPending(second, initiatedLocally: false)
+        XCTAssertEqual(registry.authenticate(second, deviceID: phoneZ, peerName: "Phone redial 2", isStale: { $0 === own }),
+                       .accepted(replaced: own))
+        XCTAssertTrue(registry.session(for: phoneZ) === second)
+    }
+
+    func testSessionLooksStaleAfterOneAndAHalfHeartbeats() {
+        let now = Date()
+        XCTAssertFalse(sessionLooksStale(supported: true, lastReceivedAt: now.addingTimeInterval(-14), tunnel: false, now: now))
+        XCTAssertTrue(sessionLooksStale(supported: true, lastReceivedAt: now.addingTimeInterval(-15), tunnel: false, now: now))
+        // A tunnel's heartbeat runs every 25 s.
+        XCTAssertFalse(sessionLooksStale(supported: true, lastReceivedAt: now.addingTimeInterval(-30), tunnel: true, now: now))
+        XCTAssertTrue(sessionLooksStale(supported: true, lastReceivedAt: now.addingTimeInterval(-40), tunnel: true, now: now))
+        // A peer without heartbeats is never judged by silence.
+        XCTAssertFalse(sessionLooksStale(supported: false, lastReceivedAt: now.addingTimeInterval(-600), tunnel: false, now: now))
+    }
+
+    func testDisconnectDetailNamesRouteDirectionAgeAndSilence() {
+        let now = Date()
+        XCTAssertEqual(disconnectDetail(tunnel: false, initiatedLocally: false, createdAt: now.addingTimeInterval(-94.6),
+                                        lastReceivedAt: now.addingTimeInterval(-31.2), now: now), "tcp_in_age94_silent31")
+        XCTAssertEqual(disconnectDetail(tunnel: true, initiatedLocally: true, createdAt: now, lastReceivedAt: now, now: now),
+                       "tunnel_out_age0_silent0")
+    }
 }

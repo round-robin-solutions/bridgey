@@ -113,7 +113,8 @@ func pairingOldVersionText(_ name: String) -> String {
 /// Sessions keyed the way multi-device needs them: unauthenticated or pairing sessions on their
 /// own, and one authenticated session per phone. Mirrors android/.../SessionRegistry.kt, with the
 /// same duplicate rule so both ends keep the same socket: keep the one dialled by the side with
-/// the lower device id; if both were dialled by the same side, keep the newer one.
+/// the lower device id; if both were dialled by the same side, keep the newer one. A live session that looks stale
+/// (silent past `ReconnectPolicy.staleSessionAfter`) loses to the new one whoever dialled it.
 final class SessionRegistry<S: AnyObject> {
     enum Admission: Equatable {
         /// The session is now the device's session; `replaced` (if any) must be closed.
@@ -162,7 +163,8 @@ final class SessionRegistry<S: AnyObject> {
 
     func isActive(_ session: S) -> Bool { active.contains { $0.session === session } }
 
-    func authenticate(_ session: S, deviceID: String, peerName: String) -> Admission {
+    /// `isStale`: the session has heard nothing for longer than a healthy heartbeat allows (`sessionLooksStale`).
+    func authenticate(_ session: S, deviceID: String, peerName: String, isStale: (S) -> Bool = { _ in false }) -> Admission {
         let entry: Entry
         if let index = pending.firstIndex(where: { $0.session === session }) {
             entry = pending.remove(at: index)
@@ -178,7 +180,7 @@ final class SessionRegistry<S: AnyObject> {
             return .accepted(replaced: nil)
         }
         let existing = active[index]
-        guard prefers(entry, over: existing) else { return .rejected }
+        guard isStale(existing.session) || prefers(entry, over: existing) else { return .rejected }
         entry.state = existing.state
         active.remove(at: index)
         active.append(entry)

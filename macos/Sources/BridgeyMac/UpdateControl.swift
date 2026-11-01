@@ -15,6 +15,7 @@ import Foundation
  *   answers  {"event":"info","app":..,"build":..,"channel":..}
  *            {"event":"progress","step":"checking"}
  *            {"event":"plan","refresh":bool,"devices":[{"name","platform","local","from","to","channel","action","reason"}]}
+ *            (platform "macos" or "android", from the device's own status; absent when it sent none)
  *            {"event":"result","result":"started|up_to_date|blocked|refused","reason":..,"busy":..,"device":..}
  */
 
@@ -89,7 +90,9 @@ final class UpdateControlReply: @unchecked Sendable {
     }
 
     static func device(_ entry: UpdatePlanEntry) -> [String: Any] {
-        var device: [String: Any] = ["name": entry.name, "platform": entry.isLocal ? "macos" : "android", "local": entry.isLocal]
+        // A paired Mac is a peer too: the platform comes from the device's own status, never from "not this Mac".
+        var device: [String: Any] = ["name": entry.name, "local": entry.isLocal]
+        if let platform = entry.isLocal ? .macos : entry.platform { device["platform"] = platform.rawValue }
         if let app = entry.app { device["from"] = app }
         if let channel = entry.channel { device["channel"] = channel.rawValue }
         switch entry.kind {
@@ -430,9 +433,14 @@ enum UpdateControlText {
     static func device(_ device: [String: Any]) -> String {
         let local = device["local"] as? Bool == true
         let name = local ? "This Mac" : (device["name"] as? String ?? "?")
-        let platform = device["platform"] as? String == "macos" ? "Mac" : "Android"
+        let platform: String? = switch device["platform"] as? String {
+        case "macos": "Mac"
+        case "android": "Android"
+        default: nil
+        }
         let channel = (device["channel"] as? String).flatMap(UpdateChannel.init(rawValue:))?.title
-        let label = channel.map { "\(name) (\(platform), \($0))" } ?? "\(name) (\(platform))"
+        let facts = [platform, channel].compactMap { $0 }
+        let label = facts.isEmpty ? name : "\(name) (\(facts.joined(separator: ", ")))"
         let from = device["from"] as? String ?? "?"
         switch device["action"] as? String {
         case "update":

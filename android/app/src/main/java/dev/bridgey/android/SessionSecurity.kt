@@ -162,6 +162,33 @@ internal object PairingRules {
     }
 
     /**
+     * Crossed pairing (docs/protocol.md): the user is pairing this end with a device ([target]), that committed pairing
+     * has not been answered yet ([ownPending]: its dial is in flight, or it waits for Allow pairing there), and a
+     * committed offer arrives from that same device, because someone started pairing there too. Both people acted, so
+     * that one device's offer counts as armed here, but only the dial from the lower device ID goes on, as for
+     * simultaneous reconnects. Commit-reveal and the code confirmation run as for any first pairing.
+     *
+     * A device ID is only a claim, so the offer must also come from an address this end dialled or discovery showed for
+     * the device the user tapped; after the own dial met `not_armed` from a device whose offer this end refused (it
+     * does not know this end's ID), the usual rules apply to it again.
+     */
+    fun crossedPairing(
+        localDeviceId: String,
+        remoteDeviceId: String,
+        sourceAddress: String?,
+        target: CrossedPairingTarget?,
+        ownPending: Boolean,
+        committedOffer: Boolean,
+    ): CrossedPairing {
+        val local = localDeviceId.lowercase()
+        val remote = remoteDeviceId.lowercase()
+        if (!committedOffer || !ownPending || target == null || target.fellBack || remote == local ||
+            !target.admits(remote, sourceAddress)
+        ) return CrossedPairing.NONE
+        return if (remote < local) CrossedPairing.ANSWER else CrossedPairing.KEEP_OWN
+    }
+
+    /**
      * Which frames reach the session. Before authentication only pairing frames do; a pairing.cancel that carries a
      * tag must verify when this end already has the envelope key. After authentication every pairing frame is dropped
      * except pairing.cancel on this session, and that one needs a valid tag when the session has an envelope key.
@@ -237,6 +264,56 @@ internal object PairingRules {
 
 /** What the dialled end does with a pairing.offer; see [PairingRules.offerVerdict]. */
 internal enum class OfferVerdict { MALFORMED, NEEDS_PROTOCOL_2, NOT_TRUSTED, NOT_ARMED, ANSWER }
+
+/**
+ * The user's own committed pairing, as crossed pairing sees it ([PairingRules.crossedPairing]): the ID discovery showed
+ * for the device the user tapped, and where this end dialled it or discovery saw it (a crossed offer comes from one of
+ * these). Not thread-safe: the coordinator touches it under its pairing lock.
+ */
+internal class CrossedPairingTarget(deviceId: String, addresses: List<String>) {
+    val deviceId: String = deviceId.lowercase()
+    private val known = addresses.mapNotNull(::normalizedHost).toMutableSet()
+    val addresses: Set<String> get() = known
+
+    /** This end has the lower ID and refused that device's offer, so that its own dial goes on. */
+    var keptOwn = false
+        private set
+
+    /** The own dial then met `not_armed` from that device: it does not know this end's ID, so the usual rules apply. */
+    var fellBack = false
+        private set
+
+    /** The offer claims the tapped device's ID and comes from one of its addresses. */
+    fun admits(remoteDeviceId: String, sourceAddress: String?): Boolean {
+        if (!remoteDeviceId.equals(deviceId, ignoreCase = true)) return false
+        val source = normalizedHost(sourceAddress) ?: return false
+        return source in known
+    }
+
+    /** The address the own dial reached (the resolved address of a `.local` name). */
+    fun note(address: String?) {
+        normalizedHost(address)?.let(known::add)
+    }
+
+    fun keepOwnDial() {
+        keptOwn = true
+    }
+
+    /** The own dial met `not_armed`. True when this falls back to the usual rules now. */
+    fun ownDialNotArmed(): Boolean {
+        if (!keptOwn || fellBack) return false
+        fellBack = true
+        return true
+    }
+}
+
+/**
+ * What a crossed pairing means for an offer; see [PairingRules.crossedPairing]. [ANSWER]: the other device's ID is the
+ * lower one, so its offer is answered even when pairing is not armed here and this end's own dial (or wait for Allow
+ * pairing) is parked: it resumes if that offer fails before its code. [KEEP_OWN]: this end's ID is the lower one, so the other offer is refused with `not_armed`
+ * and no request card; that device waits and answers this end's next dial.
+ */
+internal enum class CrossedPairing { NONE, ANSWER, KEEP_OWN }
 
 /** Whether a frame reaches the session; see [PairingRules.admitFrame]. */
 internal enum class FrameVerdict { ADMIT, UNAUTHENTICATED, BAD_TAG, PAIRING_AFTER_AUTHENTICATION }

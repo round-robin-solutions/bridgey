@@ -1537,7 +1537,8 @@ struct BridgeyPanel: View {
         actions.dismissSetupReview = { setupCenter.dismissReviewBanner() }
         actions.connect = { ring in
             guard let host = ring.peer?.host, let port = ring.peer?.port else { return }
-            pairing.pair(host: host, port: port, peerName: ring.name)
+            pairing.pair(host: host, port: port, peerName: ring.name, deviceIDHint: ring.peer?.deviceIDHint,
+                         addresses: ring.peer?.addresses ?? [])
         }
         actions.disconnect = { pairing.dismiss() }
         actions.disconnectDevice = { pairing.disconnect(deviceID: $0) }

@@ -937,7 +937,7 @@ private fun BridgeyApp(
                         openSettings = { stack.push(Route.Settings) },
                         selectRing = { ring -> pickedTarget = ring.deviceId; pairing.selectDevice(ring.deviceId) },
                         openDevice = { ring -> ring.deviceId?.let { stack.push(Route.Device(it)) } },
-                        pairRing = { ring -> ring.peer?.host?.let { pairing.pair(it, ring.peer.port ?: 42_458, ring.peer.deviceNameHint, ring.peer.deviceIdHint) } ?: run { pairDialog = true } },
+                        pairRing = { ring -> ring.peer?.host?.let { pairing.pair(it, ring.peer.port ?: 42_458, ring.peer.deviceNameHint, ring.peer.deviceIdHint, ring.peer.addresses) } ?: run { pairDialog = true } },
                         addDevice = { pairDialog = true },
                         pickTarget = { pickedTarget = it; pairing.selectDevice(it) },
                         sendClipboard = {
@@ -1273,7 +1273,7 @@ private fun BridgeyApp(
                                 dev.bridgey.android.ui.SetupNearbyMac(peer.key, peer.deviceNameHint, trustedDevices.any { it.id == peer.deviceIdHint })
                             },
                             onPair = { mac ->
-                                peers.firstOrNull { it.key == mac.key }?.let { peer -> peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint, peer.deviceIdHint) } }
+                                peers.firstOrNull { it.key == mac.key }?.let { peer -> peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint, peer.deviceIdHint, peer.addresses) } }
                             },
                             pairingReady = SetupPairing(
                                 request = pairingRequest,
@@ -1467,7 +1467,7 @@ private fun BridgeyApp(
             onStop = pairing::disarmPairing,
             onPair = { peer ->
                 pairDialog = false
-                peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint, peer.deviceIdHint) }
+                peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint, peer.deviceIdHint, peer.addresses) }
             },
             onDismiss = { pairDialog = false },
         )

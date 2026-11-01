@@ -104,7 +104,12 @@ internal data class PairingTarget(
     val deviceId: String? = null,
     /** Pair with a code even if [deviceId] is trusted here (Try again, or the other end no longer trusts this one). */
     val forceCommit: Boolean = false,
+    /** Where discovery saw [deviceId]: a crossed offer from that device comes from one of these (or from [host]). */
+    val addresses: List<String> = emptyList(),
 )
+
+/** The user's own pairing set aside for a crossed offer ([session]); it resumes if that offer ends before its code. */
+private class ParkedPairing(val target: PairingTarget, val allowStartedAt: Long?, val session: Any)
 
 enum class ClipboardSendResult {
     DELIVERED,
@@ -355,6 +360,12 @@ class PairingCoordinator(
     @Volatile private var pairingGeneration = 0
     @Volatile private var allowWaitStartedAt: Long? = null
     private var allowRetryJob: Job? = null
+
+    /** The device the user tapped to pair, for crossed pairing (its ID and addresses); under [pairingSlot]. */
+    private var crossedTarget: CrossedPairingTarget? = null
+
+    /** The user's own pairing, set aside while a crossed offer from that device runs; under [pairingSlot]. */
+    private var parkedPairing: ParkedPairing? = null
 
     /** Committed offers are answered only while armed: Allow pairing (two minutes) or a pairing screen on show. */
     private val arming = PairingArming(SystemClock::elapsedRealtime)
@@ -607,8 +618,8 @@ class PairingCoordinator(
      * A pairing (or reconnect) the user started. Never disturbs other connected devices. With [deviceId] of a trusted
      * device this is a reconnect (no code); if that device no longer trusts this phone, it becomes a pairing with a code.
      */
-    fun pair(host: String, port: Int, peerName: String, deviceId: String? = null) =
-        startPairing(PairingTarget(peerName, host, port, deviceId), waiting = false)
+    fun pair(host: String, port: Int, peerName: String, deviceId: String? = null, addresses: List<String> = emptyList()) =
+        startPairing(PairingTarget(peerName, host, port, deviceId, addresses = addresses), waiting = false)
 
     /** Dials [target] for the user's pairing; [waiting]: a retry while the other end has not allowed pairing yet. */
     private fun startPairing(target: PairingTarget, waiting: Boolean) {
@@ -622,6 +633,11 @@ class PairingCoordinator(
             if (!waiting) {
                 allowWaitStartedAt = null
                 allowRetryJob?.cancel()
+                parkedPairing = null
+                // Crossed pairing only ever applies to a committed pairing (a first pairing, or one with a code
+                // again), never to the user's reconnect to a trusted device.
+                val committed = target.forceCommit || target.deviceId?.let { trust.identityKey(it) == null } == true
+                crossedTarget = target.deviceId?.takeIf { committed }?.let { CrossedPairingTarget(it, listOf(host) + target.addresses) }
                 mutablePairingFlow.value = PairingState.Connecting(target.peerName)
             }
             old to ++pairingGeneration
@@ -638,6 +654,90 @@ class PairingCoordinator(
                     if (allowWaitStartedAt != null) scheduleAllowRetry(target) else failPairing(null, PairingFailure.COULD_NOT_CONNECT, target.peerName)
                 }
         }
+    }
+
+    /**
+     * The user's own committed pairing with [crossedTarget], until that device answers: the dial is in flight or it waits
+     * for Allow pairing there. False for a pairing the other device started, or a target without an ID. Under [pairingSlot].
+     */
+    private fun ownPairingPendingLocked(): Boolean {
+        val target = crossedTarget ?: return false
+        if (!lastTarget?.deviceId.equals(target.deviceId, ignoreCase = true)) return false
+        if (allowWaitStartedAt != null) return true
+        val own = pairingSession ?: return false
+        return own.initiatedLocally && !own.closed && own.target != null && own.committed &&
+            PairingRules.beforeAnswer(own.answered, own.pairingKey != null, own.prompted)
+    }
+
+    /**
+     * What crossed pairing makes of a committed offer from [remoteDeviceId] at [sourceAddress], with the state it was
+     * judged in: [generation] and [target] are checked again before the own pairing is set aside ([yieldOwnPairing]).
+     */
+    private class CrossedCheck(val crossed: CrossedPairing, val yields: Boolean, val generation: Int, val target: CrossedPairingTarget?)
+
+    private fun crossedCheck(remoteDeviceId: String, sourceAddress: String?, committedOffer: Boolean, tunnel: Boolean): CrossedCheck =
+        pairingSlot.locked {
+            val target = crossedTarget
+            val pending = !tunnel && ownPairingPendingLocked()
+            val crossed = PairingRules.crossedPairing(localDeviceId, remoteDeviceId, sourceAddress, target, pending, committedOffer)
+            if (crossed == CrossedPairing.KEEP_OWN) target?.keepOwnDial()
+            // Answering the tapped device's offer (crossed, or after Allow pairing here) sets the own pairing aside
+            // instead of refusing that offer as busy.
+            val yields = pending && committedOffer && target?.admits(remoteDeviceId, sourceAddress) == true
+            CrossedCheck(crossed, yields, pairingGeneration, target)
+        }
+
+    /**
+     * Crossed pairing, the other device's dial won: this phone's own dial or wait for Allow pairing is parked, and the
+     * offer being answered becomes the user's pairing, so its code shows here. If that offer ends before its code shows,
+     * the parked pairing resumes ([resumeParkedPairing]). The check and the yield are one locked step: false (refuse
+     * the offer with `not_armed`) when the user started or cancelled a pairing since [check].
+     */
+    private fun yieldOwnPairing(current: Session, check: CrossedCheck): Boolean {
+        val own = pairingSlot.locked {
+            if (check.generation != pairingGeneration || crossedTarget !== check.target || !ownPairingPendingLocked()) {
+                return@locked null
+            }
+            val old = pairingSession?.takeIf { it !== current }
+            parkedPairing = lastTarget?.let { ParkedPairing(it, allowWaitStartedAt, current) }
+            allowWaitStartedAt = null
+            allowRetryJob?.cancel()
+            pairingGeneration++
+            pairingSession = current
+            mutablePairingFlow.value = PairingState.Connecting(current.peerName)
+            mutablePairingRequest.value?.takeIf { it.deviceId.equals(current.remoteDeviceId, ignoreCase = true) }?.let { mutablePairingRequest.value = null }
+            listOfNotNull(old)
+        } ?: return false
+        own.forEach {
+            it.dropReason = "pairing_crossed"
+            it.close()
+        }
+        publish()
+        return true
+    }
+
+    /**
+     * The crossed offer ended before its code showed: the user's own pairing goes on where it was (dialling again, and
+     * still inside the two minutes of a wait for Allow pairing). False when nothing was parked for [current].
+     */
+    private fun resumeParkedPairing(current: Session): Boolean {
+        val parked = pairingSlot.locked {
+            val parked = parkedPairing?.takeIf { it.session === current && pairingSession === current && !current.prompted }
+                ?: return@locked null
+            parkedPairing = null
+            pairingSession = null
+            lastTarget = parked.target
+            allowWaitStartedAt = parked.allowStartedAt
+            mutablePairingFlow.value = if (parked.allowStartedAt != null) PairingState.WaitingForAllow(parked.target.peerName)
+            else PairingState.Connecting(parked.target.peerName)
+            parked
+        } ?: return false
+        BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING crossed pairing ended before its code: own pairing resumes")
+        diagnostics.record("pairing", "crossed", "resumed", device = parked.target.deviceId)
+        publish()
+        // `waiting`: the crossed target, its addresses and its fall-back stay as they were.
+        startPairing(parked.target, waiting = true)
+        return true
     }
 
     /** The other end answered `not_armed`: show WaitingForAllow and dial again in 3 s, for up to two minutes. */
@@ -670,7 +770,7 @@ class PairingCoordinator(
             target == null -> null
             target.host != null -> target
             else -> lastPeers.firstOrNull { it.deviceIdHint.equals(target.deviceId, ignoreCase = true) }?.let { peer ->
-                (peer.addresses.firstOrNull() ?: peer.host)?.let { target.copy(host = it, port = peer.port ?: ReconnectPolicy.LISTENING_PORT) }
+                (peer.addresses.firstOrNull() ?: peer.host)?.let { target.copy(host = it, port = peer.port ?: ReconnectPolicy.LISTENING_PORT, addresses = peer.addresses) }
             }
         }
         if (dial == null) {
@@ -1007,6 +1107,8 @@ class PairingCoordinator(
             pairingGeneration++
             allowWaitStartedAt = null
             allowRetryJob?.cancel()
+            parkedPairing = null
+            crossedTarget = null
             mutablePairingFlow.value = PairingState.Idle
             owner
         }
@@ -2853,6 +2955,8 @@ class PairingCoordinator(
             pairingGeneration++
             allowWaitStartedAt = null
             allowRetryJob?.cancel()
+            parkedPairing = null
+            crossedTarget = null
         }
         registry.clear().forEach(Session::close)
         stopPhoneRinging()
@@ -2977,6 +3081,10 @@ class PairingCoordinator(
         }
         current.tagSender = localDeviceId
         current.target = target
+        if (manual && initiatedLocally) {
+            // Where the user's own pairing dial landed: a crossed offer from that device may come from there.
+            pairingSlot.locked { if (generation == null || generation == pairingGeneration) crossedTarget?.note(current.remoteHost) }
+        }
         if (initiatedLocally) registry.addPending(current, initiatedLocally)
         if (manual) {
             // The user's pairing owns the prompt from the start; a cancel or newer pairing meanwhile wins.
@@ -3135,6 +3243,7 @@ class PairingCoordinator(
      * when the device no longer trusts this phone, or show why it failed.
      */
     private fun manualPairingEnded(current: Session) {
+        if (resumeParkedPairing(current)) return
         val target = current.target
         val waiting = allowWaitStartedAt != null
         val failure = current.failure ?: if (current.initiatedLocally && current.committed && !current.answered) {
@@ -3146,6 +3255,13 @@ class PairingCoordinator(
         val beforeAnswer = PairingRules.beforeAnswer(current.answered, current.pairingKey != null, current.prompted)
         when {
             target != null && beforeAnswer && current.remoteCancelReason == PairingCancelReason.NOT_ARMED -> {
+                // This phone kept its own dial, yet that device is not armed for it either: it does not know this
+                // phone's ID, so its offer gets the usual card and Allow pairing here (no two-minute stall).
+                val fellBack = pairingSlot.locked { pairingSession === current && current.committed && crossedTarget?.ownDialNotArmed() == true }
+                if (fellBack) {
+                    BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING crossed: the other device does not know this phone, usual rules")
+                    diagnostics.record("pairing", "crossed", "fell_back", device = target.deviceId)
+                }
                 if (!pairingSlot.releaseIf(current)) return
                 scheduleAllowRetry(target)
             }
@@ -3272,9 +3388,19 @@ class PairingCoordinator(
                 current.peerName = sanitizedPeerName(message.deviceName, "Android device")
                 current.remoteProtocol = message.protocolVersion ?: 1L
                 val trusted = message.deviceId?.let { trust.identityKey(it) != null } == true
+                // Both ends started pairing with each other: one deterministic dial goes on (docs/protocol.md).
+                val offerCheck = message.deviceId?.let {
+                    crossedCheck(it, current.remoteHost, committedOffer = message.publicKey == null && message.commitment != null, tunnel = current.tunnel != null)
+                }
+                val crossed = offerCheck?.crossed ?: CrossedPairing.NONE
+                if (crossed != CrossedPairing.NONE) {
+                    BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING crossed peer=${message.deviceId!!.take(8)} answer=${crossed == CrossedPairing.ANSWER}")
+                    diagnostics.record("pairing", "crossed", if (crossed == CrossedPairing.ANSWER) "answered" else "kept_own", device = message.deviceId)
+                }
                 val verdict = PairingRules.offerVerdict(
-                    message.deviceId, message.publicKey, message.commitment, current.remoteProtocol, trusted, arming.isArmed(),
-                )
+                    message.deviceId, message.publicKey, message.commitment, current.remoteProtocol, trusted,
+                    arming.isArmed() || crossed == CrossedPairing.ANSWER,
+                ).let { if (crossed == CrossedPairing.KEEP_OWN && it == OfferVerdict.ANSWER) OfferVerdict.NOT_ARMED else it }
                 if (verdict == OfferVerdict.MALFORMED) {
                     BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING malformed offer closed")
                     diagnostics.record("pairing", "inbound_refused", "malformed")
@@ -3294,7 +3420,8 @@ class PairingCoordinator(
                     OfferVerdict.NOT_TRUSTED -> return refuseOffer(current, PairingCancelReason.NOT_TRUSTED)
                     OfferVerdict.NOT_ARMED -> {
                         refuseOffer(current, PairingCancelReason.NOT_ARMED)
-                        publishPairingRequest(PairingRequest(current.remoteDeviceId, current.peerName, oldVersion = false))
+                        // A crossed pairing this phone's own dial wins needs no request card.
+                        if (crossed == CrossedPairing.NONE) publishPairingRequest(PairingRequest(current.remoteDeviceId, current.peerName, oldVersion = false))
                         return
                     }
                     else -> Unit
@@ -3306,6 +3433,10 @@ class PairingCoordinator(
                 ) {
                     BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING rejected: too many pairing attempts")
                     return refuseOffer(current, PairingCancelReason.RATE_LIMITED)
+                }
+                if (offerCheck?.yields == true && !yieldOwnPairing(current, offerCheck)) {
+                    // The user started or cancelled a pairing since the check: that offer no longer counts as armed.
+                    if (crossed == CrossedPairing.ANSWER || !arming.isArmed()) return refuseOffer(current, PairingCancelReason.NOT_ARMED)
                 }
                 current.keyPair = Crypto.generateKeyPair()
                 current.localEphemeralKey = Crypto.encodePublicKey(current.keyPair!!)
@@ -4190,15 +4321,22 @@ class PairingCoordinator(
             return failHandshake(current, PairingFailure.INVALID, "Pairing without a key commitment refused")
         }
         // The code prompt belongs to one pairing at a time. A pairing this phone started keeps it even before its code
-        // is ready. The busy check, the claim and the published prompt are one step, so two pairings cannot race.
-        val claimed = pairingSlot.claim(current, busy = { existing -> !existing.closed && (existing.code != null || existing.initiatedLocally) }) {
-            current.prompted = true
-            current.promptedAtMillis = SystemClock.elapsedRealtime()
-            allowWaitStartedAt = null
-            allowRetryJob?.cancel()
-            lastTarget = current.target ?: PairingTarget(current.peerName, deviceId = current.remoteDeviceId)
-            mutablePairingRequest.value?.takeIf { it.deviceId.equals(current.remoteDeviceId, ignoreCase = true) }?.let { mutablePairingRequest.value = null }
-            mutablePairingFlow.value = verificationState(current)
+        // is ready, also between its dials while it waits for Allow pairing on that device (the slot is empty then): only
+        // the tapped device's own offer sets that wait aside first ([yieldOwnPairing]). The busy check, the claim and the
+        // published prompt are one step, so two pairings cannot race.
+        val claimed = pairingSlot.locked {
+            val ownWaitForAllow = allowWaitStartedAt != null && !current.initiatedLocally && pairingSession !== current
+            !ownWaitForAllow && pairingSlot.claim(current, busy = { existing -> !existing.closed && (existing.code != null || existing.initiatedLocally) }) {
+                current.prompted = true
+                current.promptedAtMillis = SystemClock.elapsedRealtime()
+                allowWaitStartedAt = null
+                allowRetryJob?.cancel()
+                // The code shows: a parked pairing does not come back after this.
+                parkedPairing = null
+                lastTarget = current.target ?: PairingTarget(current.peerName, deviceId = current.remoteDeviceId)
+                mutablePairingRequest.value?.takeIf { it.deviceId.equals(current.remoteDeviceId, ignoreCase = true) }?.let { mutablePairingRequest.value = null }
+                mutablePairingFlow.value = verificationState(current)
+            }
         }
         if (!claimed) {
             BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING rejected: another pairing is waiting for confirmation")
@@ -4267,7 +4405,10 @@ class PairingCoordinator(
         if (sessionKey != null && current.envelopeKey != null) {
             current.allowBinaryFrames(SessionSecurity.fastFrameKey(sessionKey), current.tagSender, current.remoteDeviceId)
         }
-        when (val admission = registry.authenticate(current, current.remoteDeviceId, current.peerName)) {
+        val stale = { session: Session ->
+            sessionLooksStale(session.heartbeatSupported, session.lastReceivedAtMillis, SystemClock.elapsedRealtime(), session.tunnel != null)
+        }
+        when (val admission = registry.authenticate(current, current.remoteDeviceId, current.peerName, stale)) {
             SessionRegistry.Admission.Rejected -> {
                 // A live session for this device wins the duplicate rule; this socket closes quietly.
                 BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT duplicate session closed peerId=${current.remoteDeviceId.take(8)}")
@@ -4281,7 +4422,8 @@ class PairingCoordinator(
             }
             is SessionRegistry.Admission.Accepted -> admission.replaced?.let {
                 BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT duplicate session replaced peerId=${current.remoteDeviceId.take(8)}")
-                diagnostics.record("transport", "duplicate_replaced", device = current.remoteDeviceId)
+                // "stale": the old session had gone silent, so the new one won whichever side dialled it.
+                diagnostics.record("transport", "duplicate_replaced", device = current.remoteDeviceId, detail = if (stale(it)) "stale" else null)
                 it.dropReason = "replaced"
                 it.close()
             }
@@ -4845,6 +4987,7 @@ class PairingCoordinator(
             if (current != null && pairingSession !== current) return@locked false
             pairingSession = null
             allowWaitStartedAt = null
+            parkedPairing = null
             mutablePairingFlow.value = PairingState.Failed(reason, name)
             true
         }

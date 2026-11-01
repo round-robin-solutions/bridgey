@@ -23,7 +23,10 @@ meant for; a receiver with another device ID closes the socket without a
 pairing prompt, and a dialler whose `pairing.answer` names another device
 closes too. Older clients ignore the field. When both sides dial at once, both
 keep the socket dialled by the lower device ID (newer one if the same side
-dialled both). Values and trade-offs: `docs/reconnect-reliability.md`.
+dialled both), unless the live one has gone silent for one and a half
+heartbeat intervals (15 s; 40 s on a tunnel): then the new socket wins,
+whichever side dialled it, because the other end has evidently dropped the old
+one. Values and trade-offs: `docs/reconnect-reliability.md`.
 
 Payload encryption is application-layer protection, not TLS. Routing headers
 and some acknowledgements remain outside the encrypted payload; traffic
@@ -161,6 +164,58 @@ commitment from a device it does not trust, because a man in the middle could
 grind the protocol 1 leg to the code it saw on the other. Update both apps to
 pair. Each answered offer from an untrusted device counts toward the three a
 minute, whether or not it reveals.
+
+Committed offers are answered only while this end allows pairing (Allow
+pairing for two minutes, or a pairing screen open); otherwise the answer is
+`pairing.cancel` with `not_armed`, and the dialler waits for Allow pairing and
+dials again every 3 s for two minutes.
+
+Crossed pairing (Round Robin edition, 0.10.0-rr.1-beta.19). When both people
+start pairing with each other at once, each end dials the other and holds an
+offer from the device it is itself pairing with. That mutual intent counts as
+Allow pairing for that one device only, and exactly one of the two dials goes
+on: the one from the lower device ID (compared as lowercase text).
+
+- The end with the higher device ID answers the lower one's committed offer
+  even when pairing is not allowed there. Its own dial or its wait for Allow
+  pairing is parked, not dropped: if the answered offer ends before its code
+  shows, the parked pairing resumes (dialling again, inside the same two
+  minutes of waiting for Allow pairing). Once the code shows, the answered
+  pairing is the user's pairing.
+- The end with the lower device ID refuses the higher one's committed offer with
+  `not_armed`, as before, but shows no "wants to pair" card: its own dial is
+  answered by the other end instead. If its own dial then meets `not_armed` from
+  that device too (that device found this end by address and does not know its
+  ID), the rule stops applying to that device for this pairing: its next offer
+  gets the usual card, and Allow pairing answers it.
+- "The device it is pairing with" is the device the user tapped: its discovered
+  ID (Bonjour TXT `id`) is passed in with the tap, never looked up by address.
+  The offer must claim that ID and come from an address this end dialled or
+  discovery listed for that device (IPv4-mapped forms are the same address;
+  link-local and tunnelled offers never match). The rule applies only while the
+  user's own pairing commits (a first pairing, or one with a code again) and is
+  before the answer or waiting for Allow pairing; a reconnect to a trusted
+  device never uses it. An offer from any other ID or address, an uncommitted
+  (reconnect) offer, or an offer carrying this end's own ID gets the usual
+  rules. Without a discovered ID the rule never applies, and the two ends behave
+  as before.
+- Nothing else changes: the answered offer still counts toward the three a
+  minute, the initiator (the lower ID) still commits and reveals, and both people
+  still compare and confirm the six-digit code.
+- What a spoofer can still do: a device on the same network that copies the
+  tapped device's ID and also sends from that device's address (address
+  spoofing on the LAN) can get its offer answered as a crossed pairing. That
+  sets the user's own pairing aside and shows a code from the spoofer; it does
+  not pair, because the user compares the code with the device they tapped,
+  and the spoofer cannot steer the code. Hanging up before the code brings the
+  user's own pairing back. A spoofer that only copies the ID gets the usual
+  rules and changes nothing: `not_armed`, or, while pairing is allowed here
+  (Allow pairing, or a pairing screen open), an answer and then `busy` before its
+  code shows, with the user's own pairing still going on. Allow pairing does not
+  widen the address check.
+- One case stays as before: an end that dialled by address only (no discovered
+  ID) and then taps Allow pairing still refuses the other device's offer as
+  busy while its own dial runs; cancelling its own pairing first works.
 
 Pairing offers expire after two minutes and cannot be silently retried. The
 short code is a human MITM check, not a password. Detailed primitive and storage

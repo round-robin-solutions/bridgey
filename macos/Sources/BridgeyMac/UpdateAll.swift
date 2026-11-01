@@ -49,6 +49,8 @@ struct UpdatePlanEntry: Equatable, Identifiable {
     let build: Int?
     let channel: UpdateChannel?
     let kind: Kind
+    /// What the device runs, from its own `updates.status` (this Mac: macOS). Nil when it sent none (offline).
+    var platform: UpdatePlatform? = nil
 
     var isTarget: Bool {
         if case .update = kind { return true }
@@ -92,7 +94,7 @@ struct UpdatePlan: Equatable {
         let status = phone.status
         func entry(_ kind: UpdatePlanEntry.Kind) -> UpdatePlanEntry {
             UpdatePlanEntry(id: phone.id, name: phone.name, isLocal: false, app: status?.app, build: status?.build,
-                            channel: status?.channel, kind: kind)
+                            channel: status?.channel, kind: kind, platform: status?.platform)
         }
         guard phone.connected else { return entry(.skipped(.offline)) }
         guard phone.supportsUpdates else { return entry(.skipped(.byHand)) }
@@ -114,7 +116,8 @@ struct UpdatePlan: Equatable {
 
     private static func localEntry(_ status: PeerUpdateStatus, name: String) -> UpdatePlanEntry {
         func entry(_ kind: UpdatePlanEntry.Kind) -> UpdatePlanEntry {
-            UpdatePlanEntry(id: localID, name: name, isLocal: true, app: status.app, build: status.build, channel: status.channel, kind: kind)
+            UpdatePlanEntry(id: localID, name: name, isLocal: true, app: status.app, build: status.build, channel: status.channel, kind: kind,
+                            platform: .macos)
         }
         switch status.state {
         case .manual:

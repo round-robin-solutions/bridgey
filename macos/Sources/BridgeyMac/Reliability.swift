@@ -13,6 +13,27 @@ func heartbeatExpired(
     supported && now.timeIntervalSince(lastReceivedAt) >= timeout
 }
 
+/// A live session that has heard nothing for longer than a healthy heartbeat allows. When the same device
+/// authenticates a new session meanwhile, the new one wins the duplicate rule (the device has dropped the old one; a
+/// Work Mac refused 20 redials in 56 s for a tunnel it had not yet noticed was dead).
+func sessionLooksStale(
+    supported: Bool,
+    lastReceivedAt: Date,
+    tunnel: Bool,
+    now: Date = Date()
+) -> Bool {
+    heartbeatExpired(supported: supported, lastReceivedAt: lastReceivedAt, now: now,
+                     timeout: tunnel ? ReconnectPolicy.staleTunnelSessionAfter : ReconnectPolicy.staleSessionAfter)
+}
+
+/// The `detail` of a `disconnected` diagnostics event: the route (tcp or tunnel), who dialled (out: this Mac, in: the
+/// peer), how long the session lived and how long it had been silent, in whole seconds. "tcp_in_age94_silent31".
+func disconnectDetail(tunnel: Bool, initiatedLocally: Bool, createdAt: Date, lastReceivedAt: Date, now: Date = Date()) -> String {
+    let age = max(0, Int(now.timeIntervalSince(createdAt)))
+    let silent = max(0, Int(now.timeIntervalSince(lastReceivedAt)))
+    return "\(tunnel ? "tunnel" : "tcp")_\(initiatedLocally ? "out" : "in")_age\(age)_silent\(silent)"
+}
+
 func localNetworkPermissionDenied(_ error: NWError) -> Bool {
     switch error {
     case .posix(.EACCES), .dns(-65570): true

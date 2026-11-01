@@ -49,6 +49,20 @@ internal fun heartbeatExpired(
     timeoutMillis: Long = ReconnectPolicy.HEARTBEAT_TIMEOUT_MILLIS,
 ): Boolean = supported && nowMillis - lastReceivedAtMillis >= timeoutMillis
 
+/**
+ * A live session that has heard nothing for longer than a healthy heartbeat allows. When the same device authenticates
+ * a new session meanwhile, the new one wins the duplicate rule: the device has dropped the old one already.
+ */
+internal fun sessionLooksStale(
+    supported: Boolean,
+    lastReceivedAtMillis: Long,
+    nowMillis: Long,
+    tunnel: Boolean,
+): Boolean = heartbeatExpired(
+    supported, lastReceivedAtMillis, nowMillis,
+    if (tunnel) ReconnectPolicy.STALE_TUNNEL_SESSION_MILLIS else ReconnectPolicy.STALE_SESSION_MILLIS,
+)
+
 internal fun recoverInterruptedTransfers(
     transfers: Map<String, FileTransferState>,
 ): Map<String, FileTransferState> = transfers

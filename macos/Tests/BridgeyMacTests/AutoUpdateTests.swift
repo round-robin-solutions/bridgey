@@ -574,6 +574,27 @@ final class UpdateControlTests: XCTestCase {
                        ["Result: refused, the request came from another user"])
     }
 
+    /// The --update-all plan called a paired Mac "(Android)": every peer that was not this Mac was labelled Android.
+    /// The platform now comes from the device's own updates.status; without one there is no platform word.
+    func testAPairedMacIsLabelledMac() {
+        func status(_ platform: UpdatePlatform) -> PeerUpdateStatus {
+            PeerUpdateStatus(platform: platform, edition: "rr", app: "0.10.0-rr.1-beta.18", build: 263_011_418, channel: .beta,
+                             state: .current, target: nil, targetBuild: nil, remoteStart: true, checkedAt: 0)
+        }
+        let plan = UpdatePlan.make(local: status(.macos), localName: "Personal Mac", phones: [
+            UpdateAllPhone(id: "m", name: "MacBook Pro", connected: true, supportsUpdates: true, status: status(.macos)),
+            UpdateAllPhone(id: "p", name: "OnePlus 11", connected: true, supportsUpdates: true, status: status(.android)),
+            UpdateAllPhone(id: "o", name: "Work Mac", connected: false, supportsUpdates: true, status: nil),
+        ], now: Date())
+        let devices = plan.entries.map(UpdateControlReply.device)
+        let lines = devices.map(UpdateControlText.device)
+        XCTAssertTrue(lines.contains { $0.contains("MacBook Pro (Mac, Beta)") }, "\(lines)")
+        XCTAssertTrue(lines.contains { $0.contains("OnePlus 11 (Android, Beta)") }, "\(lines)")
+        XCTAssertTrue(lines.contains { $0.contains("Work Mac:") }, "an offline peer gets no platform word: \(lines)")
+        XCTAssertFalse(lines.contains { $0.contains("Work Mac (Android") || $0.contains("MacBook Pro (Android") }, "\(lines)")
+        XCTAssertNil(devices.first { $0["name"] as? String == "Work Mac" }?["platform"])
+    }
+
     func testTheSocketIsOwnerOnlyAndHandsTheRequestOver() throws {
         let received = expectation(description: "request")
         let server = UpdateControlServer(path: socketPath) { request, reply in
