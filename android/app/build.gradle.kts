@@ -99,6 +99,8 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.4.2")
     implementation("androidx.camera:camera-lifecycle:1.4.2")
     implementation("androidx.camera:camera-view:1.4.2")
+    // Pair a device away from this network: reads the QR code bridgey pair shows (ZXing core, Apache 2.0).
+    implementation("com.google.zxing:core:3.5.3")
     // Home-screen widget (Mac actions): Glance, Compose-style RemoteViews.
     implementation("androidx.glance:glance-appwidget:1.1.1")
     // Glance brings WorkManager 2.7.1 with Room 2.2.5, whose keep rules predate R8 full mode: the

@@ -287,7 +287,8 @@ private fun AgentPermissions(
                     FlowRow(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         GrantPreset.entries.forEach { preset ->
                             val on = preset.grants.all { grant -> state.grants.firstOrNull { it.grant == grant }?.state == GrantShown.ON }
-                            AnimatedContent(targetState = on, label = "preset") { applied ->
+                            // Opacity only, and still with reduced motion.
+                            androidx.compose.animation.Crossfade(targetState = on, animationSpec = LocalMotion.current.fadeSpec(), label = "preset") { applied ->
                                 TonalPillButton(
                                     presetTitle(preset),
                                     onClick = { if (!applied) onPreset(preset) },
@@ -542,6 +543,7 @@ fun InviteDialog(
     parse: (String) -> Pair<dev.bridgey.android.agents.AgentInvite?, InviteProblem?>,
     start: (dev.bridgey.android.agents.AgentInvite) -> Boolean,
     readClipboard: () -> String,
+    onScan: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = BridgeyTheme.colors
@@ -582,7 +584,10 @@ fun InviteDialog(
                         isError = problem != null,
                         modifier = Modifier.fillMaxWidth().testTag("agent-invite-field"),
                     )
-                    TonalPillButton(stringResource(R.string.agent_invite_paste_button), { text = readClipboard().take(2_048); problem = null }, tint = Tint.NEUTRAL)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TonalPillButton(stringResource(R.string.agent_invite_scan), onScan, Modifier.testTag("agent-invite-scan"), tint = Tint.PURPLE)
+                        TonalPillButton(stringResource(R.string.agent_invite_paste_button), { text = readClipboard().take(2_048); problem = null }, tint = Tint.NEUTRAL)
+                    }
                 }
                 AnimatedVisibility(
                     visible = problem != null,

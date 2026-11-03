@@ -1567,6 +1567,10 @@ private fun BridgeyApp(
             },
             start = pairing::startInvitePairing,
             readClipboard = readClipboard,
+            onScan = {
+                inviteDialog = null
+                context.startActivity(android.content.Intent(context, dev.bridgey.android.agents.InviteScanActivity::class.java))
+            },
             onDismiss = { inviteDialog = null },
         )
     }

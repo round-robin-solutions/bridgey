@@ -66,6 +66,8 @@
     <string name="agent_invite_detail">A server or computer running bridgey pair</string>
     <string name="agent_invite_field">Link</string>
     <string name="agent_invite_paste_button">Paste</string>
+    <string name="agent_invite_scan">Scan the QR code</string>
+    <string name="agent_invite_scan_hint">Point the camera at the code bridgey pair shows</string>
     <string name="agent_invite_continue">Continue</string>
     <string name="agent_invite_invalid">This is not a Bridgey pairing link.</string>
     <string name="agent_invite_expired">This link has expired. Run bridgey pair again.</string>

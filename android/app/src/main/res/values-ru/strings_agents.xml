@@ -58,6 +58,8 @@
     <string name="agent_invite_detail">Сервер или компьютер, где запущен bridgey pair</string>
     <string name="agent_invite_field">Ссылка</string>
     <string name="agent_invite_paste_button">Вставить</string>
+    <string name="agent_invite_scan">Сканировать QR-код</string>
+    <string name="agent_invite_scan_hint">Наведите камеру на код, который показывает bridgey pair</string>
     <string name="agent_invite_continue">Продолжить</string>
     <string name="agent_invite_invalid">Это не ссылка для связывания Bridgey.</string>
     <string name="agent_invite_expired">Срок действия ссылки истёк. Запустите bridgey pair ещё раз.</string>

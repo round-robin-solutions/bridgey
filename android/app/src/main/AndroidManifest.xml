@@ -156,6 +156,13 @@
             android:noHistory="true"
             android:taskAffinity="${applicationId}.agent_clipboard"
             android:theme="@style/Theme.Bridgey.Transparent" />
+        <!-- Agent devices: scan the QR code bridgey pair shows; it opens the bridgey://pair link in Bridgey. -->
+        <activity
+            android:name=".agents.InviteScanActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity="${applicationId}.invite_scan" />
         <!-- Agent devices: answers, swipes and Deny on Bridgey's own notifications, and the grant expiry alarm. -->
         <receiver android:name=".agents.AgentActionReceiver" android:exported="false" />
         <activity

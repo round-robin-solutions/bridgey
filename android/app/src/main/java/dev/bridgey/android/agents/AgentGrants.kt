@@ -36,6 +36,7 @@ class AgentGrantBook(
     private val zone: () -> java.time.ZoneId = { java.time.ZoneId.systemDefault() },
 ) {
     private val grants = HashMap<String, MutableMap<AgentGrant, GrantRecord>>()
+    private val waitingCleared = HashSet<String>()
 
     init {
         store.load().forEach { (deviceId, json) -> grants[deviceId] = decodeGrants(json) }
@@ -88,6 +89,7 @@ class AgentGrantBook(
                     changed = true
                 } else if (record.waitingUntil != null && now >= record.waitingUntil) {
                     entry.setValue(record.copy(waitingUntil = null))
+                    waitingCleared += deviceId
                     changed = true
                 }
             }
@@ -95,6 +97,9 @@ class AgentGrantBook(
         }
         return ended
     }
+
+    /** Devices whose waiting marks [expireDue] dropped since the last call (their agent.grants changed). */
+    @Synchronized fun takeWaitingCleared(): Set<String> = waitingCleared.toSet().also { waitingCleared.clear() }
 
     /** The next moment something ends (a window or a waiting mark), or null. */
     @Synchronized fun nextChangeAt(): Long? = grants.values.flatMap { it.values }

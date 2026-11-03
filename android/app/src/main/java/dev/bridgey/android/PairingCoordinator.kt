@@ -629,6 +629,8 @@ class PairingCoordinator(
         if (acceptJob != null) return
         diagnostics.record("transport", "listener_started")
         startReconnecting()
+        // Agent grants and questions whose time ran out while Bridgey was off end now (and their timers start).
+        if (trust.trustedDevices.value.any { it.isAgent }) scope.launch { agents.checkExpiry() }
         acceptJob = scope.launch {
             runCatching {
                 ServerSocket(port).also { server = it }.use { listener ->
@@ -3468,7 +3470,11 @@ class PairingCoordinator(
     private fun receive(current: Session, message: Message) {
         // An agent device speaks the agent kinds and what its grants cover; anything else from it is dropped.
         if (current.agent && !dev.bridgey.android.agents.agentMaySend(message.kind)) {
-            if (current.droppedFrames++ == 0) BridgeyLogging.w(LogCategory.CONNECTION, "AGENT frame dropped kind=${message.kind.take(32)}")
+            if (current.agentDropped++ == 0) BridgeyLogging.w(LogCategory.CONNECTION, "AGENT frame dropped kind=${message.kind.take(32)}")
+            val ref = message.messageId
+            if (ref != null && registry.isActive(current) && message.sessionId == current.id && current.acceptMessageId(ref)) {
+                agents.unsupported(current.remoteDeviceId, ref, message.kind)
+            }
             return
         }
         when (message.kind) {
@@ -5607,6 +5613,9 @@ class PairingCoordinator(
          * [dev.bridgey.android.agents.phoneMaySendToAgent] allows leave this phone on it.
          */
         @Volatile var agent = false
+
+        /** Messages from an agent of kinds it may not send (logged once per session). */
+        @Volatile var agentDropped = 0
 
         /** The agent's first features.update in this session arrived (its questions' endings go then). */
         @Volatile var agentStarted = false

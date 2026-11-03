@@ -200,7 +200,10 @@ class AgentHub(
             transport.refreshFeatures(deviceId)
             BridgeyLogging.i(LogCategory.CONNECTION, "AGENT grants expired peer=${deviceId.take(8)}")
         }
-        if (ended.isNotEmpty()) changed()
+        // A request nobody decided within 24 hours: the agent sees it off again.
+        val unwaited = grants.takeWaitingCleared() - ended.map { it.deviceId }.toSet()
+        unwaited.forEach(::sendGrants)
+        if (ended.isNotEmpty() || unwaited.isNotEmpty()) changed()
         expireAsks()
         val next = listOfNotNull(grants.nextChangeAt(), asks.nextExpiry()).minOrNull()
         if (next == scheduledAt && expiryJob?.isActive == true) return
@@ -286,6 +289,11 @@ class AgentHub(
             return false
         }
         return true
+    }
+
+    /** A kind an agent may not send (or this version does not know): refused, so the agent can say why. */
+    fun unsupported(deviceId: String, messageId: String, kind: String) {
+        result(deviceId, messageId, kind, AgentStatus.UNSUPPORTED)
     }
 
     fun invalid(deviceId: String, messageId: String, kind: String) {
