@@ -1,0 +1,72 @@
+/* Bridgey by Round Robin: agent devices on the Mac (Settings > Devices > Agents on <phone>).
+   Keys without a prefix are the shared wording table, docs/agent-cli-wording.md (change them there first).
+   "mac." and "activity." keys are the Mac's own. Russian is in ru.lproj/Agents.strings. */
+"section" = "What this agent can do";
+"tab.permissions" = "Permissions";
+"tab.activity" = "Activity";
+"agent.badge" = "Agent";
+"agent.subtitle" = "Command-line agent on %1$@";
+"mac.section" = "Agents on %1$@";
+"mac.note" = "Permissions live on the phone. Changes here apply there.";
+"empty" = "Nothing yet";
+
+"grant.files" = "Send you files";
+"grant.files.detail" = "To Download/Bridgey/%1$@";
+"grant.clipboard" = "Set your clipboard";
+"grant.clipboard.detail" = "Text it copies lands on this phone";
+"grant.clipboard_request" = "Ask for your clipboard";
+"grant.clipboard_request.detail" = "You tap Send each time";
+"grant.notify" = "Send you notifications";
+"grant.notify.detail" = "In Agent messages";
+"grant.ask" = "Ask you questions";
+"grant.ask.detail" = "In Agent questions, with answer buttons";
+"grant.ring" = "Ring this phone";
+"grant.ring.detail" = "Stops by itself after 60 seconds";
+"grant.battery" = "See battery";
+"grant.battery.detail" = "Level and charging";
+"grant.codes" = "Read codes";
+"grant.codes.detail" = "One-time codes your Mac finds in messages and mail";
+"grant.notifications" = "Read your notifications";
+"grant.notifications.detail" = "Not available yet";
+
+"state.off" = "Off";
+"state.waiting" = "Waiting for you";
+"until.time" = "On until %1$@";
+"until.forever" = "On until you turn it off";
+"window.1h" = "For 1 hour";
+"window.today" = "Today";
+"window.7d" = "7 days";
+"window.forever" = "Until I turn it off";
+"window.ask" = "How long?";
+
+"mac.online" = "Online";
+"mac.offline" = "Offline";
+"mac.lastKnown" = "%1$@ is not connected. This is the last state it sent.";
+"mac.pending" = "Changing on %1$@";
+"mac.show" = "Show permissions and activity";
+"mac.hide" = "Hide permissions and activity";
+
+"activity.pair" = "Paired";
+"activity.grant.change" = "Permission changed";
+"activity.grant.request" = "Asked for permission";
+"activity.grant.expired" = "Permission ended";
+"activity.notify" = "Sent a notification";
+"activity.ask" = "Asked a question";
+"activity.answer" = "Got your answer";
+"activity.ring" = "Rang this phone";
+"activity.ping" = "Checked the connection";
+"activity.battery" = "Saw battery";
+"activity.clipboard.set" = "Set your clipboard";
+"activity.clipboard.request" = "Asked for your clipboard";
+"activity.files.receive" = "Sent you files";
+"activity.codes.read" = "Read the code from %1$@";
+"activity.codes.read.any" = "Read a code";
+"activity.forget" = "Forgotten";
+"activity.count" = "×%1$d";
+"activity.outcome.answered" = "Answered: %1$@";
+"activity.outcome.declined" = "Declined";
+"activity.outcome.dismissed" = "Dismissed";
+"activity.outcome.expired" = "Expired";
+"activity.outcome.rate_limited" = "Too many requests";
+"activity.outcome.not_granted" = "Not allowed";
+"activity.outcome.invalid" = "Refused, not a valid request";

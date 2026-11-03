@@ -374,6 +374,8 @@ final class PairingCoordinator: ObservableObject {
     /// TestInstance only: "drop-lan" closed every LAN session and refuses new ones (the phone left home).
     fileprivate var testLanBlocked = false
     fileprivate var testControlTimer: Timer?
+    /// TestInstance only: codes.found sent since launch, in status.json (never the codes).
+    fileprivate var testCodesFoundSent = 0
     /// Multi-device sessions: pending (handshaking or pairing) and one per phone.
     private lazy var registry = SessionRegistry<Session>(localDeviceID: deviceID)
     /// The session whose code is on screen, or the pairing the user started.
@@ -439,6 +441,9 @@ final class PairingCoordinator: ObservableObject {
     @Published private(set) var codeLinkStatus: String?
     /// Codes from messages > On this Mac: the model file, its download and the engine.
     let codeModel: CodeModelStore
+    /// Agent devices on each phone (agents_mirror_draft1): their last agents.state, switches waiting for the phone,
+    /// and the codes.read log.
+    let agentsMirror = AgentsMirror()
     /// Reads waiting for the engine, by notification request identifier.
     private var codeReads: [String: Task<Void, Never>] = [:]
     /// Codes that can still be copied, in memory only.
@@ -1042,6 +1047,7 @@ final class PairingCoordinator: ObservableObject {
         settingsSync.forget(deviceID)
         reconnect.forget(deviceID)
         connect.store.forget(deviceID)
+        agentsMirror.forget(deviceID)
         disconnect(deviceID: deviceID)
         connectSync()
         BridgeyLog.pairing.notice("pairing revoked peer=\(shortDeviceID(deviceID), privacy: .public)")
@@ -2888,6 +2894,8 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteSettingsSync = draftKeys[settingsSyncFeatureKey] == true
                     link.remoteConnect = draftKeys[connectFeatureKey] == true
                     link.remoteHandoffTakeover = handoffTakeover
+                    link.remoteAgentsMirror = draftKeys[agentsMirrorFeatureKey] == true
+                    if !link.remoteAgentsMirror { link.agentsStateReceived = false }
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
                 }
@@ -3364,6 +3372,8 @@ final class PairingCoordinator: ObservableObject {
                 try receiveFolderMessage(message, in: current)
             case let kind where kind.hasPrefix("input."):
                 receiveRemoteInput(message, in: current)
+            case "agents.state", "codes.read":
+                receiveAgentsMirrorMessage(message, in: current)
             case let kind where kind.hasPrefix("codes."):
                 receiveCodesMessage(message, in: current)
             case let kind where kind.hasPrefix("actions."):
@@ -3587,6 +3597,8 @@ final class PairingCoordinator: ObservableObject {
         features[filesFastFeatureKey] = FastTransferSettings.enabled
         // Mac only: this device applies Let Bridgey handle copy and paste, so other Macs sync it here. Phones never send it.
         features[handoffTakeoverFeatureKey] = true
+        // Draft, edition only: agent devices. A capability, so always on: this Mac finds codes and shows the phone's agents.
+        features[agentsMirrorFeatureKey] = true
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
               let encrypted = try? encrypt(payload, key: key) else { return }
         current.send(PairingMessage(
@@ -4393,6 +4405,7 @@ final class PairingCoordinator: ObservableObject {
                                  live: Array(liveCodes.values), now: now) {
         case let .duplicate(cardID):
             liveCodes[cardID]?.add(source, serviceKey: codeServiceKey(sender))
+            sendCodesFound(payload, code: code, channel: channel, sender: sender, to: deviceID)
             recordNotificationHistory(payload, deviceID: deviceID, codeShown: true)
             diagnostics.record(category: "notification", event: "code_duplicate")
             publishCodes()
@@ -4401,6 +4414,7 @@ final class PairingCoordinator: ObservableObject {
                                     receivedAt: now, postedAt: posted, arrival: codeArrivals, sources: [source])
             recordNotificationHistory(payload, deviceID: deviceID, codeShown: true)
             rememberCode(card)
+            sendCodesFound(payload, code: code, channel: channel, sender: sender, to: deviceID)
             if !late {
                 floatedCode = card.id
                 // The floating card always shows the newest code; it says which older one it replaces.
@@ -4873,6 +4887,76 @@ final class PairingCoordinator: ObservableObject {
     }
 
     /// codes.* (sms_codes_draft1): code access reports and the companion link's advertising.
+    // MARK: Agent devices (agents_mirror_draft1, AgentsMirror.swift)
+
+    /// Connected phones whose session carries the agents mirror: their agents can be changed from here.
+    var agentsMirrorPhones: Set<String> {
+        Set(connectedPhones.filter(\.state.remoteAgentsMirror).map(\.id))
+    }
+
+    /// agents.state and codes.read from a phone that advertised the mirror. A malformed payload is dropped; the
+    /// session stays.
+    private func receiveAgentsMirrorMessage(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return }
+        let phoneID = current.remoteDeviceID
+        guard registry.state(for: phoneID)?.remoteAgentsMirror == true else { return }
+        switch message.kind {
+        case "agents.state":
+            guard let agents = AgentsMirrorWire.agentsState(data) else {
+                diagnostics.record(category: "agents", event: "state_rejected")
+                return
+            }
+            agentsMirror.received(agents, from: phoneID)
+            registry.update(phoneID) { $0.agentsStateReceived = true }
+            publish()
+            BridgeyLog.pairing.notice("agents state peer=\(shortDeviceID(phoneID), privacy: .public) agents=\(agents.count, privacy: .public) codes=\(AgentsMirrorRules.sendsCodesFound(peerSupports: true, stateThisSession: true, agents: agents, now: Date()), privacy: .public)")
+        case "codes.read":
+            guard let read = AgentsMirrorWire.codesRead(data) else {
+                diagnostics.record(category: "agents", event: "codes_read_rejected")
+                return
+            }
+            agentsMirror.record(read, phoneID: phoneID)
+            diagnostics.record(category: "agents", event: "codes_read", outcome: read.source.rawValue)
+        default:
+            break
+        }
+    }
+
+    /// A code this Mac shows from `phoneID`'s text message or mail goes back to that phone for its agents, only while
+    /// the phone's latest agents.state lists an agent with Codes on. Never logged.
+    private func sendCodesFound(_ payload: RemoteNotificationPayload, code: String, channel: CodeChannel, sender: String, to phoneID: String) {
+        let link = registry.state(for: phoneID)
+        guard AgentsMirrorRules.sendsCodesFound(peerSupports: link?.remoteAgentsMirror == true, stateThisSession: link?.agentsStateReceived == true,
+                                                agents: agentsMirror.agents(on: phoneID), now: Date()),
+              let current = registry.session(for: phoneID),
+              let app = AgentsMirrorWire.app(packageName: payload.packageName, channel: channel) else { return }
+        let posted = payload.timestamp > 0 ? payload.timestamp : unixMillis(Date())
+        guard let data = AgentsMirrorWire.codesFound(foundId: UUID().uuidString.lowercased(), code: code, service: sender,
+                                                     serviceKey: codeServiceKey(sender), source: channel, app: app,
+                                                     notificationId: payload.notificationId, postedAt: posted),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            diagnostics.record(category: "agents", event: "codes_found_skipped")
+            return
+        }
+        let sent = sendQuickPayload(kind: "codes.found", payload: object, to: current)
+        diagnostics.record(category: "agents", event: "codes_found", outcome: sent ? "sent" : "failed")
+        if TestInstance.enabled, sent { testCodesFoundSent += 1 }
+    }
+
+    /// A switch in Agents on <phone>: the phone applies it and answers with agents.state. The switch shows the change
+    /// until then, and goes back after five seconds without an answer.
+    func setAgentGrant(phone phoneID: String, agent agentID: String, key: AgentGrantKey, on: Bool, window: AgentGrantWindow?) {
+        guard registry.state(for: phoneID)?.remoteAgentsMirror == true, let current = registry.session(for: phoneID) else { return }
+        let requestID = UUID().uuidString.lowercased()
+        guard let payload = AgentsMirrorWire.grantSet(requestId: requestID, deviceId: agentID, key: key, on: on, window: window),
+              sendQuickPayload(kind: "agents.grant_set", payload: payload, to: current) else { return }
+        agentsMirror.setPending(phone: phoneID, agent: agentID, key: key, on: on, requestId: requestID)
+        diagnostics.record(category: "agents", event: "grant_set", outcome: on ? "on" : "off", detail: key.rawValue)
+    }
+
     private func receiveCodesMessage(_ message: PairingMessage, in current: Session) {
         guard registry.isActive(current), message.sessionId == current.id,
               let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
@@ -6501,8 +6585,11 @@ enum SmsPhoneDisplay: Equatable {
 /// session, refuses new ones and turns on relay only: the phone left home), `restore-lan` ("host:port": ends
 /// relay only and tunnel sessions, listens again and dials the trusted phone there over the LAN; the phone came
 /// home, so the next `drop-lan` can be timed again), `clipboard` (sends this Mac's
-/// clipboard), `send-file` (a path), and `autoconfirm` (kept: "Codes match" is pressed for any prompt). Every
-/// second the instance writes `status.json` with its sessions, so a test can time connects and failovers.
+/// clipboard), `send-file` (a path), `codes` (`local` or `cloud`: turns Codes from messages on with that engine, as
+/// the switch in Settings > Notifications does; `off` turns it off), and `autoconfirm` (kept: "Codes match" is
+/// pressed for any prompt). Every second the instance writes `status.json` with its sessions, the codes settings,
+/// each phone's agents (name and whether Codes is on) and how many codes.found it sent, so a test can time
+/// connects and failovers and follow a code to the phone.
 extension PairingCoordinator {
     fileprivate var testControlDirectory: URL { URL(fileURLWithPath: "/tmp/\(Edition.identifier)-control", isDirectory: true) }
 
@@ -6561,6 +6648,15 @@ extension PairingCoordinator {
             }
         }
         if takeTestCommand("clipboard") != nil { sendClipboard() }
+        if let engine = takeTestCommand("codes") {
+            if let chosen = CodeEngine(rawValue: engine) {
+                settings.setCodesEngine(chosen)
+                settings.setCodesEnabled(true)
+            } else if engine == "off" {
+                settings.setCodesEnabled(false)
+            }
+            sendFeatureState()
+        }
         if let path = takeTestCommand("send-file") { _ = sendDroppedFiles([URL(fileURLWithPath: path)], to: nil) }
         if FileManager.default.fileExists(atPath: testControlDirectory.appendingPathComponent("autoconfirm").path),
            let current = pairingSession, let token = current.token, current.code != nil, !current.localConfirmed {
@@ -6570,8 +6666,20 @@ extension PairingCoordinator {
             ["peer": shortDeviceID(id), "tunnel": current.tunnel != nil, "route": current.tunnel?.route ?? "lan_tcp",
              "relay": current.tunnel?.relay ?? NSNull(), "vpn": current.tunnel?.vpn ?? NSNull()]
         }
-        let status: [String: Any] = ["at": Date().timeIntervalSince1970, "lanBlocked": testLanBlocked, "sessions": sessions,
-                                     "presence": connect.presence.rawValue, "trusted": trustRegistry.devices.count]
+        let now = Date()
+        let agents: [String: Any] = agentsMirror.phones.reduce(into: [:]) { result, phone in
+            result[shortDeviceID(phone.key)] = phone.value.agents.map { ["name": $0.name, "online": $0.online, "codes": $0.grant(.codes)?.isOn(at: now) == true] }
+        }
+        let sendsCodes = registry.broadcastTargets({ _, _ in true }).map { id, _ in
+            [shortDeviceID(id): AgentsMirrorRules.sendsCodesFound(peerSupports: registry.state(for: id)?.remoteAgentsMirror == true,
+                                                                  stateThisSession: registry.state(for: id)?.agentsStateReceived == true,
+                                                                  agents: agentsMirror.agents(on: id), now: now)]
+        }
+        let status: [String: Any] = ["at": now.timeIntervalSince1970, "lanBlocked": testLanBlocked, "sessions": sessions,
+                                     "presence": connect.presence.rawValue, "trusted": trustRegistry.devices.count,
+                                     "codes": ["enabled": settings.codesEnabled, "engine": settings.codesEngine.rawValue,
+                                               "modelReady": codeModel.isReady],
+                                     "agents": agents, "sendsCodesFound": sendsCodes, "codesFoundSent": testCodesFoundSent]
         if let data = try? JSONSerialization.data(withJSONObject: status) {
             try? data.write(to: testControlDirectory.appendingPathComponent("status.json"), options: .atomic)
         }

@@ -37,6 +37,9 @@ struct PhoneLinkState: Equatable {
     var remoteConnect = false
     /// The peer advertised `handoff_takeover_draft1`: it is a Mac, so the settings only Macs share sync with it.
     var remoteHandoffTakeover = false
+    /// The phone advertised `agents_mirror_draft1` (AgentsMirror.swift), and sent agents.state in this session.
+    var remoteAgentsMirror = false
+    var agentsStateReceived = false
     /// The phone's last `codes.status`: whether Android shows Bridgey the text of code messages.
     var codeAccess: CodeAccessStatus?
     var battery: RemoteBatteryStatus?
