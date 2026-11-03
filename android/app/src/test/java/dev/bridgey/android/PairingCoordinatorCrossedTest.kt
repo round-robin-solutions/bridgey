@@ -87,6 +87,24 @@ class PairingCoordinatorCrossedTest {
         }
     }
 
+    /** Under load the phone's listener can come up a moment after the test starts dialling: retry briefly. */
+    private fun connectWithRetry(from: InetAddress, port: Int): Socket {
+        val deadline = System.currentTimeMillis() + 5_000
+        while (true) {
+            val socket = Socket()
+            try {
+                socket.bind(InetSocketAddress(from, 0))
+                socket.connect(InetSocketAddress(loopback, port), 5_000)
+                socket.soTimeout = 5_000
+                return socket
+            } catch (e: java.net.ConnectException) {
+                socket.close()
+                if (System.currentTimeMillis() > deadline) throw e
+                Thread.sleep(50)
+            }
+        }
+    }
+
     private fun notArmed(sessionId: String) = JSONObject().put("kind", "pairing.cancel").put("sessionId", sessionId).put("reason", "not_armed")
 
     /** A committed first-pairing offer to the phone from [from], claiming [deviceId]. */
@@ -98,11 +116,7 @@ class PairingCoordinatorCrossedTest {
     }
 
     private fun committedOffer(from: InetAddress, phone: Phone, deviceId: String): Offer {
-        val socket = Socket().apply {
-            bind(InetSocketAddress(from, 0))
-            connect(InetSocketAddress(loopback, phone.port), 5_000)
-            soTimeout = 5_000
-        }
+        val socket = connectWithRetry(from, phone.port)
         val sessionId = UUID.randomUUID().toString()
         val key = Crypto.encodePublicKey(Crypto.generateKeyPair())
         val peer = Peer(socket)
