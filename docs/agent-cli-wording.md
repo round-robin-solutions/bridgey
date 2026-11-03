@@ -50,6 +50,43 @@ The words for agent permissions on all three surfaces: the phone's device page, 
 
 `today` ends at midnight on the phone. `bridgey grants` prints the same titles and states, in English.
 
+## Activity and the Mac's agents view
+
+Action titles and outcomes in the Activity tab (phone and Mac), and the Mac's extra labels.
+
+| Key | English | Russian |
+| --- | --- | --- |
+| mac.online | Online | В сети |
+| mac.offline | Offline | Не в сети |
+| mac.lastKnown | %1$s is not connected. This is the last state it sent. | %1$s не подключён. Это последнее состояние, которое он прислал. |
+| mac.pending | Changing on %1$s | Меняем на %1$s |
+| mac.show | Show permissions and activity | Показать разрешения и действия |
+| mac.hide | Hide permissions and activity | Скрыть разрешения и действия |
+| activity.pair | Paired | Сопряжён |
+| activity.grant.change | Permission changed | Разрешение изменено |
+| activity.grant.request | Asked for permission | Запросил разрешение |
+| activity.grant.expired | Permission ended | Срок разрешения истёк |
+| activity.notify | Sent a notification | Отправил уведомление |
+| activity.ask | Asked a question | Задал вопрос |
+| activity.answer | Got your answer | Получил ваш ответ |
+| activity.ring | Rang this phone | Звонил на этот телефон |
+| activity.ping | Checked the connection | Проверил связь |
+| activity.battery | Saw battery | Увидел заряд батареи |
+| activity.clipboard.set | Set your clipboard | Изменил ваш буфер обмена |
+| activity.clipboard.request | Asked for your clipboard | Запросил ваш буфер обмена |
+| activity.files.receive | Sent you files | Отправил вам файлы |
+| activity.codes.read | Read the code from %1$s | Прочитал код от %1$s |
+| activity.codes.read.any | Read a code | Прочитал код |
+| activity.forget | Forgotten | Забыт |
+| activity.count | ×%1$d | ×%1$d |
+| activity.outcome.answered | Answered: %1$s | Ответ: %1$s |
+| activity.outcome.declined | Declined | Отклонено |
+| activity.outcome.dismissed | Dismissed | Закрыто |
+| activity.outcome.expired | Expired | Истекло |
+| activity.outcome.rate_limited | Too many requests | Слишком много запросов |
+| activity.outcome.not_granted | Not allowed | Не разрешено |
+| activity.outcome.invalid | Refused, not a valid request | Отклонено: неверный запрос |
+
 ## Channels and prompts on the phone
 
 | Key | English | Russian |
