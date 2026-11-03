@@ -1899,7 +1899,7 @@ Answered by `ask.posted`, `ask.answer`, `ask.dismissed`, `ask.expired`, `ask.can
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `agents.state` | edition-draft | phone-to-mac | agents_mirror_draft1 | yes | messageId | 49,152 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `agents.state` | edition-draft | phone-to-mac | agents_mirror_draft1 | yes | messageId | 45,056 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `agents.grant_set` | edition-draft | mac-to-phone | agents_mirror_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
 
 `agents.state`

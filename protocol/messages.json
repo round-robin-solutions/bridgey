@@ -921,7 +921,7 @@
       "payload": { "version": "integer, 1", "deviceId": "string, the agent", "deviceName": "string", "service": "string", "source": "sms | email", "app": "string", "at": "integer, Unix ms", "count": "integer" },
       "notes": "Never the code.",
       "implemented": ["android", "macos"] },
-    { "kind": "agents.state", "status": "edition-draft", "direction": "phone-to-mac", "feature": "agents_mirror_draft1", "encrypted": true, "replay": "messageId", "maxPlaintextBytes": 49152,
+    { "kind": "agents.state", "status": "edition-draft", "direction": "phone-to-mac", "feature": "agents_mirror_draft1", "encrypted": true, "replay": "messageId", "maxPlaintextBytes": 45056,
       "outer": ["sessionId", "messageId", "nonce", "ciphertext"],
       "payload": { "version": "integer, 1", "agents": "array of {deviceId, name, platform, app, os, pairedAt, lastSeenAt?, online, route?, grants (as in agent.grants), activity (newest 50 audit entries {at, action, outcome, detail?})}" },
       "notes": "After features.update with the key on both sides and on every change, at most once a second.",
