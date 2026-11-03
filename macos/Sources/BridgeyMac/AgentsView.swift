@@ -196,7 +196,7 @@ struct AgentsOnPhoneCard: View {
         if let state = model.agents.phones[phoneID], !state.agents.isEmpty {
             let live = model.agents.live.contains(phoneID)
             SettingsCard(title: String(format: L10n.agents("mac.section", fallback: "Agents on %1$@"), phoneName),
-                         footnote: live ? note : note + " " + String(format: L10n.agents("mac.lastKnown", fallback: "%1$@ is not connected. This is the last state it sent."), phoneName)) {
+                         footnote: live ? note : String(format: L10n.agents("mac.lastKnown", fallback: "%1$@ is not connected. This is the last state it sent."), phoneName) + " " + note) {
                 ForEach(Array(state.agents.enumerated()), id: \.element.id) { index, agent in
                     AgentBlock(agent: agent, phoneID: phoneID, phoneName: phoneName, live: live, divider: index > 0,
                                startsOpen: index == 0, model: model, actions: actions)
@@ -439,7 +439,7 @@ private struct AgentGrantRow: View {
                     .font(BrandFont.body(12, .medium))
                     .foregroundStyle(grant?.state == .waiting && pending == nil ? c.tpi : c.on2)
                     .multilineTextAlignment(.trailing)
-                    .frame(maxWidth: 150, alignment: .trailing)
+                    .frame(maxWidth: 200, alignment: .trailing)
                     .animation(nil, value: pending)
             }
         }
