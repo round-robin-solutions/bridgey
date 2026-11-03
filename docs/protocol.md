@@ -111,7 +111,8 @@ predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
 `sms_codes_draft1`, `email_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`, `updates_draft1`,
-`screen_draft1`, `connect_draft1`, `files_fast_draft1`)
+`screen_draft1`, `connect_draft1`, `files_fast_draft1`, and for agent devices `agent_draft1`, `notify_draft1`,
+`ask_draft1`, `clipboard_request_draft1`, `agent_codes_draft1` and `agents_mirror_draft1`)
 are optional booleans described in their own sections; a missing draft key means `false`.
 
 ## Pairing flow
@@ -1754,6 +1755,169 @@ one for that session. Relay credentials are TURN REST style:
 valid 2 hours. A node's warm relay username is `"<expiry>:w.<tag>"`, tag = base64url(HMAC-SHA256(secret,
 "bridgey-warm-v1" \0 nodeId \0 expiry)[0..9]), with the same credential rule, valid 12 hours. Vectors for all of
 this: `protocol/test-vectors/connect-v1.json` (`nodeAuthV2`, `turnWarm`).
+
+## Draft: agent devices (`agent_draft1`)
+
+Status: **draft, edition-only** (Bridgey by Round Robin, 2026-11-03). The command is specified in
+[agent-cli.md](agent-cli.md); this section is its wire contract. Peers that do not advertise the keys
+below never see any of it.
+
+An **agent device** is a headless Bridgey node (today the `bridgey` command, `platform` `cli`) that
+pairs with the phone like any device, has its own identity, and gets nothing until Rahul grants it.
+Grants are decided, stored and enforced on the phone. The agent only learns what it was granted, so it
+can give clear errors.
+
+### Remote pairing by invite
+
+The section 6.6 design of [connect-anywhere.md](connect-anywhere.md#66-remote-pairing-qr-code-or-link),
+built for agents. Pairing still needs a person at both ends: the code is compared and confirmed on the
+phone and in the terminal.
+
+1. **Invite.** The inviter (`bridgey pair`) makes 32 random bytes `secret` and shows
+   `bridgey://pair#<base64url(JSON)>`, as text and as a QR code. The JSON is
+   `{"v":1,"s":"<base64url secret>","c":"<control URL>","n":"<inviter name>","p":"cli","x":<expiry, Unix seconds>}`:
+   `n` at most 64 characters, `p` the inviter's platform, `x` at most 10 minutes ahead. The invite sits
+   in the URL fragment, so a link never reaches a web server. A phone refuses an invite that is expired,
+   malformed, for another control URL than its own, or longer than 1,024 bytes.
+2. **Rendezvous.** Both sides give the Connect anywhere core an invite peer (`invite: true` in its peer
+   list, label `invite:<rdv>`), which registers the one rendezvous ID
+   `rdv = base64url(HMAC-SHA256(secret, "bridgey-invite-rdv-v1")[0..16])` (no date) and seals
+   signalling with `HKDF-SHA256(secret, salt "", info "bridgey-invite-signal-v1", 32)`. The joiner (the
+   phone that opened the invite) is side 0, so it is the QUIC client of the tunnel and sends
+   `pairing.offer`; the inviter is side 1.
+3. **Pairing inside the tunnel.** A plain protocol 2 first pairing (commitment, `pairing.reveal`, the
+   `bridgey-sas-v2` code, `pairing.confirm`, envelope tags) with two differences:
+   - an invite tunnel carries exactly one committed offer from a device the inviter does not trust yet,
+     and is armed for that offer only (Allow pairing plays no part). Any other offer, a second offer, or
+     an offer without protocol 2 closes the tunnel;
+   - the signed transcript appends the invite: `bridgey-auth-v2` transcript, then `\0` and
+     `base64(SHA-256(secret))` (standard base64). A tunnel made from someone else's invite therefore
+     cannot complete.
+4. **After pairing.** Each side drops the invite peer. The agent then runs `connect.setup` (it starts
+   it as the lower device ID or answers it; the existing `connect.addresses` rule), so the pair has its
+   own pair secret and reconnects as an ordinary paired device. The invite is single use: the inviter
+   forgets it after the first pairing, the expiry, or Ctrl-C.
+
+The phone stores the new device with platform `cli` (from the invite's `p`) and every grant off.
+
+### Negotiation
+
+`features.update` gains these draft keys, read like every draft key (`true` only for JSON `true`):
+
+| Key | Who sets it | Means |
+| --- | --- | --- |
+| `agent_draft1` | the agent, always; the phone, to each agent device | the device speaks `agent.*` |
+| `notify_draft1` | the agent (it can send); the phone, while Notify is granted | `notify.post` |
+| `ask_draft1` | the agent; the phone, while Ask is granted | `ask.*` |
+| `clipboard_request_draft1` | the agent; the phone, while Clipboard request is granted | `clipboard.request` |
+| `agent_codes_draft1` | the agent; the phone, while Codes is granted | `codes.query` |
+| `agents_mirror_draft1` | the phone and the Mac, to each other, whenever both support it | `agents.*`, `codes.found`, `codes.read` |
+
+An agent's own map lists what it can do. The phone's map to an agent lists what Rahul granted: the
+original keys `clipboard` (Set your clipboard), `files`, `battery`, `find_device` (which also covers
+`ping`) and `notifications` (always `false` in this version), plus the draft keys above. The phone never
+pushes its own clipboard, notifications, files, text messages or settings to an agent device, whatever
+the maps say. Agents receive only answers to their requests, `battery.update` while Battery is granted,
+and `agent.*` messages.
+
+### Grants
+
+| Grant (`bridgey grants`) | Wire key | Shown as | Lets the agent |
+| --- | --- | --- | --- |
+| `files` | `files` | Send you files | send files to `Download/Bridgey/<device name>` |
+| `clipboard` | `clipboard` | Set your clipboard | `clipboard.update`, `clipboard.rich` |
+| `clipboard_request` | `clipboard_request_draft1` | Ask for your clipboard | `clipboard.request`; every request needs a tap |
+| `notify` | `notify_draft1` | Send you notifications | `notify.post` in the "Agent messages" channel |
+| `ask` | `ask_draft1` | Ask you questions | `ask.*` in the "Agent questions" channel |
+| `ring` | `find_device` | Ring this phone | `find.start`, `find.stop`, `ping.request` |
+| `battery` | `battery` | See battery | receive `battery.update` |
+| `codes` | `agent_codes_draft1` | Read codes | `codes.query`: one-time codes your Macs found in your messages and mail |
+| `notifications` | `notifications` | Read your notifications | not available in this version; always off |
+
+Each grant has a **window**: `1h` (for 1 hour), `today` (until midnight on the phone), `7d` (7 days)
+or `forever` (until you turn it off). When a window ends the phone turns the grant off, records it, and
+sends `features.update` and `agent.grants`. Presets on the pairing screen: "Messages and questions"
+(notify and ask), "Files" (files) and "Find my phone" (ring and battery). Codes is never in a preset.
+
+### Messages between an agent and the phone
+
+All are encrypted on the authenticated session like `quick.request` (outer `kind`, `sessionId`, a
+unique `messageId` in the replay window, `nonce`, `ciphertext`). Plaintexts are UTF-8 JSON with
+`version: 1`; IDs are UUIDs; times are Unix milliseconds. A malformed or undecryptable payload is
+dropped and the session stays. Agent text (titles, bodies, labels, `from`) is shown as plain text,
+never as HTML or links, with control and bidi characters removed.
+
+| Message | Direction | Payload (besides `version`) |
+| --- | --- | --- |
+| `agent.hello` | agent to phone | `platform` (`cli`), `app` (at most 64 characters, for example `bridgey 0.1.0`), `os` (at most 64, for example `linux x86_64`). Once per session, after `features.update` |
+| `agent.grants` | phone to agent | `grants`: one object per grant: `key`, `state` (`on`, `off` or `waiting`), optional `window`, `grantedAt`, `expiresAt`, `scope` (Files: the folder). Sent after `features.update` and on every change. At most 8 KiB |
+| `agent.grant_request` | agent to phone | `requestId`, `keys` (1 to 9 grant names), optional `note` (at most 120). The phone posts "<device> asks for: <grants>" that opens the device's permissions, and marks those grants `waiting` for 24 hours or until Rahul decides. 3 an hour |
+| `agent.request_result` | phone to agent | `ref` (the request's `messageId`), `requestKind`, `status` `ok` or one of the codes below, optional `retryAfterMs`, `grant`. The answer to `agent.grant_request`, and the refusal of any agent request (`notify.post`, `ask.request`, `clipboard.update`, `clipboard.rich`, `clipboard.request`, `find.start`, `ping.request`, `files.offer`, `codes.query`) |
+| `notify.post` | agent to phone | `notifyId`, `title` (1 to 120), optional `body` (at most 1,000), `priority` (`normal` or `high`), optional `tag` (at most 64: replaces this device's earlier notification with that tag), optional `from` (at most 64, shown as "says it is from") |
+| `notify.result` | phone to agent | `notifyId`, `status` `posted` |
+| `ask.request` | agent to phone | `askId`, `title` (1 to 120), optional `body` (at most 1,000), `options` (0 to 3 of `{id, label}`, `id` matching `[a-z0-9_-]{1,32}`, `label` 1 to 20 characters), `allowText` (then at most 2 options), optional `textHint` (at most 40), `requireUnlock`, `expiresAt` (at most 24 hours ahead), optional `from`. At least one option or `allowText` |
+| `ask.posted` | phone to agent | `askId` |
+| `ask.answer` | phone to agent | `askId`, `option` or `text` (at most 1,000), `answeredAt` |
+| `ask.dismissed`, `ask.expired`, `ask.cancelled` | phone to agent | `askId` |
+| `ask.cancel` | agent to phone | `askId`: remove the question |
+| `ask.status` | agent to phone | `askId`: the phone repeats the ask's latest message (`ask.posted` while open), or `agent.request_result` with `unknown` |
+| `clipboard.request` | agent to phone | `requestId`, `expiresAt` (at most 10 minutes ahead). The phone asks "<device> wants your clipboard" with Send and Deny; Android lets an app read the clipboard only in the foreground, so Send opens Bridgey for a moment |
+| `clipboard.response` | phone to agent | `requestId`, `status` (`sent`, `declined` or `expired`), with `sent` `text` and optional `html` (together at most 32 KiB) |
+| `codes.query` | agent to phone | `queryId`, optional `service` (at most 64, matched case-insensitively against the service name), `sinceMs` (how far back, at most 3,600,000), optional `newerThan` (a time: only codes posted after it), `waitMs` (0 to 600,000: with no matching code, the phone holds the query until one arrives or the wait ends), `latestOnly` |
+| `codes.result` | phone to agent | `queryId`, `codes` (newest first; at most 20), `readers` (how many Macs are reading codes for this phone right now), `timedOut` (the wait ended with no code) |
+| `codes.cancel` | agent to phone | `queryId`: drop a held query |
+
+Existing messages keep their meaning for agents: `clipboard.update` and `clipboard.rich` (answered by
+`clipboard.ack`), `find.start` and `find.stop` (answered by `find.started` and `find.stopped`; the phone
+stops an agent's ring after 60 seconds by itself), `ping.request` (answered by `ping.ack`),
+`battery.update`, and `files.offer` and the rest of `files.v1` for Send you files.
+
+**Refusal codes** in `agent.request_result`: `not_granted` (with `grant`), `rate_limited` (with
+`retryAfterMs`), `invalid` (over a limit or malformed fields), `busy` (too many pending: 3 asks or 1
+clipboard request per agent, 10 asks on the phone, 2 held code queries per agent), `unknown` (no such
+ask) and `unsupported`.
+
+**Asks.** A question is a high-importance notification in "Agent questions" with one action per option
+and, with `allowText`, a Reply action with inline text. With `requireUnlock` the actions need the device
+unlocked (Android 12 and later; before that the tap opens Bridgey). The answer is kept for 24 hours
+and sent again at the start of every session until the ask ends, so an agent that was offline gets
+it; the agent ignores an `askId` it has already settled. A repeated `ask.request` with a known `askId`
+is answered with the ask's current state and never posts twice.
+
+**Codes.** A code is `{"code", "service", "source": "sms" | "email", "app", "postedAt", "latest", "replaced", "via"}`:
+`service` as the Mac shows it ("HDFC Bank"), `app` the mail app for email (`gmail`, `outlook`,
+`proton`, `spark`) or `messages`, `postedAt` the phone's post time, `latest` for the newest code of its
+service, `replaced` for older ones of a service that has a newer code, and `via` every way the same
+code came (for example `["sms", "email:gmail"]`). The phone answers from what its Macs sent it (below);
+it finds no codes itself.
+
+### Messages between the phone and the Mac (`agents_mirror_draft1`)
+
+The Mac finds codes; the phone grants and logs; agents ask the phone. Encrypted like the messages
+above.
+
+| Message | Direction | Payload (besides `version`) |
+| --- | --- | --- |
+| `codes.found` | Mac to phone | `foundId`, `code` (4 to 12 characters), `service` (at most 64), `serviceKey` (the Mac's normalised service, at most 64), `source` (`sms` or `email`), `app`, `notificationId` (the phone's, at most 512), `postedAt`. Sent for every code the Mac shows from that phone's notifications, only while the phone's latest `agents.state` lists an agent with Codes on. At most 1 KiB |
+| `codes.read` | phone to Mac | `deviceId` and `deviceName` (the agent), `service`, `source`, `app`, `at`, `count`. Never the code. The Mac adds it to that agent's activity |
+| `agents.state` | phone to Mac | `agents`: one object per agent device: `deviceId`, `name`, `platform`, `app`, `os`, `pairedAt`, optional `lastSeenAt`, `online`, optional `route`, `grants` (as in `agent.grants`), `activity` (the newest 50 audit entries). Sent after `features.update` with the key on both sides and on every change, at most once a second. At most 48 KiB |
+| `agents.grant_set` | Mac to phone | `requestId`, `deviceId`, `key`, `on`, `window` (with `on`). The phone applies it as if Rahul switched it on the phone, records it as "changed on <Mac name>", and sends `agents.state` |
+
+The phone keeps codes from `codes.found` in memory only, for 15 minutes, at most 50, folded by
+`serviceKey` and code (a second Mac, or SMS and mail, adds to `via`). Codes are never written to disk or
+logs on any side.
+
+### Audit
+
+The phone keeps an activity list per agent device: at most 2,000 entries or 90 days, in an owner-only
+file excluded from backups and diagnostics, exportable as JSON and clearable. An entry is `at`,
+`action` (`pair`, `grant.change`, `grant.request`, `grant.expired`, `notify`, `ask`, `answer`, `ring`,
+`ping`, `battery`, `clipboard.set`, `clipboard.request`, `files.receive`, `codes.read`, `forget`),
+`outcome` (`ok`, `delivered`, `answered:<option>`, `declined`, `dismissed`, `expired`, `rate_limited`,
+`not_granted`, `invalid`) and optional `detail`: the title for notify and ask (at most 120 characters),
+file names and total size for files, the service and count for codes, the grant and window for grant
+changes. Never clipboard content, answers' text, codes or notification text. The agent keeps its own
+log (agent-cli.md section 9).
 
 ## Draft: fast transfers and the speed test (`files_fast_draft1`)
 
