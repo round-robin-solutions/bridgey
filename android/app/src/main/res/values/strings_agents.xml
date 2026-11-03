@@ -82,21 +82,21 @@
     <string name="agent_ask_send">Send</string>
     <string name="agent_clear_confirm">The activity list of %1$s is deleted from this phone.</string>
 
-    <!-- Activity list: actions and outcomes -->
+    <!-- Activity list: the Mac's wording (macos/Resources/*.lproj/Agents.strings, activity.*) -->
     <string name="agent_audit_pair">Paired</string>
     <string name="agent_audit_grant_change">Permission changed</string>
-    <string name="agent_audit_grant_request">Asked for permissions</string>
+    <string name="agent_audit_grant_request">Asked for permission</string>
     <string name="agent_audit_grant_expired">Permission ended</string>
-    <string name="agent_audit_notify">Notification</string>
-    <string name="agent_audit_ask">Question</string>
-    <string name="agent_audit_answer">Answer</string>
-    <string name="agent_audit_ring">Ring</string>
-    <string name="agent_audit_ping">Ping</string>
-    <string name="agent_audit_battery">Battery</string>
-    <string name="agent_audit_clipboard_set">Clipboard set</string>
-    <string name="agent_audit_clipboard_request">Clipboard asked for</string>
-    <string name="agent_audit_files_receive">Files received</string>
-    <string name="agent_audit_codes_read">Codes read</string>
+    <string name="agent_audit_notify">Sent a notification</string>
+    <string name="agent_audit_ask">Asked a question</string>
+    <string name="agent_audit_answer">Got your answer</string>
+    <string name="agent_audit_ring">Rang this phone</string>
+    <string name="agent_audit_ping">Checked the connection</string>
+    <string name="agent_audit_battery">Saw battery</string>
+    <string name="agent_audit_clipboard_set">Set your clipboard</string>
+    <string name="agent_audit_clipboard_request">Asked for your clipboard</string>
+    <string name="agent_audit_files_receive">Sent you files</string>
+    <string name="agent_audit_codes_read">Read a code</string>
     <string name="agent_audit_forget">Forgotten</string>
     <string name="agent_outcome_ok">Done</string>
     <string name="agent_outcome_delivered">Delivered</string>
@@ -104,7 +104,7 @@
     <string name="agent_outcome_declined">Declined</string>
     <string name="agent_outcome_dismissed">Dismissed</string>
     <string name="agent_outcome_expired">Expired</string>
-    <string name="agent_outcome_rate_limited">Too many, refused</string>
+    <string name="agent_outcome_rate_limited">Too many requests</string>
     <string name="agent_outcome_not_granted">Not allowed</string>
-    <string name="agent_outcome_invalid">Refused as invalid</string>
+    <string name="agent_outcome_invalid">Refused, not a valid request</string>
 </resources>

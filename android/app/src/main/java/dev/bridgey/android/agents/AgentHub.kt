@@ -512,8 +512,9 @@ class AgentHub(
         val newest = answer.codes.firstOrNull() ?: return
         val service = answer.service(query.service)
         // One entry per answered query with codes: the service and how many, never a code.
-        audit.record(deviceId, AuditAction.CODES_READ, AuditOutcome.DELIVERED, "$service, ${answer.codes.size}")
-        val payload = codesReadPayload(deviceId, transport.deviceName(deviceId), service, newest.source, newest.app, clock(), answer.codes.size)
+        val entry = audit.record(deviceId, AuditAction.CODES_READ, AuditOutcome.DELIVERED, "$service, ${answer.codes.size}")
+        // The Mac dedupes on `at`: the same moment as this phone's own entry.
+        val payload = codesReadPayload(deviceId, transport.deviceName(deviceId), service, newest.source, newest.app, entry.at, answer.codes.size)
         transport.mirrorMacs().forEach { mac -> transport.send(mac, AgentKinds.CODES_READ, payload) }
         changed()
     }
@@ -556,7 +557,7 @@ class AgentHub(
         transport.send(macId, AgentKinds.AGENTS_STATE, agentsStatePayload())
     }
 
-    /** agents.state: every agent with its grants and newest activity, cut down to fit 48 KiB. */
+    /** agents.state: every agent with its grants and newest activity, cut down to fit 44 KiB (one frame once sealed). */
     internal fun agentsStatePayload(): ByteArray {
         val online = transport.connectedAgents().toSet()
         var activity = 50
@@ -585,7 +586,7 @@ class AgentHub(
     }
 
     companion object {
-        const val AGENTS_STATE_MAX_BYTES = 48 * 1024
+        const val AGENTS_STATE_MAX_BYTES = 45_056
     }
 }
 

@@ -88,7 +88,7 @@ drafts_none = {"clipboard_files_draft1":False,"folders_draft1":False,"places_dra
                "mac_actions_draft1":False,"links_open_draft1":False,"focus_sync_draft1":False,"camera_draft1":False,
                "updates_draft1":False,"screen_draft1":False,"sms_draft1":False,"settings_sync_draft1":False,
                "connect_draft1":False,"files_fast_draft1":False,"email_codes_draft1":False,
-               # Agent devices (docs/protocol.md, agent devices): read like every draft key, after the others.
+               # Agent devices (docs/protocol.md "Draft: agent devices"), last.
                "agent_draft1":False,"notify_draft1":False,"ask_draft1":False,"clipboard_request_draft1":False,
                "agent_codes_draft1":False,"agents_mirror_draft1":False}
 feat = []
@@ -143,6 +143,11 @@ fe("Mac and phone with codes from email on", {"version":1,"features":{**features
    {"features":features_all,"drafts":{**drafts_none,"sms_codes_draft1":True,"email_codes_draft1":True}})
 fe("email_codes_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"sms_codes_draft1":True,"email_codes_draft1":"true"}},
    {"features":features_all,"drafts":{**drafts_none,"sms_codes_draft1":True}})
+# Agent devices: the phone and the Mac set agents_mirror_draft1 for each other; true only for JSON true.
+fe("phone and Mac with the agents mirror", {"version":1,"features":{**features_all,"sms_codes_draft1":True,"agents_mirror_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"sms_codes_draft1":True,"agents_mirror_draft1":True}})
+fe("agents_mirror_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"agents_mirror_draft1":1}},
+   {"features":features_all,"drafts":drafts_none})
 fe("first-slice Mac (folders_draft1 only, no Files 2.0 keys)", {"version":1,"features":{**features_all,"folders_draft1":True,"places_draft1":False}},
    {"features":features_all,"drafts":{**drafts_none,"folders_draft1":True}})
 legacy = {"clipboard":True,"files":False,"notifications":True,"battery":True,"find_device":False}
