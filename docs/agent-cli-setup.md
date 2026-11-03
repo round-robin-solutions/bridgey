@@ -16,8 +16,7 @@ curl -fsSL https://github.com/round-robin-solutions/bridgey/releases/download/cl
 ```
 
 It downloads the build for this machine, checks it against `SHA256SUMS`, and puts `bridgey` in
-`~/.local/bin`. No root needed. (The first `cli-v0.1.0` release is not published yet; until then,
-copy a build from `scripts/rr/cli/build-cli.sh` to `~/.local/bin/bridgey`.)
+`~/.local/bin`. No root needed. The phone needs Bridgey by Round Robin 0.10.0-rr.1 beta 21 or newer.
 
 Check it: `bridgey --version`.
 
