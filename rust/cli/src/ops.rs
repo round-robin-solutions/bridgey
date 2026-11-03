@@ -241,8 +241,16 @@ impl Daemon {
         if let Some(n) = arg_str(args, "note") {
             payload["note"] = json!(n.chars().take(120).collect::<String>());
         }
+        let before = self.trust().peers.get(&peer.device_id).map(|p| p.grants_at).unwrap_or(0);
         h.send_json_id("agent.grant_request", &payload, &mid, None);
         next_reply(&mut rx, Duration::from_secs(10), &peer, &self.local.name()).await?;
+        // The phone follows with agent.grants showing them waiting; a grants right after this sees it.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        while self.trust().peers.get(&peer.device_id).map(|p| p.grants_at).unwrap_or(0) <= before {
+            if tokio::time::timeout_at(deadline, self.changed.notified()).await.is_err() {
+                break;
+            }
+        }
         Ok(json!({"device": device_json(&peer), "requested": keys, "status": "waiting"}))
     }
 
