@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Агентские устройства (команда bridgey). Ключи из docs/agent-cli-wording.md дословно. Без длинных тире. -->
+<resources>
+    <string name="agent_page">Устройства и разрешения</string>
+    <string name="agent_section">Что может этот агент</string>
+    <string name="agent_tab_permissions">Разрешения</string>
+    <string name="agent_tab_activity">Действия</string>
+    <string name="agent_badge">Агент</string>
+    <string name="agent_subtitle">Агент командной строки на %1$s</string>
+    <string name="agent_export">Экспортировать действия</string>
+    <string name="agent_clear">Очистить действия</string>
+    <string name="agent_empty">Пока ничего</string>
+
+    <string name="agent_grant_files">Отправлять вам файлы</string>
+    <string name="agent_grant_files_detail">В Download/Bridgey/%1$s</string>
+    <string name="agent_grant_clipboard">Менять ваш буфер обмена</string>
+    <string name="agent_grant_clipboard_detail">Скопированный им текст попадает на этот телефон</string>
+    <string name="agent_grant_clipboard_request">Запрашивать ваш буфер обмена</string>
+    <string name="agent_grant_clipboard_request_detail">Каждый раз вы нажимаете «Отправить»</string>
+    <string name="agent_grant_notify">Присылать вам уведомления</string>
+    <string name="agent_grant_notify_detail">В канале «Сообщения агентов»</string>
+    <string name="agent_grant_ask">Задавать вам вопросы</string>
+    <string name="agent_grant_ask_detail">В канале «Вопросы агентов», с кнопками ответа</string>
+    <string name="agent_grant_ring">Звонить на этот телефон</string>
+    <string name="agent_grant_ring_detail">Сам замолкает через 60 секунд</string>
+    <string name="agent_grant_battery">Видеть заряд батареи</string>
+    <string name="agent_grant_battery_detail">Уровень и зарядка</string>
+    <string name="agent_grant_codes">Читать коды</string>
+    <string name="agent_grant_codes_detail">Одноразовые коды, которые Mac находит в сообщениях и почте</string>
+    <string name="agent_grant_notifications">Читать ваши уведомления</string>
+    <string name="agent_grant_notifications_detail">Пока недоступно</string>
+
+    <string name="agent_state_on">Вкл.</string>
+    <string name="agent_state_off">Выкл.</string>
+    <string name="agent_state_waiting">Ждёт вашего решения</string>
+    <string name="agent_until_time">Вкл. до %1$s</string>
+    <string name="agent_until_forever">Вкл., пока вы не выключите</string>
+    <string name="agent_window_1h">На 1 час</string>
+    <string name="agent_window_today">Сегодня</string>
+    <string name="agent_window_7d">7 дней</string>
+    <string name="agent_window_forever">Пока не выключу</string>
+    <string name="agent_window_ask">Надолго?</string>
+
+    <string name="agent_channel_messages">Сообщения агентов</string>
+    <string name="agent_channel_questions">Вопросы агентов</string>
+    <string name="agent_from">Называет себя: %1$s</string>
+    <string name="agent_request_title">%1$s просит: %2$s</string>
+    <string name="agent_clipboard_title">%1$s просит ваш буфер обмена</string>
+    <string name="agent_clipboard_send">Отправить</string>
+    <string name="agent_clipboard_deny">Отклонить</string>
+    <string name="agent_presets">Начать с</string>
+    <string name="agent_preset_messages">Сообщения и вопросы</string>
+    <string name="agent_preset_files">Файлы</string>
+    <string name="agent_preset_find">Найти телефон</string>
+    <string name="agent_invite_title">Подключить устройство вне этой сети</string>
+    <string name="agent_invite_paste">Вставьте ссылку из bridgey pair</string>
+
+    <string name="agent_invite_detail">Сервер или компьютер, где запущен bridgey pair</string>
+    <string name="agent_invite_field">Ссылка</string>
+    <string name="agent_invite_paste_button">Вставить</string>
+    <string name="agent_invite_continue">Продолжить</string>
+    <string name="agent_invite_invalid">Это не ссылка для связывания Bridgey.</string>
+    <string name="agent_invite_expired">Срок действия ссылки истёк. Запустите bridgey pair ещё раз.</string>
+    <string name="agent_invite_other_service">Эта ссылка для другого сервиса связи Bridgey.</string>
+    <string name="agent_invite_needs_connect">Включите «Связь вне дома» в настройках и откройте ссылку снова.</string>
+    <string name="agent_invite_confirm_title">Связать с %1$s?</string>
+    <string name="agent_invite_confirm_body">Только если вы сами только что запустили bridgey pair. На обоих экранах появится код для сравнения. Разрешений не будет, пока вы их не включите.</string>
+    <string name="agent_invite_pair">Связать</string>
+    <string name="pairing_failed_invite_unreached">Не удалось связаться с %1$s. Проверьте, что bridgey pair там ещё ждёт, и откройте ссылку снова.</string>
+    <string name="agent_reply">Ответить</string>
+    <string name="agent_reply_hint">Ваш ответ</string>
+    <string name="agent_ask_send">Отправить</string>
+    <string name="agent_clear_confirm">Список действий %1$s будет удалён с этого телефона.</string>
+    <string name="agent_export_title">Действия %1$s</string>
+
+    <string name="agent_audit_pair">Связано</string>
+    <string name="agent_audit_grant_change">Разрешение изменено</string>
+    <string name="agent_audit_grant_request">Запрос разрешений</string>
+    <string name="agent_audit_grant_expired">Разрешение закончилось</string>
+    <string name="agent_audit_notify">Уведомление</string>
+    <string name="agent_audit_ask">Вопрос</string>
+    <string name="agent_audit_answer">Ответ</string>
+    <string name="agent_audit_ring">Звонок</string>
+    <string name="agent_audit_ping">Пинг</string>
+    <string name="agent_audit_battery">Батарея</string>
+    <string name="agent_audit_clipboard_set">Буфер обмена изменён</string>
+    <string name="agent_audit_clipboard_request">Запрос буфера обмена</string>
+    <string name="agent_audit_files_receive">Получены файлы</string>
+    <string name="agent_audit_codes_read">Прочитаны коды</string>
+    <string name="agent_audit_forget">Забыто</string>
+    <string name="agent_outcome_ok">Готово</string>
+    <string name="agent_outcome_delivered">Доставлено</string>
+    <string name="agent_outcome_answered">Ответ: %1$s</string>
+    <string name="agent_outcome_declined">Отклонено</string>
+    <string name="agent_outcome_dismissed">Смахнуто</string>
+    <string name="agent_outcome_expired">Истекло</string>
+    <string name="agent_outcome_rate_limited">Слишком часто, отклонено</string>
+    <string name="agent_outcome_not_granted">Не разрешено</string>
+    <string name="agent_outcome_invalid">Отклонено как неверное</string>
+</resources>

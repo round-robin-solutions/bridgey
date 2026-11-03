@@ -236,6 +236,7 @@ fun pairingFailureText(reason: PairingFailure, peerName: String): String = when 
     PairingFailure.RATE_LIMITED -> stringResource(R.string.pairing_failed_rate_limited, peerName)
     PairingFailure.CONNECTION_LOST -> stringResource(R.string.pairing_failed_connection_lost, peerName)
     PairingFailure.COULD_NOT_CONNECT -> stringResource(R.string.pairing_failed_could_not_connect, peerName)
+    PairingFailure.INVITE_UNREACHED -> stringResource(R.string.pairing_failed_invite_unreached, peerName)
     PairingFailure.TIMEOUT -> stringResource(R.string.pairing_failed_timeout, peerName)
     PairingFailure.CODE_REJECTED -> stringResource(R.string.pairing_failed_code_rejected)
     PairingFailure.IDENTITY_CHANGED -> stringResource(R.string.pairing_failed_identity_changed, peerName)

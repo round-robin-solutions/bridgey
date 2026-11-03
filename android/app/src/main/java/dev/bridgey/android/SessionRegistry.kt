@@ -31,6 +31,8 @@ data class DeviceLinkState(
     val remoteSettingsSync: Boolean = false,
     /** The device advertised connect_draft1: it runs Connect anywhere and understands connect.*. */
     val remoteConnect: Boolean = false,
+    /** The device advertised agents_mirror_draft1 (a Mac): it hears agents.state and may set grants. */
+    val remoteAgentsMirror: Boolean = false,
     /** The session's tunnel route (Connect anywhere); null for a plain LAN session. */
     val connectRoute: dev.bridgey.android.connect.ConnectRoute? = null,
     val battery: RemoteBatteryStatus? = null,
@@ -51,6 +53,9 @@ data class DeviceConnection(
  */
 enum class PairingFailure {
     COULD_NOT_CONNECT,
+
+    /** An invite pairing: the inviter's tunnel did not come within two minutes. */
+    INVITE_UNREACHED,
 
     /** The handshake (before the code) took longer than 20 s. */
     TIMEOUT,
