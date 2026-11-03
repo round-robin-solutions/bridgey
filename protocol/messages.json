@@ -913,7 +913,7 @@
       "implemented": ["android", "cli"] },
     { "kind": "codes.found", "status": "edition-draft", "direction": "mac-to-phone", "feature": "agents_mirror_draft1", "encrypted": true, "replay": "messageId", "maxPlaintextBytes": 1024,
       "outer": ["sessionId", "messageId", "nonce", "ciphertext"],
-      "payload": { "version": "integer, 1", "foundId": "string, UUID", "code": "string, 4 to 12 characters", "service": "string, at most 64", "serviceKey": "string, at most 64", "source": "sms | email", "app": "messages | gmail | outlook | proton | spark", "notificationId": "string, at most 512", "postedAt": "integer, Unix ms" },
+      "payload": { "version": "integer, 1", "foundId": "string, UUID", "code": "string, 4 to 12 characters", "service": "string, at most 64", "serviceKey": "string, 1 to 64 (the sender, lowercased, when the Mac knows no service)", "source": "sms | email", "app": "messages | gmail | outlook | proton | spark", "notificationId": "string, at most 512", "postedAt": "integer, Unix ms" },
       "notes": "Only while the phone's latest agents.state lists an agent with Codes on. The phone keeps codes in memory for 15 minutes (at most 50), folded by serviceKey and code.",
       "implemented": ["android", "macos"] },
     { "kind": "codes.read", "status": "edition-draft", "direction": "phone-to-mac", "feature": "agents_mirror_draft1", "encrypted": true, "replay": "messageId", "maxPlaintextBytes": 1024,

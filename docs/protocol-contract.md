@@ -505,7 +505,7 @@ Each answered query is one codes.read audit entry on the phone and on the Mac. A
 - `foundId`: string, UUID
 - `code`: string, 4 to 12 characters
 - `service`: string, at most 64
-- `serviceKey`: string, at most 64
+- `serviceKey`: string, 1 to 64 (the sender, lowercased, when the Mac knows no service)
 - `source`: sms | email
 - `app`: messages | gmail | outlook | proton | spark
 - `notificationId`: string, at most 512

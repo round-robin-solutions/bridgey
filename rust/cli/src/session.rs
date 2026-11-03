@@ -61,7 +61,7 @@ pub struct AuthPeer {
 pub enum Outgoing {
     /// An encrypted payload: kind, the plaintext, the messageId, and an optional outer transferId / sequence.
     Encrypted { kind: String, plaintext: Vec<u8>, message_id: String, transfer_id: Option<String>, sequence: Option<i64> },
-    /// A files.chunk: outer transferId and sequence, an encrypted chunk, no messageId (it stays out of the window).
+    /// A files.chunk: outer transferId, sequence and a fresh messageId, and the encrypted chunk.
     Chunk { transfer_id: String, sequence: i64, plaintext: Vec<u8> },
     /// An outer-only message (acks, files.accept, ...); sessionId is filled in.
     Plain(Box<Message>),
@@ -284,6 +284,8 @@ async fn run(spec: Spec, local: Arc<Local>, pins: PinLookup, events: mpsc::Unbou
                         let Some(key) = st.key else { continue };
                         let (nonce, ciphertext) = crypto::encrypt(&key, &plaintext);
                         let mut m = Message::new("files.chunk", &st.id);
+                        // The apps take a chunk only with its own messageId (into the replay window).
+                        m.message_id = Some(crypto::uuid4());
                         m.transfer_id = Some(transfer_id);
                         m.sequence = Some(sequence);
                         m.nonce = Some(nonce);

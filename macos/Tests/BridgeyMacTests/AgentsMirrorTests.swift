@@ -131,6 +131,16 @@ final class AgentsMirrorTests: XCTestCase {
                                                  notificationId: "n", postedAt: 1))
     }
 
+    func testCodesFoundFromABareNumberUsesTheSenderAsItsKey() throws {
+        // A number-only sender has no service key on the Mac; the phone needs one (1 to 64 characters).
+        let data = try XCTUnwrap(AgentsMirrorWire.codesFound(foundId: UUID().uuidString.lowercased(), code: "573104", service: "5551234", serviceKey: "",
+                                                              source: .sms, app: "messages", notificationId: "n", postedAt: 1))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["serviceKey"] as? String, "5551234")
+        XCTAssertNil(AgentsMirrorWire.codesFound(foundId: "f", code: "573104", service: " ", serviceKey: "", source: .sms, app: "messages",
+                                                 notificationId: "n", postedAt: 1))
+    }
+
     // MARK: The rule: codes.found only while an agent has Codes on
 
     private func agent(_ codes: AgentGrant?, id: String = "a") -> AgentDevice {

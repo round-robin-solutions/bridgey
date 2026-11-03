@@ -221,7 +221,11 @@ enum AgentsMirrorWire {
         guard (4...12).contains(code.count), apps.contains(app), (source == .sms) == (app == "messages"),
               !notificationId.isEmpty, notificationId.count <= 512, postedAt > 0 else { return nil }
         let shown = String(service.prefix(64))
-        let key = String(serviceKey.prefix(64))
+        // A sender with no known service (a bare number) has no service key: the phone needs one, so the sender
+        // itself, lowercased, stands in for it (the same code from the same sender still folds into one).
+        let fallback = service.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let key = String((serviceKey.isEmpty ? fallback : serviceKey).prefix(64))
+        guard !shown.isEmpty, !key.isEmpty else { return nil }
         let payload: [String: Any] = [
             "version": 1, "foundId": foundId, "code": code, "service": shown, "serviceKey": key,
             "source": source.rawValue, "app": app, "notificationId": notificationId, "postedAt": postedAt,

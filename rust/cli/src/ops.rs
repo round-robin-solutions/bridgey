@@ -442,7 +442,7 @@ impl Daemon {
         let h = self.ensure(&peer, self.connect_timeout(args)).await?;
         self.require(&peer, "ring")?;
         if args["stop"] == true {
-            let alert = self.ring_alert(&peer.device_id).unwrap_or_else(crate::crypto::uuid4);
+            let alert = self.ring_alert(&peer.device_id).unwrap_or_else(|| FIND_ALERT.to_string());
             let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("find:{alert}")]);
             h.send_json("find.stop", &json!({"alertId": alert}));
             let _ = next_reply(&mut rx, Duration::from_secs(5), &peer, &self.local.name()).await;
@@ -450,7 +450,8 @@ impl Daemon {
             return Ok(json!({"device": device_json(&peer), "ringing": false}));
         }
         let duration = arg_ms(args, "durationMs", 30_000).clamp(1000, 60_000);
-        let alert = crate::crypto::uuid4();
+        // Both apps use the one alert scope "active" and answer with it (protocol.md, Find device).
+        let alert = FIND_ALERT.to_string();
         let mid = crate::crypto::uuid4();
         let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("find:{alert}"), format!("msg:{mid}")]);
         h.send_json_id("find.start", &json!({"alertId": alert}), &mid, None);
@@ -740,6 +741,8 @@ impl Daemon {
         Ok(json!({"transferId": id, "name": name, "bytes": size, "sha256": hash}))
     }
 }
+
+const FIND_ALERT: &str = "active";
 
 fn mime_for(name: &str) -> &'static str {
     let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
