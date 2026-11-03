@@ -208,13 +208,29 @@ impl Daemon {
         let node = Node::start(start, sink).await?;
         let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<Event>();
         let idle_exit = if service { None } else { Some(config.duration("daemon.idle_exit", Duration::from_secs(600))) };
+        // Open questions from an earlier run, so an answer the phone delivers at the next session is kept.
+        let asks: HashMap<String, Ask> = std::fs::read(paths.state.join("asks.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Vec<Value>>(&b).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|a| {
+                let id = a["askId"].as_str()?.to_string();
+                let expires_at = a["expiresAt"].as_u64()?;
+                (expires_at + 86_400_000 > now_ms()).then(|| (id, Ask { device: a["device"].as_str().unwrap_or("").to_string(), expires_at, state: match a["state"].as_str() {
+                    // The answer itself was never written down: ask the phone again (it keeps answers 24 hours).
+                    Some("answered") | None => "sent".to_string(),
+                    Some(s) => s.to_string(),
+                }, answer: None }))
+            })
+            .collect();
         let daemon = Arc::new(Daemon {
             paths: paths.clone(),
             config,
             local,
             node_key,
             node,
-            st: Mutex::new(St { trust, presence: "connecting".into(), ..Default::default() }),
+            st: Mutex::new(St { trust, asks, presence: "connecting".into(), ..Default::default() }),
             changed: Notify::new(),
             events: ev_tx,
             next_local: AtomicU64::new(1),
@@ -599,7 +615,7 @@ impl Daemon {
             "notify.result" => p["notifyId"].as_str().map(|i| format!("notify:{i}")),
             "ask.posted" | "ask.answer" | "ask.dismissed" | "ask.expired" | "ask.cancelled" => {
                 let id = p["askId"].as_str().unwrap_or("").to_string();
-                self.update_ask(&id, &m.kind, &p);
+                self.update_ask(&id, peer, &m.kind, &p);
                 Some(format!("ask:{id}"))
             }
             "find.started" | "find.stopped" => p["alertId"].as_str().map(|i| format!("find:{i}")),
@@ -615,8 +631,16 @@ impl Daemon {
         }
     }
 
-    fn update_ask(&self, id: &str, kind: &str, p: &Value) {
+    fn update_ask(&self, id: &str, peer: &str, kind: &str, p: &Value) {
+        if !crate::crypto::is_uuid(id) {
+            return;
+        }
         let mut st = self.st.lock().unwrap();
+        // An answer to an ask this run never saw (asked before a restart): keep it for bridgey wait.
+        let entry = st.asks.entry(id.to_string()).or_insert_with(|| Ask { device: peer.to_string(), expires_at: now_ms() + 86_400_000, state: "sent".into(), answer: None });
+        if entry.device != peer {
+            return;
+        }
         if let Some(a) = st.asks.get_mut(id) {
             if a.state == "answered" || a.state == "dismissed" || a.state == "expired" || a.state == "cancelled" {
                 return;
@@ -638,7 +662,8 @@ impl Daemon {
     }
 
     pub fn save_asks(&self) {
-        let asks: Vec<Value> = self.st.lock().unwrap().asks.iter().map(|(id, a)| json!({"askId": id, "device": a.device, "expiresAt": a.expires_at, "state": if a.state == "answered" { "answered" } else { &a.state }})).collect();
+        // IDs, devices and states only: answers stay in memory.
+        let asks: Vec<Value> = self.st.lock().unwrap().asks.iter().map(|(id, a)| json!({"askId": id, "device": a.device, "expiresAt": a.expires_at, "state": a.state})).collect();
         let _ = write_private(&self.paths.state.join("asks.json"), Value::Array(asks).to_string().as_bytes());
     }
 

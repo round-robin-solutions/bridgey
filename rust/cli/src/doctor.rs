@@ -109,12 +109,28 @@ pub async fn run(paths: &Paths, config: &Config, connect_ms: u64) -> Vec<Check> 
     checks.push(perm_check("trust records", &paths.state.join("trust.json"), 0o600));
     // Daemon and service.
     let svc = crate::service::status(paths);
-    let daemon = client::request(paths, "status", json!({}), false, |_| {}).await;
+    let was_running = client::request(paths, "status", json!({}), false, |_| {}).await.is_ok();
+    // Start one if needed (as any command would), and give a fresh one a moment to sign in for the relay list.
+    let mut daemon = client::request(paths, "status", json!({}), true, |_| {}).await;
+    for _ in 0..30 {
+        match &daemon {
+            Ok(s) if s["coreState"]["relays"].as_array().is_none_or(|r| r.is_empty()) && s["control"] != "unreachable" => {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                daemon = client::request(paths, "status", json!({}), false, |_| {}).await;
+            }
+            _ => break,
+        }
+    }
     match &daemon {
         Ok(s) => checks.push(check(
             "daemon",
             Level::Ok,
-            format!("running (pid {}, {}, up {})", s["pid"], if s["service"] == true { "service" } else { "started by a command, stops when idle" }, crate::time::relative(s["startedAt"].as_u64().unwrap_or(0), now_ms()).replace(" ago", "")),
+            format!(
+                "running (pid {}, {}{})",
+                s["pid"],
+                if s["service"] == true { "service" } else { "started by a command, stops when idle" },
+                if was_running { format!(", up {}", crate::time::relative(s["startedAt"].as_u64().unwrap_or(0), now_ms()).replace(" ago", "")) } else { ", just started".into() }
+            ),
             s.clone(),
         )),
         Err(_) => checks.push(check("daemon", Level::Warn, "not running (a command starts one; bridgey service install keeps one)", Value::Null)),
