@@ -50,6 +50,9 @@ data class DeviceRing(
 ) {
     /** Offers "Retry now". */
     val canRetry: Boolean get() = trusted && reconnect != null && state != RingState.CONNECTED
+
+    /** An agent device (the bridgey command, platform `cli`). */
+    val isAgent: Boolean get() = platform == dev.bridgey.android.agents.AGENT_PLATFORM
 }
 
 /**
@@ -97,7 +100,7 @@ fun deviceRings(
             else -> RingState.OFFLINE
         }
         val route = connections.firstOrNull { it.deviceId == device.id }?.state?.connectRoute
-        DeviceRing(device.id, device.id, device.name, ringState, trusted = true, platform = peer?.platformHint, peer = peer, reconnect = retry, route = route)
+        DeviceRing(device.id, device.id, device.name, ringState, trusted = true, platform = device.platform ?: peer?.platformHint, peer = peer, reconnect = retry, route = route)
     }.toMutableList()
     connections.filter { it.deviceId !in trustedIds }.forEach { connected ->
         val peer = peers.firstOrNull { it.deviceIdHint == connected.deviceId }
@@ -123,10 +126,13 @@ private fun order(ring: DeviceRing): Int = when {
 }
 
 /** The device the send bar aims at: the user's pick when it still exists, else the connected one, else the first paired. */
-fun sendTarget(rings: List<DeviceRing>, pickedId: String?): DeviceRing? =
-    rings.firstOrNull { it.trusted && it.deviceId != null && it.deviceId == pickedId }
-        ?: rings.firstOrNull { it.state == RingState.CONNECTED }
-        ?: rings.firstOrNull { it.trusted }
+fun sendTarget(rings: List<DeviceRing>, pickedId: String?): DeviceRing? {
+    // Agents (the bridgey command) only receive answers: the send bar never aims at one.
+    val targets = rings.filterNot { it.isAgent }
+    return targets.firstOrNull { it.trusted && it.deviceId != null && it.deviceId == pickedId }
+        ?: targets.firstOrNull { it.state == RingState.CONNECTED }
+        ?: targets.firstOrNull { it.trusted }
+}
 
 /** The filter chips on Home. */
 enum class StreamFilter(val category: ActivityCategory?) {

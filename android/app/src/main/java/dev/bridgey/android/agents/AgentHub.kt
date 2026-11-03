@@ -231,9 +231,15 @@ class AgentHub(
         }
     }
 
-    /** The presets after an invite pairing: each grant until turned off (a preset is a quick start, not a timer). */
-    fun applyPreset(deviceId: String, preset: GrantPreset) {
-        preset.grants.forEach { setGrant(deviceId, it, on = true, window = GrantWindow.FOREVER) }
+    /** A preset after an invite pairing: its grants on for [window] (asked like any switch). Codes is never in one. */
+    fun applyPreset(deviceId: String, preset: GrantPreset, window: GrantWindow) {
+        preset.grants.forEach { setGrant(deviceId, it, on = true, window = window) }
+    }
+
+    /** Clear activity on the device page. */
+    fun clearActivity(deviceId: String) {
+        audit.clear(deviceId)
+        changed()
     }
 
     // MARK: messages from an agent
