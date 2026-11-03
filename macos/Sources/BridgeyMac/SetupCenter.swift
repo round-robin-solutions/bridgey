@@ -607,6 +607,8 @@ final class SetupCenter: ObservableObject {
             pairing?.transferHistory.clear()
             // v0.9: the Mac actions log and the connection health counters.
             pairing?.macActions.audit.clear()
+            // Agent devices: the codes.read log and the last known agents.
+            pairing?.agentsMirror.clear()
             pairing?.clearConnectionHealth()
             // Text messages kept on this Mac, in memory and on disk.
             pairing?.textMessages.deleteAll()

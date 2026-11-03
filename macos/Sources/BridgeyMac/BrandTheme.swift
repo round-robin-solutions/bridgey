@@ -567,7 +567,7 @@ struct PopUpMenuItem {
 }
 
 @MainActor
-private enum PopUpMenuPresenter {
+enum PopUpMenuPresenter {
     private final class Target: NSObject {
         let action: () -> Void
         init(_ action: @escaping () -> Void) { self.action = action }

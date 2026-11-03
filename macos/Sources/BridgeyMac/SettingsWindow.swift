@@ -205,6 +205,8 @@ struct SettingsModel {
     /// Devices > Connect away from home: the switch and the core's state.
     var connectAway = false
     var connect = ConnectDisplay()
+    /// Devices > Agents on <phone> (agents_mirror_draft1, AgentsView.swift).
+    var agents = AgentsDisplay()
 
     var connectedDeviceID: String? {
         if case let .connected(id, _) = state { return id }
@@ -334,6 +336,8 @@ struct SettingsActions {
     /// "On, waiting for permission": open where it is allowed.
     var allowPermission: (SyncKey) -> Void = { _ in }
     var setConnectAway: (Bool) -> Void = { _ in }
+    /// Agents on <phone>: a permission switch (phone, agent, grant, on, window); the phone applies it.
+    var setAgentGrant: (String, String, AgentGrantKey, Bool, AgentGrantWindow?) -> Void = { _, _, _, _, _ in }
     /// About > Version: counts toward the Developer and experimental pane, or opens it once on.
     var versionTapped: () -> DeveloperMenu.Tap = { .counting }
     /// Developer and experimental > Hide this pane.
@@ -1105,6 +1109,7 @@ private struct DevicesPane: View {
         ConnectAwayCard(model: model, actions: actions)
         ForEach(model.trustedDevices) { device in
             DeviceCard(device: device, model: model, actions: actions)
+            AgentsOnPhoneCard(phoneID: device.id, phoneName: device.name, model: model, actions: actions)
         }
         PairNewCard(model: model, actions: actions)
     }
@@ -1722,6 +1727,7 @@ struct LiveSettingsView: View {
     @ObservedObject var handoff = HandoffTakeover.shared
     @ObservedObject var phoneScreen: PhoneScreen
     @ObservedObject var connect: ConnectAnywhere
+    @ObservedObject var agentsMirror: AgentsMirror
     @State private var pane: SettingsPane = .devices
     @State private var availableShortcuts: [String]?
     @State private var phoneLinkStatus: String?
@@ -1748,6 +1754,7 @@ struct LiveSettingsView: View {
         phoneScreen = pairing.phoneScreen
         settingsSync = pairing.settingsSync
         connect = pairing.connect
+        agentsMirror = pairing.agentsMirror
     }
 
     private var codeModelDisplay: CodeModelDisplay {
@@ -1892,6 +1899,8 @@ struct LiveSettingsView: View {
         model.phoneSettingsSync = Dictionary(pairing.connectedPhones.filter(\.state.featureStateReceived).map { ($0.id, $0.state.remoteSettingsSync) },
                                              uniquingKeysWith: { $1 })
         model.connectAway = settings.connectAway
+        model.agents = AgentsDisplay(phones: agentsMirror.phones, pending: agentsMirror.pending, codeReads: agentsMirror.codeReads,
+                                     live: pairing.agentsMirrorPhones)
         model.connect = pairing.connectDisplay
         model.batteryAlerts = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, batteryAlerts.thresholds(for: $0.id)) })
         return model
@@ -1959,6 +1968,7 @@ struct LiveSettingsView: View {
         // Codes waits for its own consent step on its card; the others for a system permission.
         actions.allowPermission = { key in pane = key == .codesEnabled ? .notifications : .permissions }
         actions.setConnectAway = { settings.setConnectAway($0) }
+        actions.setAgentGrant = { phone, agent, key, on, window in pairing.setAgentGrant(phone: phone, agent: agent, key: key, on: on, window: window) }
         actions.resetConnectIdentity = { pairing.resetConnectIdentity() }
         actions.setConnectControlURL = { url in
             let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -140,7 +140,10 @@ struct LocalDataLocations {
 
     func files(_ item: ResetItem) -> [URL] {
         switch item {
-        case .activityStream: [support.appendingPathComponent(ActivityStore.fileName)]
+        // Agent devices: the codes.read log and each phone's last agents.state go with the activity.
+        case .activityStream: [support.appendingPathComponent(ActivityStore.fileName),
+                               support.appendingPathComponent(AgentCodesReadStore.fileName),
+                               support.appendingPathComponent(AgentsMirrorStateStore.fileName)]
         case .notificationHistory: [support.appendingPathComponent("notification-history.json")]
         case .diagnostics: [support.appendingPathComponent("diagnostics.json")]
         case .remoteAudit: [support.appendingPathComponent(RemoteControlAuditStore.fileName)]
