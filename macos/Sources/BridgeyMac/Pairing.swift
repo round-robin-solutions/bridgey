@@ -376,6 +376,8 @@ final class PairingCoordinator: ObservableObject {
     fileprivate var testControlTimer: Timer?
     /// TestInstance only: codes.found sent since launch, in status.json (never the codes).
     fileprivate var testCodesFoundSent = 0
+    /// TestInstance only: the last `read-code` check (outcome and seconds, never the code).
+    fileprivate var testLastRead: [String: Any]?
     /// Multi-device sessions: pending (handshaking or pairing) and one per phone.
     private lazy var registry = SessionRegistry<Session>(localDeviceID: deviceID)
     /// The session whose code is on screen, or the pairing the user started.
@@ -6586,7 +6588,9 @@ enum SmsPhoneDisplay: Equatable {
 /// relay only and tunnel sessions, listens again and dials the trusted phone there over the LAN; the phone came
 /// home, so the next `drop-lan` can be timed again), `clipboard` (sends this Mac's
 /// clipboard), `send-file` (a path), `codes` (`local` or `cloud`: turns Codes from messages on with that engine, as
-/// the switch in Settings > Notifications does; `off` turns it off), and `autoconfirm` (kept: "Codes match" is
+/// the switch in Settings > Notifications does; `off` turns it off), `read-code` (a message's text, read with the
+/// engine Codes from messages uses for text messages, through the same guard; status.json gets the outcome and the
+/// time, never the code), and `autoconfirm` (kept: "Codes match" is
 /// pressed for any prompt). Every second the instance writes `status.json` with its sessions, the codes settings,
 /// each phone's agents (name and whether Codes is on) and how many codes.found it sent, so a test can time
 /// connects and failovers and follow a code to the phone.
@@ -6657,6 +6661,16 @@ extension PairingCoordinator {
             }
             sendFeatureState()
         }
+        if let text = takeTestCommand("read-code"), !text.isEmpty {
+            let reader = codeReader(engine: settings.codesEngine, local: codeModel.engine, relay: CodeRelay.baseURL, installID: settings.codesInstallID)
+            let started = Date()
+            testLastRead = ["outcome": "reading"]
+            Task { @MainActor [weak self] in
+                let outcome = await reader.read(text: text, sender: "TEST", channel: .sms)
+                self?.testLastRead = ["outcome": outcome.diagnosticName, "seconds": Date().timeIntervalSince(started),
+                                      "engine": self?.settings.codesEngine.rawValue ?? ""]
+            }
+        }
         if let path = takeTestCommand("send-file") { _ = sendDroppedFiles([URL(fileURLWithPath: path)], to: nil) }
         if FileManager.default.fileExists(atPath: testControlDirectory.appendingPathComponent("autoconfirm").path),
            let current = pairingSession, let token = current.token, current.code != nil, !current.localConfirmed {
@@ -6679,7 +6693,8 @@ extension PairingCoordinator {
                                      "presence": connect.presence.rawValue, "trusted": trustRegistry.devices.count,
                                      "codes": ["enabled": settings.codesEnabled, "engine": settings.codesEngine.rawValue,
                                                "modelReady": codeModel.isReady],
-                                     "agents": agents, "sendsCodesFound": sendsCodes, "codesFoundSent": testCodesFoundSent]
+                                     "agents": agents, "sendsCodesFound": sendsCodes, "codesFoundSent": testCodesFoundSent,
+                                     "lastRead": testLastRead ?? NSNull()]
         if let data = try? JSONSerialization.data(withJSONObject: status) {
             try? data.write(to: testControlDirectory.appendingPathComponent("status.json"), options: .atomic)
         }
