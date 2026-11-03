@@ -50,7 +50,7 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
                                                            NSPasteboard.PasteboardType("public.heic")]
 
     let statusItem: NSStatusItem
-    private let panel: StatusPanel
+    let panel: StatusPanel
     private let hosting: NSHostingController<AnyView>
     private var sizeObservation: NSKeyValueObservation?
     private var outsideClickMonitor: Any?
@@ -58,6 +58,12 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
     /// Opened by a hovering drag: it closes again when the drag ends without a drop inside.
     private(set) var openedByDrag = false
     var reduceMotion: () -> Bool = { false }
+    /// When the panel was last closed because the user clicked (or the keyboard moved) elsewhere,
+    /// which includes a click on the icon itself: that click also runs `togglePanel`.
+    private var dismissedFromOutsideAt: Date?
+    /// A click on the icon that follows an outside dismissal this soon is the same click.
+    static let sameClickWindow: TimeInterval = 0.35
+    var now: () -> Date = Date.init
     /// Runs before the panel shows (the host renews the panel content).
     var onWillOpen: () -> Void = {}
     weak var dropHandler: StatusItemDropHandler? {
@@ -110,10 +116,25 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
     }
 
     @objc func togglePanel() {
-        if isOpen { close() } else { open(byDrag: false) }
+        if isOpen { close(); return }
+        // The icon click that closed the panel (the outside-click monitor or the panel losing key
+        // runs first) must not open it again: it toggles closed.
+        if let at = dismissedFromOutsideAt, now().timeIntervalSince(at) < Self.sameClickWindow {
+            dismissedFromOutsideAt = nil
+            return
+        }
+        open(byDrag: false)
+    }
+
+    /// Closes because of a click or focus change outside the panel, remembering when.
+    func dismissFromOutside() {
+        guard isOpen else { return }
+        dismissedFromOutsideAt = now()
+        close()
     }
 
     func open(byDrag: Bool) {
+        dismissedFromOutsideAt = nil
         openedByDrag = byDrag
         guard !isOpen else { return }
         onWillOpen()
@@ -165,7 +186,7 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
     private func installOutsideClickMonitor() {
         removeOutsideClickMonitor()
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.close() }
+            Task { @MainActor [weak self] in self?.dismissFromOutside() }
         }
     }
 
@@ -178,8 +199,9 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         guard (notification.object as? NSWindow) === panel, !openedByDrag else { return }
-        // Another window of this app (Settings, the send sheet) took the keyboard: like a menu, close.
-        close()
+        // Another window of this app (Settings, the send sheet) took the keyboard, or the icon was
+        // clicked: like a menu, close.
+        dismissFromOutside()
     }
 
     @objc func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { dropHandler?.statusDragEntered(sender) ?? [] }
