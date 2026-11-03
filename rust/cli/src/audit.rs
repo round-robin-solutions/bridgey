@@ -25,9 +25,28 @@ pub fn caller() -> Value {
     json!({"parent": parent, "user": user, "uid": unsafe { libc::getuid() }, "label": label})
 }
 
-/// A short hash of the arguments (so two runs of the same command can be told apart without keeping them).
-pub fn args_hash(args: &Value) -> String {
-    crate::crypto::b64url(&bridgey_connect_proto::derive::sha256(args.to_string().as_bytes())[..12])
+/// A short keyed hash of the arguments, so two runs of the same command can be told apart without keeping them.
+/// The key (`state/audit.key`, 0600) stops anyone with the log alone from guessing short arguments. Clipboard
+/// text, HTML and invite links are left out entirely.
+pub fn args_hash(paths: &Paths, args: &Value) -> String {
+    let mut a = args.clone();
+    if let Some(o) = a.as_object_mut() {
+        for k in ["text", "html", "join"] {
+            if let Some(v) = o.remove(k) {
+                o.insert(format!("{k}Bytes"), Value::from(v.as_str().map(str::len).unwrap_or(0)));
+            }
+        }
+    }
+    let key_path = paths.state.join("audit.key");
+    let key = match std::fs::read(&key_path) {
+        Ok(k) if k.len() == 32 => k,
+        _ => {
+            let k = crate::crypto::random::<32>().to_vec();
+            let _ = crate::paths::write_private(&key_path, &k);
+            k
+        }
+    };
+    crate::crypto::b64url(&bridgey_connect_proto::derive::hmac_sha256(&key, &[a.to_string().as_bytes()])[..12])
 }
 
 pub fn record(paths: &Paths, entry: Value) {

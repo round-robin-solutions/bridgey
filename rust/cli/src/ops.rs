@@ -85,7 +85,7 @@ impl Daemon {
             if !matches!(cmd.as_str(), "status" | "devices" | "transfers" | "ping-daemon") {
                 crate::audit::record(
                     &self.paths,
-                    json!({"at": now_ms(), "command": cmd, "device": device.or_else(|| args["device"].as_str().map(str::to_string)), "outcome": outcome, "argsHash": crate::audit::args_hash(&args), "caller": req["caller"]}),
+                    json!({"at": now_ms(), "command": cmd, "device": device.or_else(|| args["device"].as_str().map(str::to_string)), "outcome": outcome, "argsHash": crate::audit::args_hash(&self.paths, &args), "caller": req["caller"]}),
                 );
             }
             match result {
