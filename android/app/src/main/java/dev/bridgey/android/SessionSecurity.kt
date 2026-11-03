@@ -418,7 +418,7 @@ internal fun sanitizedPeerName(name: String?, fallback: String): String {
 }
 
 internal const val MAX_PEER_NAME_CHARS = 64
-private val BIDI_CONTROLS = setOf(
+internal val BIDI_CONTROLS = setOf(
     '\u200E', '\u200F', '\u061C', '\u202A', '\u202B', '\u202C', '\u202D', '\u202E', '\u2066', '\u2067', '\u2068', '\u2069',
 )
 

@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Agent devices (the bridgey command). The keys marked "wording" come verbatim from docs/agent-cli-wording.md,
+    shared with the Mac and bridgey grants: change them there first. No em dashes.
+-->
+<resources>
+    <!-- wording: page and tabs -->
+    <string name="agent_page">Devices and permissions</string>
+    <string name="agent_section">What this agent can do</string>
+    <string name="agent_tab_permissions">Permissions</string>
+    <string name="agent_tab_activity">Activity</string>
+    <string name="agent_badge">Agent</string>
+    <string name="agent_subtitle">Command-line agent on %1$s</string>
+    <string name="agent_export">Export activity</string>
+    <string name="agent_clear">Clear activity</string>
+    <string name="agent_empty">Nothing yet</string>
+
+    <!-- wording: grants -->
+    <string name="agent_grant_files">Send you files</string>
+    <string name="agent_grant_files_detail">To Download/Bridgey/%1$s</string>
+    <string name="agent_grant_clipboard">Set your clipboard</string>
+    <string name="agent_grant_clipboard_detail">Text it copies lands on this phone</string>
+    <string name="agent_grant_clipboard_request">Ask for your clipboard</string>
+    <string name="agent_grant_clipboard_request_detail">You tap Send each time</string>
+    <string name="agent_grant_notify">Send you notifications</string>
+    <string name="agent_grant_notify_detail">In Agent messages</string>
+    <string name="agent_grant_ask">Ask you questions</string>
+    <string name="agent_grant_ask_detail">In Agent questions, with answer buttons</string>
+    <string name="agent_grant_ring">Ring this phone</string>
+    <string name="agent_grant_ring_detail">Stops by itself after 60 seconds</string>
+    <string name="agent_grant_battery">See battery</string>
+    <string name="agent_grant_battery_detail">Level and charging</string>
+    <string name="agent_grant_codes">Read codes</string>
+    <string name="agent_grant_codes_detail">One-time codes your Mac finds in messages and mail</string>
+    <string name="agent_grant_notifications">Read your notifications</string>
+    <string name="agent_grant_notifications_detail">Not available yet</string>
+
+    <!-- wording: states and windows -->
+    <string name="agent_state_on">On</string>
+    <string name="agent_state_off">Off</string>
+    <string name="agent_state_waiting">Waiting for you</string>
+    <string name="agent_until_time">On until %1$s</string>
+    <string name="agent_until_forever">On until you turn it off</string>
+    <string name="agent_window_1h">For 1 hour</string>
+    <string name="agent_window_today">Today</string>
+    <string name="agent_window_7d">7 days</string>
+    <string name="agent_window_forever">Until I turn it off</string>
+    <string name="agent_window_ask">How long?</string>
+
+    <!-- wording: channels and prompts -->
+    <string name="agent_channel_messages">Agent messages</string>
+    <string name="agent_channel_questions">Agent questions</string>
+    <string name="agent_from">Says it is from %1$s</string>
+    <string name="agent_request_title">%1$s asks for: %2$s</string>
+    <string name="agent_clipboard_title">%1$s wants your clipboard</string>
+    <string name="agent_clipboard_send">Send</string>
+    <string name="agent_clipboard_deny">Deny</string>
+    <string name="agent_presets">Start with</string>
+    <string name="agent_preset_messages">Messages and questions</string>
+    <string name="agent_preset_files">Files</string>
+    <string name="agent_preset_find">Find my phone</string>
+    <string name="agent_invite_title">Pair a device away from this network</string>
+    <string name="agent_invite_paste">Paste the link from bridgey pair</string>
+
+    <!-- Phone only (not in the shared wording) -->
+    <string name="agent_invite_detail">A server or computer running bridgey pair</string>
+    <string name="agent_invite_field">Link</string>
+    <string name="agent_invite_paste_button">Paste</string>
+    <string name="agent_invite_scan">Scan the QR code</string>
+    <string name="agent_invite_scan_hint">Point the camera at the code bridgey pair shows</string>
+    <string name="agent_invite_continue">Continue</string>
+    <string name="agent_invite_invalid">This is not a Bridgey pairing link.</string>
+    <string name="agent_invite_expired">This link has expired. Run bridgey pair again.</string>
+    <string name="agent_invite_other_service">This link is for another Bridgey connection service.</string>
+    <string name="agent_invite_needs_connect">Turn on Connect away from home in Settings, then open the link again.</string>
+    <string name="agent_invite_confirm_title">Pair with %1$s?</string>
+    <string name="agent_invite_confirm_body">Only if you ran bridgey pair yourself just now. Both screens will show a code to compare. It gets no permissions until you turn them on.</string>
+    <string name="agent_invite_pair">Pair</string>
+    <string name="pairing_failed_invite_unreached">Could not reach %1$s. Check that bridgey pair is still waiting there, then open the link again.</string>
+    <string name="agent_reply">Reply</string>
+    <string name="agent_reply_hint">Your answer</string>
+    <string name="agent_ask_send">Send</string>
+    <string name="agent_clear_confirm">The activity list of %1$s is deleted from this phone.</string>
+
+    <!-- Activity list: the Mac's wording (macos/Resources/*.lproj/Agents.strings, activity.*) -->
+    <string name="agent_audit_pair">Paired</string>
+    <string name="agent_audit_grant_change">Permission changed</string>
+    <string name="agent_audit_grant_request">Asked for permission</string>
+    <string name="agent_audit_grant_expired">Permission ended</string>
+    <string name="agent_audit_notify">Sent a notification</string>
+    <string name="agent_audit_ask">Asked a question</string>
+    <string name="agent_audit_answer">Got your answer</string>
+    <string name="agent_audit_ring">Rang this phone</string>
+    <string name="agent_audit_ping">Checked the connection</string>
+    <string name="agent_audit_battery">Saw battery</string>
+    <string name="agent_audit_clipboard_set">Set your clipboard</string>
+    <string name="agent_audit_clipboard_request">Asked for your clipboard</string>
+    <string name="agent_audit_files_receive">Sent you files</string>
+    <string name="agent_audit_codes_read">Read a code</string>
+    <string name="agent_audit_forget">Forgotten</string>
+    <string name="agent_outcome_ok">Done</string>
+    <string name="agent_outcome_delivered">Delivered</string>
+    <string name="agent_outcome_answered">Answered: %1$s</string>
+    <string name="agent_outcome_declined">Declined</string>
+    <string name="agent_outcome_dismissed">Dismissed</string>
+    <string name="agent_outcome_expired">Expired</string>
+    <string name="agent_outcome_rate_limited">Too many requests</string>
+    <string name="agent_outcome_not_granted">Not allowed</string>
+    <string name="agent_outcome_invalid">Refused, not a valid request</string>
+</resources>

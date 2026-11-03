@@ -166,7 +166,10 @@ enum class TransferKind { FILE, FOLDER }
 /** How a transfer ended. Folders keep the details in [FileTransferState.folder]. */
 enum class TransferEnd { SENT, RECEIVED, FAILED, CANCELLED, INTERRUPTED }
 
-data class TrustedDevice(val id: String, val name: String)
+/** A paired device; [platform] is `cli` for an agent device (paired by invite), otherwise null. */
+data class TrustedDevice(val id: String, val name: String, val platform: String? = null) {
+    val isAgent: Boolean get() = platform == dev.bridgey.android.agents.AGENT_PLATFORM
+}
 
 /** "Look for devices again": running, or done with who answered and who did not. */
 sealed interface RediscoverState {
@@ -411,6 +414,12 @@ class PairingCoordinator(
 
     private val identity = AndroidIdentity(context.applicationContext)
     private val trust = AndroidTrustRegistry(context.applicationContext)
+
+    /**
+     * Agent devices (draft agent_draft1): grants, limits, activity, questions, clipboard requests and the codes
+     * broker. Created on first use, after the coordinator's own state.
+     */
+    val agents: dev.bridgey.android.agents.AgentHub by lazy { dev.bridgey.android.agents.AgentHub(appContext, scope, AgentLink()) }
     private val inboundPairingLimiter = InboundPairingLimiter(SystemClock::elapsedRealtime)
     val trustedDeviceIds: StateFlow<Set<String>> = trust.trustedDeviceIds
     val trustedDevices: StateFlow<List<TrustedDevice>> = trust.trustedDevices
@@ -620,6 +629,8 @@ class PairingCoordinator(
         if (acceptJob != null) return
         diagnostics.record("transport", "listener_started")
         startReconnecting()
+        // Agent grants and questions whose time ran out while Bridgey was off end now (and their timers start).
+        if (trust.trustedDevices.value.any { it.isAgent }) scope.launch { agents.checkExpiry() }
         acceptJob = scope.launch {
             runCatching {
                 ServerSocket(port).also { server = it }.use { listener ->
@@ -785,6 +796,7 @@ class PairingCoordinator(
      * its ID and dials it. False when there is nothing to dial (the caller shows the nearby list).
      */
     fun retryPairing(): Boolean {
+        if (retryInvite()) return true
         val target = lastTarget
         val dial = when {
             target == null -> null
@@ -1132,6 +1144,7 @@ class PairingCoordinator(
             mutablePairingFlow.value = PairingState.Idle
             owner
         }
+        endInvite(inviteRun)
         if (current != null) {
             current.failure = PairingFailure.CANCELLED_REMOTE // never shown: the flow is already idle
             sendCancel(current, PairingCancelReason.CANCELLED)
@@ -1172,6 +1185,8 @@ class PairingCoordinator(
     }
 
     fun forget(deviceId: String) {
+        // An agent's grants, questions, requests and activity go with it.
+        if (isAgent(deviceId)) agents.forget(deviceId)
         held.release(deviceId)
         folderJournals.deleteForPeer(deviceId).forEach { record -> record.header.oneOffTree?.let(placesStore::releaseOneOff) }
         folderSender.forget(deviceId)
@@ -1199,12 +1214,34 @@ class PairingCoordinator(
     private fun sessionFor(deviceId: String?): Session? =
         if (deviceId != null) registry.session(deviceId) else registry.target(selectedDeviceId)?.let(registry::session)
 
-    private fun featureEnabled(feature: BridgeyFeature, current: Session? = sessionFor(null)): Boolean =
-        settings.isEnabled(feature, current?.remoteDeviceId?.takeIf(String::isNotEmpty))
+    /**
+     * This phone allows [feature] with [current]'s device. For an agent device the grants decide (Set your clipboard,
+     * Send you files, Ring this phone, See battery); nothing else is ever on for an agent.
+     */
+    private fun featureEnabled(feature: BridgeyFeature, current: Session? = sessionFor(null)): Boolean {
+        val id = current?.remoteDeviceId?.takeIf(String::isNotEmpty)
+        if (id != null && isAgent(id)) return agentFeatureOn(id, feature)
+        return settings.isEnabled(feature, id)
+    }
 
-    /** Local setting and the device's own setting both allow [feature]; [deviceId] null means the selected device. */
+    private fun agentFeatureOn(deviceId: String, feature: BridgeyFeature): Boolean = when (feature) {
+        BridgeyFeature.CLIPBOARD -> agents.isOn(deviceId, dev.bridgey.android.agents.AgentGrant.CLIPBOARD)
+        BridgeyFeature.FILES -> agents.isOn(deviceId, dev.bridgey.android.agents.AgentGrant.FILES)
+        BridgeyFeature.BATTERY -> agents.isOn(deviceId, dev.bridgey.android.agents.AgentGrant.BATTERY)
+        BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING -> agents.isOn(deviceId, dev.bridgey.android.agents.AgentGrant.RING)
+        else -> false
+    }
+
+    /** An agent device (paired by invite, platform `cli`). */
+    fun isAgent(deviceId: String): Boolean = trust.platform(deviceId) == dev.bridgey.android.agents.AGENT_PLATFORM
+
+    /**
+     * Local setting and the device's own setting both allow [feature]; [deviceId] null means the selected device.
+     * Never for an agent: this phone starts nothing towards an agent (it only answers it, and sends battery).
+     */
     fun isFeatureAvailable(feature: BridgeyFeature, deviceId: String? = null): Boolean {
         val current = sessionFor(deviceId)
+        if (current != null && current.remoteDeviceId.isNotEmpty() && isAgent(current.remoteDeviceId)) return false
         val remote = current?.let { registry.state(it.remoteDeviceId)?.remoteFeatures?.get(feature) }
             ?: defaultFeatureState()[feature]
         return effectiveFeatureAvailable(featureEnabled(feature, current), remote != false)
@@ -1929,7 +1966,9 @@ class PairingCoordinator(
     /** Connected devices where [feature] is on at both ends: the targets of a broadcast. */
     private fun broadcastTargets(feature: BridgeyFeature): List<Session> =
         registry.broadcastTargets { id, state ->
-            effectiveFeatureAvailable(settings.isEnabled(feature, id), state.remoteFeatures[feature] != false)
+            // Agents get battery.update while See battery is on, and no other broadcast.
+            if (isAgent(id)) feature == BridgeyFeature.BATTERY && agentFeatureOn(id, feature)
+            else effectiveFeatureAvailable(settings.isEnabled(feature, id), state.remoteFeatures[feature] != false)
         }.map { it.second }
 
     /** Battery goes to every connected device that shows it. */
@@ -2005,6 +2044,7 @@ class PairingCoordinator(
             RingtoneManager.getRingtone(appContext, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))?.play()
         }
         current.send(Message(kind = "ping.ack", sessionId = current.id, messageId = messageId))
+        if (current.agent) agents.record(current.remoteDeviceId, dev.bridgey.android.agents.AuditAction.PING, dev.bridgey.android.agents.AuditOutcome.DELIVERED)
         BridgeyLogging.i(LogCategory.GENERAL, "PLUGIN ping received")
         activityListener?.invoke(PeerEvent(PeerActivity.PING_RECEIVED, current.remoteDeviceId, current.peerName))
     }
@@ -2502,7 +2542,8 @@ class PairingCoordinator(
     }
 
     private fun receiveFindCommand(current: Session, message: Message, start: Boolean) {
-        if (start && !settings.isEnabled(BridgeyFeature.FIND_DEVICE, current.remoteDeviceId)) return
+        // An agent's ring was admitted by its Ring this phone grant (receive).
+        if (start && !current.agent && !settings.isEnabled(BridgeyFeature.FIND_DEVICE, current.remoteDeviceId)) return
         if (!registry.isActive(current) || message.sessionId != current.id) return
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
@@ -2520,7 +2561,15 @@ class PairingCoordinator(
             if (!wasRinging && mutablePhoneRinging.value) {
                 activityListener?.invoke(PeerEvent(PeerActivity.FIND_PHONE_STARTED, current.remoteDeviceId, current.peerName))
             }
+            if (current.agent) {
+                agents.record(current.remoteDeviceId, dev.bridgey.android.agents.AuditAction.RING, dev.bridgey.android.agents.AuditOutcome.DELIVERED)
+                if (phoneRingingFrom == current.remoteDeviceId) agentRingStarted(current)
+            }
             sendFindCommand(current, if (mutablePhoneRinging.value) "find.started" else "find.stopped")
+        } else if (current.agent) {
+            // An agent stops only its own ring.
+            stopAgentRing(current.remoteDeviceId)
+            sendFindCommand(current, "find.stopped")
         } else {
             stopPhoneRinging()
             registry.update(current.remoteDeviceId) { it.copy(ringing = false) }
@@ -3068,7 +3117,9 @@ class PairingCoordinator(
         clipboardSessionEnded(deviceId)
         failPendingClips(deviceId)
         if (phoneRingingFrom == deviceId) stopPhoneRinging()
+        agentRingStops.remove(deviceId)?.cancel()
         if (pendingPing?.first == deviceId) clearPingStatus()
+        if (isAgent(deviceId)) agents.sessionEnded(deviceId)
         macActions.sessionEnded(deviceId)
         focusSync.sessionEnded(deviceId)
         speedTest.disconnected(deviceId)
@@ -3099,6 +3150,7 @@ class PairingCoordinator(
         tunnel: dev.bridgey.android.connect.TunnelInfo? = null,
         target: PairingTarget? = null,
         generation: Int? = null,
+        invite: dev.bridgey.android.agents.AgentInvite? = null,
     ) {
         val current = runCatching {
             socket.keepAlive = true
@@ -3115,6 +3167,7 @@ class PairingCoordinator(
         current.initiatedLocally = initiatedLocally
         current.dialDeviceId = dialDeviceId
         current.tunnel = tunnel
+        current.invite = invite
         // Where the other end is: once it authenticates, the next reconnect can dial it there. A
         // tunnel's socket is the loopback bridge, never an address worth keeping.
         current.remoteHost = if (tunnel == null) socket.inetAddress?.hostAddress?.let(::normalizedHost) else null
@@ -3159,8 +3212,9 @@ class PairingCoordinator(
             current.id = UUID.randomUUID().toString()
             // A user's reconnect to a trusted device checks that the answer comes from that device.
             val reconnectTo = target?.deviceId?.takeIf { !target.forceCommit && trust.identityKey(it) != null }
-            // A tunnel's dial is a background reconnect to the paired device the core reached.
-            val tunnelPeer = tunnel?.peer
+            // A tunnel's dial is a background reconnect to the paired device the core reached. An invite tunnel's
+            // label names no device: the pairing over it is a first pairing with whoever holds the invite.
+            val tunnelPeer = tunnel?.peer?.takeIf { invite == null }
             current.expectedDeviceId = dialDeviceId ?: reconnectTo ?: tunnelPeer
             // A first pairing commits to its key and reveals it after the answer (protocol 2); a reconnect to a
             // trusted device sends the key, because that device's pinned identity signature authenticates it.
@@ -3300,6 +3354,12 @@ class PairingCoordinator(
      * when the device no longer trusts this phone, or show why it failed.
      */
     private fun manualPairingEnded(current: Session) {
+        if (current.invite != null) {
+            // An invite pairing has one tunnel: no Allow pairing to wait for, no second dial.
+            endInvite(inviteRun)
+            val failure = current.failure ?: if (current.answered) PairingFailure.CONNECTION_LOST else PairingFailure.INVITE_UNREACHED
+            return failPairing(current, failure)
+        }
         if (resumeParkedPairing(current)) return
         val target = current.target
         val waiting = allowWaitStartedAt != null
@@ -3408,6 +3468,15 @@ class PairingCoordinator(
     }
 
     private fun receive(current: Session, message: Message) {
+        // An agent device speaks the agent kinds and what its grants cover; anything else from it is dropped.
+        if (current.agent && !dev.bridgey.android.agents.agentMaySend(message.kind)) {
+            if (current.agentDropped++ == 0) BridgeyLogging.w(LogCategory.CONNECTION, "AGENT frame dropped kind=${message.kind.take(32)}")
+            val ref = message.messageId
+            if (ref != null && registry.isActive(current) && message.sessionId == current.id && current.acceptMessageId(ref)) {
+                agents.unsupported(current.remoteDeviceId, ref, message.kind)
+            }
+            return
+        }
         when (message.kind) {
             "quick.request", "quick.result", "media.state" -> receiveQuickPayload(current, message)
             "heartbeat.ping" -> {
@@ -3422,6 +3491,12 @@ class PairingCoordinator(
                 }
             }
             "pairing.offer" -> {
+                // On the invite tunnel this phone makes the one offer; an offer from the other end closes it.
+                if (current.invite != null) {
+                    current.dropReason = "tunnel_untrusted"
+                    current.close()
+                    return
+                }
                 if (!PairingRules.acceptsOffer(current.position())) return
                 // A reconnect meant for another device (it dialled an address that is now ours):
                 // close without a pairing prompt.
@@ -3598,8 +3673,22 @@ class PairingCoordinator(
                 current.close()
             }
             "features.update" -> receiveFeatureState(current, message)
-            "clipboard.update" -> receiveClipboard(current, message, rich = false)
-            "clipboard.rich" -> receiveClipboard(current, message, rich = true)
+            dev.bridgey.android.agents.AgentKinds.HELLO, dev.bridgey.android.agents.AgentKinds.GRANT_REQUEST,
+            dev.bridgey.android.agents.AgentKinds.NOTIFY_POST, dev.bridgey.android.agents.AgentKinds.ASK_REQUEST,
+            dev.bridgey.android.agents.AgentKinds.ASK_CANCEL, dev.bridgey.android.agents.AgentKinds.ASK_STATUS,
+            dev.bridgey.android.agents.AgentKinds.CLIPBOARD_REQUEST, dev.bridgey.android.agents.AgentKinds.CODES_QUERY,
+            dev.bridgey.android.agents.AgentKinds.CODES_CANCEL,
+            -> receiveAgentMessage(current, message)
+            dev.bridgey.android.agents.AgentKinds.CODES_FOUND, dev.bridgey.android.agents.AgentKinds.AGENTS_GRANT_SET ->
+                receiveMirrorMessage(current, message)
+            "clipboard.update", "clipboard.rich" -> {
+                if (current.agent && !admitAgentRequest(
+                        current, message, dev.bridgey.android.agents.AgentGrant.CLIPBOARD,
+                        dev.bridgey.android.agents.AgentAction.CLIP_SET, dev.bridgey.android.agents.AuditAction.CLIPBOARD_SET,
+                    )
+                ) return
+                receiveClipboard(current, message, rich = message.kind == "clipboard.rich")
+            }
             "clipboard.offer" -> receiveClipboardOffer(current, message)
             "clipboard.fetch" -> receiveClipboardFetch(current, message)
             "clipboard.error" -> receiveClipboardError(current, message)
@@ -3635,11 +3724,24 @@ class PairingCoordinator(
             "settings.snapshot", "settings.update", "settings.ack", "settings.error" -> receiveSettingsMessage(current, message)
             "notifications.action" -> receiveNotificationAction(current, message)
             "calls.request" -> receiveCallRequest(current, message)
-            "find.start" -> receiveFindCommand(current, message, start = true)
+            "find.start" -> {
+                if (current.agent && !admitAgentRequest(
+                        current, message, dev.bridgey.android.agents.AgentGrant.RING,
+                        dev.bridgey.android.agents.AgentAction.RING, dev.bridgey.android.agents.AuditAction.RING,
+                    )
+                ) return
+                receiveFindCommand(current, message, start = true)
+            }
             "find.stop" -> receiveFindCommand(current, message, start = false)
             "find.started" -> receiveFindAcknowledgement(current, message, started = true)
             "find.stopped" -> receiveFindAcknowledgement(current, message, started = false)
-            "ping.request" -> receivePing(current, message)
+            "ping.request" -> {
+                if (current.agent && !admitAgentRequest(
+                        current, message, dev.bridgey.android.agents.AgentGrant.RING, null, dev.bridgey.android.agents.AuditAction.PING,
+                    )
+                ) return
+                receivePing(current, message)
+            }
             "ping.ack" -> {
                 if (!registry.isActive(current) || message.sessionId != current.id) return
                 val messageId = message.messageId ?: return
@@ -3672,6 +3774,18 @@ class PairingCoordinator(
                 else if (ownsTransfer(current, it)) pendingFileCompletions.remove(it)?.complete(true)
             }
             "files.offer" -> {
+                if (current.agent) {
+                    // Send you files: single files only, into Download/Bridgey/<agent name>.
+                    if (!admitAgentRequest(
+                            current, message, dev.bridgey.android.agents.AgentGrant.FILES,
+                            dev.bridgey.android.agents.AgentAction.SEND, dev.bridgey.android.agents.AuditAction.FILES_RECEIVE,
+                        )
+                    ) {
+                        current.send(Message(kind = "files.rejected", sessionId = current.id, transferId = message.transferId))
+                        return
+                    }
+                    return receiveFileOffer(current, message)
+                }
                 if (receiveClipboardTransferOffer(current, message)) return
                 // A folder that was accepted finishes even if Files is turned off meanwhile (receiveFileOffer routes it).
                 if (settings.isEnabled(BridgeyFeature.FILES, current.remoteDeviceId) || folders.activeFor(current.remoteDeviceId) != null) {
@@ -3913,7 +4027,8 @@ class PairingCoordinator(
     }
 
     private fun receiveClipboard(current: Session, message: Message, rich: Boolean) {
-        if (!settings.isEnabled(BridgeyFeature.CLIPBOARD, current.remoteDeviceId)) {
+        // An agent's clip was admitted by its Set your clipboard grant (receive).
+        if (!current.agent && !settings.isEnabled(BridgeyFeature.CLIPBOARD, current.remoteDeviceId)) {
             current.send(Message(kind = "clipboard.rejected", sessionId = current.id, messageId = message.messageId))
             sendFeatureState(current)
             return
@@ -3962,6 +4077,8 @@ class PairingCoordinator(
         clipboardInbox.supersede()
         clipboardOutbox.supersede(SessionClipLink(current))
         diagnostics.record("clipboard", if (rich) "rich_received" else "text_received")
+        // Never the clip itself in an agent's activity.
+        if (current.agent) agents.record(current.remoteDeviceId, dev.bridgey.android.agents.AuditAction.CLIPBOARD_SET, dev.bridgey.android.agents.AuditOutcome.DELIVERED)
         BridgeyLogging.line(LogLines.clipboard(BridgeyLogging.policy, "received", text.takeUnless { sensitive }))
         activityListener?.invoke(
             PeerEvent(PeerActivity.CLIPBOARD_RECEIVED, current.remoteDeviceId, current.peerName, text, sensitive, automatic = true),
@@ -4083,14 +4200,18 @@ class PairingCoordinator(
         ) ?: return fail(current, "Invalid encrypted file offer")
         val payload = runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)) }.getOrNull()
             ?: return fail(current, "Invalid file offer")
-        // A file inside a folder transfer (4.6): the folder session checks it against the manifest.
+        // A file inside a folder transfer (4.6): the folder session checks it against the manifest. Agents send single files.
+        if (payload.has("folderTransferId") && current.agent) {
+            current.send(Message(kind = "files.rejected", sessionId = current.id, transferId = message.transferId))
+            return
+        }
         if (payload.has("folderTransferId")) {
             val folderFileId = payload.optString("transferId").takeIf { dev.bridgey.android.folders.isWireId(it) } ?: return
             if (message.transferId != null && message.transferId != folderFileId) return
             folders.fileOffer(current.remoteDeviceId, folderFileId, payload)
             return
         }
-        if (!settings.isEnabled(BridgeyFeature.FILES, current.remoteDeviceId)) {
+        if (!current.agent && !settings.isEnabled(BridgeyFeature.FILES, current.remoteDeviceId)) {
             current.send(Message(kind = "files.rejected", sessionId = current.id, transferId = message.transferId))
             sendFeatureState(current)
             return
@@ -4124,7 +4245,9 @@ class PairingCoordinator(
                 freeBytes = free,
             )
             val created = if (admission == IncomingFileAdmission.Accept) {
-                runCatching { IncomingFileTransfer(appContext, transferId, name, mimeType, size, hash) }.getOrNull()?.also {
+                // An agent's files land in Download/Bridgey/<its name>.
+                val subfolder = if (current.agent) dev.bridgey.android.agents.agentFolderName(current.peerName) else null
+                runCatching { IncomingFileTransfer(appContext, transferId, name, mimeType, size, hash, subfolder) }.getOrNull()?.also {
                     incomingFiles[transferId] = it
                     transferDevices[transferId] = deviceId
                 }
@@ -4213,6 +4336,12 @@ class PairingCoordinator(
             return fail(current, "File verification failed")
         }
         updateFileTransfer(transferId, transfer.displayName, "${transfer.displayName} saved to Download/Bridgey", false, TransferEnd.RECEIVED)
+        if (current.agent) {
+            agents.record(
+                current.remoteDeviceId, dev.bridgey.android.agents.AuditAction.FILES_RECEIVE, dev.bridgey.android.agents.AuditOutcome.DELIVERED,
+                "${transfer.displayName}, ${transfer.expectedSize} bytes",
+            )
+        }
         ReceivedFileNotifier.show(appContext, transfer.displayName, savedUri)
         current.send(Message(kind = "files.complete.ack", sessionId = current.id, transferId = transferId))
         BridgeyLogging.i(LogCategory.FILES, LogLines.file(BridgeyLogging.policy, "received", transferId, transfer.displayName))
@@ -4344,8 +4473,17 @@ class PairingCoordinator(
     )
 
     private fun authenticateOrPrompt(current: Session) {
+        // The invite tunnel the user started carries exactly one committed protocol 2 first pairing, from this phone.
+        if (current.invite != null && !dev.bridgey.android.connect.TunnelRules.inviteSessionAllowed(
+                initiatedLocally = current.initiatedLocally, committed = current.committed, tagged = current.envelopeKey != null,
+            )
+        ) {
+            BridgeyLogging.w(LogCategory.CONNECTION, "CONNECT invite session refused")
+            diagnostics.record("transport", "tunnel_refused", "invite_session")
+            return failHandshake(current, PairingFailure.INVALID, "Invite pairing without a protocol 2 commitment")
+        }
         // A tunnel never prompts and never runs without envelope tags: it is a reconnect of a paired device.
-        if (current.tunnel != null && !dev.bridgey.android.connect.TunnelRules.sessionAllowed(
+        if (current.tunnel != null && current.invite == null && !dev.bridgey.android.connect.TunnelRules.sessionAllowed(
                 trusted = trust.identityKey(current.remoteDeviceId) != null,
                 autoConfirms = PairingRules.autoConfirms(current.position(), trust.identityKey(current.remoteDeviceId) != null),
                 tagged = current.envelopeKey != null,
@@ -4433,7 +4571,9 @@ class PairingCoordinator(
         // On a Connect anywhere tunnel the signatures also bind the QUIC connection (its exporter),
         // so a relay or anyone in the middle cannot splice two tunnels together.
         current.tunnel?.let { tunnel ->
-            return dev.bridgey.android.connect.tunnelTranscript(current.id, fields[0], fields[1], fields[2], fields[3], tunnel.exporter)
+            val transcript = dev.bridgey.android.connect.tunnelTranscript(current.id, fields[0], fields[1], fields[2], fields[3], tunnel.exporter)
+            // An invite pairing also binds the invite: a tunnel made from someone else's invite cannot complete.
+            return current.invite?.let { dev.bridgey.android.agents.inviteTranscript(transcript, it.secret) } ?: transcript
         }
         return (listOf("bridgey-auth-v1", current.id) + fields).joinToString("\u0000").toByteArray()
     }
@@ -4450,7 +4590,9 @@ class PairingCoordinator(
             publish()
             return
         }
-        trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!)
+        trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!, platform = current.invite?.platform)
+        // From here on only answers and agent messages go to an agent on this session.
+        current.agent = isAgent(current.remoteDeviceId)
         // The core resets its back-off for this peer only once a session on the tunnel authenticated.
         current.tunnel?.let { tunnel ->
             dev.bridgey.android.connect.ConnectTiming.mark("app.authenticated", current.remoteDeviceId, tunnel.route.route)
@@ -4498,8 +4640,19 @@ class PairingCoordinator(
         BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT connected peer=${current.remoteDeviceId.take(8)} via=${source.key} address=${current.remoteHost?.let(::addressTag) ?: "unknown"} attempts=$attempts")
         diagnostics.record("transport", "connected", source.key, device = current.remoteDeviceId, detail = "after_${attempts}_attempts")
         val prompted = current.prompted
+        val invited = current.invite != null
         pairingSlot.releaseIf(current) {
-            mutablePairingFlow.value = if (prompted) PairingState.Paired(current.remoteDeviceId, current.peerName) else PairingState.Idle
+            // An invite pairing goes straight to the agent's permissions (agentPaired), which say it paired.
+            mutablePairingFlow.value = if (prompted && !invited) PairingState.Paired(current.remoteDeviceId, current.peerName) else PairingState.Idle
+        }
+        if (invited) {
+            endInvite(inviteRun)
+            lastInvite = null
+            if (current.agent) {
+                agents.paired(current.remoteDeviceId)
+                mutableAgentPaired.value = current.remoteDeviceId
+            }
+            diagnostics.record("pairing", "invite_paired")
         }
         // A finished pairing closes Allow pairing's window: the next one needs a new tap.
         if (prompted) {
@@ -4511,13 +4664,19 @@ class PairingCoordinator(
         diagnostics.record("pairing", "connected")
         sendFeatureState(current)
         syncConnectPeers()
-        BridgeyNotificationListenerService.resendActiveCalls()
+        if (!current.agent) BridgeyNotificationListenerService.resendActiveCalls()
         BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING verified peerId=${current.remoteDeviceId.take(8)}${current.tunnel?.let { " route=${it.route.route}" }.orEmpty()}")
         finishRediscoverIfEveryoneAnswered()
     }
 
     private fun sendFeatureState(current: Session) {
         if (!registry.isActive(current) || current.pairingKey == null) return
+        if (current.agent) {
+            // An agent's map lists what Rahul granted it; agent.grants follows with the windows.
+            val payload = JSONObject().put("version", 1).put("features", agentFeatureValues(current)).toString().toByteArray()
+            if (sendEncrypted(current, "features.update", payload)) agents.sendGrants(current.remoteDeviceId)
+            return
+        }
         val featureValues = JSONObject()
         BridgeyFeature.entries.forEach { feature ->
             featureValues.put(feature.key, settings.isEnabled(feature, current.remoteDeviceId))
@@ -4559,6 +4718,8 @@ class PairingCoordinator(
         featureValues.put(dev.bridgey.android.connect.CONNECT_FEATURE_KEY, connectAdvertised())
         // Draft, edition only: binary chunk frames and a byte window (FastTransfer.kt). A capability, so always on.
         featureValues.put(FILES_FAST_FEATURE_KEY, true)
+        // Draft, edition only: the agents mirror (agents.state, agents.grant_set, codes.found, codes.read). A capability.
+        featureValues.put(dev.bridgey.android.agents.AGENTS_MIRROR_FEATURE_KEY, true)
         val payload = JSONObject()
             .put("version", 1)
             .put("features", featureValues)
@@ -4603,9 +4764,21 @@ class PairingCoordinator(
                 updateStatus = state.updateStatus.takeIf { drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true },
                 remoteSettingsSync = drafts[dev.bridgey.android.sync.SETTINGS_SYNC_FEATURE_KEY] == true,
                 remoteConnect = drafts[dev.bridgey.android.connect.CONNECT_FEATURE_KEY] == true,
+                remoteAgentsMirror = !current.agent && drafts[dev.bridgey.android.agents.AGENTS_MIRROR_FEATURE_KEY] == true,
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
                 ringing = state.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
             )
+        }
+        if (current.agent) {
+            // An agent's map lists what it can do; this phone starts nothing towards it. Once per session, the endings
+            // of its questions go now, and Connect anywhere sets up the pair secret.
+            publish()
+            if (!current.agentStarted) {
+                current.agentStarted = true
+                agents.sessionStarted(deviceId)
+            }
+            if (connectAvailable(deviceId)) sendConnectAddresses(current)
+            return
         }
         if (!clipboardOffersAvailable(deviceId)) clipboardOutbox.disconnected(deviceId)
         if (received[BridgeyFeature.FILES] == false) stopFileQueue(deviceId, "File transfer is turned off on ${current.peerName}")
@@ -4637,6 +4810,8 @@ class PairingCoordinator(
         }
         // Connect anywhere: where this phone can be reached, and the pair check, once per map.
         if (connectAvailable(deviceId)) sendConnectAddresses(current)
+        // Agents mirror: a Mac that speaks it hears the agents (and stops hearing them when it turns the key off).
+        if (drafts[dev.bridgey.android.agents.AGENTS_MIRROR_FEATURE_KEY] == true) agents.macReady(deviceId)
     }
 
     // MARK: Update all (draft updates_draft1)
@@ -4775,6 +4950,7 @@ class PairingCoordinator(
             runCatching { socket.close() }
             return
         }
+        if (info.peer?.startsWith(dev.bridgey.android.agents.INVITE_PEER_PREFIX) == true) return acceptInviteTunnel(socket, info)
         scope.launch {
             handle(socket, initiatedLocally = info.quicClient, peerHint = info.peer?.let(::trustedName), tunnel = info)
         }
@@ -4822,6 +4998,13 @@ class PairingCoordinator(
                 pairSecret = secret,
                 addresses = connectStore.addresses(id, now),
                 connected = registry.session(id) != null,
+            )
+        }.toMutableList()
+        // The invite the user opened: the core registers its one rendezvous ID and dials as side 0 (this phone joins).
+        inviteRun?.let { run ->
+            peers += dev.bridgey.android.connect.ConnectPeer(
+                id = run.invite.peerLabel, side = 0, pairSecret = run.invite.secret, addresses = emptyList(),
+                connected = run.tunnelTaken.get(), invite = true,
             )
         }
         // One lane, in order: a stale "connected" must never land after a newer "not connected".
@@ -4914,6 +5097,201 @@ class PairingCoordinator(
                 }
             }
         }
+    }
+
+    // MARK: Agent devices (draft agent_draft1) and remote pairing by invite
+
+    /** The session layer for [agents]: encrypted sends, who is connected, names and routes. */
+    private inner class AgentLink : dev.bridgey.android.agents.AgentTransport {
+        override fun send(deviceId: String, kind: String, payload: ByteArray): Boolean =
+            registry.session(deviceId)?.let { sendEncrypted(it, kind, payload) } == true
+
+        override fun connectedAgents(): List<String> = registry.connectedIds().filter(::isAgent)
+
+        override fun mirrorMacs(): List<String> =
+            registry.connectedIds().filter { !isAgent(it) && registry.state(it)?.remoteAgentsMirror == true }
+
+        override fun codeReaders(): Int = mirrorMacs().count { registry.state(it)?.remoteSmsCodes == true }
+
+        override fun deviceName(deviceId: String): String = trust.trustedDevices.value.firstOrNull { it.id == deviceId }?.name ?: "Agent"
+
+        override fun agentIds(): List<String> = trust.trustedDevices.value.filter { it.isAgent }.map { it.id }
+
+        override fun route(deviceId: String): String? =
+            registry.session(deviceId)?.let { registry.state(deviceId)?.connectRoute?.route ?: "lan" }
+
+        override fun refreshFeatures(deviceId: String) {
+            val current = registry.session(deviceId) ?: return
+            scope.launch { sendFeatureState(current) }
+            agentGrantsChanged()
+        }
+
+        override fun stopRing(deviceId: String) = stopAgentRing(deviceId)
+    }
+
+    /** Set by the application: an agent's grants changed (See battery: the battery goes out at once). */
+    @Volatile var agentGrantsChanged: () -> Unit = {}
+
+    /** The invite pairing the user started: its invite, its pairing generation, and whether its one tunnel came. */
+    private class InviteRun(val invite: dev.bridgey.android.agents.AgentInvite, val generation: Int) {
+        val tunnelTaken = AtomicBoolean(false)
+    }
+
+    @Volatile private var inviteRun: InviteRun? = null
+    @Volatile private var lastInvite: dev.bridgey.android.agents.AgentInvite? = null
+    private var inviteTimeout: Job? = null
+    private val mutableAgentPaired = MutableStateFlow<String?>(null)
+
+    /** An agent that just paired by invite: the app opens its permissions with the presets. */
+    val agentPaired: StateFlow<String?> = mutableAgentPaired.asStateFlow()
+
+    fun agentPairedHandled() {
+        mutableAgentPaired.value = null
+    }
+
+    /** An invite needs Connect anywhere running with its control service. */
+    fun inviteReady(): Boolean = connect?.running == true && settings.state.value.connectAway
+
+    /**
+     * Pair with the device that showed [invite]: the core looks for it through the invite's rendezvous ID for two
+     * minutes, then a protocol 2 first pairing runs as the initiator over that one tunnel. False when Connect
+     * anywhere is not running.
+     */
+    fun startInvitePairing(invite: dev.bridgey.android.agents.AgentInvite): Boolean {
+        if (!inviteReady()) return false
+        val (previous, generation) = pairingSlot.locked {
+            val old = pairingSession
+            pairingSession = null
+            lastTarget = PairingTarget(invite.name)
+            allowWaitStartedAt = null
+            allowRetryJob?.cancel()
+            parkedPairing = null
+            crossedTarget = null
+            mutablePairingFlow.value = PairingState.Connecting(invite.name)
+            old to ++pairingGeneration
+        }
+        previous?.let { sendCancel(it, PairingCancelReason.CANCELLED) }
+        val run = InviteRun(invite, generation)
+        inviteRun = run
+        lastInvite = invite
+        diagnostics.record("pairing", "invite_started")
+        BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING invite started")
+        inviteTimeout?.cancel()
+        inviteTimeout = scope.launch {
+            delay(INVITE_TUNNEL_TIMEOUT_MILLIS)
+            if (inviteRun === run && !run.tunnelTaken.get() && generation == pairingGeneration) {
+                endInvite(run)
+                diagnostics.record("pairing", "failed", "invite_unreached")
+                failPairing(null, PairingFailure.INVITE_UNREACHED, invite.name)
+            }
+        }
+        syncConnectPeers()
+        publish()
+        return true
+    }
+
+    /** The invite pairing ended (paired, failed or cancelled): the core drops the invite peer. */
+    private fun endInvite(run: InviteRun?) {
+        if (run == null || inviteRun !== run) return
+        inviteRun = null
+        inviteTimeout?.cancel()
+        syncConnectPeers()
+    }
+
+    /** The invite's one tunnel from the core: anything else labelled as an invite closes. */
+    private fun acceptInviteTunnel(socket: Socket, info: dev.bridgey.android.connect.TunnelInfo) {
+        val run = inviteRun
+        val ok = run != null && info.peer == run.invite.peerLabel && info.quicClient && run.generation == pairingGeneration &&
+            System.currentTimeMillis() < run.invite.expiresAtMillis + dev.bridgey.android.agents.INVITE_SKEW_MILLIS &&
+            run.tunnelTaken.compareAndSet(false, true)
+        if (!ok) {
+            BridgeyLogging.w(LogCategory.CONNECTION, "CONNECT invite tunnel refused")
+            diagnostics.record("transport", "tunnel_refused", "invite")
+            runCatching { socket.close() }
+            return
+        }
+        inviteTimeout?.cancel()
+        syncConnectPeers()
+        val invite = run!!.invite
+        scope.launch {
+            handle(socket, initiatedLocally = true, peerHint = invite.name, manual = true, tunnel = info,
+                target = PairingTarget(invite.name), generation = run.generation, invite = invite)
+        }
+    }
+
+    /** Try again after an invite pairing failed: the same invite while it lasts. */
+    private fun retryInvite(): Boolean {
+        val invite = lastInvite ?: return false
+        if (lastTarget?.peerName != invite.name || System.currentTimeMillis() >= invite.expiresAtMillis) return false
+        return startInvitePairing(invite)
+    }
+
+    /** agent.*, notify.*, ask.*, clipboard.request and codes.query/cancel from an agent device. */
+    private fun receiveAgentMessage(current: Session, message: Message) {
+        if (!current.agent || !registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val messageId = message.messageId ?: return
+        if (!current.acceptMessageId(messageId)) return
+        val plaintext = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        agents.receive(current.remoteDeviceId, message.kind, messageId, plaintext)
+    }
+
+    /** codes.found and agents.grant_set from a Mac that speaks the agents mirror. */
+    private fun receiveMirrorMessage(current: Session, message: Message) {
+        if (current.agent || !registry.isActive(current) || message.sessionId != current.id) return
+        if (registry.state(current.remoteDeviceId)?.remoteAgentsMirror != true) return
+        val key = current.pairingKey ?: return
+        val messageId = message.messageId ?: return
+        if (!current.acceptMessageId(messageId)) return
+        val plaintext = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        agents.receiveFromMac(current.remoteDeviceId, current.peerName, message.kind, plaintext)
+    }
+
+    /**
+     * An existing kind from an agent (Set your clipboard, Ring this phone, Send you files): its grant and rate limit
+     * first. A refusal answers agent.request_result and is recorded as [action].
+     */
+    private fun admitAgentRequest(
+        current: Session,
+        message: Message,
+        grant: dev.bridgey.android.agents.AgentGrant,
+        rate: dev.bridgey.android.agents.AgentAction?,
+        action: String,
+    ): Boolean {
+        if (!registry.isActive(current) || message.sessionId != current.id) return false
+        val ref = message.messageId ?: message.transferId ?: return false
+        return agents.admit(current.remoteDeviceId, ref, message.kind, grant, rate, action)
+    }
+
+    /** An agent rang this phone: it stops by itself after 60 seconds. */
+    private val agentRingStops = ConcurrentHashMap<String, Job>()
+
+    private fun agentRingStarted(current: Session) {
+        val deviceId = current.remoteDeviceId
+        agentRingStops.remove(deviceId)?.cancel()
+        agentRingStops[deviceId] = scope.launch {
+            delay(AGENT_RING_MILLIS)
+            stopAgentRing(deviceId)
+        }
+    }
+
+    private fun stopAgentRing(deviceId: String) {
+        agentRingStops.remove(deviceId)?.cancel()
+        if (phoneRingingFrom != deviceId) return
+        stopPhoneRinging()
+        registry.session(deviceId)?.let { session -> scope.launch { sendFindCommand(session, "find.stopped") } }
+        publish()
+    }
+
+    /** The features.update this phone sends an agent: its grants, every other key false (agents.featureValues). */
+    private fun agentFeatureValues(current: Session): JSONObject {
+        val values = JSONObject()
+        BridgeyFeature.entries.forEach { values.put(it.key, false) }
+        agents.featureValues(current.remoteDeviceId).forEach { (key, value) -> values.put(key, value) }
+        // Capabilities the session needs: Connect anywhere for the pair secret, binary frames for its files.
+        values.put(dev.bridgey.android.connect.CONNECT_FEATURE_KEY, connectAdvertised())
+        values.put(FILES_FAST_FEATURE_KEY, true)
+        return values
     }
 
     // MARK: Codes from messages (draft sms_codes_draft1)
@@ -5105,6 +5483,12 @@ class PairingCoordinator(
         const val ALLOW_WAIT_MILLIS = 120_000L
         const val ALLOW_RETRY_MILLIS = 3_000L
         const val PAIRING_REQUEST_MILLIS = 120_000L
+
+        /** An invite pairing waits this long for the inviter's tunnel. */
+        const val INVITE_TUNNEL_TIMEOUT_MILLIS = 120_000L
+
+        /** An agent's ring stops by itself after this long. */
+        const val AGENT_RING_MILLIS = 60_000L
         const val CLIPBOARD_CACHE_DIRECTORY = "clipboard-cache"
         const val FOLDER_JOURNAL_DIRECTORY = "folder-transfers"
         const val FOLDER_SEND_JOURNAL_DIRECTORY = "folder-sends"
@@ -5224,6 +5608,21 @@ class PairingCoordinator(
         /** Connect anywhere: our contribution while a connect.setup exchange is open. */
         @Volatile var connectContribution: ByteArray? = null
 
+        /**
+         * An agent device (platform `cli`): set once the session authenticated. From then on only the kinds
+         * [dev.bridgey.android.agents.phoneMaySendToAgent] allows leave this phone on it.
+         */
+        @Volatile var agent = false
+
+        /** Messages from an agent of kinds it may not send (logged once per session). */
+        @Volatile var agentDropped = 0
+
+        /** The agent's first features.update in this session arrived (its questions' endings go then). */
+        @Volatile var agentStarted = false
+
+        /** The one invite tunnel the user started: it may carry exactly one committed first pairing. */
+        @Volatile var invite: dev.bridgey.android.agents.AgentInvite? = null
+
         /** The other end's address (normalized) and port. */
         @Volatile var remoteHost: String? = null
         @Volatile var remotePort: Int = ReconnectPolicy.LISTENING_PORT
@@ -5282,6 +5681,8 @@ class PairingCoordinator(
          * Counts as a file chunk for the media lane, like a files.chunk message.
          */
         fun sendFast(kind: Int, id: String, sequence: Long, plaintext: ByteArray, length: Int = plaintext.size): Boolean {
+            // Binary frames carry this phone's files and speed tests: never to an agent.
+            if (agent) return false
             val context = binaryContext ?: return false
             // One frame buffer per sending thread, reused for every chunk (no 256 KiB garbage per chunk).
             val needed = runCatching { fastFrameSize(id, length) }.getOrElse { return false }
@@ -5304,6 +5705,11 @@ class PairingCoordinator(
         }
 
         private fun write(message: Message): Boolean = synchronized(writeLock) {
+            // The phone never pushes its own clipboard, notifications, files, texts or settings to an agent.
+            if (agent && !dev.bridgey.android.agents.phoneMaySendToAgent(message.kind)) {
+                BridgeyLogging.w(LogCategory.CONNECTION, "AGENT send refused kind=${message.kind.take(32)}")
+                return false
+            }
             val key = envelopeKey
             // pairing.cancel is tagged too once there is a key, so a forged cancel cannot end an authenticated session.
             val framed = if (key != null && (!SessionSecurity.allowedBeforeAuthentication(message.kind) || message.kind == "pairing.cancel")) {
@@ -5383,6 +5789,8 @@ private class IncomingFileTransfer(
     val mimeType: String,
     val expectedSize: Long,
     private val expectedHash: String,
+    /** A folder under Download/Bridgey (an agent's name), or null for Download/Bridgey itself. */
+    private val subfolder: String? = null,
 ) {
     val displayName = sanitize(offeredName)
     val progress = TransferProgress(expectedSize)
@@ -5398,7 +5806,7 @@ private class IncomingFileTransfer(
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, displayName)
             put(MediaStore.Downloads.MIME_TYPE, mimeType.take(255))
-            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Bridgey")
+            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Bridgey" + subfolder?.let { "/$it" }.orEmpty())
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
@@ -5652,10 +6060,14 @@ private class AndroidTrustRegistry(context: Context) {
     private val mutableDevices = MutableStateFlow(loadDevices())
     val trustedDevices: StateFlow<List<TrustedDevice>> = mutableDevices.asStateFlow()
 
-    fun save(deviceId: String, name: String, identityKey: String) {
+    fun save(deviceId: String, name: String, identityKey: String) = save(deviceId, name, identityKey, null)
+
+    /** [platform] when known at pairing (an invite's `p`); a later save without it keeps the stored one. */
+    fun save(deviceId: String, name: String, identityKey: String, platform: String?) {
         preferences.edit()
             .putString("peer.$deviceId.name", name)
             .putString("peer.$deviceId.identityKey", identityKey)
+            .apply { platform?.let { putString("peer.$deviceId.platform", it) } }
             .apply()
         mutableIds.value = loadIds()
         mutableDevices.value = loadDevices()
@@ -5666,12 +6078,16 @@ private class AndroidTrustRegistry(context: Context) {
             .remove("peer.$deviceId.name")
             .remove("peer.$deviceId.identityKey")
             .remove("peer.$deviceId.protocol")
+            .remove("peer.$deviceId.platform")
             .apply()
         mutableIds.value = loadIds()
         mutableDevices.value = loadDevices()
     }
 
     fun identityKey(deviceId: String): String? = preferences.getString("peer.$deviceId.identityKey", null)
+
+    /** `cli` for an agent device; null for Macs and phones paired on the local network. */
+    fun platform(deviceId: String): String? = preferences.getString("peer.$deviceId.platform", null)
 
     /** The protocol version this device last authenticated with; later sessions may not go below it. */
     fun pinnedProtocol(deviceId: String): Long = preferences.getLong("peer.$deviceId.protocol", 1L)
@@ -5687,7 +6103,7 @@ private class AndroidTrustRegistry(context: Context) {
         .toSet()
 
     private fun loadDevices(): List<TrustedDevice> = loadIds().map { id ->
-        TrustedDevice(id, preferences.getString("peer.$id.name", null) ?: "Unknown device")
+        TrustedDevice(id, preferences.getString("peer.$id.name", null) ?: "Unknown device", preferences.getString("peer.$id.platform", null))
     }.sortedBy { it.name.lowercase() }
 }
 

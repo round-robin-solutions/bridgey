@@ -141,6 +141,17 @@ private data class SharedContent(
 )
 
 /** Codes from messages: what the activity hands the UI (the link, code access, the Code reader test). */
+/** Agent devices: a bridgey://pair link that opened the app, and an agent notification that was tapped. */
+private class AgentHooks(
+    val inviteLink: String?,
+    val onInviteHandled: () -> Unit,
+    /** An agent's page to open, and the question to answer there. */
+    val open: Pair<String, String?>?,
+    val onOpenHandled: () -> Unit,
+    /** This phone's control service, which an invite must name. */
+    val controlUrl: String,
+)
+
 private class CodesHooks(
     val linker: dev.bridgey.android.codes.CompanionLinker,
     val access: dev.bridgey.android.codes.CodeAccessMonitor,
@@ -199,6 +210,12 @@ class MainActivity : ComponentActivity() {
     )
     /** The Mac's link request notification was tapped: link with that Mac. */
     private var linkRequest by mutableStateOf<String?>(null)
+
+    /** A bridgey://pair link opened Bridgey (remote pairing by invite). Never logged. */
+    private var inviteLink by mutableStateOf<String?>(null)
+
+    /** An agent notification was tapped: its page (and the question in it). */
+    private var agentOpen by mutableStateOf<Pair<String, String?>?>(null)
     /** Code reader test (lab builds): READ_SMS is asked for only when Start is pressed. */
     private var pendingCodeTest: Pair<Int, Boolean>? = null
     private var smsDenied by mutableStateOf(false)
@@ -234,6 +251,8 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) settingsTarget = intent.getStringExtra(SettingsDeepLink.EXTRA_SECTION)
         folderQuestion = intent.getStringExtra(FolderNotifier.EXTRA_FOLDER_QUESTION)
         linkRequest = intent.toLinkRequest()
+        inviteLink = intent.toInviteLink()
+        agentOpen = intent.toAgentOpen()
         startForegroundService(Intent(this, BridgeyConnectionService::class.java))
         if (savedInstanceState == null) bridgey.updater.checkOnAppOpen()
         setContent {
@@ -294,6 +313,13 @@ class MainActivity : ComponentActivity() {
                         linkRecord = dev.bridgey.android.codes.CodeLinkRecord(this),
                     ),
                     setup = setupHooks,
+                    agentHooks = AgentHooks(
+                        inviteLink = inviteLink,
+                        onInviteHandled = { inviteLink = null; setIntent(Intent(this, MainActivity::class.java)) },
+                        open = agentOpen,
+                        onOpenHandled = { agentOpen = null },
+                        controlUrl = bridgey.controlUrl(),
+                    ),
                     showOnboarding = showOnboarding,
                     onOnboardingComplete = {
                         setupHooks.store.complete()
@@ -338,7 +364,20 @@ class MainActivity : ComponentActivity() {
         intent.getStringExtra(SettingsDeepLink.EXTRA_SECTION)?.let { settingsTarget = it }
         intent.getStringExtra(FolderNotifier.EXTRA_FOLDER_QUESTION)?.let { folderQuestion = it }
         intent.toLinkRequest()?.let { linkRequest = it }
+        intent.toInviteLink()?.let { inviteLink = it }
+        intent.toAgentOpen()?.let { agentOpen = it }
     }
+
+    /** bridgey://pair#<invite> (the deep link); the fragment carries the invite. */
+    private fun Intent.toInviteLink(): String? =
+        if (action == Intent.ACTION_VIEW && data?.scheme == "bridgey" && data?.host == "pair") data?.toString() else null
+
+    private fun Intent.toAgentOpen(): Pair<String, String?>? =
+        if (action == dev.bridgey.android.agents.AgentNotifier.ACTION_OPEN_AGENT) {
+            getStringExtra(dev.bridgey.android.agents.AgentNotifier.EXTRA_DEVICE_ID)?.let { it to getStringExtra(dev.bridgey.android.agents.AgentNotifier.EXTRA_ASK_ID) }
+        } else {
+            null
+        }
 
     private fun Intent.toLinkRequest(): String? =
         if (action == dev.bridgey.android.codes.CodeLinkNotifier.ACTION_LINK) {
@@ -662,6 +701,7 @@ private fun BridgeyApp(
     onSharedContentHandled: () -> Unit,
     codes: CodesHooks,
     setup: SetupHooks,
+    agentHooks: AgentHooks,
     showOnboarding: Boolean,
     onOnboardingComplete: () -> Unit,
 ) {
@@ -705,6 +745,12 @@ private fun BridgeyApp(
     val syncUi by pairing.settingsSync.ui.collectAsStateWithLifecycle()
     var permissionPrompt by remember { mutableStateOf<PermissionPrompt?>(null) }
     var pairDialog by rememberSaveable { mutableStateOf(false) }
+    // Remote pairing by invite: null hidden, "" the paste field, else the link that opened Bridgey.
+    var inviteDialog by rememberSaveable { mutableStateOf<String?>(null) }
+    var presetsFor by rememberSaveable { mutableStateOf<String?>(null) }
+    var askOpen by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val agentChanges by pairing.agents.changes.collectAsStateWithLifecycle()
+    val agentPaired by pairing.agentPaired.collectAsStateWithLifecycle()
     var forgetting by remember { mutableStateOf<DeviceRing?>(null) }
     var pickedTarget by rememberSaveable { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
@@ -788,6 +834,8 @@ private fun BridgeyApp(
     fun connectionOf(deviceId: String?): DeviceConnection? = connections.firstOrNull { it.deviceId == deviceId }
     fun availableWith(deviceId: String?): Set<BridgeyFeature> {
         val connection = connectionOf(deviceId) ?: return emptySet()
+        // This phone starts nothing towards an agent.
+        if (trustedDevices.any { it.id == connection.deviceId && it.isAgent }) return emptySet()
         return BridgeyFeature.entries.filter { settings.isEnabled(it, connection.deviceId) && connection.state.remoteFeatures[it] != false }.toSet()
     }
 
@@ -846,6 +894,30 @@ private fun BridgeyApp(
     val readClipboard = {
         val clipboard = context.getSystemService(ClipboardManager::class.java)
         clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+    }
+
+    // A bridgey://pair link: "Pair with <name>?".
+    LaunchedEffect(agentHooks.inviteLink) {
+        val link = agentHooks.inviteLink ?: return@LaunchedEffect
+        inviteDialog = link
+        agentHooks.onInviteHandled()
+    }
+    // Paired by invite: straight to the agent's permissions, with the presets.
+    LaunchedEffect(agentPaired) {
+        val deviceId = agentPaired ?: return@LaunchedEffect
+        presetsFor = deviceId
+        stack.push(Route.Device(deviceId))
+        pairing.agentPairedHandled()
+    }
+    // An agent notification: its page, and the question in a dialog when it is still open.
+    LaunchedEffect(agentHooks.open, rings) {
+        val open = agentHooks.open ?: return@LaunchedEffect
+        val deviceId = open.first
+        val askId = open.second
+        if (rings.none { it.deviceId == deviceId }) return@LaunchedEffect
+        stack.push(Route.Device(deviceId))
+        askId?.let { askOpen = deviceId to it }
+        agentHooks.onOpenHandled()
     }
 
     // A device page whose device was forgotten closes.
@@ -953,6 +1025,12 @@ private fun BridgeyApp(
                 )
                 is Route.Device -> {
                     val ring = rings.firstOrNull { it.deviceId == route.deviceId }
+                    if (ring?.isAgent == true) {
+                        AgentRoute(ring, pairing, connectionOf(ring.deviceId) != null, presetsFor == ring.deviceId, now, agentChanges,
+                            back = { if (presetsFor == ring.deviceId) presetsFor = null; stack.pop() },
+                            forget = { forgetting = ring })
+                        return@MotionNavHost
+                    }
                     // A device page aims links and media at its own device.
                     LaunchedEffect(route.deviceId) {
                         pickedTarget = route.deviceId
@@ -1470,7 +1548,52 @@ private fun BridgeyApp(
                 peer.host?.let { pairing.pair(it, peer.port ?: 42_458, peer.deviceNameHint, peer.deviceIdHint, peer.addresses) }
             },
             onDismiss = { pairDialog = false },
+            onInvite = {
+                pairDialog = false
+                inviteDialog = ""
+            },
         )
+    }
+
+    inviteDialog?.let { link ->
+        dev.bridgey.android.ui.InviteDialog(
+            initial = link.ifEmpty { null },
+            parse = { text ->
+                when (val result = dev.bridgey.android.agents.parseInvite(text, agentHooks.controlUrl, System.currentTimeMillis())) {
+                    is dev.bridgey.android.agents.InviteParse.Ok ->
+                        if (pairing.inviteReady()) result.invite to null else null to dev.bridgey.android.ui.InviteProblem.NEEDS_CONNECT
+                    dev.bridgey.android.agents.InviteParse.Expired -> null to dev.bridgey.android.ui.InviteProblem.EXPIRED
+                    dev.bridgey.android.agents.InviteParse.OtherService -> null to dev.bridgey.android.ui.InviteProblem.OTHER_SERVICE
+                    dev.bridgey.android.agents.InviteParse.Invalid -> null to dev.bridgey.android.ui.InviteProblem.INVALID
+                }
+            },
+            start = pairing::startInvitePairing,
+            readClipboard = readClipboard,
+            onScan = {
+                inviteDialog = null
+                context.startActivity(android.content.Intent(context, dev.bridgey.android.agents.InviteScanActivity::class.java))
+            },
+            onDismiss = { inviteDialog = null },
+        )
+    }
+
+    askOpen?.let { open ->
+        val deviceId = open.first
+        val askId = open.second
+        val ask = remember(deviceId, askId, agentChanges) { pairing.agents.openAsk(deviceId, askId) }
+        if (ask == null) {
+            LaunchedEffect(Unit) { askOpen = null }
+        } else {
+            dev.bridgey.android.ui.AskDialog(
+                ask,
+                deviceName = trustedDevices.firstOrNull { it.id == deviceId }?.name.orEmpty(),
+                onAnswer = { option, text ->
+                    askOpen = null
+                    Thread { pairing.agents.answer(deviceId, askId, option, text) }.start()
+                },
+                onDismiss = { askOpen = null },
+            )
+        }
     }
 
     forgetting?.let { ring ->
@@ -1577,6 +1700,55 @@ private fun BridgeyApp(
     }
 }
 
+/** An agent's page: grants and activity from the coordinator's agents, export through the system's Save dialog. */
+@Composable
+private fun AgentRoute(
+    ring: DeviceRing,
+    pairing: PairingCoordinator,
+    connected: Boolean,
+    showPresets: Boolean,
+    now: Long,
+    changes: Long,
+    back: () -> Unit,
+    forget: () -> Unit,
+) {
+    val deviceId = ring.deviceId ?: return
+    val context = LocalContext.current
+    val hub = pairing.agents
+    val grants = remember(deviceId, changes, now) { hub.views(deviceId) }
+    val activity = remember(deviceId, changes, now) { hub.audit.entries(deviceId) }
+    val info = remember(deviceId, changes) { hub.info(deviceId) }
+    val export = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        val json = hub.audit.exportJson(deviceId, ring.name)
+        Thread { runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) } } }.start()
+    }
+    dev.bridgey.android.ui.AgentDeviceScreen(
+        state = dev.bridgey.android.ui.AgentPageState(
+            ring = ring,
+            info = info,
+            connected = connected,
+            grants = grants,
+            activity = activity,
+            showPresets = showPresets,
+            folderName = dev.bridgey.android.agents.agentFolderName(ring.name),
+            now = now,
+        ),
+        actions = dev.bridgey.android.ui.AgentPageActions(
+            back = back,
+            forget = forget,
+            disconnect = { pairing.disconnectByUser(deviceId) },
+            connect = { pairing.retryNow(deviceId) },
+            setGrant = { grant, on, window -> Thread { hub.setGrant(deviceId, grant, on, window) }.start() },
+            applyPreset = { preset, window -> Thread { hub.applyPreset(deviceId, preset, window) }.start() },
+            export = { export.launch("bridgey-activity-${dev.bridgey.android.agents.agentFolderName(ring.name)}.json") },
+            clear = { Thread { hub.clearActivity(deviceId) }.start() },
+        ),
+    )
+}
+
 /** Add: devices on this Wi-Fi, to pair or reconnect. */
 @Composable
 internal fun PairDialog(
@@ -1591,6 +1763,8 @@ internal fun PairDialog(
     onAllow: () -> Unit = {},
     onNotNow: () -> Unit = {},
     onStop: () -> Unit = {},
+    /** Remote pairing by invite (the bridgey command); null hides the entry. */
+    onInvite: (() -> Unit)? = null,
 ) {
     val colors = BridgeyTheme.colors
     val visible = peers.filter { it.deviceIdHint == null || it.deviceIdHint !in connectedIds }
@@ -1633,6 +1807,7 @@ internal fun PairDialog(
                         }
                     }
                 }
+                onInvite?.let { dev.bridgey.android.ui.InviteEntryRow(it, Modifier.padding(top = 8.dp)) }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) } },

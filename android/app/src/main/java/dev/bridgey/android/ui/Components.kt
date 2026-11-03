@@ -92,8 +92,11 @@ fun RingState.style(): RingStyle = when (this) {
     RingState.OFFLINE -> RingStyle.OFFLINE
 }
 
-fun deviceIcon(platform: String?): ImageVector =
-    if (platform == "android") BridgeyIcons.Smartphone else BridgeyIcons.LaptopMac
+fun deviceIcon(platform: String?): ImageVector = when (platform) {
+    "android" -> BridgeyIcons.Smartphone
+    dev.bridgey.android.agents.AGENT_PLATFORM -> BridgeyIcons.Terminal
+    else -> BridgeyIcons.LaptopMac
+}
 
 /**
  * A device glyph inside its ring. The ring shows how the device is reached: aurora gradient for
