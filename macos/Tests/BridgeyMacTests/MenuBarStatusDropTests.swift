@@ -120,3 +120,60 @@ final class MenuBarStatusDropTests: XCTestCase {
         XCTAssertFalse(controller.isOpen)
     }
 }
+
+/// "Clicking the menu bar icon again re-opens the panel instead of closing it" (beta 19, 2026-11-03).
+/// The outside-click monitor or the panel losing key closes it first, then the icon's own action ran
+/// `togglePanel`, which saw a closed panel and opened it again.
+@MainActor
+final class MenuBarStatusToggleTests: XCTestCase {
+    private var controller: MenuBarStatusController!
+    private var clock = Date()
+
+    override func setUp() {
+        super.setUp()
+        _ = NSApplication.shared
+        controller = MenuBarStatusController(content: NSHostingController(rootView: AnyView(Text("Bridgey").frame(width: 200, height: 120))))
+        clock = Date()
+        controller.now = { [unowned self] in clock }
+    }
+
+    override func tearDown() {
+        controller.close()
+        NSStatusBar.system.removeStatusItem(controller.statusItem)
+        super.tearDown()
+    }
+
+    func testIconClickClosesAnOpenPanel() {
+        controller.togglePanel()
+        XCTAssertTrue(controller.isOpen)
+        controller.togglePanel()
+        XCTAssertFalse(controller.isOpen)
+    }
+
+    func testIconClickAfterTheMonitorClosedItDoesNotReopen() {
+        controller.togglePanel()
+        controller.dismissFromOutside()
+        XCTAssertFalse(controller.isOpen)
+        clock = clock.addingTimeInterval(0.05)
+        controller.togglePanel()
+        XCTAssertFalse(controller.isOpen, "the click that closed it must not open it again")
+        controller.togglePanel()
+        XCTAssertTrue(controller.isOpen, "the next click opens it")
+    }
+
+    func testIconClickAfterThePanelLostKeyDoesNotReopen() {
+        controller.togglePanel()
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification, object: controller.panel))
+        XCTAssertFalse(controller.isOpen)
+        controller.togglePanel()
+        XCTAssertFalse(controller.isOpen)
+    }
+
+    func testLaterIconClickOpensAgain() {
+        controller.togglePanel()
+        controller.dismissFromOutside()
+        clock = clock.addingTimeInterval(MenuBarStatusController.sameClickWindow + 0.1)
+        controller.togglePanel()
+        XCTAssertTrue(controller.isOpen)
+    }
+}

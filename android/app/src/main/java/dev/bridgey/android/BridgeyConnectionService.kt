@@ -429,19 +429,32 @@ class ClipboardCaptureActivity : Activity() {
         private const val REQUEST_PHOTOS = 7_301
     }
 
+    private var gate: FocusGatedRun? = null
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        gate?.onWindowFocusChanged(hasFocus)
+    }
+
+    override fun onDestroy() {
+        gate?.cancel()
+        super.onDestroy()
+    }
+
     override fun onResume() {
         super.onResume()
         if (started) return
         started = true
-        Handler(Looper.getMainLooper()).postDelayed({
-            // Clipboard access is allowed only once this user-initiated activity is foreground.
+        // Clipboard access is allowed only to the app with input focus. From the Quick Settings tile
+        // the shade is still collapsing after onResume, so wait for window focus (1.5 s fallback).
+        gate = FocusGatedRun(Handler(Looper.getMainLooper())) {
             val pairing = (application as BridgeyApplication).pairing
             // Background trigger (optional READ_LOGS source): auto-send silently through the same
             // path as a copy made while Bridgey is open, with the same skip rules.
             if (intent?.getBooleanExtra(EXTRA_AUTOMATIC, false) == true) {
                 pairing.autoSendClip(pairing.readClipForAutomaticSend())
                 close()
-                return@postDelayed
+                return@FocusGatedRun
             }
             val clip = pairing.readClipForManualSend()
             val timestamp = readClipTimestamp(this)
@@ -450,10 +463,12 @@ class ClipboardCaptureActivity : Activity() {
                 // on this tap, then send.
                 waitingForPhotos = clip to timestamp
                 requestPermissions(PhotoPermissions.request, REQUEST_PHOTOS)
-                return@postDelayed
+                return@FocusGatedRun
             }
             send(clip, timestamp)
-        }, 150)
+        }.also { it.arm() }
+        // Focus may already be here by the time onResume runs.
+        if (hasWindowFocus()) gate?.onWindowFocusChanged(true)
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
