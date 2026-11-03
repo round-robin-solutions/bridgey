@@ -109,6 +109,10 @@ pub struct PeerConfig {
     /// The app already has an authenticated session with this peer.
     #[serde(default)]
     pub connected: bool,
+    /// Remote pairing by invite (docs/protocol.md, agent devices): `pair_secret` is the invite secret, the peer
+    /// registers the invite's one rendezvous ID and seals with the invite key. `id` is a label such as `invite:<rdv>`.
+    #[serde(default)]
+    pub invite: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -404,6 +408,10 @@ impl Node {
             let peers = self.peers.lock().unwrap();
             let mut map = HashMap::new();
             for peer in peers.values() {
+                if peer.cfg.invite {
+                    map.insert(derive::invite_rdv_id(&peer.secret), peer.cfg.id.clone());
+                    continue;
+                }
                 for date in derive::rdv_dates(now_ms()) {
                     map.insert(derive::rdv_id(&peer.secret, &date), peer.cfg.id.clone());
                 }
@@ -576,7 +584,8 @@ impl Node {
                 if cfg.connected && !previous.as_ref().is_some_and(|p| p.cfg.connected) {
                     now_connected.push(cfg.id.clone());
                 }
-                next.insert(cfg.id.clone(), Peer { sig_key: derive::sig_key(&secret), secret, cfg, next_attempt, failures });
+                let sig_key = if cfg.invite { derive::invite_sig_key(&secret) } else { derive::sig_key(&secret) };
+                next.insert(cfg.id.clone(), Peer { sig_key, secret, cfg, next_attempt, failures });
             }
             *peers = next;
         }
@@ -778,6 +787,9 @@ impl Node {
     fn rdv_for(&self, peer: &str) -> Option<String> {
         let peers = self.peers.lock().unwrap();
         let p = peers.get(peer)?;
+        if p.cfg.invite {
+            return Some(derive::invite_rdv_id(&p.secret));
+        }
         Some(derive::rdv_id(&p.secret, &derive::utc_date(now_ms())))
     }
 
@@ -1685,13 +1697,16 @@ impl Node {
             "rttMs": conn.rtt().as_millis() as u64,
         }));
         let node = self.clone();
+        // A first pairing by invite waits for two people to compare and confirm the code (up to 2 minutes).
+        let invite = peer.as_ref().is_some_and(|p| self.peers.lock().unwrap().get(p).is_some_and(|p| p.cfg.invite));
+        let authenticate_within = Duration::from_secs(if invite { 135 } else { 15 });
         tokio::spawn(async move {
             let unclaimed = async {
                 tokio::time::sleep(Duration::from_secs(15)).await;
                 if !tunnel.claimed.load(Ordering::Relaxed) {
                     tunnel.conn.close(0u32.into(), b"unclaimed");
                 }
-                tokio::time::sleep(Duration::from_secs(15)).await;
+                tokio::time::sleep(authenticate_within).await;
                 if !tunnel.authenticated.load(Ordering::Relaxed) {
                     tunnel.conn.close(0u32.into(), b"unauthenticated");
                 }

@@ -139,7 +139,32 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="*/*" />
             </intent-filter>
+            <!-- Remote pairing by invite: bridgey://pair#<invite> from bridgey pair. Opening it only shows
+                 "Pair with <name>?"; nothing happens without a tap and the code check on both ends. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="bridgey" android:host="pair" />
+            </intent-filter>
         </activity>
+        <!-- Agent devices: Send on "<agent> wants your clipboard" reads the clipboard in the front for a moment. -->
+        <activity
+            android:name=".agents.AgentClipboardActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity="${applicationId}.agent_clipboard"
+            android:theme="@style/Theme.Bridgey.Transparent" />
+        <!-- Agent devices: scan the QR code bridgey pair shows; it opens the bridgey://pair link in Bridgey. -->
+        <activity
+            android:name=".agents.InviteScanActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity="${applicationId}.invite_scan" />
+        <!-- Agent devices: answers, swipes and Deny on Bridgey's own notifications, and the grant expiry alarm. -->
+        <receiver android:name=".agents.AgentActionReceiver" android:exported="false" />
         <activity
             android:name=".ClipboardCaptureActivity"
             android:documentLaunchMode="always"

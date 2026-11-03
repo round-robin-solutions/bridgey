@@ -90,6 +90,25 @@ pub fn rdv_id(pair_secret: &[u8], date: &str) -> String {
     b64::url_encode(&mac[..16])
 }
 
+/// Remote pairing by invite (docs/protocol.md, agent devices): the one rendezvous ID both sides register.
+pub fn invite_rdv_id(invite_secret: &[u8]) -> String {
+    let mac = hmac_sha256(invite_secret, &[b"bridgey-invite-rdv-v1"]);
+    b64::url_encode(&mac[..16])
+}
+
+/// The key that seals an invite's signalling.
+pub fn invite_sig_key(invite_secret: &[u8]) -> [u8; 32] {
+    let okm = hkdf_sha256(invite_secret, b"", b"bridgey-invite-signal-v1", 32);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&okm);
+    out
+}
+
+/// `inviteHash`, appended to the signed transcript of a pairing made from an invite (standard base64).
+pub fn invite_hash(invite_secret: &[u8]) -> String {
+    b64::std_encode(&sha256(invite_secret))
+}
+
 pub fn pair_check(pair_secret: &[u8]) -> String {
     let mac = hmac_sha256(pair_secret, &[b"bridgey-pair-check-v1"]);
     b64::url_encode(&mac[..8])

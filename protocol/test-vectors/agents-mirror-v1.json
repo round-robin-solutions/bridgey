@@ -1,0 +1,539 @@
+{
+ "description": "Agents mirror, phone to Mac (docs/protocol.md, 'Messages between the phone and the Mac'). Written by hand for the Mac decoder; expect 'reject' means drop the message and keep the previous state. codesOn: an agent has Codes on at 'now', so the Mac sends codes.found to that phone.",
+ "now": 1798001000000,
+ "agentsState": [
+  {
+   "name": "two agents, unknown grant, state, action and field skipped",
+   "plaintext": {
+    "version": 1,
+    "agents": [
+     {
+      "deviceId": "agent-id",
+      "name": "Contabo Europe",
+      "platform": "cli",
+      "app": "bridgey 0.1.0",
+      "os": "linux x86_64",
+      "pairedAt": 1797990000000,
+      "lastSeenAt": 1798000500000,
+      "online": true,
+      "route": "relay",
+      "grants": [
+       {
+        "key": "codes",
+        "state": "on",
+        "window": "1h",
+        "grantedAt": 1798000000000,
+        "expiresAt": 1798003600000
+       },
+       {
+        "key": "files",
+        "state": "on",
+        "window": "forever",
+        "grantedAt": 1798000000000,
+        "scope": "Download/Bridgey/Contabo Europe"
+       },
+       {
+        "key": "notify",
+        "state": "waiting"
+       },
+       {
+        "key": "teleport",
+        "state": "on"
+       },
+       {
+        "key": "ring",
+        "state": "maybe"
+       }
+      ],
+      "activity": [
+       {
+        "at": 1798000400000,
+        "action": "codes.read",
+        "outcome": "ok",
+        "detail": "HDFC Bank, 1"
+       },
+       {
+        "at": 1798000300000,
+        "action": "notify",
+        "outcome": "delivered",
+        "detail": "Nightly passed"
+       },
+       {
+        "at": 1798000200000,
+        "action": "teleport",
+        "outcome": "ok"
+       },
+       {
+        "at": 1798000100000,
+        "action": "ask",
+        "outcome": "answered:approve",
+        "detail": "Deploy rr-web?"
+       },
+       {
+        "at": 1798000000000,
+        "action": "grant.change",
+        "outcome": "ok",
+        "detail": "codes 1h"
+       }
+      ],
+      "future": 1
+     },
+     {
+      "deviceId": "agent-2",
+      "name": "rr-dev-1",
+      "platform": "cli",
+      "app": "bridgey 0.1.0",
+      "os": "linux aarch64",
+      "pairedAt": 1797990000000,
+      "online": false,
+      "grants": [
+       {
+        "key": "codes",
+        "state": "off"
+       }
+      ],
+      "activity": []
+     }
+    ]
+   },
+   "expect": {
+    "agents": [
+     {
+      "deviceId": "agent-id",
+      "name": "Contabo Europe",
+      "platform": "cli",
+      "app": "bridgey 0.1.0",
+      "os": "linux x86_64",
+      "pairedAt": 1797990000000,
+      "lastSeenAt": 1798000500000,
+      "online": true,
+      "route": "relay",
+      "grants": [
+       {
+        "key": "codes",
+        "state": "on",
+        "window": "1h",
+        "grantedAt": 1798000000000,
+        "expiresAt": 1798003600000
+       },
+       {
+        "key": "files",
+        "state": "on",
+        "window": "forever",
+        "grantedAt": 1798000000000,
+        "scope": "Download/Bridgey/Contabo Europe"
+       },
+       {
+        "key": "notify",
+        "state": "waiting"
+       },
+       {
+        "key": "ring",
+        "state": "off"
+       }
+      ],
+      "activity": [
+       {
+        "at": 1798000400000,
+        "action": "codes.read",
+        "outcome": "ok",
+        "detail": "HDFC Bank, 1"
+       },
+       {
+        "at": 1798000300000,
+        "action": "notify",
+        "outcome": "delivered",
+        "detail": "Nightly passed"
+       },
+       {
+        "at": 1798000100000,
+        "action": "ask",
+        "outcome": "answered:approve",
+        "detail": "Deploy rr-web?"
+       },
+       {
+        "at": 1798000000000,
+        "action": "grant.change",
+        "outcome": "ok",
+        "detail": "codes 1h"
+       }
+      ],
+      "codesOn": true
+     },
+     {
+      "deviceId": "agent-2",
+      "name": "rr-dev-1",
+      "platform": "cli",
+      "app": "bridgey 0.1.0",
+      "os": "linux aarch64",
+      "pairedAt": 1797990000000,
+      "online": false,
+      "grants": [
+       {
+        "key": "codes",
+        "state": "off"
+       }
+      ],
+      "activity": [],
+      "codesOn": false
+     }
+    ]
+   },
+   "sendsCodesFound": true
+  },
+  {
+   "name": "only Codes off",
+   "plaintext": {
+    "version": 1,
+    "agents": [
+     {
+      "deviceId": "agent-2",
+      "name": "rr-dev-1",
+      "platform": "cli",
+      "app": "bridgey 0.1.0",
+      "os": "linux aarch64",
+      "pairedAt": 1797990000000,
+      "online": false,
+      "grants": [
+       {
+        "key": "codes",
+        "state": "off"
+       }
+      ],
+      "activity": []
+     }
+    ]
+   },
+   "expect": {
+    "agents": [
+     {
+      "deviceId": "agent-2",
+      "name": "rr-dev-1",
+      "platform": "cli",
+      "app": "bridgey 0.1.0",
+      "os": "linux aarch64",
+      "pairedAt": 1797990000000,
+      "online": false,
+      "grants": [
+       {
+        "key": "codes",
+        "state": "off"
+       }
+      ],
+      "activity": [],
+      "codesOn": false
+     }
+    ]
+   },
+   "sendsCodesFound": false
+  },
+  {
+   "name": "Codes on but its window ended",
+   "plaintext": {
+    "version": 1,
+    "agents": [
+     {
+      "deviceId": "agent-2",
+      "name": "rr-dev-1",
+      "platform": "cli",
+      "app": "bridgey 0.1.0",
+      "os": "linux aarch64",
+      "pairedAt": 1797990000000,
+      "online": false,
+      "grants": [
+       {
+        "key": "codes",
+        "state": "on",
+        "window": "1h",
+        "expiresAt": 1798000999999
+       }
+      ],
+      "activity": []
+     }
+    ]
+   },
+   "expect": {
+    "agents": [
+     {
+      "deviceId": "agent-2",
+      "name": "rr-dev-1",
+      "platform": "cli",
+      "app": "bridgey 0.1.0",
+      "os": "linux aarch64",
+      "pairedAt": 1797990000000,
+      "online": false,
+      "grants": [
+       {
+        "key": "codes",
+        "state": "on",
+        "window": "1h",
+        "expiresAt": 1798000999999
+       }
+      ],
+      "activity": [],
+      "codesOn": false
+     }
+    ]
+   },
+   "sendsCodesFound": false
+  },
+  {
+   "name": "no agents",
+   "plaintext": {
+    "version": 1,
+    "agents": []
+   },
+   "expect": {
+    "agents": []
+   },
+   "sendsCodesFound": false
+  },
+  {
+   "name": "an agent without grants is skipped",
+   "plaintext": {
+    "version": 1,
+    "agents": [
+     {
+      "deviceId": "agent-2",
+      "name": "rr-dev-1",
+      "platform": "cli",
+      "app": "bridgey 0.1.0",
+      "os": "linux aarch64",
+      "pairedAt": 1797990000000,
+      "online": false,
+      "activity": []
+     },
+     {
+      "deviceId": "agent-id",
+      "name": "Contabo Europe",
+      "platform": "cli",
+      "app": "bridgey 0.1.0",
+      "os": "linux x86_64",
+      "pairedAt": 1797990000000,
+      "lastSeenAt": 1798000500000,
+      "online": true,
+      "route": "relay",
+      "grants": [
+       {
+        "key": "codes",
+        "state": "on",
+        "window": "1h",
+        "grantedAt": 1798000000000,
+        "expiresAt": 1798003600000
+       },
+       {
+        "key": "files",
+        "state": "on",
+        "window": "forever",
+        "grantedAt": 1798000000000,
+        "scope": "Download/Bridgey/Contabo Europe"
+       },
+       {
+        "key": "notify",
+        "state": "waiting"
+       },
+       {
+        "key": "teleport",
+        "state": "on"
+       },
+       {
+        "key": "ring",
+        "state": "maybe"
+       }
+      ],
+      "activity": [
+       {
+        "at": 1798000400000,
+        "action": "codes.read",
+        "outcome": "ok",
+        "detail": "HDFC Bank, 1"
+       },
+       {
+        "at": 1798000300000,
+        "action": "notify",
+        "outcome": "delivered",
+        "detail": "Nightly passed"
+       },
+       {
+        "at": 1798000200000,
+        "action": "teleport",
+        "outcome": "ok"
+       },
+       {
+        "at": 1798000100000,
+        "action": "ask",
+        "outcome": "answered:approve",
+        "detail": "Deploy rr-web?"
+       },
+       {
+        "at": 1798000000000,
+        "action": "grant.change",
+        "outcome": "ok",
+        "detail": "codes 1h"
+       }
+      ],
+      "future": 1
+     }
+    ]
+   },
+   "expect": {
+    "agents": [
+     {
+      "deviceId": "agent-id",
+      "name": "Contabo Europe",
+      "platform": "cli",
+      "app": "bridgey 0.1.0",
+      "os": "linux x86_64",
+      "pairedAt": 1797990000000,
+      "lastSeenAt": 1798000500000,
+      "online": true,
+      "route": "relay",
+      "grants": [
+       {
+        "key": "codes",
+        "state": "on",
+        "window": "1h",
+        "grantedAt": 1798000000000,
+        "expiresAt": 1798003600000
+       },
+       {
+        "key": "files",
+        "state": "on",
+        "window": "forever",
+        "grantedAt": 1798000000000,
+        "scope": "Download/Bridgey/Contabo Europe"
+       },
+       {
+        "key": "notify",
+        "state": "waiting"
+       },
+       {
+        "key": "ring",
+        "state": "off"
+       }
+      ],
+      "activity": [
+       {
+        "at": 1798000400000,
+        "action": "codes.read",
+        "outcome": "ok",
+        "detail": "HDFC Bank, 1"
+       },
+       {
+        "at": 1798000300000,
+        "action": "notify",
+        "outcome": "delivered",
+        "detail": "Nightly passed"
+       },
+       {
+        "at": 1798000100000,
+        "action": "ask",
+        "outcome": "answered:approve",
+        "detail": "Deploy rr-web?"
+       },
+       {
+        "at": 1798000000000,
+        "action": "grant.change",
+        "outcome": "ok",
+        "detail": "codes 1h"
+       }
+      ],
+      "codesOn": true
+     }
+    ]
+   },
+   "sendsCodesFound": true
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "agents": []
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "agents not an array",
+   "plaintext": {
+    "version": 1,
+    "agents": {}
+   },
+   "expect": "reject"
+  }
+ ],
+ "codesRead": [
+  {
+   "name": "one read",
+   "plaintext": {
+    "version": 1,
+    "deviceId": "agent-id",
+    "deviceName": "Contabo Europe",
+    "service": "HDFC Bank",
+    "source": "sms",
+    "app": "messages",
+    "at": 1798000400000,
+    "count": 1
+   },
+   "expect": {
+    "deviceId": "agent-id",
+    "deviceName": "Contabo Europe",
+    "service": "HDFC Bank",
+    "source": "sms",
+    "app": "messages",
+    "at": 1798000400000,
+    "count": 1
+   }
+  },
+  {
+   "name": "no code even if one is sent",
+   "plaintext": {
+    "version": 1,
+    "deviceId": "agent-id",
+    "deviceName": "Contabo Europe",
+    "service": "Google",
+    "source": "email",
+    "app": "gmail",
+    "at": 1798000400000,
+    "count": 2,
+    "code": "482913"
+   },
+   "expect": {
+    "deviceId": "agent-id",
+    "deviceName": "Contabo Europe",
+    "service": "Google",
+    "source": "email",
+    "app": "gmail",
+    "at": 1798000400000,
+    "count": 2
+   }
+  },
+  {
+   "name": "unknown source",
+   "plaintext": {
+    "version": 1,
+    "deviceId": "agent-id",
+    "deviceName": "x",
+    "service": "x",
+    "source": "fax",
+    "app": "x",
+    "at": 1798000400000,
+    "count": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "count 0",
+   "plaintext": {
+    "version": 1,
+    "deviceId": "agent-id",
+    "deviceName": "x",
+    "service": "x",
+    "source": "sms",
+    "app": "messages",
+    "at": 1798000400000,
+    "count": 0
+   },
+   "expect": "reject"
+  }
+ ]
+}

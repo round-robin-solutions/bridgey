@@ -1,8 +1,52 @@
 # Agent CLI (`bridgey`)
 
-Status: draft spec for Bridgey by Round Robin, 2026-10-25. Spec only; nothing is built yet.
+Status: draft spec for Bridgey by Round Robin, 2026-10-25. **Phase 1 built on branch `rr/agent-cli`
+(2026-11-03)**, with the daemon brought forward from phase 2: see [As built](#as-built-2026-11-03). Setup:
+[agent-cli-setup.md](agent-cli-setup.md). Wire contract: [protocol.md, agent devices](protocol.md#draft-agent-devices-agent_draft1).
 Transport, relays and remote pairing come from [connect-anywhere.md](connect-anywhere.md). The
 wire messages are in the draft section of [protocol.md](protocol.md#draft-connect-anywhere-edition-only).
+
+## As built (2026-11-03)
+
+Rust crate `rust/cli` (binary `bridgey`) on the Connect anywhere core (`bridgey-connect`): the node,
+ICE, relays and QUIC tunnel are the apps' own, and every session is protocol 2 (commit and reveal,
+`bridgey-sas-v2` code, envelope tags, replay window). Changes from the sections below, and why:
+
+| Topic | Built | Why |
+| --- | --- | --- |
+| Daemon | `bridgey daemon` in phase 1. `bridgey service install` writes and enables a systemd user unit (`~/.config/systemd/user/bridgey.service`) or a launchd agent (`~/Library/LaunchAgents/in.roundrobin.bridgey.cli.plist`). Without it, the first command starts the same process in the background and it exits after 10 minutes unused (`daemon.idle_exit`); every command goes through the socket either way | Rahul, 2026-11-03: runs on any VPS, keeps the connection warm. One code path, and two commands at once share one session |
+| Files | One folder, `~/.config/bridgey/` (`$XDG_CONFIG_HOME/bridgey`), the same on macOS: `config.toml`, `keys/` (PKCS#8 P-256, 0600, folder 0700), `state/` (trust records, audit log, core state), `run/daemon.sock` (0600, folder 0700, the peer's Unix user checked with SO_PEERCRED or getpeereid). No Keychain on macOS | Rahul's one-folder rule; the socket stays in the config folder so cron and ssh commands without `XDG_RUNTIME_DIR` find it |
+| Pairing | Remote pairing by invite (protocol.md); the CLI is the responder, the phone commits and reveals. The CLI's platform comes from the invite (`p: "cli"`) and `agent.hello`, not a new pairing field | An outer field would have to stay out of the envelope tag; the invite already reaches the phone first |
+| Grants | Names `files`, `clipboard`, `clipboard_request`, `notify`, `ask`, `ring`, `battery`, `codes`, `notifications`; details in `agent.grants`, enforcement on the phone. `ping` is covered by `ring` | One sound and a ring are the same kind of intrusion |
+| Refusals | Every refusal is `agent.request_result` (`not_granted`, `rate_limited`, ...), so there is no `ask.rejected` | One shape for all commands |
+| Codes | `bridgey codes` asks the phone (`codes.query`); the phone answers from codes its Macs found and sent back (`codes.found`) | Below |
+| Waiting for permission | `bridgey grants request KEY...` marks grants "Waiting for you" on the phone | The third state in `bridgey grants` |
+
+**Codes: the Mac finds, the phone grants and brokers.** Detection stays in the Mac pipeline (CodeReader,
+the local model, CodeGuard, dedupe, Latest and Older), untouched. When a Mac shows a code from a phone's
+notification, it sends that code back to the same phone (`codes.found`), but only while that phone has an
+agent with Read codes on. The phone keeps codes in memory for 15 minutes and answers agents that hold
+the grant. Considered:
+
+- *The CLI also pairs with each Mac and asks it.* Every server would need a second pairing per Mac,
+  grants would live in two places, and the phone could not show or log code reads.
+- *The phone forwards previews and the CLI runs a Rust port of the guard.* That is a second pipeline
+  without the model, which Rahul ruled out ("don't reinvent the codes pipeline").
+
+The broker keeps one pairing per server, one switch per server on the phone, and one audit trail (the
+phone logs each read and tells the Mac, which logs it too). A sleeping Mac finds nothing new; the phone
+says how many Macs are reading (`readers`), so the CLI warns instead of waiting silently, and codes found
+before the Mac slept are still served for 15 minutes. A future Windows or Linux app on the v2 core sends
+`codes.found` the same way, so it plugs in without a protocol change.
+
+**Not built in phase 1** (cut or left for phase 2): sending folders (`send` takes files; folders wait for
+the transfer engine), `--resume` and `bridgey transfer resume|cancel` (files.v1 has no resume),
+`clip set --sensitive`, the Keychain on macOS, the Homebrew formula, `.deb`, the notifications grant
+(always off), and phase 2's `inbox`, `watch`, `mcp` and `update`.
+
+**Open questions (section 15), answered with the spec's recommendations until Rahul decides:** the
+binary is `bridgey`; `clip get` is in; agent files land in `Download/Bridgey/<device name>`; questions go
+to the phone only; the section 8 limits are the defaults.
 
 ## 1. What it is
 

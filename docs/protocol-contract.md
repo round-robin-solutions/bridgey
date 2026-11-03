@@ -155,6 +155,12 @@ the tables at the end of this page are generated from it with
 | `sms_draft1` | edition-draft | no | false |
 | `settings_sync_draft1` | edition-draft | no | false |
 | `connect_draft1` | edition-draft | no | false |
+| `agent_draft1` | edition-draft | no | false |
+| `notify_draft1` | edition-draft | no | false |
+| `ask_draft1` | edition-draft | no | false |
+| `clipboard_request_draft1` | edition-draft | no | false |
+| `agent_codes_draft1` | edition-draft | no | false |
+| `agents_mirror_draft1` | edition-draft | no | false |
 
 ### Envelope fields
 
@@ -181,17 +187,17 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-147 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+170 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `pairing.offer` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, deviceName, publicKey?, targetDeviceId?, commitment?, protocolVersion? | android, macos |
-| `pairing.answer` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, deviceName, publicKey, protocolVersion? | android, macos |
-| `pairing.reveal` | edition-extension | either | none | no | none | frame | sessionId, publicKey | android, macos |
-| `pairing.confirm` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, identityKey, proof, signature | android, macos |
-| `pairing.cancel` | upstream-v1 | either | none | no | none | frame | sessionId, reason?, tag? | android, macos |
+| `pairing.offer` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, deviceName, publicKey?, targetDeviceId?, commitment?, protocolVersion? | android, macos, cli |
+| `pairing.answer` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, deviceName, publicKey, protocolVersion? | android, macos, cli |
+| `pairing.reveal` | edition-extension | either | none | no | none | frame | sessionId, publicKey | android, macos, cli |
+| `pairing.confirm` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, identityKey, proof, signature | android, macos, cli |
+| `pairing.cancel` | upstream-v1 | either | none | no | none | frame | sessionId, reason?, tag? | android, macos, cli |
 
 `pairing.offer`
 
@@ -213,8 +219,8 @@ Ends only the session it arrives on. reason (edition extension) says why, for th
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `heartbeat.ping` | upstream-v1 | either | none | no | none | frame | sessionId, messageId | android, macos |
-| `heartbeat.pong` | upstream-v1 | either | none | no | none | frame | sessionId, messageId | android, macos |
+| `heartbeat.ping` | upstream-v1 | either | none | no | none | frame | sessionId, messageId | android, macos, cli |
+| `heartbeat.pong` | upstream-v1 | either | none | no | none | frame | sessionId, messageId | android, macos, cli |
 
 `heartbeat.ping`
 
@@ -228,7 +234,7 @@ messageId echoes the ping's. Connection health (both apps) times the round trip 
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `features.update` | upstream-v1 | either | none | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos |
+| `features.update` | upstream-v1 | either | none | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli |
 
 `features.update`
 
@@ -241,13 +247,15 @@ Sent after pairing and whenever local policy changes. A feature is available onl
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `clipboard.update` | upstream-v1 | either | clipboard | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `clipboard.rich` | upstream-v1 | either | clipboard | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `clipboard.ack` | upstream-v1 | either | clipboard | no | none | frame | sessionId, messageId | android, macos |
-| `clipboard.rejected` | upstream-v1 | either | clipboard | no | none | frame | sessionId, messageId | android, macos |
+| `clipboard.update` | upstream-v1 | either | clipboard | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos, cli |
+| `clipboard.rich` | upstream-v1 | either | clipboard | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos, cli |
+| `clipboard.ack` | upstream-v1 | either | clipboard | no | none | frame | sessionId, messageId | android, macos, cli |
+| `clipboard.rejected` | upstream-v1 | either | clipboard | no | none | frame | sessionId, messageId | android, macos, cli |
 | `clipboard.offer` | edition-draft | either | clipboard_files_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `clipboard.fetch` | edition-draft | either | clipboard_files_draft1 | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos |
 | `clipboard.error` | edition-draft | either | clipboard_files_draft1 | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos |
+| `clipboard.request` | edition-draft | agent-to-phone | clipboard_request_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `clipboard.response` | edition-draft | phone-to-agent | clipboard_request_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, cli |
 
 `clipboard.update`
 
@@ -300,19 +308,37 @@ Answered by `files.offer`, `clipboard.error`.
 - `transferId`: string
 - `code`: expired | changed | too_large | unavailable | disabled | busy
 
+`clipboard.request`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `expiresAt`: integer, Unix ms, at most 10 minutes ahead
+
+Answered by `clipboard.response`, `agent.request_result`.
+
+The phone asks with Send and Deny; Send opens Bridgey for a moment, because Android reads the clipboard only in the foreground. 10 an hour, 1 pending.
+
+`clipboard.response`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `status`: sent | declined | expired
+- `text`: optional string, with sent
+- `html`: optional string, with sent; text and html together at most 32 KiB
+
 #### `files.*`
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `files.offer` | upstream-v1 | either | files | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos |
-| `files.accept` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos |
-| `files.rejected` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos |
-| `files.chunk` | upstream-v1 | either | files | yes | none | frame | sessionId, transferId, sequence, nonce, ciphertext | android, macos |
-| `files.chunk.ack` | upstream-v1 | either | files | no | none | frame | sessionId, transferId, sequence | android, macos |
-| `files.complete` | upstream-v1 | either | files | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos |
-| `files.complete.ack` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos |
-| `files.cancel` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos |
-| `files.cancel.ack` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos |
+| `files.offer` | upstream-v1 | either | files | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos, cli |
+| `files.accept` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli |
+| `files.rejected` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli |
+| `files.chunk` | upstream-v1 | either | files | yes | none | frame | sessionId, transferId, sequence, nonce, ciphertext | android, macos, cli |
+| `files.chunk.ack` | upstream-v1 | either | files | no | none | frame | sessionId, transferId, sequence | android, macos, cli |
+| `files.complete` | upstream-v1 | either | files | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos, cli |
+| `files.complete.ack` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli |
+| `files.cancel` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli |
+| `files.cancel.ack` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli |
 
 `files.offer`
 
@@ -411,6 +437,11 @@ Android runs only tokens it retained for the still active notification.
 | `codes.advertise` | edition-draft | phone-to-mac | sms_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `codes.advertise_result` | edition-draft | mac-to-phone | sms_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `codes.advertise_stop` | edition-draft | phone-to-mac | sms_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `codes.query` | edition-draft | agent-to-phone | agent_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `codes.result` | edition-draft | phone-to-agent | agent_codes_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `codes.cancel` | edition-draft | agent-to-phone | agent_codes_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `codes.found` | edition-draft | mac-to-phone | agents_mirror_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `codes.read` | edition-draft | phone-to-mac | agents_mirror_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
 
 `codes.status`
 
@@ -440,6 +471,60 @@ Answered by `codes.advertise_result`.
 - `version`: integer, 1
 - `serviceUuid`: string
 - `linked`: boolean
+
+`codes.query`
+
+- `version`: integer, 1
+- `queryId`: string, UUID
+- `service`: optional string, at most 64, matched case-insensitively
+- `sinceMs`: integer, 0 to 3,600,000
+- `newerThan`: optional integer, Unix ms
+- `waitMs`: integer, 0 to 600,000
+- `latestOnly`: boolean
+
+Answered by `codes.result`, `agent.request_result`.
+
+Each answered query is one codes.read audit entry on the phone and on the Mac. At most 2 held queries per agent.
+
+`codes.result`
+
+- `version`: integer, 1
+- `queryId`: string, UUID
+- `codes`: array of at most 20 {code, service, source (sms | email), app, postedAt, latest, replaced, via}, newest first
+- `readers`: integer, Macs reading codes for this phone right now
+- `timedOut`: boolean
+
+`codes.cancel`
+
+- `version`: integer, 1
+- `queryId`: string, UUID
+
+`codes.found`
+
+- `version`: integer, 1
+- `foundId`: string, UUID
+- `code`: string, 4 to 12 characters
+- `service`: string, at most 64
+- `serviceKey`: string, 1 to 64 (the sender, lowercased, when the Mac knows no service)
+- `source`: sms | email
+- `app`: messages | gmail | outlook | proton | spark
+- `notificationId`: string, at most 512
+- `postedAt`: integer, Unix ms
+
+Only while the phone's latest agents.state lists an agent with Codes on. The phone keeps codes in memory for 15 minutes (at most 50), folded by serviceKey and code.
+
+`codes.read`
+
+- `version`: integer, 1
+- `deviceId`: string, the agent
+- `deviceName`: string
+- `service`: string
+- `source`: sms | email
+- `app`: string
+- `at`: integer, Unix ms
+- `count`: integer
+
+Never the code.
 
 #### `quick.*`
 
@@ -604,7 +689,7 @@ Not answered. Parts already on the wire may still arrive and are dropped by the 
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `battery.update` | upstream-v1 | either | battery | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos |
+| `battery.update` | upstream-v1 | either | battery | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli |
 
 `battery.update`
 
@@ -615,10 +700,10 @@ Not answered. Parts already on the wire may still arrive and are dropped by the 
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `find.start` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos |
-| `find.stop` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos |
-| `find.started` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos |
-| `find.stopped` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos |
+| `find.start` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli |
+| `find.stop` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli |
+| `find.started` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli |
+| `find.stopped` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli |
 
 `find.start`
 
@@ -644,8 +729,8 @@ Answered by `find.stopped`.
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `ping.request` | upstream-v1 | either | ping | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos |
-| `ping.ack` | upstream-v1 | either | ping | no | none | frame | sessionId, messageId | android, macos |
+| `ping.request` | upstream-v1 | either | ping | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli |
+| `ping.ack` | upstream-v1 | either | ping | no | none | frame | sessionId, messageId | android, macos, cli |
 
 `ping.request`
 
@@ -1197,9 +1282,9 @@ Opens Android's own Blocked numbers screen (TelecomManager.createManageBlockedNu
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `connect.setup` | edition-draft | either | connect_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `connect.setup.ack` | edition-draft | either | connect_draft1 | yes | messageId | 64 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `connect.addresses` | edition-draft | either | connect_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `connect.setup` | edition-draft | either | connect_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, macos, cli |
+| `connect.setup.ack` | edition-draft | either | connect_draft1 | yes | messageId | 64 B | sessionId, messageId, nonce, ciphertext | android, macos, cli |
+| `connect.addresses` | edition-draft | either | connect_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos, cli |
 | `connect.offer` | designed | either | connect_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | not yet |
 | `connect.answer` | designed | either | connect_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | not yet |
 | `connect.candidates` | designed | either | connect_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | not yet |
@@ -1661,5 +1746,180 @@ kept lists keys where the receiver's own record won; it sends those records in s
 - `maxSchema`: integer
 
 rate_limited: more than 20 settings.* messages from this peer in 10 seconds; the extra messages were dropped. Sent at most once per window.
+
+#### `agent.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `agent.hello` | edition-draft | agent-to-phone | agent_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `agent.grants` | edition-draft | phone-to-agent | agent_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `agent.grant_request` | edition-draft | agent-to-phone | agent_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `agent.request_result` | edition-draft | phone-to-agent | agent_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, cli |
+
+`agent.hello`
+
+- `version`: integer, 1
+- `platform`: string, cli
+- `app`: string, at most 64 characters
+- `os`: string, at most 64 characters
+
+Once per session after features.update; the phone shows app and os on the device page.
+
+`agent.grants`
+
+- `version`: integer, 1
+- `grants`: array of {key, state (on | off | waiting), window? (1h | today | 7d | forever), grantedAt?, expiresAt?, scope?}; keys files, clipboard, clipboard_request, notify, ask, ring, battery, codes, notifications
+
+Sent after features.update and on every change, including a window that ended. Read-only on the agent.
+
+`agent.grant_request`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `keys`: array of 1 to 9 grant names
+- `note`: optional string, at most 120 characters
+
+Answered by `agent.request_result`.
+
+The phone posts a notification that opens the device's permissions and marks the grants waiting for 24 hours or until Rahul decides. 3 an hour.
+
+`agent.request_result`
+
+- `version`: integer, 1
+- `ref`: string, the request's messageId
+- `requestKind`: string, the request's kind
+- `status`: ok | not_granted | rate_limited | invalid | busy | unknown | unsupported
+- `retryAfterMs`: optional integer, with rate_limited
+- `grant`: optional string, with not_granted
+
+Answers agent.grant_request, and refuses any agent request (notify.post, ask.request, clipboard.update, clipboard.rich, clipboard.request, find.start, ping.request, files.offer, codes.query).
+
+#### `notify.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `notify.post` | edition-draft | agent-to-phone | notify_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `notify.result` | edition-draft | phone-to-agent | notify_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, cli |
+
+`notify.post`
+
+- `version`: integer, 1
+- `notifyId`: string, UUID
+- `title`: string, 1 to 120 characters
+- `body`: optional string, at most 1,000 characters
+- `priority`: normal | high
+- `tag`: optional string, at most 64: replaces this device's earlier notification with that tag
+- `from`: optional string, at most 64, shown as says it is from
+
+Answered by `notify.result`, `agent.request_result`.
+
+Posted as plain text in the Agent messages channel. 30 an hour, burst 5; high priority 10 an hour.
+
+`notify.result`
+
+- `version`: integer, 1
+- `notifyId`: string, UUID
+- `status`: posted
+
+#### `ask.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `ask.request` | edition-draft | agent-to-phone | ask_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `ask.posted` | edition-draft | phone-to-agent | ask_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `ask.answer` | edition-draft | phone-to-agent | ask_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `ask.dismissed` | edition-draft | phone-to-agent | ask_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `ask.expired` | edition-draft | phone-to-agent | ask_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `ask.cancel` | edition-draft | agent-to-phone | ask_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `ask.cancelled` | edition-draft | phone-to-agent | ask_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `ask.status` | edition-draft | agent-to-phone | ask_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, cli |
+
+`ask.request`
+
+- `version`: integer, 1
+- `askId`: string, UUID (UUIDv7 from the agent; a retry never posts twice)
+- `title`: string, 1 to 120 characters
+- `body`: optional string, at most 1,000 characters
+- `options`: array of 0 to 3 {id ([a-z0-9_-]{1,32}), label (1 to 20 characters)}; at most 2 with allowText; at least one option or allowText
+- `allowText`: boolean
+- `textHint`: optional string, at most 40 characters
+- `requireUnlock`: boolean
+- `expiresAt`: integer, Unix ms, at most 24 hours ahead
+- `from`: optional string, at most 64 characters
+
+Answered by `ask.posted`, `agent.request_result`.
+
+A high-importance notification in Agent questions. 20 an hour, 3 pending per agent, 10 on the phone.
+
+`ask.posted`
+
+- `version`: integer, 1
+- `askId`: string, UUID
+
+`ask.answer`
+
+- `version`: integer, 1
+- `askId`: string, UUID
+- `option`: optional string, an option id
+- `text`: optional string, at most 1,000 characters
+- `answeredAt`: integer, Unix ms
+
+Kept for 24 hours and sent again at the start of each session until the ask ends.
+
+`ask.dismissed`
+
+- `version`: integer, 1
+- `askId`: string, UUID
+
+`ask.expired`
+
+- `version`: integer, 1
+- `askId`: string, UUID
+
+`ask.cancel`
+
+- `version`: integer, 1
+- `askId`: string, UUID
+
+Answered by `ask.cancelled`.
+
+`ask.cancelled`
+
+- `version`: integer, 1
+- `askId`: string, UUID
+
+`ask.status`
+
+- `version`: integer, 1
+- `askId`: string, UUID
+
+Answered by `ask.posted`, `ask.answer`, `ask.dismissed`, `ask.expired`, `ask.cancelled`, `agent.request_result`.
+
+#### `agents.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `agents.state` | edition-draft | phone-to-mac | agents_mirror_draft1 | yes | messageId | 45,056 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `agents.grant_set` | edition-draft | mac-to-phone | agents_mirror_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+
+`agents.state`
+
+- `version`: integer, 1
+- `agents`: array of {deviceId, name, platform, app, os, pairedAt, lastSeenAt?, online, route?, grants (as in agent.grants), activity (newest 50 audit entries {at, action, outcome, detail?})}
+
+After features.update with the key on both sides and on every change, at most once a second.
+
+`agents.grant_set`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `deviceId`: string, the agent
+- `key`: string, a grant name
+- `on`: boolean
+- `window`: 1h | today | 7d | forever, with on
+
+Answered by `agents.state`.
+
+Applied as if switched on the phone, recorded as changed on that Mac.
 
 <!-- END GENERATED -->

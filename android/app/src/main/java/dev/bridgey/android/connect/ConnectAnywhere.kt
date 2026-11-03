@@ -42,8 +42,15 @@ data class TunnelInfo(
     val peer: String?,
 )
 
-/** One paired device as the core needs it. */
-data class ConnectPeer(val id: String, val side: Int, val pairSecret: ByteArray, val addresses: List<LearnedAddress>, val connected: Boolean)
+/** One paired device as the core needs it; [invite] for an invite peer (id `invite:<rdv>`, the invite secret as pair secret). */
+data class ConnectPeer(
+    val id: String,
+    val side: Int,
+    val pairSecret: ByteArray,
+    val addresses: List<LearnedAddress>,
+    val connected: Boolean,
+    val invite: Boolean = false,
+)
 
 sealed interface ConnectStatus {
     /** The setting is off (or Bridgey is off). */
@@ -157,6 +164,7 @@ class ConnectAnywhere(
                 .put("side", peer.side)
                 .put("pairSecret", Base64.getEncoder().encodeToString(peer.pairSecret))
                 .put("connected", peer.connected)
+                .apply { if (peer.invite) put("invite", true) }
                 .put("addresses", JSONArray(peer.addresses.map { address ->
                     JSONObject().put("a", address.a).put("p", address.port).put("kind", address.kind).apply { address.vpn?.let { put("vpn", it) } }
                 }))

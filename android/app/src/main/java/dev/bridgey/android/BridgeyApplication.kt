@@ -166,6 +166,8 @@ class BridgeyApplication : Application() {
             metered = { getSystemService(android.net.ConnectivityManager::class.java).isActiveNetworkMetered },
         )
         pairing.attachConnect(connect)
+        // See battery turned on for an agent: it hears the battery now, not at the next change.
+        pairing.agentGrantsChanged = { lastBatteryIntent?.let(::publishBattery) }
         applicationScope.launch {
             settings.state.map { it.connectAway }.distinctUntilChanged().collect { updateConnect() }
         }
@@ -453,12 +455,15 @@ class BridgeyApplication : Application() {
         updateConnect()
     }
 
+    /** The control service this phone uses (debuggable builds may point it elsewhere); an invite must name it. */
+    fun controlUrl(): String = (if (BuildConfig.DEBUG) settings.connectDebugControlUrl else null) ?: BuildConfig.CONNECT_CONTROL_URL
+
     /** Starts or stops Connect anywhere to match the setting and Bridgey's own switch. */
     @Synchronized fun updateConnect() {
         if (!::connect.isInitialized) return
         val wanted = isBridgeyEnabled && settings.state.value.connectAway
         if (wanted && !connect.running) {
-            val url = (if (BuildConfig.DEBUG) settings.connectDebugControlUrl else null) ?: BuildConfig.CONNECT_CONTROL_URL
+            val url = controlUrl()
             connect.start(url, relayOnly = BuildConfig.DEBUG && settings.connectDebugRelayOnly)
             pairing.connectChanged()
         } else if (!wanted && connect.running) {
