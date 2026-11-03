@@ -573,7 +573,8 @@ async fn execute(ctx: &Ctx, command: Command) -> Result<(Value, String), CliErro
             }
             let mut t = String::new();
             for c in &codes {
-                let posted = c["postedAt"].as_u64().unwrap_or(0);
+                // The phone's clock may run a few seconds ahead of this host's: a code is never "in 8 s".
+                let posted = c["postedAt"].as_u64().unwrap_or(0).min(now);
                 let source = match c["source"].as_str() {
                     Some("email") => format!("email ({})", c["app"].as_str().unwrap_or("mail")),
                     _ => "sms".into(),
