@@ -199,7 +199,7 @@ struct AgentsOnPhoneCard: View {
                          footnote: live ? note : note + " " + String(format: L10n.agents("mac.lastKnown", fallback: "%1$@ is not connected. This is the last state it sent."), phoneName)) {
                 ForEach(Array(state.agents.enumerated()), id: \.element.id) { index, agent in
                     AgentBlock(agent: agent, phoneID: phoneID, phoneName: phoneName, live: live, divider: index > 0,
-                               startsOpen: state.agents.count == 1, model: model, actions: actions)
+                               startsOpen: index == 0, model: model, actions: actions)
                 }
             }
         }
