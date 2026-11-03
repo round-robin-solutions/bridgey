@@ -63,10 +63,16 @@ impl Paths {
     }
 }
 
-/// A folder only its owner can enter (0700), created if missing; an existing one is tightened.
+/// A folder only its owner can enter (0700), created if missing; an existing one is tightened. A symlink or a
+/// folder owned by someone else is refused.
 pub fn private_dir(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
     fs::create_dir_all(dir)?;
-    let mode = fs::metadata(dir)?.permissions().mode() & 0o777;
+    let meta = fs::symlink_metadata(dir)?;
+    if !meta.is_dir() || meta.uid() != unsafe { libc::getuid() } {
+        return Err(std::io::Error::other(format!("{} is not a folder owned by this user", dir.display())));
+    }
+    let mode = meta.permissions().mode() & 0o777;
     if mode != 0o700 {
         fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
     }
@@ -76,14 +82,23 @@ pub fn private_dir(dir: &Path) -> std::io::Result<()> {
 /// Writes a file only its owner can read (0600), atomically: a temporary file in the same folder, then rename.
 pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let dir = path.parent().unwrap_or(Path::new("."));
-    let tmp = dir.join(format!(".{}.tmp{}", path.file_name().and_then(|n| n.to_str()).unwrap_or("file"), std::process::id()));
+    let suffix: String = crate::crypto::random::<6>().iter().map(|b| format!("{b:02x}")).collect();
+    let tmp = dir.join(format!(".{}.{suffix}.tmp", path.file_name().and_then(|n| n.to_str()).unwrap_or("file")));
     {
-        let mut f = fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?;
+        // A fresh name, never an existing file or a symlink planted there.
+        let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).custom_flags(libc::O_NOFOLLOW).open(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
     }
-    fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))?;
-    fs::rename(&tmp, path)
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    // The rename itself survives a crash only once the folder is on disk.
+    if let Ok(d) = fs::File::open(dir) {
+        let _ = d.sync_all();
+    }
+    Ok(())
 }
 
 /// The permission bits of a file, if it exists.

@@ -33,7 +33,12 @@ fn load_or_create(path: &std::path::Path) -> Result<SigningKey, String> {
 impl Keys {
     pub fn load(paths: &Paths) -> Result<Keys, String> {
         paths.ensure().map_err(|e| format!("{}: {e}", paths.root.display()))?;
-        Ok(Keys { identity: load_or_create(&paths.keys.join("identity.p8"))?, node: load_or_create(&paths.keys.join("node.p8"))? })
+        let identity = paths.keys.join("identity.p8");
+        // A lost identity with pairings left would make every phone refuse this install: never replace it silently.
+        if !identity.exists() && Trust::load_existing(paths)?.is_some_and(|t| !t.peers.is_empty()) {
+            return Err(format!("{} is missing but devices are paired; restore it, or pair again after removing state/trust.json", identity.display()));
+        }
+        Ok(Keys { identity: load_or_create(&identity)?, node: load_or_create(&paths.keys.join("node.p8"))? })
     }
 
     pub fn identity_public(&self) -> String {
@@ -87,8 +92,20 @@ impl Trust {
         paths.state.join("trust.json")
     }
 
+    fn load_existing(paths: &Paths) -> Result<Option<Trust>, String> {
+        let path = Self::path(paths);
+        match std::fs::read(&path) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(|e| format!("{}: {e}", path.display())),
+            Err(_) => Ok(None),
+        }
+    }
+
     pub fn load(paths: &Paths) -> Result<Trust, String> {
         let path = Self::path(paths);
+        // Pair secrets live here: refuse a file others can read, as for the keys.
+        if let Some(m) = mode(&path).filter(|m| m & 0o077 != 0) {
+            return Err(format!("{} is readable by others (mode {m:o}); run chmod 600 on it", path.display()));
+        }
         match std::fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display())),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {

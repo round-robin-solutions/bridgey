@@ -14,14 +14,15 @@ pub fn parse_duration(text: &str) -> Result<Duration, String> {
         None => (t, "s"),
     };
     let n: u64 = number.parse().map_err(|_| format!("not a duration: {text} (use 30s, 10m, 2h or 7d)"))?;
-    let ms = match unit {
-        "ms" => n,
-        "s" => n * 1000,
-        "m" => n * 60_000,
-        "h" => n * 3_600_000,
-        "d" => n * 86_400_000,
+    let factor = match unit {
+        "ms" => 1,
+        "s" => 1000,
+        "m" => 60_000,
+        "h" => 3_600_000,
+        "d" => 86_400_000,
         _ => return Err(format!("not a duration: {text} (use 30s, 10m, 2h or 7d)")),
     };
+    let ms = n.checked_mul(factor).filter(|ms| *ms <= 366 * 86_400_000).ok_or_else(|| format!("{text} is too long"))?;
     Ok(Duration::from_millis(ms))
 }
 

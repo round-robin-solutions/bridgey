@@ -66,7 +66,8 @@ impl Invite {
             return Err("name");
         }
         let expires_s = v["x"].as_u64().ok_or("expiry")?;
-        if now_ms > 0 && (expires_s * 1000 < now_ms || expires_s * 1000 > now_ms + LIFETIME_S * 1000 + 60_000) {
+        let expires_ms = expires_s.saturating_mul(1000);
+        if now_ms > 0 && (expires_ms < now_ms || expires_ms > now_ms + LIFETIME_S * 1000 + 60_000) {
             return Err("expired");
         }
         Ok(Invite { secret, control_url, name, expires_s })

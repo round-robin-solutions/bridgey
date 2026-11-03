@@ -29,6 +29,14 @@ pub fn same_user(stream: &UnixStream) -> bool {
     }
 }
 
+/// The connecting process's user and process ID.
+pub fn peer(stream: &UnixStream) -> (u32, Option<i32>) {
+    match stream.peer_cred() {
+        Ok(c) => (c.uid(), c.pid()),
+        Err(_) => (u32::MAX, None),
+    }
+}
+
 pub struct Conn {
     reader: BufReader<OwnedReadHalf>,
     writer: OwnedWriteHalf,

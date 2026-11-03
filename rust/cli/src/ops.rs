@@ -27,12 +27,23 @@ impl Out {
 }
 
 async fn read_line(reader: &mut BufReader<OwnedReadHalf>) -> Option<Value> {
+    read_line_max(reader, 4096).await
+}
+
+async fn read_line_max(reader: &mut BufReader<OwnedReadHalf>, max: u64) -> Option<Value> {
     let mut line = String::new();
-    let mut limited = reader.take(64 * 1024);
+    let mut limited = reader.take(max);
     match limited.read_line(&mut line).await {
         Ok(0) | Err(_) => None,
         Ok(_) => serde_json::from_str(line.trim_end()).ok(),
     }
+}
+
+/// Who ran the command: user and process from the socket (the kernel's word), the parent's name and
+/// BRIDGEY_CALLER as the client said, bounded.
+fn caller(claimed: &Value, (uid, pid): (u32, Option<i32>)) -> Value {
+    let text = |k: &str, n: usize| claimed[k].as_str().map(|s| crate::session::printable(s, n));
+    json!({"uid": uid, "pid": pid, "user": text("user", 32), "parent": text("parent", 32), "label": text("label", 64)})
 }
 
 fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
@@ -59,7 +70,7 @@ async fn next_reply(rx: &mut mpsc::UnboundedReceiver<Reply>, timeout: Duration, 
                 "busy" => Err(CliError::new("rate_limited", format!("{} already has too many open requests from this device", peer.name)).with("retryAfterMs", 0)),
                 "invalid" => Err(CliError::new("usage", format!("{} refused the request as invalid (a field over its limit?)", peer.name))),
                 "unknown" => Err(CliError::new("failed", format!("{} does not know that request", peer.name))),
-                other => Err(CliError::new("incompatible", format!("{} cannot do this ({other})", peer.name))),
+                other => Err(CliError::new("incompatible", format!("{} cannot do this ({})", peer.name, crate::session::printable(other, 32)))),
             }
         }
         Ok(Some(r)) => Ok(r),
@@ -69,12 +80,14 @@ async fn next_reply(rx: &mut mpsc::UnboundedReceiver<Reply>, timeout: Duration, 
 }
 
 impl Daemon {
-    pub async fn serve(self: Arc<Self>, conn: Conn) {
+    pub async fn serve(self: Arc<Self>, conn: Conn, peer: (u32, Option<i32>)) {
         self.clients.fetch_add(1, Ordering::Relaxed);
         self.used();
         let (mut reader, writer) = conn.split();
         let mut out = Out { writer };
-        if let Some(req) = read_line(&mut reader).await {
+        // The request (a clipboard text escaped as JSON fits), within 10 seconds of connecting.
+        let first = tokio::time::timeout(Duration::from_secs(10), read_line_max(&mut reader, 512 * 1024)).await.ok().flatten();
+        if let Some(req) = first {
             let cmd = req["cmd"].as_str().unwrap_or("").to_string();
             let args = req["args"].clone();
             let result = self.clone().dispatch(&cmd, &args, &req, &mut reader, &mut out).await;
@@ -85,7 +98,7 @@ impl Daemon {
             if !matches!(cmd.as_str(), "status" | "devices" | "transfers" | "ping-daemon") {
                 crate::audit::record(
                     &self.paths,
-                    json!({"at": now_ms(), "command": cmd, "device": device.or_else(|| args["device"].as_str().map(str::to_string)), "outcome": outcome, "argsHash": crate::audit::args_hash(&self.paths, &args), "caller": req["caller"]}),
+                    json!({"at": now_ms(), "command": cmd, "device": device.or_else(|| args["device"].as_str().map(str::to_string)), "outcome": outcome, "argsHash": crate::audit::args_hash(&self.paths, &args), "caller": caller(&req["caller"], peer)}),
                 );
             }
             match result {
@@ -223,7 +236,7 @@ impl Daemon {
             return Err(CliError::new("incompatible", format!("{} runs a Bridgey without agent devices; update the app", peer.name)));
         }
         let mid = crate::crypto::uuid4();
-        let (_g, mut rx) = self.wait_for(vec![format!("msg:{mid}")]);
+        let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("msg:{mid}")]);
         let mut payload = json!({"version": 1, "requestId": crate::crypto::uuid4(), "keys": keys});
         if let Some(n) = arg_str(args, "note") {
             payload["note"] = json!(n.chars().take(120).collect::<String>());
@@ -237,6 +250,9 @@ impl Daemon {
         if let Some(name) = arg_str(args, "name") {
             self.rename(name);
         }
+        if arg_str(args, "join").is_some() && !cfg!(debug_assertions) {
+            return Err(CliError::new("usage", "joining an invite is a test hook of debug builds"));
+        }
         let join = match arg_str(args, "join") {
             Some(link) => Some(crate::invite::Invite::parse(link, now_ms()).map_err(|e| CliError::new("usage", format!("that invite cannot be used: {e}")))?),
             None => None,
@@ -244,7 +260,8 @@ impl Daemon {
         let (invite, mut rx) = self.start_invite(join);
         let label = invite.label();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(crate::invite::LIFETIME_S);
-        out.event(json!({"event": "invite", "link": invite.link(), "expiresAt": invite.expires_s * 1000, "name": invite.name, "qr": if args["linkOnly"] == true { Value::Null } else { json!(crate::invite::qr(&invite.link())) }})).await;
+        out.event(json!({"event": "invite", "link": invite.link(), "expiresAt": invite.expires_s.saturating_mul(1000), "name": invite.name, "qr": if args["linkOnly"] == true { Value::Null } else { json!(crate::invite::qr(&invite.link())) }})).await;
+        let mut shown = false;
         let result = loop {
             tokio::select! {
                 _ = tokio::time::sleep_until(deadline) => break Err(CliError::new("timeout", "The invite expired (10 minutes). Run bridgey pair again.")),
@@ -255,17 +272,20 @@ impl Daemon {
                 }
                 ev = rx.recv() => match ev {
                     Some(InviteEvent::Code { code, peer_name, confirm }) => {
+                        shown = true;
                         out.event(json!({"event": "code", "code": code, "peer": peer_name})).await;
                         // The answer comes from the person at the terminal; there is no flag that skips it.
                         let answer = tokio::time::timeout(Duration::from_secs(120), read_line(reader)).await;
                         match answer {
-                            Ok(Some(v)) if v["confirm"] == true => { let _ = confirm.send(true); out.event(json!({"event": "confirmed"})).await; }
+                            // The client repeats the code it showed: a line written blind, before the code, never confirms.
+                            Ok(Some(v)) if v["confirm"] == true && v["code"].as_str() == Some(code.as_str()) => { let _ = confirm.send(true); out.event(json!({"event": "confirmed"})).await; }
                             Ok(Some(_)) => { let _ = confirm.send(false); break Err(CliError::new("declined", "The codes did not match; nothing was paired.")); }
                             Ok(None) => { let _ = confirm.send(false); break Err(CliError::new("interrupted", "pairing cancelled")); }
                             Err(_) => { let _ = confirm.send(false); break Err(CliError::new("timeout", "No answer to the code within 2 minutes.")); }
                         }
                     }
                     Some(InviteEvent::Paired { peer }) => break Ok(peer),
+                    Some(InviteEvent::Failed(reason)) if shown => break Err(CliError::new("declined", format!("Pairing did not finish ({reason}); the invite is used up. Run bridgey pair again."))),
                     Some(InviteEvent::Failed(reason)) => {
                         // The phone hung up or the code was refused there; a new tunnel may still come within the invite's time.
                         out.event(json!({"event": "attempt_failed", "reason": reason})).await;
@@ -303,7 +323,7 @@ impl Daemon {
                 payload[k] = json!(v);
             }
         }
-        let (_g, mut rx) = self.wait_for(vec![format!("notify:{id}"), format!("msg:{mid}")]);
+        let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("notify:{id}"), format!("msg:{mid}")]);
         h.send_json_id("notify.post", &payload, &mid, None);
         next_reply(&mut rx, Duration::from_secs(10), &peer, &self.local.name()).await?;
         Ok(json!({"device": device_json(&peer), "notifyId": id, "status": "posted"}))
@@ -324,7 +344,7 @@ impl Daemon {
             }
         }
         let mid = crate::crypto::uuid4();
-        let (_g, mut rx) = self.wait_for(vec![format!("ask:{id}"), format!("msg:{mid}")]);
+        let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("ask:{id}"), format!("msg:{mid}")]);
         self.add_ask(&id, Ask { device: peer.device_id.clone(), expires_at: expires, state: "sent".into(), answer: None });
         h.send_json_id("ask.request", &payload, &mid, None);
         let posted = next_reply(&mut rx, Duration::from_secs(15), &peer, &self.local.name()).await;
@@ -349,7 +369,7 @@ impl Daemon {
 
     /// Waits for the ask's end. A timeout cancels it on the phone unless `keepOnTimeout`.
     async fn wait_answer(&self, peer: &Peer, id: &str, timeout: Duration, args: &Value, out: &mut Out) -> Result<Value, CliError> {
-        let (_g, mut rx) = self.wait_for(vec![format!("ask:{id}")]);
+        let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("ask:{id}")]);
         let deadline = tokio::time::Instant::now() + timeout;
         let mut asked_status = false;
         loop {
@@ -423,7 +443,7 @@ impl Daemon {
         self.require(&peer, "ring")?;
         if args["stop"] == true {
             let alert = self.ring_alert(&peer.device_id).unwrap_or_else(crate::crypto::uuid4);
-            let (_g, mut rx) = self.wait_for(vec![format!("find:{alert}")]);
+            let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("find:{alert}")]);
             h.send_json("find.stop", &json!({"alertId": alert}));
             let _ = next_reply(&mut rx, Duration::from_secs(5), &peer, &self.local.name()).await;
             self.set_ring(&peer.device_id, None);
@@ -432,7 +452,7 @@ impl Daemon {
         let duration = arg_ms(args, "durationMs", 30_000).clamp(1000, 60_000);
         let alert = crate::crypto::uuid4();
         let mid = crate::crypto::uuid4();
-        let (_g, mut rx) = self.wait_for(vec![format!("find:{alert}"), format!("msg:{mid}")]);
+        let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("find:{alert}"), format!("msg:{mid}")]);
         h.send_json_id("find.start", &json!({"alertId": alert}), &mid, None);
         let r = next_reply(&mut rx, Duration::from_secs(8), &peer, &self.local.name()).await?;
         if r.kind != "find.started" {
@@ -466,7 +486,7 @@ impl Daemon {
         let h = self.ensure(&peer, self.connect_timeout(args)).await?;
         self.require(&peer, "ring")?;
         let mid = crate::crypto::uuid4();
-        let (_g, mut rx) = self.wait_for(vec![format!("msg:{mid}")]);
+        let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("msg:{mid}")]);
         let started = std::time::Instant::now();
         h.send_json_id("ping.request", &json!({"version": 1}), &mid, None);
         next_reply(&mut rx, Duration::from_secs(5), &peer, &self.local.name()).await?;
@@ -486,7 +506,7 @@ impl Daemon {
             return Err(CliError::new("usage", "text and HTML together are at most 32 KiB"));
         }
         let mid = crate::crypto::uuid4();
-        let (_g, mut rx) = self.wait_for(vec![format!("msg:{mid}")]);
+        let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("msg:{mid}")]);
         match html {
             Some(html) => h.send_json_id("clipboard.rich", &json!({"version": 1, "text": text, "html": html}), &mid, None),
             None => h.send_raw_id("clipboard.update", text.as_bytes().to_vec(), &mid),
@@ -505,7 +525,7 @@ impl Daemon {
         let timeout = arg_ms(args, "timeoutMs", 120_000).min(600_000);
         let id = crate::crypto::uuid4();
         let mid = crate::crypto::uuid4();
-        let (_g, mut rx) = self.wait_for(vec![format!("cliprq:{id}"), format!("msg:{mid}")]);
+        let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("cliprq:{id}"), format!("msg:{mid}")]);
         h.send_json_id("clipboard.request", &json!({"version": 1, "requestId": id, "expiresAt": now_ms() + timeout}), &mid, None);
         let r = next_reply(&mut rx, Duration::from_millis(timeout + 5000), &peer, &self.local.name()).await?;
         let p = r.payload.unwrap_or(Value::Null);
@@ -520,7 +540,7 @@ impl Daemon {
         let peer = self.resolve(arg_str(args, "device"))?;
         let h = self.ensure(&peer, self.connect_timeout(args)).await?;
         self.require(&peer, "codes")?;
-        let wait_ms = arg_ms(args, "waitMs", 0);
+        let wait_ms = arg_ms(args, "waitMs", 0).min(3_600_000);
         let since = arg_ms(args, "sinceMs", 600_000).min(3_600_000);
         let newer_than = if wait_ms > 0 { Some(arg_ms(args, "newerThan", now_ms())) } else { None };
         let deadline = now_ms() + wait_ms;
@@ -536,7 +556,7 @@ impl Daemon {
             if let Some(n) = newer_than {
                 payload["newerThan"] = json!(n);
             }
-            let (_g, mut rx) = self.wait_for(vec![format!("codes:{id}"), format!("msg:{mid}")]);
+            let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("codes:{id}"), format!("msg:{mid}")]);
             h.send_json_id("codes.query", &payload, &mid, None);
             let r = next_reply(&mut rx, Duration::from_millis(this_wait + 10_000), &peer, &self.local.name()).await;
             let r = match r {
@@ -572,6 +592,9 @@ impl Daemon {
         }
         let mut files = Vec::new();
         for p in &paths {
+            if !std::path::Path::new(p).is_absolute() {
+                return Err(CliError::new("usage", format!("{p}: the daemon takes absolute paths")));
+            }
             let meta = std::fs::metadata(p).map_err(|e| CliError::new("usage", format!("{p}: {e}")))?;
             if meta.is_dir() {
                 return Err(CliError::new("usage", format!("{p} is a folder: this version sends files only (folders come with the transfer engine)")));
@@ -628,7 +651,7 @@ impl Daemon {
         let mime = mime_for(&name);
         let mut info = TransferInfo { transfer_id: id.clone(), device: peer.device_id.clone(), name: name.clone(), bytes: 0, total: size, state: "offered".into(), started_at: now_ms(), ended_at: None };
         self.transfer_update(info.clone());
-        let (_g, mut rx) = self.wait_for(vec![format!("xfer:{id}"), format!("msg:{mid}")]);
+        let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("xfer:{id}"), format!("msg:{mid}")]);
         h.send_json_id("files.offer", &json!({"transferId": id, "name": name, "mimeType": mime, "size": size, "sha256": hash}), &mid, Some(id.clone()));
         let fail = |info: &mut TransferInfo, state: &str| {
             info.state = state.into();
@@ -663,7 +686,7 @@ impl Daemon {
         loop {
             while seq - acked > WINDOW {
                 match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
-                    Ok(Some(r)) if r.kind == "files.chunk.ack" => acked = acked.max(r.message.sequence.unwrap_or(-1)),
+                    Ok(Some(r)) if r.kind == "files.chunk.ack" => acked = acked.max(r.message.sequence.unwrap_or(-1).min(seq - 1)),
                     Ok(Some(r)) if r.kind == "files.cancel" => {
                         fail(&mut info, "cancelled");
                         return Err(CliError::new("transfer_failed", "cancelled on the phone"));

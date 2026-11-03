@@ -461,7 +461,7 @@ async fn execute(ctx: &Ctx, command: Command) -> Result<(Value, String), CliErro
             for d in list {
                 let state = if d["online"] == true { format!("online, {}, {} ms", route_text(&d["route"], &d["relay"]), d["rttMs"]) } else { format!("away, last seen {}", time::relative(d["lastSeenAt"].as_u64().unwrap_or(0), now)) };
                 let granted: Vec<String> = d["granted"].as_array().map(|a| a.iter().filter_map(|g| g.as_str().map(str::to_string)).collect()).unwrap_or_default();
-                t.push_str(&format!("{}  ({})\n  {}\n  granted: {}\n", d["name"].as_str().unwrap_or("?"), &d["id"].as_str().unwrap_or("")[..8.min(d["id"].as_str().unwrap_or("").len())], state, if granted.is_empty() { "nothing yet".into() } else { granted.join(", ") }));
+                t.push_str(&format!("{}  ({})\n  {}\n  granted: {}\n", d["name"].as_str().unwrap_or("?"), daemon::short(d["id"].as_str().unwrap_or("")), state, if granted.is_empty() { "nothing yet".into() } else { granted.join(", ") }));
             }
             Ok((v, t))
         }
@@ -507,7 +507,7 @@ async fn execute(ctx: &Ctx, command: Command) -> Result<(Value, String), CliErro
             let v = ctx.call("transfers", json!({})).await?;
             let mut t = String::new();
             for x in v["transfers"].as_array().cloned().unwrap_or_default() {
-                t.push_str(&format!("{}  {}  {}/{} bytes  {}  {}\n", &x["transferId"].as_str().unwrap_or("")[..8], x["name"].as_str().unwrap_or(""), x["bytes"], x["total"], x["state"].as_str().unwrap_or(""), time::relative(x["startedAt"].as_u64().unwrap_or(0), now)));
+                t.push_str(&format!("{}  {}  {}/{} bytes  {}  {}\n", daemon::short(x["transferId"].as_str().unwrap_or("")), x["name"].as_str().unwrap_or(""), x["bytes"], x["total"], x["state"].as_str().unwrap_or(""), time::relative(x["startedAt"].as_u64().unwrap_or(0), now)));
             }
             if t.is_empty() {
                 t = "No transfers since the background agent started.\n".into();
@@ -579,7 +579,10 @@ async fn execute(ctx: &Ctx, command: Command) -> Result<(Value, String), CliErro
                     _ => "sms".into(),
                 };
                 let mark = if c["latest"] == true { "Latest, use this one" } else if c["replaced"] == true { "Older, replaced" } else { "" };
-                t.push_str(&format!("{:<10}  {:<20}  {:<16}  {:<10}  {}\n", c["code"].as_str().unwrap_or(""), c["service"].as_str().unwrap_or(""), source, time::relative(posted, now), mark));
+                // Service names come from message senders: printed without control or escape characters.
+                let p = |k: &str, n: usize| session::printable(c[k].as_str().unwrap_or(""), n);
+                let source = session::printable(&source, 24);
+                t.push_str(&format!("{:<10}  {:<20}  {:<16}  {:<10}  {}\n", p("code", 12), p("service", 64), source, time::relative(posted, now), mark));
             }
             if codes.is_empty() {
                 t.push_str("No codes in that time.\n");
@@ -709,7 +712,9 @@ async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<Str
         }
         None => None,
     };
-    if !std::io::stdin().is_terminal() && !ctx.jsonl {
+    // The code is confirmed by the person at this terminal: asked and answered on /dev/tty, never stdin, so a
+    // pipe or a script cannot answer for them.
+    if std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty").is_err() {
         return Err(usage("bridgey pair needs a terminal: you confirm the code it shows (there is no way to skip that)"));
     }
     let mut conn = client::connect(&ctx.paths, true).await?;
@@ -750,24 +755,26 @@ async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<Str
                 }
             }
             Some("code") => {
-                let code = v["code"].as_str().unwrap_or("");
+                let code: String = v["code"].as_str().unwrap_or("").chars().filter(char::is_ascii_digit).take(6).collect();
                 let spaced = format!("{} {}", &code[..3.min(code.len())], &code[3.min(code.len())..]);
                 let answer = tokio::task::spawn_blocking(move || {
-                    let mut err = std::io::stderr();
-                    let _ = write!(err, "\nDoes the phone show {spaced}? [y/N] ");
-                    let _ = err.flush();
+                    use std::io::BufRead;
+                    let Ok(tty) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty") else { return false };
+                    let mut out = &tty;
+                    let _ = write!(out, "\nDoes the phone show {spaced}? [y/N] ");
+                    let _ = out.flush();
                     let mut s = String::new();
-                    let _ = std::io::stdin().read_line(&mut s);
+                    let _ = std::io::BufReader::new(&tty).read_line(&mut s);
                     matches!(s.trim().to_lowercase().as_str(), "y" | "yes")
                 })
                 .await
                 .unwrap_or(false);
-                let _ = writer.write_all(format!("{}\n", json!({"confirm": answer})).as_bytes()).await;
+                let _ = writer.write_all(format!("{}\n", json!({"confirm": answer, "code": code})).as_bytes()).await;
                 if answer {
                     eprintln!("Confirmed here. Confirm on the phone too.");
                 }
             }
-            Some("attempt_failed") => eprintln!("bridgey: the phone's attempt ended ({}); waiting for another within the invite's time", v["reason"].as_str().unwrap_or("")),
+            Some("attempt_failed") => eprintln!("bridgey: the phone's attempt ended ({}); waiting for another within the invite's time", session::printable(v["reason"].as_str().unwrap_or(""), 64)),
             Some("paired") => eprintln!("Paired. Setting up the connection for away from home..."),
             _ => {}
         }

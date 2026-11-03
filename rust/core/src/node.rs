@@ -1697,13 +1697,16 @@ impl Node {
             "rttMs": conn.rtt().as_millis() as u64,
         }));
         let node = self.clone();
+        // A first pairing by invite waits for two people to compare and confirm the code (up to 2 minutes).
+        let invite = peer.as_ref().is_some_and(|p| self.peers.lock().unwrap().get(p).is_some_and(|p| p.cfg.invite));
+        let authenticate_within = Duration::from_secs(if invite { 135 } else { 15 });
         tokio::spawn(async move {
             let unclaimed = async {
                 tokio::time::sleep(Duration::from_secs(15)).await;
                 if !tunnel.claimed.load(Ordering::Relaxed) {
                     tunnel.conn.close(0u32.into(), b"unclaimed");
                 }
-                tokio::time::sleep(Duration::from_secs(15)).await;
+                tokio::time::sleep(authenticate_within).await;
                 if !tunnel.authenticated.load(Ordering::Relaxed) {
                     tunnel.conn.close(0u32.into(), b"unauthenticated");
                 }

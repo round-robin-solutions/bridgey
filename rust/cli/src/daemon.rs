@@ -177,6 +177,11 @@ impl Drop for WaitGuard<'_> {
     }
 }
 
+/// The first 8 characters of an ID, for log lines.
+pub fn short(id: &str) -> String {
+    crate::session::printable(id, 8)
+}
+
 fn log(msg: &str) {
     eprintln!("{} {msg}", crate::time::rfc3339(now_ms()));
 }
@@ -241,7 +246,7 @@ impl Daemon {
             clients: AtomicUsize::new(0),
             stop: Notify::new(),
         });
-        log(&format!("bridgey {VERSION} daemon started (profile {}, device {}, udp {}, {})", paths.profile, &daemon.local.device_id[..8], daemon.node.udp_port(), if service { "service" } else { "on demand" }));
+        log(&format!("bridgey {VERSION} daemon started (profile {}, device {}, udp {}, {})", paths.profile, short(&daemon.local.device_id), daemon.node.udp_port(), if service { "service" } else { "on demand" }));
         daemon.sync_peers();
         {
             let d = daemon.clone();
@@ -285,8 +290,9 @@ impl Daemon {
                     if !ipc::same_user(&stream) {
                         continue;
                     }
+                    let peer = ipc::peer(&stream);
                     let d = daemon.clone();
-                    tokio::spawn(async move { d.serve(Conn::new(stream)).await });
+                    tokio::spawn(async move { d.serve(Conn::new(stream), peer).await });
                 }
             }
         }
@@ -326,7 +332,7 @@ impl Daemon {
             tick.tick().await;
             let now = now_ms();
             let mut st = self.st.lock().unwrap();
-            st.invites.retain(|_, i| i.invite.expires_s * 1000 > now || i.session.is_some());
+            st.invites.retain(|_, i| i.invite.expires_s.saturating_mul(1000) > now || i.session.is_some());
             st.asks.retain(|_, a| a.expires_at + 86_400_000 > now);
             if st.transfers.len() > 50 {
                 let extra = st.transfers.len() - 50;
@@ -386,8 +392,8 @@ impl Daemon {
                 self.save_core_state();
             }
             "connect.failed" => {
-                if let Some(p) = e["peer"].as_str() {
-                    self.st.lock().unwrap().last_failure.insert(p.to_string(), e["reason"].as_str().unwrap_or("unreachable").to_string());
+                if let Some(p) = e["peer"].as_str().filter(|p| self.st.lock().unwrap().trust.peers.contains_key(*p)) {
+                    self.st.lock().unwrap().last_failure.insert(p.to_string(), e["reason"].as_str().unwrap_or("unreachable").chars().take(32).collect());
                     self.changed.notify_waiters();
                 }
             }
@@ -434,7 +440,7 @@ impl Daemon {
             mode,
         };
         let d = self.clone();
-        let pins: session::PinLookup = Arc::new(move |id: &str| d.st.lock().unwrap().trust.peers.get(id).map(|p| p.identity_key.clone()));
+        let pins: session::PinLookup = Arc::new(move |id: &str| d.st.lock().unwrap().trust.peers.values().find(|p| p.device_id.eq_ignore_ascii_case(id)).map(|p| p.identity_key.clone()));
         session::spawn(spec, self.local.clone(), pins, self.events.clone());
     }
 
@@ -483,7 +489,7 @@ impl Daemon {
                 let _ = st.trust.save(&self.paths);
                 st.last_failure.remove(&peer.device_id);
                 drop(st);
-                log(&format!("session with {} authenticated", &peer.device_id[..8.min(peer.device_id.len())]));
+                log(&format!("session with {} authenticated", short(&peer.device_id)));
                 let features: Map<String, Value> = OWN_FEATURES.iter().map(|(k, v)| (k.to_string(), Value::Bool(*v))).collect();
                 handle.send_json("features.update", &json!({"version": 1, "features": features}));
                 handle.send_json("agent.hello", &json!({"version": 1, "platform": "cli", "app": format!("bridgey {VERSION}"), "os": format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)}));
@@ -504,12 +510,12 @@ impl Daemon {
                         st.sessions.remove(p);
                         st.features.remove(p);
                     }
-                    if !authenticated {
-                        st.last_failure.insert(p.clone(), reason.clone());
+                    if !authenticated && st.trust.peers.contains_key(p) {
+                        st.last_failure.insert(p.clone(), crate::session::printable(&reason, 64));
                     }
                 }
                 drop(st);
-                log(&format!("session {local_id} closed: {reason}"));
+                log(&format!("session {local_id} closed: {}", crate::session::printable(&reason, 64)));
                 self.sync_peers();
                 self.changed.notify_waiters();
             }
@@ -540,10 +546,29 @@ impl Daemon {
                 let mine = {
                     let mut st = self.st.lock().unwrap();
                     let Some(rec) = st.trust.peers.get_mut(peer) else { return };
-                    rec.learned.port = p["port"].as_u64().filter(|v| (1..=65535).contains(v)).unwrap_or(42458) as u16;
-                    rec.learned.addrs = p["addrs"].as_array().map(|a| a.iter().take(16).cloned().collect()).unwrap_or_default();
+                    let port = p["port"].as_u64().filter(|v| (1..=65535).contains(v)).unwrap_or(42458) as u16;
+                    let addrs: Vec<Value> = p["addrs"]
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|x| {
+                                    let ip = x["a"].as_str()?.parse::<std::net::IpAddr>().ok()?;
+                                    let kind = x["kind"].as_str().filter(|k| ["lan", "vpn", "public6"].contains(k))?;
+                                    let mut o = json!({"a": ip.to_string(), "kind": kind});
+                                    if let Some(v) = x["vpn"].as_str().filter(|v| ["tailscale", "other"].contains(v)) { o["vpn"] = json!(v); }
+                                    Some(o)
+                                })
+                                .take(16)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let changed = rec.learned.port != port || rec.learned.addrs != addrs;
+                    rec.learned.port = port;
+                    rec.learned.addrs = addrs;
                     let mine = rec.pair_secret.as_deref().and_then(crypto::unb64).map(|s| derive::pair_check(&s));
-                    let _ = st.trust.save(&self.paths);
+                    if changed {
+                        let _ = st.trust.save(&self.paths);
+                    }
                     mine
                 };
                 self.sync_peers();
@@ -578,7 +603,7 @@ impl Daemon {
                     let _ = st.trust.save(&self.paths);
                 }
                 handle.send_json("connect.setup.ack", &json!({"version": 1}));
-                log(&format!("pair secret set with {}", &peer[..8.min(peer.len())]));
+                log(&format!("pair secret set with {}", short(peer)));
                 self.sync_peers();
                 self.changed.notify_waiters();
                 return;
@@ -594,12 +619,34 @@ impl Daemon {
             }
             "agent.grants" => {
                 if let Some(p) = payload.filter(|p| p["version"] == 1 && p["grants"].is_array()) {
+                    // Known grant names and fields only, bounded: the phone's words are shown, never trusted.
+                    let grants: Vec<Value> = p["grants"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .filter(|g| g["key"].as_str().is_some_and(|k| GRANTS.iter().any(|x| x.0 == k)))
+                        .take(GRANTS.len())
+                        .map(|g| {
+                            let state = match g["state"].as_str() { Some("on") => "on", Some("waiting") => "waiting", _ => "off" };
+                            let mut o = json!({"key": g["key"], "state": state});
+                            for k in ["grantedAt", "expiresAt"] {
+                                if let Some(v) = g[k].as_u64() { o[k] = json!(v); }
+                            }
+                            if let Some(w) = g["window"].as_str().filter(|w| ["1h", "today", "7d", "forever"].contains(w)) { o["window"] = json!(w); }
+                            if let Some(s) = g["scope"].as_str() { o["scope"] = json!(crate::session::printable(s, 200)); }
+                            o
+                        })
+                        .collect();
                     let mut st = self.st.lock().unwrap();
+                    let mut changed = false;
                     if let Some(rec) = st.trust.peers.get_mut(peer) {
-                        rec.grants = Some(p["grants"].clone());
+                        changed = rec.grants.as_ref() != Some(&Value::Array(grants.clone()));
+                        rec.grants = Some(Value::Array(grants));
                         rec.grants_at = now_ms();
                     }
-                    let _ = st.trust.save(&self.paths);
+                    if changed {
+                        let _ = st.trust.save(&self.paths);
+                    }
                     drop(st);
                     self.changed.notify_waiters();
                 }
@@ -624,7 +671,7 @@ impl Daemon {
             k if k.starts_with("files.") => m.transfer_id.as_ref().map(|t| format!("xfer:{t}")),
             _ => None,
         };
-        let Some(key) = key else { return };
+        let Some(key) = key.map(|k| format!("{peer}|{k}")) else { return };
         let tx = self.st.lock().unwrap().waiters.get(&key).cloned();
         if let Some(tx) = tx {
             let _ = tx.send(Reply { kind: m.kind.clone(), message: m, payload });
@@ -636,9 +683,14 @@ impl Daemon {
             return;
         }
         let mut st = self.st.lock().unwrap();
-        // An answer to an ask this run never saw (asked before a restart): keep it for bridgey wait.
-        let entry = st.asks.entry(id.to_string()).or_insert_with(|| Ask { device: peer.to_string(), expires_at: now_ms() + 86_400_000, state: "sent".into(), answer: None });
-        if entry.device != peer {
+        // An answer to an ask this run never saw (asked before a restart): keep it for bridgey wait, up to 256.
+        if !st.asks.contains_key(id) {
+            if kind != "ask.answer" || st.asks.len() >= 256 {
+                return;
+            }
+            st.asks.insert(id.to_string(), Ask { device: peer.to_string(), expires_at: now_ms() + 86_400_000, state: "sent".into(), answer: None });
+        }
+        if st.asks.get(id).is_some_and(|a| a.device != peer) {
             return;
         }
         if let Some(a) = st.asks.get_mut(id) {
@@ -654,7 +706,7 @@ impl Daemon {
             }
             .into();
             if kind == "ask.answer" {
-                a.answer = Some(json!({"option": p["option"], "text": p["text"], "answeredAt": p["answeredAt"]}));
+                a.answer = Some(json!({"option": p["option"].as_str().map(|o| crate::session::printable(o, 32)), "text": p["text"].as_str().map(|x| x.chars().take(1000).collect::<String>()), "answeredAt": p["answeredAt"].as_u64()}));
             }
         }
         drop(st);
@@ -754,7 +806,9 @@ impl Daemon {
     }
 
     /// Registers reply keys before a request goes out; the guard removes them.
-    pub fn wait_for(&self, keys: Vec<String>) -> (WaitGuard<'_>, mpsc::UnboundedReceiver<Reply>) {
+    /// Keys are scoped to the device the request went to: another paired device cannot answer it.
+    pub fn wait_for(&self, peer: &str, keys: Vec<String>) -> (WaitGuard<'_>, mpsc::UnboundedReceiver<Reply>) {
+        let keys: Vec<String> = keys.into_iter().map(|k| format!("{peer}|{k}")).collect();
         let (tx, rx) = mpsc::unbounded_channel();
         let mut st = self.st.lock().unwrap();
         for k in &keys {

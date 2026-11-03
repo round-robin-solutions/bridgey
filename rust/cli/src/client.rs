@@ -31,12 +31,22 @@ pub async fn connect(paths: &Paths, start: bool) -> Result<Conn, CliError> {
 fn spawn_daemon(paths: &Paths) -> Result<(), CliError> {
     paths.ensure().map_err(|e| CliError::new("failed", e.to_string()))?;
     let exe = std::env::current_exe().map_err(|e| CliError::new("failed", e.to_string()))?;
+    use std::os::unix::fs::OpenOptionsExt;
     let log = std::fs::OpenOptions::new()
+        .mode(0o600)
         .create(true)
         .append(true)
         .open(paths.state.join("daemon.log"))
         .map_err(|e| CliError::new("failed", e.to_string()))?;
     let mut cmd = std::process::Command::new(exe);
+    // A clean environment and folder: the background agent serves every later command, so it must not
+    // depend on whichever shell happened to start it.
+    cmd.env_clear().current_dir("/");
+    for key in ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "TZ", "XDG_CONFIG_HOME", "BRIDGEY_CONFIG", "BRIDGEY_PROFILE", "BRIDGEY_DEBUG", "BRIDGEY_RELAY_ONLY"] {
+        if let Some(v) = std::env::var_os(key) {
+            cmd.env(key, v);
+        }
+    }
     if paths.profile != "default" {
         cmd.args(["--profile", &paths.profile]);
     }

@@ -30,6 +30,9 @@ pub fn unit_path(paths: &Paths) -> PathBuf {
 
 fn exe() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().and_then(|p| p.canonicalize()).map_err(|e| format!("cannot find this binary: {e}"))?;
+    if exe.to_string_lossy().chars().any(|c| c.is_control()) {
+        return Err("the binary's path has control characters".into());
+    }
     if exe.starts_with("/tmp") || exe.to_string_lossy().contains("/target/") {
         return Err(format!("{} looks temporary; install bridgey (for example to ~/.local/bin) and run service install from there", exe.display()));
     }
@@ -40,9 +43,17 @@ fn profile_args(paths: &Paths) -> Vec<String> {
     if paths.profile == "default" { vec![] } else { vec!["--profile".into(), paths.profile.clone()] }
 }
 
+/// One ExecStart word, quoted and escaped for systemd (`%` and `$` are its own specifiers).
+fn systemd_word(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"").replace('%', "%%").replace('$', "$$"))
+}
+
 pub fn systemd_unit(exe: &str, paths: &Paths) -> String {
     let args = profile_args(paths).join(" ");
     let args = if args.is_empty() { String::new() } else { format!(" {args}") };
+    let exe = systemd_word(exe);
+    // The service must use the same folder as the commands that set it up.
+    let env = std::env::var("XDG_CONFIG_HOME").ok().filter(|v| !v.is_empty()).map(|v| format!("Environment={}\n", systemd_word(&format!("XDG_CONFIG_HOME={v}")))).unwrap_or_default();
     format!(
         "[Unit]\n\
 Description=Bridgey agent (Bridgey by Round Robin, profile {profile})\n\
@@ -55,14 +66,13 @@ Type=simple\n\
 ExecStart={exe}{args} daemon --service\n\
 Restart=always\n\
 RestartSec=5\n\
-# Its keys and state are in {root} (0700). Mount sandboxing is left out: user managers often cannot set it up.\n\
+{env}# Keys and state are in the bridgey config folder (0700). Mount sandboxing is left out: user managers often cannot set it up.\n\
 NoNewPrivileges=yes\n\
 UMask=0077\n\
 \n\
 [Install]\n\
 WantedBy=default.target\n",
         profile = paths.profile,
-        root = paths.root.display(),
     )
 }
 
@@ -177,7 +187,8 @@ mod tests {
     fn unit_files_name_the_profile() {
         let paths = Paths::resolve(Some("ci")).unwrap();
         let unit = systemd_unit("/home/u/.local/bin/bridgey", &paths);
-        assert!(unit.contains("ExecStart=/home/u/.local/bin/bridgey --profile ci daemon --service"));
+        assert!(unit.contains("ExecStart=\"/home/u/.local/bin/bridgey\" --profile ci daemon --service"));
+        assert_eq!(systemd_word("/a b/100%$x"), "\"/a b/100%%$$x\"");
         assert!(unit.contains("WantedBy=default.target"));
         let plist = launchd_plist("/usr/local/bin/bridgey", &paths);
         assert!(plist.contains("<string>in.roundrobin.bridgey.cli.ci</string>"));

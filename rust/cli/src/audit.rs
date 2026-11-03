@@ -39,7 +39,7 @@ pub fn args_hash(paths: &Paths, args: &Value) -> String {
     }
     let key_path = paths.state.join("audit.key");
     let key = match std::fs::read(&key_path) {
-        Ok(k) if k.len() == 32 => k,
+        Ok(k) if k.len() == 32 && crate::paths::mode(&key_path).is_some_and(|m| m & 0o077 == 0) => k,
         _ => {
             let k = crate::crypto::random::<32>().to_vec();
             let _ = crate::paths::write_private(&key_path, &k);
@@ -49,7 +49,10 @@ pub fn args_hash(paths: &Paths, args: &Value) -> String {
     crate::crypto::b64url(&bridgey_connect_proto::derive::hmac_sha256(&key, &[a.to_string().as_bytes()])[..12])
 }
 
+static WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn record(paths: &Paths, entry: Value) {
+    let _one_at_a_time = WRITE.lock().unwrap_or_else(|e| e.into_inner());
     let file = path(paths);
     if std::fs::metadata(&file).map(|m| m.len() >= ROTATE_BYTES).unwrap_or(false) {
         for i in (1..KEEP).rev() {
@@ -58,7 +61,7 @@ pub fn record(paths: &Paths, entry: Value) {
         }
     }
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(&file) {
-        let _ = writeln!(f, "{entry}");
+        let _ = f.write_all(format!("{entry}\n").as_bytes());
     }
 }
 

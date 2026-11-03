@@ -272,7 +272,7 @@ async fn run(spec: Spec, local: Arc<Local>, pins: PinLookup, events: mpsc::Unbou
                 let _ = write_frame(&mut write, &cancel).await;
                 return Err(("code_timeout".into(), peer_of(&st), false));
             }
-            _ = &mut handshake_deadline, if !st.authenticated && code_deadline.is_none() && !st.local_confirmed => {
+            _ = &mut handshake_deadline, if !st.authenticated && code_deadline.is_none() => {
                 return Err(("handshake_timeout".into(), peer_of(&st), false));
             }
             out = rx.recv() => {
@@ -419,8 +419,21 @@ fn complete(st: &mut State, spec: &Spec, events: &mpsc::UnboundedSender<Event>, 
     None
 }
 
+/// Control, format (bidi, zero-width, tags), separator and private-use characters cannot be shown safely.
+pub fn invisible(c: char) -> bool {
+    c.is_control()
+        || matches!(c,
+            '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{206F}'
+            | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}' | '\u{E000}'..='\u{F8FF}' | '\u{E0000}'..='\u{E007F}' | '\u{F0000}'..='\u{10FFFF}')
+}
+
+/// Text from a peer, safe for a terminal or a log line.
+pub fn printable(text: &str, max: usize) -> String {
+    text.chars().filter(|c| !invisible(*c)).take(max).collect()
+}
+
 fn sanitized_name(name: Option<&str>) -> String {
-    let cleaned: String = name.unwrap_or("").chars().filter(|c| !c.is_control() && !matches!(*c, '\u{200E}' | '\u{200F}' | '\u{061C}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')).collect();
+    let cleaned: String = name.unwrap_or("").chars().filter(|c| !invisible(*c)).collect();
     let t: String = cleaned.trim().chars().take(64).collect();
     if t.is_empty() { "Bridgey device".into() } else { t }
 }
@@ -471,7 +484,10 @@ async fn receive(
             if m.target_device_id.as_deref().is_some_and(|t| !t.eq_ignore_ascii_case(&local.device_id)) {
                 return Step::Close("not_for_this_device".into());
             }
-            let Some(remote_id) = m.device_id.clone() else { return Step::Close("malformed_offer".into()) };
+            let Some(remote_id) = m.device_id.clone().filter(|d| crypto::is_uuid(d)) else { return Step::Close("malformed_offer".into()) };
+            if !crypto::is_uuid(&m.session_id) || remote_id.eq_ignore_ascii_case(&local.device_id) {
+                return Step::Close("malformed_offer".into());
+            }
             let protocol = m.protocol_version.unwrap_or(1);
             if protocol < crypto::PROTOCOL_VERSION {
                 return Step::Close("needs_protocol_2".into());
@@ -539,7 +555,7 @@ async fn receive(
                 return Step::Continue;
             }
             let joining = matches!(spec.mode, Mode::Join { .. });
-            let (Some(remote_id), Some(remote_eph)) = (m.device_id.clone(), m.public_key.clone()) else { return Step::Close("malformed_answer".into()) };
+            let (Some(remote_id), Some(remote_eph)) = (m.device_id.clone().filter(|d| crypto::is_uuid(d)), m.public_key.clone()) else { return Step::Close("malformed_answer".into()) };
             match &spec.mode {
                 Mode::Reconnect { expected: Some(expected) } if remote_id.eq_ignore_ascii_case(expected) => {}
                 Mode::Join { .. } if pins(&remote_id).is_none() => {}
@@ -605,9 +621,15 @@ async fn receive(
                 None => Step::Continue,
             }
         }
-        "pairing.cancel" => Step::Close(format!("cancelled_remote:{}", m.reason.as_deref().unwrap_or("cancelled"))),
+        "pairing.cancel" => {
+            let reason: String = m.reason.as_deref().unwrap_or("cancelled").chars().filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_').take(32).collect();
+            Step::Close(format!("cancelled_remote:{reason}"))
+        }
         _ => {
             // Replay window for every message with a messageId (heartbeats and acks included).
+            if m.message_id.as_ref().is_some_and(|i| i.len() > 128) {
+                return bad(st);
+            }
             if let Some(id) = m.message_id.clone() {
                 let replayable = !matches!(m.kind.as_str(), "heartbeat.pong" | "ping.ack" | "clipboard.ack");
                 if replayable {
