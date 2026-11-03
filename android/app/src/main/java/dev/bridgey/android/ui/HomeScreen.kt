@@ -231,7 +231,8 @@ private fun RingItem(ring: DeviceRing, selected: Boolean, actions: HomeActions) 
             .then(
                 if (ring.trusted) {
                     Modifier.selectable(selected = selected, role = Role.Tab, onClick = {
-                        if (selected) actions.openDevice(ring) else actions.selectRing(ring)
+                        // An agent is never a send target, so it is never selected: one tap opens its page.
+                        if (selected || ring.isAgent) actions.openDevice(ring) else actions.selectRing(ring)
                     })
                 } else {
                     Modifier.clickable(onClickLabel = pairLabel, role = Role.Button) { actions.pairRing(ring) }
@@ -240,7 +241,7 @@ private fun RingItem(ring: DeviceRing, selected: Boolean, actions: HomeActions) 
             .semantics(mergeDescendants = true) {
                 contentDescription = "${ring.name}, $status"
                 if (ring.trusted) {
-                    stateDescription = if (selected) openLabel else selectLabel
+                    stateDescription = if (selected || ring.isAgent) openLabel else selectLabel
                     customActions = listOf(CustomAccessibilityAction(openLabel) { actions.openDevice(ring); true })
                 }
             },

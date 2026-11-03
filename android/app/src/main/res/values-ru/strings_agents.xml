@@ -88,6 +88,8 @@
     <string name="agent_audit_clipboard_request">Запросил ваш буфер обмена</string>
     <string name="agent_audit_files_receive">Отправил вам файлы</string>
     <string name="agent_audit_codes_read">Прочитал код</string>
+    <string name="agent_audit_codes_read_from">Прочитал код от %1$s</string>
+    <string name="agent_audit_count">×%1$d</string>
     <string name="agent_audit_forget">Забыт</string>
     <string name="agent_outcome_ok">Готово</string>
     <string name="agent_outcome_delivered">Доставлено</string>

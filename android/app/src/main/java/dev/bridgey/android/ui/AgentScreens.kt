@@ -356,8 +356,9 @@ private fun AgentActivity(state: AgentPageState, contentPadding: PaddingValues, 
             ) {
                 IconTile(icon, tint, size = 36.dp, corner = 12.dp, iconSize = 20.dp)
                 Column(Modifier.weight(1f)) {
-                    Text(auditTitle(entry.action), style = BridgeyType.itemTitle)
-                    val detail = listOfNotNull(auditOutcome(entry.outcome), entry.detail).joinToString(" · ")
+                    val (title, shownDetail) = auditWords(entry.action, entry.detail)
+                    Text(title, style = BridgeyType.itemTitle)
+                    val detail = listOfNotNull(auditOutcome(entry.outcome), shownDetail).joinToString(" · ")
                     Text(detail, style = BridgeyType.itemBody, color = BridgeyTheme.colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 Text(shortTime(context, entry.at, state.now), style = BridgeyType.itemBody, color = BridgeyTheme.colors.onSurfaceVariant)
@@ -496,6 +497,39 @@ private fun auditTitle(action: String): String = when (action) {
     AuditAction.CODES_READ -> stringResource(R.string.agent_audit_codes_read)
     AuditAction.FORGET -> stringResource(R.string.agent_audit_forget)
     else -> action
+}
+
+/**
+ * The row's title and detail in the wording table's words: a code read names its service ("Read the code from
+ * HDFC Bank", or "Read a code" with ×N), and grant changes show the permission and its window, not their keys.
+ */
+@Composable
+private fun auditWords(action: String, detail: String?): Pair<String, String?> {
+    if (action == AuditAction.CODES_READ) {
+        val service = detail?.substringBeforeLast(",", "")?.trim().orEmpty()
+        val count = detail?.substringAfterLast(",", "")?.trim()?.toIntOrNull() ?: 1
+        return if (count == 1 && service.isNotEmpty()) {
+            stringResource(R.string.agent_audit_codes_read_from, service) to null
+        } else {
+            stringResource(R.string.agent_audit_codes_read) to (if (count > 1) stringResource(R.string.agent_audit_count, count) else service.ifEmpty { null })
+        }
+    }
+    if (detail != null && action in setOf(AuditAction.GRANT_CHANGE, AuditAction.GRANT_EXPIRED, AuditAction.GRANT_REQUEST)) {
+        val words = detail.split(' ').filter { it.isNotBlank() }.map { token ->
+            AgentGrant.of(token)?.let { grantTitleText(it) } ?: windowText(token) ?: token
+        }
+        return auditTitle(action) to words.joinToString(if (action == AuditAction.GRANT_REQUEST) ", " else ", ")
+    }
+    return auditTitle(action) to detail
+}
+
+@Composable
+private fun windowText(token: String): String? = when (token) {
+    "1h" -> stringResource(R.string.agent_window_1h)
+    "today" -> stringResource(R.string.agent_window_today)
+    "7d" -> stringResource(R.string.agent_window_7d)
+    "forever" -> stringResource(R.string.agent_window_forever)
+    else -> null
 }
 
 @Composable
