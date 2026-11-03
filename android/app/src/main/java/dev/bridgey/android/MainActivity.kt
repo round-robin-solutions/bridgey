@@ -911,7 +911,9 @@ private fun BridgeyApp(
     }
     // An agent notification: its page, and the question in a dialog when it is still open.
     LaunchedEffect(agentHooks.open, rings) {
-        val (deviceId, askId) = agentHooks.open ?: return@LaunchedEffect
+        val open = agentHooks.open ?: return@LaunchedEffect
+        val deviceId = open.first
+        val askId = open.second
         if (rings.none { it.deviceId == deviceId }) return@LaunchedEffect
         stack.push(Route.Device(deviceId))
         askId?.let { askOpen = deviceId to it }
@@ -1575,7 +1577,9 @@ private fun BridgeyApp(
         )
     }
 
-    askOpen?.let { (deviceId, askId) ->
+    askOpen?.let { open ->
+        val deviceId = open.first
+        val askId = open.second
         val ask = remember(deviceId, askId, agentChanges) { pairing.agents.openAsk(deviceId, askId) }
         if (ask == null) {
             LaunchedEffect(Unit) { askOpen = null }
@@ -1721,7 +1725,6 @@ private fun AgentRoute(
         val json = hub.audit.exportJson(deviceId, ring.name)
         Thread { runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) } } }.start()
     }
-    fun background(block: () -> Unit) = Thread(block).start()
     dev.bridgey.android.ui.AgentDeviceScreen(
         state = dev.bridgey.android.ui.AgentPageState(
             ring = ring,
@@ -1738,10 +1741,10 @@ private fun AgentRoute(
             forget = forget,
             disconnect = { pairing.disconnectByUser(deviceId) },
             connect = { pairing.retryNow(deviceId) },
-            setGrant = { grant, on, window -> background { hub.setGrant(deviceId, grant, on, window) } },
-            applyPreset = { preset, window -> background { hub.applyPreset(deviceId, preset, window) } },
+            setGrant = { grant, on, window -> Thread { hub.setGrant(deviceId, grant, on, window) }.start() },
+            applyPreset = { preset, window -> Thread { hub.applyPreset(deviceId, preset, window) }.start() },
             export = { export.launch("bridgey-activity-${dev.bridgey.android.agents.agentFolderName(ring.name)}.json") },
-            clear = { background { hub.clearActivity(deviceId) } },
+            clear = { Thread { hub.clearActivity(deviceId) }.start() },
         ),
     )
 }

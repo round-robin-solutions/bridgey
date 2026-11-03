@@ -1907,6 +1907,18 @@ The phone keeps codes from `codes.found` in memory only, for 15 minutes, at most
 `serviceKey` and code (a second Mac, or SMS and mail, adds to `via`). Codes are never written to disk or
 logs on any side.
 
+**Clarifications (Android, 2026-11-03).**
+
+- A `body` keeps its line breaks; every other control and bidi character is removed from agent text. Limits count
+  characters (Unicode code points) of the text as sent.
+- Anything an agent may not send (a kind outside the agent kinds and the existing kinds its grants cover) is dropped
+  and, when it has a `messageId`, answered with `agent.request_result` `unsupported`.
+- `ask.cancel` for an ask that already ended repeats how it ended (`ask.answer`, `ask.dismissed` or `ask.expired`)
+  instead of `ask.cancelled`, so a late cancel never loses an answer.
+- An invite whose `p` is not `cli` is refused in this version. The expiry may be up to 10 minutes and 60 seconds
+  ahead of the phone's clock (clock skew).
+- The golden `features.update` vectors (protocol-v1.json, `drafts_none`) list the six agent keys too.
+
 ### Audit
 
 The phone keeps an activity list per agent device: at most 2,000 entries or 90 days, in an owner-only

@@ -81,7 +81,6 @@
     <string name="agent_reply_hint">Your answer</string>
     <string name="agent_ask_send">Send</string>
     <string name="agent_clear_confirm">The activity list of %1$s is deleted from this phone.</string>
-    <string name="agent_export_title">Activity of %1$s</string>
 
     <!-- Activity list: actions and outcomes -->
     <string name="agent_audit_pair">Paired</string>

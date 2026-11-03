@@ -98,7 +98,7 @@ class InviteScanActivity : ComponentActivity() {
                 provider.unbindAll()
                 provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis)
             }.onFailure { finish() }
-        }, mainExecutor)
+        }, androidx.core.content.ContextCompat.getMainExecutor(this))
     }
 
     private fun decode(reader: QRCodeReader, image: ImageProxy) {

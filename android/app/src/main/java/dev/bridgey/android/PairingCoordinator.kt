@@ -6060,8 +6060,10 @@ private class AndroidTrustRegistry(context: Context) {
     private val mutableDevices = MutableStateFlow(loadDevices())
     val trustedDevices: StateFlow<List<TrustedDevice>> = mutableDevices.asStateFlow()
 
+    fun save(deviceId: String, name: String, identityKey: String) = save(deviceId, name, identityKey, null)
+
     /** [platform] when known at pairing (an invite's `p`); a later save without it keeps the stored one. */
-    fun save(deviceId: String, name: String, identityKey: String, platform: String? = null) {
+    fun save(deviceId: String, name: String, identityKey: String, platform: String?) {
         preferences.edit()
             .putString("peer.$deviceId.name", name)
             .putString("peer.$deviceId.identityKey", identityKey)

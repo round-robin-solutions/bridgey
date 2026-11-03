@@ -190,7 +190,7 @@ class AgentHub(
     }
 
     /** Ends every window that is over; reschedules the next check (a coroutine while running, an alarm in Doze). */
-    fun checkExpiry() {
+    @Synchronized fun checkExpiry() {
         val ended = grants.expireDue()
         ended.forEach { expired ->
             audit.record(expired.deviceId, AuditAction.GRANT_EXPIRED, AuditOutcome.EXPIRED, "${expired.grant.key} ${expired.window?.wire.orEmpty()}".trim())

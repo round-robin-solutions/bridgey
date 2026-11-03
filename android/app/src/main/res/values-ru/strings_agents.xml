@@ -73,7 +73,6 @@
     <string name="agent_reply_hint">Ваш ответ</string>
     <string name="agent_ask_send">Отправить</string>
     <string name="agent_clear_confirm">Список действий %1$s будет удалён с этого телефона.</string>
-    <string name="agent_export_title">Действия %1$s</string>
 
     <string name="agent_audit_pair">Связано</string>
     <string name="agent_audit_grant_change">Разрешение изменено</string>
