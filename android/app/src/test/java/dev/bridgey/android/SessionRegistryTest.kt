@@ -272,4 +272,20 @@ class SessionRegistryTest {
         assertTrue(sessionLooksStale(true, now - 40_000, now, tunnel = true))
         assertFalse(sessionLooksStale(false, now - 600_000, now, tunnel = false))
     }
+
+    /**
+     * A replaced session is already out of the registry, so its own close never reports a disconnect. The
+     * coordinator ends that device's transfers when it sees `Accepted(replaced)`, or they stay active for good.
+     */
+    @Test
+    fun aReplacedSessionNeverReportsADisconnect() {
+        val registry = registry()
+        val old = FakeSession("old")
+        registry.connect(old, personalMac, initiatedLocally = false)
+        val fresh = FakeSession("fresh")
+        val admission = registry.connect(fresh, personalMac, initiatedLocally = false)
+        assertEquals(SessionRegistry.Admission.Accepted(old), admission)
+        assertNull("no device id comes back, so no disconnect cleanup runs for the old session", registry.remove(old))
+        assertSame(fresh, registry.session(personalMac))
+    }
 }

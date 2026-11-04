@@ -25,10 +25,14 @@ final class MacBusyMonitor: ObservableObject {
             pairing.remoteInput.$active.map { $0 != nil }.removeDuplicates(),
             pairing.$fileTransfers.map { Array($0.values) }
         )
-        Publishers.CombineLatest4(session, pairing.$pairingFlow, pairing.$pairingArmed, setup.$setupOpen)
-            .map { session, flow, armed, setupOpen in
-                Self.busy(call: session.0, screen: session.1, remote: session.2, transfers: session.3, pairing: flow,
-                          pairingArmed: armed, setupOpen: setupOpen)
+        // A transfer that stops moving stops counting without any other change: look again every few seconds.
+        let tick = Timer.publish(every: TransferStall.sweepInterval, on: .main, in: .common).autoconnect()
+            .map { _ in Date() }.prepend(Date())
+        Publishers.CombineLatest(Publishers.CombineLatest4(session, pairing.$pairingFlow, pairing.$pairingArmed, setup.$setupOpen), tick)
+            .map { state, now in
+                let (session, flow, armed, setupOpen) = state
+                return Self.busy(call: session.0, screen: session.1, remote: session.2, transfers: session.3, pairing: flow,
+                                 pairingArmed: armed, setupOpen: setupOpen, now: now)
             }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
@@ -37,15 +41,16 @@ final class MacBusyMonitor: ObservableObject {
     }
 
     /// A call card (ringing or in a call), the phone's screen shown here, remote control, a transfer
-    /// (a folder coming from the phone is a Phone files download), or setup and pairing (Allow pairing on,
+    /// (a folder coming from the phone is a Phone files download) that is still moving, or setup and pairing (Allow pairing on,
     /// waiting for the phone to allow, or a code on screen).
     nonisolated static func busy(call: Bool, screen: Bool, remote: Bool, transfers: [FileTransferRow], pairing: PairingState,
-                                 pairingArmed: Bool = false, setupOpen: Bool) -> Set<UpdateBusy> {
+                                 pairingArmed: Bool = false, setupOpen: Bool, now: Date = Date()) -> Set<UpdateBusy> {
         var active: Set<UpdateBusy> = []
         if call { active.insert(.call) }
         if screen { active.insert(.screenShare) }
         if remote { active.insert(.remoteControl) }
-        for row in transfers where row.active {
+        // Only a transfer that made progress in the last 2 minutes counts; a stalled one is not the person's activity.
+        for row in transfers where row.isBusy(now: now) {
             active.insert(row.folder?.incoming == true ? .phoneFiles : .transfer)
         }
         switch pairing {

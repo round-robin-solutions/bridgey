@@ -9,6 +9,7 @@ import android.telephony.TelephonyManager
 import androidx.annotation.RequiresApi
 import dev.bridgey.android.FileTransferState
 import dev.bridgey.android.PairingState
+import dev.bridgey.android.TransferStall
 import dev.bridgey.android.TransferKind
 import dev.bridgey.android.remote.RemoteSessionState
 import dev.bridgey.android.screen.ScreenShareState
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -50,6 +52,8 @@ data class BusySignals(
     val pairingArmed: Boolean = false,
     /** The setup screens are open. */
     val setupShowing: Boolean = false,
+    /** Now, for the stall rule: a transfer with no progress for 2 minutes is not the person's activity. */
+    val nowMillis: Long = System.currentTimeMillis(),
 )
 
 object BusyRules {
@@ -67,7 +71,7 @@ object BusyRules {
         if (callFromAudioMode(signals.audioMode) || callFromTelephony(signals.telephonyCallState) || signals.callCards) add(UpdateBusy.CALL)
         if (signals.screen == ScreenShareState.Phase.STARTING || signals.screen == ScreenShareState.Phase.SHARING) add(UpdateBusy.SCREEN_SHARE)
         if (signals.remote is RemoteSessionState.Starting || signals.remote is RemoteSessionState.Active) add(UpdateBusy.REMOTE_CONTROL)
-        val active = signals.transfers.filter { it.active }
+        val active = signals.transfers.filter { TransferStall.isBusy(it, signals.nowMillis) }
         if (active.any(::phoneFilesDownload)) add(UpdateBusy.PHONE_FILES)
         if (active.any { !phoneFilesDownload(it) } || signals.clipFetches > 0) add(UpdateBusy.TRANSFER)
         val pairingGoesOn = signals.pairing is PairingState.Connecting || signals.pairing is PairingState.WaitingForAllow ||
@@ -120,8 +124,15 @@ class BusyMonitor(context: Context, private val scope: CoroutineScope, private v
         val screen: Flow<ScreenShareState.Phase> = sources.screen()?.let { flow -> flow.mapPhase() } ?: flowOf(ScreenShareState.Phase.IDLE)
         val remote: Flow<RemoteSessionState> = sources.remote() ?: flowOf(RemoteSessionState.Idle)
         val pairing = combine(sources.pairing, sources.pairingArmed) { flow, armed -> flow to armed }
-        val own = combine(sources.transfers, sources.clipFetches, pairing, sources.setupShowing) { transfers, fetches, (flow, armed), setup ->
-            BusySignals(transfers = transfers.values, clipFetches = fetches.size, pairing = flow, pairingArmed = armed, setupShowing = setup)
+        // A transfer that stops moving stops counting without any other change: look again every few seconds.
+        val tick = flow {
+            while (true) {
+                emit(System.currentTimeMillis())
+                delay(TransferStall.SWEEP_MILLIS)
+            }
+        }
+        val own = combine(sources.transfers, sources.clipFetches, pairing, sources.setupShowing, tick) { transfers, fetches, (flow, armed), setup, now ->
+            BusySignals(transfers = transfers.values, clipFetches = fetches.size, pairing = flow, pairingArmed = armed, setupShowing = setup, nowMillis = now)
         }
         job = scope.launch {
             combine(own, screen, remote, call) { signals, phase, session, calls ->
