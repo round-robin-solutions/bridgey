@@ -41,6 +41,26 @@ func localNetworkPermissionDenied(_ error: NWError) -> Bool {
     }
 }
 
+/// An accepted transfer always ends: received, failed, cancelled, or (here) timed out. One with no progress for
+/// `timeout` is failed with `message`, and until then it stops counting as busy for an automatic update.
+enum TransferStall {
+    static let timeout: TimeInterval = 120
+    static let sweepInterval: TimeInterval = 15
+    static let message = "Transfer stalled: no data for 2 minutes. Try again."
+
+    static func isStalled(lastProgressAt: Date, now: Date) -> Bool {
+        now.timeIntervalSince(lastProgressAt) >= timeout
+    }
+
+    /// The rows to fail now: active, not waiting in a queue, not preparing, not a folder (folders have their own
+    /// session), and silent for the timeout.
+    static func stalledIDs(_ rows: [FileTransferRow], excluding: Set<String> = [], now: Date) -> [String] {
+        rows.filter { $0.active && !$0.queued && $0.folder == nil && !excluding.contains($0.id) && isStalled(lastProgressAt: $0.lastProgressAt, now: now) }
+            .map(\.id)
+            .sorted()
+    }
+}
+
 func recoverInterruptedTransfers(_ transfers: [String: FileTransferRow]) -> [String: FileTransferRow] {
     Dictionary(uniqueKeysWithValues: transfers.values
         .map { transfer in

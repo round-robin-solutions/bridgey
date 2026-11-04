@@ -63,6 +63,19 @@ class BusyMonitorTest {
         assertEquals(setOf(UpdateBusy.TRANSFER), busy(BusySignals(clipFetches = 1)))
     }
 
+    @Test fun aStalledTransferIsNotBusy() {
+        val now = 1_800_000_000_000L
+        fun stalled(silentMillis: Long) = transfer("a").copy(lastProgressAtMillis = now - silentMillis)
+        assertEquals(setOf(UpdateBusy.TRANSFER), busy(BusySignals(transfers = listOf(stalled(119_000)), nowMillis = now)))
+        assertEquals(emptySet<UpdateBusy>(), busy(BusySignals(transfers = listOf(stalled(120_000)), nowMillis = now)))
+        assertEquals(emptySet<UpdateBusy>(), busy(BusySignals(transfers = listOf(stalled(40 * 60_000L)), nowMillis = now)))
+        // A moving transfer still counts next to a stalled one.
+        assertEquals(setOf(UpdateBusy.TRANSFER), busy(BusySignals(transfers = listOf(stalled(600_000), stalled(2_000).copy(id = "b")), nowMillis = now)))
+        // A stalled folder download is not Phone files activity either.
+        val download = transfer("d", kind = TransferKind.FOLDER, download = true).copy(lastProgressAtMillis = now - 600_000)
+        assertEquals(emptySet<UpdateBusy>(), busy(BusySignals(transfers = listOf(download), nowMillis = now)))
+    }
+
     @Test fun pairingAndSetup() {
         assertEquals(setOf(UpdateBusy.SETUP), busy(BusySignals(pairing = PairingState.Connecting("Work Mac"))))
         assertEquals(setOf(UpdateBusy.SETUP), busy(BusySignals(pairing = PairingState.WaitingForAllow("Work Mac"))))

@@ -59,6 +59,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.ensureActive
@@ -159,6 +160,8 @@ data class FileTransferState(
     val folder: dev.bridgey.android.folders.FolderSnapshot? = null,
     /** How it ended, set where it ends; the activity stream reads this instead of the status text. */
     val outcome: TransferEnd? = null,
+    /** When this row last showed progress; a transfer silent for [TransferStall.TIMEOUT_MILLIS] is failed. */
+    val lastProgressAtMillis: Long = System.currentTimeMillis(),
 )
 
 enum class TransferKind { FILE, FOLDER }
@@ -468,6 +471,9 @@ class PairingCoordinator(
     )
 
     private val outgoingFileJobs = ConcurrentHashMap<String, Job>()
+    /** Single files this phone offered and the other end may have accepted: they end even if the sender goes quiet. */
+    private val offeredFiles = ConcurrentHashMap.newKeySet<String>()
+    private var stallSweep: Job? = null
     /** Windows of single files this phone sends to fast peers (FastTransfer.kt), by transfer ID. */
     private val outgoingPacers = ConcurrentHashMap<String, TransferPacer>()
     private val outgoingFileSources = ConcurrentHashMap<String, Uri>()
@@ -2837,10 +2843,13 @@ class PairingCoordinator(
                 updateFileTransfer(transferId, metadata.first, mutableFileTransferStatus.value!!, false)
                 return@launch
             }
+            offeredFiles += transferId
             updateFileTransfer(transferId, metadata.first, "Waiting for $peer…", true)
             if (withTimeoutOrNull(10_000) { accepted.await() } != true) {
                 pendingFileAccepts.remove(transferId)
                 if (transferId in cancelledTransferIds || outgoingFileJobs[transferId] == null) return@launch
+                // A late accept would leave the other end holding a transfer nobody sends: tell it to let go.
+                abandonOffered(transferId)
                 updateFileTransfer(transferId, metadata.first, "$peer did not accept the file", false)
                 return@launch
             }
@@ -2920,6 +2929,8 @@ class PairingCoordinator(
             if (!sent) {
                 pendingFileCompletions.remove(transferId)
                 if (transferId in cancelledTransferIds || outgoingFileJobs[transferId] == null) return@launch
+                // The other end accepted this file and is waiting for the rest: tell it the transfer is over.
+                abandonOffered(transferId)
                 updateFileTransfer(transferId, metadata.first, "File transfer failed", false)
                 return@launch
             }
@@ -2937,8 +2948,47 @@ class PairingCoordinator(
         outgoingFileJobs[transferId] = job
         job.invokeOnCompletion {
             outgoingFileJobs.remove(transferId, job)
+            offeredFiles.remove(transferId)
             cameraTransferEnded(transferId)
             finishQueuedFile(transferId)
+        }
+    }
+
+    /** This phone stops a file it offered and the other end may hold: one files.cancel, and late frames are ignored. */
+    private fun abandonOffered(transferId: String) {
+        markTransferCancelled(transferId)
+        val current = transferDevices[transferId]?.let(registry::session) ?: return
+        if (registry.isActive(current)) current.send(Message(kind = "files.cancel", sessionId = current.id, transferId = transferId))
+    }
+
+    private fun armStallSweep() {
+        synchronized(this) {
+            if (stallSweep?.isActive == true) return
+            stallSweep = scope.launch {
+                while (isActive) {
+                    delay(TransferStall.SWEEP_MILLIS)
+                    failStalledTransfers(System.currentTimeMillis())
+                    if (mutableFileTransfers.value.values.none { it.active && it.kind == TransferKind.FILE }) break
+                }
+            }
+        }
+    }
+
+    /**
+     * Safety net: an accepted single file (either direction) with no progress for [TransferStall.TIMEOUT_MILLIS] is
+     * failed, the other end is told to stop, and the row says why, with Retry where this phone still has the file.
+     */
+    internal fun failStalledTransfers(nowMillis: Long) {
+        val tracked = incomingFiles.keys.toSet() + offeredFiles
+        for (transferId in TransferStall.stalledIds(mutableFileTransfers.value.values, tracked, nowMillis)) {
+            incomingFiles.remove(transferId)?.cancel()
+            abandonOffered(transferId)
+            outgoingFileJobs.remove(transferId)?.cancel()
+            pendingFileAccepts.remove(transferId)?.complete(false)
+            pendingFileCompletions.remove(transferId)?.complete(false)
+            removeFileTransfer(transferId, appContext.getString(R.string.file_transfer_stalled), TransferEnd.FAILED)
+            diagnostics.record("transfer", "stalled", "failed")
+            BridgeyLogging.i(LogCategory.FILES, "FILE stalled transfer=${transferId.take(8)}")
         }
     }
 
@@ -3833,7 +3883,8 @@ class PairingCoordinator(
             }
             "files.cancel.ack" -> message.transferId?.let {
                 if (folderSender.ownsFile(it)) return@let
-                if (ownsTransfer(current, it)) removeFileTransfer(it, "Transfer cancelled")
+                // Only a row still running: an answer to a cancel this phone sent must not rewrite why it ended.
+                if (ownsTransfer(current, it) && mutableFileTransfers.value[it]?.active == true) removeFileTransfer(it, "Transfer cancelled")
             }
             dev.bridgey.android.folders.FolderKinds.PLACES_LIST, dev.bridgey.android.folders.FolderKinds.PLACES_BROWSE,
             dev.bridgey.android.folders.FolderKinds.PLACES_CREATE_FOLDER, dev.bridgey.android.folders.FolderKinds.OFFER,
@@ -4394,6 +4445,7 @@ class PairingCoordinator(
         }
         pruneTransferHistory()
         refreshFileTransferSummary(status)
+        if (active) armStallSweep()
     }
 
     private fun removeFileTransfer(id: String, status: String, outcome: TransferEnd = TransferEnd.CANCELLED) {
@@ -4637,6 +4689,9 @@ class PairingCoordinator(
                 diagnostics.record("transport", "duplicate_replaced", device = current.remoteDeviceId, detail = if (stale(it)) "stale" else null)
                 it.dropReason = "replaced"
                 it.close()
+                // The registry already gave this device to the new session, so the old one's close finds nothing to
+                // disconnect: its transfers end here, or they would stay active for good.
+                cancelTransfers(current.remoteDeviceId)
             }
         }
         current.authenticated = true

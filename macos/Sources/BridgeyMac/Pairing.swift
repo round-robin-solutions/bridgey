@@ -71,6 +71,14 @@ struct FileTransferRow: Identifiable, Equatable {
     let folder: FolderRowSummary?
     /// The item on this Mac, for "Show in Finder": what was received, or the source of a send. Nil when unknown.
     let localURL: URL?
+    /// When this row last showed progress (bytes moved, a step finished). A transfer that has not moved for
+    /// `TransferStall.timeout` is failed, and no longer counts as busy for an automatic update.
+    var lastProgressAt: Date
+
+    /// Still moving: active, and progress within the stall timeout. A stalled row is not what the person is doing.
+    func isBusy(now: Date) -> Bool {
+        active && !TransferStall.isStalled(lastProgressAt: lastProgressAt, now: now)
+    }
 
     init(
         id: String,
@@ -81,7 +89,8 @@ struct FileTransferRow: Identifiable, Equatable {
         retryable: Bool = false,
         queued: Bool = false,
         folder: FolderRowSummary? = nil,
-        localURL: URL? = nil
+        localURL: URL? = nil,
+        lastProgressAt: Date = Date()
     ) {
         self.id = id
         self.name = name
@@ -92,6 +101,7 @@ struct FileTransferRow: Identifiable, Equatable {
         self.queued = queued
         self.folder = folder
         self.localURL = localURL
+        self.lastProgressAt = lastProgressAt
     }
 }
 
@@ -476,6 +486,8 @@ final class PairingCoordinator: ObservableObject {
     private var lastCodesAdvertiseAt = Date.distantPast
     private var remoteNotificationCategories: [String: UNNotificationCategory] = [:]
     private var incomingFiles: [String: IncomingFileTransfer] = [:]
+    /// Runs while a single-file transfer is active: fails one that has made no progress (TransferStall).
+    private var transferStallTimer: Timer?
     private var outgoingFiles: [String: OutgoingFileTransfer] = [:]
     private var outgoingFileSources: [String: URL] = [:]
     /// One sequential send queue per phone: a phone gets one file at a time.
@@ -3267,6 +3279,7 @@ final class PairingCoordinator: ObservableObject {
                 } catch {
                     transfer.cancel()
                     fileTransferStatus = "File verification failed"
+                    markFileTransferFinished(id: completion.transferId, status: "File verification failed")
                     recordActivity(.fileFailed, in: current, fileName: transfer.displayName)
                     recordFileHistory(completion.transferId, direction: .received, outcome: .failed, name: transfer.displayName,
                                       bytes: transfer.receivedSize, localURL: nil, phoneID: current.remoteDeviceID)
@@ -3307,6 +3320,8 @@ final class PairingCoordinator: ObservableObject {
                             current.send(completion)
                         case .failure:
                             self.outgoingFiles.removeValue(forKey: transferID)
+                            // The phone accepted this file and may still be waiting for it: tell it to let go.
+                            if !transfer.isCancelled { self.markTransferCancelled(transferID); self.sendFileCancel(transferID) }
                             self.recordFileHistory(transferID, direction: .sent, outcome: transfer.isCancelled ? .cancelled : .failed, name: transfer.displayName,
                                                    bytes: 0, localURL: self.outgoingFileSources[transferID], phoneID: current.remoteDeviceID)
                             if transfer.isCancelled {
@@ -3376,14 +3391,15 @@ final class PairingCoordinator: ObservableObject {
                 markTransferCancelled(transferID)
                 incomingFiles.removeValue(forKey: transferID)?.cancel()
                 outgoingFiles.removeValue(forKey: transferID)?.cancel()
-                markFileTransferFinished(id: transferID, status: "Transfer cancelled by Android")
+                // Only a row still running: a late cancel must not rewrite a transfer that already ended.
+                if fileTransfers[transferID]?.active == true { markFileTransferFinished(id: transferID, status: "Transfer cancelled by Android") }
                 fileTransferStatus = "Transfer cancelled by Android"
                 current.send(PairingMessage(kind: "files.cancel.ack", sessionId: current.id, transferId: transferID))
                 BridgeyLog.files.notice("file cancellation received transfer=\(String(transferID.prefix(8)), privacy: .public)")
                 finishQueuedFile(transferID)
             case "files.cancel.ack":
                 if clipboardInbox.owns(message.transferId) || clipboardOutbox.owns(message.transferId) { return }
-                if let transferID = message.transferId, !transferIsForeign(transferID, to: current) {
+                if let transferID = message.transferId, !transferIsForeign(transferID, to: current), fileTransfers[transferID]?.active == true {
                     markFileTransferFinished(id: transferID, status: "Transfer cancelled")
                 }
             case "files.chunk.ack":
@@ -3530,6 +3546,9 @@ final class PairingCoordinator: ObservableObject {
                 replaced.connectionTimeout?.cancel()
                 replaced.heartbeat?.cancel()
                 replaced.close()
+                // The registry already gave this phone to the new session, so the old one's close finds nothing to
+                // disconnect: its transfers end here, or they would stay active for good.
+                cancelTransfers(for: id)
             }
         }
         current.authenticated = true
@@ -3697,6 +3716,50 @@ final class PairingCoordinator: ObservableObject {
         )
         pruneTransferHistory()
         fileTransferActive = fileTransfers.values.contains(where: { $0.active })
+        if active { armTransferStallTimer() }
+    }
+
+    private func armTransferStallTimer() {
+        guard transferStallTimer == nil else { return }
+        transferStallTimer = Timer.scheduledTimer(withTimeInterval: TransferStall.sweepInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.failStalledTransfers(now: Date())
+                if !self.fileTransfers.values.contains(where: { $0.active && $0.folder == nil }) {
+                    self.transferStallTimer?.invalidate()
+                    self.transferStallTimer = nil
+                }
+            }
+        }
+    }
+
+    /// Safety net: an accepted single-file transfer (either direction) with no progress for `TransferStall.timeout`
+    /// is failed, the other end is told to stop, and the row says why with Retry where this Mac still has the file.
+    func failStalledTransfers(now: Date) {
+        let tracked = Set(incomingFiles.keys).union(outgoingFiles.keys)
+        let candidates = fileTransfers.values.filter { tracked.contains($0.id) }
+        let stalledIDs = TransferStall.stalledIDs(Array(candidates), now: now)
+        for transferID in stalledIDs {
+            let phoneID = transferDevices[transferID] ?? ""
+            if let incoming = incomingFiles.removeValue(forKey: transferID) {
+                incoming.cancel()
+                recordFileHistory(transferID, direction: .received, outcome: .failed, name: incoming.displayName, bytes: incoming.receivedSize,
+                                  localURL: nil, phoneID: phoneID)
+            }
+            if let outgoing = outgoingFiles.removeValue(forKey: transferID) {
+                outgoing.cancel()
+                recordFileHistory(transferID, direction: .sent, outcome: .failed, name: outgoing.displayName, bytes: 0,
+                                  localURL: outgoingFileSources[transferID], phoneID: phoneID)
+            }
+            markTransferCancelled(transferID)
+            sendFileCancel(transferID)
+            cameraTransfers.removeValue(forKey: transferID)
+            markFileTransferFinished(id: transferID, status: TransferStall.message)
+            fileTransferStatus = TransferStall.message
+            diagnostics.record(category: "transfer", event: "stalled", outcome: "failed")
+            BridgeyLog.files.notice("file stalled transfer=\(String(transferID.prefix(8)), privacy: .public)")
+            finishQueuedFile(transferID)
+        }
     }
 
     /// The History window's record of one finished file (Files 2.0).
