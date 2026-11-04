@@ -827,6 +827,7 @@
     <string name="pair_tailnet_detail">При включённом Tailscale, для устройства в вашей сети Tailscale. Сначала нажмите там «Разрешить сопряжение».</string>
     <string name="pair_tailnet_hint">work или 100.64.0.10</string>
     <string name="pair_tailnet_pair">Сопрячь</string>
+    <string name="pair_tailnet_not_found">Это имя или адрес не в вашей сети Tailscale. Проверьте, что Tailscale включён.</string>
     <string name="codes_cloud">Облако, когда ни один Mac не читает</string>
     <string name="codes_cloud_detail">Только SMS, для ваших серверов. Сообщение уходит через сервер-посредник Round Robin в Cloudflare. Превью писем никогда не уходят в облако.</string>
     <string name="codes_cloud_confirm_title">Отправлять сообщения с кодами в Cloudflare?</string>

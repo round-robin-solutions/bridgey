@@ -1559,11 +1559,17 @@ private fun BridgeyApp(
                 pairDialog = false
                 val (host, port) = dev.bridgey.android.agents.tailnetTarget(typed)
                 // Only tailnet addresses: a name is looked up first and dialled only where it points into the tailnet.
-                if (!dev.bridgey.android.agents.refusedTailnetLiteral(host)) {
+                val main = android.os.Handler(android.os.Looper.getMainLooper())
+                val notOnTailnet = {
+                    android.widget.Toast.makeText(context, context.getString(R.string.pair_tailnet_not_found), android.widget.Toast.LENGTH_LONG).show()
+                }
+                if (dev.bridgey.android.agents.refusedTailnetLiteral(host)) {
+                    notOnTailnet()
+                } else {
                     Thread {
                         val address = runCatching { java.net.InetAddress.getAllByName(host).map { it.hostAddress.orEmpty() } }.getOrDefault(emptyList())
-                            .firstOrNull(dev.bridgey.android.agents::isTailnetAddress)
-                        if (address != null) pairing.pair(address, port, host)
+                            .firstOrNull { dev.bridgey.android.agents.isTailnetAddress(it) }
+                        main.post { if (address != null) pairing.pair(address, port, host) else notOnTailnet() }
                     }.start()
                 }
             },

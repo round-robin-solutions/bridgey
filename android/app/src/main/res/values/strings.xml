@@ -771,6 +771,7 @@
     <string name="pair_tailnet_detail">With Tailscale on, for a device on your tailnet. Tap Allow pairing there first.</string>
     <string name="pair_tailnet_hint">work or 100.64.0.10</string>
     <string name="pair_tailnet_pair">Pair</string>
+    <string name="pair_tailnet_not_found">That name or address is not on your tailnet. Check that Tailscale is on.</string>
     <string name="codes_cloud">Use cloud when no Mac is reading</string>
     <string name="codes_cloud_detail">Text messages only, for your servers. Sends the message through Round Robin’s relay to Cloudflare. Email previews never go to the cloud.</string>
     <string name="codes_cloud_confirm_title">Send code messages to Cloudflare?</string>
