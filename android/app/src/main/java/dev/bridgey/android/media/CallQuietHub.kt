@@ -159,7 +159,7 @@ class CallQuietHub(
         }
         val uncertain = localUncertain || sources.values.any { it.state.uncertain } || lostSources.isNotEmpty()
         if (active.isEmpty() && (reason != CallMediaReleaseReason.CALLS_ENDED || uncertain))
-            effects.release(if (uncertain) CallMediaReleaseReason.DISCONNECTED else reason)
+            effects.release(if (reason == CallMediaReleaseReason.CALLS_ENDED && uncertain) CallMediaReleaseReason.DISCONNECTED else reason)
         else if (effectCalls.isEmpty() && active.isNotEmpty() && active.all(handled::contains))
             effects.adoptCalls(active, policy(), local.isNotEmpty())
         else effects.updateCalls(active, policy(), local.isNotEmpty())
