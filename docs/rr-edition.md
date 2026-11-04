@@ -3,10 +3,15 @@
 Bridgey by Round Robin is Round Robin's edition of [Bridgey](https://github.com/singeol/bridgey),
 the open-source Android and macOS bridge by Semyon Mikhailov (MIT licence). It is a separate
 app with its own identity, signing keys and self-updates, published from
-`round-robin-solutions/bridgey`. It still speaks the upstream wire protocol, so it pairs with
-upstream clients.
+`round-robin-solutions/bridgey`. It extends the upstream wire protocol; new pairing requires
+protocol 2 on both peers. See [pairing compatibility](compatibility.md#pairing-with-other-bridgey-versions).
 
 ## What differs from upstream
+
+The [edition roadmap](../README.md#roadmap) records implemented features and remaining work.
+As of 2026-11-04, Beta 22 and CLI 0.2.0 are published; Settings search is merged and tagged
+for Beta 23, with release publication and the remaining live interaction checks pending.
+v0.10 is still stabilisation, before the v1.0 protocol freeze and wider device acceptance.
 
 | Area | Upstream | This edition |
 | --- | --- | --- |
@@ -32,8 +37,12 @@ upstream clients.
 | Settings sync | none | On by default, one switch to turn it off (and one per device): feature switches and shared preferences stay the same on paired devices; a phone with two Macs carries changes between them. Permissions, per-device grants, pairing and folders never sync; a device that differs shows "Different on <device>" with Apply to all, and every change from another device is in the activity stream (draft `settings_sync_draft1`, see [folders-and-settings-sync.md](folders-and-settings-sync.md) 8.4) |
 | Codes from text messages | none | Opt-in: the Mac shows "Code 482913 from HDFC Bank" with Copy code, read on the Mac by a small downloaded model (default) or, if chosen, through Round Robin's relay to Cloudflare Workers AI; a companion link lets Android 15+ show Bridgey the codes (draft `sms_codes_draft1`, see below). Also from email: Gmail, Outlook, Proton Mail and Spark notifications, read on the Mac only (draft `email_codes_draft1`, [codes-from-email.md](codes-from-email.md)) |
 | Text messages | notification replies only | Opt-in, off by default: SMS conversations on the Mac (Messages window with conversations, new messages to a contact or number, delivery status, the SIM per conversation, MMS images read only) and a Reply field on every text message notification; incremental sync over the encrypted session, no cloud (draft `sms_draft1`, see below and [sms-call-policy.md](sms-call-policy.md)) |
+| Agent commands | none | Released `bridgey` CLI for Linux and macOS: pairing, files, clipboard, notifications, questions, device status and codes, gated by per-server permissions and audited on the phone ([setup](agent-cli-setup.md)) |
+| Codes without a Mac | none | Shared Rust reader on a server with Detect codes enabled, or separately enabled SMS-only cloud detection on the phone; the default CLI package omits local detection ([mesh-and-codes.md](mesh-and-codes.md#phase-2-2026-11-04)) |
+| Pairing over the tailnet | none | Mac–Mac, server–Mac and server–server by Tailscale address; new peers start restricted until explicitly trusted. Full mesh invites remain deferred ([mesh-and-codes.md](mesh-and-codes.md#pairing-over-the-tailnet)) |
+| Settings search | none | Merged for Beta 23 on Mac and Android: names, descriptions, synonyms, typo tolerance, grouped results, and jump/highlight. App release and remaining live interaction checks pending |
 
-Unchanged on purpose: the wire protocol, the Bonjour service type `_bridgey._tcp`, the default
+Unchanged on purpose: the Bonjour service type `_bridgey._tcp`, the default
 port 42458, and the Kotlin and Swift package names. Because the port is the
 same, the upstream app and this edition cannot both accept connections on one Mac at the same
 time; quit one of them.

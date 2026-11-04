@@ -1,6 +1,11 @@
 # Mesh pairing and codes without a Mac
 
-Status: design, 2026-11-04, with phase 1 built on branch `rr/mesh-codes` ([As built](#as-built-phase-1-2026-11-04)).
+Status: phases 1 and 2 merged into `rr/main` and released in app Beta 22 and CLI 0.2.0,
+2026-11-04. This includes server code detection, the phone's opt-in SMS cloud fallback and
+pairing over the tailnet ([Phase 2](#phase-2-2026-11-04)). Full mesh invites (`v: 2`),
+one-hop Update all and email for servers remain deferred. The design and baseline below
+also describe future work; the phone's local-model measurements are a prototype, not a
+shipped local-phone reader. See [phase 1 as built](#as-built-phase-1-2026-11-04).
 Bridgey by Round Robin only. Rahul, 2026-11-03: "What if all Macs are offline? All devices should be able to pair
 with each other. There is no central device."
 

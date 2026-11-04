@@ -5,7 +5,8 @@ This repository is **Bridgey by Round Robin**, Round Robin's edition of
 under the same [MIT licence](LICENSE).
 
 - A separate app (`in.roundrobin.bridgey` on Android and macOS) that installs next to upstream
-  Bridgey and pairs with upstream clients over the same protocol.
+  Bridgey. New pairing requires protocol 2 on both peers; see
+  [pairing compatibility](docs/compatibility.md#pairing-with-other-bridgey-versions).
 - In-app updates with three channels, Stable, Beta and Nightly, chosen in Settings.
 - Downloads: [releases of round-robin-solutions/bridgey](https://github.com/round-robin-solutions/bridgey/releases).
   Each release has the Android APK, a macOS DMG and ZIP, `SHA256SUMS`, an SBOM per platform and a
@@ -37,15 +38,11 @@ how to merge upstream changes: [docs/rr-edition.md](docs/rr-edition.md).
 The apps check for updates themselves on the channel you pick in Settings (Stable, Beta or Nightly).
 More in the [user guide](docs/user-guide.md#install).
 
-Edition milestones (upstream's own roadmap follows below, unchanged):
-
-- **v0.10 (stabilisation)**, in progress: a draft protocol contract
-  ([docs/protocol-contract.md](docs/protocol-contract.md), `protocol/messages.json`), fuzz and
-  cross-platform golden tests, upgrade and migration tests
-  ([docs/upgrade-policy.md](docs/upgrade-policy.md)), every optional permission explained with a
-  Permissions page, "Reset Bridgey on this device", SBOM and provenance with each release, and the
-  compatibility, diagnostics and user guides.
-- **v1.0**, later: freezes the protocol contract once v0.10 has been tested on more devices.
+**Current milestone: v0.10, stabilisation.** The [roadmap below](#roadmap) tracks what this
+edition has implemented and what still needs work. As of 2026-11-04, the latest published app
+release is [0.10.0-rr.1 Beta 22](https://github.com/round-robin-solutions/bridgey/releases/tag/v0.10.0-rr.1-beta.22)
+and the agent command is [0.2.0](https://github.com/round-robin-solutions/bridgey/releases/tag/cli-v0.2.0).
+Settings search is merged and tagged for Beta 23; its app release is still pending.
 
 Guides:
 
@@ -69,7 +66,8 @@ optional "Background clipboard (advanced)" uses the same one-time ADB setup as
 [KDE Connect](https://userbase.kde.org/KDEConnect) (it grants READ_LOGS, reading system logs) and
 is off by default.
 
-The upstream README follows unchanged.
+The project overview below is adapted from upstream. The roadmap records this edition's
+progress; [upstream's roadmap](https://github.com/singeol/bridgey#roadmap) remains separate.
 
 ---
 
@@ -88,11 +86,10 @@ to provide a small, native and extensible subset of Apple Continuity and KDE
 Connect without accounts, telemetry, or a mandatory cloud service. A Linux
 client can later implement the same public protocol without Android changes.
 
-> Current release: v0.5.0. Android and macOS clients support
-> secure pairing, automatic reconnect, clipboard sharing, file transfer,
-> Android notification forwarding, battery status, Find Device, and starting a
-> phone call from macOS over the local network. Discovery data is intentionally
-> treated as untrusted.
+> This edition builds on upstream's local Android–macOS companion with remote input,
+> folders and phone-file browsing, multiple devices, automation, text messages,
+> view-only phone screen sharing, optional off-LAN connections, codes and an agent CLI.
+> It is still in Beta. Discovery data is intentionally treated as untrusted.
 
 ## MVP scope
 
@@ -105,17 +102,20 @@ client can later implement the same public protocol without Android changes.
 - Find Device in both directions
 - Start a phone call from selected text or the macOS clipboard
 
-The current release deliberately starts with a small local-first feature set.
-Communication, remote-control, screen-sharing, and optional relay features are
-planned in later phases below and will require separate security and platform
-feasibility reviews.
+The edition has extended this original MVP. See the roadmap for implemented features,
+experimental capabilities and the acceptance work still required before v1.0.
 
 ## Roadmap
 
-The roadmap describes intended direction rather than fixed release dates.
-Bridgey 1.0 is defined as a stable, secure local Android–macOS companion, not
-as complete feature parity with KDE Connect. Experimental plugins do not block
-the stable release.
+Updated 2026-11-04 against `rr/main` through the Settings search merge (`b7d30c0`),
+app releases through Beta 22 and CLI 0.2.0. Checked items are implemented in this edition;
+they do not imply upstream acceptance or certification on every device. Beta 23 items are
+identified separately until the release publishes.
+
+Milestones describe direction, without fixed dates. **v0.10 is the current stabilisation
+milestone; v1.0 has not shipped.** A stable, secure Android–macOS companion defines v1.0;
+experimental plugins do not block it. Device coverage is recorded in the
+[compatibility matrix](docs/compatibility.md), separately from automated checks.
 
 ### v0.2.1 — settings and quality
 
@@ -160,77 +160,128 @@ the stable release.
 - [x] Add an Android Quick Settings tile and configurable macOS shortcuts
 - [ ] Complete multi-OEM stabilization of the v0.5 call and notification lifecycle
 
-The 0.6 feature implementation is ready for release-candidate testing, not yet
-device-certified. See the [complete 0.6 acceptance checklist](docs/testing-0.6.md).
-Media control is opt-in on Mac and uses public player automation; it is not
-universal browser/system media control. Artwork is optional, local-only, and
-currently limited to Music. Other Android vendors still need physical-device
-validation; unit-test coverage is not a substitute.
+The feature code and call/notification fixes are included in the edition. Multi-OEM
+acceptance remains open: only the OnePlus 11 has physical-phone results. See the
+[0.6 acceptance checklist](docs/testing-0.6.md) and [compatibility matrix](docs/compatibility.md).
+Media control is opt-in. Music and Spotify have dedicated controls; other installed players
+can be selected for media-key control, with metadata and artwork depending on the player.
 
 ### v0.7.0 — remote input and presentations
 
-- [ ] Use Android as an opt-in macOS touchpad and keyboard
-- [ ] Support pointer movement, clicks, scrolling, dragging, and bounded text input
-- [ ] Add presentation actions for previous/next, start/full screen, escape, and laser pointer
-- [ ] Request macOS Accessibility access only when remote input is explicitly enabled
-- [ ] Require a visible active-session indicator and an immediate local stop control
-- [ ] Rate-limit remote input and keep a private audit log of remote-control sessions
-- [ ] Grant remote-control capabilities independently for every trusted device
+- [x] Use Android as an opt-in macOS touchpad and keyboard
+- [x] Support pointer movement, clicks, scrolling, dragging, and bounded text input
+- [x] Add presentation actions for previous/next, start/full screen, escape, and laser pointer
+- [x] Request macOS Accessibility access only when remote input is explicitly enabled
+- [x] Require a visible active-session indicator and an immediate local stop control
+- [x] Rate-limit remote input and keep a private audit log of remote-control sessions
+- [x] Grant remote-control capabilities independently for every trusted device
+
+Implemented with `remote_input_draft1`. Physical-device acceptance is tracked in the
+[remote input checklist](docs/testing-remote-input.md).
 
 ### v0.8.0 — Files 2.0 and multiple devices
 
-- [ ] Send multiple files and folders with a visible queue and deterministic conflict handling
-- [ ] Resume verified transfers after network interruption or application restart
-- [ ] Browse only Android folders explicitly granted through the system Storage Access Framework
-- [ ] Upload to and download from granted folders without broad storage permissions
-- [ ] Improve Finder, Quick Look, Downloads, and transfer-history integration
-- [ ] Support multiple simultaneous trusted-device sessions with per-device settings
+- [x] Send multiple files and folders with a visible queue and deterministic conflict handling
+- [x] Resume folders at file boundaries, keeping verified completed files after disconnect or restart
+- [ ] Resume an interrupted file from its last verified chunk rather than byte zero
+- [x] Browse only Android folders explicitly granted through the system Storage Access Framework
+- [x] Upload to and download from granted folders without broad storage permissions
+- [x] Improve Finder, Quick Look, Downloads, and transfer-history integration
+- [x] Support multiple simultaneous trusted-device sessions with per-device settings
 - [ ] Stress-test cancellation, reconnection, and multi-gigabyte transfers in both directions
+
+Includes the Mac Phone files browser, thumbnails, previews, folders both ways and the
+[fast binary transfer path](docs/transfer-speed.md). File-level folder recovery is implemented;
+the broader resumable transfer engine remains on hold. Existing emulator benchmarks do not
+close real-Wi-Fi, large-library and long-running acceptance. See
+[Files](docs/files-browse.md) and [folders and settings sync](docs/folders-and-settings-sync.md).
 
 ### v0.9.0 — automation and experimental communication
 
-- [ ] Add locally configured actions for lock, sleep, screensaver, volume, and launching an app
-- [ ] Permit custom automation only through a local allowlist; never expose a remote shell
-- [ ] Add Android Device Controls/widgets and browser integrations for link handoff
-- [ ] Add a privacy-preserving connection health and diagnostics view
-- [ ] Prototype explicitly confirmed, view-only screen sharing in both directions
-- [ ] Evaluate full SMS conversations, new-message sending, and optional contact names as a
-      separately consented plugin and distribution flavor
-- [ ] Keep notification-based message replies as the permission-light fallback
+- [x] Add locally configured actions for lock, sleep, screensaver, volume, and launching an app
+- [x] Permit custom automation only through a local allowlist; never expose a remote shell
+- [x] Add Android Device Controls/widgets, link handoff and Mac Shortcuts/Siri actions
+- [ ] Package browser extensions for link handoff
+- [x] Add a privacy-preserving connection health and diagnostics view
+- [x] Prototype explicitly confirmed, view-only phone-to-Mac screen sharing
+- [ ] Add Mac-to-phone screen sharing and separately consented phone control
+- [x] Add separately consented SMS conversations, new messages, contact names, SIM selection
+      and delivery status in this APK edition; MMS images are read-only
+- [x] Keep notification-based message replies as the permission-light fallback
+- [x] Add phone battery alerts, Focus/Do Not Disturb sync and phone camera capture to the Mac
 
-Screen sharing must display a persistent local indicator and require explicit
-confirmation for each session. Full SMS access depends on distribution-policy
-approval, a privacy policy, prominent disclosure, retention controls, and a
-separate permission review. Neither experimental capability blocks v1.0.
+Screen sharing is an off-by-default, view-only prototype with per-session confirmation and
+a persistent local indicator. SMS is opt-in and separately permissioned in the directly
+distributed APK; this does not claim approval for a store distribution. Neither experimental
+capability blocks v1.0. See [automation](docs/automation.md),
+[screen sharing](docs/screen-sharing.md) and [SMS policy](docs/sms-call-policy.md).
+
+### v0.10.0 — stabilisation and edition extensions (current Beta)
+
+- [x] Draft the protocol contract and machine-readable message list; add strict decoding,
+      fuzz cases, cross-platform golden vectors and upgrade/migration tests
+- [x] Harden first pairing with protocol 2 commit/reveal and explicit confirmation on both devices
+- [x] Explain optional permissions in setup and a Permissions page; add local-data reset controls
+- [x] Publish compatibility, diagnostics, user and developer guides, plus release checksums,
+      SBOMs and provenance
+- [x] Ship Homebrew/Obtainium install paths, Stable/Beta/Nightly channels, What's new,
+      Update all and automatic coordinated updates
+- [x] Redesign both apps around devices and a private activity stream; add shared settings sync
+- [x] Connect away from home through direct internet routes or an optional encrypted relay,
+      with LAN preferred and no phone VPN required for relay connections
+- [x] Add automatic clipboard, explicit image/file clipboard handoff, Handoff takeover controls
+      and selection of other installed media players
+- [x] Read SMS codes locally on a Mac or through the chosen cloud route; read email codes from
+      Gmail, Outlook, Proton Mail and Spark notifications on the Mac only, with one shared
+      pipeline, deduplication and Latest/Older labels
+- [x] Ship the Rust agent CLI: invite pairing, files, clipboard, notifications, questions,
+      device status and codes, with per-server grants, limits and an audit on the phone
+- [x] Keep SMS code detection available when all Macs are offline: a permitted server running
+      the shared Rust reader, or the phone's separately enabled cloud fallback
+- [x] Add pairing over Tailscale addresses for Mac–Mac, server–Mac and server–server;
+      new peers start restricted until explicitly trusted
+- [x] Merge Settings search on Mac and Android: synonyms, typo tolerance, grouped results,
+      and a jump/highlight to the setting (**Beta 23 tagged; release pending**)
+- [ ] Complete live Settings search checks on Android and Mac keyboard/scroll interactions
+- [ ] Complete the v1.0 acceptance work below before freezing the protocol or declaring Stable
+
+Details: [edition](docs/rr-edition.md), [connect anywhere](docs/connect-anywhere.md),
+[email codes](docs/codes-from-email.md), [agent CLI setup](docs/agent-cli-setup.md) and
+[codes without a Mac and tailnet pairing](docs/mesh-and-codes.md#phase-2-2026-11-04).
+The default CLI package does not include the optional local detection model/runner.
 
 ### v1.0.0 — stable local companion
 
 - [ ] Freeze and document the Bridgey Protocol v1 compatibility contract
-- [ ] Preserve trust, settings, and local history through supported upgrades and migrations
-- [ ] Recover reliably after sleep, Wi-Fi changes, process restarts, and interrupted transfers
-- [ ] Run long-lived, malformed-input, fuzz, and cross-platform integration tests
-- [ ] Publish a tested Android/OEM and macOS compatibility matrix
+- [ ] Complete supported-upgrade acceptance for trust, settings and local history on real devices
+- [ ] Complete long-running sleep, Wi-Fi-change, process-restart and interrupted-transfer acceptance
+- [ ] Extend existing malformed-input, fuzz and cross-platform tests with long-lived device runs
+- [x] Publish an Android/OEM and macOS compatibility matrix with tested and unverified rows
+- [ ] Expand physical-device coverage beyond OnePlus 11 and the tested Apple silicon Macs
 - [ ] Complete security, privacy, accessibility, and English/Russian localization reviews
-- [ ] Explain every optional permission in onboarding and provide local-data reset controls
-- [ ] Publish checksums, SBOM/provenance, diagnostics guidance, and user/developer documentation
-- [ ] Provide a clear update path and repeatable Android and macOS release packaging
+- [x] Explain every optional permission in onboarding and provide local-data reset controls
+- [x] Publish checksums, SBOM/provenance, diagnostics guidance, and user/developer documentation
+- [x] Provide a clear update path and repeatable Android and macOS release packaging
 
 Developer ID signing and notarization remain desirable when an Apple Developer
 membership is available, but do not prevent a documented open-source v1.0.
 
-### Beyond KDE Connect
+### Remaining extensions
 
-Bridgey should keep its local-first scope while developing capabilities that
-are more explicit and auditable than a simple feature-for-feature clone:
+These are open items, not promises for the next Beta:
 
-- [ ] One-time remote permissions, including grants limited to a single session or time window
-- [ ] A private per-device audit log for remote input, automation, files, and sensitive actions
-- [ ] Resumable content-addressed transfers with end-to-end integrity verification
-- [ ] Image and file clipboard handoff with explicit user interaction on Android
-- [ ] QR-assisted pairing and temporary guest pairing without a permanent trust record
-- [ ] Home, Work, and Public Network profiles with conservative defaults on unfamiliar networks
-- [ ] A documented plugin SDK so future clients can extend the public protocol safely
-- [ ] Optional end-to-end encrypted relay without making accounts or cloud service mandatory
+- [ ] Calls window with a dialer, contacts and WhatsApp voice/video actions
+- [ ] Further email-code sources (phase 2); email detection on servers remains deferred
+- [ ] Fully peer-to-peer mesh invites (`v: 2`) and one-hop Update all without a phone hub
+- [ ] Local code detection on the phone; the shipped fallback uses the cloud by explicit choice
+- [ ] Resumable content-addressed transfer engine (on hold), with verified recovery inside a file
+- [ ] Temporary guest pairing without permanent trust and wider one-time remote permissions
+- [ ] Home, Work and Public Network profiles with conservative defaults on unfamiliar networks
+- [ ] A documented plugin SDK for future clients
+
+Time-windowed agent grants, private action audits, image/file clipboard handoff, QR/link server
+invites and the optional end-to-end encrypted relay are already implemented; wider guest
+pairing and mesh invites remain separate work.
 
 ### After v1.0 / exploratory
 
@@ -238,10 +289,9 @@ are more explicit and auditable than a simple feature-for-feature clone:
 - [ ] Windows and iOS clients where platform restrictions permit useful background behavior
 - [ ] Bluetooth transport fallback when local-network discovery is unavailable
 - [ ] Optional accounts for recovery without making accounts mandatory
-- [ ] End-to-end encrypted off-LAN relay with direct connections preferred
-- [ ] Full Android screen control only after a separate accessibility and abuse review
 - [ ] Contacts and call-history synchronization only as separately consented plugins
-- [ ] Developer ID signing, notarization, and a polished macOS updater
+- [ ] Developer ID signing and notarization when an Apple Developer membership is available
+- [ ] Mac gallery manager (v2), alongside native Windows/Linux clients using the Rust core
 
 ## Repository
 

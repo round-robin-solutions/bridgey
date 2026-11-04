@@ -1,10 +1,15 @@
 # Agent CLI (`bridgey`)
 
-Status: draft spec for Bridgey by Round Robin, 2026-10-25. **Phase 1 built on branch `rr/agent-cli`
+Status: phase 1 merged into `rr/main` and released as CLI 0.1.0 with app Beta 21.
+CLI 0.2.0 and app Beta 22 add tailnet pairing and codes without a Mac; see
+[mesh and codes, phase 2](mesh-and-codes.md#phase-2-2026-11-04) and the
+[setup guide](agent-cli-setup.md). The design below also describes deferred work.
+
+Original spec, 2026-10-25. **Phase 1 built on branch `rr/agent-cli`
 (2026-11-03)**, with the daemon brought forward from phase 2: see [As built](#as-built-2026-11-03). Setup:
 [agent-cli-setup.md](agent-cli-setup.md). Wire contract: [protocol.md, agent devices](protocol.md#draft-agent-devices-agent_draft1).
 Transport, relays and remote pairing come from [connect-anywhere.md](connect-anywhere.md). The
-wire messages are in the draft section of [protocol.md](protocol.md#draft-connect-anywhere-edition-only).
+wire messages are in the draft section of [protocol.md](protocol.md#draft-connect-anywhere-connect_draft1).
 
 ## As built (2026-11-03)
 

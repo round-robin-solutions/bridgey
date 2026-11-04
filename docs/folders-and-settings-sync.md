@@ -1,8 +1,12 @@
 # Folders and settings sync
 
-Status: draft spec, 2026-10-25. No code yet; the build starts after Beta 4. Written for
-Bridgey by Round Robin first and kept unbranded, so the protocol can be proposed upstream
-as it stands. The wire summary is in [protocol.md](protocol.md#draft-folders-places-and-settings-sync).
+Status: folder transfers in both directions and shared settings sync are implemented in
+`rr/main` and included in the published v0.10 Betas as of 2026-11-04. Folder recovery skips
+verified completed files; recovery inside an interrupted file remains future work. The
+original 2026-10-25 design below records the staged scope; phone-file browsing and downloads
+were added separately in [files-browse.md](files-browse.md). Written for Bridgey by Round Robin
+first and kept unbranded for upstream proposals. The wire summary is in
+[protocol.md](protocol.md#draft-folders-places-and-settings-sync).
 
 Two features:
 
