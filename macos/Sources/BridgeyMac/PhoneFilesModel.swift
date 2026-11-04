@@ -11,6 +11,8 @@ enum PhoneFilesSection: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum PhoneFileSelectionMove { case previous, next, first, last }
+
 /// One listing (a section, or the open folder) with paging.
 struct PhoneListing: Equatable {
     var entries: [PhoneFileEntry] = []
@@ -76,6 +78,7 @@ final class PhoneFilesModel: ObservableObject {
     @Published private(set) var listings: [PhoneFilesSection: PhoneListing] = [:] {
         didSet {
             if oldValue[.media]?.entries != listings[.media]?.entries { mediaRevision &+= 1 }
+            if oldValue[section]?.entries != listings[section]?.entries { pruneSelection() }
         }
     }
     /// Bumps whenever the Photos and Videos entries change: the grid rebuilds its day sections only then.
@@ -85,6 +88,8 @@ final class PhoneFilesModel: ObservableObject {
     @Published private(set) var sort: PhoneFileSort = .name
     @Published private(set) var descending = false
     @Published var selection: Set<String> = []
+    @Published private(set) var selectionFocus: String?
+    @Published private(set) var keyboardSelection = false
     @Published private(set) var saved: [String: URL] = [:]
     @Published private(set) var activities: [PhoneFilesActivity] = []
     @Published var preview: PhonePreviewState?
@@ -107,6 +112,7 @@ final class PhoneFilesModel: ObservableObject {
     private var generation = 0
     private var noticeClear: DispatchWorkItem?
     private var lastAnchor: String?
+    private var additiveRangeBase: Set<String>?
     /// The viewer's preview on the wire: replaced when the viewer moves on, so arrows never queue work.
     private var previewRequest: PhoneFilesCancellable?
     private var previewDelay: DispatchWorkItem?
@@ -161,7 +167,7 @@ final class PhoneFilesModel: ObservableObject {
         info = nil
         infoError = nil
         listings = [:]
-        selection = []
+        clearSelection()
         saved = [:]
         preview = nil
         guard let id, phone?.browsable == true else { return }
@@ -201,6 +207,8 @@ final class PhoneFilesModel: ObservableObject {
                 if self.placeID != nil, !info.places.contains(where: { $0.id == self.placeID }) {
                     self.placeID = nil
                     self.path = []
+                    self.clearSelection()
+                    self.listings[.folders] = nil
                 }
             case let .failure(error):
                 self.infoError = error
@@ -221,7 +229,7 @@ final class PhoneFilesModel: ObservableObject {
 
     private func sectionChanged() {
         defaults.set(section.rawValue, forKey: Keys.section)
-        selection = []
+        clearSelection()
         thumbnails.stop()
         if listings[section]?.loaded != true { loadSection(section, reset: true) }
         thumbnails.setOrder(currentEntries)
@@ -242,6 +250,7 @@ final class PhoneFilesModel: ObservableObject {
     func loadSection(_ section: PhoneFilesSection, reset: Bool) {
         guard let phoneID, phone?.browsable == true else { return }
         if section == .folders, placeID == nil { return }
+        if reset, section == self.section { resetSelectionNavigation() }
         var listing = reset ? PhoneListing() : (listings[section] ?? PhoneListing())
         let cacheKey = listingKey(section)
         if reset, let cached = listingCache.load(cacheKey) {
@@ -308,7 +317,7 @@ final class PhoneFilesModel: ObservableObject {
         path = []
         section = .folders
         rememberLocation()
-        selection = []
+        clearSelection()
         if id == nil {
             listings[.folders] = nil
         } else {
@@ -321,7 +330,7 @@ final class PhoneFilesModel: ObservableObject {
         guard depth < path.count - 1 || depth == -1 else { return }
         path = depth < 0 ? [] : Array(path.prefix(depth + 1))
         rememberLocation()
-        selection = []
+        clearSelection()
         loadSection(.folders, reset: true)
     }
 
@@ -331,11 +340,12 @@ final class PhoneFilesModel: ObservableObject {
         path = (folder.isEmpty ? [] : folder.split(separator: "/").map(String.init)) + [name]
         section = .folders
         rememberLocation()
-        selection = []
+        clearSelection()
         loadSection(.folders, reset: true)
     }
 
     func setSort(_ next: PhoneFileSort) {
+        clearSelection()
         if next == sort { descending.toggle() } else {
             sort = next
             descending = next == .modified || next == .size
@@ -356,16 +366,112 @@ final class PhoneFilesModel: ObservableObject {
     var selectedEntries: [PhoneFileEntry] { currentEntries.filter { selection.contains($0.id) } }
 
     func click(_ entry: PhoneFileEntry, command: Bool, shift: Bool) {
-        if command {
-            if selection.contains(entry.id) { selection.remove(entry.id) } else { selection.insert(entry.id) }
-            lastAnchor = entry.id
-        } else if shift, let anchor = lastAnchor, let from = currentEntries.firstIndex(where: { $0.id == anchor }),
-                  let to = currentEntries.firstIndex(where: { $0.id == entry.id }) {
-            selection = Set(currentEntries[min(from, to)...max(from, to)].map(\.id))
+        guard currentEntries.contains(where: { $0.id == entry.id }) else { return }
+        keyboardSelection = false
+        select(entry.id, command: command, shift: shift)
+    }
+
+    private func select(_ id: String, command: Bool, shift: Bool) {
+        let entries = currentEntries
+        if shift, let anchor = lastAnchor, let from = entries.firstIndex(where: { $0.id == anchor }),
+           let to = entries.firstIndex(where: { $0.id == id }) {
+            let range = Set(entries[min(from, to)...max(from, to)].map(\.id))
+            if command {
+                if additiveRangeBase == nil { additiveRangeBase = selection }
+                selection = (additiveRangeBase ?? []).union(range)
+            } else {
+                additiveRangeBase = nil
+                selection = range
+            }
+        } else if command && !shift {
+            additiveRangeBase = nil
+            if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
+            lastAnchor = id
         } else {
-            selection = [entry.id]
-            lastAnchor = entry.id
+            additiveRangeBase = nil
+            selection = [id]
+            lastAnchor = id
         }
+        selectionFocus = id
+    }
+
+    @discardableResult
+    func selectAll() -> Bool {
+        let entries = currentEntries
+        guard !entries.isEmpty else { return false }
+        selection = Set(entries.map(\.id))
+        lastAnchor = entries.first?.id
+        // Select All must not scroll to the last row and accidentally request the next page.
+        if selectionFocus.map({ id in !entries.contains { $0.id == id } }) ?? true {
+            selectionFocus = entries.first?.id
+        }
+        additiveRangeBase = nil
+        keyboardSelection = true
+        return true
+    }
+
+    @discardableResult
+    func clearSelection() -> Bool {
+        let changed = !selection.isEmpty
+        selection = []
+        resetSelectionNavigation()
+        return changed
+    }
+
+    func moveSelection(_ move: PhoneFileSelectionMove, extend: Bool) {
+        let entries = currentEntries
+        guard !entries.isEmpty else { return }
+        let current = selectionFocus.flatMap { id in entries.firstIndex { $0.id == id } }
+            ?? entries.firstIndex { selection.contains($0.id) }
+        let index: Int
+        switch move {
+        case .first: index = 0
+        case .last: index = entries.count - 1
+        case .previous: index = current.map { max(0, $0 - 1) } ?? entries.count - 1
+        case .next: index = current.map { min(entries.count - 1, $0 + 1) } ?? 0
+        }
+        if extend, lastAnchor == nil, let current { lastAnchor = entries[current].id }
+        select(entries[index].id, command: false, shift: extend)
+        keyboardSelection = true
+    }
+
+    func activateSelection() {
+        if let focused = currentEntries.first(where: { $0.id == selectionFocus }) ?? selectedEntries.first { activate(focused) }
+    }
+
+    /// Called only while the file list owns the first responder; text fields keep their normal keys.
+    func selectionKey(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "a" { return selectAll() }
+        guard flags.isEmpty || flags == .shift else { return false }
+        switch event.keyCode {
+        case 53 where flags.isEmpty: return clearSelection()
+        case 36, 76:
+            guard flags.isEmpty else { return false }
+            activateSelection()
+        case 125: moveSelection(.next, extend: flags.contains(.shift))
+        case 126: moveSelection(.previous, extend: flags.contains(.shift))
+        case 115: moveSelection(.first, extend: flags.contains(.shift))
+        case 119: moveSelection(.last, extend: flags.contains(.shift))
+        default: return false
+        }
+        return true
+    }
+
+    private func resetSelectionNavigation() {
+        lastAnchor = nil
+        selectionFocus = nil
+        additiveRangeBase = nil
+        keyboardSelection = false
+    }
+
+    private func pruneSelection() {
+        let ids = Set(currentEntries.map(\.id))
+        selection.formIntersection(ids)
+        if let lastAnchor, !ids.contains(lastAnchor) { self.lastAnchor = nil; additiveRangeBase = nil }
+        if let selectionFocus, !ids.contains(selectionFocus) { self.selectionFocus = nil }
+        additiveRangeBase?.formIntersection(ids)
     }
 
     /// Double click or Return: a folder opens, a file previews.
@@ -400,6 +506,7 @@ final class PhoneFilesModel: ObservableObject {
         let entry = entries[next]
         selection = [entry.id]
         lastAnchor = entry.id
+        selectionFocus = entry.id
         openPreview(entry)
         if next >= entries.count - 10 { loadMore() }
     }
