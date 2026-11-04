@@ -148,6 +148,8 @@ private fun SyncLine(shape: Shape, text: String, warning: Boolean, action: Strin
         icon = if (warning) BridgeyIcons.Error else BridgeyIcons.Sync,
         tint = if (warning) Tint.PURPLE else Tint.NEUTRAL,
         compact = true,
+        // A status line: search finds the setting above it by this text instead.
+        searchable = false,
     ) {
         if (action != null) OutlinePillButton(action, null, onAction)
     }

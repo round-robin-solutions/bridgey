@@ -362,6 +362,7 @@ private fun RemoteControlEntry(onClick: () -> Unit, modifier: Modifier = Modifie
             compact = true,
             onClick = onClick,
             role = Role.Button,
+            searchable = false,
         ) { Icon(BridgeyIcons.ChevronRight, null, tint = BridgeyTheme.colors.onSurfaceVariant) }
     }
 }
@@ -382,6 +383,7 @@ private fun ScreenShareEntry(state: DeviceState, actions: DeviceActions, modifie
                 compact = true,
                 onClick = actions.shareScreen,
                 role = Role.Button,
+                searchable = false,
             ) { Icon(BridgeyIcons.ChevronRight, null, tint = colors.onSurfaceVariant) }
         } else {
             val stats = screen.stats
@@ -400,6 +402,7 @@ private fun ScreenShareEntry(state: DeviceState, actions: DeviceActions, modifie
                 compact = true,
                 onClick = actions.stopScreen,
                 role = Role.Button,
+                searchable = false,
             ) { Icon(BridgeyIcons.Close, null, tint = colors.onSurfaceVariant) }
         }
     }
@@ -447,7 +450,12 @@ private fun DeviceTabs(tab: DeviceTab, onTab: (DeviceTab) -> Unit, modifier: Mod
 
 @Composable
 private fun PermissionsList(state: DeviceState, actions: DeviceActions, contentPadding: PaddingValues) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = contentPadding) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LazyColumn(
+        Modifier.fillMaxSize().then(dev.bridgey.android.ui.search.rememberSearchScroll(listState)),
+        state = listState,
+        contentPadding = contentPadding,
+    ) {
         item(key = "intro") {
             Note(stringResource(R.string.device_permissions_intro, state.ring.name), Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp))
         }

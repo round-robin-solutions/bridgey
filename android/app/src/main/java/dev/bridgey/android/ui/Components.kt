@@ -218,6 +218,10 @@ fun ListRow(
     leading: (@Composable () -> Unit)? = null,
     /** Settings sync: a small mark after the title says the setting is the same on paired devices. */
     synced: Boolean = false,
+    /** Settings search: false for status lines that are not settings (search never offers them). */
+    searchable: Boolean = true,
+    /** Settings search: the row's name when its [title] changes with state ("Link to Work Mac"). */
+    searchTitle: String? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val colors = BridgeyTheme.colors
@@ -227,6 +231,7 @@ fun ListRow(
             .heightIn(min = if (compact) 56.dp else 64.dp)
             .clip(shape)
             .background(colors.surface1)
+            .then(dev.bridgey.android.ui.search.rememberSearchHighlight(searchTitle ?: title, shape, searchable))
             .then(
                 if (onClick != null) {
                     Modifier.clickable(onClickLabel = onClickLabel, role = role, onClick = onClick)

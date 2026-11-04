@@ -165,6 +165,7 @@ private fun CodesLinkRow(shape: androidx.compose.ui.graphics.Shape, state: Codes
         shape, state.linkTarget?.let { stringResource(R.string.codes_link_to, it.name) } ?: stringResource(R.string.codes_link), detail,
         BridgeyIcons.Link, if (state.linked && state.link == CompanionLinkState.Idle) Tint.GREEN else Tint.BLUE,
         detailWarning = state.link is CompanionLinkState.Failed,
+        searchTitle = stringResource(R.string.codes_link),
         onClick = when {
             busy -> null
             CodeLinkTargets.needsPicker(state.linkTargets) -> ({ picking = true })

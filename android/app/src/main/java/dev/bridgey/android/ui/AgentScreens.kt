@@ -292,7 +292,12 @@ private fun AgentPermissions(
             dismissButton = { TextButton(onClick = { confirmTrust = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = contentPadding) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LazyColumn(
+        Modifier.fillMaxSize().then(dev.bridgey.android.ui.search.rememberSearchScroll(listState)),
+        state = listState,
+        contentPadding = contentPadding,
+    ) {
         if (state.overTailnet) {
             item(key = "tailnet") {
                 ListRow(

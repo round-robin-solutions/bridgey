@@ -145,7 +145,8 @@ private fun PermissionRowItem(shape: Shape, entry: PermissionEntry, textMessages
     val (icon, tint) = permissionIcon(entry.kind)
     val available = entry.state != PermissionState.NOT_ON_THIS_DEVICE
     Row(
-        Modifier.fillMaxWidth().clip(shape).background(colors.surface1).padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
+        Modifier.fillMaxWidth().clip(shape).background(colors.surface1).then(dev.bridgey.android.ui.search.rememberSearchHighlight(permissionName(entry.kind), shape))
+            .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         IconTile(icon, if (entry.state == PermissionState.ALLOWED) tint else Tint.NEUTRAL)
