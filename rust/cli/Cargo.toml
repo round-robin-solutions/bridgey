@@ -3,7 +3,7 @@ name = "bridgey-cli"
 description = "bridgey: the agent command for Bridgey by Round Robin (docs/agent-cli.md)"
 edition.workspace = true
 license.workspace = true
-version = "0.1.0"
+version = "0.2.0"
 
 [[bin]]
 name = "bridgey"

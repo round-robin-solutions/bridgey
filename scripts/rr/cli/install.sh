@@ -1,11 +1,11 @@
 #!/bin/sh
 # Installs the bridgey agent command (Bridgey by Round Robin) for this machine into ~/.local/bin.
-#   curl -fsSL https://github.com/round-robin-solutions/bridgey/releases/download/cli-v0.1.0/install.sh | sh
+#   curl -fsSL https://github.com/round-robin-solutions/bridgey/releases/download/cli-v0.2.0/install.sh | sh
 # It downloads the tarball for this OS and CPU from the same release, checks it against the release's
 # SHA256SUMS, and installs it. Nothing runs as root. Then: bridgey pair (docs/agent-cli-setup.md).
-# BRIDGEY_VERSION=0.1.0 picks a version; BRIDGEY_INSTALL_DIR changes the folder.
+# BRIDGEY_VERSION=0.2.0 picks a version; BRIDGEY_INSTALL_DIR changes the folder.
 set -eu
-VERSION=${BRIDGEY_VERSION:-0.1.0}
+VERSION=${BRIDGEY_VERSION:-0.2.0}
 REPO=round-robin-solutions/bridgey
 BASE="https://github.com/$REPO/releases/download/cli-v$VERSION"
 DIR=${BRIDGEY_INSTALL_DIR:-$HOME/.local/bin}

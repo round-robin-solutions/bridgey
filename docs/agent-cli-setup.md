@@ -13,7 +13,7 @@ default), and for codes, the Mac app with **Codes from messages** on, or a serve
 Linux (x86_64 or aarch64) and macOS:
 
 ```sh
-curl -fsSL https://github.com/round-robin-solutions/bridgey/releases/download/cli-v0.1.0/install.sh | sh
+curl -fsSL https://github.com/round-robin-solutions/bridgey/releases/download/cli-v0.2.0/install.sh | sh
 ```
 
 It downloads the build for this machine, checks it against `SHA256SUMS`, and puts `bridgey` in
