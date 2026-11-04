@@ -26,7 +26,7 @@ const MAXIMUM_BYTES: u64 = 2_000_000_000;
 
 /// How long one candidate may take on this install (the phone waits 30 seconds).
 #[cfg(feature = "detect")]
-const DETECT_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+const DETECT_BUDGET: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Whether this build carries the model runner.
 pub const BUILT_WITH_DETECTOR: bool = cfg!(feature = "detect");
@@ -300,8 +300,8 @@ impl Detector {
         let channel = if candidate.source == "email" { bridgey_codes::Channel::Email } else { bridgey_codes::Channel::Sms };
         #[cfg(feature = "detect")]
         {
-            // No banner waits on a server, so the read gets longer than the Mac's 2 seconds: a busy host still answers
-            // well inside the phone's 30 second wait.
+            // No banner waits on a server, so the read gets longer than the Mac's 2 seconds: on a saturated host a read
+            // took over 10 s (rr-dev-1 during a Gradle build), and 20 s still answers inside the phone's 30 second wait.
             let mut reader = bridgey_codes::Reader::new(&self.engine);
             reader.budget = DETECT_BUDGET;
             reader.read(&candidate.text, Some(&candidate.sender), channel)

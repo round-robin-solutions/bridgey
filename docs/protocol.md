@@ -1942,7 +1942,7 @@ prompt and guard as the Mac) reads code text messages for the phone when no Mac 
   (links and copyright years blanked); a refused code is logged as `codes.detect` `invalid` and dropped. The service
   is the phone's (`sender`, its service key, or the sender lowercased for a number); the agent cannot name one. The
   code then joins the broker like a Mac's `codes.found` (`via` `sms`).
-- **The agent.** Reads with the shared reader on its own thread (at most 4 at once, `busy` beyond), budget 10
+- **The agent.** Reads with the shared reader on its own thread (at most 4 at once, `busy` beyond), budget 20
   seconds, and answers; it never stores or logs the text or the code. A candidate without the grant in its latest
   map, or without a model, is answered `failed` (`not_configured` or `model_missing`).
 - **Audit.** The phone writes `codes.detect` `delivered` with the app's name for each candidate it sends ("Read a code

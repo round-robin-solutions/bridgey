@@ -53,18 +53,22 @@ mail second pass), on the research's synthetic sets, same model file (`bridgey-o
 | Set | Before (Mac, Swift, Metal) | Rust reader, Metal (personal Mac M4) | Rust reader, CPU (rr-dev-1, 4 threads) | Rust reader, Android arm64 (emulator, 4 threads) |
 | --- | --- | --- | --- | --- |
 | bench (42) | 30/30, 0 wrong, 0 false | 30/30, 0, 0 | 30/30, 0, 0 | 30/30, 0, 0 |
-| synth (2,000) | 1,127/1,130, 0, 0 | 1,127/1,130, 0, 0 | 1,120/1,130, 0, 0 (7 time-outs on a loaded host, see below) | not run |
-| hard2 (200) | 106/110, 0, 1 | 106/110, 0, 1 | 106/110, 0, 1 | see As built |
+| synth (2,000) | 1,127/1,130, 0, 0 | 1,127/1,130, 0, 0 | 1,126/1,130, 0, 0 | not run (time) |
+| hard2 (200) | 106/110, 0, 1 | 106/110, 0, 1 | 106/110, 0, 1 | 104/110, 1, 1 |
 | hard3 (240) | 118/120, 0, 5 | 118/120, 0, 5 | 118/120, 0, 7 | 118/120, 0, 7 |
-| hard4 (240) | 103/120, 5, 17 | 103/120, 5, 17 | 103/120, 5, 18 | not run |
-| mail blind (240) | 116/120, 0, 0 | 116/120, 0, 0 | 117/120, 0, 0 | not run |
-| mail blind2 (240) | 118/120, 0, 0 (116 with the rule frozen before it) | 118/120, 0, 0 | 118/120, 0, 0 | see As built |
-| Median per message | 106 ms | 77 to 117 ms | 442 to 805 ms (shared host) | 357 to 360 ms |
+| hard4 (240) | 103/120, 5, 17 | 103/120, 5, 17 | 103/120, 5, 18 | not run (time) |
+| mail blind (240) | 116/120, 0, 0 | 116/120, 0, 0 | 117/120, 0, 0 | not run (time) |
+| mail blind2 (240) | 118/120, 0, 0 (116 with the rule frozen before it) | 118/120, 0, 0 | 118/120, 0, 0 | 118/120, 0, 0 |
+| Median per message | 106 ms | 77 to 117 ms | 442 to 805 ms (shared, busy host) | 334 to 414 ms |
 
 "wrong" is a wrong code on a code message, "false" a code shown for a no-code message. **On the same backend the Rust
-reader gives exactly the Mac's numbers on every set.** CPU builds of llama.cpp (x86 and arm64 alike) differ from
-Metal by a hair: two more expired codes in Indian languages shown on hard3, one more code found on mail blind. The
-research's own CPU run gave 8 false on hard3, so this is the backend, not the port.
+reader gives exactly the Mac's numbers on every set.** CPU builds of llama.cpp differ from Metal by a hair, because
+the arithmetic differs, not the code path: on x86, one code fewer on synth, two more expired codes in Indian languages
+shown on hard3, one more on hard4, one more code found on mail blind; on arm64 (the phone's CPU), the same two on
+hard3 and, on hard2, two codes fewer and one wrong code. The research's own CPU run gave 8 false on hard3. A busy host
+also matters: with Gradle and cargo saturating rr-dev-1, 7 of 2,000 reads took over 10 seconds, so a server reads with
+a 20 second budget (the phone waits 30). The phone's own reader (phase 2) should be checked on the full sets on a
+real device before it ships; the arm64 wrong code on hard2 is the one result that is worse in kind.
 
 ## 3. Codes without a Mac
 
@@ -114,7 +118,7 @@ emulator (arm64, 4 vCPUs on the personal Mac's M4, 2.5 GB RAM), with the same mo
 | --- | --- | --- | --- |
 | Load and first read | 1.03 s | 1.5 to 2.5 s | Flash read of 253 MB plus the first run; once per 15 idle minutes |
 | Per message, median / p95 | 357 ms / 477 ms | 0.5 to 1.0 s | Snapdragon 8 Gen 2 cores at roughly half to two thirds of an M4 core per thread for llama.cpp |
-| Memory while loaded | 300 MB resident (peak) | the same | The model is memory mapped; unloaded after 15 idle minutes |
+| Memory while loaded | 309 MB resident (peak) | the same | The model is memory mapped; unloaded after 15 idle minutes |
 | Battery per message | not measurable on an emulator | 1 to 3 J (about 0.003% of a 5,000 mAh battery) | 3 to 4 W for under a second |
 | Battery per day | | under 0.2% for 30 code messages, plus about 1 J per model load | |
 | Storage | 253 MB | 253 MB | One download, Wi-Fi only |
