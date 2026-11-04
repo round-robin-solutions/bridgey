@@ -507,6 +507,7 @@ final class PhoneFilesModel: ObservableObject {
         selection = [entry.id]
         lastAnchor = entry.id
         selectionFocus = entry.id
+        additiveRangeBase = nil
         openPreview(entry)
         if next >= entries.count - 10 { loadMore() }
     }

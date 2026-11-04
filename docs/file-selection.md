@@ -28,7 +28,7 @@ Selection shortcuts act while a file item or file list has keyboard focus. Text 
 controls and menus keep their normal keyboard behavior. On Android, arrows move focus and Space
 or Enter toggles the focused item. In the Mac send picker, Space toggles the focused item and
 Return keeps its existing Send action. In **Phone files**, Space previews, Return opens the
-focused file/folder, and ⌘Y opens Quick Look. Escape closes a preview before clearing its selection;
+selected item (the focused item in file lists), and ⌘Y opens Quick Look. Escape closes a preview before clearing its selection;
 an empty selection lets the send picker's normal dismissal proceed.
 
 Select All covers the currently loaded context, without fetching the rest of a library. In the

@@ -64,6 +64,19 @@ final class PhoneFileSelectionTests: XCTestCase {
         XCTAssertEqual(model.selection, Set([entries[0].id, entries[7].id, entries[8].id]))
     }
 
+    func testPreviewNavigationRetiresThePreviousAdditiveRangeBase() {
+        let model = model()
+        let entries = model.currentEntries
+        model.click(entries[0], command: false, shift: false)
+        model.click(entries[2], command: true, shift: false)
+        model.click(entries[4], command: true, shift: true)
+        model.setPreviewForTesting(PhonePreviewState(entry: entries[0], openedAt: Date()), image: nil)
+        model.showAdjacent(1)
+        model.closePreview()
+        model.click(entries[3], command: true, shift: true)
+        XCTAssertEqual(model.selection, Set(entries[1...3].map(\.id)))
+    }
+
     func testShiftArrowsAndEndpointsKeepTheirAnchorAndExposeTheKeyboardFocus() {
         let model = model()
         let entries = model.currentEntries

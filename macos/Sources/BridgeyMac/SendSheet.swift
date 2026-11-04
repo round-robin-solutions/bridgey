@@ -337,6 +337,18 @@ struct SendSheetState {
         additiveRangeBase = nil
     }
 
+    mutating func addSelection(_ urls: [URL]) {
+        let known = Set(orderedURLs)
+        var selected = Set(selection)
+        for url in urls where known.contains(url) {
+            if selected.insert(url).inserted { selection.append(url) }
+            if var base = additiveRangeBase, !base.contains(url) {
+                base.append(url)
+                additiveRangeBase = base
+            }
+        }
+    }
+
     @discardableResult
     mutating func clearSelection() -> Bool {
         guard !selection.isEmpty else { return false }
@@ -931,7 +943,7 @@ final class SendSheetModel: ObservableObject {
         for candidate in candidates.reversed() where !state.added.contains(where: { $0.url == candidate.url }) {
             state.added.insert(candidate, at: 0)
         }
-        for candidate in candidates where !state.selection.contains(candidate.url) { state.selection.append(candidate.url) }
+        state.addSelection(candidates.map(\.url))
         state.status = nil
         refreshOptimization()
         return true

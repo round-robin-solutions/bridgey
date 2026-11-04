@@ -3,6 +3,7 @@ package dev.bridgey.android.ui.attach
 import android.view.KeyEvent
 import androidx.compose.foundation.border
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +37,7 @@ internal class AttachPickerSelection(
     val keyboardFocus: Boolean,
     val selectedKeys: Set<String>,
     val focus: (String) -> Unit,
+    val blur: (String) -> Unit,
     val pointerStarted: () -> Unit,
     val click: (String, Boolean, Boolean) -> Unit,
     val key: (String, KeyEvent) -> Boolean,
@@ -47,6 +49,7 @@ internal fun rememberAttachPickerSelection(state: AttachState, actions: AttachAc
     var cursor by remember(state.tab) { mutableStateOf(AttachSelectionCursor()) }
     var keyboardFocus by remember(state.tab) { mutableStateOf(false) }
     var pointerFocus by remember(state.tab) { mutableStateOf(false) }
+    var focusedItem by remember(state.tab) { mutableStateOf<String?>(null) }
     var escapeHeld by remember { mutableStateOf(false) }
     val keys = AttachSelection.selectableKeys(state)
 
@@ -73,9 +76,11 @@ internal fun rememberAttachPickerSelection(state: AttachState, actions: AttachAc
         keyboardFocus = keyboardFocus,
         selectedKeys = state.selection.toHashSet(),
         focus = { key ->
+            focusedItem = key
             cursor = AttachSelectionShortcuts.focus(cursor, key, pointer = pointerFocus)
             if (!pointerFocus) keyboardFocus = true
         },
+        blur = { key -> if (focusedItem == key) focusedItem = null },
         pointerStarted = { pointerFocus = true; keyboardFocus = false },
         click = { key, shift, control ->
             pointerFocus = true; keyboardFocus = false
@@ -112,7 +117,8 @@ internal fun rememberAttachPickerSelection(state: AttachState, actions: AttachAc
             when (event.action) {
                 KeyEvent.ACTION_DOWN -> {
                     if (escapeHeld) true
-                    else clear().also { escapeHeld = it }
+                    else if (focusedItem?.let(keys::contains) == true) clear().also { escapeHeld = it }
+                    else false
                 }
                 KeyEvent.ACTION_UP -> escapeHeld.also { escapeHeld = false }
                 else -> false
@@ -141,6 +147,7 @@ internal fun AttachSelectionItem(
     var focused by remember(key) { mutableStateOf(false) }
     val liveInput by rememberUpdatedState(input)
     val colors = BridgeyTheme.colors
+    DisposableEffect(key) { onDispose { liveInput.blur(key) } }
     LaunchedEffect(input.focusedKey) {
         if (input.focusedKey == key) requester.requestFocus()
     }
@@ -149,6 +156,7 @@ internal fun AttachSelectionItem(
         .onFocusChanged { state ->
             focused = state.isFocused
             if (state.isFocused) liveInput.focus(key)
+            else liveInput.blur(key)
         }
         .onPreviewKeyEvent { event ->
             val native = event.nativeKeyEvent
