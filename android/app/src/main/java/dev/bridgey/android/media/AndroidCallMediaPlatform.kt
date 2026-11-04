@@ -76,6 +76,8 @@ class AndroidCallMediaPlatform(
 
         fun snapshot(): CallMediaSession {
             val state = controller.playbackState
+            val capturedAt = android.os.SystemClock.elapsedRealtime()
+            val playing = state?.state in setOf(PlaybackState.STATE_PLAYING, PlaybackState.STATE_FAST_FORWARDING, PlaybackState.STATE_REWINDING)
             val next = SessionSignature(state?.state ?: PlaybackState.STATE_NONE, state?.position ?: 0, state?.playbackSpeed ?: 0f,
                 state?.lastPositionUpdateTime ?: 0)
             if (signature != next) { signature = next; revision += 1 }
@@ -95,7 +97,9 @@ class AndroidCallMediaPlatform(
                 revision = revision,
                 localPlayback = info?.playbackType == MediaController.PlaybackInfo.PLAYBACK_TYPE_LOCAL,
                 contentId = contentIdentity(controller.metadata),
-                positionMs = state?.position ?: -1,
+                positionMs = state?.let { callMediaPosition(it.position, it.playbackSpeed, it.lastPositionUpdateTime, capturedAt, playing) } ?: -1,
+                positionTimeMs = if (playing) capturedAt else state?.lastPositionUpdateTime?.takeIf { it in 0..capturedAt } ?: -1,
+                playbackSpeed = if (playing) state?.playbackSpeed ?: 0f else 0f,
             )
         }
     }

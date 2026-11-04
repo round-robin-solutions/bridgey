@@ -153,6 +153,25 @@ class CallQuietHubTest {
         assertTrue(CallMediaReleaseReason.DISCONNECTED in effects.released)
     }
 
+    @Test fun emptyReplacementSnapshotCannotClearLossWhileAnotherDeviceIsStillOnACall() {
+        hub.receiveState(a, CallQuietState(1, setOf("a-call")))
+        hub.receiveState(b, CallQuietState(1, setOf("b-call")))
+        val replacement = a.copy(sessionId = "replacement")
+        peers = listOf(replacement, b)
+        assertTrue(hub.receiveState(replacement, CallQuietState(1, emptySet())))
+        assertEquals(setOf("device-b/b-call"), effects.active)
+        assertEquals(0, effects.restores)
+
+        hub.receiveState(b, CallQuietState(2, emptySet()))
+        assertTrue(effects.active.isEmpty())
+        assertEquals(0, effects.restores)
+        assertTrue(CallMediaReleaseReason.DISCONNECTED in effects.released)
+
+        hub.receiveState(b, CallQuietState(3, setOf("next-call")))
+        hub.receiveState(b, CallQuietState(4, emptySet()))
+        assertEquals(1, effects.restores)
+    }
+
     @Test fun resultsMustMatchTheLatestLocalRevisionAndSession() {
         hub.localCallsChanged(setOf("call"))
         val revision = sent.first { it.second == "calls.quiet_state" }.third.getInt("revision")

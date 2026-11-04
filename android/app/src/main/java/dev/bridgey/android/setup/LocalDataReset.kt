@@ -166,7 +166,7 @@ interface ResetEnvironment {
  */
 class LocalDataReset(private val environment: ResetEnvironment) {
     fun perform(choice: ResetChoice): Boolean {
-        if (!environment.prepare(choice)) return false
+        if (choice == ResetChoice.EVERYTHING && !environment.prepare(choice)) return false
         val targets = items(choice).flatMap { it.targets }
         val hooks = targets.filterIsInstance<ResetTarget.Live>().map { it.hook }.distinct()
             .sortedBy { if (it == ResetHook.DISCONNECT) 0 else 1 }
@@ -241,7 +241,7 @@ class AndroidResetEnvironment(
     private val deleteAlias: (String) -> Unit = ::deleteAndroidKeystoreAlias,
 ) : ResetEnvironment {
     override fun prepare(choice: ResetChoice): Boolean {
-        if (choice != ResetChoice.SETTINGS && choice != ResetChoice.EVERYTHING) return true
+        if (choice != ResetChoice.EVERYTHING) return true
         val app = context.applicationContext as? dev.bridgey.android.BridgeyApplication ?: return true
         return runCatching { app.pairing.prepareCallMediaReset() }.getOrDefault(false)
     }

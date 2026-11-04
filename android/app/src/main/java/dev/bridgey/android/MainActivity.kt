@@ -649,12 +649,13 @@ private fun UnsupportedProfile() = ScreenBackdrop(bandHeight = 0.dp) {
 /** Status texts from the coordinator that report progress or success: the stream already shows those. */
 private val QuietStatuses = setOf("Delivered", "Sending…", "Pinging Mac…", "Ping delivered", "Media command completed")
 
-private val PermissionOrder = listOf(
+internal val PermissionOrder = listOf(
     listOf(BridgeyFeature.CLIPBOARD),
     listOf(BridgeyFeature.FILES),
     listOf(BridgeyFeature.NOTIFICATIONS),
     listOf(BridgeyFeature.SMS),
     listOf(BridgeyFeature.CALLS),
+    listOf(BridgeyFeature.CALL_QUIET),
     listOf(BridgeyFeature.MEDIA),
     listOf(BridgeyFeature.REMOTE_INPUT),
     listOf(BridgeyFeature.MAC_ACTIONS),
@@ -1078,7 +1079,7 @@ private fun BridgeyApp(
                                     val deviceId = ring.deviceId!!
                                     PermissionRow(
                                         features = features,
-                                        checked = features.any { settingsState.globalFeatures[it] != false && settingsState.deviceFeatures[deviceId]?.get(it) != false },
+                                        checked = features.any { settings.isEnabled(it, deviceId) },
                                         globallyOff = features.all { settingsState.globalFeatures[it] == false },
                                         remotelyOff = isConnected && features.all { connection?.state?.remoteFeatures?.get(it) == false },
                                     )

@@ -99,7 +99,8 @@ class CallQuietHub(
         sources[peer.deviceId] = Source(peer.sessionId, state, now())
         versions[peer.deviceId] = sources.getValue(peer.deviceId)
         if (!state.uncertain) clearVerifiedEnded("${peer.deviceId}/", state.calls)
-        lostSources.remove(peer.deviceId)
+        // Loss disqualifies the whole current ownership interval from autoplay. A returning
+        // session cannot retroactively confirm the old call ended while another call remains.
         updateEffects(CallMediaReleaseReason.CALLS_ENDED)
         acknowledge(peer, state.revision)
         armTimer()

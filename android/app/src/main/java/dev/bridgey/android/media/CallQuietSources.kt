@@ -33,6 +33,8 @@ internal class CallQuietSources(
     private var last = emptySet<String>()
     private var lastUncertain = false
     private val notificationKeys = linkedMapOf<String, String>()
+    /** Identities only: observer loss must not advertise these calls as still active. */
+    private val suspendedNotificationKeys = linkedMapOf<String, String>()
     private val phone = PhoneCallStateObserver(context, ::phoneChanged)
     private val voip = CallLifecycle(
         scheduler = { delay, task ->
@@ -56,7 +58,7 @@ internal class CallQuietSources(
             cell = null
             if (lost) cellUncertain = true
             if (!enabled) {
-                voip.clear(); notificationKeys.clear()
+                voip.clear(); notificationKeys.clear(); suspendedNotificationKeys.clear()
                 cellUncertain = false; notificationsUncertain = false
             }
             publish()
@@ -81,11 +83,12 @@ internal class CallQuietSources(
         if (!enabled) return
         if (cellularSource && cellKnown) return
         val notification = sbn.notification
-        val tracked = voip.isTracked(sbn.key)
+        val tracked = voip.isTracked(sbn.key) || sbn.key in suspendedNotificationKeys
         val ongoing = notification.flags and Notification.FLAG_ONGOING_EVENT != 0
         if (notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
         if (notification.category != Notification.CATEGORY_CALL && !(tracked && ongoing)) {
             if (tracked) voip.updateNoLongerCall(sbn.key)
+            suspendedNotificationKeys.remove(sbn.key)
             return
         }
         val reported = notificationCallType(notification.extras.getInt("android.callType", 0))
@@ -101,17 +104,21 @@ internal class CallQuietSources(
             type == "unknown" && (ongoing || notification.fullScreenIntent != null)
         if (!active) {
             if (tracked && type != "unknown") voip.updateNoLongerCall(sbn.key)
+            if (type != "unknown") suspendedNotificationKeys.remove(sbn.key)
             return
         }
-        val fresh = "app_${UUID.randomUUID().toString().replace("-", "")}"
+        val fresh = suspendedNotificationKeys.remove(sbn.key)
+            ?: "app_${UUID.randomUUID().toString().replace("-", "")}"
         val id = voip.callIdFor(sbn.key, sbn.packageName, fresh)
         voip.forwarded(id, sbn.key, sbn.packageName, telephony = false)
         notificationKeys[sbn.key] = id
-        notificationKeys.entries.removeAll { it.value !in voip.trackedIds }
+        // A rekey keeps its call ID but retires the old notification key.
+        notificationKeys.keys.removeAll { !voip.isTracked(it) }
         publish()
     }
 
     fun notificationRemoved(sbn: StatusBarNotification) {
+        suspendedNotificationKeys.remove(sbn.key)
         if (enabled) voip.notificationRemoved(sbn.key)
     }
 
@@ -122,6 +129,8 @@ internal class CallQuietSources(
         val keys = active.mapTo(mutableSetOf()) { it.first.key }
         notificationKeys.keys.filterNot(keys::contains).forEach(voip::notificationRemoved)
         active.forEach { (notification, cellular) -> notificationPosted(notification, cellular) }
+        // The verified snapshot retires absent/filtered keys, even if the app later reuses one.
+        suspendedNotificationKeys.clear()
         batch = false
         notificationsUncertain = false
         publish()
@@ -130,6 +139,8 @@ internal class CallQuietSources(
     fun notificationsDisconnected() {
         if (voip.trackedIds.isEmpty()) return
         notificationsUncertain = true
+        notificationKeys.filterKeys(voip::isTracked).forEach { (key, id) -> suspendedNotificationKeys[key] = id }
+        while (suspendedNotificationKeys.size > 16) suspendedNotificationKeys.remove(suspendedNotificationKeys.keys.first())
         voip.clear(); notificationKeys.clear()
         publish()
     }
