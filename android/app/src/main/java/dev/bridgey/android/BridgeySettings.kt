@@ -353,8 +353,16 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
     }
 
     /** A random per-install id, used only as the relay's rate-limit key (as the Mac's codes install id). */
-    fun cloudInstallId(): String = preferences.getString(KEY_CLOUD_INSTALL_ID, null)?.takeIf(dev.bridgey.android.codes.CodeRelay::isInstallId)
-        ?: dev.bridgey.android.codes.CodeRelay.newInstallId().also { preferences.edit().putString(KEY_CLOUD_INSTALL_ID, it).apply() }
+    fun cloudInstallId(): String {
+        val now = System.currentTimeMillis()
+        val made = preferences.getLong(KEY_CLOUD_INSTALL_ID_AT, 0L)
+        val current = preferences.getString(KEY_CLOUD_INSTALL_ID, null)?.takeIf(dev.bridgey.android.codes.CodeRelay::isInstallId)
+        // A new id every 30 days, so the relay cannot link reads from this phone over a long time.
+        if (current != null && now - made in 0 until 30L * 86_400_000L) return current
+        return dev.bridgey.android.codes.CodeRelay.newInstallId().also {
+            preferences.edit().putString(KEY_CLOUD_INSTALL_ID, it).putLong(KEY_CLOUD_INSTALL_ID_AT, now).apply()
+        }
+    }
 
     /** The person's own choice (or a synced one) for Also read codes in email. */
     fun setEmailCodes(enabled: Boolean) {
@@ -535,6 +543,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         private const val KEY_CLOUD_CODES = "codes.cloud_when_no_mac"
         private const val KEY_CLOUD_INSTALL_ID = "codes.cloud_install_id"
         private const val KEY_CLOUD_HISTORY = "codes.cloud_history"
+        private const val KEY_CLOUD_INSTALL_ID_AT = "codes.cloud_install_id_at"
         private const val KEY_CONNECT_DEBUG_URL = "connect.debug.controlUrl"
         private const val KEY_CONNECT_DEBUG_RELAY_ONLY = "connect.debug.relayOnly"
     }

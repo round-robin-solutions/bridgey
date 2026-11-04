@@ -59,7 +59,9 @@ class CloudCodes(
 
     /** Takes one of the hour's [CLOUD_READS_PER_HOUR] reads; false when they are used up. */
     @Synchronized private fun admit(now: Long): Boolean {
-        val recent = history.load().filter { now - it in 0 until 3_600_000L }
+        // A read stamped ahead of the clock (the clock was set back) still counts, for up to a day, so turning the clock
+        // back does not free the hour's reads.
+        val recent = history.load().filter { now - it < 3_600_000L && it - now < 86_400_000L }
         if (recent.size >= CLOUD_READS_PER_HOUR) return false
         history.save(recent + now)
         return true

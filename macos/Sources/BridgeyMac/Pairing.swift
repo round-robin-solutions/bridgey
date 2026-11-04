@@ -3931,7 +3931,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     /// Settings > Devices > Trust as my device: a device paired over the tailnet gets this Mac's switches like any other.
-    /// A server (its own map says agent) is restricted again at its next features.update.
+    /// A device whose own map says it is a server is restricted again at its next features.update.
     func trustAsMyDevice(_ deviceID: String) {
         settings.unmarkAgent(deviceID)
         objectWillChange.send()
@@ -3954,6 +3954,10 @@ final class PairingCoordinator: ObservableObject {
             if let peer = TailnetStatus.find(peers, name: typed), let address = peer.address {
                 host = address
                 name = peer.name
+            } else if typed.hasPrefix("["), let close = typed.firstIndex(of: "]") {
+                // [IPv6] or [IPv6]:port
+                host = String(typed[typed.index(after: typed.startIndex)..<close])
+                if let p = Int(typed[typed.index(after: close)...].drop(while: { $0 == ":" })) { port = p }
             } else if let colon = typed.lastIndex(of: ":"), !typed.contains("::"), let p = Int(typed[typed.index(after: colon)...]) {
                 host = String(typed[..<colon])
                 port = p
@@ -5550,7 +5554,8 @@ final class PairingCoordinator: ObservableObject {
         let wasTrusted = trustedIdentityKey(current.remoteDeviceID) != nil
         // A first pairing over the tailnet starts restricted, whatever the device says it is: everything off until the
         // person taps Trust as my device (Settings > Devices). Being on the tailnet grants nothing by itself.
-        if !wasTrusted, current.tunnel == nil, let host = current.remoteHost, TailnetStatus.isTailnet(host) {
+        // A new identity key counts too, also under a device ID this Mac already trusts (the ID is the other device's choice).
+        if trustedIdentityKey(current.remoteDeviceID) != identityKey, current.tunnel == nil, let host = current.remoteHost, TailnetStatus.isTailnet(host) {
             settings.markAgent(current.remoteDeviceID)
             sendFeatureState(to: current)
         }

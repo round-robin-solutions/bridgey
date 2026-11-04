@@ -30,7 +30,7 @@
     <string name="agent_trust_row">Доверять как своему устройству</string>
     <string name="agent_trust_row_detail">Сопряжено через Tailscale, поэтому ничего не получает, пока вы не доверите ему. Только для вашего Mac или телефона.</string>
     <string name="agent_trust_title">Доверять %1$s как своему устройству?</string>
-    <string name="agent_trust_body">Тогда оно получит то же, что ваши другие Mac (уведомления, буфер обмена, файлы), по его разрешениям. Сервер остаётся ограниченным в любом случае.</string>
+    <string name="agent_trust_body">Тогда оно получит то же, что ваши другие Mac (уведомления, буфер обмена, файлы), по его разрешениям. Устройство, которое называет себя сервером, остаётся ограниченным.</string>
     <string name="agent_trust_confirm">Доверять</string>
     <string name="agent_grant_codes_detect">Находить коды</string>
     <string name="agent_grant_codes_detect_detail">Читает сообщения с кодами, когда ни один Mac их не читает</string>

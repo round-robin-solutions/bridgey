@@ -359,7 +359,8 @@ impl Daemon {
             let allow = Duration::from_millis(args["allowMs"].as_u64().unwrap_or(120_000).clamp(10_000, 600_000));
             let port = self.config.get("tcp_port").and_then(|v| v.as_integer()).and_then(|p| u16::try_from(p).ok()).filter(|p| *p > 0).unwrap_or(crate::tailnet::PORT);
             // Only this device's own tailnet addresses (never a public interface); loopback too in debug builds (tests).
-            let mut addrs: Vec<std::net::SocketAddr> = crate::tailnet::status_json().ok().map(|j| crate::tailnet::self_ips(&j)).unwrap_or_default()
+            let own = tokio::task::spawn_blocking(crate::tailnet::status_json).await.ok().and_then(Result::ok);
+            let mut addrs: Vec<std::net::SocketAddr> = own.map(|j| crate::tailnet::self_ips(&j)).unwrap_or_default()
                 .into_iter().map(|ip| std::net::SocketAddr::new(ip, port)).collect();
             if cfg!(debug_assertions) {
                 addrs.push(std::net::SocketAddr::from(([127, 0, 0, 1], port)));
@@ -367,14 +368,29 @@ impl Daemon {
             if addrs.is_empty() {
                 return Err(CliError::new("unreachable", "This device is not on a tailnet (Tailscale is not running here)."));
             }
-            let (conn_tx, mut conn_rx) = mpsc::unbounded_channel::<(tokio::net::TcpStream, std::net::SocketAddr)>();
+            // A small queue: connections are checked (source, three a minute from each) as they are accepted, and any
+            // beyond two waiting are closed at once, so no node can pile up sockets or hold the slot with a backlog.
+            let (conn_tx, mut conn_rx) = mpsc::channel::<(tokio::net::TcpStream, std::net::SocketAddr)>(2);
+            let per_source: Arc<std::sync::Mutex<HashMap<std::net::IpAddr, std::collections::VecDeque<tokio::time::Instant>>>> = Default::default();
             let mut acceptors = Vec::new();
             for addr in &addrs {
                 let Ok(listener) = tokio::net::TcpListener::bind(addr).await else { continue };
                 let tx = conn_tx.clone();
+                let per_source = per_source.clone();
                 acceptors.push(tokio::spawn(async move {
-                    while let Ok(accepted) = listener.accept().await {
-                        if tx.send(accepted).is_err() {
+                    while let Ok((stream, from)) = listener.accept().await {
+                        let now = tokio::time::Instant::now();
+                        let admitted = crate::tailnet::accepted_source(from.ip()) && {
+                            let mut map = per_source.lock().unwrap();
+                            let tries = map.entry(from.ip()).or_default();
+                            tries.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
+                            let ok = tries.len() < 3;
+                            if ok {
+                                tries.push_back(now);
+                            }
+                            ok
+                        };
+                        if admitted && tx.try_send((stream, from)).is_err() && tx.is_closed() {
                             break;
                         }
                     }
@@ -386,7 +402,6 @@ impl Daemon {
             }
             out.event(json!({"event": "listening", "port": port, "addresses": addrs.iter().map(|a| a.ip().to_string()).collect::<Vec<_>>(), "untilMs": now_ms() + allow.as_millis() as u64})).await;
             let deadline = tokio::time::Instant::now() + allow;
-            let mut per_source: HashMap<std::net::IpAddr, std::collections::VecDeque<tokio::time::Instant>> = HashMap::new();
             let outcome = loop {
                 let accepted = tokio::select! {
                     biased;
@@ -395,20 +410,17 @@ impl Daemon {
                     a = conn_rx.recv() => a,
                 };
                 let Some((stream, from)) = accepted else { break Err(CliError::new("failed", "the listener stopped")) };
-                // Tailnet addresses only (loopback in debug builds); at most three attempts a minute from each source.
-                let now = tokio::time::Instant::now();
-                let tries = per_source.entry(from.ip()).or_default();
-                tries.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
-                if !crate::tailnet::accepted_source(from.ip()) || tries.len() >= 3 {
-                    drop(stream);
-                    continue;
-                }
-                tries.push_back(now);
                 out.event(json!({"event": "incoming", "address": from.ip().to_string()})).await;
                 current = Some(self.start_direct(stream, crate::session::Mode::Listen, tx.clone()));
                 // The attempt ends with the window, whatever stage it is in.
                 match tokio::time::timeout_at(deadline, self.direct_events(&mut rx, reader, out)).await {
-                    Err(_) => break Err(CliError::new("timeout", "The pairing window ended. Run bridgey pair --allow again.")),
+                    Err(_) => {
+                        // The attempt is dropped: a pairing that completes after the window is never saved.
+                        if let Some(id) = current.take() {
+                            self.end_direct(id);
+                        }
+                        break Err(CliError::new("timeout", "The pairing window ended. Run bridgey pair --allow again."));
+                    }
                     Ok(Ok(peer)) => break Ok(peer),
                     Ok(Err(e)) if e.code == "declined" || e.code == "interrupted" => break Err(e),
                     Ok(Err(e)) => out.event(json!({"event": "attempt_failed", "reason": e.message})).await,

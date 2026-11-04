@@ -545,6 +545,12 @@ impl Daemon {
                     self.node.tunnel_authenticated(&tunnel);
                 }
                 let mut st = self.st.lock().unwrap();
+                if direct && !st.direct.contains_key(&local_id) {
+                    // A pairing whose `bridgey pair` gave up (its window ended, or it was cancelled): never saved.
+                    drop(st);
+                    handle.close("pairing_window_ended");
+                    return;
+                }
                 if direct {
                     // A first pairing over the tailnet: a device of a kind this end does not know yet ("tailnet"); its own
                     // features.update says "cli" if it is another server. Never "phone", so it never sends candidates here.

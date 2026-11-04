@@ -1558,8 +1558,14 @@ private fun BridgeyApp(
             onAddress = { typed ->
                 pairDialog = false
                 val (host, port) = dev.bridgey.android.agents.tailnetTarget(typed)
-                // An IP outside the tailnet is not paired this way (a name is dialled; a pairing from a tailnet address starts restricted).
-                if (!dev.bridgey.android.agents.refusedTailnetLiteral(host)) pairing.pair(host, port, host)
+                // Only tailnet addresses: a name is looked up first and dialled only where it points into the tailnet.
+                if (!dev.bridgey.android.agents.refusedTailnetLiteral(host)) {
+                    Thread {
+                        val address = runCatching { java.net.InetAddress.getAllByName(host).map { it.hostAddress.orEmpty() } }.getOrDefault(emptyList())
+                            .firstOrNull(dev.bridgey.android.agents::isTailnetAddress)
+                        if (address != null) pairing.pair(address, port, host)
+                    }.start()
+                }
             },
         )
     }

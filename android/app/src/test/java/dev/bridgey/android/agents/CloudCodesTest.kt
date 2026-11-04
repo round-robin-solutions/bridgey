@@ -41,6 +41,15 @@ class CloudCodesTest {
         assertEquals(CloudRead.LIMITED, restarted.read("OTP 482913", null).first)
     }
 
+    /** Setting the clock back does not free the hour's reads. */
+    @Test fun turningTheClockBackKeepsTheLimit() {
+        val history = MemoryCloudHistory()
+        val c = CloudCodes({ on }, { _, _ -> CodeRelay.Answer.NoCode }, { now }, history)
+        repeat(CLOUD_READS_PER_HOUR) { c.read("OTP 482913", null) }
+        now -= 6 * 3_600_000L
+        assertEquals(CloudRead.LIMITED, c.read("OTP 482913", null).first)
+    }
+
     /** A relay that hangs is a failure after the time limit, never a wait without end. */
     @Test fun aHangingRelayTimesOut() {
         val started = System.nanoTime()

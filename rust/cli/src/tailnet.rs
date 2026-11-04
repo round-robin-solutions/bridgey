@@ -96,11 +96,36 @@ pub fn find<'a>(peers: &'a [TailnetPeer], name: &str) -> Option<&'a TailnetPeer>
 /// The full status (peers and this device's addresses), or why there is none.
 pub fn status_json() -> Result<Value, String> {
     let bin = binary().ok_or("Tailscale is not installed here (no tailscale command)")?;
-    let out = std::process::Command::new(bin).args(["status", "--json"]).output().map_err(|e| e.to_string())?;
-    if !out.status.success() {
+    let mut child = std::process::Command::new(bin)
+        .args(["status", "--json"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    // A tailscale that hangs is stopped after 5 seconds; nothing waits on it forever.
+    let mut stdout = child.stdout.take().ok_or("no output")?;
+    let reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut std::io::Read::take(&mut stdout, 4 << 20), &mut bytes);
+        bytes
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("tailscale did not answer within 5 seconds".into());
+            }
+        }
+    };
+    let bytes = reader.join().unwrap_or_default();
+    if !status.success() {
         return Err("Tailscale is not running here".into());
     }
-    let json: Value = serde_json::from_slice(&out.stdout).map_err(|_| "unreadable tailscale status")?;
+    let json: Value = serde_json::from_slice(&bytes).map_err(|_| "unreadable tailscale status")?;
     if json["BackendState"].as_str().is_some_and(|s| s != "Running") {
         return Err("Tailscale is not running here".into());
     }
@@ -144,7 +169,7 @@ async fn resolve_any(target: &str) -> Result<SocketAddr, String> {
         Some((h, p)) if p.parse::<u16>().is_ok() && !h.contains(':') => (h, p.parse::<u16>().unwrap()),
         _ => (target, PORT),
     };
-    if let Ok(peers) = status() {
+    if let Ok(Ok(peers)) = tokio::task::spawn_blocking(status).await {
         if let Some(peer) = find(&peers, host) {
             let ip = peer.ips.iter().filter_map(|i| i.parse::<IpAddr>().ok()).min_by_key(|ip| ip.is_ipv6()).ok_or("no address")?;
             return Ok(SocketAddr::new(ip, port));
