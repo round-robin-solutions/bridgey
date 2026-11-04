@@ -1,0 +1,984 @@
+{
+  "format": "bridgey.call-media.v1",
+  "state": [
+    {
+      "name": "one opaque call",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": false
+      },
+      "valid": true
+    },
+    {
+      "name": "explicit end",
+      "plaintext": {
+        "version": 1,
+        "revision": 2,
+        "calls": [],
+        "uncertain": false
+      },
+      "valid": true
+    },
+    {
+      "name": "lost source without confirmed end",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [],
+        "uncertain": true
+      },
+      "valid": true
+    },
+    {
+      "name": "known call with another source uncertain",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": true
+      },
+      "valid": true
+    },
+    {
+      "name": "maximum revision and calls",
+      "plaintext": {
+        "version": 1,
+        "revision": 2147483647,
+        "calls": [
+          "call_0",
+          "call_1",
+          "call_2",
+          "call_3",
+          "call_4",
+          "call_5",
+          "call_6",
+          "call_7",
+          "call_8",
+          "call_9",
+          "call_10",
+          "call_11",
+          "call_12",
+          "call_13",
+          "call_14",
+          "call_15"
+        ],
+        "uncertain": false
+      },
+      "valid": true
+    },
+    {
+      "name": "maximum ID length",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ],
+        "uncertain": false
+      },
+      "valid": true
+    },
+    {
+      "name": "ASCII ID alphabet",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "aZ09_-"
+        ],
+        "uncertain": false
+      },
+      "valid": true
+    },
+    {
+      "name": "version boolean",
+      "plaintext": {
+        "version": true,
+        "revision": 1,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "version string",
+      "plaintext": {
+        "version": "1",
+        "revision": 1,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "unknown version",
+      "plaintext": {
+        "version": 2,
+        "revision": 1,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "revision zero",
+      "plaintext": {
+        "version": 1,
+        "revision": 0,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "revision negative",
+      "plaintext": {
+        "version": 1,
+        "revision": -1,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "revision boolean",
+      "plaintext": {
+        "version": 1,
+        "revision": true,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "revision decimal",
+      "plaintext": {
+        "version": 1,
+        "revision": 1.5,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "revision string",
+      "plaintext": {
+        "version": 1,
+        "revision": "1",
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "revision too large",
+      "plaintext": {
+        "version": 1,
+        "revision": 2147483648,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "uncertainty number",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": 1
+      },
+      "valid": false
+    },
+    {
+      "name": "uncertainty string",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": "false"
+      },
+      "valid": false
+    },
+    {
+      "name": "uncertainty null",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": null
+      },
+      "valid": false
+    },
+    {
+      "name": "calls not an array",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": "call_1",
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "calls null",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": null,
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "too many calls",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "call_0",
+          "call_1",
+          "call_2",
+          "call_3",
+          "call_4",
+          "call_5",
+          "call_6",
+          "call_7",
+          "call_8",
+          "call_9",
+          "call_10",
+          "call_11",
+          "call_12",
+          "call_13",
+          "call_14",
+          "call_15",
+          "call_16"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "duplicate call",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "call_1",
+          "call_1"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "empty call ID",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          ""
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "long call ID",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "non-string call ID",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          3
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "unicode call ID",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "café"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "call ID whitespace",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "call 1"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "call ID punctuation",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "call.1"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "untrusted payload origin",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": false,
+        "origin": "some_other_peer"
+      },
+      "valid": false
+    },
+    {
+      "name": "missing version",
+      "plaintext": {
+        "revision": 1,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "missing revision",
+      "plaintext": {
+        "version": 1,
+        "calls": [
+          "call_1"
+        ],
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "missing calls",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "uncertain": false
+      },
+      "valid": false
+    },
+    {
+      "name": "missing uncertain",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "calls": [
+          "call_1"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "exact state byte boundary",
+      "plaintextString": "{\"version\":1,\"revision\":1,\"calls\":[\"call_1\"],\"uncertain\":false}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 ",
+      "valid": true
+    },
+    {
+      "name": "state byte boundary exceeded",
+      "plaintextString": "{\"version\":1,\"revision\":1,\"calls\":[\"call_1\"],\"uncertain\":false}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  ",
+      "valid": false
+    },
+    {
+      "name": "duplicate version key",
+      "plaintextString": "{\"version\":1,\"version\":1,\"revision\":1,\"calls\":[],\"uncertain\":false}",
+      "valid": false
+    },
+    {
+      "name": "escaped key accepted",
+      "plaintextString": "{\"\\u0076ersion\":1,\"revision\":1,\"calls\":[],\"uncertain\":false}",
+      "valid": true
+    },
+    {
+      "name": "escaped duplicate key",
+      "plaintextString": "{\"\\u0076ersion\":1,\"version\":1,\"revision\":1,\"calls\":[],\"uncertain\":false}",
+      "valid": false
+    },
+    {
+      "name": "two JSON roots",
+      "plaintextString": "{\"version\":1,\"revision\":1,\"calls\":[\"call_1\"],\"uncertain\":false}{}",
+      "valid": false
+    },
+    {
+      "name": "array root",
+      "plaintextString": "[]",
+      "valid": false
+    },
+    {
+      "name": "invalid JSON",
+      "plaintextString": "{\"version\":",
+      "valid": false
+    }
+  ],
+  "result": [
+    {
+      "name": "observed pause",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": true
+    },
+    {
+      "name": "bounded partial outcome",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 64,
+        "muted": 64,
+        "limited": 64,
+        "issues": [
+          "unsupported",
+          "call_audio_protected",
+          "selective_mute_unavailable"
+        ]
+      },
+      "valid": true
+    },
+    {
+      "name": "all issue codes",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": [
+          "permission_needed",
+          "unsupported",
+          "call_audio_protected",
+          "changed_by_user",
+          "session_gone",
+          "command_failed",
+          "cancelled",
+          "other_players_limited",
+          "selective_mute_unavailable"
+        ]
+      },
+      "valid": true
+    },
+    {
+      "name": "last valid revision",
+      "plaintext": {
+        "version": 1,
+        "revision": 2147483647,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": true
+    },
+    {
+      "name": "paused negative",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": -1,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "paused too large",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 65,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "paused boolean",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": true,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "paused decimal",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 0.5,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "paused string",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": "1",
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "muted negative",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": -1,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "muted too large",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 65,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "muted boolean",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": true,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "muted decimal",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0.5,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "muted string",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": "1",
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "limited negative",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": -1,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "limited too large",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 65,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "limited boolean",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": true,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "limited decimal",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0.5,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "limited string",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": "1",
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "version boolean",
+      "plaintext": {
+        "version": true,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "unknown version",
+      "plaintext": {
+        "version": 2,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "revision zero",
+      "plaintext": {
+        "version": 1,
+        "revision": 0,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "revision boolean",
+      "plaintext": {
+        "version": 1,
+        "revision": true,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "revision decimal",
+      "plaintext": {
+        "version": 1,
+        "revision": 1.5,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "revision too large",
+      "plaintext": {
+        "version": 1,
+        "revision": 2147483648,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "issues null",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": null
+      },
+      "valid": false
+    },
+    {
+      "name": "issues not array",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": "unsupported"
+      },
+      "valid": false
+    },
+    {
+      "name": "unknown issue",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": [
+          "everything_is_quiet"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "non-string issue",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": [
+          1
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "duplicate issue",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": [
+          "unsupported",
+          "unsupported"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "too many issues",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": [
+          "unsupported",
+          "unsupported",
+          "unsupported",
+          "unsupported",
+          "unsupported",
+          "unsupported",
+          "unsupported",
+          "unsupported",
+          "unsupported",
+          "unsupported",
+          "unsupported",
+          "unsupported",
+          "unsupported",
+          "unsupported",
+          "unsupported",
+          "unsupported",
+          "unsupported"
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "extra metadata",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": [],
+        "title": "must_not_be_sent"
+      },
+      "valid": false
+    },
+    {
+      "name": "missing version",
+      "plaintext": {
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "missing revision",
+      "plaintext": {
+        "version": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "missing paused",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "muted": 0,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "missing muted",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "limited": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "missing limited",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "issues": []
+      },
+      "valid": false
+    },
+    {
+      "name": "missing issues",
+      "plaintext": {
+        "version": 1,
+        "revision": 1,
+        "paused": 1,
+        "muted": 0,
+        "limited": 0
+      },
+      "valid": false
+    },
+    {
+      "name": "exact result byte boundary",
+      "plaintextString": "{\"version\":1,\"revision\":1,\"paused\":1,\"muted\":0,\"limited\":0,\"issues\":[]}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         ",
+      "valid": true
+    },
+    {
+      "name": "result byte boundary exceeded",
+      "plaintextString": "{\"version\":1,\"revision\":1,\"paused\":1,\"muted\":0,\"limited\":0,\"issues\":[]}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          ",
+      "valid": false
+    },
+    {
+      "name": "duplicate count key",
+      "plaintextString": "{\"version\":1,\"revision\":1,\"paused\":0,\"paused\":1,\"muted\":0,\"limited\":0,\"issues\":[]}",
+      "valid": false
+    },
+    {
+      "name": "two result roots",
+      "plaintextString": "{\"version\":1,\"revision\":1,\"paused\":1,\"muted\":0,\"limited\":0,\"issues\":[]}{}",
+      "valid": false
+    }
+  ]
+}

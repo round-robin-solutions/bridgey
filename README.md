@@ -154,6 +154,8 @@ experimental plugins do not block it. Device coverage is recorded in the
 - [x] Control Music/Spotify on macOS from Android: play/pause, previous/next, seek, and player volume
 - [x] Show bounded now-playing metadata and local Music artwork when exposed by the player
 - [x] Optionally pause the selected player while a phone call is ringing or active
+- [ ] Quiet media on permitted linked devices during calls: pause with safe mute fallback,
+      configurable restoration and a manual Mac call action ([in progress](docs/call-media.md))
 - [x] Send and explicitly open web links in either direction
 - [x] Add a lightweight Ping action separate from Find Device
 - [x] Show Mac battery status on Android
