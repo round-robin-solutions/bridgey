@@ -29,6 +29,8 @@ struct DiscoveredPeer: Identifiable, Equatable {
     /// Resolved IP addresses (IPv4 first; link-local IPv6 left out). Dialling an IP works even
     /// when mDNS name lookups do not.
     var addresses: [String] = []
+    /// Found on the tailnet (TailnetDiscovery.swift), not by Bonjour: shown as "On your tailnet", no device ID yet.
+    var tailnet: Bool = false
 
     var id: String { serviceName }
 }

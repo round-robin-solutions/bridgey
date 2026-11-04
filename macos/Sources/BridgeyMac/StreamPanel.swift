@@ -1475,7 +1475,7 @@ struct BridgeyPanel: View {
         model.pairingFlow = pairing.pairingFlow
         model.pairingArmedSeconds = pairing.armedRemainingSeconds
         model.pairingRequest = pairing.pairingRequest
-        model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, connected: pairing.connectedPhones,
+        model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers + pairing.tailnetPeers, connected: pairing.connectedPhones,
                                   pairing: pairing.pairingFlow, reconnecting: pairing.reconnectStates)
         model.rediscovering = pairing.isRediscovering
         model.battery = pairing.isFeatureAvailable(.battery) ? pairing.remoteBattery : nil

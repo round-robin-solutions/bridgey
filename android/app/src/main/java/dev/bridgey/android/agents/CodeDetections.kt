@@ -47,6 +47,29 @@ fun macsReadingCodes(links: List<ReaderLink>): Int = links.count { !it.agent && 
 /** Of those, the Macs that send codes back for agents (codes.result `readers` counts these). */
 fun macsReportingCodes(links: List<ReaderLink>): Int = links.count { !it.agent && it.smsCodes && it.notifiedHere && it.mirror }
 
+/**
+ * Whether this phone reads a code text message over cloud itself: only when no Mac reads codes, some agent has Read
+ * codes on, no agent with Detect codes is connected (servers come before the cloud), and the person chose "Use cloud
+ * when no Mac is reading". Text messages only: the caller never passes mail.
+ */
+fun cloudReads(macReaders: Int, anyReader: Boolean, detectors: Int, cloudOn: Boolean): Boolean =
+    cloudOn && anyReader && macReaders == 0 && detectors == 0
+
+/** A typed tailnet name, address or address:port, to the host and port to dial (Bridgey's 42458 by default). */
+fun tailnetTarget(typed: String): Pair<String, Int> {
+    val text = typed.trim()
+    val bracketed = Regex("^\\[([0-9A-Fa-f:.]+)](?::(\\d{1,5}))?$").find(text)
+    if (bracketed != null) return bracketed.groupValues[1] to (bracketed.groupValues[2].toIntOrNull()?.takeIf { it in 1..65535 } ?: 42_458)
+    if (text.count { it == ':' } == 1) {
+        return text.substringBefore(':') to (text.substringAfter(':').toIntOrNull()?.takeIf { it in 1..65535 } ?: 42_458)
+    }
+    return text to 42_458
+}
+
+/** An agent's own map (agent_draft1 with notify_draft1 and ask_draft1): a server paired directly, not by invite. */
+fun advertisesAgent(drafts: Map<String, Boolean>): Boolean =
+    drafts[AGENT_FEATURE_KEY] == true && drafts[NOTIFY_FEATURE_KEY] == true && drafts[ASK_FEATURE_KEY] == true
+
 /** One candidate sent to one agent, waiting for its codes.detected. */
 data class PendingCandidate(
     val candidateId: String,

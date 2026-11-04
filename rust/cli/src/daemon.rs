@@ -150,6 +150,8 @@ struct St {
     detect_advertised: bool,
     /// Peers that sent agent.hello in their session: agents, never phones, so never a source of code candidates.
     agent_peers: std::collections::HashSet<String>,
+    /// Pairings over the tailnet in progress: the session's local ID to the `bridgey pair` waiting for it.
+    direct: HashMap<u64, mpsc::UnboundedSender<InviteEvent>>,
 }
 
 /// Code candidates read at once; more are answered `failed` with `busy`.
@@ -516,6 +518,7 @@ impl Daemon {
             tunnel,
             quic_client,
             mode,
+            direct: None,
         };
         let d = self.clone();
         let pins: session::PinLookup = Arc::new(move |id: &str| d.st.lock().unwrap().trust.peers.values().find(|p| p.device_id.eq_ignore_ascii_case(id)).map(|p| p.identity_key.clone()));
@@ -526,7 +529,7 @@ impl Daemon {
         match e {
             Event::Code { local_id, code, peer_name, confirm } => {
                 let st = self.st.lock().unwrap();
-                let tx = st.invite_sessions.get(&local_id).and_then(|l| st.invites.get(l)).map(|i| i.to_client.clone());
+                let tx = st.invite_sessions.get(&local_id).and_then(|l| st.invites.get(l)).map(|i| i.to_client.clone()).or_else(|| st.direct.get(&local_id).cloned());
                 drop(st);
                 match tx {
                     Some(tx) => {
@@ -537,9 +540,25 @@ impl Daemon {
                     }
                 }
             }
-            Event::Authenticated { local_id, peer, handle, invite, tunnel } => {
-                self.node.tunnel_authenticated(&tunnel);
+            Event::Authenticated { local_id, peer, handle, invite, direct, tunnel } => {
+                if !direct {
+                    self.node.tunnel_authenticated(&tunnel);
+                }
                 let mut st = self.st.lock().unwrap();
+                if direct {
+                    // A first pairing over the tailnet: a device of a kind this end does not know yet ("tailnet"); its own
+                    // features.update says "cli" if it is another server. Never "phone", so it never sends candidates here.
+                    let now = now_ms();
+                    let previous = st.trust.peers.get(&peer.device_id).cloned();
+                    st.trust.peers.insert(
+                        peer.device_id.clone(),
+                        Peer { device_id: peer.device_id.clone(), name: peer.name.clone(), platform: "tailnet".into(), identity_key: peer.identity_key.clone(), paired_at: now, last_seen_at: now, ..previous.unwrap_or_default() },
+                    );
+                    let _ = st.trust.save(&self.paths);
+                    if let Some(tx) = st.direct.remove(&local_id) {
+                        let _ = tx.send(InviteEvent::Paired { peer: peer.clone() });
+                    }
+                }
                 if invite {
                     let label = st.invite_sessions.remove(&local_id);
                     // This end joined another install's invite (test hook): the peer is a server, not a phone.
@@ -578,6 +597,9 @@ impl Daemon {
             Event::Frame { local_id, peer_id, message, plaintext } => self.on_frame(local_id, &peer_id, *message, plaintext),
             Event::Closed { local_id, peer_id, reason, authenticated } => {
                 let mut st = self.st.lock().unwrap();
+                if let Some(tx) = st.direct.remove(&local_id) {
+                    let _ = tx.send(InviteEvent::Failed(reason.clone()));
+                }
                 if let Some(label) = st.invite_sessions.remove(&local_id) {
                     if let Some(i) = st.invites.get_mut(&label) {
                         let _ = i.to_client.send(InviteEvent::Failed(reason.clone()));
@@ -613,7 +635,17 @@ impl Daemon {
             "features.update" => {
                 let Some(map) = payload.as_ref().filter(|p| p["version"] == 1).and_then(|p| p["features"].as_object()).cloned() else { return };
                 let connect = map.get("connect_draft1") == Some(&Value::Bool(true));
-                self.st.lock().unwrap().features.insert(peer.to_string(), map);
+                {
+                    let mut st = self.st.lock().unwrap();
+                    // A device paired over the tailnet says what it is in its own (authenticated) map: another server
+                    // advertises agent_draft1 and sends no grants. A phone or a Mac stays "tailnet" here.
+                    let is_agent = map.get("agent_draft1") == Some(&Value::Bool(true)) && map.get("notify_draft1") == Some(&Value::Bool(true));
+                    if let Some(p) = st.trust.peers.get_mut(peer).filter(|p| p.platform == "tailnet" && is_agent) {
+                        p.platform = "cli".into();
+                        let _ = st.trust.save(&self.paths);
+                    }
+                    st.features.insert(peer.to_string(), map);
+                }
                 self.changed.notify_waiters();
                 if connect {
                     self.send_addresses(peer, &handle);
@@ -835,6 +867,8 @@ impl Daemon {
         match query {
             Some(q) => st.trust.find(&q).cloned().map_err(|m| CliError::new("unknown_device", m)),
             None if st.trust.peers.len() == 1 => Ok(st.trust.peers.values().next().unwrap().clone()),
+            // Devices paired over the tailnet (Macs, other servers) do not make the phone ambiguous.
+            None if st.trust.peers.values().filter(|p| p.platform == "phone").count() == 1 => Ok(st.trust.peers.values().find(|p| p.platform == "phone").unwrap().clone()),
             None => Err(CliError::new("usage", "More than one device is paired: choose one with -d or BRIDGEY_DEVICE (see bridgey devices).")),
         }
     }
@@ -983,6 +1017,22 @@ impl Daemon {
         self.st.lock().unwrap().invites.insert(invite.label(), PendingInvite { invite: invite.clone(), joining, to_client: tx, session: None });
         self.sync_peers();
         (invite, rx)
+    }
+
+    /// One pairing over the tailnet on a direct TCP connection (dialled or accepted); its code and result go to `tx`.
+    pub fn start_direct(self: &Arc<Self>, stream: tokio::net::TcpStream, mode: session::Mode, tx: mpsc::UnboundedSender<InviteEvent>) -> u64 {
+        let local_id = self.next_local.fetch_add(1, Ordering::Relaxed);
+        self.st.lock().unwrap().direct.insert(local_id, tx);
+        let dialled = matches!(mode, session::Mode::Dial);
+        let spec = session::Spec { local_id, port: 0, token: String::new(), exporter: String::new(), tunnel: format!("tailnet{local_id}"), quic_client: dialled, mode, direct: Some(stream) };
+        let d = self.clone();
+        let pins: session::PinLookup = Arc::new(move |id: &str| d.st.lock().unwrap().trust.peers.values().find(|p| p.device_id.eq_ignore_ascii_case(id)).map(|p| p.identity_key.clone()));
+        session::spawn(spec, self.local.clone(), pins, self.events.clone());
+        local_id
+    }
+
+    pub fn end_direct(&self, local_id: u64) {
+        self.st.lock().unwrap().direct.remove(&local_id);
     }
 
     pub fn end_invite(&self, label: &str) {

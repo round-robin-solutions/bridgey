@@ -477,9 +477,9 @@ Security → Open Anyway).
 Each device tells the devices connected to it its version, channel and update state (draft
 `updates_draft1`, [protocol.md](protocol.md#update-all-updates_draft1)). When any of them, or the
 device you are using, has an update, **Update all** appears: on Android on the device home and in
-Settings > Updates, on the Mac in the menu-bar panel and in Settings > Updates. Macs are not paired
-to each other, so "all" means the devices connected to the one you use: from the phone, every
-connected Mac ("Updates this phone and 3 connected Macs"); from a Mac, every connected phone.
+Settings > Updates, on the Mac in the menu-bar panel and in Settings > Updates. "All" means the
+devices connected to the one you use: from the phone, every connected Mac ("Updates this phone and 3
+connected Macs"); from a Mac, every connected phone and every connected Mac it is paired with.
 
 - **Preview.** Before it runs it lists each device with its version now and after, its channel,
   and every device it skips and why: not connected, "Update this one by hand" (upstream Bridgey,

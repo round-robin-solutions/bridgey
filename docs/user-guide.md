@@ -262,7 +262,9 @@ installed app. On the Mac the update must carry a valid EdDSA signature. Details
 When one of your devices has an update, **Update all** appears on the phone's home screen and in the
 Mac's menu-bar panel, and in **Settings > Updates** on both. It updates every device connected to the
 one you are using: on the phone, all connected Macs and the phone; on a Mac, its connected phones and
-that Mac. Macs are not paired to each other, so to update two Macs at once, start it from the phone.
+that Mac, plus any Mac it is paired with (Macs can pair with each other on the same Wi-Fi, or over your
+tailnet). A Mac reached only through another device is not included; start Update all on the phone to
+reach every Mac it is connected to.
 
 1. Tap **Update all**. The preview lists each device with its version now and after, and its channel.
    Devices it skips are listed with the reason, for example not connected, or "Update this one by

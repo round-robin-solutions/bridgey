@@ -55,6 +55,9 @@
 "devices.none.detail" = "Свяжите устройство ниже. На обоих экранах появится код; подтверждайте, только если он совпадает.";
 "devices.pair" = "Связать новое устройство";
 "devices.pair.detail" = "Откройте Bridgey на телефоне в той же сети Wi-Fi, что и этот Mac. Затем на обоих экранах появится один и тот же код.";
+"devices.pair.address" = "Сопряжение по имени или адресу в Tailscale";
+"devices.pair.address.detail" = "Для устройства в вашей сети Tailscale. Сначала нажмите там «Разрешить сопряжение».";
+"devices.pair.address.placeholder" = "work или 100.64.0.10";
 "devices.pair.searching" = "Поиск устройств в этой сети…";
 "devices.permissions.intro" = "Что этот Mac передаёт на %@.";
 "drop.detail" = "Это окно останется открытым при переходе в Finder.";
@@ -286,6 +289,7 @@
 "ring.connecting" = "Подключение";
 "ring.nearby" = "Рядом";
 "ring.new" = "Новое устройство";
+"ring.tailnet" = "В вашей сети Tailscale";
 "ring.offline" = "Не в сети";
 "ring.private" = "Частная сеть";
 "ring.relay" = "Через сервер";

@@ -50,6 +50,21 @@ and ports are attacker-controlled until the peer authenticates. Implementations
 must deduplicate discoveries by service instance and refresh endpoints on every
 network change.
 
+### Pairing over the tailnet (Round Robin edition, phase 2)
+
+Devices on the same Tailscale tailnet can pair without sharing a local network
+([mesh-and-codes.md](mesh-and-codes.md#phase-2-2026-11-04)). Nothing new on the wire: the dialling side opens plain TCP
+to the other's tailnet address, port 42458, and makes the normal protocol 2 first pairing of this section (committed
+offer, reveal, the six-digit code compared on both ends, `bridgey-auth-v1` transcript, envelope tags). The receiving
+side answers only while it allows pairing (Allow pairing or the pairing screen on the apps, `bridgey pair --allow`
+on a server, which accepts connections only from Tailscale's ranges 100.64.0.0/10 and fd7a:115c:a1e0::/48, three a
+minute, one pairing). Discovery is advisory: the Mac and `bridgey tailnet` read `tailscale status --json` and knock on
+port 42458 at each online peer; a name or address can also be typed. A tailnet entry has no device ID until the pairing
+authenticates. After pairing, the two set a pair secret (`connect.setup`) and reconnect over Connect anywhere tunnels.
+A server (`agent_draft1`, `notify_draft1` and `ask_draft1` in its own authenticated map) paired this way gets nothing:
+on the phone it is an agent with every grant off, on a Mac every feature reads off for it and anything it sends beyond
+the session and `connect.*` is dropped. The kind is never taken from discovery.
+
 ## Framing and envelope
 
 After the TLS WebSocket opens, each text frame contains exactly one JSON object:
@@ -943,9 +958,11 @@ the field and simply receive a file.
 
 Status: **Draft, edition only.** Each device tells the devices connected to it which version it
 runs, on which channel, and where its own update stands; **Update all** on one device then asks each
-connected device to update itself, and updates the device you are using last. Macs are not paired
-to each other, so "all" means every device connected to the one you are using: from a phone that is
-every connected Mac, from a Mac every connected phone.
+connected device to update itself, and updates the device you are using last. "All" means every
+device connected to the one you are using: from a phone every connected Mac, from a Mac every
+connected phone and every connected Mac it is paired with (Macs pair with each other on the same
+network since 0.10.0-rr.1-beta.19, and over the tailnet since phase 2 of mesh-and-codes.md). Devices
+reached only through another device are not included (one hop is designed, not built).
 
 **Negotiation.** `features.update` gains `updates_draft1`: the device sends `updates.status` and
 understands `updates.start`. Edition builds that have the feature always advertise it; whether this

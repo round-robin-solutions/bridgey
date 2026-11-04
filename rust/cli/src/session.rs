@@ -33,6 +33,19 @@ pub enum Mode {
     /// The joining end of an invite (test hook `bridgey pair --join`): this end commits, reveals and is the
     /// initiator, as the phone is.
     Join { invite_hash: String },
+    /// Pairing over the tailnet (docs/mesh-and-codes.md, phase 2): this end dialled another device's address over
+    /// plain TCP and makes a normal protocol 2 first pairing as the initiator (commit, reveal, the code at both ends).
+    Dial,
+    /// Pairing over the tailnet: this end allowed pairing (`bridgey pair --allow`) and answers exactly one committed
+    /// first pairing from a device it does not trust, on a connection that came in over plain TCP.
+    Listen,
+}
+
+impl Mode {
+    /// A first pairing over plain TCP: the transcript is `bridgey-auth-v1`, as on the local network.
+    pub fn direct(&self) -> bool {
+        matches!(self, Mode::Dial | Mode::Listen)
+    }
 }
 
 pub struct Local {
@@ -112,7 +125,7 @@ impl Handle {
 pub enum Event {
     /// Invite pairing: compare this code; answer through `confirm` (true to confirm).
     Code { local_id: u64, code: String, peer_name: String, confirm: oneshot::Sender<bool> },
-    Authenticated { local_id: u64, peer: AuthPeer, handle: Handle, invite: bool, tunnel: String },
+    Authenticated { local_id: u64, peer: AuthPeer, handle: Handle, invite: bool, direct: bool, tunnel: String },
     /// A frame that passed the tag and replay checks; `plaintext` when it had an encrypted payload that opened.
     Frame { local_id: u64, peer_id: String, message: Box<Message>, plaintext: Option<Vec<u8>> },
     Closed { local_id: u64, peer_id: Option<String>, reason: String, authenticated: bool },
@@ -149,6 +162,8 @@ pub struct Spec {
     pub tunnel: String,
     pub quic_client: bool,
     pub mode: Mode,
+    /// A direct connection (Dial or Listen) instead of the core's loopback bridge.
+    pub direct: Option<TcpStream>,
 }
 
 pub fn spawn(spec: Spec, local: Arc<Local>, pins: PinLookup, events: mpsc::UnboundedSender<Event>) {
@@ -164,11 +179,17 @@ pub fn spawn(spec: Spec, local: Arc<Local>, pins: PinLookup, events: mpsc::Unbou
 
 type Outcome = (String, Option<String>, bool);
 
-async fn run(spec: Spec, local: Arc<Local>, pins: PinLookup, events: mpsc::UnboundedSender<Event>) -> Result<Outcome, Outcome> {
+async fn run(mut spec: Spec, local: Arc<Local>, pins: PinLookup, events: mpsc::UnboundedSender<Event>) -> Result<Outcome, Outcome> {
     let fail = |r: &str| -> Outcome { (r.to_string(), None, false) };
-    let mut stream = TcpStream::connect(("127.0.0.1", spec.port)).await.map_err(|_| fail("bridge"))?;
+    let stream = match spec.direct.take() {
+        Some(direct) => direct,
+        None => {
+            let mut bridge = TcpStream::connect(("127.0.0.1", spec.port)).await.map_err(|_| fail("bridge"))?;
+            bridge.write_all(format!("{}\n", spec.token).as_bytes()).await.map_err(|_| fail("bridge"))?;
+            bridge
+        }
+    };
     let _ = stream.set_nodelay(true);
-    stream.write_all(format!("{}\n", spec.token).as_bytes()).await.map_err(|_| fail("bridge"))?;
     let (read, mut write) = stream.into_split();
     let mut reader = BufReader::with_capacity(MAX_FRAME + 2, read);
     let (tx, mut rx) = mpsc::unbounded_channel::<Outgoing>();
@@ -196,9 +217,9 @@ async fn run(spec: Spec, local: Arc<Local>, pins: PinLookup, events: mpsc::Unbou
     };
     let invite_hash = match &spec.mode {
         Mode::Invite { invite_hash } | Mode::Join { invite_hash } => Some(invite_hash.clone()),
-        Mode::Reconnect { .. } => None,
+        Mode::Reconnect { .. } | Mode::Dial | Mode::Listen => None,
     };
-    if spec.quic_client && matches!(spec.mode, Mode::Join { .. }) {
+    if spec.quic_client && matches!(spec.mode, Mode::Join { .. } | Mode::Dial) {
         let mut offer = Message::new("pairing.offer", &st.id);
         offer.device_id = Some(local.device_id.clone());
         offer.device_name = Some(local.name());
@@ -383,17 +404,27 @@ enum Step {
     Close(String),
 }
 
-fn transcript(st: &State, local: &Local, exporter: &str, invite_hash: &Option<String>) -> Vec<u8> {
+fn transcript(st: &State, local: &Local, spec: &Spec, invite_hash: &Option<String>) -> Vec<u8> {
     let (init_id, resp_id, init_eph, resp_eph) = if st.initiated {
         (local.device_id.as_str(), st.remote_id.as_str(), st.eph.public.as_str(), st.remote_eph.as_str())
     } else {
         (st.remote_id.as_str(), local.device_id.as_str(), st.remote_eph.as_str(), st.eph.public.as_str())
     };
+    // Plain TCP (pairing over the tailnet) has no tunnel exporter: the apps' `bridgey-auth-v1` transcript.
+    if spec.mode.direct() {
+        return transcript_v1(&st.id, init_id, resp_id, init_eph, resp_eph);
+    }
+    let exporter = spec.exporter.as_str();
     let mut fields = vec!["bridgey-auth-v2", &st.id, init_id, resp_id, init_eph, resp_eph, exporter];
     if let Some(h) = invite_hash {
         fields.push(h);
     }
     fields.join("\0").into_bytes()
+}
+
+/// `bridgey-auth-v1` \0 sessionId \0 initiator \0 responder \0 initiator key \0 responder key (PairingCoordinator.kt).
+pub fn transcript_v1(session: &str, init_id: &str, resp_id: &str, init_eph: &str, resp_eph: &str) -> Vec<u8> {
+    ["bridgey-auth-v1", session, init_id, resp_id, init_eph, resp_eph].join("\0").into_bytes()
 }
 
 async fn confirm(st: &mut State, local: &Local, invite_hash: &Option<String>, spec: &Spec, write: &mut tokio::net::tcp::OwnedWriteHalf) -> Result<(), String> {
@@ -406,7 +437,7 @@ async fn confirm(st: &mut State, local: &Local, invite_hash: &Option<String>, sp
     m.device_id = Some(local.device_id.clone());
     m.identity_key = Some(local.identity_public.clone());
     m.proof = Some(crypto::confirmation_proof(&key, &st.id, &local.device_id, &local.identity_public));
-    m.signature = Some(crypto::b64(&local.identity.sign(&transcript(st, local, &spec.exporter, invite_hash))));
+    m.signature = Some(crypto::b64(&local.identity.sign(&transcript(st, local, spec, invite_hash))));
     write_frame(write, &m).await.map_err(|_| "send_failed".to_string())
 }
 
@@ -417,7 +448,7 @@ fn complete(st: &mut State, spec: &Spec, events: &mpsc::UnboundedSender<Event>, 
     st.authenticated = true;
     let handle = Handle { local_id: spec.local_id, tx: tx.clone() };
     let peer = AuthPeer { device_id: st.remote_id.clone(), name: st.remote_name.clone(), identity_key: st.remote_identity.clone().unwrap_or_default() };
-    let _ = events.send(Event::Authenticated { local_id: spec.local_id, peer, handle, invite: matches!(spec.mode, Mode::Invite { .. } | Mode::Join { .. }), tunnel: spec.tunnel.clone() });
+    let _ = events.send(Event::Authenticated { local_id: spec.local_id, peer, handle, invite: matches!(spec.mode, Mode::Invite { .. } | Mode::Join { .. }), direct: spec.mode.direct(), tunnel: spec.tunnel.clone() });
     None
 }
 
@@ -496,8 +527,8 @@ async fn receive(
             }
             let trusted = pins(&remote_id).is_some();
             match (&spec.mode, m.public_key.is_none(), m.commitment.is_some()) {
-                (Mode::Invite { .. }, true, true) if !trusted => {}
-                (Mode::Invite { .. } | Mode::Join { .. }, _, _) => return Step::Close("invite_untrusted_offer".into()),
+                (Mode::Invite { .. } | Mode::Listen, true, true) if !trusted => {}
+                (Mode::Invite { .. } | Mode::Join { .. } | Mode::Listen | Mode::Dial, _, _) => return Step::Close("invite_untrusted_offer".into()),
                 (Mode::Reconnect { expected }, false, false) if trusted && expected.as_ref().is_none_or(|e| remote_id.eq_ignore_ascii_case(e)) => {}
                 (Mode::Reconnect { .. }, _, _) => return Step::Close("tunnel_untrusted".into()),
             }
@@ -556,11 +587,11 @@ async fn receive(
             if !st.initiated || st.key.is_some() || m.session_id != st.id {
                 return Step::Continue;
             }
-            let joining = matches!(spec.mode, Mode::Join { .. });
+            let joining = matches!(spec.mode, Mode::Join { .. } | Mode::Dial);
             let (Some(remote_id), Some(remote_eph)) = (m.device_id.clone().filter(|d| crypto::is_uuid(d)), m.public_key.clone()) else { return Step::Close("malformed_answer".into()) };
             match &spec.mode {
                 Mode::Reconnect { expected: Some(expected) } if remote_id.eq_ignore_ascii_case(expected) => {}
-                Mode::Join { .. } if pins(&remote_id).is_none() => {}
+                Mode::Join { .. } | Mode::Dial if pins(&remote_id).is_none() => {}
                 _ => return Step::Close("wrong_device".into()),
             }
             if m.protocol_version.unwrap_or(1) < crypto::PROTOCOL_VERSION {
@@ -609,11 +640,11 @@ async fn receive(
                 if pinned != identity_key {
                     return Step::Close("identity_changed".into());
                 }
-            } else if !matches!(spec.mode, Mode::Invite { .. } | Mode::Join { .. }) {
+            } else if !matches!(spec.mode, Mode::Invite { .. } | Mode::Join { .. } | Mode::Dial | Mode::Listen) {
                 return Step::Close("not_trusted".into());
             }
             let key = st.key.unwrap();
-            if !crypto::proof_matches(&key, &st.id, &remote_id, &identity_key, &proof) || !crypto::verify_signature(&identity_key, &transcript(st, local, &spec.exporter, invite_hash), &signature) {
+            if !crypto::proof_matches(&key, &st.id, &remote_id, &identity_key, &proof) || !crypto::verify_signature(&identity_key, &transcript(st, local, spec, invite_hash), &signature) {
                 return Step::Close("authentication_failed".into());
             }
             st.remote_identity = Some(identity_key);
@@ -683,5 +714,88 @@ fn bad(st: &mut State) -> Step {
         Step::Close("bad_frames".into())
     } else {
         Step::Continue
+    }
+}
+
+#[cfg(test)]
+mod tailnet_pairing_tests {
+    use super::*;
+
+    fn local(name: &str) -> Arc<Local> {
+        let identity = SigningKey::from_pkcs8(&SigningKey::generate_pkcs8()).unwrap();
+        let identity_public = crypto::b64(&identity.public_raw());
+        Arc::new(Local { device_id: crypto::uuid4(), device_name: std::sync::RwLock::new(name.into()), identity: Arc::new(identity), identity_public })
+    }
+
+    fn spec(local_id: u64, mode: Mode, stream: TcpStream) -> Spec {
+        let dial = matches!(mode, Mode::Dial);
+        Spec { local_id, port: 0, token: String::new(), exporter: String::new(), tunnel: "tailnet".into(), quic_client: dial, mode, direct: Some(stream) }
+    }
+
+    /// Runs one side; confirms the code it is shown (when `accept`) and reports (code seen, authenticated peer).
+    async fn side(local: Arc<Local>, spec: Spec, accept: bool) -> (Option<String>, Option<AuthPeer>, String) {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let pins: PinLookup = Arc::new(|_| None);
+        spawn(spec, local, pins, tx);
+        let mut code = None;
+        let mut peer = None;
+        while let Some(e) = rx.recv().await {
+            match e {
+                Event::Code { code: c, confirm, .. } => {
+                    code = Some(c);
+                    let _ = confirm.send(accept);
+                }
+                Event::Authenticated { peer: p, handle, direct, invite, .. } => {
+                    assert!(direct && !invite);
+                    peer = Some(p);
+                    handle.close("done");
+                }
+                Event::Closed { reason, .. } => return (code, peer, reason),
+                Event::Frame { .. } => {}
+            }
+        }
+        (code, peer, "events_ended".into())
+    }
+
+    /// A dialler and a listener on the tailnet pair over plain TCP: both are shown the same code, both confirm, and each
+    /// authenticates the other's identity (the `bridgey-auth-v1` transcript, as on the local network).
+    #[tokio::test]
+    async fn two_installs_pair_over_plain_tcp() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (a, b) = (local("contabo-europe"), local("ovh-singapore"));
+        let (a_id, b_id, b_key) = (a.device_id.clone(), b.device_id.clone(), b.identity_public.clone());
+        let accept = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            side(b, spec(2, Mode::Listen, stream), true).await
+        });
+        let dial = side(a, spec(1, Mode::Dial, TcpStream::connect(addr).await.unwrap()), true).await;
+        let listen = accept.await.unwrap();
+        assert!(dial.0.is_some() && dial.0 == listen.0, "the same six-digit code on both ends");
+        let dialled = dial.1.expect("the dialler authenticated");
+        assert_eq!(dialled.device_id, b_id);
+        assert_eq!(dialled.identity_key, b_key);
+        assert_eq!(listen.1.expect("the listener authenticated").device_id, a_id);
+    }
+
+    /// A code refused at either end pairs nothing.
+    #[tokio::test]
+    async fn a_refused_code_pairs_nothing() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (a, b) = (local("a"), local("b"));
+        let accept = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            side(b, spec(2, Mode::Listen, stream), false).await
+        });
+        let dial = side(a, spec(1, Mode::Dial, TcpStream::connect(addr).await.unwrap()), true).await;
+        let listen = accept.await.unwrap();
+        assert!(dial.1.is_none() && listen.1.is_none());
+    }
+
+    /// The transcript on plain TCP is the apps' v1 form.
+    #[test]
+    fn v1_transcript() {
+        assert_eq!(transcript_v1("s", "i", "r", "I", "R"), b"bridgey-auth-v1\0s\0i\0r\0I\0R".to_vec());
     }
 }

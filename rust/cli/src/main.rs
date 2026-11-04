@@ -18,6 +18,7 @@ mod paths;
 mod service;
 mod session;
 mod store;
+mod tailnet;
 mod time;
 mod wire;
 
@@ -69,7 +70,15 @@ enum Command {
         /// Test hook: answer another install's invite instead of making one
         #[arg(long, hide = true, value_name = "LINK")]
         join: Option<String>,
+        /// Pair over your tailnet with a device that allowed pairing: its tailnet name, address or address:port
+        #[arg(long, value_name = "NAME|ADDRESS", conflicts_with_all = ["join", "allow"])]
+        to: Option<String>,
+        /// Allow one device on your tailnet to pair with this one, for this long (default 2m, at most 10m)
+        #[arg(long, value_name = "DURATION", num_args = 0..=1, default_missing_value = "2m", conflicts_with = "join")]
+        allow: Option<String>,
     },
+    /// Bridgey devices on your tailnet you can pair with (bridgey pair --to NAME)
+    Tailnet,
     /// Paired devices, online state, route and grants
     Devices,
     /// Route, round trip, relay and battery for a device
@@ -377,6 +386,7 @@ async fn run(cli: Cli) -> i32 {
 fn command_name(c: &Command) -> &'static str {
     match c {
         Command::Pair { .. } => "pair",
+        Command::Tailnet => "tailnet",
         Command::Devices => "devices",
         Command::Status { .. } => "status",
         Command::Grants { action: Some(_), .. } => "grants request",
@@ -479,7 +489,31 @@ async fn execute(ctx: &Ctx, command: Command) -> Result<(Value, String), CliErro
     let now = now_ms();
     match command {
         Command::Daemon { .. } => unreachable!(),
-        Command::Pair { name, link_only, join } => pair(ctx, name, link_only, join).await,
+        Command::Pair { name, link_only, join, to, allow } => {
+            let allow_ms = allow.as_deref().map(ms).transpose()?;
+            pair(ctx, name, link_only, join, to, allow_ms).await
+        }
+        Command::Tailnet => {
+            let peers = tailnet::status().map_err(|e| CliError::new("unreachable", e))?;
+            let mut rows = Vec::new();
+            for p in peers.iter().filter(|p| p.online) {
+                let addr = p.ips.iter().filter_map(|i| i.parse::<std::net::IpAddr>().ok()).min_by_key(|ip| ip.is_ipv6());
+                let bridgey = match addr {
+                    Some(ip) => tailnet::probe(std::net::SocketAddr::new(ip, tailnet::PORT), std::time::Duration::from_millis(800)).await,
+                    None => false,
+                };
+                rows.push(json!({"name": p.name, "dns": p.dns, "ips": p.ips, "os": p.os, "bridgey": bridgey}));
+            }
+            let mut t = String::from("On your tailnet:\n");
+            for r in &rows {
+                t.push_str(&format!("  {:<24} {:<16} {:<8} {}\n", session::printable(r["name"].as_str().unwrap_or(""), 24), r["ips"][0].as_str().unwrap_or(""), r["os"].as_str().unwrap_or(""),
+                    if r["bridgey"] == true { "Bridgey ready to pair (Allow pairing there, then bridgey pair --to NAME)" } else { "" }));
+            }
+            if rows.is_empty() {
+                t.push_str("  nothing online\n");
+            }
+            Ok((json!({"devices": rows}), t))
+        }
         Command::Devices => {
             let v = ctx.call("devices", json!({})).await?;
             let mut t = String::new();
@@ -760,7 +794,7 @@ async fn ask(ctx: &Ctx, a: AskArgs) -> Result<(Value, String), CliError> {
 }
 
 /// Pairing talks to the daemon both ways: it shows the invite, then the code, and sends the person's answer.
-async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<String>) -> Result<(Value, String), CliError> {
+async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<String>, to: Option<String>, allow_ms: Option<u64>) -> Result<(Value, String), CliError> {
     let name = match name {
         Some(n) => {
             let mut c = ctx.config.clone();
@@ -776,7 +810,7 @@ async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<Str
         return Err(usage("bridgey pair needs a terminal: you confirm the code it shows (there is no way to skip that)"));
     }
     let mut conn = client::connect(&ctx.paths, true).await?;
-    conn.send(&json!({"cmd": "pair", "args": {"name": name, "linkOnly": link_only, "join": join}, "caller": audit::caller()})).await.map_err(|e| CliError::new("failed", e.to_string()))?;
+    conn.send(&json!({"cmd": "pair", "args": {"name": name, "linkOnly": link_only, "join": join, "to": to, "allowMs": allow_ms}, "caller": audit::caller()})).await.map_err(|e| CliError::new("failed", e.to_string()))?;
     let (reader, mut writer) = conn.split();
     let mut conn_reader = reader;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -832,6 +866,10 @@ async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<Str
                     eprintln!("Confirmed here. Confirm on the phone too.");
                 }
             }
+            Some("dialling") => eprintln!("Dialling {} ...", session::printable(v["address"].as_str().unwrap_or(""), 64)),
+            Some("waiting") => eprintln!("{}", session::printable(v["message"].as_str().unwrap_or(""), 120)),
+            Some("listening") => eprintln!("Allowing pairing on port {} for devices on your tailnet. On the other device, pair with this one by its tailnet name.", v["port"]),
+            Some("incoming") => eprintln!("A device at {} wants to pair.", session::printable(v["address"].as_str().unwrap_or(""), 64)),
             Some("attempt_failed") => eprintln!("bridgey: the phone's attempt ended ({}); waiting for another within the invite's time", session::printable(v["reason"].as_str().unwrap_or(""), 64)),
             Some("paired") => eprintln!("Paired. Setting up the connection for away from home..."),
             _ => {}

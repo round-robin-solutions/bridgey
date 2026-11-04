@@ -482,6 +482,7 @@ func ringStatusText(_ ring: DeviceRing) -> String {
     return switch ring.state {
     case .connected: L10n.text("ring.connected", fallback: "Same Wi-Fi")
     case .connecting: L10n.text("ring.connecting", fallback: "Connecting")
+    case .nearby where ring.peer?.tailnet == true: L10n.text("ring.tailnet", fallback: "On your tailnet")
     case .nearby: ring.trusted ? L10n.text("ring.nearby", fallback: "Nearby") : L10n.text("ring.new", fallback: "New device")
     case .offline: L10n.text("ring.offline", fallback: "Offline")
     case .relay: L10n.text("ring.relay", fallback: "Relay")

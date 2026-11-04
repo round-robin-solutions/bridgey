@@ -238,6 +238,16 @@ class BridgeyApplication : Application() {
                 detail = dev.bridgey.android.sync.SyncDetail.encode(changes),
             )
         }
+        // Codes over cloud (docs/mesh-and-codes.md, phase 2): only with the person's opt-in and a relay in this build.
+        if (BuildConfig.OTP_PROXY_URL.startsWith("https://")) {
+            pairing.agents.cloud = dev.bridgey.android.agents.CloudCodes(
+                enabled = { settings.state.value.cloudCodes },
+                extractor = dev.bridgey.android.agents.HttpCloudExtractor(BuildConfig.OTP_PROXY_URL) { settings.cloudInstallId() },
+            )
+        }
+        pairing.agents.onCloudRead = { outcome, appName ->
+            activityLog.record(dev.bridgey.android.activity.ActivityKind.CODE_CLOUD_READ, null, "", appName = appName, content = outcome)
+        }
         // A Mac's change is an activity item; it notifies only when this phone must give a permission (Rahul, 2026-10-27).
         sync.onNeedsPermission = { _, deviceName, key -> dev.bridgey.android.sync.SyncNotifier.needsPermission(this, deviceName, key) }
         applicationScope.launch {

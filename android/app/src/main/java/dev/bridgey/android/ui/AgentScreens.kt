@@ -146,7 +146,8 @@ fun AgentDeviceScreen(state: AgentPageState, actions: AgentPageActions) {
         }
     }
     asking?.let { grant ->
-        WindowDialog(onPick = { window -> asking = null; actions.setGrant(grant, true, window) }, onDismiss = { asking = null })
+        WindowDialog(onPick = { window -> asking = null; actions.setGrant(grant, true, window) }, onDismiss = { asking = null },
+            windows = dev.bridgey.android.agents.windowsFor(grant))
     }
     askingPreset?.let { preset ->
         WindowDialog(onPick = { window -> askingPreset = null; actions.applyPreset(preset, window) }, onDismiss = { askingPreset = null })
@@ -370,14 +371,14 @@ private fun AgentActivity(state: AgentPageState, contentPadding: PaddingValues, 
 /** "How long?": For 1 hour, Today, 7 days, Until I turn it off. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun WindowDialog(onPick: (GrantWindow) -> Unit, onDismiss: () -> Unit) {
+fun WindowDialog(onPick: (GrantWindow) -> Unit, onDismiss: () -> Unit, windows: List<GrantWindow> = GrantWindow.entries) {
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = BridgeyTheme.colors.surface2,
         title = { Text(stringResource(R.string.agent_window_ask)) },
         text = {
             Column(Modifier.semantics { testTagsAsResourceId = true }) {
-                GrantWindow.entries.forEach { window ->
+                windows.forEach { window ->
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
                             .clickable(role = Role.Button) { onPick(window) }.testTag("agent-window-${window.wire}")

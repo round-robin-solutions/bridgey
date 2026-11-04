@@ -1205,6 +1205,7 @@ private fun BridgeyApp(
                                 linkTarget = dev.bridgey.android.codes.CodeLinkTargets.current(codeTargets, codes.pickedTarget, pairing.companionLinkTarget()),
                                 linkedMac = remember(companionLink) { codes.linkRecord.linked() },
                                 emailCodes = settingsState.emailCodes,
+                                cloudCodes = settingsState.cloudCodes,
                             ),
                             setup = dev.bridgey.android.ui.SetupSettingsState(oem = setup.oem),
                             focus = FocusSettingsState(settingsState.focusShare, settingsState.focusFollow, dndAccess),
@@ -1339,6 +1340,7 @@ private fun BridgeyApp(
                                     android.widget.Toast.makeText(context, context.getString(R.string.codes_adb_copied), android.widget.Toast.LENGTH_SHORT).show()
                                 },
                                 setEmailCodes = settings::setEmailCodes,
+                                setCloudCodes = settings::setCloudCodes,
                             ),
                         )
                     when (route) {
@@ -1552,6 +1554,11 @@ private fun BridgeyApp(
                 pairDialog = false
                 inviteDialog = ""
             },
+            onAddress = { typed ->
+                pairDialog = false
+                val (host, port) = dev.bridgey.android.agents.tailnetTarget(typed)
+                pairing.pair(host, port, host)
+            },
         )
     }
 
@@ -1749,6 +1756,32 @@ private fun AgentRoute(
     )
 }
 
+/**
+ * Pairing over the tailnet (docs/mesh-and-codes.md, phase 2): with Tailscale on, a device's tailnet name (MagicDNS) or
+ * address, dialled like a device found on this Wi-Fi. The other device taps Allow pairing (or runs
+ * `bridgey pair --allow`); both then show the same code.
+ */
+@Composable
+private fun TailnetAddressRow(onPair: (String) -> Unit) {
+    var address by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
+    Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(R.string.pair_tailnet_title), style = BridgeyType.itemTitle)
+        Text(stringResource(R.string.pair_tailnet_detail), style = BridgeyType.itemBody, color = BridgeyTheme.colors.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.material3.OutlinedTextField(
+                value = address,
+                onValueChange = { address = it.take(253) },
+                singleLine = true,
+                placeholder = { Text(stringResource(R.string.pair_tailnet_hint)) },
+                modifier = Modifier.weight(1f).testTag("pair-tailnet-address"),
+            )
+            TextButton(onClick = { address.trim().takeIf { it.isNotEmpty() }?.let(onPair); address = "" }, enabled = address.isNotBlank()) {
+                Text(stringResource(R.string.pair_tailnet_pair))
+            }
+        }
+    }
+}
+
 /** Add: devices on this Wi-Fi, to pair or reconnect. */
 @Composable
 internal fun PairDialog(
@@ -1765,6 +1798,8 @@ internal fun PairDialog(
     onStop: () -> Unit = {},
     /** Remote pairing by invite (the bridgey command); null hides the entry. */
     onInvite: (() -> Unit)? = null,
+    /** Pairing over the tailnet: a typed tailnet name or address; null hides the field. */
+    onAddress: ((String) -> Unit)? = null,
 ) {
     val colors = BridgeyTheme.colors
     val visible = peers.filter { it.deviceIdHint == null || it.deviceIdHint !in connectedIds }
@@ -1808,6 +1843,7 @@ internal fun PairDialog(
                     }
                 }
                 onInvite?.let { dev.bridgey.android.ui.InviteEntryRow(it, Modifier.padding(top = 8.dp)) }
+                onAddress?.let { pairAddress -> TailnetAddressRow(pairAddress) }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) } },

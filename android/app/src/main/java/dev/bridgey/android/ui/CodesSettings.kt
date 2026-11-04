@@ -50,6 +50,8 @@ data class CodesSettingsState(
     val linkedMac: CodeLinkMac? = null,
     /** Also read codes in email: mail-app previews go to Macs that read codes. On until chosen; synced as codes.email. */
     val emailCodes: Boolean = true,
+    /** Use cloud when no Mac is reading: off until chosen; turning it on asks first. */
+    val cloudCodes: Boolean = false,
 ) {
     val showAdb: Boolean get() = linkApplies && access != CodeAccessStatus.ALLOWED
 }
@@ -60,6 +62,7 @@ class CodesSettingsActions(
     val linkTo: (String) -> Unit = {},
     val copyCommand: () -> Unit = {},
     val setEmailCodes: (Boolean) -> Unit = {},
+    val setCloudCodes: (Boolean) -> Unit = {},
 )
 
 @Composable
@@ -122,6 +125,30 @@ internal fun GroupScope.codesRows(
         )
     }
     syncRows(dev.bridgey.android.sync.SyncKey.EMAIL_CODES, sync, syncActions)
+    row { shape -> CodesCloudRow(shape, state, actions) }
+}
+
+/** Use cloud when no Mac is reading: off until chosen, and turning it on shows the same consent as the Mac's Cloud engine. */
+@Composable
+private fun CodesCloudRow(shape: androidx.compose.ui.graphics.Shape, state: CodesSettingsState, actions: CodesSettingsActions) {
+    var asking by rememberSaveable { mutableStateOf(false) }
+    SwitchRow(
+        shape, stringResource(R.string.codes_cloud), stringResource(R.string.codes_cloud_detail),
+        BridgeyIcons.Shield, if (state.cloudCodes) Tint.PURPLE else Tint.NEUTRAL, state.cloudCodes,
+        { on -> if (on) asking = true else actions.setCloudCodes(false) },
+    )
+    if (asking) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { asking = false },
+            containerColor = BridgeyTheme.colors.surface2,
+            title = { Text(stringResource(R.string.codes_cloud_confirm_title)) },
+            text = { Text(stringResource(R.string.codes_cloud_confirm_body), style = BridgeyType.bodyText) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { asking = false; actions.setCloudCodes(true) }) { Text(stringResource(R.string.codes_cloud_turn_on)) }
+            },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { asking = false }) { Text(stringResource(R.string.action_cancel)) } },
+        )
+    }
 }
 
 /** "Link to Personal Mac": which Mac the phone is linked to, and a picker when two or more read codes. */

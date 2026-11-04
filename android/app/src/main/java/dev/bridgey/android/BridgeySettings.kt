@@ -147,6 +147,11 @@ data class BridgeySettingsState(
      * nobody chose: then it is on ([emailCodes]). Synced as `codes.email`.
      */
     val emailCodesChoice: Boolean? = null,
+    /**
+     * Notifications > Codes > Use cloud when no Mac is reading (docs/mesh-and-codes.md, phase 2): off until chosen, never
+     * synced. Text messages only; email previews never go to the cloud.
+     */
+    val cloudCodes: Boolean = false,
 ) {
     /** What Connect away from home does now: the choice, or on while there is none. */
     val connectAway: Boolean get() = connectAwayChoice ?: CONNECT_AWAY_DEFAULT
@@ -332,6 +337,16 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(connectAwayChoice = enabled)
     }
 
+    /** Use cloud when no Mac is reading: only ever switched by the person on this phone, after the consent dialog. */
+    fun setCloudCodes(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_CLOUD_CODES, enabled).apply()
+        mutableState.value = mutableState.value.copy(cloudCodes = enabled)
+    }
+
+    /** A random per-install id, used only as the relay's rate-limit key (as the Mac's codes install id). */
+    fun cloudInstallId(): String = preferences.getString(KEY_CLOUD_INSTALL_ID, null)?.takeIf(dev.bridgey.android.codes.CodeRelay::isInstallId)
+        ?: dev.bridgey.android.codes.CodeRelay.newInstallId().also { preferences.edit().putString(KEY_CLOUD_INSTALL_ID, it).apply() }
+
     /** The person's own choice (or a synced one) for Also read codes in email. */
     fun setEmailCodes(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_EMAIL_CODES, enabled).apply()
@@ -476,6 +491,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             smsReplyAsSms = preferences.getBoolean(KEY_SMS_REPLY_AS_SMS, false),
             connectAwayChoice = if (preferences.contains(KEY_CONNECT_AWAY)) preferences.getBoolean(KEY_CONNECT_AWAY, true) else null,
             emailCodesChoice = if (preferences.contains(KEY_EMAIL_CODES)) preferences.getBoolean(KEY_EMAIL_CODES, true) else null,
+            cloudCodes = preferences.getBoolean(KEY_CLOUD_CODES, false),
         )
     }
 
@@ -507,6 +523,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         private const val KEY_SMS_REPLY_AS_SMS = "sms.reply_as_sms"
         internal const val KEY_CONNECT_AWAY = "connect.away"
         internal const val KEY_EMAIL_CODES = "codes.email"
+        private const val KEY_CLOUD_CODES = "codes.cloud_when_no_mac"
+        private const val KEY_CLOUD_INSTALL_ID = "codes.cloud_install_id"
         private const val KEY_CONNECT_DEBUG_URL = "connect.debug.controlUrl"
         private const val KEY_CONNECT_DEBUG_RELAY_ONLY = "connect.debug.relayOnly"
     }

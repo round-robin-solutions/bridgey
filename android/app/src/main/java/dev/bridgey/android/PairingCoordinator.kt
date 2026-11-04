@@ -4747,6 +4747,14 @@ class PairingCoordinator(
         val received = decoded.features
         val drafts = decoded.drafts
         val deviceId = current.remoteDeviceId
+        if (!current.agent && dev.bridgey.android.agents.advertisesAgent(drafts)) {
+            // A server paired over the tailnet (not by invite) says what it is in its own authenticated map: from now on it
+            // is an agent here, with every grant off, exactly as one paired by invite (docs/mesh-and-codes.md, phase 2).
+            trust.save(deviceId, current.peerName, current.remoteIdentityKey ?: return fail(current, "Invalid feature state"), platform = dev.bridgey.android.agents.AGENT_PLATFORM)
+            current.agent = true
+            agents.paired(deviceId)
+            scope.launch { sendFeatureState(current) }
+        }
         current.peerFast = drafts[FILES_FAST_FEATURE_KEY] == true
         BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT fast transfers=${current.fastTransfers} peerKey=${current.peerFast} protocol2=${current.envelopeKey != null}")
         registry.update(deviceId) { state ->

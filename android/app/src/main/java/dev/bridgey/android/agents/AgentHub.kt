@@ -72,6 +72,12 @@ class AgentHub(
     private val asks = AgentAskBook(File(directory, "asks.json"), clock)
     val codes = CodesBroker(clock)
     private val detections = CodeDetections(clock)
+
+    /** Codes over cloud (CloudCodes.kt), set by the application; null in tests and builds without a relay. */
+    @Volatile var cloud: CloudCodes? = null
+
+    /** One cloud read happened: its word (CloudRead) and the app's name, for the phone's activity list. */
+    @Volatile var onCloudRead: (outcome: String, appName: String) -> Unit = { _, _ -> }
     private val notifier = AgentNotifier(context)
     private val heldTimers = java.util.concurrent.ConcurrentHashMap<String, Job>()
     private val clipRequests = java.util.concurrent.ConcurrentHashMap<String, Pair<ClipboardRequest, Job>>()
@@ -557,7 +563,14 @@ class AgentHub(
         val joined = dev.bridgey.android.codes.smsCandidateText(text) ?: return
         if (!detections.firstSight(notificationId, joined)) return
         val anyReader = transport.agentIds().any { grants.isOn(it, AgentGrant.CODES) }
-        val target = detections.pick(macsReadingCodes(transport.readerLinks()), anyReader, detectors()) ?: return
+        val macs = macsReadingCodes(transport.readerLinks())
+        val servers = detectors()
+        val target = detections.pick(macs, anyReader, servers) ?: run {
+            // The order: an awake Mac, then a server with Detect codes, then this phone over cloud (servers are your
+            // own machines; the cloud is a third party). The cloud only when no server can read it at all.
+            if (cloudReads(macs, anyReader, servers.size, cloud?.isOn() == true)) readOverCloud(joined, title, applicationName, notificationId, postedAt)
+            return
+        }
         val sender = dev.bridgey.android.codes.codeSender(title, applicationName).let { name ->
             val points = name.codePoints().limit(64).toArray()
             String(points, 0, points.size)
@@ -568,6 +581,22 @@ class AgentHub(
         detections.sent(candidate)
         audit.record(target, AuditAction.CODES_DETECT, AuditOutcome.DELIVERED, applicationName.take(64))
         changed()
+    }
+
+    private fun readOverCloud(joined: String, title: String, applicationName: String, notificationId: String, postedAt: Long) {
+        val reader = cloud ?: return
+        val sender = dev.bridgey.android.codes.codeSender(title, applicationName).let { name ->
+            val points = name.codePoints().limit(64).toArray()
+            String(points, 0, points.size)
+        }
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val (outcome, code) = reader.read(joined, sender)
+            onCloudRead(outcome.word, applicationName.take(64))
+            if (code != null) {
+                addFound(CodeFound(java.util.UUID.randomUUID().toString(), code, sender, dev.bridgey.android.codes.brokerServiceKey(sender),
+                    CodeSource.SMS, "messages", notificationId.take(512), postedAt))
+            }
+        }
     }
 
     private fun codesDetected(deviceId: String, plaintext: ByteArray) {

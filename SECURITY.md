@@ -237,3 +237,16 @@ Design and threat table: `docs/mesh-and-codes.md` (sections 3.5, 4 and 7). The d
   invite and passed the code check: in practice the phone. It reads code candidates only from such a peer that has not
   introduced itself as an agent in the current session. A custom client that joins the invite would be taken for a phone; accepted until
   `v: 2` signs the device kind.
+
+## Bridgey by Round Robin edition: codes over cloud and pairing over the tailnet (phase 2)
+
+- **Codes over cloud on the phone** is off until the person turns on "Use cloud when no Mac is reading" after a consent
+  dialog that says the message text goes through Round Robin's relay to Cloudflare. Only text messages, never email
+  previews; only when no Mac reads codes, no server with Detect codes is connected, and a server has Read codes on.
+  At most 20 an hour, 3 seconds each, no redirects; the answer counts only if the strict guard finds it verbatim; a
+  failure does nothing. Each read is in the activity list without the text or the code.
+- **Pairing over the tailnet** is the normal protocol 2 first pairing over plain TCP (code on both ends, Allow pairing
+  on the receiving side). Tailnet discovery is advisory and never names a device or its kind. A server paired this way
+  is restricted from its own authenticated map: an agent with every grant off on the phone, every feature off and every
+  non-session message dropped on a Mac. `bridgey pair --allow` accepts only Tailscale's address ranges, three attempts a
+  minute, one pairing, ten minutes at most. Being on the tailnet grants nothing by itself.

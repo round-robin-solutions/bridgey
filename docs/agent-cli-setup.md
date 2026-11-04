@@ -105,6 +105,18 @@ bridgey ring
 
 Add `--json` to any command for one JSON object; exit codes are in [agent-cli.md](agent-cli.md#5-exit-codes).
 
+## Pair with a Mac or another server over the tailnet
+
+On a server that is on your Tailscale tailnet, `bridgey tailnet` lists the Bridgey devices there.
+
+- **With a Mac:** on the Mac, open Settings > Devices > Pair a new device and tap Allow pairing (or open Bridgey's
+  pairing screen); then `bridgey pair --to <mac's tailnet name>`. Or the other way round: `bridgey pair --allow` here,
+  then on the Mac pick this server from "On your tailnet" (or type its tailnet name) and tap Pair.
+- **With another server:** `bridgey pair --allow` on one, `bridgey pair --to <its tailnet name>` on the other.
+
+Both ends show the same six-digit code; confirm it on both. The Mac gives this server nothing (every feature stays
+off), and the phone's grants are not affected.
+
 ## 6. Detect codes (optional)
 
 A server can read one-time codes for the phone when no Mac is reading, with the same model, prompt and

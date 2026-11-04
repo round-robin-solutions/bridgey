@@ -147,6 +147,20 @@ final class BridgeySettings: ObservableObject {
 
     private let defaults = UserDefaults.standard
 
+    /// Servers (the bridgey command) paired with this Mac directly, over the tailnet. They get nothing here: every feature
+    /// reads off for them, whatever the switches say (docs/mesh-and-codes.md, phase 2). Known from their own map
+    /// (agent_draft1 with notify_draft1 and ask_draft1) and kept, so a later session is restricted from its first frame.
+    private(set) var agentDevices: Set<String> = Set(UserDefaults.standard.stringArray(forKey: BridgeySettings.agentDevicesKey) ?? [])
+    nonisolated static let agentDevicesKey = "agents.directDevices"
+
+    func isAgent(_ deviceID: String?) -> Bool { deviceID.map(agentDevices.contains) ?? false }
+
+    func markAgent(_ deviceID: String) {
+        guard !agentDevices.contains(deviceID) else { return }
+        agentDevices.insert(deviceID)
+        defaults.set(Array(agentDevices).sorted(), forKey: Self.agentDevicesKey)
+    }
+
     init() {
         let storedDefaults = UserDefaults.standard
         let systemName = Host.current().localizedName ?? "Mac"
@@ -405,6 +419,8 @@ final class BridgeySettings: ObservableObject {
     }
 
     func isEnabled(_ feature: BridgeyFeature, for deviceID: String?) -> Bool {
+        // A server paired with this Mac gets nothing (an agent device: everything off).
+        if isAgent(deviceID) { return false }
         if feature.needsDeviceGrant {
             return effectiveGrantEnabled(
                 globalEnabled: globalFeatures[feature] == true,
@@ -422,6 +438,7 @@ final class BridgeySettings: ObservableObject {
             defaults.removeObject(forKey: "settings.device.\(deviceID).\(feature.rawValue)")
         }
         deviceFeatures.removeValue(forKey: deviceID)
+        if agentDevices.remove(deviceID) != nil { defaults.set(Array(agentDevices).sorted(), forKey: Self.agentDevicesKey) }
         defaults.removeObject(forKey: Self.autoClipboardDevicePrefix + deviceID)
         autoClipboardDevices.removeValue(forKey: deviceID)
     }

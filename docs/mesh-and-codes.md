@@ -17,7 +17,7 @@ Two changes:
 | Topic | Today | Source |
 | --- | --- | --- |
 | Pairing | Protocol 2 (commit and reveal, `bridgey-sas-v2` code, envelope tags). Phone and Mac on the local network; phone and server by invite (the server invites, the phone joins). A phone refuses an invite whose `p` is not `cli` | protocol.md "Pairing flow", "Remote pairing by invite" |
-| Mac and Mac | **Works on the local network already.** A Mac lists every Bridgey it discovers, other Macs included, and since beta 19 two Macs that tap each other pair (the crossed pairing fix). The MacBook Pro trusts both other Macs today. Several pages still say "Macs never pair" (protocol.md Update all, user-guide.md, folders-and-settings-sync.md 8) | rr/devices-fix notes, plan.md 2026-11-01 |
+| Mac and Mac | **Works on the local network already.** A Mac lists every Bridgey it discovers, other Macs included, and since beta 19 two Macs that tap each other pair (the crossed pairing fix). The MacBook Pro trusts both other Macs today. The pages that said "Macs never pair" (protocol.md Update all, user-guide.md, folders-and-settings-sync.md 8, rr-edition.md) were corrected in phase 2 | rr/devices-fix notes, plan.md 2026-11-01 |
 | Server and server | A debug-only test hook (`bridgey pair --join`) | rust/cli |
 | Hub | Settings sync relays through the phone; Update all from a phone reaches its Macs; agent grants, the codes broker and the agent audit live on the phone; Connect anywhere tunnels are per pair | protocol.md |
 | Codes | Only the Mac finds codes (Swift CodeReader, CodeGuard, CodeText, EmailCodeRules, LlamaRunner; Gemma 3 270M fine-tuned, 253 MB GGUF). The phone gates mail previews and brokers codes the Macs send back (`codes.found`) to servers with Read codes | codes-from-email.md, agent-cli.md |
@@ -300,7 +300,7 @@ fragment hash and the signed `platform` in the transcript, `pairedBy`); `updates
 - Detect codes is off for every server until Rahul switches it on.
 - A server needs a build with the model runner (`--features detect`) and `bridgey codes model download
   --accept-terms` (the same file the Mac downloads, SHA-256 checked, Gemma terms accepted with a date).
-- Docs that say Macs never pair are corrected when phase 2 ships Mac invites.
+- Docs that said Macs never pair were corrected in phase 2.
 
 ## 7. Security analysis
 
@@ -332,6 +332,10 @@ fragment hash and the signed `platform` in the transcript, `pairedBy`); `updates
 
 ## 9. Open questions for Rahul
 
+Answered 2026-11-04 (see [Phase 2](#phase-2-2026-11-04)): 1 the fixed order, now Mac, then a server, then the phone over
+cloud; 2 no email for servers yet (deferred); 3 the phone reads over cloud instead of an on-device model; 4 Macs pair
+over the tailnet now, invites later; 5 one-hop Update all deferred; 6 Until I turn it off by default.
+
 1. **Who detects when several devices could?**
    (a) Fixed order, one device: phone, then an awake Mac, then one server. (b) The first that answers. (c) All of
    them, with duplicates folded. **Recommended: (a)**, built in phase 1: a code text goes to the fewest devices.
@@ -349,6 +353,67 @@ fragment hash and the signed `platform` in the transcript, `pairedBy`); `updates
    connected to the one you tap. **Recommended: (a)**.
 6. **Detect codes window.** (a) Ask each time, like other grants. (b) Default to 7 days. (c) Only "for 1 hour" or
    "today". **Recommended: (a)** with "7 days" first in the list: it is a standing job, but it should expire.
+
+## Phase 2 (2026-11-04)
+
+Rahul's answers (2026-11-04): the phone reads codes **over cloud**, not with an on-device model; devices on the
+tailnet **pair with each other directly**; Detect codes defaults to **Until I turn it off**. One-hop Update all, Mac
+invites (`v: 2`) and email for servers stay deferred.
+
+### Codes over cloud on the phone
+
+When no Mac reads codes and no server with Detect codes is connected, the phone asks the existing Cloud engine itself:
+Round Robin's relay `https://bridgey-otp-proxy.cs-share.workers.dev` (services/otp-proxy, Cloudflare Workers AI, Llama
+3.2 3B), the same request the Mac's Cloud engine sends.
+
+- **The order: a Mac, then a server, then the cloud.** A Mac with Codes from messages reads on its own model and sees
+  the text anyway. A server with Detect codes is one of Rahul's own machines, chosen by him for this job. The cloud is a
+  third party (Cloudflare), so it comes last: the phone uses it only when no server is connected at all, and only
+  while some server has Read codes on (the codes are for servers; the phone shows the text message itself).
+- **Its own opt-in.** Settings > Codes > "Use cloud when no Mac is reading", off until chosen, never synced. Turning it
+  on shows the same consent as the Mac's Cloud engine: the message text, code included, goes through Round Robin's relay
+  to Cloudflare Workers AI; nothing is stored there; email previews never go to the cloud.
+- **Text messages only.** Only the text-message path (`AgentHub.smsCandidate`) calls the cloud; mail previews never do
+  (Rahul's earlier rule; a test pins the single caller).
+- **The guard.** The relay's answer counts only if the strict guard finds the code verbatim in the text the phone sent
+  (links and copyright years blanked). The phone names the service itself.
+- **Limits and failures.** At most 20 cloud reads an hour from the phone, a 3 second timeout, no redirects. A failure,
+  a time-out, a rate limit or a refused answer means nothing happens: no other route, no retry.
+- **Logged.** Each cloud read is one item in the phone's activity list ("Read a code message over cloud · Messages",
+  with the outcome), never the text or the code.
+- **The relay, unchanged.** Its limits as deployed: 10 calls a minute per install, 30 per IP, 30 in all (per Cloudflare
+  location), 2,048-byte bodies, 600 characters of text, a 1.5 second model timeout, no request logs
+  (`observability` off), no caching; the account is on Workers Free, so it stops answering at the daily allocation
+  instead of billing. Cloudflare states it does not train on Workers AI customer content. The phone sends its own
+  random install id (`X-Bridgey-Install`), used only as the rate-limit key. No Worker change was needed.
+
+### Pairing over the tailnet
+
+Devices on Rahul's tailnet find and pair with each other without sharing a local network: Mac and Mac, server and Mac,
+server and server, and the phone with Tailscale on.
+
+- **The pairing is the normal one.** The dialling side opens plain TCP to the other's tailnet address, port 42458, and
+  makes a protocol 2 first pairing: committed offer, reveal, the six-digit code compared on both ends, the
+  `bridgey-auth-v1` transcript, envelope tags. The receiving side answers only while it allows pairing (Allow pairing
+  or its pairing screen on the apps; `bridgey pair --allow` on a server).
+- **Finding devices.** The Mac reads `tailscale status --json` from the Tailscale app every minute (and on Look again),
+  knocks on port 42458 at each online peer, and lists those that answer under Pair a new device as "On your tailnet";
+  addresses already known for a trusted device are left out. `bridgey tailnet` lists the same. A tailnet name (MagicDNS)
+  or address can be typed on all three (`bridgey pair --to NAME`). Discovery decides nothing: an entry has no device ID
+  and no kind until the pairing authenticates.
+- **What a server gets: nothing.** The kind comes from the authenticated session, not from discovery or a link: a server
+  advertises `agent_draft1`, `notify_draft1` and `ask_draft1` in its own map. The phone then stores it as an agent with
+  every grant off, exactly like one paired by invite. A Mac keeps it in `agents.directDevices`: every feature reads off
+  for it whatever the switches say, its features.update to it is empty apart from Connect anywhere, and anything it sends
+  beyond the session and `connect.*` is dropped. Another server records it as `cli` and never takes code candidates from
+  it (only from a phone paired by its own invite).
+- **`bridgey pair --allow`** listens for at most 10 minutes (2 by default) on port 42458 (config `tcp_port`), takes
+  connections only from Tailscale's ranges (and loopback for tests), at most three a minute, and pairs once.
+- **After pairing** the two set a pair secret (`connect.setup`) and reconnect over Connect anywhere tunnels like any pair.
+
+### Detect codes default
+
+"How long?" for Detect codes lists "Until I turn it off" first; the other windows stay.
 
 ## As built (phase 1, 2026-11-04)
 
