@@ -64,7 +64,7 @@ class AndroidCallMediaPlatform(
         val callback = object : MediaController.Callback() {
             override fun onPlaybackStateChanged(state: PlaybackState?) { changed?.invoke() }
             override fun onMetadataChanged(metadata: MediaMetadata?) { changed?.invoke() }
-            override fun onAudioInfoChanged(info: MediaController.PlaybackInfo?) { changed?.invoke() }
+            override fun onAudioInfoChanged(info: MediaController.PlaybackInfo) { changed?.invoke() }
             override fun onSessionDestroyed() {
                 destroyed += controller.sessionToken
                 while (destroyed.size > MAX_SESSIONS * 2) destroyed.remove(destroyed.first())
