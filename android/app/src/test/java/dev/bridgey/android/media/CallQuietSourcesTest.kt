@@ -4,7 +4,7 @@ import android.Manifest
 import android.app.Application
 import android.app.Notification
 import android.os.Looper
-import android.os.UserHandle
+import android.os.Process
 import android.service.notification.StatusBarNotification
 import android.telephony.TelephonyManager
 import java.util.concurrent.TimeUnit
@@ -24,7 +24,7 @@ import org.robolectric.annotation.LooperMode
 @Config(sdk = [26, 35], application = Application::class)
 @LooperMode(LooperMode.Mode.PAUSED)
 class CallQuietSourcesTest {
-    private val app = RuntimeEnvironment.getApplication<Application>()
+    private val app = RuntimeEnvironment.getApplication()
     private val telephony = app.getSystemService(TelephonyManager::class.java)
     private val states = mutableListOf<Pair<Set<String>, Boolean>>()
     private val sources = CallQuietSources(app, { ids, uncertain -> states += ids to uncertain })
@@ -35,10 +35,11 @@ class CallQuietSourcesTest {
     }
     @After fun stop() { sources.update(false) }
 
+    @Suppress("DEPRECATION")
     private fun call(): StatusBarNotification {
         val value = Notification.Builder(app, "test").setCategory(Notification.CATEGORY_CALL).setOngoing(true).build()
         value.extras.putInt("android.callType", 2)
-        return StatusBarNotification("voip.test", "voip.test", 7, null, 1, 0, value, UserHandle.of(0), null, 1)
+        return StatusBarNotification("voip.test", "voip.test", 7, null, 1, 0, 0, value, Process.myUserHandle(), 1L)
     }
 
     @Test fun cellularObservationDoesNotNeedListenerBindingOrAnswerPermission() {
