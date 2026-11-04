@@ -32,6 +32,13 @@
     <string name="agent_grant_battery_detail">Level and charging</string>
     <string name="agent_grant_codes">Read codes</string>
     <string name="agent_grant_codes_detail">One-time codes your Mac finds in messages and mail</string>
+    <string name="agent_trust_row">Trust as my device</string>
+    <string name="agent_trust_row_detail">Paired over your tailnet, so it gets nothing until you trust it. Do this only for your own Mac or phone.</string>
+    <string name="agent_trust_title">Trust %1$s as your device?</string>
+    <string name="agent_trust_body">It then gets what your other Macs get here (notifications, clipboard, files), as set in its permissions. A device that says it is a server stays restricted.</string>
+    <string name="agent_trust_confirm">Trust</string>
+    <string name="agent_grant_codes_detect">Detect codes</string>
+    <string name="agent_grant_codes_detect_detail">Reads your code messages when no Mac is reading</string>
     <string name="agent_grant_notifications">Read your notifications</string>
     <string name="agent_grant_notifications_detail">Not available yet</string>
 
@@ -98,6 +105,7 @@
     <string name="agent_audit_files_receive">Sent you files</string>
     <string name="agent_audit_codes_read">Read a code</string>
     <string name="agent_audit_codes_read_from">Read the code from %1$s</string>
+    <string name="agent_audit_codes_detect">Read a code message</string>
     <string name="agent_audit_count">×%1$d</string>
     <string name="agent_audit_forget">Forgotten</string>
     <string name="agent_outcome_ok">Done</string>

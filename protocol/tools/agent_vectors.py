@@ -57,6 +57,10 @@ invite = {
         {"name": "no control URL", "json": json.dumps({k: v for k, v in invite_json.items() if k != "c"})},
         {"name": "expiry not a number", "json": json.dumps({**invite_json, "x": "soon"})},
         {"name": "name over 64 characters", "json": json.dumps({**invite_json, "n": "n" * 65})},
+        # A link must not choose the trust level: an invite naming a Mac or a phone is refused in this version.
+        {"name": "platform macos", "json": json.dumps({**invite_json, "p": "macos"})},
+        {"name": "platform android", "json": json.dumps({**invite_json, "p": "android"})},
+        {"name": "no platform", "json": json.dumps({k: v for k, v in invite_json.items() if k != "p"})},
     ],
 }
 
@@ -142,6 +146,28 @@ vectors = {
         case("code of 3 characters", {"version": 1, "foundId": U2, "code": "123", "service": "X", "serviceKey": "x", "source": "sms", "app": "messages", "notificationId": "n", "postedAt": T}, "reject"),
         case("code of 13 characters", {"version": 1, "foundId": U2, "code": "1234567890123", "service": "X", "serviceKey": "x", "source": "sms", "app": "messages", "notificationId": "n", "postedAt": T}, "reject"),
         case("unknown app", {"version": 1, "foundId": U2, "code": "482913", "service": "X", "serviceKey": "x", "source": "email", "app": "yahoo", "notificationId": "n", "postedAt": T}, "reject"),
+    ],
+    "codesCandidate": [
+        case("a text message", {"version": 1, "candidateId": U, "source": "sms", "app": "messages", "sender": "AX-HDFCBK-S", "text": "OTP is 482913 for your login. Do not share.", "postedAt": T},
+             {"candidateId": U, "source": "sms", "app": "messages", "sender": "AX-HDFCBK-S", "text": "OTP is 482913 for your login. Do not share.", "postedAt": T}),
+        case("600 UTF-16 units of Hindi", {"version": 1, "candidateId": U, "source": "sms", "app": "messages", "sender": "Bank", "text": "\u0915" * 594 + " 48291", "postedAt": T},
+             {"candidateId": U, "source": "sms", "app": "messages", "sender": "Bank", "text": "\u0915" * 594 + " 48291", "postedAt": T}),
+        case("text of 601 UTF-16 units", {"version": 1, "candidateId": U, "source": "sms", "app": "messages", "sender": "Bank", "text": "x" * 595 + " 48291", "postedAt": T}, "reject"),
+        case("empty text", {"version": 1, "candidateId": U, "source": "sms", "app": "messages", "sender": "Bank", "text": "", "postedAt": T}, "reject"),
+        case("sender of 65 characters", {"version": 1, "candidateId": U, "source": "sms", "app": "messages", "sender": "s" * 65, "text": "OTP 482913", "postedAt": T}, "reject"),
+        case("mail app with sms", {"version": 1, "candidateId": U, "source": "sms", "app": "gmail", "sender": "Bank", "text": "OTP 482913", "postedAt": T}, "reject"),
+        case("candidateId not a UUID", {"version": 1, "candidateId": "c1", "source": "sms", "app": "messages", "sender": "Bank", "text": "OTP 482913", "postedAt": T}, "reject"),
+        case("version 2", {"version": 2, "candidateId": U, "source": "sms", "app": "messages", "sender": "Bank", "text": "OTP 482913", "postedAt": T}, "reject"),
+    ],
+    "codesDetected": [
+        case("found", {"version": 1, "candidateId": U, "outcome": "found", "code": "482913"}, {"candidateId": U, "outcome": "found", "code": "482913"}),
+        case("none", {"version": 1, "candidateId": U, "outcome": "none"}, {"candidateId": U, "outcome": "none"}),
+        case("failed with a reason", {"version": 1, "candidateId": U, "outcome": "failed", "reason": "model_missing"}, {"candidateId": U, "outcome": "failed", "reason": "model_missing"}),
+        case("found without a code", {"version": 1, "candidateId": U, "outcome": "found"}, "reject"),
+        case("code with a space", {"version": 1, "candidateId": U, "outcome": "found", "code": "482 913"}, "reject"),
+        case("code of 13 characters", {"version": 1, "candidateId": U, "outcome": "found", "code": "1234567890123"}, "reject"),
+        case("none with a code", {"version": 1, "candidateId": U, "outcome": "none", "code": "482913"}, "reject"),
+        case("unknown outcome", {"version": 1, "candidateId": U, "outcome": "maybe"}, "reject"),
     ],
     "agentsGrantSet": [
         case("on for today", {"version": 1, "requestId": U, "deviceId": "agent-id", "key": "codes", "on": True, "window": "today"},

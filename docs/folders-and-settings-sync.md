@@ -1076,8 +1076,10 @@ Reduce motion turned off"). The changes are stored as tokens, never free text. A
 turns a feature on is in the activity stream only; it notifies (a notification on the phone, a
 banner on the Mac) only when this device must give a permission for it.
 
-**More than one device.** Macs never pair with each other, so a phone paired with two Macs is the
-hub: it passes one Mac's change to the other. Every device relays to every device it syncs with, so
+**More than one device.** A phone paired with two Macs passes one Mac's change to the other. Macs
+can also pair with each other (on the same network, or over the tailnet), and then sync directly as
+well; a change that reaches a device twice is applied once, because only a winning record is applied
+and relayed. Every device relays to every device it syncs with, so
 a Mac with two phones is the hub between them in the same way. A device whose sync is off on either
 side is left out. When a device comes back after missing changes, it shows "Different on <device>"
 for each setting that still differs, and Apply to all on either side settles it.

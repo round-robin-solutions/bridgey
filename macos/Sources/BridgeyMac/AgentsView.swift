@@ -35,6 +35,7 @@ enum AgentsText {
         case .ring: L10n.agents("grant.ring", fallback: "Ring this phone")
         case .battery: L10n.agents("grant.battery", fallback: "See battery")
         case .codes: L10n.agents("grant.codes", fallback: "Read codes")
+        case .codesDetect: L10n.agents("grant.codes_detect", fallback: "Detect codes")
         case .notifications: L10n.agents("grant.notifications", fallback: "Read your notifications")
         }
     }
@@ -56,6 +57,7 @@ enum AgentsText {
         case .ring: return L10n.agents("grant.ring.detail", fallback: "Stops by itself after 60 seconds")
         case .battery: return L10n.agents("grant.battery.detail", fallback: "Level and charging")
         case .codes: return L10n.agents("grant.codes.detail", fallback: "One-time codes your Mac finds in messages and mail")
+        case .codesDetect: return L10n.agents("grant.codes_detect.detail", fallback: "Reads your code messages when no Mac is reading")
         case .notifications: return L10n.agents("grant.notifications.detail", fallback: "Not available yet")
         }
     }
@@ -119,6 +121,7 @@ enum AgentsText {
             "clipboard.request": L10n.agents("activity.clipboard.request", fallback: "Asked for your clipboard"),
             "files.receive": L10n.agents("activity.files.receive", fallback: "Sent you files"),
             "codes.read": L10n.agents("activity.codes.read.any", fallback: "Read a code"),
+            "codes.detect": L10n.agents("activity.codes.detect", fallback: "Read a code message"),
             "forget": L10n.agents("activity.forget", fallback: "Forgotten"),
         ]
         return words[action] ?? action
@@ -448,7 +451,7 @@ private struct AgentGrantRow: View {
         .frame(minHeight: 44)
         .overlay(alignment: .top) { Rectangle().fill(c.olv).frame(height: 1) }
         .opacity(pending == nil ? 1 : 0.7)
-        .disabled(!live || !key.grantable || pending != nil)
+        .disabled(!live || !key.changeableFromMac || pending != nil)
     }
 
     private func change(_ on: Bool) {

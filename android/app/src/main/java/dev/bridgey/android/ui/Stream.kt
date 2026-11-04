@@ -155,6 +155,7 @@ fun ActivityKind.visual(): Pair<ImageVector, Tint> = when (this) {
     ActivityKind.UPDATE_AUTO_SKIPPED -> BridgeyIcons.SystemUpdate to Tint.NEUTRAL
     ActivityKind.UPDATE_AUTO_FAILED -> BridgeyIcons.Error to Tint.NEUTRAL
     ActivityKind.SETTINGS_SYNCED -> BridgeyIcons.Sync to Tint.BLUE
+    ActivityKind.CODE_CLOUD_READ -> BridgeyIcons.Shield to Tint.PURPLE
 }
 
 /** Clipboard offers show what they carried: an image or a file, else the clipboard. */
@@ -293,6 +294,7 @@ private fun itemTitleWithoutPreview(item: ActivityItem, device: String): String 
     ActivityKind.UPDATE_AUTO_DONE, ActivityKind.UPDATE_AUTO_WAITING, ActivityKind.UPDATE_AUTO_SKIPPED,
     ActivityKind.UPDATE_AUTO_STARTED_BY, ActivityKind.UPDATE_AUTO_FAILED -> autoUpdateItemTitle(item, device)
     ActivityKind.SETTINGS_SYNCED -> stringResource(R.string.stream_settings_synced_title, device)
+    ActivityKind.CODE_CLOUD_READ -> stringResource(R.string.stream_code_cloud_title, item.appName ?: "")
 }
 
 @Composable
@@ -323,6 +325,14 @@ fun itemDetail(item: ActivityItem, device: String): String = when (item.kind) {
     ActivityKind.UPDATE_AUTO_STARTED_BY, ActivityKind.UPDATE_AUTO_FAILED -> stringResource(R.string.stream_update_auto_detail)
     ActivityKind.SETTINGS_SYNCED -> syncChangesText(LocalContext.current, dev.bridgey.android.sync.SyncDetail.decode(item.detail))
         ?: stringResource(R.string.stream_settings_synced_detail)
+    ActivityKind.CODE_CLOUD_READ -> stringResource(
+        when (item.content) {
+            "found" -> R.string.stream_code_cloud_found
+            "none", "refused" -> R.string.stream_code_cloud_none
+            "limited" -> R.string.stream_code_cloud_limited
+            else -> R.string.stream_code_cloud_failed
+        },
+    )
 }
 
 @Composable

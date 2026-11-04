@@ -1,0 +1,38 @@
+[package]
+name = "bridgey-codes"
+description = "The one-time code reader shared by every Bridgey device: text rules, email pre-check, guard, prompt, the llama.cpp model runner (docs/mesh-and-codes.md)"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[lib]
+name = "bridgey_codes"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[features]
+default = []
+# The on-device model runner (llama.cpp, built from source by llama-cpp-sys-2). Off by default so the rules,
+# the guard and the vectors build anywhere without a C++ toolchain.
+llama = ["dep:llama-cpp-sys-2"]
+# Metal on Apple silicon (as the Mac app runs the model).
+metal = ["llama", "llama-cpp-sys-2/metal"]
+# Android (cargo ndk): libc++ linked in, so the library or binary carries no libc++_shared.so.
+android = ["llama", "llama-cpp-sys-2/static-stdcxx"]
+
+[dependencies]
+fancy-regex = "0.20"
+serde.workspace = true
+serde_json.workspace = true
+# Pinned exactly: the model's answers are measured on this llama.cpp (docs/mesh-and-codes.md, accuracy guard).
+llama-cpp-sys-2 = { version = "=0.1.161", optional = true, default-features = false }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni.workspace = true
+
+[[example]]
+name = "codes_eval"
+required-features = ["llama"]
+
+[[example]]
+name = "token_check"
+required-features = ["llama"]

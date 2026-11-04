@@ -65,6 +65,11 @@ impl Invite {
         if name.chars().count() > 64 {
             return Err("name");
         }
+        // Only servers invite in this version; an invite that names another platform (a link choosing a trust level)
+        // is refused (docs/mesh-and-codes.md 4.1, invites v:2).
+        if v["p"].as_str() != Some("cli") {
+            return Err("platform");
+        }
         let expires_s = v["x"].as_u64().ok_or("expiry")?;
         let expires_ms = expires_s.saturating_mul(1000);
         if now_ms > 0 && (expires_ms < now_ms || expires_ms > now_ms + LIFETIME_S * 1000 + 60_000) {

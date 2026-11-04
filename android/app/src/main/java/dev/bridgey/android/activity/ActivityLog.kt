@@ -63,6 +63,8 @@ enum class ActivityKind(val key: String, val category: ActivityCategory, val mer
     UPDATE_AUTO_FAILED("update_auto_failed", ActivityCategory.OTHER),
     /** Settings sync: a paired device changed settings here. The changes are tokens in detail ([SyncDetail]). */
     SETTINGS_SYNCED("settings_synced", ActivityCategory.OTHER),
+    /** Codes over cloud: this phone asked the relay for the code in one text message. Content: the outcome word. */
+    CODE_CLOUD_READ("code_cloud_read", ActivityCategory.OTHER),
     ;
 
     val isFolder: Boolean get() = this == FOLDER_SENT || this == FOLDER_RECEIVED || this == FOLDER_INCOMPLETE
@@ -80,7 +82,7 @@ enum class ActivityKind(val key: String, val category: ActivityCategory, val mer
     /** Clipboard events carry a text preview; incoming calls the caller. */
     val carriesPreview: Boolean get() = this == CLIPBOARD_SENT || this == CLIPBOARD_RECEIVED || this == CALL_SHOWN
 
-    val carriesAppName: Boolean get() = this == NOTIFICATIONS_SHOWN
+    val carriesAppName: Boolean get() = this == NOTIFICATIONS_SHOWN || this == CODE_CLOUD_READ
 
     /** One copy to several devices, or one clip that came through several: each device and how it went. */
     val carriesPeers: Boolean get() = this == CLIPBOARD_SENT || this == CLIPBOARD_RECEIVED || this == CLIP_OFFER_SENT || this == CLIP_OFFER_RECEIVED
@@ -194,6 +196,7 @@ private val AutoUpdateContent = Regex("^[A-Za-z0-9._+-]{1,64}$")
 internal fun cleanContent(kind: ActivityKind, content: String?): String? = when {
     kind.isClipOffer -> content?.takeIf { it in ClipContents }
     kind.isAutoUpdate -> content?.takeIf { AutoUpdateContent.matches(it) }
+    kind == ActivityKind.CODE_CLOUD_READ -> content?.takeIf { word -> dev.bridgey.android.agents.CloudRead.entries.any { it.word == word } }
     else -> null
 }
 

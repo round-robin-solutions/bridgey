@@ -19,6 +19,8 @@ let agentClipboardRequestFeatureKey = "clipboard_request_draft1"
 let agentCodesFeatureKey = "agent_codes_draft1"
 /// The phone and this Mac set it for each other whenever both support it: agents.*, codes.found, codes.read.
 let agentsMirrorFeatureKey = "agents_mirror_draft1"
+/// Detect codes (docs/mesh-and-codes.md): between the phone and its agents only; the Mac reads it and shows the grant.
+let codesDetectFeatureKey = "codes_detect_draft1"
 
 // MARK: - Grants
 
@@ -26,10 +28,15 @@ let agentsMirrorFeatureKey = "agents_mirror_draft1"
 enum AgentGrantKey: String, CaseIterable, Codable, Equatable {
     case files, clipboard
     case clipboardRequest = "clipboard_request"
-    case notify, ask, ring, battery, codes, notifications
+    case notify, ask, ring, battery, codes
+    case codesDetect = "codes_detect"
+    case notifications
 
     /// Read your notifications is not available in this version: always off, never granted.
     var grantable: Bool { self != .notifications }
+
+    /// Detect codes sends code text messages to a server, so only a tap on the phone changes it; this Mac shows it.
+    var changeableFromMac: Bool { grantable && self != .codesDetect }
 }
 
 enum AgentGrantState: String, Codable, Equatable {
@@ -73,7 +80,7 @@ struct AgentGrant: Codable, Equatable {
 struct AgentActivityEntry: Codable, Equatable {
     static let actions: Set<String> = [
         "pair", "grant.change", "grant.request", "grant.expired", "notify", "ask", "answer", "ring", "ping", "battery",
-        "clipboard.set", "clipboard.request", "files.receive", "codes.read", "forget",
+        "clipboard.set", "clipboard.request", "files.receive", "codes.read", "codes.detect", "forget",
     ]
 
     let at: Int64
@@ -237,7 +244,7 @@ enum AgentsMirrorWire {
 
     /// agents.grant_set's payload, or nil: on needs a window, and Read your notifications cannot be granted.
     static func grantSet(requestId: String, deviceId: String, key: AgentGrantKey, on: Bool, window: AgentGrantWindow?) -> [String: Any]? {
-        guard !deviceId.isEmpty, !on || (window != nil && key.grantable) else { return nil }
+        guard !deviceId.isEmpty, key != .codesDetect, !on || (window != nil && key.grantable) else { return nil }
         var payload: [String: Any] = ["version": 1, "requestId": requestId, "deviceId": deviceId, "key": key.rawValue, "on": on]
         if on, let window { payload["window"] = window.rawValue }
         guard let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= grantSetMaximumBytes else { return nil }

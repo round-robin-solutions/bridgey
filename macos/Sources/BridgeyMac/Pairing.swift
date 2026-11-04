@@ -261,6 +261,9 @@ final class PairingCoordinator: ObservableObject {
     @Published private(set) var pairingArmed = false
     @Published private(set) var armedRemainingSeconds = 0
     @Published private(set) var pairingRequest: PairingRequest?
+    /// Bridgey devices on the tailnet that answered on Bridgey's port (TailnetDiscovery.swift), for "Pair a new device".
+    @Published private(set) var tailnetPeers: [DiscoveredPeer] = []
+    private var tailnetRefresh: Task<Void, Never>?
     /// Every connected phone with its own features, battery and ringing state, in connection order.
     @Published private(set) var connectedPhones: [PhoneConnection] = []
     /// The phone outgoing actions aim at (nil: the latest connection).
@@ -766,6 +769,7 @@ final class PairingCoordinator: ObservableObject {
         discoveryCancellable = discovery.$peers.sink { [weak self] peers in
             self?.connectTrustedPeerIfNeeded(peers)
         }
+        startTailnetDiscovery()
     }
 
     /// Try again from the panel card: reads the pairing file or the old Keychain items again
@@ -2645,6 +2649,8 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func receive(_ message: PairingMessage, in current: Session) {
+        // A server paired with this Mac may only keep the session up; anything else it sends is dropped.
+        if settings.isAgent(current.remoteDeviceID), !AgentPeerRules.macAccepts(message.kind) { return }
         do {
             switch message.kind {
             case "quick.request", "quick.result":
@@ -2877,6 +2883,24 @@ final class PairingCoordinator: ObservableObject {
                 let phoneID = current.remoteDeviceID
                 current.fastTransfers = draftKeys[filesFastFeatureKey] == true
                 BridgeyLog.transport.notice("fast transfers=\(current.fastTransfers, privacy: .public) peerKey=\(draftKeys[filesFastFeatureKey] == true, privacy: .public) protocol2=\(current.envelopeKey != nil, privacy: .public)")
+                // A server paired over the tailnet says what it is in its own authenticated map: it gets nothing here from now on.
+                if AgentPeerRules.isAgent(draftKeys), !settings.isAgent(phoneID) {
+                    settings.markAgent(phoneID)
+                    sendFeatureState(to: current)
+                }
+                if settings.isAgent(phoneID) {
+                    // A restricted device (a server, or anything paired over the tailnet until trusted): nothing it claims
+                    // (settings sync, Focus, updates, texts, the agents mirror) is set up; only Connect anywhere, which keeps
+                    // the pair reachable.
+                    registry.update(phoneID) { link in
+                        link.remoteFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map { ($0, false) })
+                        link.featureStateReceived = true
+                        link.remoteConnect = draftKeys[connectFeatureKey] == true
+                    }
+                    publish()
+                    if draftKeys[connectFeatureKey] == true { sendConnectAddresses(to: current) }
+                    return
+                }
                 registry.update(phoneID) { link in
                     link.remoteFeatures = features
                     link.featureStateReceived = true
@@ -2896,7 +2920,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteSettingsSync = draftKeys[settingsSyncFeatureKey] == true
                     link.remoteConnect = draftKeys[connectFeatureKey] == true
                     link.remoteHandoffTakeover = handoffTakeover
-                    link.remoteAgentsMirror = draftKeys[agentsMirrorFeatureKey] == true
+                    link.remoteAgentsMirror = draftKeys[agentsMirrorFeatureKey] == true && !AgentPeerRules.isAgent(draftKeys)
                     if !link.remoteAgentsMirror { link.agentsStateReceived = false }
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
@@ -3563,6 +3587,17 @@ final class PairingCoordinator: ObservableObject {
 
     private func sendFeatureState(to current: Session) {
         guard registry.isActive(current), let key = current.pairingKey else { return }
+        if settings.isAgent(current.remoteDeviceID) {
+            // A server paired with this Mac: nothing on, except the tunnels that keep the pair reachable.
+            var features = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map { ($0.rawValue, false) })
+            features[connectFeatureKey] = connectAdvertised
+            if let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
+               let sealed = try? encrypt(payload, key: key) {
+                current.send(PairingMessage(kind: "features.update", sessionId: current.id, messageId: UUID().uuidString.lowercased(),
+                                            nonce: sealed.nonce, ciphertext: sealed.ciphertext))
+            }
+            return
+        }
         var features = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
             ($0.rawValue, settings.isEnabled($0, for: current.remoteDeviceID))
         })
@@ -3867,6 +3902,75 @@ final class PairingCoordinator: ObservableObject {
 
     /// At launch every trusted phone that is not connected is tried straight away at its last
     /// known addresses, and wake and network changes start being watched.
+    // MARK: Pairing over the tailnet (TailnetDiscovery.swift)
+
+    /// Reads the tailnet now and every minute while the app runs; quiet when Tailscale is not installed or not running.
+    func startTailnetDiscovery() {
+        guard tailnetRefresh == nil else { return }
+        tailnetRefresh = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refreshTailnet()
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+            }
+        }
+    }
+
+    func refreshTailnet() async {
+        let port = Int(BonjourDiscovery.defaultPort)
+        let peers = await Task.detached(priority: .utility) { TailnetProbe.status() }.value
+        var answering = Set<String>()
+        await withTaskGroup(of: (String, Bool).self) { group in
+            for peer in peers where peer.online {
+                guard let address = peer.address else { continue }
+                group.addTask { (address, await TailnetProbe.answers(address, port: port)) }
+            }
+            for await (address, ok) in group where ok { answering.insert(address) }
+        }
+        let known = Set(trustedDeviceIDs.flatMap { id in reconnect.addressBook.addresses(for: id).map(\.host) })
+        tailnetPeers = TailnetStatus.discovered(peers, answering: answering, known: known, port: port)
+    }
+
+    /// Settings > Devices > Trust as my device: a device paired over the tailnet gets this Mac's switches like any other.
+    /// A device whose own map says it is a server is restricted again at its next features.update.
+    func trustAsMyDevice(_ deviceID: String) {
+        settings.unmarkAgent(deviceID)
+        objectWillChange.send()
+        if let current = registry.session(for: deviceID) {
+            current.dropReason = "trusted_as_device"
+            current.close()
+        }
+    }
+
+    /// Pair by a tailnet name or address typed in Settings: the name is looked up in the tailnet, then the address is
+    /// dialled as a tap on the nearby list would (Allow pairing on the other side, the code on both).
+    func pairTailnet(_ target: String) {
+        let typed = target.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typed.isEmpty else { return }
+        Task { [weak self] in
+            let peers = await Task.detached(priority: .userInitiated) { TailnetProbe.status() }.value
+            var host = typed
+            var port = Int(BonjourDiscovery.defaultPort)
+            var name = typed
+            if let peer = TailnetStatus.find(peers, name: typed), let address = peer.address {
+                host = address
+                name = peer.name
+            } else if typed.hasPrefix("["), let close = typed.firstIndex(of: "]") {
+                // [IPv6] or [IPv6]:port
+                host = String(typed[typed.index(after: typed.startIndex)..<close])
+                if let p = Int(typed[typed.index(after: close)...].drop(while: { $0 == ":" })) { port = p }
+            } else if let colon = typed.lastIndex(of: ":"), !typed.contains("::"), let p = Int(typed[typed.index(after: colon)...]) {
+                host = String(typed[..<colon])
+                port = p
+            }
+            // Only tailnet addresses: pairing over plain TCP to anything else is refused (use the same Wi-Fi instead).
+            guard TailnetStatus.isTailnet(host) else {
+                BridgeyLog.pairing.notice("tailnet pair refused: not a tailnet address")
+                return
+            }
+            self?.pair(host: host, port: port, peerName: String(name.prefix(64)))
+        }
+    }
+
     private func startReconnecting() {
         reconnect.isTrusted = { [weak self] in self?.trustedDeviceIDs.contains($0) == true }
         reconnect.isConnected = { [weak self] in self?.registry.session(for: $0) != nil }
@@ -4000,6 +4104,7 @@ final class PairingCoordinator: ObservableObject {
     /// Restarts discovery, re-announces this Mac, resets every backoff and dials every known
     /// address of each disconnected trusted phone. One run at a time.
     func lookForDevices() {
+        Task { [weak self] in await self?.refreshTailnet() }
         guard rediscoverRun == nil else { return }
         let missing = Dictionary(uniqueKeysWithValues: disconnectedTrustedIDs.map { ($0, trustedName($0)) })
         rediscoverStatusClear?.cancel()
@@ -5447,6 +5552,13 @@ final class PairingCoordinator: ObservableObject {
         guard let identityKey = current.remoteIdentityKey else { return }
         if current.envelopeKey != nil { protocolPins.pin(current.remoteDeviceID, version: SessionSecurity.protocolVersion) }
         let wasTrusted = trustedIdentityKey(current.remoteDeviceID) != nil
+        // A first pairing over the tailnet starts restricted, whatever the device says it is: everything off until the
+        // person taps Trust as my device (Settings > Devices). Being on the tailnet grants nothing by itself.
+        // A new identity key counts too, also under a device ID this Mac already trusts (the ID is the other device's choice).
+        if trustedIdentityKey(current.remoteDeviceID) != identityKey, current.tunnel == nil, let host = current.remoteHost, TailnetStatus.isTailnet(host) {
+            settings.markAgent(current.remoteDeviceID)
+            sendFeatureState(to: current)
+        }
         if trustRegistry.remember(
             deviceID: current.remoteDeviceID,
             name: current.peerName,
@@ -6651,6 +6763,8 @@ extension PairingCoordinator {
                 dial(host: String(parts[0]), port: port, peerName: trustedName(phone), deviceID: phone)
             }
         }
+        if takeTestCommand("allow") != nil { armPairing() }
+        if let target = takeTestCommand("pair-address") { pairTailnet(target) }
         if takeTestCommand("clipboard") != nil { sendClipboard() }
         if let engine = takeTestCommand("codes") {
             if let chosen = CodeEngine(rawValue: engine) {
@@ -6698,5 +6812,18 @@ extension PairingCoordinator {
         if let data = try? JSONSerialization.data(withJSONObject: status) {
             try? data.write(to: testControlDirectory.appendingPathComponent("status.json"), options: .atomic)
         }
+    }
+}
+
+/// A server (the bridgey command) paired with this Mac directly: what marks it, and what it may send.
+enum AgentPeerRules {
+    /// An agent's own map: agent_draft1 with notify_draft1 and ask_draft1 (a phone never sends these to a Mac).
+    static func isAgent(_ draftKeys: [String: Bool]) -> Bool {
+        draftKeys[agentFeatureKey] == true && draftKeys[agentNotifyFeatureKey] == true && draftKeys[agentAskFeatureKey] == true
+    }
+
+    /// The session itself and Connect anywhere's pair secret and addresses; nothing that reaches this Mac's things.
+    static func macAccepts(_ kind: String) -> Bool {
+        kind.hasPrefix("pairing.") || ["heartbeat.ping", "heartbeat.pong", "features.update", "connect.setup", "connect.setup.ack", "connect.addresses"].contains(kind)
     }
 }

@@ -27,6 +27,13 @@
     <string name="agent_grant_battery_detail">Уровень и зарядка</string>
     <string name="agent_grant_codes">Читать коды</string>
     <string name="agent_grant_codes_detail">Одноразовые коды, которые Mac находит в сообщениях и почте</string>
+    <string name="agent_trust_row">Доверять как своему устройству</string>
+    <string name="agent_trust_row_detail">Сопряжено через Tailscale, поэтому ничего не получает, пока вы не доверите ему. Только для вашего Mac или телефона.</string>
+    <string name="agent_trust_title">Доверять %1$s как своему устройству?</string>
+    <string name="agent_trust_body">Тогда оно получит то же, что ваши другие Mac (уведомления, буфер обмена, файлы), по его разрешениям. Устройство, которое называет себя сервером, остаётся ограниченным.</string>
+    <string name="agent_trust_confirm">Доверять</string>
+    <string name="agent_grant_codes_detect">Находить коды</string>
+    <string name="agent_grant_codes_detect_detail">Читает сообщения с кодами, когда ни один Mac их не читает</string>
     <string name="agent_grant_notifications">Читать ваши уведомления</string>
     <string name="agent_grant_notifications_detail">Пока недоступно</string>
 
@@ -89,6 +96,7 @@
     <string name="agent_audit_files_receive">Отправил вам файлы</string>
     <string name="agent_audit_codes_read">Прочитал код</string>
     <string name="agent_audit_codes_read_from">Прочитал код от %1$s</string>
+    <string name="agent_audit_codes_detect">Прочитал сообщение с кодом</string>
     <string name="agent_audit_count">×%1$d</string>
     <string name="agent_audit_forget">Забыт</string>
     <string name="agent_outcome_ok">Готово</string>

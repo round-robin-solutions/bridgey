@@ -8,6 +8,7 @@ mod client;
 mod config;
 mod crypto;
 mod daemon;
+mod detect;
 mod doctor;
 mod errors;
 mod invite;
@@ -17,6 +18,7 @@ mod paths;
 mod service;
 mod session;
 mod store;
+mod tailnet;
 mod time;
 mod wire;
 
@@ -68,7 +70,15 @@ enum Command {
         /// Test hook: answer another install's invite instead of making one
         #[arg(long, hide = true, value_name = "LINK")]
         join: Option<String>,
+        /// Pair over your tailnet with a device that allowed pairing: its tailnet name, address or address:port
+        #[arg(long, value_name = "NAME|ADDRESS", conflicts_with_all = ["join", "allow"])]
+        to: Option<String>,
+        /// Allow one device on your tailnet to pair with this one, for this long (default 2m, at most 10m)
+        #[arg(long, value_name = "DURATION", num_args = 0..=1, default_missing_value = "2m", conflicts_with = "join")]
+        allow: Option<String>,
     },
+    /// Bridgey devices on your tailnet you can pair with (bridgey pair --to NAME)
+    Tailnet,
     /// Paired devices, online state, route and grants
     Devices,
     /// Route, round trip, relay and battery for a device
@@ -125,8 +135,10 @@ enum Command {
     Battery,
     /// One short sound on the phone; reports delivery
     Ping,
-    /// One-time codes your Mac found in the phone's messages and mail, newest first
+    /// One-time codes your Mac (or a server with Detect codes) found in the phone's messages and mail, newest first
     Codes {
+        #[command(subcommand)]
+        action: Option<CodesAction>,
         /// Only the newest code
         #[arg(long)]
         latest: bool,
@@ -179,6 +191,29 @@ enum GrantsAction {
         #[arg(long)]
         note: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum CodesAction {
+    /// The code model this install needs to Detect codes for the phone
+    Model {
+        #[command(subcommand)]
+        action: ModelAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelAction {
+    /// Whether this build can detect codes and which model is installed
+    Status,
+    /// Download the model the Mac uses (253 MB, SHA-256 checked) after accepting its terms
+    Download {
+        /// Accept the Gemma Terms of Use and Prohibited Use Policy (the links are printed without this)
+        #[arg(long)]
+        accept_terms: bool,
+    },
+    /// Remove the model; Detect codes stops at once
+    Remove,
 }
 
 #[derive(Subcommand)]
@@ -351,6 +386,7 @@ async fn run(cli: Cli) -> i32 {
 fn command_name(c: &Command) -> &'static str {
     match c {
         Command::Pair { .. } => "pair",
+        Command::Tailnet => "tailnet",
         Command::Devices => "devices",
         Command::Status { .. } => "status",
         Command::Grants { action: Some(_), .. } => "grants request",
@@ -365,6 +401,9 @@ fn command_name(c: &Command) -> &'static str {
         Command::Ring { .. } => "ring",
         Command::Battery => "battery",
         Command::Ping => "ping",
+        Command::Codes { action: Some(CodesAction::Model { action: ModelAction::Status }), .. } => "codes model status",
+        Command::Codes { action: Some(CodesAction::Model { action: ModelAction::Download { .. } }), .. } => "codes model download",
+        Command::Codes { action: Some(CodesAction::Model { action: ModelAction::Remove }), .. } => "codes model remove",
         Command::Codes { .. } => "codes",
         Command::Audit { .. } => "audit",
         Command::Doctor => "doctor",
@@ -450,7 +489,31 @@ async fn execute(ctx: &Ctx, command: Command) -> Result<(Value, String), CliErro
     let now = now_ms();
     match command {
         Command::Daemon { .. } => unreachable!(),
-        Command::Pair { name, link_only, join } => pair(ctx, name, link_only, join).await,
+        Command::Pair { name, link_only, join, to, allow } => {
+            let allow_ms = allow.as_deref().map(ms).transpose()?;
+            pair(ctx, name, link_only, join, to, allow_ms).await
+        }
+        Command::Tailnet => {
+            let peers = tailnet::status().map_err(|e| CliError::new("unreachable", e))?;
+            let mut rows = Vec::new();
+            for p in peers.iter().filter(|p| p.online) {
+                let addr = p.ips.iter().filter_map(|i| i.parse::<std::net::IpAddr>().ok()).min_by_key(|ip| ip.is_ipv6());
+                let bridgey = match addr {
+                    Some(ip) => tailnet::probe(std::net::SocketAddr::new(ip, tailnet::PORT), std::time::Duration::from_millis(800)).await,
+                    None => false,
+                };
+                rows.push(json!({"name": session::printable(&p.name, 64), "dns": session::printable(&p.dns, 253), "ips": p.ips, "os": session::printable(&p.os, 32), "bridgey": bridgey}));
+            }
+            let mut t = String::from("On your tailnet:\n");
+            for r in &rows {
+                t.push_str(&format!("  {:<24} {:<16} {:<8} {}\n", session::printable(r["name"].as_str().unwrap_or(""), 24), r["ips"][0].as_str().unwrap_or(""), r["os"].as_str().unwrap_or(""),
+                    if r["bridgey"] == true { "Bridgey ready to pair (Allow pairing there, then bridgey pair --to NAME)" } else { "" }));
+            }
+            if rows.is_empty() {
+                t.push_str("  nothing online\n");
+            }
+            Ok((json!({"devices": rows}), t))
+        }
         Command::Devices => {
             let v = ctx.call("devices", json!({})).await?;
             let mut t = String::new();
@@ -563,7 +626,35 @@ async fn execute(ctx: &Ctx, command: Command) -> Result<(Value, String), CliErro
             let v = ctx.call("ping", json!({})).await?;
             Ok((v.clone(), format!("Delivered to {} in {} ms\n", v["device"]["name"].as_str().unwrap_or("the phone"), v["rttMs"])))
         }
-        Command::Codes { latest, service, wait, since } => {
+        Command::Codes { action: Some(CodesAction::Model { action }), .. } => {
+            let v = match action {
+                ModelAction::Status => detect::status(&ctx.paths),
+                ModelAction::Download { accept_terms } => {
+                    let paths = ctx.paths.clone();
+                    let record = tokio::task::spawn_blocking(move || detect::download(&paths, accept_terms)).await.map_err(|e| CliError::new("failed", e.to_string()))??;
+                    audit::record(&ctx.paths, json!({"at": now_ms(), "command": "codes model download", "outcome": "ok", "detail": record["name"]}));
+                    json!({"installed": record, "built": detect::BUILT_WITH_DETECTOR})
+                }
+                ModelAction::Remove => {
+                    let v = detect::remove(&ctx.paths)?;
+                    audit::record(&ctx.paths, json!({"at": now_ms(), "command": "codes model remove", "outcome": "ok"}));
+                    v
+                }
+            };
+            let mut t = String::new();
+            if !detect::BUILT_WITH_DETECTOR {
+                t.push_str("This build cannot detect codes (it was built without the model runner).\n");
+            }
+            match detect::installed(&ctx.paths) {
+                Some((r, _)) => t.push_str(&format!("Model: {} (version {}), installed.\n", r["name"].as_str().unwrap_or("?"), r["version"])),
+                None => t.push_str("No model installed. bridgey codes model download --accept-terms\n"),
+            }
+            if detect::available(&ctx.paths) {
+                t.push_str("Detect codes can be switched on for this install on the phone (it applies within 30 seconds).\n");
+            }
+            Ok((v, t))
+        }
+        Command::Codes { latest, service, wait, since, .. } => {
             let wait_ms = wait.as_deref().map(ms).transpose()?.unwrap_or(0);
             let since_ms = ms(&since)?.min(3_600_000);
             let v = ctx.call("codes", json!({"latest": latest, "service": service, "waitMs": wait_ms, "sinceMs": since_ms, "newerThan": if wait_ms > 0 { json!(now) } else { Value::Null }})).await?;
@@ -703,7 +794,7 @@ async fn ask(ctx: &Ctx, a: AskArgs) -> Result<(Value, String), CliError> {
 }
 
 /// Pairing talks to the daemon both ways: it shows the invite, then the code, and sends the person's answer.
-async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<String>) -> Result<(Value, String), CliError> {
+async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<String>, to: Option<String>, allow_ms: Option<u64>) -> Result<(Value, String), CliError> {
     let name = match name {
         Some(n) => {
             let mut c = ctx.config.clone();
@@ -718,8 +809,10 @@ async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<Str
     if std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty").is_err() {
         return Err(usage("bridgey pair needs a terminal: you confirm the code it shows (there is no way to skip that)"));
     }
+    let direct = to.is_some() || allow_ms.is_some();
+    let other = if direct { "the other device" } else { "the phone" };
     let mut conn = client::connect(&ctx.paths, true).await?;
-    conn.send(&json!({"cmd": "pair", "args": {"name": name, "linkOnly": link_only, "join": join}, "caller": audit::caller()})).await.map_err(|e| CliError::new("failed", e.to_string()))?;
+    conn.send(&json!({"cmd": "pair", "args": {"name": name, "linkOnly": link_only, "join": join, "to": to, "allowMs": allow_ms}, "caller": audit::caller()})).await.map_err(|e| CliError::new("failed", e.to_string()))?;
     let (reader, mut writer) = conn.split();
     let mut conn_reader = reader;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -730,6 +823,13 @@ async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<Str
         }
         let Ok(v) = serde_json::from_str::<Value>(line.trim_end()) else { continue };
         if let Some(r) = v.get("result") {
+            if direct {
+                let t = format!(
+                    "Paired over your tailnet with {}.\nA phone or Mac keeps this install restricted, every permission off, until someone chooses \"Trust as my device\" there.\n",
+                    session::printable(r["device"]["name"].as_str().unwrap_or("the other device"), 64)
+                );
+                return Ok((r.clone(), t));
+            }
             let t = format!(
                 "Paired with {} as \"{}\".\nEvery permission starts off. On the phone, choose what this device may do (Devices, {}, Permissions), then check with: bridgey grants\n",
                 r["device"]["name"].as_str().unwrap_or("the phone"),
@@ -762,7 +862,7 @@ async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<Str
                     use std::io::BufRead;
                     let Ok(tty) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty") else { return false };
                     let mut out = &tty;
-                    let _ = write!(out, "\nDoes the phone show {spaced}? [y/N] ");
+                    let _ = write!(out, "\nDoes {other} show {spaced}? [y/N] ");
                     let _ = out.flush();
                     let mut s = String::new();
                     let _ = std::io::BufReader::new(&tty).read_line(&mut s);
@@ -772,9 +872,13 @@ async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<Str
                 .unwrap_or(false);
                 let _ = writer.write_all(format!("{}\n", json!({"confirm": answer, "code": code})).as_bytes()).await;
                 if answer {
-                    eprintln!("Confirmed here. Confirm on the phone too.");
+                    eprintln!("Confirmed here. Confirm on {other} too.");
                 }
             }
+            Some("dialling") => eprintln!("Dialling {} ...", session::printable(v["address"].as_str().unwrap_or(""), 64)),
+            Some("waiting") => eprintln!("{}", session::printable(v["message"].as_str().unwrap_or(""), 120)),
+            Some("listening") => eprintln!("Allowing pairing on port {} for devices on your tailnet. On the other device, pair with this one by its tailnet name.", v["port"]),
+            Some("incoming") => eprintln!("A device at {} wants to pair.", session::printable(v["address"].as_str().unwrap_or(""), 64)),
             Some("attempt_failed") => eprintln!("bridgey: the phone's attempt ended ({}); waiting for another within the invite's time", session::printable(v["reason"].as_str().unwrap_or(""), 64)),
             Some("paired") => eprintln!("Paired. Setting up the connection for away from home..."),
             _ => {}

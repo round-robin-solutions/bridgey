@@ -181,6 +181,14 @@ pub async fn run(paths: &Paths, config: &Config, connect_ms: u64) -> Vec<Check> 
             checks.push(check("relay allocation", Level::Warn, "no TURN allocation held yet (made when needed)", Value::Null));
         }
     }
+    // Detect codes: the build, the model.
+    let detect = crate::detect::status(paths);
+    let (level, detail) = match (crate::detect::BUILT_WITH_DETECTOR, detect["installed"].is_object()) {
+        (false, _) => (Level::Ok, "this build cannot detect codes (built without the model runner)".to_string()),
+        (true, false) => (Level::Ok, "no code model; bridgey codes model download --accept-terms to detect codes for the phone".to_string()),
+        (true, true) => (Level::Ok, format!("ready: {} (switch Detect codes on for this install on the phone)", detect["installed"]["name"].as_str().unwrap_or("model"))),
+    };
+    checks.push(check("detect codes", level, detail, detect));
     // Routes and grants per device.
     let devices = client::request(paths, "devices", json!({}), true, |_| {}).await.ok().and_then(|d| d["devices"].as_array().cloned()).unwrap_or_default();
     if devices.is_empty() {

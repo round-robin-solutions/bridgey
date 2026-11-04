@@ -44,6 +44,8 @@ pub const OWN_FEATURES: &[(&str, bool)] = &[
     ("ask_draft1", true),
     ("clipboard_request_draft1", true),
     ("agent_codes_draft1", true),
+    // Detect codes: true only while this build has the model runner and a model is installed (detect.rs).
+    ("codes_detect_draft1", false),
 ];
 
 /// Grant name (as `bridgey grants` shows it) to the phone's feature key and the words the phone uses.
@@ -56,6 +58,7 @@ pub const GRANTS: &[(&str, &str, &str, &str)] = &[
     ("ring", "find_device", "Ring this phone", "Stops by itself after 60 seconds"),
     ("battery", "battery", "See battery", "Level and charging"),
     ("codes", "agent_codes_draft1", "Read codes", "One-time codes your Mac finds in messages and mail"),
+    ("codes_detect", "codes_detect_draft1", "Detect codes", "Reads your code messages when no Mac is reading"),
     ("notifications", "notifications", "Read your notifications", "Not available yet"),
 ];
 
@@ -143,7 +146,16 @@ struct St {
     rings: HashMap<String, String>,
     contributions: HashMap<String, [u8; 32]>,
     last_failure: HashMap<String, String>,
+    /// What the last features.update said about Detect codes.
+    detect_advertised: bool,
+    /// Peers that sent agent.hello in their session: agents, never phones, so never a source of code candidates.
+    agent_peers: std::collections::HashSet<String>,
+    /// Pairings over the tailnet in progress: the session's local ID to the `bridgey pair` waiting for it.
+    direct: HashMap<u64, mpsc::UnboundedSender<InviteEvent>>,
 }
+
+/// Code candidates read at once; more are answered `failed` with `busy`.
+const DETECT_IN_FLIGHT: usize = 4;
 
 pub struct Daemon {
     pub paths: Paths,
@@ -161,6 +173,8 @@ pub struct Daemon {
     last_used: Mutex<Instant>,
     pub clients: AtomicUsize,
     pub stop: Notify,
+    detector: std::sync::OnceLock<Arc<crate::detect::Detector>>,
+    detect_slots: crate::detect::DetectSlots,
 }
 
 pub struct WaitGuard<'a> {
@@ -245,6 +259,8 @@ impl Daemon {
             last_used: Mutex::new(Instant::now()),
             clients: AtomicUsize::new(0),
             stop: Notify::new(),
+            detector: std::sync::OnceLock::new(),
+            detect_slots: crate::detect::DetectSlots::new(DETECT_IN_FLIGHT),
         });
         log(&format!("bridgey {VERSION} daemon started (profile {}, device {}, udp {}, {})", paths.profile, short(&daemon.local.device_id), daemon.node.udp_port(), if service { "service" } else { "on demand" }));
         daemon.sync_peers();
@@ -297,6 +313,9 @@ impl Daemon {
             }
         }
         let _ = std::fs::remove_file(&socket);
+        if let Some(detector) = daemon.detector.get() {
+            detector.shutdown();
+        }
         daemon.save_core_state();
         daemon.node.shutdown().await;
         drop(lock);
@@ -338,7 +357,68 @@ impl Daemon {
                 let extra = st.transfers.len() - 50;
                 st.transfers.drain(..extra);
             }
+            let detect = crate::detect::available(&self.paths);
+            if detect != st.detect_advertised {
+                // A model was downloaded or removed: every connected phone hears it now.
+                let handles: Vec<Handle> = st.sessions.values().map(|l| l.handle.clone()).collect();
+                drop(st);
+                let features = self.own_features();
+                for h in handles {
+                    h.send_json("features.update", &features);
+                }
+            }
         }
+    }
+
+    /// This install's features.update: the fixed map, with Detect codes as it stands now.
+    fn own_features(&self) -> Value {
+        let detect = crate::detect::available(&self.paths);
+        self.st.lock().unwrap().detect_advertised = detect;
+        let features: Map<String, Value> = OWN_FEATURES.iter().map(|(k, v)| (k.to_string(), Value::Bool(if *k == "codes_detect_draft1" { detect } else { *v }))).collect();
+        json!({"version": 1, "features": features})
+    }
+
+    /// `codes.candidate` from a phone that granted Detect codes: read it with the shared reader off the async threads,
+    /// answer `codes.detected`, and write one audit entry (phone, app, outcome; never the text or the code).
+    fn on_candidate(self: &Arc<Self>, peer: &str, handle: Handle, payload: Option<Value>) {
+        let (granted, from_phone) = {
+            let st = self.st.lock().unwrap();
+            let granted = st.features.get(peer).and_then(|f| f.get("codes_detect_draft1")) == Some(&Value::Bool(true));
+            let platform = st.trust.peers.get(peer).map(|p| p.platform.clone()).unwrap_or_default();
+            (granted, crate::detect::candidate_allowed(&platform, st.agent_peers.contains(peer)))
+        };
+        // Only a phone sends candidates; anything else is dropped without an answer.
+        if !from_phone {
+            return;
+        }
+        let Some(candidate) = payload.as_ref().and_then(crate::detect::decode_candidate) else { return };
+        let record = |outcome: &str, d: &Daemon| {
+            crate::audit::record(&d.paths, json!({"at": now_ms(), "command": "codes.detect", "device": peer, "outcome": outcome, "detail": format!("{} {}", candidate.source, candidate.app)}));
+        };
+        if !granted || !crate::detect::available(&self.paths) {
+            // Not granted here (a stale map) or no model: say so, so the phone stops waiting. No slot is taken.
+            let reason = if granted { bridgey_codes::Failure::ModelMissing } else { bridgey_codes::Failure::NotConfigured };
+            handle.send_json("codes.detected", &crate::detect::detected_payload(&candidate.id, &bridgey_codes::Outcome::Fallback(reason)));
+            record(reason.wire(), self);
+            return;
+        }
+        // The slot is held by its guard until the read is answered, whatever path it takes.
+        let Some(slot) = self.detect_slots.take() else {
+            handle.send_json("codes.detected", &json!({"version": 1, "candidateId": candidate.id, "outcome": "failed", "reason": "busy"}));
+            record("busy", self);
+            return;
+        };
+        let detector = self.detector.get_or_init(|| Arc::new(crate::detect::Detector::new(&self.paths))).clone();
+        let d = self.clone();
+        let peer = peer.to_string();
+        tokio::spawn(async move {
+            let _slot = slot;
+            let c = candidate.clone();
+            let outcome = tokio::task::spawn_blocking(move || detector.read(&c)).await.unwrap_or(bridgey_codes::Outcome::Fallback(bridgey_codes::Failure::Unavailable));
+            handle.send_json("codes.detected", &crate::detect::detected_payload(&candidate.id, &outcome));
+            crate::audit::record(&d.paths, json!({"at": now_ms(), "command": "codes.detect", "device": peer, "outcome": outcome.word(), "detail": format!("{} {}", candidate.source, candidate.app)}));
+            log(&format!("codes.detect from {}: {}", short(&peer), outcome.word()));
+        });
     }
 
     // region Core and sessions
@@ -438,6 +518,7 @@ impl Daemon {
             tunnel,
             quic_client,
             mode,
+            direct: None,
         };
         let d = self.clone();
         let pins: session::PinLookup = Arc::new(move |id: &str| d.st.lock().unwrap().trust.peers.values().find(|p| p.device_id.eq_ignore_ascii_case(id)).map(|p| p.identity_key.clone()));
@@ -448,7 +529,7 @@ impl Daemon {
         match e {
             Event::Code { local_id, code, peer_name, confirm } => {
                 let st = self.st.lock().unwrap();
-                let tx = st.invite_sessions.get(&local_id).and_then(|l| st.invites.get(l)).map(|i| i.to_client.clone());
+                let tx = st.invite_sessions.get(&local_id).and_then(|l| st.invites.get(l)).map(|i| i.to_client.clone()).or_else(|| st.direct.get(&local_id).cloned());
                 drop(st);
                 match tx {
                     Some(tx) => {
@@ -459,16 +540,40 @@ impl Daemon {
                     }
                 }
             }
-            Event::Authenticated { local_id, peer, handle, invite, tunnel } => {
-                self.node.tunnel_authenticated(&tunnel);
+            Event::Authenticated { local_id, peer, handle, invite, direct, tunnel } => {
+                if !direct {
+                    self.node.tunnel_authenticated(&tunnel);
+                }
                 let mut st = self.st.lock().unwrap();
-                if invite {
-                    let label = st.invite_sessions.remove(&local_id);
+                if direct && !st.direct.contains_key(&local_id) {
+                    // A pairing whose `bridgey pair` gave up (its window ended, or it was cancelled): never saved.
+                    drop(st);
+                    handle.close("pairing_window_ended");
+                    return;
+                }
+                if direct {
+                    // A first pairing over the tailnet: a device of a kind this end does not know yet ("tailnet"); its own
+                    // features.update says "cli" if it is another server. Never "phone", so it never sends candidates here.
                     let now = now_ms();
                     let previous = st.trust.peers.get(&peer.device_id).cloned();
                     st.trust.peers.insert(
                         peer.device_id.clone(),
-                        Peer { device_id: peer.device_id.clone(), name: peer.name.clone(), platform: "phone".into(), identity_key: peer.identity_key.clone(), paired_at: now, last_seen_at: now, ..previous.unwrap_or_default() },
+                        Peer { device_id: peer.device_id.clone(), name: peer.name.clone(), platform: "tailnet".into(), identity_key: peer.identity_key.clone(), paired_at: now, last_seen_at: now, ..previous.unwrap_or_default() },
+                    );
+                    let _ = st.trust.save(&self.paths);
+                    if let Some(tx) = st.direct.remove(&local_id) {
+                        let _ = tx.send(InviteEvent::Paired { peer: peer.clone() });
+                    }
+                }
+                if invite {
+                    let label = st.invite_sessions.remove(&local_id);
+                    // This end joined another install's invite (test hook): the peer is a server, not a phone.
+                    let joined = label.as_ref().and_then(|l| st.invites.get(l)).is_some_and(|i| i.joining);
+                    let now = now_ms();
+                    let previous = st.trust.peers.get(&peer.device_id).cloned();
+                    st.trust.peers.insert(
+                        peer.device_id.clone(),
+                        Peer { device_id: peer.device_id.clone(), name: peer.name.clone(), platform: if joined { "cli".into() } else { "phone".into() }, identity_key: peer.identity_key.clone(), paired_at: now, last_seen_at: now, ..previous.unwrap_or_default() },
                     );
                     let _ = st.trust.save(&self.paths);
                     if let Some(i) = label.and_then(|l| st.invites.remove(&l)) {
@@ -490,8 +595,7 @@ impl Daemon {
                 st.last_failure.remove(&peer.device_id);
                 drop(st);
                 log(&format!("session with {} authenticated", short(&peer.device_id)));
-                let features: Map<String, Value> = OWN_FEATURES.iter().map(|(k, v)| (k.to_string(), Value::Bool(*v))).collect();
-                handle.send_json("features.update", &json!({"version": 1, "features": features}));
+                handle.send_json("features.update", &self.own_features());
                 handle.send_json("agent.hello", &json!({"version": 1, "platform": "cli", "app": format!("bridgey {VERSION}"), "os": format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)}));
                 self.sync_peers();
                 self.changed.notify_waiters();
@@ -499,6 +603,9 @@ impl Daemon {
             Event::Frame { local_id, peer_id, message, plaintext } => self.on_frame(local_id, &peer_id, *message, plaintext),
             Event::Closed { local_id, peer_id, reason, authenticated } => {
                 let mut st = self.st.lock().unwrap();
+                if let Some(tx) = st.direct.remove(&local_id) {
+                    let _ = tx.send(InviteEvent::Failed(reason.clone()));
+                }
                 if let Some(label) = st.invite_sessions.remove(&local_id) {
                     if let Some(i) = st.invites.get_mut(&label) {
                         let _ = i.to_client.send(InviteEvent::Failed(reason.clone()));
@@ -509,6 +616,7 @@ impl Daemon {
                     if st.sessions.get(p).is_some_and(|l| l.handle.local_id == local_id) {
                         st.sessions.remove(p);
                         st.features.remove(p);
+                        st.agent_peers.remove(p);
                     }
                     if !authenticated && st.trust.peers.contains_key(p) {
                         st.last_failure.insert(p.clone(), crate::session::printable(&reason, 64));
@@ -533,7 +641,17 @@ impl Daemon {
             "features.update" => {
                 let Some(map) = payload.as_ref().filter(|p| p["version"] == 1).and_then(|p| p["features"].as_object()).cloned() else { return };
                 let connect = map.get("connect_draft1") == Some(&Value::Bool(true));
-                self.st.lock().unwrap().features.insert(peer.to_string(), map);
+                {
+                    let mut st = self.st.lock().unwrap();
+                    // A device paired over the tailnet says what it is in its own (authenticated) map: another server
+                    // advertises agent_draft1 and sends no grants. A phone or a Mac stays "tailnet" here.
+                    let is_agent = map.get("agent_draft1") == Some(&Value::Bool(true)) && map.get("notify_draft1") == Some(&Value::Bool(true));
+                    if let Some(p) = st.trust.peers.get_mut(peer).filter(|p| p.platform == "tailnet" && is_agent) {
+                        p.platform = "cli".into();
+                        let _ = st.trust.save(&self.paths);
+                    }
+                    st.features.insert(peer.to_string(), map);
+                }
                 self.changed.notify_waiters();
                 if connect {
                     self.send_addresses(peer, &handle);
@@ -615,6 +733,14 @@ impl Daemon {
                         self.changed.notify_waiters();
                     }
                 }
+                return;
+            }
+            "agent.hello" => {
+                self.st.lock().unwrap().agent_peers.insert(peer.to_string());
+                return;
+            }
+            "codes.candidate" => {
+                self.on_candidate(peer, handle, payload);
                 return;
             }
             "agent.grants" => {
@@ -747,6 +873,8 @@ impl Daemon {
         match query {
             Some(q) => st.trust.find(&q).cloned().map_err(|m| CliError::new("unknown_device", m)),
             None if st.trust.peers.len() == 1 => Ok(st.trust.peers.values().next().unwrap().clone()),
+            // Devices paired over the tailnet (Macs, other servers) do not make the phone ambiguous.
+            None if st.trust.peers.values().filter(|p| p.platform == "phone").count() == 1 => Ok(st.trust.peers.values().find(|p| p.platform == "phone").unwrap().clone()),
             None => Err(CliError::new("usage", "More than one device is paired: choose one with -d or BRIDGEY_DEVICE (see bridgey devices).")),
         }
     }
@@ -796,7 +924,7 @@ impl Daemon {
     pub fn require(&self, peer: &Peer, grant: &str) -> Result<(), CliError> {
         let map = self.features(&peer.device_id);
         if map.get("agent_draft1") != Some(&Value::Bool(true)) {
-            return Err(CliError::new("incompatible", format!("{} runs a Bridgey without agent devices; update the app", peer.name)));
+            return Err(no_agent_devices(peer));
         }
         let key = grant_wire(grant).unwrap_or(grant);
         if map.get(key) == Some(&Value::Bool(true)) {
@@ -897,6 +1025,22 @@ impl Daemon {
         (invite, rx)
     }
 
+    /// One pairing over the tailnet on a direct TCP connection (dialled or accepted); its code and result go to `tx`.
+    pub fn start_direct(self: &Arc<Self>, stream: tokio::net::TcpStream, mode: session::Mode, tx: mpsc::UnboundedSender<InviteEvent>) -> u64 {
+        let local_id = self.next_local.fetch_add(1, Ordering::Relaxed);
+        self.st.lock().unwrap().direct.insert(local_id, tx);
+        let dialled = matches!(mode, session::Mode::Dial);
+        let spec = session::Spec { local_id, port: 0, token: String::new(), exporter: String::new(), tunnel: format!("tailnet{local_id}"), quic_client: dialled, mode, direct: Some(stream) };
+        let d = self.clone();
+        let pins: session::PinLookup = Arc::new(move |id: &str| d.st.lock().unwrap().trust.peers.values().find(|p| p.device_id.eq_ignore_ascii_case(id)).map(|p| p.identity_key.clone()));
+        session::spawn(spec, self.local.clone(), pins, self.events.clone());
+        local_id
+    }
+
+    pub fn end_direct(&self, local_id: u64) {
+        self.st.lock().unwrap().direct.remove(&local_id);
+    }
+
     pub fn end_invite(&self, label: &str) {
         let removed = self.st.lock().unwrap().invites.remove(label);
         if removed.is_some() {
@@ -947,4 +1091,32 @@ fn acquire_lock(paths: &Paths) -> Result<std::fs::File, String> {
         return Err("another bridgey daemon is already running for this profile".into());
     }
     Ok(file)
+}
+
+/// The refusal when a peer's map has no agent devices: a device paired over the tailnet keeps this install
+/// restricted (not granted) until someone trusts it there; anything else runs an older Bridgey.
+pub fn no_agent_devices(peer: &Peer) -> CliError {
+    if peer.platform == "tailnet" {
+        CliError::new(
+            "not_granted",
+            format!("{} keeps this install restricted (paired over your tailnet): nothing is allowed until someone chooses \"Trust as my device\" there", peer.name),
+        )
+    } else {
+        CliError::new("incompatible", format!("{} runs a Bridgey without agent devices; update the app", peer.name))
+    }
+}
+
+#[cfg(test)]
+mod no_agent_devices_tests {
+    use super::*;
+
+    #[test]
+    fn a_tailnet_peer_is_not_granted_and_an_old_phone_is_incompatible() {
+        let mac = Peer { name: "Mac".into(), platform: "tailnet".into(), ..Default::default() };
+        let e = no_agent_devices(&mac);
+        assert_eq!(e.code, "not_granted");
+        assert!(e.message.contains("Trust as my device"));
+        let phone = Peer { name: "Phone".into(), platform: "phone".into(), ..Default::default() };
+        assert_eq!(no_agent_devices(&phone).code, "incompatible");
+    }
 }

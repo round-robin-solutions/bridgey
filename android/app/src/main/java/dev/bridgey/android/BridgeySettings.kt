@@ -147,6 +147,11 @@ data class BridgeySettingsState(
      * nobody chose: then it is on ([emailCodes]). Synced as `codes.email`.
      */
     val emailCodesChoice: Boolean? = null,
+    /**
+     * Notifications > Codes > Use cloud when no Mac is reading (docs/mesh-and-codes.md, phase 2): off until chosen, never
+     * synced. Text messages only; email previews never go to the cloud.
+     */
+    val cloudCodes: Boolean = false,
 ) {
     /** What Connect away from home does now: the choice, or on while there is none. */
     val connectAway: Boolean get() = connectAwayChoice ?: CONNECT_AWAY_DEFAULT
@@ -332,6 +337,33 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(connectAwayChoice = enabled)
     }
 
+    /** Use cloud when no Mac is reading: only ever switched by the person on this phone, after the consent dialog. */
+    fun setCloudCodes(enabled: Boolean) {
+        // Turning it off also forgets the install id, so a later opt-in starts as a new install at the relay.
+        preferences.edit().putBoolean(KEY_CLOUD_CODES, enabled).apply { if (!enabled) remove(KEY_CLOUD_INSTALL_ID) }.apply()
+        mutableState.value = mutableState.value.copy(cloudCodes = enabled)
+    }
+
+    /** The times of the last hour's cloud reads, so the hourly limit survives a restart. */
+    val cloudHistory: dev.bridgey.android.agents.CloudHistory = object : dev.bridgey.android.agents.CloudHistory {
+        override fun load(): List<Long> = preferences.getString(KEY_CLOUD_HISTORY, null).orEmpty().split(',').mapNotNull { it.toLongOrNull() }
+        override fun save(times: List<Long>) {
+            preferences.edit().putString(KEY_CLOUD_HISTORY, times.takeLast(64).joinToString(",")).apply()
+        }
+    }
+
+    /** A random per-install id, used only as the relay's rate-limit key (as the Mac's codes install id). */
+    fun cloudInstallId(): String {
+        val now = System.currentTimeMillis()
+        val made = preferences.getLong(KEY_CLOUD_INSTALL_ID_AT, 0L)
+        val current = preferences.getString(KEY_CLOUD_INSTALL_ID, null)?.takeIf(dev.bridgey.android.codes.CodeRelay::isInstallId)
+        // A new id every 30 days, so the relay cannot link reads from this phone over a long time.
+        if (current != null && now - made in 0 until 30L * 86_400_000L) return current
+        return dev.bridgey.android.codes.CodeRelay.newInstallId().also {
+            preferences.edit().putString(KEY_CLOUD_INSTALL_ID, it).putLong(KEY_CLOUD_INSTALL_ID_AT, now).apply()
+        }
+    }
+
     /** The person's own choice (or a synced one) for Also read codes in email. */
     fun setEmailCodes(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_EMAIL_CODES, enabled).apply()
@@ -476,6 +508,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             smsReplyAsSms = preferences.getBoolean(KEY_SMS_REPLY_AS_SMS, false),
             connectAwayChoice = if (preferences.contains(KEY_CONNECT_AWAY)) preferences.getBoolean(KEY_CONNECT_AWAY, true) else null,
             emailCodesChoice = if (preferences.contains(KEY_EMAIL_CODES)) preferences.getBoolean(KEY_EMAIL_CODES, true) else null,
+            cloudCodes = preferences.getBoolean(KEY_CLOUD_CODES, false),
         )
     }
 
@@ -507,6 +540,10 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         private const val KEY_SMS_REPLY_AS_SMS = "sms.reply_as_sms"
         internal const val KEY_CONNECT_AWAY = "connect.away"
         internal const val KEY_EMAIL_CODES = "codes.email"
+        private const val KEY_CLOUD_CODES = "codes.cloud_when_no_mac"
+        private const val KEY_CLOUD_INSTALL_ID = "codes.cloud_install_id"
+        private const val KEY_CLOUD_HISTORY = "codes.cloud_history"
+        private const val KEY_CLOUD_INSTALL_ID_AT = "codes.cloud_install_id_at"
         private const val KEY_CONNECT_DEBUG_URL = "connect.debug.controlUrl"
         private const val KEY_CONNECT_DEBUG_RELAY_ONLY = "connect.debug.relayOnly"
     }

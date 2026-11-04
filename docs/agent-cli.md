@@ -39,6 +39,13 @@ says how many Macs are reading (`readers`), so the CLI warns instead of waiting 
 before the Mac slept are still served for 15 minutes. A future Windows or Linux app on the v2 core sends
 `codes.found` the same way, so it plugs in without a protocol change.
 
+**Detect codes (2026-11-04, branch `rr/mesh-codes`).** A server can now also find codes when no Mac is
+awake: the phone sends it code text messages (`codes.candidate`) only while it has the new grant Detect
+codes, and it reads them with the `bridgey-codes` crate, the Mac's model, prompt and guard ported to Rust
+and checked against the Mac's numbers. Design and threat model: [mesh-and-codes.md](mesh-and-codes.md);
+setup: [agent-cli-setup.md](agent-cli-setup.md) section 6. This replaces "a sleeping Mac finds nothing new"
+above for servers with the grant.
+
 **Not built in phase 1** (cut or left for phase 2): sending folders (`send` takes files; folders wait for
 the transfer engine), `--resume` and `bridgey transfer resume|cancel` (files.v1 has no resume),
 `clip set --sensitive`, the Keychain on macOS, the Homebrew formula, `.deb`, the notifications grant

@@ -7,6 +7,7 @@ use crate::ipc::Conn;
 use crate::store::Peer;
 use crate::time::now_ms;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -233,7 +234,7 @@ impl Daemon {
         }
         let h = self.ensure(&peer, self.connect_timeout(args)).await?;
         if self.features(&peer.device_id).get("agent_draft1") != Some(&Value::Bool(true)) {
-            return Err(CliError::new("incompatible", format!("{} runs a Bridgey without agent devices; update the app", peer.name)));
+            return Err(crate::daemon::no_agent_devices(&peer));
         }
         let mid = crate::crypto::uuid4();
         let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("msg:{mid}")]);
@@ -257,6 +258,9 @@ impl Daemon {
     async fn op_pair(self: Arc<Self>, args: &Value, reader: &mut BufReader<OwnedReadHalf>, out: &mut Out) -> Result<Value, CliError> {
         if let Some(name) = arg_str(args, "name") {
             self.rename(name);
+        }
+        if arg_str(args, "to").is_some() || args.get("allowMs").and_then(Value::as_u64).is_some() {
+            return self.op_pair_direct(args, reader, out).await;
         }
         if arg_str(args, "join").is_some() && !cfg!(debug_assertions) {
             return Err(CliError::new("usage", "joining an invite is a test hook of debug builds"));
@@ -317,6 +321,169 @@ impl Daemon {
         }
         let secret = self.trust().peers.get(&peer.device_id).is_some_and(|p| p.pair_secret.is_some());
         Ok(json!({"device": {"id": peer.device_id, "name": peer.name}, "connectAnywhere": secret, "thisDevice": {"id": self.local.device_id, "name": self.local.name()}}))
+    }
+
+    /// Pairing over the tailnet (docs/mesh-and-codes.md, phase 2): `to` dials another device's address and pairs as the
+    /// initiator (redialling every 3 s for up to 2 minutes while that device has not allowed pairing); `allowMs` listens
+    /// on port 42458 for that long and answers one committed first pairing from a tailnet address. Either way the code is
+    /// confirmed at this terminal and on the other device, and nothing is granted to anyone.
+    async fn op_pair_direct(self: Arc<Self>, args: &Value, reader: &mut BufReader<OwnedReadHalf>, out: &mut Out) -> Result<Value, CliError> {
+        let (tx, mut rx) = mpsc::unbounded_channel::<InviteEvent>();
+        let mut current: Option<u64> = None;
+        let result: Result<crate::session::AuthPeer, CliError> = if let Some(to) = arg_str(args, "to") {
+            let addr = crate::tailnet::resolve(to).await.map_err(|e| CliError::new("unreachable", e))?;
+            out.event(json!({"event": "dialling", "address": addr.to_string(), "tailnet": crate::tailnet::is_tailnet(addr.ip())})).await;
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+            let mut told_wait = false;
+            loop {
+                if tokio::time::Instant::now() >= deadline {
+                    break Err(CliError::new("timeout", format!("{to} did not allow pairing within 2 minutes. Tap Allow pairing there, then run this again.")));
+                }
+                let stream = match tokio::time::timeout(Duration::from_secs(5), tokio::net::TcpStream::connect(addr)).await {
+                    Ok(Ok(s)) => s,
+                    _ => break Err(CliError::new("unreachable", format!("Nothing answers on {addr} (Bridgey not running there, or not on your tailnet)."))),
+                };
+                current = Some(self.start_direct(stream, crate::session::Mode::Dial, tx.clone()));
+                match self.direct_events(&mut rx, reader, out).await {
+                    Err(e) if e.message.contains("not_armed") => {
+                        if !told_wait {
+                            out.event(json!({"event": "waiting", "message": format!("Tap Allow pairing on {to}.")})).await;
+                            told_wait = true;
+                        }
+                        tokio::time::sleep(Duration::from_secs(3)).await;
+                    }
+                    other => break other,
+                }
+            }
+        } else {
+            let allow = Duration::from_millis(args["allowMs"].as_u64().unwrap_or(120_000).clamp(10_000, 600_000));
+            let port = self.config.get("tcp_port").and_then(|v| v.as_integer()).and_then(|p| u16::try_from(p).ok()).filter(|p| *p > 0).unwrap_or(crate::tailnet::PORT);
+            // Only this device's own tailnet addresses (never a public interface); loopback too in debug builds (tests).
+            let own = tokio::task::spawn_blocking(crate::tailnet::status_json).await.ok().and_then(Result::ok);
+            let mut addrs: Vec<std::net::SocketAddr> = own.map(|j| crate::tailnet::self_ips(&j)).unwrap_or_default()
+                .into_iter().map(|ip| std::net::SocketAddr::new(ip, port)).collect();
+            if cfg!(debug_assertions) {
+                addrs.push(std::net::SocketAddr::from(([127, 0, 0, 1], port)));
+            }
+            if addrs.is_empty() {
+                return Err(CliError::new("unreachable", "This device is not on a tailnet (Tailscale is not running here)."));
+            }
+            // A small queue: connections are checked (source, three a minute from each) as they are accepted, and any
+            // beyond two waiting are closed at once, so no node can pile up sockets or hold the slot with a backlog.
+            let (conn_tx, mut conn_rx) = mpsc::channel::<(tokio::net::TcpStream, std::net::SocketAddr)>(2);
+            let per_source: Arc<std::sync::Mutex<HashMap<std::net::IpAddr, std::collections::VecDeque<tokio::time::Instant>>>> = Default::default();
+            let mut acceptors = Vec::new();
+            for addr in &addrs {
+                let Ok(listener) = tokio::net::TcpListener::bind(addr).await else { continue };
+                let tx = conn_tx.clone();
+                let per_source = per_source.clone();
+                acceptors.push(tokio::spawn(async move {
+                    while let Ok((stream, from)) = listener.accept().await {
+                        let now = tokio::time::Instant::now();
+                        let admitted = crate::tailnet::accepted_source(from.ip()) && {
+                            let mut map = per_source.lock().unwrap();
+                            let tries = map.entry(from.ip()).or_default();
+                            tries.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
+                            let ok = tries.len() < 3;
+                            if ok {
+                                tries.push_back(now);
+                            }
+                            ok
+                        };
+                        if admitted && tx.try_send((stream, from)).is_err() && tx.is_closed() {
+                            break;
+                        }
+                    }
+                }));
+            }
+            drop(conn_tx);
+            if acceptors.is_empty() {
+                return Err(CliError::new("failed", format!("port {port} is in use on this device's tailnet address")));
+            }
+            out.event(json!({"event": "listening", "port": port, "addresses": addrs.iter().map(|a| a.ip().to_string()).collect::<Vec<_>>(), "untilMs": now_ms() + allow.as_millis() as u64})).await;
+            let deadline = tokio::time::Instant::now() + allow;
+            let outcome = loop {
+                let accepted = tokio::select! {
+                    biased;
+                    _ = tokio::time::sleep_until(deadline) => break Err(CliError::new("timeout", "Nobody paired in time. Run bridgey pair --allow again.")),
+                    line = read_line(reader) => { if line.is_none() { break Err(CliError::new("interrupted", "pairing cancelled")) } continue }
+                    a = conn_rx.recv() => a,
+                };
+                let Some((stream, from)) = accepted else { break Err(CliError::new("failed", "the listener stopped")) };
+                out.event(json!({"event": "incoming", "address": from.ip().to_string()})).await;
+                current = Some(self.start_direct(stream, crate::session::Mode::Listen, tx.clone()));
+                // The attempt ends with the window, whatever stage it is in.
+                match tokio::time::timeout_at(deadline, self.direct_events(&mut rx, reader, out)).await {
+                    Err(_) => {
+                        // The attempt is dropped: a pairing that completes after the window is never saved.
+                        if let Some(id) = current.take() {
+                            self.end_direct(id);
+                        }
+                        break Err(CliError::new("timeout", "The pairing window ended. Run bridgey pair --allow again."));
+                    }
+                    Ok(Ok(peer)) => break Ok(peer),
+                    Ok(Err(e)) if e.code == "declined" || e.code == "interrupted" => break Err(e),
+                    Ok(Err(e)) => out.event(json!({"event": "attempt_failed", "reason": e.message})).await,
+                }
+            };
+            acceptors.iter().for_each(|a| a.abort());
+            outcome
+        };
+        if let Some(id) = current {
+            self.end_direct(id);
+        }
+        let peer = result?;
+        out.event(json!({"event": "paired", "device": {"id": peer.device_id, "name": peer.name}})).await;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+        while self.trust().peers.get(&peer.device_id).is_some_and(|p| p.pair_secret.is_none()) {
+            if tokio::time::timeout_at(deadline, self.changed.notified()).await.is_err() {
+                break;
+            }
+        }
+        let secret = self.trust().peers.get(&peer.device_id).is_some_and(|p| p.pair_secret.is_some());
+        Ok(json!({"device": {"id": peer.device_id, "name": peer.name}, "connectAnywhere": secret, "tailnet": true, "thisDevice": {"id": self.local.device_id, "name": self.local.name()}}))
+    }
+
+    /// The events of one direct pairing attempt: the code is confirmed at the terminal (the client repeats it).
+    async fn direct_events(&self, rx: &mut mpsc::UnboundedReceiver<InviteEvent>, reader: &mut BufReader<OwnedReadHalf>, out: &mut Out) -> Result<crate::session::AuthPeer, CliError> {
+        loop {
+            // The client is watched too: a closed terminal (Ctrl-C) ends the attempt at once.
+            let event = tokio::select! {
+                e = tokio::time::timeout(Duration::from_secs(150), rx.recv()) => e,
+                line = read_line(reader) => {
+                    if line.is_none() {
+                        return Err(CliError::new("interrupted", "pairing cancelled"));
+                    }
+                    continue;
+                }
+            };
+            match event {
+                Err(_) | Ok(None) => return Err(CliError::new("timeout", "The other device did not answer.")),
+                Ok(Some(InviteEvent::Code { code, peer_name, confirm })) => {
+                    out.event(json!({"event": "code", "code": code, "peer": peer_name})).await;
+                    match tokio::time::timeout(Duration::from_secs(120), read_line(reader)).await {
+                        Ok(Some(v)) if v["confirm"] == true && v["code"].as_str() == Some(code.as_str()) => {
+                            let _ = confirm.send(true);
+                            out.event(json!({"event": "confirmed"})).await;
+                        }
+                        Ok(Some(_)) => {
+                            let _ = confirm.send(false);
+                            return Err(CliError::new("declined", "The codes did not match; nothing was paired."));
+                        }
+                        Ok(None) => {
+                            let _ = confirm.send(false);
+                            return Err(CliError::new("interrupted", "pairing cancelled"));
+                        }
+                        Err(_) => {
+                            let _ = confirm.send(false);
+                            return Err(CliError::new("timeout", "No answer to the code within 2 minutes."));
+                        }
+                    }
+                }
+                Ok(Some(InviteEvent::Paired { peer })) => return Ok(peer),
+                Ok(Some(InviteEvent::Failed(reason))) => return Err(CliError::new("failed", format!("Pairing did not finish ({reason})."))),
+            }
+        }
     }
 
     async fn op_notify(&self, args: &Value) -> Result<Value, CliError> {
@@ -580,7 +747,7 @@ impl Daemon {
             let p = r.payload.unwrap_or(Value::Null);
             let readers = p["readers"].as_u64().unwrap_or(0);
             if first && readers == 0 {
-                out.event(json!({"event": "warning", "message": format!("No Mac is reading codes for {} right now (asleep, away or Codes from messages off). New codes will not show until one is back.", peer.name)})).await;
+                out.event(json!({"event": "warning", "message": format!("Nothing is reading codes for {} right now: no Mac is awake with Codes from messages on, and no server with Detect codes is connected. New codes will not show until one is.", peer.name)})).await;
             }
             first = false;
             let codes = p["codes"].as_array().cloned().unwrap_or_default();

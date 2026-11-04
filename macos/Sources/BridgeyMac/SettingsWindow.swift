@@ -89,6 +89,8 @@ struct SettingsModel {
     /// Connected phones; more than one shows as a count.
     var connectedCount = 0
     var trustedDevices: [TrustedDeviceInfo] = []
+    /// Devices that get nothing here (a server, or paired over the tailnet and not trusted yet).
+    var restrictedDevices: Set<String> = []
     var rings: [DeviceRing] = []
     /// Connected phones that can run the speed test (they advertise files_fast_draft1).
     var speedPhones: [SpeedPhone] = []
@@ -260,6 +262,9 @@ struct SettingsActions {
     var openPhoneFiles: (String) -> Void = { _ in }
     var forget: (String) -> Void = { _ in }
     var pair: (DeviceRing) -> Void = { _ in }
+    /// Pair by a tailnet name or address typed in Pair a new device.
+    var pairAddress: (String) -> Void = { _ in }
+    var trustAsMyDevice: (String) -> Void = { _ in }
     var retryDevice: (String) -> Void = { _ in }
     var lookForDevices: () -> Void = {}
     var enableNotifications: () -> Void = {}
@@ -1136,6 +1141,11 @@ struct DeviceCard: View {
                 }
                 // Phone files window (Files 2.0): PhoneFilesDeviceEntry.swift.
                 PhoneFilesDeviceEntry(deviceID: device.id, model: model, actions: actions)
+                if model.restrictedDevices.contains(device.id) {
+                    Button(L10n.text("devices.trustAsMine", fallback: "Trust as my device")) { actions.trustAsMyDevice(device.id) }
+                        .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                        .help(L10n.text("devices.restricted.detail", fallback: "Paired over your tailnet or a server: nothing is shared with it until you trust it."))
+                }
                 Button(L10n.text("action.forget", fallback: "Forget")) { confirmForget = true }
                     .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
             }
@@ -1212,7 +1222,35 @@ struct PairNewCard: View {
                         .disabled(!ring.canConnect)
                 }
             }
+            PairAddressRow(actions: actions)
         }
+    }
+}
+
+/// Pair a new device > a tailnet name or address: for a device on your tailnet that is not listed (the other device
+/// taps Allow pairing, or runs bridgey pair --allow; both then show the same code).
+struct PairAddressRow: View {
+    let actions: SettingsActions
+    @State private var address = ""
+
+    var body: some View {
+        SettingsRow(title: L10n.text("devices.pair.address", fallback: "Pair by tailnet name or address"),
+                    subtitle: L10n.text("devices.pair.address.detail", fallback: "For a device on your tailnet. Tap Allow pairing there first."), divider: true) {
+            TextField(L10n.text("devices.pair.address.placeholder", fallback: "work or 100.64.0.10"), text: $address)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 170)
+                .onSubmit { submit() }
+            Button(L10n.text("action.pair", fallback: "Pair")) { submit() }
+                .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                .disabled(address.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+    }
+
+    private func submit() {
+        let typed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typed.isEmpty else { return }
+        actions.pairAddress(typed)
+        address = ""
     }
 }
 
@@ -1810,7 +1848,8 @@ struct LiveSettingsView: View {
         model.pairingFlow = pairing.pairingFlow
         model.connectedCount = pairing.connectedPhones.count
         model.trustedDevices = pairing.trustedDevices
-        model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers, connected: pairing.connectedPhones,
+        model.restrictedDevices = settings.agentDevices
+        model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers + pairing.tailnetPeers, connected: pairing.connectedPhones,
                                   pairing: pairing.pairingFlow, reconnecting: pairing.reconnectStates)
         model.speedPhones = pairing.speedPhones.map { SpeedPhone(id: $0.id, name: $0.name) }
         model.developerMenu = DeveloperMenu.shared.enabled || pane == .developer
@@ -1998,6 +2037,8 @@ struct LiveSettingsView: View {
             pairing.pair(host: host, port: port, peerName: ring.name, deviceIDHint: ring.peer?.deviceIDHint,
                          addresses: ring.peer?.addresses ?? [])
         }
+        actions.pairAddress = { pairing.pairTailnet($0) }
+        actions.trustAsMyDevice = { pairing.trustAsMyDevice($0) }
         actions.retryDevice = { pairing.retryNow(deviceID: $0) }
         actions.lookForDevices = { pairing.lookForDevices() }
         actions.enableNotifications = { pairing.enableNotifications() }

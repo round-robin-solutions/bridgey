@@ -161,6 +161,7 @@ the tables at the end of this page are generated from it with
 | `clipboard_request_draft1` | edition-draft | no | false |
 | `agent_codes_draft1` | edition-draft | no | false |
 | `agents_mirror_draft1` | edition-draft | no | false |
+| `codes_detect_draft1` | edition-draft | no | false |
 
 ### Envelope fields
 
@@ -187,7 +188,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-170 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+172 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -440,6 +441,8 @@ Android runs only tokens it retained for the still active notification.
 | `codes.query` | edition-draft | agent-to-phone | agent_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, cli |
 | `codes.result` | edition-draft | phone-to-agent | agent_codes_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, cli |
 | `codes.cancel` | edition-draft | agent-to-phone | agent_codes_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `codes.candidate` | edition-draft | phone-to-agent | codes_detect_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `codes.detected` | edition-draft | agent-to-phone | codes_detect_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, cli |
 | `codes.found` | edition-draft | mac-to-phone | agents_mirror_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `codes.read` | edition-draft | phone-to-mac | agents_mirror_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
 
@@ -491,13 +494,37 @@ Each answered query is one codes.read audit entry on the phone and on the Mac. A
 - `version`: integer, 1
 - `queryId`: string, UUID
 - `codes`: array of at most 20 {code, service, source (sms | email), app, postedAt, latest, replaced, via}, newest first
-- `readers`: integer, Macs reading codes for this phone right now
+- `readers`: integer, devices reading codes for this phone right now: Macs, and agents with Detect codes on
 - `timedOut`: boolean
 
 `codes.cancel`
 
 - `version`: integer, 1
 - `queryId`: string, UUID
+
+`codes.candidate`
+
+- `version`: integer, 1
+- `candidateId`: string, UUID
+- `source`: sms (email is designed, not sent in phase 1)
+- `app`: messages | gmail | outlook | proton | spark
+- `sender`: string, at most 64 (the notification title, else the app's name)
+- `text`: string, 1 to 600 UTF-16 units: the message with digit boxes joined, which passed the gate
+- `postedAt`: integer, Unix ms
+
+Answered by `codes.detected`.
+
+Sent to one connected agent with Detect codes on, only while an agent has Read codes on and no Mac reads codes for this phone. One codes.detect audit entry on the phone and one on the agent; the text is never logged or stored.
+
+`codes.detected`
+
+- `version`: integer, 1
+- `candidateId`: string, UUID (the candidate's)
+- `outcome`: found | none | failed
+- `code`: string, 4 to 12 letters or digits, with found only
+- `reason`: optional string, at most 32, with failed only
+
+Taken once per candidate, from the device it was sent to, within 30 seconds. The phone runs the guard on the code against the candidate text and sets the service itself, then keeps it like a Mac's codes.found.
 
 `codes.found`
 

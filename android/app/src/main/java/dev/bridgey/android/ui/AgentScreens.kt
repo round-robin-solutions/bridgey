@@ -88,6 +88,8 @@ data class AgentPageState(
     /** The folder name under Download/Bridgey for Send you files. */
     val folderName: String,
     val now: Long,
+    /** Paired over the tailnet and restricted until trusted: shows Trust as my device. */
+    val overTailnet: Boolean = false,
 )
 
 class AgentPageActions(
@@ -99,6 +101,7 @@ class AgentPageActions(
     val applyPreset: (GrantPreset, GrantWindow) -> Unit = { _, _ -> },
     val export: () -> Unit = {},
     val clear: () -> Unit = {},
+    val trustAsDevice: () -> Unit = {},
 )
 
 enum class AgentTab { PERMISSIONS, ACTIVITY }
@@ -137,7 +140,7 @@ fun AgentDeviceScreen(state: AgentPageState, actions: AgentPageActions) {
             ) { shown ->
                 val padding = PaddingValues(bottom = navBottom + 24.dp)
                 when (shown) {
-                    AgentTab.PERMISSIONS -> AgentPermissions(state, padding, onSwitch = { grant, on ->
+                    AgentTab.PERMISSIONS -> AgentPermissions(state, padding, onTrust = actions.trustAsDevice, onSwitch = { grant, on ->
                         if (on) asking = grant else actions.setGrant(grant, false, null)
                     }, onPreset = { askingPreset = it })
                     AgentTab.ACTIVITY -> AgentActivity(state, padding, actions.export) { clearing = true }
@@ -146,7 +149,8 @@ fun AgentDeviceScreen(state: AgentPageState, actions: AgentPageActions) {
         }
     }
     asking?.let { grant ->
-        WindowDialog(onPick = { window -> asking = null; actions.setGrant(grant, true, window) }, onDismiss = { asking = null })
+        WindowDialog(onPick = { window -> asking = null; actions.setGrant(grant, true, window) }, onDismiss = { asking = null },
+            windows = dev.bridgey.android.agents.windowsFor(grant))
     }
     askingPreset?.let { preset ->
         WindowDialog(onPick = { window -> askingPreset = null; actions.applyPreset(preset, window) }, onDismiss = { askingPreset = null })
@@ -274,9 +278,36 @@ private fun AgentPermissions(
     contentPadding: PaddingValues,
     onSwitch: (AgentGrant, Boolean) -> Unit,
     onPreset: (GrantPreset) -> Unit,
+    onTrust: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    var confirmTrust by remember { mutableStateOf(false) }
+    if (confirmTrust) {
+        AlertDialog(
+            onDismissRequest = { confirmTrust = false },
+            containerColor = BridgeyTheme.colors.surface2,
+            title = { Text(stringResource(R.string.agent_trust_title, state.ring.name)) },
+            text = { Text(stringResource(R.string.agent_trust_body), style = BridgeyType.bodyText) },
+            confirmButton = { TextButton(onClick = { confirmTrust = false; onTrust() }) { Text(stringResource(R.string.agent_trust_confirm)) } },
+            dismissButton = { TextButton(onClick = { confirmTrust = false }) { Text(stringResource(R.string.action_cancel)) } },
+        )
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = contentPadding) {
+        if (state.overTailnet) {
+            item(key = "tailnet") {
+                ListRow(
+                    shape = RoundedCornerShape(16.dp),
+                    title = stringResource(R.string.agent_trust_row),
+                    detail = stringResource(R.string.agent_trust_row_detail),
+                    icon = BridgeyIcons.Link,
+                    tint = Tint.BLUE,
+                    compact = true,
+                    onClick = { confirmTrust = true },
+                    role = Role.Button,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp).testTag("agent-trust-as-device"),
+                ) {}
+            }
+        }
         if (state.showPresets) {
             item(key = "presets") {
                 Column(
@@ -370,14 +401,14 @@ private fun AgentActivity(state: AgentPageState, contentPadding: PaddingValues, 
 /** "How long?": For 1 hour, Today, 7 days, Until I turn it off. */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun WindowDialog(onPick: (GrantWindow) -> Unit, onDismiss: () -> Unit) {
+fun WindowDialog(onPick: (GrantWindow) -> Unit, onDismiss: () -> Unit, windows: List<GrantWindow> = GrantWindow.entries) {
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = BridgeyTheme.colors.surface2,
         title = { Text(stringResource(R.string.agent_window_ask)) },
         text = {
             Column(Modifier.semantics { testTagsAsResourceId = true }) {
-                GrantWindow.entries.forEach { window ->
+                windows.forEach { window ->
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
                             .clickable(role = Role.Button) { onPick(window) }.testTag("agent-window-${window.wire}")
@@ -424,6 +455,7 @@ private fun grantDetailText(grant: AgentGrant, folder: String): String = when (g
     AgentGrant.RING -> stringResource(R.string.agent_grant_ring_detail)
     AgentGrant.BATTERY -> stringResource(R.string.agent_grant_battery_detail)
     AgentGrant.CODES -> stringResource(R.string.agent_grant_codes_detail)
+    AgentGrant.CODES_DETECT -> stringResource(R.string.agent_grant_codes_detect_detail)
     AgentGrant.NOTIFICATIONS -> stringResource(R.string.agent_grant_notifications_detail)
 }
 
@@ -457,12 +489,12 @@ private fun grantIcon(grant: AgentGrant) = when (grant) {
     AgentGrant.ASK -> BridgeyIcons.Info
     AgentGrant.RING -> BridgeyIcons.Sensors
     AgentGrant.BATTERY -> BridgeyIcons.Battery5Bar
-    AgentGrant.CODES -> BridgeyIcons.Shield
+    AgentGrant.CODES, AgentGrant.CODES_DETECT -> BridgeyIcons.Shield
 }
 
 private fun grantTint(grant: AgentGrant) = when (grant) {
     AgentGrant.FILES, AgentGrant.BATTERY -> Tint.GREEN
-    AgentGrant.NOTIFY, AgentGrant.ASK, AgentGrant.CODES, AgentGrant.NOTIFICATIONS -> Tint.PURPLE
+    AgentGrant.NOTIFY, AgentGrant.ASK, AgentGrant.CODES, AgentGrant.CODES_DETECT, AgentGrant.NOTIFICATIONS -> Tint.PURPLE
     else -> Tint.BLUE
 }
 
@@ -475,7 +507,7 @@ private fun auditVisual(action: String) = when (action) {
     AuditAction.BATTERY -> BridgeyIcons.Battery5Bar to Tint.GREEN
     AuditAction.CLIPBOARD_SET, AuditAction.CLIPBOARD_REQUEST -> BridgeyIcons.ContentPaste to Tint.BLUE
     AuditAction.FILES_RECEIVE -> BridgeyIcons.Folder to Tint.GREEN
-    AuditAction.CODES_READ -> BridgeyIcons.Shield to Tint.PURPLE
+    AuditAction.CODES_READ, AuditAction.CODES_DETECT -> BridgeyIcons.Shield to Tint.PURPLE
     else -> BridgeyIcons.Info to Tint.NEUTRAL
 }
 
@@ -495,6 +527,7 @@ private fun auditTitle(action: String): String = when (action) {
     AuditAction.CLIPBOARD_REQUEST -> stringResource(R.string.agent_audit_clipboard_request)
     AuditAction.FILES_RECEIVE -> stringResource(R.string.agent_audit_files_receive)
     AuditAction.CODES_READ -> stringResource(R.string.agent_audit_codes_read)
+    AuditAction.CODES_DETECT -> stringResource(R.string.agent_audit_codes_detect)
     AuditAction.FORGET -> stringResource(R.string.agent_audit_forget)
     else -> action
 }

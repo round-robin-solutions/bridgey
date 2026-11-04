@@ -51,6 +51,54 @@ final class CodeModelTests: XCTestCase {
         XCTAssertNil(CodeModelManifest.parse(try encoder.encode(manifest()), assetURLPrefix: "http://insecure/"))
     }
 
+    /// M3: an online manifest this build does not pin is never offered, whatever its version, even with a valid shape.
+    @MainActor
+    func testAnUnpinnedOnlineManifestIsNotOffered() async throws {
+        let (one, shaOne) = payload(1_200_000)
+        let transport = FakeModelTransport(data: one)
+        let store = store(transport, manifest: manifest(version: 1, size: Int64(one.count), sha256: shaOne))
+        store.start()
+        await waitUntil { store.installed != nil }
+        transport.manifestBody = try JSONEncoder().encode(manifest(version: 9, size: 1_300_000, sha256: String(repeating: "b", count: 64)))
+        await store.refreshManifest(force: true)
+        XCTAssertNil(store.update)
+        XCTAssertEqual(store.manifest?.version, 1)
+    }
+
+    /// M3: a model installed earlier is loaded only if this build pins it; otherwise it is removed and the pinned one offered.
+    @MainActor
+    func testAnInstalledModelThisBuildDoesNotPinIsRemoved() async throws {
+        let (one, shaOne) = payload(1_200_000)
+        let first = manifest(version: 1, size: Int64(one.count), sha256: shaOne)
+        let installing = store(FakeModelTransport(data: one), manifest: first)
+        installing.start()
+        await waitUntil { installing.installed != nil }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent(first.fileName).path))
+
+        // Same directory, a build whose bundled and pinned manifests name another file.
+        let other = manifest(version: 1, size: 1_300_000, sha256: String(repeating: "c", count: 64))
+        let restored = store(FakeModelTransport(data: Data()), manifest: other)
+        XCTAssertNil(restored.installed)
+        XCTAssertNil(restored.modelPath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent(first.fileName).path), "the unpinned file is removed")
+        XCTAssertEqual(restored.manifest, other, "the pinned model is offered")
+
+        // The same build again keeps a model it does pin.
+        let (two, shaTwo) = payload(1_300_000)
+        let pinnedOne = manifest(version: 1, size: Int64(two.count), sha256: shaTwo)
+        let again = store(FakeModelTransport(data: two), manifest: pinnedOne)
+        again.start()
+        await waitUntil { again.installed != nil }
+        XCTAssertNotNil(store(FakeModelTransport(data: Data()), manifest: pinnedOne).installed)
+    }
+
+    func testTheBundledManifestIsPinned() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Resources/otp-model.json")
+        let parsed = try XCTUnwrap(CodeModelManifest.parse(Data(contentsOf: url), assetURLPrefix: prefix))
+        XCTAssertTrue(CodeModelManifest.pinned.contains(parsed), "a new bundled model needs its pin")
+        XCTAssertEqual(CodeModelManifest.pinned.map(\.sha256), ["69fe14b205ecaebbd1fa5d167f48a25c687b493341ff92476ca163a2ea12390f"])
+    }
+
     func testNewestManifestWins() {
         let one = manifest(version: 1), two = manifest(version: 2)
         XCTAssertEqual(CodeModelManifest.newest(one, two), two)
@@ -262,10 +310,11 @@ final class CodeModelTests: XCTestCase {
 
     @MainActor
     private func store(_ transport: FakeModelTransport, manifest: CodeModelManifest, space: Int64? = 10_000_000_000,
-                       runner: FakeRunner = FakeRunner(output: #"{"kind":"otp","code":"482913"}"#)) -> CodeModelStore {
+                       runner: FakeRunner = FakeRunner(output: #"{"kind":"otp","code":"482913"}"#),
+                       pinned: [CodeModelManifest] = []) -> CodeModelStore {
         CodeModelStore(files: CodeModelFiles(directory: directory), transport: transport, bundledManifest: manifest,
                        manifestURL: URL(string: prefix + "models/otp-model.json"), assetURLPrefix: prefix,
-                       spaceQuery: { _ in space }, makeRunner: { runner })
+                       spaceQuery: { _ in space }, makeRunner: { runner }, pinned: pinned)
     }
 
     @MainActor
@@ -448,12 +497,12 @@ final class CodeModelTests: XCTestCase {
         let (two, shaTwo) = payload(1_300_000)
         let transport = FakeModelTransport(data: one)
         let first = manifest(version: 1, size: Int64(one.count), sha256: shaOne)
-        let store = store(transport, manifest: first)
+        let second = manifest(version: 2, size: Int64(two.count), sha256: shaTwo)
+        let store = store(transport, manifest: first, pinned: [second])
         store.start()
         await waitUntil { store.installed != nil }
         XCTAssertNil(store.update)
 
-        let second = manifest(version: 2, size: Int64(two.count), sha256: shaTwo)
         transport.manifestBody = try JSONEncoder().encode(second)
         await store.refreshManifest(force: true)
         XCTAssertEqual(store.update, second)

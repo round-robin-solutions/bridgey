@@ -3677,7 +3677,7 @@ class PairingCoordinator(
             dev.bridgey.android.agents.AgentKinds.NOTIFY_POST, dev.bridgey.android.agents.AgentKinds.ASK_REQUEST,
             dev.bridgey.android.agents.AgentKinds.ASK_CANCEL, dev.bridgey.android.agents.AgentKinds.ASK_STATUS,
             dev.bridgey.android.agents.AgentKinds.CLIPBOARD_REQUEST, dev.bridgey.android.agents.AgentKinds.CODES_QUERY,
-            dev.bridgey.android.agents.AgentKinds.CODES_CANCEL,
+            dev.bridgey.android.agents.AgentKinds.CODES_CANCEL, dev.bridgey.android.agents.AgentKinds.CODES_DETECTED,
             -> receiveAgentMessage(current, message)
             dev.bridgey.android.agents.AgentKinds.CODES_FOUND, dev.bridgey.android.agents.AgentKinds.AGENTS_GRANT_SET ->
                 receiveMirrorMessage(current, message)
@@ -4590,7 +4590,18 @@ class PairingCoordinator(
             publish()
             return
         }
-        trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!, platform = current.invite?.platform)
+        // A device paired by invite is always an agent: the link never chooses how far it is trusted (H1). A first pairing
+        // over the tailnet starts the same way, whatever the device says it is, until the person trusts it as theirs.
+        // A new identity key counts as a first pairing, also under a device ID this phone already trusts (the ID is the
+        // other device's own choice).
+        val viaTailnet = current.tunnel == null && current.invite == null && trust.identityKey(current.remoteDeviceId) != current.remoteIdentityKey &&
+            current.remoteHost?.let { dev.bridgey.android.agents.isTailnetAddress(it) } == true
+        trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!,
+            platform = if (current.invite != null || viaTailnet) dev.bridgey.android.agents.AGENT_PLATFORM else null)
+        if (viaTailnet) {
+            trust.markTailnet(current.remoteDeviceId)
+            agents.paired(current.remoteDeviceId)
+        }
         // From here on only answers and agent messages go to an agent on this session.
         current.agent = isAgent(current.remoteDeviceId)
         // The core resets its back-off for this peer only once a session on the tunnel authenticated.
@@ -4746,6 +4757,14 @@ class PairingCoordinator(
         val received = decoded.features
         val drafts = decoded.drafts
         val deviceId = current.remoteDeviceId
+        if (!current.agent && dev.bridgey.android.agents.advertisesAgent(drafts)) {
+            // A server paired over the tailnet (not by invite) says what it is in its own authenticated map: from now on it
+            // is an agent here, with every grant off, exactly as one paired by invite (docs/mesh-and-codes.md, phase 2).
+            trust.save(deviceId, current.peerName, current.remoteIdentityKey ?: return fail(current, "Invalid feature state"), platform = dev.bridgey.android.agents.AGENT_PLATFORM)
+            current.agent = true
+            agents.paired(deviceId)
+            scope.launch { sendFeatureState(current) }
+        }
         current.peerFast = drafts[FILES_FAST_FEATURE_KEY] == true
         BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT fast transfers=${current.fastTransfers} peerKey=${current.peerFast} protocol2=${current.envelopeKey != null}")
         registry.update(deviceId) { state ->
@@ -4765,6 +4784,7 @@ class PairingCoordinator(
                 remoteSettingsSync = drafts[dev.bridgey.android.sync.SETTINGS_SYNC_FEATURE_KEY] == true,
                 remoteConnect = drafts[dev.bridgey.android.connect.CONNECT_FEATURE_KEY] == true,
                 remoteAgentsMirror = !current.agent && drafts[dev.bridgey.android.agents.AGENTS_MIRROR_FEATURE_KEY] == true,
+                remoteCodesDetect = current.agent && drafts[dev.bridgey.android.agents.CODES_DETECT_FEATURE_KEY] == true,
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
                 ringing = state.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
             )
@@ -5111,7 +5131,18 @@ class PairingCoordinator(
         override fun mirrorMacs(): List<String> =
             registry.connectedIds().filter { !isAgent(it) && registry.state(it)?.remoteAgentsMirror == true }
 
-        override fun codeReaders(): Int = mirrorMacs().count { registry.state(it)?.remoteSmsCodes == true }
+        override fun readerLinks(): List<dev.bridgey.android.agents.ReaderLink> {
+            val notified = broadcastTargets(BridgeyFeature.NOTIFICATIONS).mapTo(HashSet()) { it.remoteDeviceId }
+            return registry.connectedIds().map { id ->
+                val state = registry.state(id)
+                dev.bridgey.android.agents.ReaderLink(
+                    agent = isAgent(id), smsCodes = state?.remoteSmsCodes == true, notifiedHere = id in notified,
+                    mirror = state?.remoteAgentsMirror == true,
+                )
+            }
+        }
+
+        override fun canDetect(deviceId: String): Boolean = isAgent(deviceId) && registry.state(deviceId)?.remoteCodesDetect == true
 
         override fun deviceName(deviceId: String): String = trust.trustedDevices.value.firstOrNull { it.id == deviceId }?.name ?: "Agent"
 
@@ -5127,6 +5158,24 @@ class PairingCoordinator(
         }
 
         override fun stopRing(deviceId: String) = stopAgentRing(deviceId)
+    }
+
+    /** Paired over the tailnet and still restricted: its page offers Trust as my device. */
+    fun pairedOverTailnet(deviceId: String): Boolean = trust.pairedOverTailnet(deviceId)
+
+    /** Trust as my device (a device paired over the tailnet): it reconnects as an ordinary paired device. */
+    fun trustAsMyDevice(deviceId: String) {
+        trust.promote(deviceId)
+        registry.session(deviceId)?.let { it.dropReason = "trusted_as_device"; it.close() }
+        publish()
+    }
+
+    /**
+     * Detect codes (docs/mesh-and-codes.md): a text message from the default SMS app that is not hidden, a summary or a
+     * call. The hub decides whether an agent reads it (no Mac reading, some agent with Read codes) and which one.
+     */
+    fun offerSmsCodeCandidate(notificationId: String, title: String, applicationName: String, text: String, postedAt: Long) {
+        scope.launch { agents.smsCandidate(notificationId, title, applicationName, text, postedAt) }
     }
 
     /** Set by the application: an agent's grants changed (See battery: the battery goes out at once). */
@@ -6062,7 +6111,10 @@ private class AndroidTrustRegistry(context: Context) {
 
     fun save(deviceId: String, name: String, identityKey: String) = save(deviceId, name, identityKey, null)
 
-    /** [platform] when known at pairing (an invite's `p`); a later save without it keeps the stored one. */
+    /**
+     * [platform] when known at pairing: the agent platform for a device paired by invite (never the invite's own `p`);
+     * a later save without it keeps the stored one.
+     */
     fun save(deviceId: String, name: String, identityKey: String, platform: String?) {
         preferences.edit()
             .putString("peer.$deviceId.name", name)
@@ -6073,8 +6125,22 @@ private class AndroidTrustRegistry(context: Context) {
         mutableDevices.value = loadDevices()
     }
 
+    /** Paired over the tailnet: restricted (an agent, every grant off) until the person trusts it as their device. */
+    fun markTailnet(deviceId: String) {
+        preferences.edit().putBoolean("peer.$deviceId.tailnet", true).apply()
+    }
+
+    fun pairedOverTailnet(deviceId: String): Boolean = preferences.getBoolean("peer.$deviceId.tailnet", false)
+
+    /** Trust as my device: no longer an agent here; the next session is an ordinary paired device. */
+    fun promote(deviceId: String) {
+        preferences.edit().putString("peer.$deviceId.platform", "device").remove("peer.$deviceId.tailnet").apply()
+        mutableDevices.value = loadDevices()
+    }
+
     fun remove(deviceId: String) {
         preferences.edit()
+            .remove("peer.$deviceId.tailnet")
             .remove("peer.$deviceId.name")
             .remove("peer.$deviceId.identityKey")
             .remove("peer.$deviceId.protocol")

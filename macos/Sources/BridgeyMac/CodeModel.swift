@@ -46,6 +46,17 @@ struct CodeModelManifest: Codable, Equatable {
 
     static let maximumBytes: Int64 = 2_000_000_000
 
+    /// The only manifests this build uses, whole (file, size, hash, name and terms): the bundled one must be one, and a
+    /// manifest fetched online is offered only if it is one, so write access to the release alone cannot bring a new
+    /// model. A new model ships with a new build. The bridgey command pins the same file (rust/cli/src/detect.rs).
+    static let pinned: [CodeModelManifest] = [
+        CodeModelManifest(schema: 1, version: 1, name: "Gemma 3 270M, fine-tuned for codes (Q4_K_M)",
+                          url: "https://github.com/round-robin-solutions/bridgey/releases/download/models/bridgey-otp-v1.gguf",
+                          size: 253_115_744, sha256: "69fe14b205ecaebbd1fa5d167f48a25c687b493341ff92476ca163a2ea12390f",
+                          termsVersion: "gemma-2026-04-01+pup-2024-02-21+bridgey-1", licenceURL: "https://ai.google.dev/gemma/terms",
+                          prohibitedUseURL: "https://ai.google.dev/gemma/prohibited_use_policy"),
+    ]
+
     var fileName: String { "bridgey-otp-v\(version).gguf" }
 
     /// Nil unless the manifest is well formed and its model comes from `assetURLPrefix` over HTTPS.

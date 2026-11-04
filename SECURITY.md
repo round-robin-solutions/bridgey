@@ -214,3 +214,40 @@ Update all lets one device ask the devices connected to it to update themselves 
   one) or a distributed notification (any process on the Mac can post one). The request is "check
   now, then Update all" and names nothing to install, so it can do no more than clicking Update all
   in that user's own session; it still waits for anyone busy.
+
+## Bridgey by Round Robin edition: mesh pairing and Detect codes
+
+Design and threat table: `docs/mesh-and-codes.md` (sections 3.5, 4 and 7). The decisions that bind future work:
+
+- **A link never decides trust.** Invites stay `v: 1` and server-only: the phone and `bridgey` refuse an invite whose
+  `p` is not `cli`, and the phone stores every invite-paired device as `cli`, never with the invite's own field.
+  Invites for other device kinds will be `v: 2` with their own derivation labels and no `v: 1` fallback, the received
+  fragment hashed into the signed transcript (duplicate and unknown keys refused), the device kind taken from the
+  signed `pairing.confirm` from a fixed list, and `pairedBy: invite` stored apart from the platform so every
+  link-paired device, Macs included, starts with nothing granted and is labelled. Builds before that refuse `v: 2`.
+- **Detect codes** sends code text messages from the default SMS app, after the gate, to one server Rahul allowed on
+  the phone, only while no Mac reads codes for the phone and some server has Read codes on. The phone takes back one
+  answer per message, from that server, within 30 seconds, runs its own guard on it and names the service itself.
+  Only the phone can switch it (a Mac's request is refused). Text and codes are never logged or written on either
+  side; each read is in the phone's and the server's activity.
+- **The code model.** The Mac and `bridgey` use only a manifest pinned in the build (file, size, SHA-256, name and
+  terms); `bridgey` fetches no manifest, and the Mac offers an online manifest only if it is pinned, so a new model
+  needs a new build. `bridgey` downloads with `curl -q` (no `~/.curlrc`) and starts again when a resume is refused.
+- **A server's peers.** A release `bridgey` cannot join invites, so its only peers are devices that joined its own
+  invite and passed the code check: in practice the phone. It reads code candidates only from such a peer that has not
+  introduced itself as an agent in the current session. A custom client that joins the invite would be taken for a phone; accepted until
+  `v: 2` signs the device kind.
+
+## Bridgey by Round Robin edition: codes over cloud and pairing over the tailnet (phase 2)
+
+- **Codes over cloud on the phone** is off until the person turns on "Use cloud when no Mac is reading" after a consent
+  dialog that says the message text goes through Round Robin's relay to Cloudflare. Only text messages, never email
+  previews; only when no Mac reads codes, no server with Detect codes is connected, and a server has Read codes on.
+  At most 20 an hour, 3 seconds each, no redirects; the answer counts only if the strict guard finds it verbatim; a
+  failure does nothing. Each read is in the activity list without the text or the code.
+- **Pairing over the tailnet** is the normal protocol 2 first pairing over plain TCP (code on both ends, Allow pairing
+  on the receiving side). Tailnet discovery is advisory and never names a device or its kind. Any first pairing made over a
+  tailnet address starts restricted on the phone and the Mac (an agent with every grant off on the phone, every feature
+  off and every non-session message dropped on a Mac) until the person taps Trust as my device; a server stays
+  restricted whatever is chosen. `bridgey pair --allow` accepts only Tailscale's address ranges, three attempts a
+  minute, one pairing, ten minutes at most. Being on the tailnet grants nothing by itself.

@@ -15,6 +15,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("output", "text or json"),
     ("timeouts.connect", "how long a command waits for a route (10s)"),
     ("timeouts.ask", "how long ask waits by default (30m)"),
+    ("tcp_port", "the port bridgey pair --allow listens on (42458)"),
     ("daemon.idle_exit", "how long a background agent started by a command stays after its last use (10m); the service never exits"),
 ];
 
@@ -58,6 +59,7 @@ impl Config {
         }
         let value = match key {
             "udp_port" => Value::Integer(raw.parse::<u16>().map_err(|_| "udp_port is 0 to 65535")?.into()),
+            "tcp_port" => Value::Integer(raw.parse::<u16>().ok().filter(|p| *p > 0).ok_or("tcp_port is 1 to 65535")?.into()),
             "output" if raw != "text" && raw != "json" => return Err("output is text or json".into()),
             "timeouts.connect" | "timeouts.ask" | "daemon.idle_exit" => {
                 crate::time::parse_duration(raw)?;

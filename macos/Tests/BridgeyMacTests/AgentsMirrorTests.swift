@@ -278,13 +278,30 @@ final class AgentsMirrorTests: XCTestCase {
         XCTAssertEqual(AgentsText.state(AgentGrant(key: .codes, state: .on, window: .oneHour, expiresAt: ms - 1), now: now), "Off")
         XCTAssertEqual(AgentGrantKey.allCases.map(AgentsText.grantTitle), [
             "Send you files", "Set your clipboard", "Ask for your clipboard", "Send you notifications", "Ask you questions",
-            "Ring this phone", "See battery", "Read codes", "Read your notifications",
+            "Ring this phone", "See battery", "Read codes", "Detect codes", "Read your notifications",
         ], "rows in the wording table's order")
     }
 
+    /// Detect codes is shown, never changed from the Mac; a current Mac keeps the grant and its activity rows.
+    func testDetectCodesIsReadOnlyHereAndDecoded() throws {
+        XCTAssertNil(AgentsMirrorWire.grantSet(requestId: UUID().uuidString.lowercased(), deviceId: "agent-id", key: .codesDetect, on: true, window: .oneHour))
+        XCTAssertNil(AgentsMirrorWire.grantSet(requestId: UUID().uuidString.lowercased(), deviceId: "agent-id", key: .codesDetect, on: false, window: nil))
+        XCTAssertNotNil(AgentsMirrorWire.grantSet(requestId: UUID().uuidString.lowercased(), deviceId: "agent-id", key: .codes, on: false, window: nil))
+        let state: [String: Any] = ["version": 1, "agents": [[
+            "deviceId": "agent-id", "name": "Contabo Europe", "platform": "cli", "app": "bridgey 0.1.0", "os": "linux x86_64",
+            "pairedAt": 1_797_990_000_000, "online": true,
+            "grants": [["key": "codes_detect", "state": "on", "window": "today", "grantedAt": 1_798_000_000_000]],
+            "activity": [["at": 1_798_000_400_000, "action": "codes.detect", "outcome": "delivered", "detail": "Messages"]],
+        ]]]
+        let agents = try XCTUnwrap(AgentsMirrorWire.agentsState(try JSONSerialization.data(withJSONObject: state)))
+        XCTAssertEqual(agents.first?.grant(.codesDetect)?.state, .on)
+        XCTAssertEqual(agents.first?.activity.first?.action, "codes.detect")
+    }
+
     func testDraftKeysEndWithTheSixAgentKeysInOrder() {
-        XCTAssertEqual(Array(knownDraftFeatureKeys.suffix(7)), [
+        XCTAssertEqual(Array(knownDraftFeatureKeys.suffix(8)), [
             "email_codes_draft1", "agent_draft1", "notify_draft1", "ask_draft1", "clipboard_request_draft1", "agent_codes_draft1", "agents_mirror_draft1",
+            "codes_detect_draft1",
         ])
     }
 }

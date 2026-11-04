@@ -24,6 +24,8 @@
 "grant.battery.detail" = "Уровень и зарядка";
 "grant.codes" = "Читать коды";
 "grant.codes.detail" = "Одноразовые коды, которые Mac находит в сообщениях и почте";
+"grant.codes_detect" = "Находить коды";
+"grant.codes_detect.detail" = "Читает сообщения с кодами, когда ни один Mac их не читает";
 "grant.notifications" = "Читать ваши уведомления";
 "grant.notifications.detail" = "Пока недоступно";
 
@@ -59,6 +61,7 @@
 "activity.files.receive" = "Отправил вам файлы";
 "activity.codes.read" = "Прочитал код от %1$@";
 "activity.codes.read.any" = "Прочитал код";
+"activity.codes.detect" = "Прочитал сообщение с кодом";
 "activity.forget" = "Забыт";
 "activity.count" = "×%1$d";
 "activity.outcome.answered" = "Ответ: %1$@";

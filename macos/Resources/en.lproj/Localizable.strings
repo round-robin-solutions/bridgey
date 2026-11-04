@@ -55,6 +55,11 @@
 "devices.none.detail" = "Pair a device below. Both screens show a code; confirm it only if they match.";
 "devices.pair" = "Pair a new device";
 "devices.pair.detail" = "Open Bridgey on the phone, on the same Wi-Fi as this Mac. Both screens then show the same code.";
+"devices.pair.address" = "Pair by tailnet name or address";
+"devices.pair.address.detail" = "For a device on your tailnet. Tap Allow pairing there first.";
+"devices.pair.address.placeholder" = "work or 100.64.0.10";
+"devices.trustAsMine" = "Trust as my device";
+"devices.restricted.detail" = "Paired over your tailnet or a server: nothing is shared with it until you trust it.";
 "devices.pair.searching" = "Looking for devices on this network…";
 "devices.permissions.intro" = "What this Mac shares with %@.";
 "drop.detail" = "This window stays open while you switch to Finder.";
@@ -286,6 +291,7 @@
 "ring.connecting" = "Connecting";
 "ring.nearby" = "Nearby";
 "ring.new" = "New device";
+"ring.tailnet" = "On your tailnet";
 "ring.offline" = "Offline";
 "ring.private" = "Private";
 "ring.relay" = "Relay";

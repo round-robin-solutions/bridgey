@@ -33,6 +33,8 @@ data class DeviceLinkState(
     val remoteConnect: Boolean = false,
     /** The device advertised agents_mirror_draft1 (a Mac): it hears agents.state and may set grants. */
     val remoteAgentsMirror: Boolean = false,
+    /** An agent advertised codes_detect_draft1: it has the code model and reads codes.candidate. */
+    val remoteCodesDetect: Boolean = false,
     /** The session's tunnel route (Connect anywhere); null for a plain LAN session. */
     val connectRoute: dev.bridgey.android.connect.ConnectRoute? = null,
     val battery: RemoteBatteryStatus? = null,

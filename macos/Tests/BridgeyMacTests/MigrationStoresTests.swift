@@ -109,22 +109,49 @@ final class MigrationStoresTests: XCTestCase {
     private let prefix = "https://github.com/round-robin-solutions/bridgey/releases/download/"
 
     @MainActor
-    private func codeModelStore(_ models: URL) -> CodeModelStore {
+    private func codeModelStore(_ models: URL, pinned: [CodeModelManifest] = CodeModelManifest.pinned) -> CodeModelStore {
         CodeModelStore(files: CodeModelFiles(directory: models), transport: FakeModelTransport(data: Data()), bundledManifest: nil,
                        manifestURL: nil, assetURLPrefix: prefix, spaceQuery: { _ in 10_000_000_000 },
-                       makeRunner: { FakeRunner(output: "") })
+                       makeRunner: { FakeRunner(output: "") }, pinned: pinned)
     }
 
-    @MainActor
-    func testAnInstalledModelAndAPausedDownloadAreRestored() throws {
+    /// The fixtures' own models as pins: the installed v1 record and the paused v2 download (made-up hashes).
+    private func fixturePins() throws -> [CodeModelManifest] {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let installed = try decoder.decode(InstalledCodeModel.self, from: Data(contentsOf: F.url("models/installed.json")))
+        let download = try decoder.decode(CodeModelDownloadRecord.self, from: Data(contentsOf: F.url("models/download.json")))
+        let one = CodeModelManifest(schema: 1, version: installed.version, name: installed.name, url: prefix + "models/" + installed.fileName,
+                                    size: installed.size, sha256: installed.sha256, termsVersion: download.manifest.termsVersion,
+                                    licenceURL: download.manifest.licenceURL, prohibitedUseURL: download.manifest.prohibitedUseURL)
+        return [one, download.manifest]
+    }
+
+    private func installModelFixtures() throws -> URL {
         let models = directory.appendingPathComponent("Models", isDirectory: true)
         try FileManager.default.createDirectory(at: models, withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: F.url("models/installed.json"), to: models.appendingPathComponent("installed.json"))
         try FileManager.default.copyItem(at: F.url("models/download.json"), to: models.appendingPathComponent("download.json"))
         try Data(count: 4_096).write(to: models.appendingPathComponent("bridgey-otp-v1.gguf"))
         try Data(count: 1_000).write(to: models.appendingPathComponent("bridgey-otp-v2.gguf.part"))
+        return models
+    }
 
+    /// M3: records from an older build whose models this build does not pin restore nothing; the old file goes.
+    @MainActor
+    func testUnpinnedModelRecordsAreNotRestored() throws {
+        let models = try installModelFixtures()
         let store = codeModelStore(models)
+        XCTAssertFalse(store.isReady)
+        XCTAssertNil(store.modelPath)
+        XCTAssertNil(store.download)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: models.appendingPathComponent("bridgey-otp-v1.gguf").path))
+    }
+
+    @MainActor
+    func testAnInstalledModelAndAPausedDownloadAreRestored() throws {
+        let models = try installModelFixtures()
+        let store = codeModelStore(models, pinned: try fixturePins())
         XCTAssertTrue(store.isReady)
         XCTAssertEqual(store.installed?.version, 1)
         XCTAssertEqual(store.installed?.installedAt, ISO8601DateFormatter().date(from: "2026-10-26T09:00:00Z"))
