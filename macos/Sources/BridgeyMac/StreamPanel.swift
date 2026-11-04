@@ -1422,12 +1422,13 @@ struct BridgeyPanel: View {
     @ObservedObject var browserTab: BrowserTabReader
     @ObservedObject var camera: PhoneCamera
     @ObservedObject var phoneScreen: PhoneScreen
+    @ObservedObject var presentation: MenuBarPanelPresentation
     let onOpenSettings: () -> Void
-    @State private var clipboard = PasteboardPreview()
     @State private var now = Date()
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    init(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings, updater: AppUpdater, onOpenSettings: @escaping () -> Void) {
+    init(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings, updater: AppUpdater,
+         presentation: MenuBarPanelPresentation, onOpenSettings: @escaping () -> Void) {
         self.updater = updater
         self.discovery = discovery
         self.pairing = pairing
@@ -1439,6 +1440,7 @@ struct BridgeyPanel: View {
         browserTab = pairing.browserTab
         camera = pairing.camera
         phoneScreen = pairing.phoneScreen
+        self.presentation = presentation
         self.onOpenSettings = onOpenSettings
     }
 
@@ -1448,15 +1450,9 @@ struct BridgeyPanel: View {
                 StreamPanelView(model: model, actions: actions)
             }
         }
-        .onAppear {
-            pairing.refreshNotificationAuthorization()
-            activity.prune()
-            clipboard = PasteboardPreview.current()
-            now = Date()
-        }
-        .onReceive(ticker) { date in
-            let latest = PasteboardPreview.current(previous: clipboard)
-            if latest != clipboard { clipboard = latest }
+        .onChange(of: presentation.isPresented) { presented in if presented { now = Date() } }
+        .onReceive(presentation.isPresented ? ticker.eraseToAnyPublisher() : Empty<Date, Never>().eraseToAnyPublisher()) { date in
+            presentation.refreshClipboard()
             // A copied code counts down "Clears in 42 s" and a code's age ("40 s ago") moves while its card is up;
             // otherwise once a minute is enough. Only when a line would change, never per frame.
             let codesMoved = pairing.liveCodeCards.contains { card in
@@ -1504,8 +1500,8 @@ struct BridgeyPanel: View {
         model.showPreviews = settings.showActivityPreviews
         model.now = now
         model.available = Set(BridgeyFeature.allCases.filter { pairing.isFeatureAvailable($0) })
-        model.clipboardLine = clipboard.line
-        model.clipboardHidden = clipboard.hidden
+        model.clipboardLine = presentation.clipboard.line
+        model.clipboardHidden = presentation.clipboard.hidden
         // The first status that is set, in priority order. Kept as a typed list: one long `??` chain is too
         // slow for older Swift compilers to type-check.
         let fileStatus: String? = pairing.fileTransferActive ? nil : pairing.fileTransferStatus
