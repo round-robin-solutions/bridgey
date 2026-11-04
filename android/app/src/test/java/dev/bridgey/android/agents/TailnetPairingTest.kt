@@ -43,7 +43,7 @@ class TailnetPairingTest {
     @Test fun aTailnetPairingIsSavedRestricted() {
         val source = java.io.File(java.io.File(System.getProperty("bridgey.repoRoot") ?: "../.."),
             "android/app/src/main/java/dev/bridgey/android/PairingCoordinator.kt").readText()
-        assertTrue(source.contains("current.remoteHost?.let(dev.bridgey.android.agents::isTailnetAddress) == true"))
+        assertTrue(source.contains("current.remoteHost?.let { dev.bridgey.android.agents.isTailnetAddress(it) } == true"))
         assertTrue(source.contains("platform = if (current.invite != null || viaTailnet) dev.bridgey.android.agents.AGENT_PLATFORM else null"))
         assertTrue(source.contains("trust.markTailnet(current.remoteDeviceId)"))
     }

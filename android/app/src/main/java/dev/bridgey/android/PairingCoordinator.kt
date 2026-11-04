@@ -4593,7 +4593,7 @@ class PairingCoordinator(
         // A device paired by invite is always an agent: the link never chooses how far it is trusted (H1). A first pairing
         // over the tailnet starts the same way, whatever the device says it is, until the person trusts it as theirs.
         val viaTailnet = current.tunnel == null && current.invite == null && trust.identityKey(current.remoteDeviceId) == null &&
-            current.remoteHost?.let(dev.bridgey.android.agents::isTailnetAddress) == true
+            current.remoteHost?.let { dev.bridgey.android.agents.isTailnetAddress(it) } == true
         trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!,
             platform = if (current.invite != null || viaTailnet) dev.bridgey.android.agents.AGENT_PLATFORM else null)
         if (viaTailnet) {
