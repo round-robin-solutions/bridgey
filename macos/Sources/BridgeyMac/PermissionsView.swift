@@ -151,6 +151,7 @@ struct PermissionRow: View {
         }
         .padding(.vertical, 10)
         .frame(minHeight: 52)
+        .settingsSearchAnchor(status.permission.name)
         .overlay(alignment: .top) { if divider { Rectangle().fill(c.olv).frame(height: 1) } }
     }
 }

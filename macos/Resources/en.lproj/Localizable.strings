@@ -1673,3 +1673,13 @@
 "clipboard.status.off" = "Clipboard is turned off on %@";
 "clipboard.status.noAck" = "No delivery acknowledgement";
 "clipboard.status.missed" = "Not delivered to %@";
+
+/* Settings search */
+"settings.search" = "Search";
+"settings.search.label" = "Search settings";
+"settings.search.clear" = "Clear search";
+"settings.search.results" = "Search results";
+"settings.search.none" = "No results for “%@”";
+"settings.search.closest" = "Closest matches";
+"settings.search.checkUpdates" = "Check for updates";
+"settings.search.version" = "Version";

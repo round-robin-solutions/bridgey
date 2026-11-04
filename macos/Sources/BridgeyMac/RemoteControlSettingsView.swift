@@ -24,6 +24,7 @@ struct RemoteControlPane: View {
                         .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
                 }
             }
+            .settingsSearchSkip()
         }
         SettingsCard(footnote: L10n.text("remote.footnote", fallback: "Each phone needs its own permission, below, and Remote control turned on in Bridgey on the phone. Typing, keys and slides use a short list of keys; shortcuts such as Quit or Lock are never sent.")) {
             SettingsToggle(title: BridgeyFeature.remoteInput.title, subtitle: BridgeyFeature.remoteInput.subtitle, divider: false,
@@ -38,11 +39,13 @@ struct RemoteControlPane: View {
         SettingsCard(title: L10n.text("remote.devices", fallback: "Phones allowed to control this Mac")) {
             if model.trustedDevices.isEmpty {
                 SettingsRow(title: L10n.text("devices.none", fallback: "No paired devices yet"), divider: false) { EmptyView() }
+                    .settingsSearchSkip()
             }
             ForEach(Array(model.trustedDevices.enumerated()), id: \.element.id) { index, device in
                 RemoteControlGrantToggle(device: device, model: model, actions: actions, title: device.name, divider: index > 0)
             }
         }
+        .settingsSearchAnchor(L10n.text("remote.devices", fallback: "Phones allowed to control this Mac"))
         SettingsCard(title: PhoneScreenSettings.cardTitle, footnote: PhoneScreenSettings.footnote) {
             SettingsToggle(title: PhoneScreenSettings.switchTitle, subtitle: PhoneScreenSettings.switchDetail, divider: false,
                            synced: model.syncs(.featureScreen), isOn: model.phoneScreenEnabled, set: actions.setPhoneScreen)
@@ -64,6 +67,8 @@ struct RemoteControlPane: View {
                 }
             }
         }
+        .settingsSearchSkip()
+        .settingsSearchAnchor(L10n.text("remote.log", fallback: "Session log"))
         .confirmationDialog(L10n.text("remote.log.clear.title", fallback: "Clear the session log?"), isPresented: $confirmClear) {
             Button(L10n.text("action.clear", fallback: "Clear"), role: .destructive, action: actions.clearRemoteAudit)
         } message: {
