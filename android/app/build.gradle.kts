@@ -146,18 +146,29 @@ val connectNdkVersion = android.ndkVersion
 val buildConnectCore by tasks.registering(Exec::class) {
     description = "Builds libbridgey_connect.so with cargo-ndk"
     onlyIf { !connectCoreSkip }
-    val cargo = System.getenv("CARGO") ?: File(System.getProperty("user.home"), ".cargo/bin/cargo").takeIf { it.exists() }?.path ?: "cargo"
+    val toolHome = File(System.getProperty("user.home"))
+    val cargoHome = System.getenv("CARGO_HOME")?.takeIf { it.isNotBlank() }?.let(::File) ?: toolHome.resolve(".cargo")
+    val rustupHome = System.getenv("RUSTUP_HOME")?.takeIf { it.isNotBlank() }?.let(::File) ?: toolHome.resolve(".rustup")
+    val cargoBin = cargoHome.resolve("bin")
+    val cargo = System.getenv("CARGO") ?: cargoBin.resolve("cargo").takeIf { it.exists() }?.path ?: "cargo"
+    // A runner can isolate HOME while Java still identifies the preinstalled tool directory.
+    // Keep Cargo and Rustup together, honoring explicit tool homes in both execution paths.
+    val rustEnvironment = mapOf(
+        "CARGO_HOME" to cargoHome.path,
+        "RUSTUP_HOME" to rustupHome.path,
+        "PATH" to (cargoBin.path + File.pathSeparator + (System.getenv("PATH") ?: "")),
+    )
+    environment(rustEnvironment)
     workingDir = connectRustDir
     doFirst {
         environment("ANDROID_NDK_HOME", connectSdkDir.get().asFile.resolve("ndk/$connectNdkVersion").path)
         // A host without the toolchain (a fresh CI runner) gets it here instead of failing the build:
         // rustup, the Android targets and cargo-ndk, from scripts/rr/rust-toolchain.sh.
-        val cargoBin = File(System.getProperty("user.home"), ".cargo/bin")
         if (!cargoBin.resolve("cargo-ndk").exists()) {
             val setup = ProcessBuilder("sh", connectRustDir.resolveSibling("scripts/rr/rust-toolchain.sh").path, "android").inheritIO()
+            setup.environment().putAll(rustEnvironment)
             setup.environment()["ANDROID_HOME"] = connectSdkDir.get().asFile.path
             check(setup.start().waitFor() == 0) { "scripts/rr/rust-toolchain.sh android failed" }
-            commandLine(listOf(cargoBin.resolve("cargo").path) + commandLine.drop(1))
         }
     }
     commandLine(cargo, "ndk", "-t", "arm64-v8a", "-t", "x86_64", "-o", connectJniDir.get().asFile.path, "build", "--release", "--locked", "-p", "bridgey-connect", "--lib")
