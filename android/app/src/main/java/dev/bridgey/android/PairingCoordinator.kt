@@ -302,11 +302,11 @@ class PairingCoordinator(
     val callQuietPeerResults = mutableCallQuietPeerResults.asStateFlow()
     private val callQuietScheduler = dev.bridgey.android.media.AndroidCallMediaScheduler()
     private val callMediaPlatform = dev.bridgey.android.media.AndroidCallMediaPlatform(appContext)
-    private val callMediaController = dev.bridgey.android.media.CallMediaController(
+    private val callMediaController: dev.bridgey.android.media.CallMediaController = dev.bridgey.android.media.CallMediaController(
         callMediaPlatform, callQuietScheduler,
         onResult = { result -> mutableCallMediaResult.value = result; callQuietHub.effectsChanged(result) },
     )
-    private val callQuietHub = dev.bridgey.android.media.CallQuietHub(
+    private val callQuietHub: dev.bridgey.android.media.CallQuietHub = dev.bridgey.android.media.CallQuietHub(
         effects = callMediaController,
         scheduler = callQuietScheduler,
         now = SystemClock::elapsedRealtime,
