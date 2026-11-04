@@ -280,6 +280,13 @@ final class CallMediaController {
     }
 
     func release(reason: CallMediaReleaseReason) {
+        if reason != .callsEnded {
+            // A normal draft end may still have an acknowledgement pending behind a legacy
+            // barrier. Later loss revokes that old interval's eligibility too, not just this epoch.
+            for epoch in Array(releasedGenerations.keys) where releasedGenerations[epoch] == .restoreAndResume {
+                releasedGenerations[epoch] = .restoreSound
+            }
+        }
         calls.removeAll()
         forceSoundRelease = reason == .disabled
         finish(reason == .callsEnded ? policy.restoration : .restoreSound)
