@@ -809,6 +809,8 @@ async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<Str
     if std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty").is_err() {
         return Err(usage("bridgey pair needs a terminal: you confirm the code it shows (there is no way to skip that)"));
     }
+    let direct = to.is_some() || allow_ms.is_some();
+    let other = if direct { "the other device" } else { "the phone" };
     let mut conn = client::connect(&ctx.paths, true).await?;
     conn.send(&json!({"cmd": "pair", "args": {"name": name, "linkOnly": link_only, "join": join, "to": to, "allowMs": allow_ms}, "caller": audit::caller()})).await.map_err(|e| CliError::new("failed", e.to_string()))?;
     let (reader, mut writer) = conn.split();
@@ -821,6 +823,13 @@ async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<Str
         }
         let Ok(v) = serde_json::from_str::<Value>(line.trim_end()) else { continue };
         if let Some(r) = v.get("result") {
+            if direct {
+                let t = format!(
+                    "Paired over your tailnet with {}.\nA phone or Mac keeps this install restricted, every permission off, until someone chooses \"Trust as my device\" there.\n",
+                    session::printable(r["device"]["name"].as_str().unwrap_or("the other device"), 64)
+                );
+                return Ok((r.clone(), t));
+            }
             let t = format!(
                 "Paired with {} as \"{}\".\nEvery permission starts off. On the phone, choose what this device may do (Devices, {}, Permissions), then check with: bridgey grants\n",
                 r["device"]["name"].as_str().unwrap_or("the phone"),
@@ -853,7 +862,7 @@ async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<Str
                     use std::io::BufRead;
                     let Ok(tty) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty") else { return false };
                     let mut out = &tty;
-                    let _ = write!(out, "\nDoes the phone show {spaced}? [y/N] ");
+                    let _ = write!(out, "\nDoes {other} show {spaced}? [y/N] ");
                     let _ = out.flush();
                     let mut s = String::new();
                     let _ = std::io::BufReader::new(&tty).read_line(&mut s);
@@ -863,7 +872,7 @@ async fn pair(ctx: &Ctx, name: Option<String>, link_only: bool, join: Option<Str
                 .unwrap_or(false);
                 let _ = writer.write_all(format!("{}\n", json!({"confirm": answer, "code": code})).as_bytes()).await;
                 if answer {
-                    eprintln!("Confirmed here. Confirm on the phone too.");
+                    eprintln!("Confirmed here. Confirm on {other} too.");
                 }
             }
             Some("dialling") => eprintln!("Dialling {} ...", session::printable(v["address"].as_str().unwrap_or(""), 64)),
