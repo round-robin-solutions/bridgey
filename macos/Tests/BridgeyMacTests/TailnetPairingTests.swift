@@ -60,6 +60,7 @@ final class TailnetPairingTests: XCTestCase {
     }
 
     /// Every feature reads off for a server paired with this Mac, whatever the switches say.
+    @MainActor
     func testEverythingIsOffForAServer() {
         let settings = BridgeySettings()
         let id = UUID().uuidString.lowercased()
