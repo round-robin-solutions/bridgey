@@ -22,10 +22,8 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.telecom.InCallService
 import android.telecom.TelecomManager
-import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import android.util.Base64
-import androidx.annotation.RequiresApi
 import java.io.ByteArrayOutputStream
 import dev.bridgey.android.codes.EmailNotificationContent
 import dev.bridgey.android.codes.StyleMessage
@@ -44,7 +42,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingCallPosts = mutableMapOf<String, Runnable>()
     private val forwardedNotificationIds = mutableSetOf<String>()
-    private var telephonyCallback: TelephonyCallback? = null
+    private val phoneCallStateObserver = PhoneCallStateObserver(this, ::onPhoneCallStateChanged)
     private val callLifecycle = CallLifecycle(
         scheduler = { delayMs, task ->
             val runnable = Runnable(task)
@@ -473,7 +471,10 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     private fun currentTelephonyCallType(): String? {
         if (!isCallIntegrationEnabled()) return null
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) return null
-        return telephonyCallType(getSystemService(TelephonyManager::class.java).callState)
+        // The grant can be revoked between the permission check and this binder call.
+        return runCatching {
+            telephonyCallType(getSystemService(TelephonyManager::class.java).callState)
+        }.getOrNull()
     }
 
     private fun canControlSystemCalls(): Boolean =
@@ -507,23 +508,16 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     }.getOrDefault(false)
 
     private fun updateTelephonyCallback() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         unregisterTelephonyCallback()
         if (!isCallIntegrationEnabled()) return
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) return
-        val callback = BridgeyCallStateCallback()
         runCatching {
-            getSystemService(TelephonyManager::class.java).registerTelephonyCallback(mainExecutor, callback)
-            telephonyCallback = callback
+            phoneCallStateObserver.start()
         }.onFailure { BridgeyLogging.w(LogCategory.CALLS, "CALL phone-state listener registration failed", it) }
     }
 
     private fun unregisterTelephonyCallback() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-        telephonyCallback?.let { callback ->
-            runCatching { getSystemService(TelephonyManager::class.java).unregisterTelephonyCallback(callback) }
-        }
-        telephonyCallback = null
+        phoneCallStateObserver.stop()
     }
 
     private fun refreshActiveCallNotifications() {
@@ -593,16 +587,13 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.S)
-    private inner class BridgeyCallStateCallback : TelephonyCallback(), TelephonyCallback.CallStateListener {
-        override fun onCallStateChanged(state: Int) {
-            BridgeyLogging.d(LogCategory.CALLS, "CALL phone state=${telephonyCallType(state) ?: "idle"}")
-            callLifecycle.telephonyChanged(telephonyCallType(state))
-            when (state) {
-                TelephonyManager.CALL_STATE_RINGING,
-                TelephonyManager.CALL_STATE_OFFHOOK,
-                -> refreshActiveCallNotifications()
-            }
+    private fun onPhoneCallStateChanged(state: Int) {
+        BridgeyLogging.d(LogCategory.CALLS, "CALL phone state=${telephonyCallType(state) ?: "idle"}")
+        callLifecycle.telephonyChanged(telephonyCallType(state))
+        when (state) {
+            TelephonyManager.CALL_STATE_RINGING,
+            TelephonyManager.CALL_STATE_OFFHOOK,
+            -> refreshActiveCallNotifications()
         }
     }
 
