@@ -270,4 +270,41 @@ Phase 2 and 3 (designed, not built): `mesh_draft1`; invites with any `p`; `updat
 
 ## As built (phase 1, 2026-11-04)
 
-Filled in at the end of the branch; see the commit log of `rr/mesh-codes`.
+Phase 1 answers "what if all Macs are offline" with a server that detects codes. Built:
+
+| Part | Where |
+| --- | --- |
+| The shared reader, its vectors and the accuracy eval | `rust/codes` (`bridgey-codes`), `protocol/test-vectors/codes-reader-v1.json`, `examples/vectors.rs`, `examples/codes_eval.rs` |
+| Swift and Kotlin held to the Rust vectors | `CodeReaderVectorsTests.swift`, `CodeReaderVectorsTest.kt` |
+| Detect codes on the phone | `agents/CodeDetections.kt` (the rule, answer checks), `AgentHub.smsCandidate` and `codesDetected`, the grant and its words, `codes.result` `readers` |
+| Detect codes on a server | `rust/cli/src/detect.rs`, `daemon.rs` (`on_candidate`), `bridgey codes model status|download|remove`, a `bridgey doctor` line, feature `detect` |
+| Contract | `messages.json`, contract tables, `agent-v1.json` (`codesCandidate`, `codesDetected`), `protocol-v1.json` (draft list), wording table, en and ru strings |
+
+**Live test** (bridgey-api36 emulator with the signed release APK of this branch, installed over the agent-CLI build
+with `adb install -r`; a separate `meshtest` profile of this branch's `bridgey` on contabo-europe, paired by invite and
+given Read codes and Detect codes for today; the installed `bridgey` service and its pairing untouched):
+
+1. **No Mac running.** `bridgey --profile meshtest codes --wait 2m --json` was waiting; `adb emu sms send 57575 "Your HDFC
+   Bank OTP is 739204 ..."` posted at 00:30:28; the server read it at 00:30:30 (2 s, with the first model load) and the
+   wait returned `739204`, `readers: 1`. A second code, `G-551093`, came back as `551093` in about a second. A text
+   without a code never left the phone. The phone's Activity for the server shows "Read a code message · Messages" and
+   "Read the code from 57575"; the server's `bridgey audit` shows `codes.detect found` for each.
+2. **A Mac too.** A throwaway Mac instance of this branch (`make-test-instance.sh mesh 42611 --model`, own bundle ID,
+   folder and port) paired with the emulator, Codes from messages on, the model warmed up. The next code (`640318`)
+   was found by the Mac (`codes.found` sent once), the server received no candidate, and `bridgey codes` listed it once
+   (`via ["sms"]`, `readers: 2`). No duplicate.
+
+Found on the way: a Mac that has just been given its model outside the app reads the first code after the 2 second
+budget (Metal compiles its shaders on the first run), so that code shows plain and, with that Mac counted as reading,
+no server reads it either. The app warms the model up after its own download, so only test instances meet this.
+
+**Not built in phase 1, and why:**
+
+- The phone does not read codes itself yet: it was measured (section 3.4), not shipped, because the arm64 run gave one
+  wrong code on hard2 and the phone UI for the download needs Rahul's answer to question 3.
+- No new pairing kinds: Mac and Mac pairing on the local network already works; remote pairing for Macs, Mac grants
+  for servers and the mesh relays are phase 2 and 3 (sections 4 and 8). Phase 1's question needs none of them.
+- The Mac and the phone do not call the Rust reader yet; their copies are held to it by the shared vectors.
+- Servers get text messages only, not mail previews (question 2).
+- The release tarballs (`scripts/rr/cli/build-cli.sh`, musl with zig) do not carry the detector; a server builds it
+  with `--features detect` (agent-cli-setup.md section 6).
