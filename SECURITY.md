@@ -234,6 +234,6 @@ Design and threat table: `docs/mesh-and-codes.md` (sections 3.5, 4 and 7). The d
   terms); `bridgey` fetches no manifest, and the Mac offers an online manifest only if it is pinned, so a new model
   needs a new build. `bridgey` downloads with `curl -q` (no `~/.curlrc`) and starts again when a resume is refused.
 - **A server's peers.** A release `bridgey` cannot join invites, so its only peers are devices that joined its own
-  invite and passed the code check: in practice the phone. It reads code candidates only from such a peer that never
-  introduced itself as an agent. A custom client that joins the invite would be taken for a phone; accepted until
+  invite and passed the code check: in practice the phone. It reads code candidates only from such a peer that has not
+  introduced itself as an agent in the current session. A custom client that joins the invite would be taken for a phone; accepted until
   `v: 2` signs the device kind.

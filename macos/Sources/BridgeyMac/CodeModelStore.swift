@@ -341,8 +341,9 @@ final class CodeModelStore: ObservableObject {
         self.clock = clock
         let box = path
         engine = LocalCodeEngine(idleTimeout: idleTimeout, modelPath: { box.get() }, makeRunner: makeRunner)
-        manifest = bundledManifest?.isValid(assetURLPrefix: assetURLPrefix) == true ? bundledManifest : nil
-        bundled = manifest
+        let initial = bundledManifest?.isValid(assetURLPrefix: assetURLPrefix) == true ? bundledManifest : nil
+        bundled = initial
+        manifest = initial
         restore()
     }
 
@@ -380,8 +381,15 @@ final class CodeModelStore: ObservableObject {
         if let data = try? Data(contentsOf: files.installedRecord),
            let record = try? Self.decoder.decode(InstalledCodeModel.self, from: data),
            files.size(of: files.model(record.fileName)) == record.size {
-            installed = record
-            path.set(files.model(record.fileName).path)
+            if allowsInstalled(record) {
+                installed = record
+                path.set(files.model(record.fileName).path)
+            } else {
+                // A model this build does not pin (another version, hash or file): never loaded. It is removed, and the
+                // pinned model is offered for download as on a first run.
+                try? FileManager.default.removeItem(at: files.model(record.fileName))
+                try? FileManager.default.removeItem(at: files.installedRecord)
+            }
         }
         if let data = try? Data(contentsOf: files.downloadRecord),
            let record = try? Self.decoder.decode(CodeModelDownloadRecord.self, from: data),
@@ -671,6 +679,13 @@ final class CodeModelStore: ObservableObject {
         guard let result = try? await transport.fetch(manifestURL), result.0 == 200,
               let fetched = CodeModelManifest.parse(result.1, assetURLPrefix: assetURLPrefix), allows(fetched) else { return }
         manifest = CodeModelManifest.newest(manifest, fetched)
+    }
+
+    /// An installed model is used only if it is the file of a pinned or the bundled manifest (version, hash, size, name).
+    private func allowsInstalled(_ record: InstalledCodeModel) -> Bool {
+        (pinned + [bundled].compactMap { $0 }).contains {
+            $0.version == record.version && $0.sha256 == record.sha256 && $0.size == record.size && $0.fileName == record.fileName
+        }
     }
 
     /// Only a pinned manifest, or the bundled one, is ever downloaded.

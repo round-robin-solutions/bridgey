@@ -6083,7 +6083,10 @@ private class AndroidTrustRegistry(context: Context) {
 
     fun save(deviceId: String, name: String, identityKey: String) = save(deviceId, name, identityKey, null)
 
-    /** [platform] when known at pairing (an invite's `p`); a later save without it keeps the stored one. */
+    /**
+     * [platform] when known at pairing: the agent platform for a device paired by invite (never the invite's own `p`);
+     * a later save without it keeps the stored one.
+     */
     fun save(deviceId: String, name: String, identityKey: String, platform: String?) {
         preferences.edit()
             .putString("peer.$deviceId.name", name)

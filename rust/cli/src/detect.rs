@@ -23,9 +23,9 @@ pub const ASSET_PREFIX: &str = "https://github.com/round-robin-solutions/bridgey
 const BUNDLED_MANIFEST: &str = r#"{"schema":1,"version":1,"name":"Gemma 3 270M, fine-tuned for codes (Q4_K_M)","url":"https://github.com/round-robin-solutions/bridgey/releases/download/models/bridgey-otp-v1.gguf","size":253115744,"sha256":"69fe14b205ecaebbd1fa5d167f48a25c687b493341ff92476ca163a2ea12390f","termsVersion":"gemma-2026-04-01+pup-2024-02-21+bridgey-1","licenceURL":"https://ai.google.dev/gemma/terms","prohibitedUseURL":"https://ai.google.dev/gemma/prohibited_use_policy"}"#;
 const MAXIMUM_BYTES: u64 = 2_000_000_000;
 
-/// The only model files this build will use: (version, SHA-256, size). A manifest online can offer a newer version,
-/// but its file is used only if this build knows its hash, so write access to the release alone cannot swap the
-/// model. A new model ships with a new build.
+/// The only model files this build will use: (version, SHA-256, size). No manifest is fetched; the bundled one must be
+/// listed here, and an installed record is used only if it matches, so write access to the release alone cannot swap
+/// the model. A new model ships with a new build.
 pub const KNOWN_MODELS: &[(u64, &str, u64)] = &[(1, "69fe14b205ecaebbd1fa5d167f48a25c687b493341ff92476ca163a2ea12390f", 253_115_744)];
 
 /// How long one candidate may take on this install (the phone waits 30 seconds).

@@ -65,6 +65,33 @@ final class CodeModelTests: XCTestCase {
         XCTAssertEqual(store.manifest?.version, 1)
     }
 
+    /// M3: a model installed earlier is loaded only if this build pins it; otherwise it is removed and the pinned one offered.
+    @MainActor
+    func testAnInstalledModelThisBuildDoesNotPinIsRemoved() async throws {
+        let (one, shaOne) = payload(1_200_000)
+        let first = manifest(version: 1, size: Int64(one.count), sha256: shaOne)
+        let installing = store(FakeModelTransport(data: one), manifest: first)
+        installing.start()
+        await waitUntil { installing.installed != nil }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent(first.fileName).path))
+
+        // Same directory, a build whose bundled and pinned manifests name another file.
+        let other = manifest(version: 1, size: 1_300_000, sha256: String(repeating: "c", count: 64))
+        let restored = store(FakeModelTransport(data: Data()), manifest: other)
+        XCTAssertNil(restored.installed)
+        XCTAssertNil(restored.modelPath)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent(first.fileName).path), "the unpinned file is removed")
+        XCTAssertEqual(restored.manifest, other, "the pinned model is offered")
+
+        // The same build again keeps a model it does pin.
+        let (two, shaTwo) = payload(1_300_000)
+        let pinnedOne = manifest(version: 1, size: Int64(two.count), sha256: shaTwo)
+        let again = store(FakeModelTransport(data: two), manifest: pinnedOne)
+        again.start()
+        await waitUntil { again.installed != nil }
+        XCTAssertNotNil(store(FakeModelTransport(data: Data()), manifest: pinnedOne).installed)
+    }
+
     func testTheBundledManifestIsPinned() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Resources/otp-model.json")
         let parsed = try XCTUnwrap(CodeModelManifest.parse(Data(contentsOf: url), assetURLPrefix: prefix))
