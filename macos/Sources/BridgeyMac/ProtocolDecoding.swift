@@ -354,7 +354,7 @@ enum FeatureStateDecoding: Equatable {
 /// folders_receive_draft1 too, so both platforms decode the golden vectors alike, though only phones act on it.
 /// Update all (UpdateAllProtocol.swift) adds updates_draft1, then screen sharing screen_draft1, text messages sms_draft1
 /// settings sync settings_sync_draft1, fast transfers files_fast_draft1, codes from email email_codes_draft1 and
-/// the six agent device keys (last). Android has the same list in the same order.
+/// the six agent device keys, then codes_detect_draft1 (last). Android has the same list in the same order.
 let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, placesFeatureKey, smsCodesFeatureKey,
                              foldersReceiveFeatureKey, filesBrowseFeatureKey,
                              // Automation (v0.9). Connection health has no key (no wire change).
@@ -375,7 +375,9 @@ let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, places
                              // Agent devices (AgentsMirror.swift, docs/protocol.md "Draft: agent devices"), last. Only
                              // agents_mirror_draft1 means something between a phone and this Mac.
                              agentFeatureKey, agentNotifyFeatureKey, agentAskFeatureKey, agentClipboardRequestFeatureKey,
-                             agentCodesFeatureKey, agentsMirrorFeatureKey]
+                             agentCodesFeatureKey, agentsMirrorFeatureKey,
+                             // Detect codes (docs/mesh-and-codes.md), after the agent keys.
+                             codesDetectFeatureKey]
 
 func decodeFeatureState(_ plaintext: Data) -> FeatureStateDecoding {
     guard isStrictJSONObject(plaintext),

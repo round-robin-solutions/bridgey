@@ -424,6 +424,7 @@ private fun grantDetailText(grant: AgentGrant, folder: String): String = when (g
     AgentGrant.RING -> stringResource(R.string.agent_grant_ring_detail)
     AgentGrant.BATTERY -> stringResource(R.string.agent_grant_battery_detail)
     AgentGrant.CODES -> stringResource(R.string.agent_grant_codes_detail)
+    AgentGrant.CODES_DETECT -> stringResource(R.string.agent_grant_codes_detect_detail)
     AgentGrant.NOTIFICATIONS -> stringResource(R.string.agent_grant_notifications_detail)
 }
 
@@ -457,12 +458,12 @@ private fun grantIcon(grant: AgentGrant) = when (grant) {
     AgentGrant.ASK -> BridgeyIcons.Info
     AgentGrant.RING -> BridgeyIcons.Sensors
     AgentGrant.BATTERY -> BridgeyIcons.Battery5Bar
-    AgentGrant.CODES -> BridgeyIcons.Shield
+    AgentGrant.CODES, AgentGrant.CODES_DETECT -> BridgeyIcons.Shield
 }
 
 private fun grantTint(grant: AgentGrant) = when (grant) {
     AgentGrant.FILES, AgentGrant.BATTERY -> Tint.GREEN
-    AgentGrant.NOTIFY, AgentGrant.ASK, AgentGrant.CODES, AgentGrant.NOTIFICATIONS -> Tint.PURPLE
+    AgentGrant.NOTIFY, AgentGrant.ASK, AgentGrant.CODES, AgentGrant.CODES_DETECT, AgentGrant.NOTIFICATIONS -> Tint.PURPLE
     else -> Tint.BLUE
 }
 
@@ -475,7 +476,7 @@ private fun auditVisual(action: String) = when (action) {
     AuditAction.BATTERY -> BridgeyIcons.Battery5Bar to Tint.GREEN
     AuditAction.CLIPBOARD_SET, AuditAction.CLIPBOARD_REQUEST -> BridgeyIcons.ContentPaste to Tint.BLUE
     AuditAction.FILES_RECEIVE -> BridgeyIcons.Folder to Tint.GREEN
-    AuditAction.CODES_READ -> BridgeyIcons.Shield to Tint.PURPLE
+    AuditAction.CODES_READ, AuditAction.CODES_DETECT -> BridgeyIcons.Shield to Tint.PURPLE
     else -> BridgeyIcons.Info to Tint.NEUTRAL
 }
 
@@ -495,6 +496,7 @@ private fun auditTitle(action: String): String = when (action) {
     AuditAction.CLIPBOARD_REQUEST -> stringResource(R.string.agent_audit_clipboard_request)
     AuditAction.FILES_RECEIVE -> stringResource(R.string.agent_audit_files_receive)
     AuditAction.CODES_READ -> stringResource(R.string.agent_audit_codes_read)
+    AuditAction.CODES_DETECT -> stringResource(R.string.agent_audit_codes_detect)
     AuditAction.FORGET -> stringResource(R.string.agent_audit_forget)
     else -> action
 }

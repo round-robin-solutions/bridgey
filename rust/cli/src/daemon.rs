@@ -44,6 +44,8 @@ pub const OWN_FEATURES: &[(&str, bool)] = &[
     ("ask_draft1", true),
     ("clipboard_request_draft1", true),
     ("agent_codes_draft1", true),
+    // Detect codes: true only while this build has the model runner and a model is installed (detect.rs).
+    ("codes_detect_draft1", false),
 ];
 
 /// Grant name (as `bridgey grants` shows it) to the phone's feature key and the words the phone uses.
@@ -56,6 +58,7 @@ pub const GRANTS: &[(&str, &str, &str, &str)] = &[
     ("ring", "find_device", "Ring this phone", "Stops by itself after 60 seconds"),
     ("battery", "battery", "See battery", "Level and charging"),
     ("codes", "agent_codes_draft1", "Read codes", "One-time codes your Mac finds in messages and mail"),
+    ("codes_detect", "codes_detect_draft1", "Detect codes", "Reads your code messages when no Mac is reading"),
     ("notifications", "notifications", "Read your notifications", "Not available yet"),
 ];
 
@@ -143,7 +146,14 @@ struct St {
     rings: HashMap<String, String>,
     contributions: HashMap<String, [u8; 32]>,
     last_failure: HashMap<String, String>,
+    /// What the last features.update said about Detect codes.
+    detect_advertised: bool,
+    /// Candidates being read now (at most DETECT_IN_FLIGHT).
+    detecting: usize,
 }
+
+/// Code candidates read at once; more are answered `failed` with `busy`.
+const DETECT_IN_FLIGHT: usize = 4;
 
 pub struct Daemon {
     pub paths: Paths,
@@ -161,6 +171,7 @@ pub struct Daemon {
     last_used: Mutex<Instant>,
     pub clients: AtomicUsize,
     pub stop: Notify,
+    detector: std::sync::OnceLock<Arc<crate::detect::Detector>>,
 }
 
 pub struct WaitGuard<'a> {
@@ -245,6 +256,7 @@ impl Daemon {
             last_used: Mutex::new(Instant::now()),
             clients: AtomicUsize::new(0),
             stop: Notify::new(),
+            detector: std::sync::OnceLock::new(),
         });
         log(&format!("bridgey {VERSION} daemon started (profile {}, device {}, udp {}, {})", paths.profile, short(&daemon.local.device_id), daemon.node.udp_port(), if service { "service" } else { "on demand" }));
         daemon.sync_peers();
@@ -297,6 +309,9 @@ impl Daemon {
             }
         }
         let _ = std::fs::remove_file(&socket);
+        if let Some(detector) = daemon.detector.get() {
+            detector.shutdown();
+        }
         daemon.save_core_state();
         daemon.node.shutdown().await;
         drop(lock);
@@ -338,7 +353,66 @@ impl Daemon {
                 let extra = st.transfers.len() - 50;
                 st.transfers.drain(..extra);
             }
+            let detect = crate::detect::available(&self.paths);
+            if detect != st.detect_advertised {
+                // A model was downloaded or removed: every connected phone hears it now.
+                let handles: Vec<Handle> = st.sessions.values().map(|l| l.handle.clone()).collect();
+                drop(st);
+                let features = self.own_features();
+                for h in handles {
+                    h.send_json("features.update", &features);
+                }
+            }
         }
+    }
+
+    /// This install's features.update: the fixed map, with Detect codes as it stands now.
+    fn own_features(&self) -> Value {
+        let detect = crate::detect::available(&self.paths);
+        self.st.lock().unwrap().detect_advertised = detect;
+        let features: Map<String, Value> = OWN_FEATURES.iter().map(|(k, v)| (k.to_string(), Value::Bool(if *k == "codes_detect_draft1" { detect } else { *v }))).collect();
+        json!({"version": 1, "features": features})
+    }
+
+    /// `codes.candidate` from a phone that granted Detect codes: read it with the shared reader off the async threads,
+    /// answer `codes.detected`, and write one audit entry (phone, app, outcome; never the text or the code).
+    fn on_candidate(self: &Arc<Self>, peer: &str, handle: Handle, payload: Option<Value>) {
+        let granted = self.st.lock().unwrap().features.get(peer).and_then(|f| f.get("codes_detect_draft1")) == Some(&Value::Bool(true));
+        let Some(candidate) = payload.as_ref().and_then(crate::detect::decode_candidate) else { return };
+        let busy = {
+            let mut st = self.st.lock().unwrap();
+            let busy = st.detecting >= DETECT_IN_FLIGHT;
+            if !busy && granted {
+                st.detecting += 1;
+            }
+            busy
+        };
+        let record = |outcome: &str, d: &Daemon| {
+            crate::audit::record(&d.paths, json!({"at": now_ms(), "command": "codes.detect", "device": peer, "outcome": outcome, "detail": format!("{} {}", candidate.source, candidate.app)}));
+        };
+        if !granted || !crate::detect::available(&self.paths) {
+            // Not granted here (a stale map) or no model: say so, so the phone stops waiting.
+            let reason = if granted { bridgey_codes::Failure::ModelMissing } else { bridgey_codes::Failure::NotConfigured };
+            handle.send_json("codes.detected", &crate::detect::detected_payload(&candidate.id, &bridgey_codes::Outcome::Fallback(reason)));
+            record(reason.wire(), self);
+            return;
+        }
+        if busy {
+            handle.send_json("codes.detected", &json!({"version": 1, "candidateId": candidate.id, "outcome": "failed", "reason": "busy"}));
+            record("busy", self);
+            return;
+        }
+        let detector = self.detector.get_or_init(|| Arc::new(crate::detect::Detector::new(&self.paths))).clone();
+        let d = self.clone();
+        let peer = peer.to_string();
+        tokio::spawn(async move {
+            let c = candidate.clone();
+            let outcome = tokio::task::spawn_blocking(move || detector.read(&c)).await.unwrap_or(bridgey_codes::Outcome::Fallback(bridgey_codes::Failure::Unavailable));
+            d.st.lock().unwrap().detecting -= 1;
+            handle.send_json("codes.detected", &crate::detect::detected_payload(&candidate.id, &outcome));
+            crate::audit::record(&d.paths, json!({"at": now_ms(), "command": "codes.detect", "device": peer, "outcome": outcome.word(), "detail": format!("{} {}", candidate.source, candidate.app)}));
+            log(&format!("codes.detect from {}: {}", short(&peer), outcome.word()));
+        });
     }
 
     // region Core and sessions
@@ -490,8 +564,7 @@ impl Daemon {
                 st.last_failure.remove(&peer.device_id);
                 drop(st);
                 log(&format!("session with {} authenticated", short(&peer.device_id)));
-                let features: Map<String, Value> = OWN_FEATURES.iter().map(|(k, v)| (k.to_string(), Value::Bool(*v))).collect();
-                handle.send_json("features.update", &json!({"version": 1, "features": features}));
+                handle.send_json("features.update", &self.own_features());
                 handle.send_json("agent.hello", &json!({"version": 1, "platform": "cli", "app": format!("bridgey {VERSION}"), "os": format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)}));
                 self.sync_peers();
                 self.changed.notify_waiters();
@@ -615,6 +688,10 @@ impl Daemon {
                         self.changed.notify_waiters();
                     }
                 }
+                return;
+            }
+            "codes.candidate" => {
+                self.on_candidate(peer, handle, payload);
                 return;
             }
             "agent.grants" => {

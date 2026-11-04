@@ -160,6 +160,25 @@ class AgentVectorsTest {
         }
     }
 
+    @Test fun codesDetected() {
+        cases("codesDetected").forEach { case ->
+            val decoded = decodeCodesDetected(bytes(case))
+            if (rejects(case)) return@forEach assertNull(case.getString("name"), decoded)
+            val d = decoded ?: error("${case.getString("name")} was refused")
+            val actual = JSONObject().put("candidateId", d.candidateId).put("outcome", d.outcome.wire)
+                .apply { d.code?.let { put("code", it) }; d.reason?.let { put("reason", it) } }
+            assertEquals(case.getString("name"), plain(case.getJSONObject("expect")), plain(actual))
+        }
+    }
+
+    /** What this phone sends as codes.candidate is what the CLI decodes (the vectors' first case). */
+    @Test fun codesCandidateEncoding() {
+        val case = cases("codesCandidate").first()
+        val p = case.getJSONObject("plaintext")
+        val payload = codesCandidatePayload(p.getString("candidateId"), CodeSource.SMS, p.getString("app"), p.getString("sender"), p.getString("text"), p.getLong("postedAt"))
+        assertJson(p, payload, case.getString("name"))
+    }
+
     @Test fun agentsGrantSet() {
         cases("agentsGrantSet").forEach { case ->
             val decoded = decodeAgentsGrantSet(bytes(case))

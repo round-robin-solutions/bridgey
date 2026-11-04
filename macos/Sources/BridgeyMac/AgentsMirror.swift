@@ -19,6 +19,8 @@ let agentClipboardRequestFeatureKey = "clipboard_request_draft1"
 let agentCodesFeatureKey = "agent_codes_draft1"
 /// The phone and this Mac set it for each other whenever both support it: agents.*, codes.found, codes.read.
 let agentsMirrorFeatureKey = "agents_mirror_draft1"
+/// Detect codes (docs/mesh-and-codes.md): between the phone and its agents only; the Mac reads it and shows the grant.
+let codesDetectFeatureKey = "codes_detect_draft1"
 
 // MARK: - Grants
 
@@ -26,7 +28,9 @@ let agentsMirrorFeatureKey = "agents_mirror_draft1"
 enum AgentGrantKey: String, CaseIterable, Codable, Equatable {
     case files, clipboard
     case clipboardRequest = "clipboard_request"
-    case notify, ask, ring, battery, codes, notifications
+    case notify, ask, ring, battery, codes
+    case codesDetect = "codes_detect"
+    case notifications
 
     /// Read your notifications is not available in this version: always off, never granted.
     var grantable: Bool { self != .notifications }
@@ -73,7 +77,7 @@ struct AgentGrant: Codable, Equatable {
 struct AgentActivityEntry: Codable, Equatable {
     static let actions: Set<String> = [
         "pair", "grant.change", "grant.request", "grant.expired", "notify", "ask", "answer", "ring", "ping", "battery",
-        "clipboard.set", "clipboard.request", "files.receive", "codes.read", "forget",
+        "clipboard.set", "clipboard.request", "files.receive", "codes.read", "codes.detect", "forget",
     ]
 
     let at: Int64

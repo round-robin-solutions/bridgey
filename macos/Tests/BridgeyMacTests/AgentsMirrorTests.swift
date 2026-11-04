@@ -278,13 +278,14 @@ final class AgentsMirrorTests: XCTestCase {
         XCTAssertEqual(AgentsText.state(AgentGrant(key: .codes, state: .on, window: .oneHour, expiresAt: ms - 1), now: now), "Off")
         XCTAssertEqual(AgentGrantKey.allCases.map(AgentsText.grantTitle), [
             "Send you files", "Set your clipboard", "Ask for your clipboard", "Send you notifications", "Ask you questions",
-            "Ring this phone", "See battery", "Read codes", "Read your notifications",
+            "Ring this phone", "See battery", "Read codes", "Detect codes", "Read your notifications",
         ], "rows in the wording table's order")
     }
 
     func testDraftKeysEndWithTheSixAgentKeysInOrder() {
-        XCTAssertEqual(Array(knownDraftFeatureKeys.suffix(7)), [
+        XCTAssertEqual(Array(knownDraftFeatureKeys.suffix(8)), [
             "email_codes_draft1", "agent_draft1", "notify_draft1", "ask_draft1", "clipboard_request_draft1", "agent_codes_draft1", "agents_mirror_draft1",
+            "codes_detect_draft1",
         ])
     }
 }

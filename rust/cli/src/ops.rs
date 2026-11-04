@@ -580,7 +580,7 @@ impl Daemon {
             let p = r.payload.unwrap_or(Value::Null);
             let readers = p["readers"].as_u64().unwrap_or(0);
             if first && readers == 0 {
-                out.event(json!({"event": "warning", "message": format!("No Mac is reading codes for {} right now (asleep, away or Codes from messages off). New codes will not show until one is back.", peer.name)})).await;
+                out.event(json!({"event": "warning", "message": format!("Nothing is reading codes for {} right now: no Mac is awake with Codes from messages on, and no server with Detect codes is connected. New codes will not show until one is.", peer.name)})).await;
             }
             first = false;
             let codes = p["codes"].as_array().cloned().unwrap_or_default();

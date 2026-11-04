@@ -21,6 +21,7 @@ object AuditAction {
     const val CLIPBOARD_REQUEST = "clipboard.request"
     const val FILES_RECEIVE = "files.receive"
     const val CODES_READ = "codes.read"
+    const val CODES_DETECT = "codes.detect"
     const val FORGET = "forget"
 }
 

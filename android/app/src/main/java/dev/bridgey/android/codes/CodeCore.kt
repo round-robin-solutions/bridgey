@@ -148,6 +148,70 @@ fun looksLikeCodeText(text: String): Boolean {
     return looksLikeOtpTraffic(joined) || ALNUM_SPLIT.containsMatchIn(joined)
 }
 
+/** Links, as the guard blanks them (the Mac's and the Rust reader's `code_guard_text`). */
+private val CODE_URL = Regex("(?:https?://|www\\.)[^\\s<>\"]+|(?<![0-9A-Za-z@.])[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*\\.[A-Za-z]{2,}/[^\\s<>\"]*")
+private val CODE_COPYRIGHT = Regex("(?:\u00A9|\\(c\\)|copyright)\\s*(?:[0-9]{4}\\s*[-,]\\s*)?[0-9]{4}", RegexOption.IGNORE_CASE)
+
+/**
+ * Links and copyright years replaced by spaces of the same length, so a code found only in a link or in "(c) 2026"
+ * is refused by [CodeGuard]. The same rule as the shared reader (rust/codes, protocol/test-vectors/codes-reader-v1.json).
+ */
+fun codeGuardText(text: String): String {
+    val blank: (MatchResult) -> CharSequence = { " ".repeat(it.value.length) }
+    return CODE_COPYRIGHT.replace(CODE_URL.replace(text, blank), blank)
+}
+
+/** The longest text a code candidate carries (UTF-16 units, as the Mac and the relay count). Never cut. */
+const val CODE_TEXT_MAX = 600
+
+/**
+ * The text an agent with Detect codes reads for a text message, or null when it is not a code candidate: trimmed,
+ * at most 600 UTF-16 units, digit boxes joined, and passing the shared gate. The same rule as the Mac's
+ * `codeCandidate` for SMS and the Rust reader's `code_candidate`.
+ */
+fun smsCandidateText(text: String): String? {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty() || trimmed.length > CODE_TEXT_MAX) return null
+    val joined = joinCodeDigitBoxes(trimmed)
+    return joined.takeIf(::looksLikeCodeText)
+}
+
+private val SERVICE_NOISE = listOf(
+    "do not reply", "no-reply", "noreply", "notifications", "notification", "verification", "accounts", "account", "security", "support",
+    "alerts", "alert", "team", "info", "mail", "the", "via",
+).map { Regex("(?<![\\p{L}\\p{N}])" + Regex.escape(it) + "(?![\\p{L}\\p{N}])") }
+
+private fun isNumber(codePoint: Int): Boolean = when (Character.getType(codePoint).toByte()) {
+    Character.DECIMAL_DIGIT_NUMBER, Character.LETTER_NUMBER, Character.OTHER_NUMBER -> true
+    else -> false
+}
+
+/**
+ * The sender reduced to a key for "same service" (the Mac's and the Rust reader's `code_service_key`): lowercase, a DLT
+ * header ("AX-HDFCBK-S") cut to its sender part, noise words removed, letters and digits only; "" for a number.
+ */
+fun codeServiceKey(sender: String): String {
+    var value = sender.trim().lowercase()
+    value = value.replaceFirst(Regex("^[a-z]{2}-"), "").replaceFirst(Regex("-[a-z]$"), "")
+    SERVICE_NOISE.forEach { value = it.replace(value, " ") }
+    val kept = value.codePoints().filter { Character.isAlphabetic(it) || isNumber(it) }.toArray()
+    val key = String(kept, 0, kept.size)
+    return if (kept.all(::isNumber)) "" else key
+}
+
+/** The broker's key for a code (codes.found `serviceKey`): the service key, or the sender lowercased for a bare number. */
+fun brokerServiceKey(sender: String): String {
+    val key = codeServiceKey(sender).ifEmpty { sender.trim().lowercase() }
+    val points = key.codePoints().limit(64).toArray()
+    return String(points, 0, points.size)
+}
+
+/** The name a code card shows: the notification title, else the app's name ("2 new messages" is a summary). */
+fun codeSender(title: String, applicationName: String): String {
+    val trimmed = title.trim()
+    return if (trimmed.isEmpty() || Regex("^\\d+ new", RegexOption.IGNORE_CASE).containsMatchIn(trimmed)) applicationName else trimmed
+}
+
 /**
  * Comparison only (Code reader test): a context-word pattern matcher in the spirit of Android's own
  * detector. Rahul does not want it to decide, and it never shows a code.

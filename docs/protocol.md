@@ -112,7 +112,7 @@ compatibility; the later `calls`, `ping`, `links`, and `media` features are disa
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
 `sms_codes_draft1`, `email_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`, `updates_draft1`,
 `screen_draft1`, `connect_draft1`, `files_fast_draft1`, and for agent devices `agent_draft1`, `notify_draft1`,
-`ask_draft1`, `clipboard_request_draft1`, `agent_codes_draft1` and `agents_mirror_draft1`)
+`ask_draft1`, `clipboard_request_draft1`, `agent_codes_draft1`, `agents_mirror_draft1` and `codes_detect_draft1`)
 are optional booleans described in their own sections; a missing draft key means `false`.
 
 ## Pairing flow
@@ -1812,6 +1812,7 @@ The phone stores the new device with platform `cli` (from the invite's `p`) and 
 | `clipboard_request_draft1` | the agent; the phone, while Clipboard request is granted | `clipboard.request` |
 | `agent_codes_draft1` | the agent; the phone, while Codes is granted | `codes.query` |
 | `agents_mirror_draft1` | the phone and the Mac, to each other, whenever both support it | `agents.*`, `codes.found`, `codes.read` |
+| `codes_detect_draft1` | the agent, while it has the code model runner and a model; the phone, while Detect codes is granted | `codes.candidate`, `codes.detected` ([Detect codes](#detect-codes-codes_detect_draft1)) |
 
 An agent's own map lists what it can do. The phone's map to an agent lists what Rahul granted: the
 original keys `clipboard` (Set your clipboard), `files`, `battery`, `find_device` (which also covers
@@ -1831,7 +1832,8 @@ and `agent.*` messages.
 | `ask` | `ask_draft1` | Ask you questions | `ask.*` in the "Agent questions" channel |
 | `ring` | `find_device` | Ring this phone | `find.start`, `find.stop`, `ping.request` |
 | `battery` | `battery` | See battery | receive `battery.update` |
-| `codes` | `agent_codes_draft1` | Read codes | `codes.query`: one-time codes your Macs found in your messages and mail |
+| `codes` | `agent_codes_draft1` | Read codes | `codes.query`: one-time codes your Macs (or an agent with Detect codes) found in your messages and mail |
+| `codes_detect` | `codes_detect_draft1` | Detect codes | receive `codes.candidate`: your code text messages when no Mac reads codes |
 | `notifications` | `notifications` | Read your notifications | not available in this version; always off |
 
 Each grant has a **window**: `1h` (for 1 hour), `today` (until midnight on the phone), `7d` (7 days)
@@ -1919,12 +1921,40 @@ logs on any side.
   ahead of the phone's clock (clock skew).
 - The golden `features.update` vectors (protocol-v1.json, `drafts_none`) list the six agent keys too.
 
+### Detect codes (`codes_detect_draft1`)
+
+Status: **draft, edition-only, phase 1** (2026-11-04). Design, the rule and the threat model:
+[mesh-and-codes.md](mesh-and-codes.md). An agent with the code model (the `bridgey-codes` crate, the same model,
+prompt and guard as the Mac) reads code text messages for the phone when no Mac does.
+
+| Message | Direction | Payload (besides `version`) |
+| --- | --- | --- |
+| `codes.candidate` | phone to agent | `candidateId`, `source` (`sms`; `email` is designed, not sent), `app` (`messages`), `sender` (at most 64 characters: the notification title, else the app's name), `text` (1 to 600 UTF-16 units: the text with digit boxes joined, which passed the gate), `postedAt`. At most 4 KiB |
+| `codes.detected` | agent to phone | `candidateId`, `outcome` (`found`, `none` or `failed`), `code` (4 to 12 letters or digits, with `found` only), `reason` (at most 32, with `failed` only: `model_missing`, `not_configured`, `timeout`, `unavailable`, `invalid_response`, `busy`). At most 512 B |
+
+- **When the phone sends one.** For a notification from the default SMS app that is not hidden, not a summary and
+  not a call, and whose text passes the shared gate: only while some agent has Read codes on, no connected Mac reads
+  codes for this phone (`codes.result` `readers` counted Macs), and a connected agent advertised the key with
+  Detect codes on. It goes to exactly one agent, the lowest device ID, at most 60 an hour per agent and 20 waiting
+  in all. The same notification with the same text is sent once in two minutes.
+- **What the phone takes back.** One `codes.detected` per candidate, from the agent it went to, within 30 seconds,
+  while Detect codes is still on. For `found`, the phone runs its own guard on the code against the text it sent
+  (links and copyright years blanked); a refused code is logged as `codes.detect` `invalid` and dropped. The service
+  is the phone's (`sender`, its service key, or the sender lowercased for a number); the agent cannot name one. The
+  code then joins the broker like a Mac's `codes.found` (`via` `sms`).
+- **The agent.** Reads with the shared reader on its own thread (at most 4 at once, `busy` beyond), budget 10
+  seconds, and answers; it never stores or logs the text or the code. A candidate without the grant in its latest
+  map, or without a model, is answered `failed` (`not_configured` or `model_missing`).
+- **Audit.** The phone writes `codes.detect` `delivered` with the app's name for each candidate it sends ("Read a code
+  message"); the agent writes `codes.detect` with the outcome and the app in its own log.
+- **Readers.** `codes.result` `readers` counts connected Macs reading codes and connected agents with Detect codes on.
+
 ### Audit
 
 The phone keeps an activity list per agent device: at most 2,000 entries or 90 days, in an owner-only
 file excluded from backups and diagnostics, exportable as JSON and clearable. An entry is `at`,
 `action` (`pair`, `grant.change`, `grant.request`, `grant.expired`, `notify`, `ask`, `answer`, `ring`,
-`ping`, `battery`, `clipboard.set`, `clipboard.request`, `files.receive`, `codes.read`, `forget`),
+`ping`, `battery`, `clipboard.set`, `clipboard.request`, `files.receive`, `codes.read`, `codes.detect`, `forget`),
 `outcome` (`ok`, `delivered`, `answered:<option>`, `declined`, `dismissed`, `expired`, `rate_limited`,
 `not_granted`, `invalid`) and optional `detail`: the title for notify and ask (at most 120 characters),
 file names and total size for files, the service and count for codes, the grant and window for grant

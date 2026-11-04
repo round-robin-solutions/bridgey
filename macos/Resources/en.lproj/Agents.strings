@@ -26,6 +26,8 @@
 "grant.battery.detail" = "Level and charging";
 "grant.codes" = "Read codes";
 "grant.codes.detail" = "One-time codes your Mac finds in messages and mail";
+"grant.codes_detect" = "Detect codes";
+"grant.codes_detect.detail" = "Reads your code messages when no Mac is reading";
 "grant.notifications" = "Read your notifications";
 "grant.notifications.detail" = "Not available yet";
 
@@ -61,6 +63,7 @@
 "activity.files.receive" = "Sent you files";
 "activity.codes.read" = "Read the code from %1$@";
 "activity.codes.read.any" = "Read a code";
+"activity.codes.detect" = "Read a code message";
 "activity.forget" = "Forgotten";
 "activity.count" = "×%1$d";
 "activity.outcome.answered" = "Answered: %1$@";

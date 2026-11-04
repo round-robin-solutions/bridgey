@@ -5,7 +5,8 @@ something, ring the phone, read its battery, read one-time codes, send files. Ea
 paired device, and the phone gives it nothing until you switch each permission on.
 
 What you need: Bridgey by Round Robin on the phone with **Connect away from home** on (it is on by
-default), and for codes, the Mac app with **Codes from messages** on.
+default), and for codes, the Mac app with **Codes from messages** on, or a server that detects codes
+(section 6) for when no Mac is awake.
 
 ## 1. Install
 
@@ -103,6 +104,26 @@ bridgey ring
 ```
 
 Add `--json` to any command for one JSON object; exit codes are in [agent-cli.md](agent-cli.md#5-exit-codes).
+
+## 6. Detect codes (optional)
+
+A server can read one-time codes for the phone when no Mac is reading, with the same model, prompt and
+guard as the Mac ([mesh-and-codes.md](mesh-and-codes.md)). It needs about 300 MB of memory while a code
+is being read (the model unloads after 15 idle minutes) and 253 MB on disk.
+
+1. A build with the model runner. The release tarballs do not carry it yet; on the server:
+   `cargo build --release -p bridgey-cli --features detect` in `rust/` (needs cmake, a C++ compiler and
+   libclang; on hosts where bindgen cannot find `stdbool.h`, set
+   `BINDGEN_EXTRA_CLANG_ARGS=-I/usr/lib/gcc/x86_64-linux-gnu/<version>/include`).
+2. The model: `bridgey codes model download --accept-terms`. Without `--accept-terms` it prints the
+   Gemma terms it asks you to accept. The file is checked against its SHA-256 before it is used.
+   `bridgey codes model status` and `bridgey doctor` show where it stands; `bridgey codes model remove`
+   stops it at once.
+3. On the phone, open the server in Devices and switch **Detect codes** on, with a window. Within 30
+   seconds the server says it can detect (the phone's map shows it), and from then on, while no Mac
+   reads codes and some server has **Read codes** on, the phone sends this server each code text
+   message, one at a time. Both sides log each one (`bridgey audit` shows `codes.detect`); the text is
+   never stored or logged.
 
 ## Troubleshooting
 

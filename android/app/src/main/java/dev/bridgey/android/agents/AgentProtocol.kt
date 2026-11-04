@@ -19,6 +19,9 @@ const val CLIPBOARD_REQUEST_FEATURE_KEY = "clipboard_request_draft1"
 const val AGENT_CODES_FEATURE_KEY = "agent_codes_draft1"
 const val AGENTS_MIRROR_FEATURE_KEY = "agents_mirror_draft1"
 
+/** Detect codes (docs/mesh-and-codes.md): an agent that can run the code model; the phone, while the grant is on. */
+const val CODES_DETECT_FEATURE_KEY = "codes_detect_draft1"
+
 /** The platform an agent device pairs with (the invite's `p`, agent.hello's `platform`). */
 const val AGENT_PLATFORM = "cli"
 
@@ -47,12 +50,15 @@ object AgentKinds {
     const val CODES_READ = "codes.read"
     const val AGENTS_STATE = "agents.state"
     const val AGENTS_GRANT_SET = "agents.grant_set"
+    const val CODES_CANDIDATE = "codes.candidate"
+    const val CODES_DETECTED = "codes.detected"
 }
 
 /** The agent kinds an agent sends to the phone; the phone's agent handler reads only these from an agent. */
 internal val AGENT_TO_PHONE_KINDS = setOf(
     AgentKinds.HELLO, AgentKinds.GRANT_REQUEST, AgentKinds.NOTIFY_POST, AgentKinds.ASK_REQUEST, AgentKinds.ASK_CANCEL,
     AgentKinds.ASK_STATUS, AgentKinds.CLIPBOARD_REQUEST, AgentKinds.CODES_QUERY, AgentKinds.CODES_CANCEL,
+    AgentKinds.CODES_DETECTED,
 )
 
 /** The mirror kinds a Mac sends to the phone. */
@@ -87,7 +93,7 @@ private val PHONE_TO_AGENT_KINDS = setOf(
     "connect.setup", "connect.setup.ack", "connect.addresses",
     AgentKinds.GRANTS, AgentKinds.REQUEST_RESULT, AgentKinds.NOTIFY_RESULT, AgentKinds.ASK_POSTED, AgentKinds.ASK_ANSWER,
     AgentKinds.ASK_DISMISSED, AgentKinds.ASK_EXPIRED, AgentKinds.ASK_CANCELLED, AgentKinds.CLIPBOARD_RESPONSE,
-    AgentKinds.CODES_RESULT,
+    AgentKinds.CODES_RESULT, AgentKinds.CODES_CANDIDATE,
     "clipboard.ack", "find.started", "find.stopped", "ping.ack", "battery.update",
     "files.accept", "files.rejected", "files.chunk.ack", "files.complete.ack", "files.cancel", "files.cancel.ack",
 )
@@ -113,6 +119,9 @@ enum class AgentGrant(val key: String, val wireKey: String) {
     RING("ring", "find_device"),
     BATTERY("battery", "battery"),
     CODES("codes", AGENT_CODES_FEATURE_KEY),
+
+    /** Detect codes: this phone sends the agent its code text messages when no Mac reads them. Never in a preset. */
+    CODES_DETECT("codes_detect", CODES_DETECT_FEATURE_KEY),
 
     /** Not available in this version: always off, never grantable. */
     NOTIFICATIONS("notifications", "notifications"),
@@ -527,3 +536,48 @@ internal val AGENT_REQUEST_KINDS = setOf(
     AgentKinds.GRANT_REQUEST, AgentKinds.NOTIFY_POST, AgentKinds.ASK_REQUEST, "clipboard.update", "clipboard.rich",
     AgentKinds.CLIPBOARD_REQUEST, "find.start", "ping.request", "files.offer", AgentKinds.CODES_QUERY, AgentKinds.ASK_STATUS,
 )
+
+// MARK: Detect codes (codes_detect_draft1, docs/mesh-and-codes.md)
+
+/** What an agent with Detect codes found in one candidate. [code] only with [CodesDetectedOutcome.FOUND]. */
+data class CodesDetected(val candidateId: String, val outcome: CodesDetectedOutcome, val code: String?, val reason: String?)
+
+enum class CodesDetectedOutcome(val wire: String) {
+    FOUND("found"),
+    NONE("none"),
+    FAILED("failed"),
+    ;
+
+    companion object {
+        fun of(wire: String?): CodesDetectedOutcome? = entries.firstOrNull { it.wire == wire }
+    }
+}
+
+private val DETECTED_CODE = Regex("^[A-Za-z0-9]{4,12}$")
+
+fun decodeCodesDetected(plaintext: ByteArray): CodesDetected? {
+    val payload = agentPayload(plaintext, 512) ?: return null
+    val candidateId = (payload.opt("candidateId") as? String)?.takeIf(::isUuid) ?: return null
+    val outcome = CodesDetectedOutcome.of(payload.opt("outcome") as? String) ?: return null
+    val code = when (val value = payload.opt("code")) {
+        null, JSONObject.NULL -> null
+        is String -> value.takeIf(DETECTED_CODE::matches) ?: return null
+        else -> return null
+    }
+    if ((outcome == CodesDetectedOutcome.FOUND) != (code != null)) return null
+    val reason = payload.text("reason", 32, optional = true)
+    if (!reason.ok) return null
+    return CodesDetected(candidateId, outcome, code, reason.value?.takeIf { outcome == CodesDetectedOutcome.FAILED })
+}
+
+/** codes.candidate: one text message for an agent with Detect codes to read (the text already joined and gated). */
+fun codesCandidatePayload(candidateId: String, source: CodeSource, app: String, sender: String, text: String, postedAt: Long): ByteArray = JSONObject()
+    .put("version", 1)
+    .put("candidateId", candidateId)
+    .put("source", source.wire)
+    .put("app", app)
+    .put("sender", sender)
+    .put("text", text)
+    .put("postedAt", postedAt)
+    .toString()
+    .toByteArray(Charsets.UTF_8)

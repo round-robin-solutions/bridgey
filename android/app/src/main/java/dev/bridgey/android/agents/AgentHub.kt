@@ -32,6 +32,9 @@ interface AgentTransport {
     /** Connected Macs reading codes for this phone now: agents_mirror_draft1 and sms_codes_draft1 in their map. */
     fun codeReaders(): Int
 
+    /** The agent advertised codes_detect_draft1 in this session: it has the code model and can read candidates. */
+    fun canDetect(deviceId: String): Boolean = false
+
     fun deviceName(deviceId: String): String
 
     /** Every paired agent device. */
@@ -68,6 +71,7 @@ class AgentHub(
     val audit = AgentAuditLog(File(directory, "audit"), clock)
     private val asks = AgentAskBook(File(directory, "asks.json"), clock)
     val codes = CodesBroker(clock)
+    private val detections = CodeDetections(clock)
     private val notifier = AgentNotifier(context)
     private val heldTimers = java.util.concurrent.ConcurrentHashMap<String, Job>()
     private val clipRequests = java.util.concurrent.ConcurrentHashMap<String, Pair<ClipboardRequest, Job>>()
@@ -148,6 +152,7 @@ class AgentHub(
             ASK_FEATURE_KEY to grants.isOn(deviceId, AgentGrant.ASK, now),
             CLIPBOARD_REQUEST_FEATURE_KEY to grants.isOn(deviceId, AgentGrant.CLIPBOARD_REQUEST, now),
             AGENT_CODES_FEATURE_KEY to grants.isOn(deviceId, AgentGrant.CODES, now),
+            CODES_DETECT_FEATURE_KEY to grants.isOn(deviceId, AgentGrant.CODES_DETECT, now),
         )
     }
 
@@ -156,6 +161,7 @@ class AgentHub(
         grants.forget(deviceId)
         limits.forget(deviceId)
         codes.releaseAll(deviceId).forEach { heldTimers.remove(it.query.queryId)?.cancel() }
+        detections.forget(deviceId)
         clipRequests.keys.filter { it.startsWith("$deviceId/") }.forEach { clipRequests.remove(it)?.second?.cancel() }
         notifier.cancelAll(deviceId)
         audit.clear(deviceId)
@@ -262,6 +268,7 @@ class AgentHub(
             AgentKinds.CODES_CANCEL -> decodeCodesCancel(plaintext)?.let { queryId ->
                 codes.release(deviceId, queryId)?.let { heldTimers.remove(queryId)?.cancel() }
             }
+            AgentKinds.CODES_DETECTED -> codesDetected(deviceId, plaintext)
         }
     }
 
@@ -508,7 +515,7 @@ class AgentHub(
     }
 
     private fun answerQuery(deviceId: String, query: CodesQuery, answer: CodesAnswer, timedOut: Boolean) {
-        transport.send(deviceId, AgentKinds.CODES_RESULT, codesResultPayload(query.queryId, answer.codes, transport.codeReaders(), timedOut))
+        transport.send(deviceId, AgentKinds.CODES_RESULT, codesResultPayload(query.queryId, answer.codes, readers(), timedOut))
         val newest = answer.codes.firstOrNull() ?: return
         val service = answer.service(query.service)
         // One entry per answered query with codes: the service and how many, never a code.
@@ -519,20 +526,68 @@ class AgentHub(
         changed()
     }
 
+    /** A code from a Mac (codes.found) or an agent that detected it: kept only while some agent can read codes. */
+    private fun addFound(found: CodeFound) {
+        if (transport.agentIds().none { grants.isOn(it, AgentGrant.CODES) }) return
+        codes.add(found).forEach { held ->
+            heldTimers.remove(held.query.queryId)?.cancel()
+            answerQuery(held.deviceId, held.query, codes.answer(held.query), timedOut = false)
+        }
+    }
+
+    // MARK: Detect codes (codes_detect_draft1, docs/mesh-and-codes.md)
+
+    /** Connected agents that can read candidates and hold Detect codes now. */
+    fun detectors(): List<String> {
+        val now = clock()
+        return transport.connectedAgents().filter { transport.canDetect(it) && grants.isOn(it, AgentGrant.CODES_DETECT, now) }
+    }
+
+    /** How many devices read codes for this phone now: Macs, and agents with Detect codes (codes.result `readers`). */
+    fun readers(): Int = transport.codeReaders() + detectors().size
+
+    /**
+     * A notification from the default SMS app (not hidden, not a summary, not a call). It goes to one agent with Detect
+     * codes when no Mac reads codes and some agent has Read codes on (CodeDetections), as `codes.candidate`, with one
+     * activity entry for that agent. The text is never logged or kept beyond the 30 second wait.
+     */
+    fun smsCandidate(notificationId: String, title: String, applicationName: String, text: String, postedAt: Long) {
+        val joined = dev.bridgey.android.codes.smsCandidateText(text) ?: return
+        val anyReader = transport.agentIds().any { grants.isOn(it, AgentGrant.CODES) }
+        val target = detections.pick(transport.codeReaders(), anyReader, detectors()) ?: return
+        if (!detections.firstSight(notificationId, joined)) return
+        val sender = dev.bridgey.android.codes.codeSender(title, applicationName).let { name ->
+            val points = name.codePoints().limit(64).toArray()
+            String(points, 0, points.size)
+        }
+        val candidate = PendingCandidate(java.util.UUID.randomUUID().toString(), target, joined, sender, CodeSource.SMS, "messages", notificationId.take(512), postedAt, clock())
+        val payload = codesCandidatePayload(candidate.candidateId, candidate.source, candidate.app, candidate.sender, candidate.text, candidate.postedAt)
+        if (!transport.send(target, AgentKinds.CODES_CANDIDATE, payload)) return
+        detections.sent(candidate)
+        audit.record(target, AuditAction.CODES_DETECT, AuditOutcome.DELIVERED, applicationName.take(64))
+        changed()
+    }
+
+    private fun codesDetected(deviceId: String, plaintext: ByteArray) {
+        val detected = decodeCodesDetected(plaintext) ?: return
+        if (!grants.isOn(deviceId, AgentGrant.CODES_DETECT)) return
+        when (val answer = detections.answer(deviceId, detected)) {
+            is DetectAnswer.Found -> addFound(answer.found)
+            DetectAnswer.Refused -> {
+                // The agent named a code that is not in the message: kept out, and on its activity list.
+                audit.record(deviceId, AuditAction.CODES_DETECT, AuditOutcome.INVALID)
+                changed()
+            }
+            else -> Unit
+        }
+    }
+
     // MARK: the Macs (agents_mirror_draft1)
 
     /** codes.found or agents.grant_set from Mac [macId]. */
     fun receiveFromMac(macId: String, macName: String, kind: String, plaintext: ByteArray) {
         when (kind) {
-            AgentKinds.CODES_FOUND -> {
-                val found = decodeCodesFound(plaintext) ?: return
-                // Kept only while some agent can read codes.
-                if (transport.agentIds().none { grants.isOn(it, AgentGrant.CODES) }) return
-                codes.add(found).forEach { held ->
-                    heldTimers.remove(held.query.queryId)?.cancel()
-                    answerQuery(held.deviceId, held.query, codes.answer(held.query), timedOut = false)
-                }
-            }
+            AgentKinds.CODES_FOUND -> decodeCodesFound(plaintext)?.let(::addFound)
             AgentKinds.AGENTS_GRANT_SET -> {
                 val set = decodeAgentsGrantSet(plaintext) ?: return
                 if (set.deviceId !in transport.agentIds()) return
@@ -618,6 +673,7 @@ fun grantTitle(context: Context, grant: AgentGrant): String = context.getString(
         AgentGrant.RING -> R.string.agent_grant_ring
         AgentGrant.BATTERY -> R.string.agent_grant_battery
         AgentGrant.CODES -> R.string.agent_grant_codes
+        AgentGrant.CODES_DETECT -> R.string.agent_grant_codes_detect
         AgentGrant.NOTIFICATIONS -> R.string.agent_grant_notifications
     },
 )

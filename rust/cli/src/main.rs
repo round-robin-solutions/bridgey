@@ -8,6 +8,7 @@ mod client;
 mod config;
 mod crypto;
 mod daemon;
+mod detect;
 mod doctor;
 mod errors;
 mod invite;
@@ -125,8 +126,10 @@ enum Command {
     Battery,
     /// One short sound on the phone; reports delivery
     Ping,
-    /// One-time codes your Mac found in the phone's messages and mail, newest first
+    /// One-time codes your Mac (or a server with Detect codes) found in the phone's messages and mail, newest first
     Codes {
+        #[command(subcommand)]
+        action: Option<CodesAction>,
         /// Only the newest code
         #[arg(long)]
         latest: bool,
@@ -179,6 +182,29 @@ enum GrantsAction {
         #[arg(long)]
         note: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum CodesAction {
+    /// The code model this install needs to Detect codes for the phone
+    Model {
+        #[command(subcommand)]
+        action: ModelAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelAction {
+    /// Whether this build can detect codes and which model is installed
+    Status,
+    /// Download the model the Mac uses (253 MB, SHA-256 checked) after accepting its terms
+    Download {
+        /// Accept the Gemma Terms of Use and Prohibited Use Policy (the links are printed without this)
+        #[arg(long)]
+        accept_terms: bool,
+    },
+    /// Remove the model; Detect codes stops at once
+    Remove,
 }
 
 #[derive(Subcommand)]
@@ -365,6 +391,9 @@ fn command_name(c: &Command) -> &'static str {
         Command::Ring { .. } => "ring",
         Command::Battery => "battery",
         Command::Ping => "ping",
+        Command::Codes { action: Some(CodesAction::Model { action: ModelAction::Status }), .. } => "codes model status",
+        Command::Codes { action: Some(CodesAction::Model { action: ModelAction::Download { .. } }), .. } => "codes model download",
+        Command::Codes { action: Some(CodesAction::Model { action: ModelAction::Remove }), .. } => "codes model remove",
         Command::Codes { .. } => "codes",
         Command::Audit { .. } => "audit",
         Command::Doctor => "doctor",
@@ -563,7 +592,35 @@ async fn execute(ctx: &Ctx, command: Command) -> Result<(Value, String), CliErro
             let v = ctx.call("ping", json!({})).await?;
             Ok((v.clone(), format!("Delivered to {} in {} ms\n", v["device"]["name"].as_str().unwrap_or("the phone"), v["rttMs"])))
         }
-        Command::Codes { latest, service, wait, since } => {
+        Command::Codes { action: Some(CodesAction::Model { action }), .. } => {
+            let v = match action {
+                ModelAction::Status => detect::status(&ctx.paths),
+                ModelAction::Download { accept_terms } => {
+                    let paths = ctx.paths.clone();
+                    let record = tokio::task::spawn_blocking(move || detect::download(&paths, accept_terms)).await.map_err(|e| CliError::new("failed", e.to_string()))??;
+                    audit::record(&ctx.paths, json!({"at": now_ms(), "command": "codes model download", "outcome": "ok", "detail": record["name"]}));
+                    json!({"installed": record, "built": detect::BUILT_WITH_DETECTOR})
+                }
+                ModelAction::Remove => {
+                    let v = detect::remove(&ctx.paths)?;
+                    audit::record(&ctx.paths, json!({"at": now_ms(), "command": "codes model remove", "outcome": "ok"}));
+                    v
+                }
+            };
+            let mut t = String::new();
+            if !detect::BUILT_WITH_DETECTOR {
+                t.push_str("This build cannot detect codes (it was built without the model runner).\n");
+            }
+            match detect::installed(&ctx.paths) {
+                Some((r, _)) => t.push_str(&format!("Model: {} (version {}), installed.\n", r["name"].as_str().unwrap_or("?"), r["version"])),
+                None => t.push_str("No model installed. bridgey codes model download --accept-terms\n"),
+            }
+            if detect::available(&ctx.paths) {
+                t.push_str("Detect codes can be switched on for this install on the phone (it applies within 30 seconds).\n");
+            }
+            Ok((v, t))
+        }
+        Command::Codes { latest, service, wait, since, .. } => {
             let wait_ms = wait.as_deref().map(ms).transpose()?.unwrap_or(0);
             let since_ms = ms(&since)?.min(3_600_000);
             let v = ctx.call("codes", json!({"latest": latest, "service": service, "waitMs": wait_ms, "sinceMs": since_ms, "newerThan": if wait_ms > 0 { json!(now) } else { Value::Null }})).await?;

@@ -90,7 +90,9 @@ drafts_none = {"clipboard_files_draft1":False,"folders_draft1":False,"places_dra
                "connect_draft1":False,"files_fast_draft1":False,"email_codes_draft1":False,
                # Agent devices (docs/protocol.md "Draft: agent devices"), last.
                "agent_draft1":False,"notify_draft1":False,"ask_draft1":False,"clipboard_request_draft1":False,
-               "agent_codes_draft1":False,"agents_mirror_draft1":False}
+               "agent_codes_draft1":False,"agents_mirror_draft1":False,
+               # Detect codes (docs/mesh-and-codes.md), after the agent keys.
+               "codes_detect_draft1":False}
 feat = []
 def fe(name, plaintext, expect, raw=False):
     feat.append({"name": name, ("plaintextString" if raw else "plaintext"): plaintext, "expect": expect})
@@ -146,6 +148,10 @@ fe("email_codes_draft1 that is not a boolean counts as false", {"version":1,"fea
 # Agent devices: the phone and the Mac set agents_mirror_draft1 for each other; true only for JSON true.
 fe("phone and Mac with the agents mirror", {"version":1,"features":{**features_all,"sms_codes_draft1":True,"agents_mirror_draft1":True}},
    {"features":features_all,"drafts":{**drafts_none,"sms_codes_draft1":True,"agents_mirror_draft1":True}})
+fe("an agent that can detect codes", {"version":1,"features":{**features_all,"agent_draft1":True,"codes_detect_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"agent_draft1":True,"codes_detect_draft1":True}})
+fe("codes_detect_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"codes_detect_draft1":"yes"}},
+   {"features":features_all,"drafts":drafts_none})
 fe("agents_mirror_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"agents_mirror_draft1":1}},
    {"features":features_all,"drafts":drafts_none})
 fe("first-slice Mac (folders_draft1 only, no Files 2.0 keys)", {"version":1,"features":{**features_all,"folders_draft1":True,"places_draft1":False}},

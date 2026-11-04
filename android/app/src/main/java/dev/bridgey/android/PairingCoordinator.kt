@@ -3677,7 +3677,7 @@ class PairingCoordinator(
             dev.bridgey.android.agents.AgentKinds.NOTIFY_POST, dev.bridgey.android.agents.AgentKinds.ASK_REQUEST,
             dev.bridgey.android.agents.AgentKinds.ASK_CANCEL, dev.bridgey.android.agents.AgentKinds.ASK_STATUS,
             dev.bridgey.android.agents.AgentKinds.CLIPBOARD_REQUEST, dev.bridgey.android.agents.AgentKinds.CODES_QUERY,
-            dev.bridgey.android.agents.AgentKinds.CODES_CANCEL,
+            dev.bridgey.android.agents.AgentKinds.CODES_CANCEL, dev.bridgey.android.agents.AgentKinds.CODES_DETECTED,
             -> receiveAgentMessage(current, message)
             dev.bridgey.android.agents.AgentKinds.CODES_FOUND, dev.bridgey.android.agents.AgentKinds.AGENTS_GRANT_SET ->
                 receiveMirrorMessage(current, message)
@@ -4765,6 +4765,7 @@ class PairingCoordinator(
                 remoteSettingsSync = drafts[dev.bridgey.android.sync.SETTINGS_SYNC_FEATURE_KEY] == true,
                 remoteConnect = drafts[dev.bridgey.android.connect.CONNECT_FEATURE_KEY] == true,
                 remoteAgentsMirror = !current.agent && drafts[dev.bridgey.android.agents.AGENTS_MIRROR_FEATURE_KEY] == true,
+                remoteCodesDetect = current.agent && drafts[dev.bridgey.android.agents.CODES_DETECT_FEATURE_KEY] == true,
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
                 ringing = state.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
             )
@@ -5113,6 +5114,8 @@ class PairingCoordinator(
 
         override fun codeReaders(): Int = mirrorMacs().count { registry.state(it)?.remoteSmsCodes == true }
 
+        override fun canDetect(deviceId: String): Boolean = isAgent(deviceId) && registry.state(deviceId)?.remoteCodesDetect == true
+
         override fun deviceName(deviceId: String): String = trust.trustedDevices.value.firstOrNull { it.id == deviceId }?.name ?: "Agent"
 
         override fun agentIds(): List<String> = trust.trustedDevices.value.filter { it.isAgent }.map { it.id }
@@ -5127,6 +5130,14 @@ class PairingCoordinator(
         }
 
         override fun stopRing(deviceId: String) = stopAgentRing(deviceId)
+    }
+
+    /**
+     * Detect codes (docs/mesh-and-codes.md): a text message from the default SMS app that is not hidden, a summary or a
+     * call. The hub decides whether an agent reads it (no Mac reading, some agent with Read codes) and which one.
+     */
+    fun offerSmsCodeCandidate(notificationId: String, title: String, applicationName: String, text: String, postedAt: Long) {
+        scope.launch { agents.smsCandidate(notificationId, title, applicationName, text, postedAt) }
     }
 
     /** Set by the application: an agent's grants changed (See battery: the battery goes out at once). */

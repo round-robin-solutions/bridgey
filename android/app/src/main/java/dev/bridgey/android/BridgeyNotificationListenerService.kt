@@ -167,6 +167,10 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
             notificationToken(sbn.key)
         }
         forwardedNotifications.record(notificationId, sbn.key, sbn.packageName)
+        // Detect codes: when no Mac reads codes, an agent the user allowed may read this text message for its code.
+        if (smsDefaultApp && !groupSummary && redacted != true) {
+            bridgey.pairing.offerSmsCodeCandidate(notificationId, title, applicationName, text, sbn.postTime)
+        }
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
         val callType = if (isCall) resolvedNotificationCallType(notification, telephonyCallType, isTelephonyCall) else null
         val actions = storeActions(

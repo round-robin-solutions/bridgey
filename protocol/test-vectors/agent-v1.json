@@ -863,6 +863,216 @@
    "expect": "reject"
   }
  ],
+ "codesCandidate": [
+  {
+   "name": "a text message",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "source": "sms",
+    "app": "messages",
+    "sender": "AX-HDFCBK-S",
+    "text": "OTP is 482913 for your login. Do not share.",
+    "postedAt": 1798000000000
+   },
+   "expect": {
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "source": "sms",
+    "app": "messages",
+    "sender": "AX-HDFCBK-S",
+    "text": "OTP is 482913 for your login. Do not share.",
+    "postedAt": 1798000000000
+   }
+  },
+  {
+   "name": "600 UTF-16 units of Hindi",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "source": "sms",
+    "app": "messages",
+    "sender": "Bank",
+    "text": "कककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककक 48291",
+    "postedAt": 1798000000000
+   },
+   "expect": {
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "source": "sms",
+    "app": "messages",
+    "sender": "Bank",
+    "text": "कककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककककक 48291",
+    "postedAt": 1798000000000
+   }
+  },
+  {
+   "name": "text of 601 UTF-16 units",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "source": "sms",
+    "app": "messages",
+    "sender": "Bank",
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 48291",
+    "postedAt": 1798000000000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "empty text",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "source": "sms",
+    "app": "messages",
+    "sender": "Bank",
+    "text": "",
+    "postedAt": 1798000000000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "sender of 65 characters",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "source": "sms",
+    "app": "messages",
+    "sender": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+    "text": "OTP 482913",
+    "postedAt": 1798000000000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "mail app with sms",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "source": "sms",
+    "app": "gmail",
+    "sender": "Bank",
+    "text": "OTP 482913",
+    "postedAt": 1798000000000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "candidateId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "c1",
+    "source": "sms",
+    "app": "messages",
+    "sender": "Bank",
+    "text": "OTP 482913",
+    "postedAt": 1798000000000
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "source": "sms",
+    "app": "messages",
+    "sender": "Bank",
+    "text": "OTP 482913",
+    "postedAt": 1798000000000
+   },
+   "expect": "reject"
+  }
+ ],
+ "codesDetected": [
+  {
+   "name": "found",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "outcome": "found",
+    "code": "482913"
+   },
+   "expect": {
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "outcome": "found",
+    "code": "482913"
+   }
+  },
+  {
+   "name": "none",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "outcome": "none"
+   },
+   "expect": {
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "outcome": "none"
+   }
+  },
+  {
+   "name": "failed with a reason",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "outcome": "failed",
+    "reason": "model_missing"
+   },
+   "expect": {
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "outcome": "failed",
+    "reason": "model_missing"
+   }
+  },
+  {
+   "name": "found without a code",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "outcome": "found"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "code with a space",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "outcome": "found",
+    "code": "482 913"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "code of 13 characters",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "outcome": "found",
+    "code": "1234567890123"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "none with a code",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "outcome": "none",
+    "code": "482913"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "unknown outcome",
+   "plaintext": {
+    "version": 1,
+    "candidateId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "outcome": "maybe"
+   },
+   "expect": "reject"
+  }
+ ],
  "agentsGrantSet": [
   {
    "name": "on for today",

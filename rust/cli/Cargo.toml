@@ -9,7 +9,13 @@ version = "0.1.0"
 name = "bridgey"
 path = "src/main.rs"
 
+[features]
+default = []
+# The code model runner (llama.cpp): this install can Detect codes for the phone (docs/mesh-and-codes.md).
+detect = ["bridgey-codes/llama"]
+
 [dependencies]
+bridgey-codes = { path = "../codes" }
 bridgey-connect = { path = "../core" }
 bridgey-connect-proto = { path = "../proto" }
 base64.workspace = true
