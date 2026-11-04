@@ -924,7 +924,7 @@ impl Daemon {
     pub fn require(&self, peer: &Peer, grant: &str) -> Result<(), CliError> {
         let map = self.features(&peer.device_id);
         if map.get("agent_draft1") != Some(&Value::Bool(true)) {
-            return Err(CliError::new("incompatible", format!("{} runs a Bridgey without agent devices; update the app", peer.name)));
+            return Err(no_agent_devices(peer));
         }
         let key = grant_wire(grant).unwrap_or(grant);
         if map.get(key) == Some(&Value::Bool(true)) {
@@ -1091,4 +1091,32 @@ fn acquire_lock(paths: &Paths) -> Result<std::fs::File, String> {
         return Err("another bridgey daemon is already running for this profile".into());
     }
     Ok(file)
+}
+
+/// The refusal when a peer's map has no agent devices: a device paired over the tailnet keeps this install
+/// restricted (not granted) until someone trusts it there; anything else runs an older Bridgey.
+pub fn no_agent_devices(peer: &Peer) -> CliError {
+    if peer.platform == "tailnet" {
+        CliError::new(
+            "not_granted",
+            format!("{} keeps this install restricted (paired over your tailnet): nothing is allowed until someone chooses \"Trust as my device\" there", peer.name),
+        )
+    } else {
+        CliError::new("incompatible", format!("{} runs a Bridgey without agent devices; update the app", peer.name))
+    }
+}
+
+#[cfg(test)]
+mod no_agent_devices_tests {
+    use super::*;
+
+    #[test]
+    fn a_tailnet_peer_is_not_granted_and_an_old_phone_is_incompatible() {
+        let mac = Peer { name: "Mac".into(), platform: "tailnet".into(), ..Default::default() };
+        let e = no_agent_devices(&mac);
+        assert_eq!(e.code, "not_granted");
+        assert!(e.message.contains("Trust as my device"));
+        let phone = Peer { name: "Phone".into(), platform: "phone".into(), ..Default::default() };
+        assert_eq!(no_agent_devices(&phone).code, "incompatible");
+    }
 }

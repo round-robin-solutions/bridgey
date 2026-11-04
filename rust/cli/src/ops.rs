@@ -234,7 +234,7 @@ impl Daemon {
         }
         let h = self.ensure(&peer, self.connect_timeout(args)).await?;
         if self.features(&peer.device_id).get("agent_draft1") != Some(&Value::Bool(true)) {
-            return Err(CliError::new("incompatible", format!("{} runs a Bridgey without agent devices; update the app", peer.name)));
+            return Err(crate::daemon::no_agent_devices(&peer));
         }
         let mid = crate::crypto::uuid4();
         let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("msg:{mid}")]);
