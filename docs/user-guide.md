@@ -115,6 +115,10 @@ Anything marked sensitive (for example by a password manager) is not sent.
 - **From the Mac:** drop files on the panel, or use the send bar.
 - **From the phone:** tap the attach button in the send bar, or use Android's **Share** menu and
   choose Bridgey.
+- **Pick several files:** Shift-click the first and last file to select everything between them.
+  Use ⌘-click on Mac or Ctrl-click with an Android keyboard to toggle separate files; add Shift
+  to include another range. ⌘A/Ctrl+A selects loaded files, and Escape clears the selection.
+  [All selection shortcuts and keyboard controls](file-selection.md).
 - Several files go one after another in a queue. Each can be cancelled on its own. An interrupted
   send can be retried once the devices reconnect.
 - **Where they land:** Android saves to `Download/Bridgey`. The Mac saves to `Downloads/Bridgey` by

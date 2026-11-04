@@ -1713,3 +1713,7 @@
 "callMedia.reset.failed" = "Sound recovery could not be verified. Recovery data has been kept. Check Music and Spotify volumes and Automation access, then try Reset Everything again.";
 "callMedia.reset.fix" = "Restore sound in %@, or fix Automation access, then try Reset Everything again. Recovery data has been kept.";
 "callMedia.reset.restoring" = "Restoring media sound before Reset Everything…";
+
+"files.selection.help" = "Shift-click: select a range. ⌘-click: toggle a file. ⌘A: select all. Esc: clear.";
+
+"sendsheet.selection" = "Files to send";

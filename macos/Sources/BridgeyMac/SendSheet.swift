@@ -260,6 +260,7 @@ final class SendThumbnails {
 // MARK: - State and actions (pure, for the view and screenshots)
 
 struct SendSheetState {
+    init() {}
     var targets: [SendTarget] = []
     var targetID: String?
     var recent: [SendCandidate] = []
@@ -268,6 +269,9 @@ struct SendSheetState {
     var added: [SendCandidate] = []
     /// Selected items in the order they were picked (the badge shows the position).
     var selection: [URL] = []
+    private(set) var selectionAnchor: URL?
+    private(set) var focusedURL: URL?
+    private var additiveRangeBase: [URL]?
     var gathered = true
     var accessDenied = false
     /// The target phone's free space against this send (FreeSpace.swift); `.send` when unknown.
@@ -292,11 +296,128 @@ struct SendSheetState {
 
     /// Bytes the phone receives: the measured optimised size when known, else the originals.
     var neededBytes: Int64 { SendSizing.needed(original: selectedBytes, saving: optimization?.isOriginal == true ? nil : saving) }
+
+    /// The reading order of the displayed groups; one file is sent only once even if shown twice.
+    var displayedGroups: [[SendCandidate]] {
+        var seen = Set<URL>()
+        return [added, recent, screenshots].map { $0.filter { seen.insert($0.url).inserted } }
+    }
+
+    var orderedURLs: [URL] { displayedGroups.flatMap { $0.map(\.url) } }
+
+    mutating func select(_ url: URL, command: Bool = false, shift: Bool = false) {
+        let order = orderedURLs
+        guard let target = order.firstIndex(of: url) else { return }
+        focusedURL = url
+        if shift {
+            let anchor = selectionAnchor.flatMap { order.firstIndex(of: $0) } ?? target
+            if selectionAnchor.flatMap({ order.firstIndex(of: $0) }) == nil { selectionAnchor = url }
+            let range = Array(order[min(anchor, target)...max(anchor, target)])
+            if command {
+                if additiveRangeBase == nil { additiveRangeBase = selection }
+                let base = additiveRangeBase ?? []
+                let existing = Set(base)
+                selection = base + range.filter { !existing.contains($0) }
+            } else {
+                additiveRangeBase = nil
+                selection = range
+            }
+        } else {
+            // The send picker's ordinary click remains a toggle, matching its numbered badges.
+            if selection.contains(url) { selection.removeAll { $0 == url } } else { selection.append(url) }
+            selectionAnchor = url
+            additiveRangeBase = nil
+        }
+    }
+
+    mutating func selectAll() {
+        selection = orderedURLs
+        if focusedURL.map({ !selection.contains($0) }) ?? true { focusedURL = selection.first }
+        selectionAnchor = focusedURL
+        additiveRangeBase = nil
+    }
+
+    @discardableResult
+    mutating func clearSelection() -> Bool {
+        guard !selection.isEmpty else { return false }
+        selection = []
+        selectionAnchor = nil
+        additiveRangeBase = nil
+        return true
+    }
+
+    mutating func reconcileSelection() {
+        let known = Set(orderedURLs)
+        selection.removeAll { !known.contains($0) }
+        if let selectionAnchor, !known.contains(selectionAnchor) { self.selectionAnchor = nil; additiveRangeBase = nil }
+        if let focusedURL, !known.contains(focusedURL) { self.focusedURL = nil }
+        additiveRangeBase = additiveRangeBase?.filter { known.contains($0) }
+    }
+
+    /// Rows are built per section: its final short row does not leak into the next section.
+    private var selectionRows: [[URL]] {
+        displayedGroups.flatMap { group -> [[URL]] in
+            let urls = group.map(\.url)
+            return stride(from: 0, to: urls.count, by: 5).map { Array(urls[$0..<min($0 + 5, urls.count)]) }
+        }
+    }
+
+    mutating func moveSelection(_ direction: SendSelectionDirection, extending: Bool) {
+        let order = orderedURLs
+        guard !order.isEmpty else { return }
+        let origin = focusedURL.flatMap { order.contains($0) ? $0 : nil }
+        let destination: URL
+        if direction == .first { destination = order[0] }
+        else if direction == .last { destination = order[order.count - 1] }
+        else if let origin, let index = order.firstIndex(of: origin) {
+            if direction == .left || direction == .right {
+                destination = order[min(max(index + (direction == .left ? -1 : 1), 0), order.count - 1)]
+            } else {
+                let rows = selectionRows
+                guard let row = rows.firstIndex(where: { $0.contains(origin) }), let column = rows[row].firstIndex(of: origin) else { return }
+                let next = min(max(row + (direction == .up ? -1 : 1), 0), rows.count - 1)
+                destination = rows[next][min(column, rows[next].count - 1)]
+            }
+        } else { destination = direction == .left || direction == .up ? order[order.count - 1] : order[0] }
+        if extending {
+            if selectionAnchor == nil { selectionAnchor = origin ?? destination }
+            select(destination, shift: true)
+        } else {
+            focusedURL = destination
+            selectionAnchor = destination
+            additiveRangeBase = nil
+            selection = [destination]
+        }
+    }
+
+    @discardableResult
+    mutating func handleSelectionKey(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "a" {
+            selectAll()
+            return true
+        }
+        guard flags.isEmpty || flags == .shift else { return false }
+        if event.keyCode == 53, flags.isEmpty { return clearSelection() }
+        if event.keyCode == 49, flags.isEmpty, let target = focusedURL ?? orderedURLs.first {
+            if !event.isARepeat { select(target) }
+            return true
+        }
+        let directions: [UInt16: SendSelectionDirection] = [123: .left, 124: .right, 125: .down, 126: .up, 115: .first, 119: .last]
+        guard let direction = directions[event.keyCode], !orderedURLs.isEmpty else { return false }
+        moveSelection(direction, extending: flags == .shift)
+        return true
+    }
 }
+
+enum SendSelectionDirection { case left, right, up, down, first, last }
 
 struct SendSheetActions {
     var selectTarget: (String) -> Void = { _ in }
     var toggle: (SendCandidate) -> Void = { _ in }
+    var select: ((SendCandidate, Bool, Bool) -> Void)?
+    var selectionKey: (NSEvent) -> Bool = { _ in false }
     var browse: () -> Void = {}
     var send: () -> Void = {}
     var close: () -> Void = {}
@@ -313,30 +434,37 @@ struct SendSheetView: View {
     let actions: SendSheetActions
     /// Thumbnails come from Quick Look in the app and from fixtures in screenshots.
     var thumbnail: ((SendCandidate) -> NSImage?)?
+    @StateObject private var selectionFocus = SendSelectionFocus()
     @Environment(\.brand) private var c
+    @Environment(\.snapshotRendering) private var snapshot
 
     static let width: CGFloat = 600
 
     var body: some View {
+        let groups = state.displayedGroups
         VStack(spacing: 0) {
             header
-            BoundedScroll {
-                VStack(alignment: .leading, spacing: 18) {
-                    if !state.added.isEmpty {
-                        section(L10n.text("sendsheet.added", fallback: "Added"), items: state.added)
+            ScrollViewReader { scroll in
+                BoundedScroll {
+                    VStack(alignment: .leading, spacing: 18) {
+                        if !groups[0].isEmpty {
+                            section(L10n.text("sendsheet.added", fallback: "Added"), items: groups[0])
+                        }
+                        if !groups[1].isEmpty {
+                            section(L10n.text("sendsheet.recent", fallback: "Recent"), items: groups[1])
+                        }
+                        if !groups[2].isEmpty {
+                            section(L10n.text("sendsheet.screenshots", fallback: "Screenshots"), items: groups[2])
+                        }
+                        if groups.allSatisfy(\.isEmpty) { emptyCard }
                     }
-                    if !state.recent.isEmpty {
-                        section(L10n.text("sendsheet.recent", fallback: "Recent"), items: state.recent)
-                    }
-                    if !state.screenshots.isEmpty {
-                        section(L10n.text("sendsheet.screenshots", fallback: "Screenshots"), items: state.screenshots)
-                    }
-                    if state.added.isEmpty && state.recent.isEmpty && state.screenshots.isEmpty {
-                        emptyCard
-                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
+                    .background { if !snapshot { SendSelectionKeyboard(focus: selectionFocus, handle: actions.selectionKey) } }
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
+                .onChange(of: state.focusedURL) { url in
+                    if let url, selectionFocus.active { scroll.scrollTo(url) }
+                }
             }
             if let line = state.freeSpace.message, !state.selection.isEmpty {
                 HStack(spacing: 8) {
@@ -398,7 +526,14 @@ struct SendSheetView: View {
                 .foregroundStyle(c.on2)
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(100), spacing: 12), count: 5), alignment: .leading, spacing: 12) {
                 ForEach(items) { item in
-                    SendCandidateTile(item: item, position: state.position(of: item.url), thumbnail: thumbnail) { actions.toggle(item) }
+                    SendCandidateTile(item: item, position: state.position(of: item.url),
+                                      keyboardFocused: (selectionFocus.active || snapshot) && state.focusedURL == item.url, thumbnail: thumbnail) {
+                        selectionFocus.request()
+                        let flags = NSApp.currentEvent?.modifierFlags ?? []
+                        if let select = actions.select { select(item, flags.contains(.command), flags.contains(.shift)) }
+                        else { actions.toggle(item) }
+                    }
+                    .id(item.url)
                 }
             }
         }
@@ -503,6 +638,7 @@ struct SendTargetChip: View {
 struct SendCandidateTile: View {
     let item: SendCandidate
     let position: Int?
+    var keyboardFocused = false
     var thumbnail: ((SendCandidate) -> NSImage?)?
     let toggle: () -> Void
     @State private var loaded: NSImage?
@@ -541,7 +677,9 @@ struct SendCandidateTile: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressScaleStyle())
-        .help(item.name)
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(c.pri, lineWidth: 2).padding(-3).opacity(keyboardFocused ? 1 : 0).allowsHitTesting(false))
+        .help(item.name + "\n" + L10n.text("files.selection.help", fallback: "Shift-click: select a range. ⌘-click: toggle a file. ⌘A: select all. Esc: clear."))
         .accessibilityLabel(item.name)
         .accessibilityAddTraits(position == nil ? [] : .isSelected)
         .task(id: item.url) {
@@ -577,6 +715,57 @@ struct SendCandidateTile: View {
         .frame(width: 20, height: 20)
         .scaleEffect(position == nil || reduce ? 1 : 1.05)
         .animation(reduce ? nil : BrandMotion.pop, value: position)
+    }
+}
+
+/// A responder inside the file grid, so shortcuts never intercept a text field or footer control.
+@MainActor
+private final class SendSelectionFocus: ObservableObject {
+    weak var view: SendSelectionKeyView?
+    @Published var active = false
+    func request() { if let view { view.window?.makeFirstResponder(view) } }
+}
+
+private struct SendSelectionKeyboard: NSViewRepresentable {
+    let focus: SendSelectionFocus
+    let handle: (NSEvent) -> Bool
+
+    func makeNSView(context: Context) -> SendSelectionKeyView {
+        let view = SendSelectionKeyView()
+        view.setAccessibilityRole(.list)
+        view.setAccessibilityLabel(L10n.text("sendsheet.selection", fallback: "Files to send"))
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ view: SendSelectionKeyView, context: Context) {
+        focus.view = view
+        view.handle = handle
+        view.focusChanged = { [weak focus] in focus?.active = $0 }
+    }
+}
+
+final class SendSelectionKeyView: NSView {
+    var handle: (NSEvent) -> Bool = { _ in false }
+    var focusChanged: (Bool) -> Void = { _ in }
+    override var acceptsFirstResponder: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { focusChanged(true) }
+        return accepted
+    }
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted { focusChanged(false) }
+        return accepted
+    }
+    override func keyDown(with event: NSEvent) {
+        if !handle(event) { super.keyDown(with: event) }
+    }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, handle(event) { return true }
+        return super.performKeyEquivalent(with: event)
     }
 }
 
@@ -674,8 +863,7 @@ final class SendSheetModel: ObservableObject {
         state.screenshots = query.screenshots
         state.gathered = query.gathered
         state.accessDenied = query.accessDenied
-        let known = Set((state.added + state.recent + state.screenshots).map(\.url))
-        state.selection.removeAll { !known.contains($0) }
+        state.reconcileSelection()
         refreshOptimization()
     }
 
@@ -698,18 +886,25 @@ final class SendSheetModel: ObservableObject {
             refreshFreeSpace()
         }
         actions.toggle = { [weak self] item in
-            guard let self else { return }
-            if let index = state.selection.firstIndex(of: item.url) {
-                state.selection.remove(at: index)
-            } else {
-                state.selection.append(item.url)
-            }
-            state.status = nil
-            refreshOptimization()
+            self?.select(item, command: false, shift: false)
+        }
+        actions.select = { [weak self] item, command, shift in
+            self?.select(item, command: command, shift: shift)
+        }
+        actions.selectionKey = { [weak self] event in
+            guard let self else { return false }
+            let before = state.selection
+            guard state.handleSelectionKey(event) else { return false }
+            if before != state.selection { state.status = nil; refreshOptimization() }
+            return true
         }
         actions.browse = { [weak self] in self?.browse() }
         actions.send = { [weak self] in self?.send() }
-        actions.close = { [weak self] in self?.onClose() }
+        actions.close = { [weak self] in
+            guard let self else { return }
+            if state.clearSelection() { state.status = nil; refreshOptimization() }
+            else { onClose() }
+        }
         actions.drop = { [weak self] urls in self?.add(urls) ?? false }
         actions.targeted = { [weak self] value in self?.state.dropTargeted = value }
         actions.openPrivacySettings = {
@@ -720,6 +915,12 @@ final class SendSheetModel: ObservableObject {
             self?.refreshOptimization()
         }
         return actions
+    }
+
+    private func select(_ item: SendCandidate, command: Bool, shift: Bool) {
+        state.select(item.url, command: command, shift: shift)
+        state.status = nil
+        refreshOptimization()
     }
 
     /// Dropped or browsed items go to the top and are selected.
@@ -763,7 +964,7 @@ final class SendSheetModel: ObservableObject {
         guard !urls.isEmpty else { return }
         if SendDispatcher.send(urls: urls, to: target, pairing: pairing, optimization: state.optimization) != nil {
             preferences.rememberDevice(target)
-            state.selection = []
+            state.clearSelection()
             state.added = []
             override = nil
             refreshOptimization()
