@@ -1798,7 +1798,12 @@ phone and in the terminal.
    own pair secret and reconnects as an ordinary paired device. The invite is single use: the inviter
    forgets it after the first pairing, the expiry, or Ctrl-C.
 
-The phone stores the new device with platform `cli` (from the invite's `p`) and every grant off.
+The phone stores the new device with platform `cli`, always (never from the invite's `p`, which only ever is `cli` in
+this version), and every grant off. The phone and `bridgey` refuse an invite whose `p` is not `cli`. Invites for other
+device kinds are designed as `v: 2` (own derivation labels `bridgey-invite-rdv-v2` and `bridgey-invite-signal-v2`, no
+`v: 1` fallback, the received fragment bytes hashed into the transcript, the kind from the signed `pairing.confirm`,
+`pairedBy: invite` stored apart): [mesh-and-codes.md](mesh-and-codes.md) section 4.1. Builds that check `v == 1`
+refuse them.
 
 ### Negotiation
 

@@ -98,4 +98,13 @@ class CodeDetectionsTest {
         now += 3_600_000
         assertEquals("agent-a", detections.pick(0, true, listOf("agent-a", "agent-b")))
     }
+
+    /** H1: the platform stored for an invite-paired device is the agent platform, never the invite's own field. */
+    @Test fun anInvitePairedDeviceIsStoredAsAnAgent() {
+        val source = java.io.File(java.io.File(System.getProperty("bridgey.repoRoot") ?: "../.."),
+            "android/app/src/main/java/dev/bridgey/android/PairingCoordinator.kt").readText()
+        val save = source.lines().first { it.contains("trust.save(current.remoteDeviceId") }
+        assertTrue(save, save.contains("current.invite?.let { dev.bridgey.android.agents.AGENT_PLATFORM }"))
+        assertFalse("no trust decision reads the invite's platform", source.contains("invite?.platform") || source.contains("invite.platform"))
+    }
 }

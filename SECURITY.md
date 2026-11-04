@@ -219,14 +219,21 @@ Update all lets one device ask the devices connected to it to update themselves 
 
 Design and threat table: `docs/mesh-and-codes.md` (sections 3.5, 4 and 7). The decisions that bind future work:
 
-- **A link never decides trust.** Invites stay `v: 1` and server-only until invites for other device kinds ship as
-  `v: 2`, which binds the whole invite JSON into the signed transcript, takes the device kind from the signed
-  `pairing.confirm` (not the link), and starts every invite-paired device, Macs included, with nothing granted. Builds
-  before that refuse `v: 2`. Today the phone and `bridgey` refuse an invite whose `p` is not `cli`.
+- **A link never decides trust.** Invites stay `v: 1` and server-only: the phone and `bridgey` refuse an invite whose
+  `p` is not `cli`, and the phone stores every invite-paired device as `cli`, never with the invite's own field.
+  Invites for other device kinds will be `v: 2` with their own derivation labels and no `v: 1` fallback, the received
+  fragment hashed into the signed transcript (duplicate and unknown keys refused), the device kind taken from the
+  signed `pairing.confirm` from a fixed list, and `pairedBy: invite` stored apart from the platform so every
+  link-paired device, Macs included, starts with nothing granted and is labelled. Builds before that refuse `v: 2`.
 - **Detect codes** sends code text messages from the default SMS app, after the gate, to one server Rahul allowed on
   the phone, only while no Mac reads codes for the phone and some server has Read codes on. The phone takes back one
   answer per message, from that server, within 30 seconds, runs its own guard on it and names the service itself.
   Only the phone can switch it (a Mac's request is refused). Text and codes are never logged or written on either
   side; each read is in the phone's and the server's activity.
-- **The code model** is used only if its (version, SHA-256, size) is built into the binary; downloads ignore
-  `~/.curlrc`.
+- **The code model.** The Mac and `bridgey` use only a manifest pinned in the build (file, size, SHA-256, name and
+  terms); `bridgey` fetches no manifest, and the Mac offers an online manifest only if it is pinned, so a new model
+  needs a new build. `bridgey` downloads with `curl -q` (no `~/.curlrc`) and starts again when a resume is refused.
+- **A server's peers.** A release `bridgey` cannot join invites, so its only peers are devices that joined its own
+  invite and passed the code check: in practice the phone. It reads code candidates only from such a peer that never
+  introduced itself as an agent. A custom client that joins the invite would be taken for a phone; accepted until
+  `v: 2` signs the device kind.

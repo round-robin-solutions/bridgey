@@ -51,6 +51,27 @@ final class CodeModelTests: XCTestCase {
         XCTAssertNil(CodeModelManifest.parse(try encoder.encode(manifest()), assetURLPrefix: "http://insecure/"))
     }
 
+    /// M3: an online manifest this build does not pin is never offered, whatever its version, even with a valid shape.
+    @MainActor
+    func testAnUnpinnedOnlineManifestIsNotOffered() async throws {
+        let (one, shaOne) = payload(1_200_000)
+        let transport = FakeModelTransport(data: one)
+        let store = store(transport, manifest: manifest(version: 1, size: Int64(one.count), sha256: shaOne))
+        store.start()
+        await waitUntil { store.installed != nil }
+        transport.manifestBody = try JSONEncoder().encode(manifest(version: 9, size: 1_300_000, sha256: String(repeating: "b", count: 64)))
+        await store.refreshManifest(force: true)
+        XCTAssertNil(store.update)
+        XCTAssertEqual(store.manifest?.version, 1)
+    }
+
+    func testTheBundledManifestIsPinned() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Resources/otp-model.json")
+        let parsed = try XCTUnwrap(CodeModelManifest.parse(Data(contentsOf: url), assetURLPrefix: prefix))
+        XCTAssertTrue(CodeModelManifest.pinned.contains(parsed), "a new bundled model needs its pin")
+        XCTAssertEqual(CodeModelManifest.pinned.map(\.sha256), ["69fe14b205ecaebbd1fa5d167f48a25c687b493341ff92476ca163a2ea12390f"])
+    }
+
     func testNewestManifestWins() {
         let one = manifest(version: 1), two = manifest(version: 2)
         XCTAssertEqual(CodeModelManifest.newest(one, two), two)
@@ -262,10 +283,11 @@ final class CodeModelTests: XCTestCase {
 
     @MainActor
     private func store(_ transport: FakeModelTransport, manifest: CodeModelManifest, space: Int64? = 10_000_000_000,
-                       runner: FakeRunner = FakeRunner(output: #"{"kind":"otp","code":"482913"}"#)) -> CodeModelStore {
+                       runner: FakeRunner = FakeRunner(output: #"{"kind":"otp","code":"482913"}"#),
+                       pinned: [CodeModelManifest] = []) -> CodeModelStore {
         CodeModelStore(files: CodeModelFiles(directory: directory), transport: transport, bundledManifest: manifest,
                        manifestURL: URL(string: prefix + "models/otp-model.json"), assetURLPrefix: prefix,
-                       spaceQuery: { _ in space }, makeRunner: { runner })
+                       spaceQuery: { _ in space }, makeRunner: { runner }, pinned: pinned)
     }
 
     @MainActor
@@ -448,12 +470,12 @@ final class CodeModelTests: XCTestCase {
         let (two, shaTwo) = payload(1_300_000)
         let transport = FakeModelTransport(data: one)
         let first = manifest(version: 1, size: Int64(one.count), sha256: shaOne)
-        let store = store(transport, manifest: first)
+        let second = manifest(version: 2, size: Int64(two.count), sha256: shaTwo)
+        let store = store(transport, manifest: first, pinned: [second])
         store.start()
         await waitUntil { store.installed != nil }
         XCTAssertNil(store.update)
 
-        let second = manifest(version: 2, size: Int64(two.count), sha256: shaTwo)
         transport.manifestBody = try JSONEncoder().encode(second)
         await store.refreshManifest(force: true)
         XCTAssertEqual(store.update, second)

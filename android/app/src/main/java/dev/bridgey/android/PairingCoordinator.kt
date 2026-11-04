@@ -4590,7 +4590,8 @@ class PairingCoordinator(
             publish()
             return
         }
-        trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!, platform = current.invite?.platform)
+        // A device paired by invite is always an agent: the link never chooses how far it is trusted (H1).
+        trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!, platform = current.invite?.let { dev.bridgey.android.agents.AGENT_PLATFORM })
         // From here on only answers and agent messages go to an agent on this session.
         current.agent = isAgent(current.remoteDeviceId)
         // The core resets its back-off for this peer only once a session on the tunnel authenticated.

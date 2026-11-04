@@ -16,11 +16,10 @@ use crate::time::now_ms;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
-/// Edition setting OTP_MODEL_MANIFEST_URL (rr-edition.properties), as the Mac uses it.
-pub const MANIFEST_URL: &str = "https://github.com/round-robin-solutions/bridgey/releases/download/models/otp-model.json";
 /// Every model file comes from the fork's `models` release, over HTTPS.
 pub const ASSET_PREFIX: &str = "https://github.com/round-robin-solutions/bridgey/releases/download/models/";
-/// The manifest this build was made with (the Mac bundles the same one); a newer `version` online wins.
+/// The manifest this build was made with (the Mac bundles the same one). It is the only source: nothing is fetched to
+/// choose a model, and a new model ships with a new build.
 const BUNDLED_MANIFEST: &str = r#"{"schema":1,"version":1,"name":"Gemma 3 270M, fine-tuned for codes (Q4_K_M)","url":"https://github.com/round-robin-solutions/bridgey/releases/download/models/bridgey-otp-v1.gguf","size":253115744,"sha256":"69fe14b205ecaebbd1fa5d167f48a25c687b493341ff92476ca163a2ea12390f","termsVersion":"gemma-2026-04-01+pup-2024-02-21+bridgey-1","licenceURL":"https://ai.google.dev/gemma/terms","prohibitedUseURL":"https://ai.google.dev/gemma/prohibited_use_policy"}"#;
 const MAXIMUM_BYTES: u64 = 2_000_000_000;
 
@@ -146,15 +145,6 @@ fn curl(args: &[&str]) -> Result<Vec<u8>, CliError> {
     Ok(out.stdout)
 }
 
-/// The newest of the bundled manifest and the one online (the Mac's rule); the bundled one when offline.
-pub fn current_manifest() -> Manifest {
-    let online = curl(&["--max-filesize", "16384", "--max-time", "20", MANIFEST_URL]).ok().and_then(|b| Manifest::parse(&b));
-    match online {
-        Some(m) if m.version > bundled().version => m,
-        _ => bundled(),
-    }
-}
-
 fn sha256_file(path: &std::path::Path) -> std::io::Result<String> {
     use std::io::Read;
     let mut f = std::fs::File::open(path)?;
@@ -173,7 +163,7 @@ fn sha256_file(path: &std::path::Path) -> std::io::Result<String> {
 /// Downloads the model after the terms were accepted. Resumes a partial file; checks the SHA-256 before the file
 /// is used. Returns the installed record.
 pub fn download(paths: &Paths, accept_terms: bool) -> Result<Value, CliError> {
-    let manifest = current_manifest();
+    let manifest = bundled();
     if !accept_terms {
         return Err(CliError::new(
             "usage",
@@ -195,14 +185,19 @@ pub fn download(paths: &Paths, accept_terms: bool) -> Result<Value, CliError> {
     let part_text = part.to_string_lossy().to_string();
     let size_text = manifest.size.to_string();
     let have = std::fs::symlink_metadata(&part).ok().filter(|m| m.is_file()).map(|m| m.len());
-    match resume_plan(have, manifest.size) {
-        Resume::Fresh => {
+    fetch(
+        resume_plan(have, manifest.size),
+        |resume| {
+            let mut args = vec!["--max-filesize", size_text.as_str(), "--output", part_text.as_str(), manifest.url.as_str()];
+            if resume {
+                args.splice(0..0, ["--continue-at", "-"]);
+            }
+            curl(&args).map(|_| ())
+        },
+        || {
             let _ = std::fs::remove_file(&part);
-            curl(&["--max-filesize", &size_text, "--output", &part_text, &manifest.url])?;
-        }
-        Resume::From => curl(&["--continue-at", "-", "--max-filesize", &size_text, "--output", &part_text, &manifest.url]).map(|_| ())?,
-        Resume::Complete => {}
-    }
+        },
+    )?;
     let got = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
     if got != manifest.size {
         let _ = std::fs::remove_file(&part);
@@ -238,6 +233,22 @@ pub enum Resume {
     From,
     /// The partial file is full size: only the checksum is left.
     Complete,
+}
+
+/// Runs the plan: a fresh download, or a resume that starts again from nothing when the server refuses it (curl exit
+/// 33, a changed file, any error), so a partial file can never wedge the download.
+pub fn fetch(plan: Resume, mut run: impl FnMut(bool) -> Result<(), CliError>, mut remove: impl FnMut()) -> Result<(), CliError> {
+    match plan {
+        Resume::Complete => Ok(()),
+        Resume::Fresh => {
+            remove();
+            run(false)
+        }
+        Resume::From => run(true).or_else(|_| {
+            remove();
+            run(false)
+        }),
+    }
 }
 
 /// What to do with a partial download of `have` bytes for a model of `size` bytes.
@@ -438,6 +449,24 @@ mod tests {
         assert_eq!(resume_plan(Some(300_000_000), 253_115_744), Resume::Fresh);
         assert_eq!(resume_plan(Some(0), 253_115_744), Resume::Fresh);
         assert_eq!(resume_plan(None, 253_115_744), Resume::Fresh);
+    }
+
+    #[test]
+    fn a_refused_resume_starts_again() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let result = fetch(
+            Resume::From,
+            |resume| {
+                calls.borrow_mut().push(if resume { "resume" } else { "fresh" });
+                if resume { Err(CliError::new("failed", "curl: (33) HTTP server doesn't seem to support byte ranges")) } else { Ok(()) }
+            },
+            || calls.borrow_mut().push("remove"),
+        );
+        assert!(result.is_ok());
+        assert_eq!(*calls.borrow(), vec!["resume", "remove", "fresh"]);
+        let calls = std::cell::RefCell::new(Vec::new());
+        assert!(fetch(Resume::Complete, |_| { calls.borrow_mut().push("run"); Ok(()) }, || calls.borrow_mut().push("remove")).is_ok());
+        assert!(calls.borrow().is_empty(), "a full-size file is only checked");
     }
 
     #[test]

@@ -166,18 +166,27 @@ Every pairing is the same protocol 2 first pairing: commitment, reveal, a six-di
 Allow pairing (or an open invite) on the receiving side, envelope tags. The joiner is side 0 and commits.
 
 **Invites for every kind (invite `v: 2`).** Today an invite is `v: 1` and only a server invites (`p: "cli"`); the
-phone and the `bridgey` join path refuse any other `p` (vectors `platform macos`, `platform android`, `no platform`).
-A link must never decide how far a device is trusted, so invites for other kinds change three things:
+phone and the `bridgey` join path refuse any other `p` (vectors `platform macos`, `platform android`, `no platform`),
+and the phone stores every invite-paired device as `cli` (`AGENT_PLATFORM`), never with the invite's own field. A link
+must never decide how far a device is trusted. Invites for other kinds are a new version with these rules:
 
-1. **The whole invite is bound.** The signed transcript appends `base64(SHA-256(invite JSON as sent))` instead of only
-   `SHA-256(secret)`, so a link edited in transit (another `p`, `n` or `c`) cannot complete.
-2. **The kind comes from the signed confirm, not the link.** `pairing.confirm` gains `platform` inside the signed
-   transcript (`... \0 initiatorPlatform \0 responderPlatform`). Each end stores the kind the other signed; `p` in the
-   invite only chooses the words on screen before the code, and a mismatch between `p` and the signed kind fails the
-   pairing.
-3. **Everything starts off.** Every device paired by invite, a Mac included, starts with nothing granted on the
-   other side, exactly like a server today; there is no preset trust for "a Mac". The code screen says what the
-   other device is and what it gets: "Pair with Work Mac, a Mac? It can do nothing until you switch things on."
+1. **Its own keys.** A `v: 2` invite derives its rendezvous ID with `bridgey-invite-rdv-v2` and seals signalling
+   with `bridgey-invite-signal-v2`, so a `v: 2` secret can never be used on the `v: 1` path. There is no fallback: a
+   device that issued `v: 2` accepts only `v: 2`.
+2. **The whole invite is bound.** The joiner hashes the fragment bytes exactly as it received them (the base64url
+   text after `#`, before any parsing) and both ends append `base64(SHA-256(fragment))` to the signed transcript, so a
+   link edited in transit (another `p`, `n`, `c` or `x`) cannot complete. The JSON is refused if a key appears twice,
+   if a key is unknown, or if `p` is not on the fixed list `android`, `macos`, `cli`.
+3. **The kind comes from the signed confirm.** `pairing.confirm` gains `platform`, inside the signed transcript
+   (`... \0 initiatorPlatform \0 responderPlatform`), from the same fixed list. Each end stores the kind the other
+   signed; `p` in the invite only chooses the words on the screen before the code, and a signed kind that differs
+   from `p` fails the pairing. On the `v: 1` path any platform in the confirm is ignored and the peer is `cli`.
+4. **Paired by link is its own fact.** Each end stores `pairedBy: "invite"` next to the platform, never folded into
+   it. Defaults and inbound handlers check that flag: a device paired by link starts with nothing granted, a Mac
+   included, and handlers that today trust "a Mac" (notifications to it, Update all starts, settings relays, Mac
+   actions) treat it as an agent until Rahul switches things on. Its page carries a permanent "Paired by link" label.
+5. **The code screen says what it is.** "Pair with Work Mac, a Mac paired by link? It can do nothing until you
+   switch things on."
 
 `v: 2` invites are refused by every build before this change (they check `v == 1`), so an older device can never
 join one and treat it as a server invite.
@@ -205,41 +214,46 @@ paired with both shows once, with two sections.
 
 ### 4.4 Settings sync without a hub
 
-Today a phone relays a winning change to its other peers. In a mesh every device may, with four limits:
+Today a phone relays a winning change to its other peers. In a mesh every device may, with these rules:
 
-1. **What is relayed.** Only shared preferences (`files.folder_destination`, `files.folder_conflict`,
-   `activity.previews`, `display.reduce_motion`, the folder switches). Feature switches (`feature.*`,
-   `clipboard.automatic`, `codes.enabled`, `focus.*`) and every pair-scoped key stay per edge: they sync only between
-   the two devices that share them and are never passed on, so one compromised or confused peer cannot switch a
-   feature on across the whole mesh.
-2. **No future stamps.** A receiver clamps `changedAt` to its own clock plus 5 minutes; a record stamped later than
-   that is refused (not stored, not relayed), so a peer with a wrong clock or bad intent cannot win every future
-   edit.
-3. **Bounded memory.** Each device remembers, per key, the stamp it last relayed to each peer (one stamp per key and
-   peer, a fixed set of keys), not a growing list of everything seen.
-4. **Relay only winners.** A device that applies a record because it wins (higher `changedAt`, then `version`, then
-   `changedBy`) sends it on to its other peers, never back to the one it came from; a record that does not win is not
-   sent on. Each device therefore sends each (key, stamp) at most once per peer, the flood stops by itself, every
-   device ends on the same winner, and duplicates are no-ops. The rate limit (20 in 10 seconds per peer) stays.
+1. **An allowlist.** Only these keys cross a hop: `activity.previews`, `display.reduce_motion`,
+   `files.folder_include_hidden`, `files.folder_include_system`. Every other key stays per edge (it syncs only
+   between the two devices that share it and is never passed on), including `feature.*`, `clipboard.automatic`,
+   `clipboard.files`, `codes.enabled`, `codes.email`, `focus.*`, `files.folder_destination`, `files.folder_conflict`,
+   `updates.auto_all` and `connect.away`. A key added later is per edge unless it is added to the list.
+2. **Refuse future stamps.** A receiver refuses a record whose `changedAt` is more than 5 minutes ahead of its own
+   clock: it does not store or relay it, and answers `settings.ack` with the key in `refused` (a new field), so the
+   sender sees it. The sender stamps that key again from its own clock (`changedAt` = now, `version` + 1) and sends
+   it once more; a second refusal stops there and shows "Different on <device>". Refusing, not clamping, keeps every
+   device's copy of a record identical, so the winner rule still converges.
+3. **Bounded memory.** Each device remembers, per key on the allowlist and per peer, only the stamp it last relayed.
+4. **Relay only winners, only to full peers.** A device that applies a record because it wins (higher `changedAt`,
+   then `version`, then `changedBy`) sends it on to its other peers, never back to the one it came from; a record
+   that does not win is not sent on. Devices paired by link and agents neither send relayed records nor receive them.
+   Each device therefore sends each (key, stamp) at most once per peer, the flood stops by itself, every device ends
+   on the same winner, and duplicates are no-ops. The rate limit (20 in 10 seconds per peer) stays.
+5. **`changedBy` only breaks ties.** It is a device ID the sender wrote; "Changed on <device>" names the
+   authenticated device the record arrived from, never `changedBy`.
 
 ### 4.5 Update all without a hub
 
-Update all reaches two hops at most and only from where the person tapped:
+Update all reaches one hop past the device the person used, and only through peers allowed to pass it on:
 
-- **The device the person tapped** (or whose own automatic run started) sends `updates.start` with a new `runId` (UUID)
-  and `forward: true` to its connected peers that allow remote starts.
-- **A receiver of a `forward: true` start** updates itself and sends the same `runId` once to its own connected peers,
-  with `forward: false`. A start with `forward: false` is never passed on. So no device can start a run that spreads
-  further than one hop past the device the person used.
-- **Rate limits per peer** stay (one start in 30 seconds, five an hour), counted for forwarded starts too, so a peer
-  cannot make another device spray starts.
+- **A per-edge grant.** Each device has, per peer, "May start updates for my other devices" (off by default, never on
+  for a device paired by link or an agent). A start with `forward: true` is accepted for passing on only from a peer
+  that holds it here; from any other peer the start updates this device (as today) and goes no further.
+- **One hop.** The device the person tapped (or whose own automatic run started) sends `updates.start` with a new
+  `runId` (UUID) and `forward: true`. A receiver that accepts the forward sends the same `runId` once to its own
+  connected peers with `forward: false`; a `forward: false` start is never passed on.
+- **Rate limits per peer** stay (one start in 30 seconds, five an hour), counted for forwarded starts too.
 - **Seen runs** are kept for 1 hour, at most 64; a `runId` seen before is answered `accepted` and not passed on.
-- **What the screen says** is the authenticated device that sent the start ("Started by Work Mac"), never a name the
-  message claims; a forwarded start shows "Started by Work Mac, from your phone" only when the sender is the tapped
-  device's direct peer that the receiver also trusts. There is no `origin` field.
+- **What the screen says.** "Started by B" names the authenticated device the start came from. "From your phone, via
+  B" is shown only if this device also received the same `runId` directly from the phone; otherwise it says "via B"
+  and nothing more. There is no `origin` field.
 
-The origin installs itself last, as today. Older devices ignore the fields and do not pass starts on. A start still
-names no version, URL or file, and each device installs only its own signed build, so none of this can downgrade.
+The device the person used installs itself last, as today. Older devices ignore the fields and do not pass starts on.
+A start still names no version, URL or file, and each device installs only its own signed build, so none of this can
+downgrade.
 
 ### 4.6 Routes
 
@@ -266,9 +280,10 @@ Phase 1 (built; contract tables and vectors updated):
 | Audit action `codes.detect` | Phone: "Read a code message", detail the app's name. Server: outcome and app |
 | `codes.result` `readers` | Now counts agents that can detect, as well as Macs |
 
-Phase 2 and 3 (designed, not built): `mesh_draft1`; invites with any `p`; `updates.start` `runId` and `origin`;
-`codes.found` from the phone to Macs under `codes_cards_draft1`; `agent.*` served by a Mac; `codes.candidate` with
-`source: email` behind its own switch.
+Phase 2 and 3 (designed, not built): `mesh_draft1`; invites `v: 2` (section 4.1: own derivation labels, the
+fragment hash and the signed `platform` in the transcript, `pairedBy`); `updates.start` `runId` and `forward`
+(section 4.5, no `origin`); `settings.ack` `refused` (section 4.4); `codes.found` from the phone to Macs under
+`codes_cards_draft1`; `agent.*` served by a Mac; `codes.candidate` with `source: email` behind its own switch.
 
 ## 6. Migration
 
@@ -288,11 +303,12 @@ Phase 2 and 3 (designed, not built): `mesh_draft1`; invites with any `p`; `updat
 | A server lies about a real token | | It could pick another code-like token in the text (an amount) | Limited to messages it was sent; Rahul sees which server read what; a second detector cross-check is possible later |
 | Replay | | | `messageId` in the replay window; `candidateId` single use; 30 second expiry |
 | Flooding | | | 60 candidates an hour per server, 20 waiting; the server reads at most 4 at once and answers `busy` beyond |
-| Relays in the mesh (settings, Update all) | Phone relays settings | Every device relays | Settings: only shared preferences cross a hop, `feature.*` stays per edge, future stamps refused, bounded memory, only winners relayed. Update all: one hop past the tapped device, per-peer rate limits, seen runs bounded, the authenticated sender shown; a start names nothing to install and cannot downgrade |
-| A link decides trust (remote pairing for new kinds) | Server and phone only | Any pair | Invite `v: 2` binds the whole invite JSON into the transcript; the kind comes from the signed `pairing.confirm`; every invite-paired device starts with nothing granted; the code screen names the kind and what it gets; older builds refuse `v: 2` |
+| Relays in the mesh (settings, Update all) | Phone relays settings | Every device relays | Settings: an allowlist of four preferences crosses a hop, everything else per edge; future stamps refused with a reply and re-stamped; no relays to or from link-paired devices or agents; bounded memory; only winners relayed; `changedBy` never shown. Update all: forwarding only from peers with the per-edge grant, one hop, per-peer rate limits, seen runs bounded, the authenticated sender shown; a start names nothing to install and cannot downgrade |
+| A link decides trust (remote pairing for new kinds) | Server and phone only | Any pair | Today: only `p: cli` invites, stored as `cli`. `v: 2`: own derivation labels and no fallback, the received fragment hashed into the transcript, duplicate and unknown keys refused, the kind from the signed `pairing.confirm` (fixed list), `pairedBy: invite` kept apart and gating defaults and handlers, everything off, a permanent label; older builds refuse `v: 2` |
+| A peer of a server claims to be a phone | | Another device sends `codes.candidate` | A release `bridgey` cannot join invites (debug builds only), so every peer of a release server is the device that joined its invite and passed the code check, which only the phone app does. A custom client that joins the invite is accepted as a phone; residual risk accepted until `v: 2` signs the kind |
 | Device IDs gamed for priority | | A server picks a low ID to be asked first | Detectors are ordered by when Rahul granted them, not by ID |
 | A Mac switches Detect codes on | | | Refused on the phone; read-only on the Mac |
-| The model file | | | Only a file whose (version, SHA-256, size) is built into the binary is used, so release write access alone cannot swap it; the manifest must come from the fork's `models` release over HTTPS; `curl -q` ignores `~/.curlrc`; SHA-256 checked before use; terms accepted |
+| The model file | | | The Mac and `bridgey` use only a manifest pinned in the build (file, size, SHA-256, name, terms), so release write access alone cannot swap the model or the terms; `bridgey` fetches no manifest at all; the Mac offers an online manifest only if it is pinned; `curl -q` ignores `~/.curlrc`; a refused resume starts again; SHA-256 checked before use |
 | A message steers the model | | Text with `<end_of_turn>` or `<start_of_turn>` | The reader tokenizes the message without parsing special tokens (the template's own parts only); on the 3,646 eval prompts the tokens are identical to before. The Mac's Swift runner still parses them until it calls the crate (phase 2) |
 | A server floods or stalls the reader | | | Slots held by a guard (freed on every path); a job whose caller stopped waiting is dropped; a prompt too long for the context is read on a shorter window without unloading the model |
 | Candidates from a non-phone | | Another server sends `codes.candidate` | A server reads candidates only from a peer paired as a phone that never sent `agent.hello` |

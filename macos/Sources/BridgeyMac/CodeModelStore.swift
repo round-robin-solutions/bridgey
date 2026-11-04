@@ -318,6 +318,9 @@ final class CodeModelStore: ObservableObject {
     private var lastManifestFetch: Date?
     private var monitor: NWPathMonitor?
     private let clock: () -> TimeInterval
+    /// Manifests this store may use besides the bundled one (CodeModelManifest.pinned in the app).
+    private let pinned: [CodeModelManifest]
+    private let bundled: CodeModelManifest?
 
     init(files: CodeModelFiles = .standard(),
          transport: CodeModelTransport = URLSessionCodeModelTransport(),
@@ -327,8 +330,10 @@ final class CodeModelStore: ObservableObject {
          spaceQuery: @escaping @Sendable (URL) -> Int64? = { CodeModelStore.volumeSpace($0) },
          idleTimeout: TimeInterval = LocalCodeEngine.defaultIdleTimeout,
          clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-         makeRunner: @escaping () -> LocalModelRunner = { LlamaRunner() }) {
+         makeRunner: @escaping () -> LocalModelRunner = { LlamaRunner() },
+         pinned: [CodeModelManifest] = CodeModelManifest.pinned) {
         self.files = files
+        self.pinned = pinned
         self.transport = transport
         self.manifestURL = manifestURL
         self.assetURLPrefix = assetURLPrefix
@@ -337,6 +342,7 @@ final class CodeModelStore: ObservableObject {
         let box = path
         engine = LocalCodeEngine(idleTimeout: idleTimeout, modelPath: { box.get() }, makeRunner: makeRunner)
         manifest = bundledManifest?.isValid(assetURLPrefix: assetURLPrefix) == true ? bundledManifest : nil
+        bundled = manifest
         restore()
     }
 
@@ -346,6 +352,7 @@ final class CodeModelStore: ObservableObject {
         let prefix = (bundle.object(forInfoDictionaryKey: "BridgeyAssetURLPrefix") as? String) ?? ""
         let bundled = bundle.url(forResource: "otp-model", withExtension: "json").flatMap { try? Data(contentsOf: $0) }
             .flatMap { CodeModelManifest.parse($0, assetURLPrefix: prefix) }
+            .flatMap { CodeModelManifest.pinned.contains($0) ? $0 : nil }
         let manifestURL = (bundle.object(forInfoDictionaryKey: "BridgeyCodeModelManifestURL") as? String)
             .flatMap(URL.init(string:)).flatMap { $0.scheme == "https" ? $0 : nil }
         return CodeModelStore(bundledManifest: bundled, manifestURL: manifestURL, assetURLPrefix: prefix)
@@ -378,7 +385,7 @@ final class CodeModelStore: ObservableObject {
         }
         if let data = try? Data(contentsOf: files.downloadRecord),
            let record = try? Self.decoder.decode(CodeModelDownloadRecord.self, from: data),
-           record.manifest.isValid(assetURLPrefix: assetURLPrefix) {
+           record.manifest.isValid(assetURLPrefix: assetURLPrefix), allows(record.manifest) {
             manifest = CodeModelManifest.newest(manifest, record.manifest)
             let received = files.size(of: files.partial(record.manifest)) ?? 0
             download = CodeModelDownload(manifest: record.manifest, received: min(received, record.manifest.size), state: .paused)
@@ -662,8 +669,13 @@ final class CodeModelStore: ObservableObject {
         if !force, let lastManifestFetch, Date().timeIntervalSince(lastManifestFetch) < Self.manifestInterval { return }
         lastManifestFetch = Date()
         guard let result = try? await transport.fetch(manifestURL), result.0 == 200,
-              let fetched = CodeModelManifest.parse(result.1, assetURLPrefix: assetURLPrefix) else { return }
+              let fetched = CodeModelManifest.parse(result.1, assetURLPrefix: assetURLPrefix), allows(fetched) else { return }
         manifest = CodeModelManifest.newest(manifest, fetched)
+    }
+
+    /// Only a pinned manifest, or the bundled one, is ever downloaded.
+    private func allows(_ manifest: CodeModelManifest) -> Bool {
+        manifest == bundled || pinned.contains(manifest)
     }
 
     // MARK: Helpers
