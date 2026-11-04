@@ -66,6 +66,7 @@ import dev.bridgey.android.ui.theme.BridgeyType
 import dev.bridgey.android.ui.theme.OnBand
 import dev.bridgey.android.ui.theme.ScreenBackdrop
 import java.util.TimeZone
+import dev.bridgey.android.ui.search.settingsSearchScroll
 
 /** One per-device permission row. Find and Ping share a row, as in the design. */
 data class PermissionRow(
@@ -452,7 +453,7 @@ private fun DeviceTabs(tab: DeviceTab, onTab: (DeviceTab) -> Unit, modifier: Mod
 private fun PermissionsList(state: DeviceState, actions: DeviceActions, contentPadding: PaddingValues) {
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     LazyColumn(
-        Modifier.fillMaxSize().then(dev.bridgey.android.ui.search.rememberSearchScroll(listState)),
+        Modifier.fillMaxSize().settingsSearchScroll(listState),
         state = listState,
         contentPadding = contentPadding,
     ) {

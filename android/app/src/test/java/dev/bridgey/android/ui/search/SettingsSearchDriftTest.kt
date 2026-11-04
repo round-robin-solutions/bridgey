@@ -273,7 +273,7 @@ class SettingsSearchDriftTest {
         val missing = ids.toSet().map { context.resources.getResourceEntryName(it) }.filter { it !in en || it !in ru }
         assertTrue("missing: $missing", missing.isEmpty())
         listOf("values/strings_search.xml", "values-ru/strings_search.xml").forEach { path ->
-            assertTrue("$path has an em dash", '—' !in File(res, path).readText())
+            assertTrue("$path has an em dash", '\u2014' !in File(res, path).readText())
         }
     }
 }

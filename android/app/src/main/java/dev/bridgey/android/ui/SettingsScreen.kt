@@ -72,6 +72,8 @@ import dev.bridgey.android.ui.theme.OnBand
 import dev.bridgey.android.ui.theme.ScreenBackdrop
 import dev.bridgey.android.updateCardPhase
 import dev.bridgey.android.updateErrorText
+import dev.bridgey.android.ui.search.settingsSearchScroll
+import dev.bridgey.android.ui.search.settingsSearchHighlight
 
 data class SettingsState(
     val deviceName: String,
@@ -250,7 +252,7 @@ fun SettingsPage(
         Column(Modifier.fillMaxSize()) {
             OnBand { PageBar(title, onBack, actions) }
             LazyColumn(
-                Modifier.fillMaxSize().then(dev.bridgey.android.ui.search.rememberSearchScroll(listState)),
+                Modifier.fillMaxSize().settingsSearchScroll(listState),
                 state = listState,
                 contentPadding = PaddingValues(bottom = navBottom + 32.dp),
                 content = content,
@@ -797,7 +799,7 @@ private fun ThisPhoneCard(state: SettingsState, onRename: () -> Unit, modifier: 
             .heightIn(min = 76.dp)
             .clip(RoundedCornerShape(24.dp))
             .background(colors.surface1)
-            .then(dev.bridgey.android.ui.search.rememberSearchHighlight(stringResource(R.string.settings_this_phone), RoundedCornerShape(24.dp)))
+            .settingsSearchHighlight(stringResource(R.string.settings_this_phone), RoundedCornerShape(24.dp))
             .clickable(onClickLabel = stringResource(R.string.action_rename), role = Role.Button, onClick = onRename)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1248,10 +1250,10 @@ fun UpdatesCard(
         val cardShape = RoundedCornerShape(28.dp)
         UpdateStatusCard(
             updateCardPhase(state), installedVersion, now, actions,
-            cardModifier.then(dev.bridgey.android.ui.search.rememberSearchHighlight(stringResource(R.string.settings_search_check_updates), cardShape))
+            cardModifier.settingsSearchHighlight(stringResource(R.string.settings_search_check_updates), cardShape)
                 .padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 16.dp),
         )
-        Column(cardModifier.then(dev.bridgey.android.ui.search.rememberSearchHighlight(stringResource(R.string.updates_channel), cardShape)).padding(horizontal = 20.dp, vertical = 16.dp)) {
+        Column(cardModifier.settingsSearchHighlight(stringResource(R.string.updates_channel), cardShape).padding(horizontal = 20.dp, vertical = 16.dp)) {
             Text(stringResource(R.string.updates_channel), style = BridgeyType.itemTitle, modifier = Modifier.semantics { heading() })
             ChannelPicker(state.channel, actions.setChannel, Modifier.padding(top = 10.dp))
             Text(channelDescription(state.channel), style = BridgeyType.itemBody, color = colors.onSurface, modifier = Modifier.padding(top = 10.dp))

@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -17,6 +18,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Outline
@@ -43,10 +45,10 @@ class SettingsSearchHost {
     private var nextToken = 1L
 
     /** The target's row has been drawn on its page (its token). */
-    internal var located by mutableStateOf(0L)
+    internal var located by mutableLongStateOf(0L)
 
     /** The page has scrolled the row into place: the highlight may play (its token). */
-    internal var arrived by mutableStateOf(0L)
+    internal var arrived by mutableLongStateOf(0L)
 
     /** Where the target's row is, in root coordinates, once drawn. */
     internal var rowBounds: Rect? = null
@@ -88,14 +90,13 @@ private const val STEADY_OUT = 300
  * out once). Put it after the row's background. [title] identifies the row; [searchable] is false for status
  * lines that are not settings.
  */
-@Composable
-fun rememberSearchHighlight(title: String, shape: Shape, searchable: Boolean = true): Modifier {
-    val host = LocalSettingsSearch.current ?: return Modifier
+fun Modifier.settingsSearchHighlight(title: String, shape: Shape, searchable: Boolean = true): Modifier = this.composed {
+    val host = LocalSettingsSearch.current ?: return@composed Modifier
     val route = LocalSearchRoute.current
     val scope = LocalSearchScope.current
     host.recorder?.let { record -> SideEffect { record(route, scope, title, searchable) } }
     val target = host.pending
-    if (!searchable || target == null || target.routeKey != route || target.scope != scope || target.title != title) return Modifier
+    if (!searchable || target == null || target.routeKey != route || target.scope != scope || target.title != title) return@composed Modifier
     val motion = LocalMotion.current
     val alpha = remember(target.token) { Animatable(0f) }
     val tint = BridgeyTheme.colors.tintBlue
@@ -115,7 +116,7 @@ fun rememberSearchHighlight(title: String, shape: Shape, searchable: Boolean = t
         }
         host.finish(target.token)
     }
-    return Modifier
+    Modifier
         .onGloballyPositioned { host.rowBounds = it.boundsInRoot() }
         .drawBehind {
             val a = alpha.value
@@ -131,11 +132,10 @@ fun rememberSearchHighlight(title: String, shape: Shape, searchable: Boolean = t
  * through items not drawn yet), centres it, then lets the highlight play. Attach the returned modifier to the
  * list. Scrolls without animation under reduced motion.
  */
-@Composable
-fun rememberSearchScroll(listState: LazyListState): Modifier {
-    val host = LocalSettingsSearch.current ?: return Modifier
+fun Modifier.settingsSearchScroll(listState: LazyListState): Modifier = this.composed {
+    val host = LocalSettingsSearch.current ?: return@composed Modifier
     val route = LocalSearchRoute.current
-    val target = host.pending?.takeIf { it.routeKey == route } ?: return Modifier
+    val target = host.pending?.takeIf { it.routeKey == route } ?: return@composed Modifier
     val motion = LocalMotion.current
     val viewport = remember { arrayOfNulls<Rect>(1) }
     LaunchedEffect(target.token) {
@@ -169,5 +169,5 @@ fun rememberSearchScroll(listState: LazyListState): Modifier {
         }
         host.arrived = target.token
     }
-    return Modifier.onGloballyPositioned { viewport[0] = it.boundsInRoot() }
+    Modifier.onGloballyPositioned { viewport[0] = it.boundsInRoot() }
 }

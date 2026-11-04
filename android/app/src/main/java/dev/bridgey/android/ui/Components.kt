@@ -62,6 +62,7 @@ import dev.bridgey.android.ui.theme.BridgeyTheme
 import dev.bridgey.android.ui.theme.BridgeyType
 import dev.bridgey.android.ui.theme.LocalOnBand
 import kotlin.math.PI
+import dev.bridgey.android.ui.search.settingsSearchHighlight
 
 /** Tile tints from the mockup: purple, blue, green or neutral. */
 enum class Tint { PURPLE, BLUE, GREEN, NEUTRAL }
@@ -231,7 +232,7 @@ fun ListRow(
             .heightIn(min = if (compact) 56.dp else 64.dp)
             .clip(shape)
             .background(colors.surface1)
-            .then(dev.bridgey.android.ui.search.rememberSearchHighlight(searchTitle ?: title, shape, searchable))
+            .settingsSearchHighlight(searchTitle ?: title, shape, searchable)
             .then(
                 if (onClick != null) {
                     Modifier.clickable(onClickLabel = onClickLabel, role = role, onClick = onClick)

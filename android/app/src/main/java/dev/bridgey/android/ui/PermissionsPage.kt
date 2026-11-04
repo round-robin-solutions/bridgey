@@ -30,6 +30,7 @@ import dev.bridgey.android.setup.PermissionState
 import dev.bridgey.android.setup.RestrictedSettings
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import dev.bridgey.android.ui.theme.BridgeyType
+import dev.bridgey.android.ui.search.settingsSearchHighlight
 
 @Composable
 fun permissionName(kind: PermissionKind): String = stringResource(
@@ -145,7 +146,7 @@ private fun PermissionRowItem(shape: Shape, entry: PermissionEntry, textMessages
     val (icon, tint) = permissionIcon(entry.kind)
     val available = entry.state != PermissionState.NOT_ON_THIS_DEVICE
     Row(
-        Modifier.fillMaxWidth().clip(shape).background(colors.surface1).then(dev.bridgey.android.ui.search.rememberSearchHighlight(permissionName(entry.kind), shape))
+        Modifier.fillMaxWidth().clip(shape).background(colors.surface1).settingsSearchHighlight(permissionName(entry.kind), shape)
             .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {

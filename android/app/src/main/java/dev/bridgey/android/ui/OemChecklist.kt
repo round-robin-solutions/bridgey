@@ -30,6 +30,7 @@ import dev.bridgey.android.setup.OemStepKind
 import dev.bridgey.android.setup.OemVendor
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import dev.bridgey.android.ui.theme.BridgeyType
+import dev.bridgey.android.ui.search.settingsSearchHighlight
 
 /** The phone maker's own battery steps, each with an Open button, and where they come from. */
 @Composable
@@ -37,7 +38,7 @@ fun OemChecklistCard(checklist: OemChecklist, onOpen: (OemStep) -> Unit, openUrl
     val colors = BridgeyTheme.colors
     Column(
         modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(colors.surface1)
-            .then(dev.bridgey.android.ui.search.rememberSearchHighlight(stringResource(R.string.settings_search_oem), RoundedCornerShape(24.dp)))
+            .settingsSearchHighlight(stringResource(R.string.settings_search_oem), RoundedCornerShape(24.dp))
             .padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {

@@ -1393,7 +1393,7 @@ private fun BridgeyApp(
                         )
                         Route.Reset -> ResetRoute(setup, onBack = { stack.pop() })
                         Route.SettingsSearch -> {
-                            val searchEntries = remember(settingsUi.developerMenu, settingsUi.sync, trustedDevices, context.resources.configuration) {
+                            val searchEntries = remember(settingsUi.developerMenu, settingsUi.sync, trustedDevices, androidx.compose.ui.platform.LocalConfiguration.current) {
                                 dev.bridgey.android.ui.search.SettingsSearchRegistry.resolve(
                                     context, settingsUi.developerMenu, settingsUi.sync,
                                     trustedDevices.map { dev.bridgey.android.ui.search.SearchDevice(it.id, it.name, it.isAgent) },
