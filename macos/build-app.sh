@@ -28,7 +28,7 @@ env \
   SDKROOT="$SDK_PATH" \
   CLANG_MODULE_CACHE_PATH="$CACHE_ROOT/clang" \
   SWIFTPM_MODULECACHE_OVERRIDE="$CACHE_ROOT/swift" \
-  swift build -c "$CONFIGURATION" "$@"
+  swift build --build-system native -c "$CONFIGURATION" "$@"
 
 rm -rf "$APP_PATH"
 mkdir -p "$APP_PATH/Contents/MacOS"

@@ -45,7 +45,7 @@ fi
 sh "$RR_ROOT/scripts/rr/rust-toolchain.sh" mac
 PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 export PATH
-swift test -c release --skip MacTrustRegistryTests
+swift test --build-system native -c release --skip MacTrustRegistryTests
 OUTPUT_DIR="$OUTPUT" ./package-release.sh
 
 APP=".build/release/$(edition_value EDITION_MAC_APP_NAME).app"
