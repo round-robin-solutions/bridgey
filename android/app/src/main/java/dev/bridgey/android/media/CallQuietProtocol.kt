@@ -80,7 +80,7 @@ fun CallMediaResult.wireResult(revision: Int): CallQuietResult = CallQuietResult
             CallMediaReason.CALL_AUDIO_PROTECTED -> "call_audio_protected"
             CallMediaReason.PAUSE_UNCONFIRMED -> "command_failed"
             CallMediaReason.MUTE_UNAVAILABLE -> "selective_mute_unavailable"
-            CallMediaReason.SESSION_LIMIT, CallMediaReason.RESTORE_UNVERIFIED -> "other_players_limited"
+            CallMediaReason.SESSION_LIMIT, CallMediaReason.RESTORE_UNVERIFIED, CallMediaReason.UNEXPOSED_PLAYBACK -> "other_players_limited"
             CallMediaReason.MANUAL_PLAYBACK, CallMediaReason.STATE_CHANGED -> "changed_by_user"
         }
     },

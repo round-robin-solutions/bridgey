@@ -198,12 +198,84 @@ class CallMediaControllerTest {
         assertTrue(platform.played.isEmpty())
     }
 
+    @Test fun manualPauseThenPlayOfTheSameMutedSessionRestoresSoundWithoutQuietingAgain() {
+        platform.add()
+        val policy = CallMediaPolicy(mode = CallMediaMode.MUTE_ONLY)
+        start(policy)
+        platform.state("music", CallMediaPlayback.PAUSED); clock.advance()
+        assertEquals(0, platform.restoreCount)
+
+        platform.state("music", CallMediaPlayback.PLAYING); clock.advance()
+        controller.updateCalls(setOf("phone/call-1", "phone/call-2"), policy, false)
+        clock.advance()
+
+        assertEquals(1, platform.restoreCount)
+        assertEquals(1, platform.muteCount)
+        assertFalse(controller.result.muted)
+        assertTrue(CallMediaReason.MANUAL_PLAYBACK in controller.result.reasons)
+        assertTrue(platform.paused.isEmpty())
+        finish()
+        assertEquals(1, platform.restoreCount)
+        assertTrue(platform.played.isEmpty())
+    }
+
+    @Test fun manualPauseThenPlayOfTheSameFallbackMutedSessionRestoresSoundWithoutAnotherPause() {
+        platform.add(); platform.confirmPause = false
+        start(); clock.advance(750)
+        assertEquals(1, platform.muteCount)
+        platform.state("music", CallMediaPlayback.PAUSED); clock.advance()
+        assertEquals(0, platform.restoreCount)
+
+        platform.state("music", CallMediaPlayback.PLAYING); clock.advance()
+        controller.updateCalls(setOf("phone/call-1", "phone/call-2"), CallMediaPolicy(), false)
+        clock.advance()
+
+        assertEquals(1, platform.restoreCount)
+        assertEquals(1, platform.muteCount)
+        assertEquals(listOf("music"), platform.paused)
+        assertFalse(controller.result.muted)
+        assertTrue(CallMediaReason.MANUAL_PLAYBACK in controller.result.reasons)
+        finish()
+        assertTrue(platform.played.isEmpty())
+    }
+
     @Test fun muteCanCoverMusicWithoutAnExposedMediaSessionButReportsStreamScope() {
         platform.unknownMusic = true
         start()
         assertEquals(1, platform.muteCount)
         assertTrue(controller.result.muted)
         assertEquals(0, controller.result.paused)
+    }
+
+    @Test fun restartingNonSessionMusicRestoresSoundAndDoesNotMuteAgain() {
+        platform.unknownMusic = true
+        start()
+        platform.unknownMusic = false; platform.changed(); clock.advance()
+        assertEquals(0, platform.restoreCount)
+        platform.unknownMusic = true; platform.changed(); clock.advance()
+
+        assertEquals(1, platform.restoreCount)
+        assertEquals(1, platform.muteCount)
+        assertTrue(CallMediaReason.MANUAL_PLAYBACK in controller.result.reasons)
+        assertFalse(controller.result.muted)
+        finish()
+        assertEquals(1, platform.restoreCount)
+    }
+
+    @Test fun pausingAnExposedSessionDoesNotHideRemainingNonSessionPlayback() {
+        platform.add()
+        platform.unknownMusic = true
+        start()
+
+        assertEquals(listOf("music"), platform.paused)
+        assertEquals(1, controller.result.paused)
+        assertEquals(0, platform.muteCount)
+        assertEquals(CallMediaPhase.PARTIAL, controller.result.phase)
+        assertEquals(1, controller.result.unsupported)
+        assertTrue(CallMediaReason.UNEXPOSED_PLAYBACK in controller.result.reasons)
+        controller.updateCalls(setOf("phone/call-1", "phone/call-2"), CallMediaPolicy(), false)
+        assertEquals(CallMediaPhase.PARTIAL, controller.result.phase)
+        assertEquals(0, platform.muteCount)
     }
 
     @Test fun localCallAndCommunicationSafetyNeverPermitFallbackMute() {
@@ -326,6 +398,66 @@ class CallMediaControllerTest {
         platform.changed(); clock.advance()
         finish()
         assertTrue(platform.played.isEmpty())
+    }
+
+    @Test fun cachedPlayingPositionIsProjectedToCaptureTimeBeforeOwnedPauseRestoration() {
+        clock.advance(10_000)
+        platform.add(); platform.confirmPause = false
+        platform.sessions["music"] = platform.sessions.getValue("music").copy(
+            positionMs = callMediaPosition(1_000, 1f, 1_000, clock.now, playing = true),
+            positionTimeMs = clock.now,
+            playbackSpeed = 1f,
+        )
+        start()
+        clock.advance(400)
+        platform.sessions["music"] = platform.sessions.getValue("music").copy(
+            playback = CallMediaPlayback.PAUSED,
+            positionMs = 10_400,
+            positionTimeMs = clock.now,
+            playbackSpeed = 0f,
+            revision = 2,
+        )
+        platform.changed(); clock.advance()
+        assertEquals(1, controller.result.paused)
+        clock.advance(10_000)
+        finish()
+
+        assertEquals(listOf("music"), platform.played)
+        assertEquals(0, platform.muteCount)
+    }
+
+    @Test fun aRealSeekBeyondExpectedPlaybackProgressNeverAuthorizesAutoResume() {
+        clock.advance(10_000)
+        platform.add(); platform.confirmPause = false
+        platform.sessions["music"] = platform.sessions.getValue("music").copy(
+            positionMs = callMediaPosition(1_000, 1f, 1_000, clock.now, playing = true),
+            positionTimeMs = clock.now,
+            playbackSpeed = 1f,
+        )
+        start()
+        clock.advance(400)
+        platform.sessions["music"] = platform.sessions.getValue("music").copy(
+            playback = CallMediaPlayback.PAUSED,
+            positionMs = 30_400,
+            positionTimeMs = clock.now,
+            playbackSpeed = 0f,
+            revision = 2,
+        )
+        platform.changed(); clock.advance(); finish()
+
+        assertTrue(platform.played.isEmpty())
+    }
+
+    @Test fun cachedPositionProjectionHonorsSpeedAndKeepsPausedSamplesFixed() {
+        assertEquals(19_000L, callMediaPosition(1_000, 2f, 1_000, 10_000, playing = true))
+        assertEquals(5_000L, callMediaPosition(10_000, -1f, 1_000, 6_000, playing = true))
+        assertEquals(0L, callMediaPosition(1_000, -1f, 1_000, 5_000, playing = true))
+        assertEquals(1_000L, callMediaPosition(1_000, 1f, 1_000, 10_000, playing = false))
+        assertEquals(-1L, callMediaPosition(-1, 1f, 1_000, 10_000, playing = true))
+        assertEquals(-1L, callMediaPosition(1_000, Float.NaN, 1_000, 10_000, playing = true))
+        assertEquals(-1L, callMediaPosition(1_000, Float.POSITIVE_INFINITY, 1_000, 10_000, playing = true))
+        assertEquals(-1L, callMediaPosition(1_000, 1f, -1, 10_000, playing = true))
+        assertEquals(-1L, callMediaPosition(1_000, 1f, 10_000, 1_000, playing = true))
     }
 
     @Test fun destroyedOrStoppedPlayersNeverGetPlayedAtCallEnd() {

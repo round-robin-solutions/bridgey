@@ -34,7 +34,18 @@ data class CallMediaSession(
     /** Stable content identity hashed locally; null means automatic restoration cannot be verified. */
     val contentId: String? = null,
     val positionMs: Long = 0,
+    /** Monotonic time represented by positionMs; paused samples keep the player's update time. */
+    val positionTimeMs: Long = 0,
+    val playbackSpeed: Float = 0f,
 )
+
+internal fun callMediaPosition(position: Long, speed: Float, updatedAt: Long, capturedAt: Long, playing: Boolean): Long {
+    if (position < 0) return -1
+    if (!playing) return position
+    if (!speed.isFinite() || updatedAt < 0 || capturedAt < updatedAt) return -1
+    val projected = position.toDouble() + (capturedAt - updatedAt).toDouble() * speed.toDouble()
+    return if (projected.isFinite()) projected.coerceIn(0.0, Long.MAX_VALUE.toDouble()).toLong() else -1
+}
 
 enum class CallMediaAvailability { AVAILABLE, PERMISSION_NEEDED, UNAVAILABLE }
 
@@ -79,7 +90,7 @@ fun interface CallMediaScheduler {
 enum class CallMediaReason {
     PERMISSION_NEEDED, PLATFORM_UNAVAILABLE, CALL_AUDIO_PROTECTED, PAUSE_UNSUPPORTED,
     PAUSE_UNCONFIRMED, MUTE_UNAVAILABLE, SESSION_LIMIT, MANUAL_PLAYBACK, STATE_CHANGED,
-    RESTORE_UNVERIFIED,
+    RESTORE_UNVERIFIED, UNEXPOSED_PLAYBACK,
 }
 
 enum class CallMediaPhase { IDLE, PENDING, APPLIED, PARTIAL, UNAVAILABLE }
@@ -128,6 +139,8 @@ class CallMediaController(
     private var cancelSettling: (() -> Unit)? = null
     private var epoch = 0L
     private var initialPlaying = emptySet<String>()
+    private val observedPlayback = mutableMapOf<String, CallMediaPlayback>()
+    private var lastMusicActive: Boolean? = null
     private val pauses = linkedMapOf<String, Pause>()
     private val settling = linkedMapOf<String, Pause>()
     private var mute: Mute? = null
@@ -209,6 +222,7 @@ class CallMediaController(
         pauses.clear()
         mute = null
         initialPlaying = emptySet()
+        observedPlayback.clear(); lastMusicActive = null
         if (settling.isEmpty()) finishSettling()
         else {
             val at = settling.values.maxOf { it.requestedAt + pauseConfirmationMs }
@@ -238,6 +252,9 @@ class CallMediaController(
         if (snapshot.truncated) reasons += CallMediaReason.SESSION_LIMIT
         val playing = snapshot.sessions.filter { it.playback == CallMediaPlayback.PLAYING }
         initialPlaying = playing.mapTo(mutableSetOf(), CallMediaSession::id)
+        observedPlayback.clear()
+        playing.forEach { observedPlayback[it.id] = it.playback }
+        lastMusicActive = snapshot.music?.active
         initialUnknownMusic = playing.isEmpty() && snapshot.music?.active == true
         playing.filterNot(CallMediaSession::mediaOrGame).forEach { _ ->
             unsupported += 1; reasons += CallMediaReason.CALL_AUDIO_PROTECTED
@@ -290,6 +307,15 @@ class CallMediaController(
             return
         }
         val sessions = snapshot.sessions.associateBy(CallMediaSession::id)
+        for (id in initialPlaying) {
+            val current = sessions[id]?.playback ?: continue
+            val previous = observedPlayback.put(id, current)
+            if (previous != null && previous != CallMediaPlayback.PLAYING && current == CallMediaPlayback.PLAYING) {
+                manualPlayback = true
+            }
+        }
+        if (quietFinished && lastMusicActive == false && snapshot.music?.active == true) manualPlayback = true
+        lastMusicActive = snapshot.music?.active
         val iterator = pauses.iterator()
         while (iterator.hasNext()) {
             val (_, owned) = iterator.next()
@@ -354,7 +380,11 @@ class CallMediaController(
         }
         quietFinished = true
         val localMuted = mute != null || snapshot.music?.let { it.muted || it.volume == 0 } == true
-        val unquiet = stillPlaying.count { !it.localPlayback || !localMuted } + if (unknownPlaying && !localMuted) 1 else 0
+        val residualUnexposed = !initialUnknownMusic && snapshot.music?.active == true &&
+            stillPlaying.none(CallMediaSession::localPlayback) && !manualPlayback && !localMuted
+        if (residualUnexposed) reasons += CallMediaReason.UNEXPOSED_PLAYBACK
+        val unquiet = stillPlaying.count { !it.localPlayback || !localMuted } +
+            if ((unknownPlaying || residualUnexposed) && !localMuted) 1 else 0
         publishCurrent(unquiet)
     }
 
@@ -364,10 +394,13 @@ class CallMediaController(
         runCatching { platform.restoreMusic(owned.owned, owned.previous) }
     }
 
-    private fun isOurPausedContent(owned: Pause, current: CallMediaSession): Boolean =
-        current.playback == CallMediaPlayback.PAUSED && current.canPlay && current.contentId != null &&
-            current.contentId == owned.initial.contentId && owned.initial.positionMs >= 0 && current.positionMs >= owned.initial.positionMs &&
-            current.positionMs - owned.initial.positionMs <= 2_000
+    private fun isOurPausedContent(owned: Pause, current: CallMediaSession): Boolean {
+        if (current.playback != CallMediaPlayback.PAUSED || !current.canPlay || current.contentId == null ||
+            current.contentId != owned.initial.contentId || current.positionMs < 0) return false
+        val expected = callMediaPosition(owned.initial.positionMs, owned.initial.playbackSpeed,
+            owned.initial.positionTimeMs, current.positionTimeMs, playing = true)
+        return expected >= 0 && kotlin.math.abs(current.positionMs.toDouble() - expected.toDouble()) <= 2_000.0
+    }
 
     private fun settleLatePauses(final: Boolean = false) {
         if (calls.isNotEmpty() || policy.restoration != CallMediaRestoration.RESTORE_AND_RESUME) { finishSettling(); return }

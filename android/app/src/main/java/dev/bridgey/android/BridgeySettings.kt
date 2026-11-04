@@ -236,6 +236,9 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
     fun isEnabled(feature: BridgeyFeature, deviceId: String?): Boolean {
         val snapshot = mutableState.value
         if (!BuildGates.featureBuilt(feature)) return false
+        if (feature == BridgeyFeature.CALL_QUIET && deviceId != null) {
+            return snapshot.globalFeatures[feature] == true && snapshot.deviceFeatures[deviceId]?.get(feature) == true
+        }
         return effectiveFeatureEnabled(
             globalEnabled = snapshot.globalFeatures[feature] != false,
             deviceEnabled = deviceId?.let { snapshot.deviceFeatures[it]?.get(feature) },

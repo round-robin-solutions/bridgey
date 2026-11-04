@@ -51,4 +51,20 @@ class CallQuietSettingsTest {
             .putString("calls.quiet.mode", "bad").putString("calls.quiet.restoration", "bad").commit()
         assertEquals(CallMediaPolicy(), BridgeySettings(app, "Phone").state.value.callMediaPolicy)
     }
+
+    @Test fun aGlobalOptInDoesNotGrantAPeerAndTheRealPermissionRowExists() {
+        val settings = BridgeySettings(app, "Phone")
+        settings.setGlobal(BridgeyFeature.CALL_QUIET, true)
+        assertTrue(settings.isEnabled(BridgeyFeature.CALL_QUIET, null))
+        assertFalse(settings.isEnabled(BridgeyFeature.CALL_QUIET, "mac"))
+        assertTrue(dev.bridgey.android.PermissionOrder.flatten().contains(BridgeyFeature.CALL_QUIET))
+        settings.setForDevice("mac", BridgeyFeature.CALL_QUIET, true)
+        assertTrue(settings.isEnabled(BridgeyFeature.CALL_QUIET, "mac"))
+        assertFalse(settings.isEnabled(BridgeyFeature.CALL_QUIET, "another-mac"))
+        settings.setForDevice("mac", BridgeyFeature.CALL_QUIET, false)
+        assertFalse(settings.isEnabled(BridgeyFeature.CALL_QUIET, "mac"))
+        settings.setGlobal(BridgeyFeature.CLIPBOARD, true)
+        assertTrue("ordinary missing grants keep their existing defaults", settings.isEnabled(BridgeyFeature.CLIPBOARD, "mac"))
+    }
+
 }

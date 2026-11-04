@@ -9,7 +9,9 @@ import android.media.session.MediaSession
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
+import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -118,6 +120,47 @@ class AndroidCallMediaPlatformTest {
 
         assertEquals(before.id, after.id)
         assertNotEquals(before.revision, after.revision)
+    }
+
+    @Test fun cachedPlayingPositionAdvancesWithoutInventingAPlayerRevision() {
+        shadowOf(Looper.getMainLooper()).idleFor(10, TimeUnit.SECONDS)
+        val player = player("music")
+        val at = SystemClock.elapsedRealtime()
+        shadowOf(player).setPlaybackState(PlaybackState.Builder()
+            .setState(PlaybackState.STATE_PLAYING, 1_000, 1f, at - 5_000)
+            .setActions(PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY).build())
+        stop = platform.observe { }
+        val first = platform.snapshot().sessions.single()
+        assertEquals(6_000L, first.positionMs)
+        assertEquals(at, first.positionTimeMs)
+        shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+        val second = platform.snapshot().sessions.single()
+        assertEquals(7_000L, second.positionMs)
+        assertEquals(first.revision, second.revision)
+    }
+
+    @Test fun pausedSnapshotsStayEqualWhileTheClockAdvances() {
+        val player = player("music")
+        shadowOf(player).setPlaybackState(state(PlaybackState.STATE_PAUSED))
+        stop = platform.observe { }
+        val before = platform.snapshot().sessions.single()
+        shadowOf(Looper.getMainLooper()).idleFor(3, TimeUnit.SECONDS)
+        assertEquals(before, platform.snapshot().sessions.single())
+    }
+
+    @Test fun fastForwardAndRewindArePlayingWithProjectedPositions() {
+        shadowOf(Looper.getMainLooper()).idleFor(10, TimeUnit.SECONDS)
+        val player = player("music")
+        stop = platform.observe { }
+        listOf(PlaybackState.STATE_FAST_FORWARDING to 2f, PlaybackState.STATE_REWINDING to -1f).forEach { (state, speed) ->
+            shadowOf(player).setPlaybackState(PlaybackState.Builder()
+                .setState(state, 5_000, speed, SystemClock.elapsedRealtime() - 1_000)
+                .setActions(PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY).build())
+            val snapshot = platform.snapshot().sessions.single()
+            assertEquals(CallMediaPlayback.PLAYING, snapshot.playback)
+            assertEquals(if (speed > 0) 7_000L else 4_000L, snapshot.positionMs)
+            assertEquals(speed, snapshot.playbackSpeed, 0f)
+        }
     }
 
     @Test fun streamMuteIsRefusedInCommunicationModeAndWithAmbiguousOutputs() {
