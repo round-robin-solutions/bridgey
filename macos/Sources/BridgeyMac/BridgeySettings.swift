@@ -12,6 +12,8 @@ enum BridgeyFeature: String, CaseIterable, Identifiable {
     case links
     case media
     case calls
+    /// Explicit call-state/media consent, independent of notification contents and media UI.
+    case callQuiet = "call_quiet_draft1"
     /// Draft, edition only until accepted upstream: this Mac accepts remote input from the phone.
     case remoteInput = "remote_input_draft1"
     /// Draft, edition only: a phone you allow may lock, sleep, change the volume, open listed apps
@@ -30,17 +32,18 @@ enum BridgeyFeature: String, CaseIterable, Identifiable {
         case .links: "Web links"
         case .media: "Media controls"
         case .calls: "Calls from Mac"
+        case .callQuiet: L10n.text("callMedia.title", fallback: "Quiet media during calls")
         case .remoteInput: L10n.text("settings.remoteControl", fallback: "Remote control")
         case .macActions: L10n.text("settings.macActions", fallback: "Mac actions")
         }
     }
 
     /// Off by default and granted per device: the global switch alone allows nothing.
-    var needsDeviceGrant: Bool { self == .remoteInput || self == .macActions }
+    var needsDeviceGrant: Bool { self == .remoteInput || self == .macActions || self == .callQuiet }
 }
 
 func featureEnabledByLegacyPeer(_ feature: BridgeyFeature) -> Bool {
-    ![.calls, .ping, .links, .media, .remoteInput, .macActions].contains(feature)
+    ![.calls, .ping, .links, .media, .remoteInput, .macActions, .callQuiet].contains(feature)
 }
 
 /// Remote control: on for this Mac and explicitly granted to the device; a missing grant is off.
@@ -90,6 +93,8 @@ final class BridgeySettings: ObservableObject {
     /// Settings > Calls > When another app asks to call (tel: links, the Call with Bridgey Service).
     /// Ask every time by default; calls started inside Bridgey are not affected.
     @Published private(set) var otherAppCallPolicy: MacOtherAppCallPolicy
+    @Published private(set) var callMediaMode: CallMediaMode
+    @Published private(set) var callMediaRestoration: CallMediaRestoration
     /// Settings > General > Reduce motion: cross-fades only, like the system setting.
     @Published private(set) var reduceMotion: Bool
     /// Automatic clipboard for every device. On by default, like Universal Clipboard.
@@ -176,6 +181,8 @@ final class BridgeySettings: ObservableObject {
         reduceMotion = storedDefaults.bool(forKey: "settings.reduceMotion")
         ringForIncomingCalls = storedDefaults.object(forKey: "settings.calls.ring") as? Bool ?? true
         otherAppCallPolicy = MacOtherAppCallPolicy(rawValue: storedDefaults.string(forKey: "settings.calls.otherApps") ?? "") ?? .ask
+        callMediaMode = CallMediaMode(rawValue: storedDefaults.string(forKey: "settings.calls.quiet.mode") ?? "") ?? .pauseThenMute
+        callMediaRestoration = CallMediaRestoration(rawValue: storedDefaults.string(forKey: "settings.calls.quiet.restore") ?? "") ?? .restoreAndResume
         let logging = loggingPolicy { key, fallback in storedDefaults.object(forKey: key) as? Bool ?? fallback }
         self.logging = logging
         BridgeyLog.policy = logging
@@ -352,6 +359,18 @@ final class BridgeySettings: ObservableObject {
         defaults.set(policy.rawValue, forKey: "settings.calls.otherApps")
         otherAppCallPolicy = policy
     }
+
+    func setCallMediaMode(_ mode: CallMediaMode) {
+        defaults.set(mode.rawValue, forKey: "settings.calls.quiet.mode")
+        callMediaMode = mode
+    }
+
+    func setCallMediaRestoration(_ restoration: CallMediaRestoration) {
+        defaults.set(restoration.rawValue, forKey: "settings.calls.quiet.restore")
+        callMediaRestoration = restoration
+    }
+
+    var callMediaPolicy: CallMediaPolicy { CallMediaPolicy(mode: callMediaMode, restoration: callMediaRestoration) }
 
     func setReduceMotion(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.reduceMotion")

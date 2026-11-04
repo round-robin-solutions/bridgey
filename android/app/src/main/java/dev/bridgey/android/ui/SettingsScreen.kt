@@ -136,8 +136,9 @@ data class SettingsState(
     val developerMenu: Boolean = false,
     /** Developer menu > Transfers: how files travel to each connected device. */
     val transferPaths: List<dev.bridgey.android.TransferPath> = emptyList(),
+    val callQuiet: CallQuietSettingsState = CallQuietSettingsState(),
 ) {
-    fun featureOn(feature: BridgeyFeature): Boolean = globalFeatures[feature] != false
+    fun featureOn(feature: BridgeyFeature): Boolean = if (feature == BridgeyFeature.CALL_QUIET) globalFeatures[feature] == true else globalFeatures[feature] != false
 }
 
 class SettingsActions(
@@ -197,6 +198,7 @@ class SettingsActions(
     val messages: MessagesSettingsActions = MessagesSettingsActions(),
     val connect: ConnectSettingsActions = ConnectSettingsActions(),
     val tailscale: dev.bridgey.android.tailscale.TailscaleSetupActions = dev.bridgey.android.tailscale.TailscaleSetupActions(),
+    val callQuiet: CallQuietSettingsActions = CallQuietSettingsActions(),
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
@@ -517,6 +519,12 @@ private fun CallsPage(state: SettingsState, actions: SettingsActions, listState:
                         )
                     }
                 }
+            }
+        }
+        item(key = "call-quiet") {
+            RowGroup(Modifier.padding(top = 16.dp)) {
+                featureRows(BridgeyFeature.CALL_QUIET, state, actions)
+                if (state.featureOn(BridgeyFeature.CALL_QUIET)) callQuietRows(state.callQuiet, actions.callQuiet)
             }
         }
     }
@@ -864,7 +872,7 @@ private fun sectionVisual(section: SettingsSection, state: SettingsState): Pair<
         SettingsSection.CLIPBOARD -> feature(BridgeyFeature.CLIPBOARD)
         SettingsSection.NOTIFICATIONS -> feature(BridgeyFeature.NOTIFICATIONS)
         SettingsSection.MESSAGES -> feature(BridgeyFeature.SMS)
-        SettingsSection.CALLS -> feature(BridgeyFeature.CALLS)
+        SettingsSection.CALLS -> feature(BridgeyFeature.CALLS, state.featureOn(BridgeyFeature.CALLS) || state.featureOn(BridgeyFeature.CALL_QUIET))
         SettingsSection.FILES -> feature(BridgeyFeature.FILES)
         SettingsSection.MEDIA -> feature(BridgeyFeature.MEDIA, MediaSectionFeatures.any(state::featureOn))
         SettingsSection.REMOTE_CONTROL -> feature(BridgeyFeature.REMOTE_INPUT)
@@ -917,6 +925,8 @@ private fun sectionSummary(section: SettingsSection, state: SettingsState): Sect
         }
         SettingsSection.CALLS -> SectionSummary(
             when {
+                state.featureOn(BridgeyFeature.CALL_QUIET) -> stringResource(
+                    if (state.notificationAccessEnabled) R.string.call_quiet_title else R.string.call_quiet_summary_access)
                 featureOff(BridgeyFeature.CALLS) -> off
                 state.directCallsEnabled -> stringResource(R.string.settings_summary_calls_controls)
                 else -> stringResource(R.string.settings_summary_calls_ring)
@@ -1142,6 +1152,7 @@ private fun globalFeatureDetail(feature: BridgeyFeature): String = stringResourc
         BridgeyFeature.CAMERA -> R.string.settings_camera_detail
         BridgeyFeature.SCREEN -> R.string.settings_screen_detail
         BridgeyFeature.SMS -> R.string.feature_sms_detail
+        BridgeyFeature.CALL_QUIET -> R.string.call_quiet_detail
     },
 )
 

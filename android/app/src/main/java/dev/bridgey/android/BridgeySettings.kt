@@ -1,6 +1,9 @@
 package dev.bridgey.android
 
 import android.content.Context
+import dev.bridgey.android.media.CallMediaMode
+import dev.bridgey.android.media.CallMediaPolicy
+import dev.bridgey.android.media.CallMediaRestoration
 import dev.bridgey.android.folders.ConflictPolicy
 import dev.bridgey.android.folders.DEFAULT_PLACE_ID
 import dev.bridgey.android.folders.DestinationMode
@@ -46,12 +49,15 @@ enum class BridgeyFeature(val key: String, val title: String) {
      * notifications. Off by default on every install, including ones from before off-until-chosen.
      */
     SMS("sms_draft1", "Text messages"),
+
+    /** Optional, per-device call state and local media quieting. Never enabled for old peers. */
+    CALL_QUIET("call_quiet_draft1", "Quiet media during calls"),
 }
 
 internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
     feature !in setOf(
         BridgeyFeature.CALLS, BridgeyFeature.PING, BridgeyFeature.LINKS, BridgeyFeature.MEDIA,
-        BridgeyFeature.REMOTE_INPUT, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA, BridgeyFeature.SCREEN, BridgeyFeature.SMS,
+        BridgeyFeature.REMOTE_INPUT, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA, BridgeyFeature.SCREEN, BridgeyFeature.SMS, BridgeyFeature.CALL_QUIET,
     )
 
 /** Features that start off until the person turns them on. */
@@ -59,7 +65,7 @@ internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
 const val CONNECT_AWAY_DEFAULT = true
 
 internal fun featureOnByDefault(feature: BridgeyFeature): Boolean =
-    feature != BridgeyFeature.REMOTE_INPUT && feature != BridgeyFeature.SCREEN && feature != BridgeyFeature.SMS
+    feature != BridgeyFeature.REMOTE_INPUT && feature != BridgeyFeature.SCREEN && feature != BridgeyFeature.SMS && feature != BridgeyFeature.CALL_QUIET
 
 data class BridgeySettingsState(
     val deviceName: String,
@@ -152,6 +158,8 @@ data class BridgeySettingsState(
      * synced. Text messages only; email previews never go to the cloud.
      */
     val cloudCodes: Boolean = false,
+    /** Local call/media behavior; the feature and every peer still need explicit permission. */
+    val callMediaPolicy: CallMediaPolicy = CallMediaPolicy(),
 ) {
     /** What Connect away from home does now: the choice, or on while there is none. */
     val connectAway: Boolean get() = connectAwayChoice ?: CONNECT_AWAY_DEFAULT
@@ -264,6 +272,16 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
     fun setDirectCallsEnabled(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_DIRECT_CALLS_ENABLED, enabled).apply()
         mutableState.value = mutableState.value.copy(directCallsEnabled = enabled)
+    }
+
+    fun setCallMediaMode(mode: CallMediaMode) {
+        preferences.edit().putString(KEY_CALL_MEDIA_MODE, mode.key).apply()
+        mutableState.value = mutableState.value.copy(callMediaPolicy = mutableState.value.callMediaPolicy.copy(mode = mode))
+    }
+
+    fun setCallMediaRestoration(restoration: CallMediaRestoration) {
+        preferences.edit().putString(KEY_CALL_MEDIA_RESTORATION, restoration.key).apply()
+        mutableState.value = mutableState.value.copy(callMediaPolicy = mutableState.value.callMediaPolicy.copy(restoration = restoration))
     }
 
     fun setAutoClipboardGlobal(enabled: Boolean) {
@@ -512,6 +530,10 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             connectAwayChoice = if (preferences.contains(KEY_CONNECT_AWAY)) preferences.getBoolean(KEY_CONNECT_AWAY, true) else null,
             emailCodesChoice = if (preferences.contains(KEY_EMAIL_CODES)) preferences.getBoolean(KEY_EMAIL_CODES, true) else null,
             cloudCodes = preferences.getBoolean(KEY_CLOUD_CODES, false),
+            callMediaPolicy = CallMediaPolicy(
+                mode = CallMediaMode.entries.firstOrNull { it.key == preferences.getString(KEY_CALL_MEDIA_MODE, null) } ?: CallMediaMode.PAUSE_THEN_MUTE,
+                restoration = CallMediaRestoration.entries.firstOrNull { it.key == preferences.getString(KEY_CALL_MEDIA_RESTORATION, null) } ?: CallMediaRestoration.RESTORE_AND_RESUME,
+            ),
         )
     }
 
@@ -520,6 +542,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         private const val KEY_NOTIFICATION_APPLICATION_PREFIX = "notification.application."
         private const val KEY_DISABLED_NOTIFICATION_PACKAGES = "notification.disabled_packages"
         private const val KEY_DIRECT_CALLS_ENABLED = "calls.direct_enabled"
+        private const val KEY_CALL_MEDIA_MODE = "calls.quiet.mode"
+        private const val KEY_CALL_MEDIA_RESTORATION = "calls.quiet.restoration"
         internal const val KEY_AUTO_CLIPBOARD_GLOBAL = "clipboard.auto.global"
         private const val KEY_AUTO_CLIPBOARD_DEVICE_PREFIX = "clipboard.auto.device."
         private const val KEY_BACKGROUND_CLIPBOARD = "clipboard.background.enabled"
