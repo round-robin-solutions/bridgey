@@ -10,12 +10,16 @@ import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.Role
@@ -48,19 +52,28 @@ class AttachSelectionInputTest {
         val keys = AttachSelection.selectableKeys(state)
         val picks = mutableStateOf(emptyList<String>())
         val boxes = mutableMapOf<String, Rect>()
+        val otherControl = FocusRequester()
+        var outsideEscapes = 0
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
                     BridgeyTheme {
                         val input = rememberAttachPickerSelection(state.copy(selection = picks.value),
                             AttachActions(updateSelection = { reducer -> picks.value = reducer(picks.value) }))
-                        Column {
+                        Column(androidx.compose.ui.Modifier.onPreviewKeyEvent { input.escape(it.nativeKeyEvent) }) {
                             keys.forEach { key ->
                                 AttachSelectionItem(key, input, RoundedCornerShape(4.dp)) { modifier, click ->
                                     Box(modifier.size(40.dp).onGloballyPositioned { boxes[key] = it.boundsInWindow() }
                                         .toggleable(key in picks.value, role = Role.Checkbox, onValueChange = { click() }))
                                 }
                             }
+                            Box(androidx.compose.ui.Modifier.size(40.dp).focusRequester(otherControl)
+                                .onPreviewKeyEvent { event ->
+                                    if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ESCAPE) {
+                                        if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) outsideEscapes += 1
+                                        true
+                                    } else false
+                                }.focusable())
                         }
                     }
                 }
@@ -96,6 +109,17 @@ class AttachSelectionInputTest {
             settle()
             assertEquals(keys.toSet(), picks.value.toSet())
             assertEquals(keys.size, picks.value.size)
+            scenario.onActivity { otherControl.requestFocus() }
+            settle()
+            scenario.onActivity { activity ->
+                val at = SystemClock.uptimeMillis()
+                listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP).forEach { action ->
+                    assertTrue(activity.dispatchKeyEvent(KeyEvent(at, at, action, KeyEvent.KEYCODE_ESCAPE, 0)))
+                }
+            }
+            settle()
+            assertEquals(1, outsideEscapes)
+            assertEquals("a non-file control keeps Escape and the picks stay intact", keys.size, picks.value.size)
         }
     }
 }

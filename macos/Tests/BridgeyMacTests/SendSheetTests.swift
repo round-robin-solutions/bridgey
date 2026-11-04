@@ -90,6 +90,21 @@ final class SendSheetTests: XCTestCase {
         XCTAssertEqual(state.selection, Array(urls[3...5]))
     }
 
+    func testBrowseOrDropAddsToTheRangeBaseWhileTheExtensionCanStillShrink() {
+        var state = selectionState()
+        let urls = state.orderedURLs
+        state.select(urls[0]); state.select(urls[2], command: true)
+        state.select(urls[6], command: true, shift: true)
+        let added = SendCandidate(url: URL(fileURLWithPath: "/selection/browsed"), name: "Browsed", size: 1,
+                                  date: .distantPast, isDirectory: false)
+        state.added = [added]
+        state.addSelection([added.url])
+        state.select(urls[4], command: true, shift: true)
+        XCTAssertEqual(Set(state.selection), Set([urls[0], added.url] + Array(urls[2...4])))
+        XCTAssertFalse(state.selection.contains(urls[6]), "the old extension must still shrink")
+        XCTAssertEqual(state.selection.count, 5)
+    }
+
     func testOrdinarySendPickerClickStillTogglesInPickOrder() {
         var state = selectionState()
         let urls = state.orderedURLs
