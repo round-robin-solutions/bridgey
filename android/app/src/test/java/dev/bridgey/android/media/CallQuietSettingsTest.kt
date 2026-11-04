@@ -18,7 +18,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class CallQuietSettingsTest {
-    private val app = RuntimeEnvironment.getApplication<Application>()
+    private val app = RuntimeEnvironment.getApplication()
 
     @Test fun everyInstallGenerationStartsOffAndOldPeersNeverEnableIt() {
         listOf(DefaultsGeneration.FEATURES_ON, DefaultsGeneration.OFF_UNTIL_CHOSEN).forEach { generation ->

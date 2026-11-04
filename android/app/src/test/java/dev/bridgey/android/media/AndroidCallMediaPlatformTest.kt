@@ -31,7 +31,7 @@ import org.robolectric.shadows.PlaybackInfoBuilder
 @Config(sdk = [26, 35], application = Application::class)
 @LooperMode(LooperMode.Mode.PAUSED)
 class AndroidCallMediaPlatformTest {
-    private val application = RuntimeEnvironment.getApplication<Application>()
+    private val application = RuntimeEnvironment.getApplication()
     private val sessions = application.getSystemService(MediaSessionManager::class.java)
     private val audio = application.getSystemService(AudioManager::class.java)
     private val platform = AndroidCallMediaPlatform(application)

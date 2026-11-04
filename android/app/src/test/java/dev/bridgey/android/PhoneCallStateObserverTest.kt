@@ -25,7 +25,7 @@ import org.robolectric.annotation.LooperMode
 @Config(sdk = [26, 30, 31, 35], application = Application::class)
 @LooperMode(LooperMode.Mode.PAUSED)
 class PhoneCallStateObserverTest {
-    private val application = RuntimeEnvironment.getApplication<Application>()
+    private val application = RuntimeEnvironment.getApplication()
     private val telephony = application.getSystemService(TelephonyManager::class.java)
     private val observed = mutableListOf<Int>()
     private val observer = PhoneCallStateObserver(application) { observed.add(it) }
