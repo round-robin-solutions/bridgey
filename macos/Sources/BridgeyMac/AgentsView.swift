@@ -451,7 +451,7 @@ private struct AgentGrantRow: View {
         .frame(minHeight: 44)
         .overlay(alignment: .top) { Rectangle().fill(c.olv).frame(height: 1) }
         .opacity(pending == nil ? 1 : 0.7)
-        .disabled(!live || !key.grantable || pending != nil)
+        .disabled(!live || !key.changeableFromMac || pending != nil)
     }
 
     private func change(_ on: Bool) {

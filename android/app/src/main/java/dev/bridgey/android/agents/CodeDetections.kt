@@ -26,6 +26,27 @@ const val DETECT_PENDING_MAX = 20
 /** At most this many candidates go to one agent in an hour. */
 const val DETECT_PER_HOUR = 60
 
+/** One connected device as the rule sees it. */
+data class ReaderLink(
+    val agent: Boolean,
+    /** The device advertised sms_codes_draft1 (it reads codes in what this phone forwards). */
+    val smsCodes: Boolean,
+    /** This phone forwards notifications to it now (its Notifications switch on here and there). */
+    val notifiedHere: Boolean,
+    /** It advertised agents_mirror_draft1: it sends the codes it finds back (codes.found). */
+    val mirror: Boolean,
+)
+
+/**
+ * Macs that read code text messages from this phone now: any connected Mac with sms_codes_draft1 that this phone
+ * sends notifications to, mirror or not (it sees the text anyway, so no agent needs to). A Mac whose Notifications
+ * switch is off here receives nothing and does not count.
+ */
+fun macsReadingCodes(links: List<ReaderLink>): Int = links.count { !it.agent && it.smsCodes && it.notifiedHere }
+
+/** Of those, the Macs that send codes back for agents (codes.result `readers` counts these). */
+fun macsReportingCodes(links: List<ReaderLink>): Int = links.count { !it.agent && it.smsCodes && it.notifiedHere && it.mirror }
+
 /** One candidate sent to one agent, waiting for its codes.detected. */
 data class PendingCandidate(
     val candidateId: String,
@@ -55,19 +76,32 @@ sealed interface DetectAnswer {
 
 class CodeDetections(private val clock: () -> Long = System::currentTimeMillis) {
     private val pending = LinkedHashMap<String, PendingCandidate>()
+    /** Picked but not yet sent (or failed to send): they count towards [DETECT_PENDING_MAX] like pending ones. */
+    private var reserved = 0
     private val recent = LinkedHashMap<String, Long>()
     private val perAgent = SlidingWindowLimiter(DETECT_PER_HOUR, 3_600_000L)
 
     /**
      * The agent that reads this message, or null when none should: [macReaders] connected Macs read codes for this
-     * phone, [anyReader] is some agent with Read codes on, [detectors] the connected agents with Detect codes on.
+     * phone, [anyReader] is some agent with Read codes on, [detectors] the connected agents with Detect codes on, in
+     * the order Rahul switched it on (the first one he allowed first). Device IDs are chosen by the devices
+     * themselves, so they never decide. Picking takes the agent's rate slot and a pending slot at once; follow with
+     * [sent] or [release].
      */
     @Synchronized fun pick(macReaders: Int, anyReader: Boolean, detectors: List<String>): String? {
         if (macReaders > 0 || !anyReader) return null
-        prune(clock())
-        if (pending.size >= DETECT_PENDING_MAX) return null
         val now = clock()
-        return detectors.sorted().firstOrNull { perAgent.retryAfter(it, now) == null }
+        prune(now)
+        if (pending.size + reserved >= DETECT_PENDING_MAX) return null
+        val target = detectors.firstOrNull { perAgent.retryAfter(it, now) == null } ?: return null
+        perAgent.record(target, now)
+        reserved++
+        return target
+    }
+
+    /** The picked candidate could not be sent: its pending slot is free again (the rate slot stays used). */
+    @Synchronized fun release() {
+        if (reserved > 0) reserved--
     }
 
     /**
@@ -85,8 +119,8 @@ class CodeDetections(private val clock: () -> Long = System::currentTimeMillis) 
     }
 
     @Synchronized fun sent(candidate: PendingCandidate) {
+        if (reserved > 0) reserved--
         pending[candidate.candidateId] = candidate
-        perAgent.record(candidate.deviceId, candidate.sentAt)
     }
 
     /** codes.detected from [deviceId]: taken once, from the agent it went to, within [DETECT_WAIT_MILLIS]. */

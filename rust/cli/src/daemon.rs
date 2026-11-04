@@ -148,8 +148,8 @@ struct St {
     last_failure: HashMap<String, String>,
     /// What the last features.update said about Detect codes.
     detect_advertised: bool,
-    /// Candidates being read now (at most DETECT_IN_FLIGHT).
-    detecting: usize,
+    /// Peers that sent agent.hello in their session: agents, never phones, so never a source of code candidates.
+    agent_peers: std::collections::HashSet<String>,
 }
 
 /// Code candidates read at once; more are answered `failed` with `busy`.
@@ -172,6 +172,7 @@ pub struct Daemon {
     pub clients: AtomicUsize,
     pub stop: Notify,
     detector: std::sync::OnceLock<Arc<crate::detect::Detector>>,
+    detect_slots: crate::detect::DetectSlots,
 }
 
 pub struct WaitGuard<'a> {
@@ -257,6 +258,7 @@ impl Daemon {
             clients: AtomicUsize::new(0),
             stop: Notify::new(),
             detector: std::sync::OnceLock::new(),
+            detect_slots: crate::detect::DetectSlots::new(DETECT_IN_FLIGHT),
         });
         log(&format!("bridgey {VERSION} daemon started (profile {}, device {}, udp {}, {})", paths.profile, short(&daemon.local.device_id), daemon.node.udp_port(), if service { "service" } else { "on demand" }));
         daemon.sync_peers();
@@ -377,38 +379,40 @@ impl Daemon {
     /// `codes.candidate` from a phone that granted Detect codes: read it with the shared reader off the async threads,
     /// answer `codes.detected`, and write one audit entry (phone, app, outcome; never the text or the code).
     fn on_candidate(self: &Arc<Self>, peer: &str, handle: Handle, payload: Option<Value>) {
-        let granted = self.st.lock().unwrap().features.get(peer).and_then(|f| f.get("codes_detect_draft1")) == Some(&Value::Bool(true));
-        let Some(candidate) = payload.as_ref().and_then(crate::detect::decode_candidate) else { return };
-        let busy = {
-            let mut st = self.st.lock().unwrap();
-            let busy = st.detecting >= DETECT_IN_FLIGHT;
-            if !busy && granted {
-                st.detecting += 1;
-            }
-            busy
+        let (granted, from_phone) = {
+            let st = self.st.lock().unwrap();
+            let granted = st.features.get(peer).and_then(|f| f.get("codes_detect_draft1")) == Some(&Value::Bool(true));
+            let platform = st.trust.peers.get(peer).map(|p| p.platform.clone()).unwrap_or_default();
+            (granted, crate::detect::candidate_allowed(&platform, st.agent_peers.contains(peer)))
         };
+        // Only a phone sends candidates; anything else is dropped without an answer.
+        if !from_phone {
+            return;
+        }
+        let Some(candidate) = payload.as_ref().and_then(crate::detect::decode_candidate) else { return };
         let record = |outcome: &str, d: &Daemon| {
             crate::audit::record(&d.paths, json!({"at": now_ms(), "command": "codes.detect", "device": peer, "outcome": outcome, "detail": format!("{} {}", candidate.source, candidate.app)}));
         };
         if !granted || !crate::detect::available(&self.paths) {
-            // Not granted here (a stale map) or no model: say so, so the phone stops waiting.
+            // Not granted here (a stale map) or no model: say so, so the phone stops waiting. No slot is taken.
             let reason = if granted { bridgey_codes::Failure::ModelMissing } else { bridgey_codes::Failure::NotConfigured };
             handle.send_json("codes.detected", &crate::detect::detected_payload(&candidate.id, &bridgey_codes::Outcome::Fallback(reason)));
             record(reason.wire(), self);
             return;
         }
-        if busy {
+        // The slot is held by its guard until the read is answered, whatever path it takes.
+        let Some(slot) = self.detect_slots.take() else {
             handle.send_json("codes.detected", &json!({"version": 1, "candidateId": candidate.id, "outcome": "failed", "reason": "busy"}));
             record("busy", self);
             return;
-        }
+        };
         let detector = self.detector.get_or_init(|| Arc::new(crate::detect::Detector::new(&self.paths))).clone();
         let d = self.clone();
         let peer = peer.to_string();
         tokio::spawn(async move {
+            let _slot = slot;
             let c = candidate.clone();
             let outcome = tokio::task::spawn_blocking(move || detector.read(&c)).await.unwrap_or(bridgey_codes::Outcome::Fallback(bridgey_codes::Failure::Unavailable));
-            d.st.lock().unwrap().detecting -= 1;
             handle.send_json("codes.detected", &crate::detect::detected_payload(&candidate.id, &outcome));
             crate::audit::record(&d.paths, json!({"at": now_ms(), "command": "codes.detect", "device": peer, "outcome": outcome.word(), "detail": format!("{} {}", candidate.source, candidate.app)}));
             log(&format!("codes.detect from {}: {}", short(&peer), outcome.word()));
@@ -538,11 +542,13 @@ impl Daemon {
                 let mut st = self.st.lock().unwrap();
                 if invite {
                     let label = st.invite_sessions.remove(&local_id);
+                    // This end joined another install's invite (test hook): the peer is a server, not a phone.
+                    let joined = label.as_ref().and_then(|l| st.invites.get(l)).is_some_and(|i| i.joining);
                     let now = now_ms();
                     let previous = st.trust.peers.get(&peer.device_id).cloned();
                     st.trust.peers.insert(
                         peer.device_id.clone(),
-                        Peer { device_id: peer.device_id.clone(), name: peer.name.clone(), platform: "phone".into(), identity_key: peer.identity_key.clone(), paired_at: now, last_seen_at: now, ..previous.unwrap_or_default() },
+                        Peer { device_id: peer.device_id.clone(), name: peer.name.clone(), platform: if joined { "cli".into() } else { "phone".into() }, identity_key: peer.identity_key.clone(), paired_at: now, last_seen_at: now, ..previous.unwrap_or_default() },
                     );
                     let _ = st.trust.save(&self.paths);
                     if let Some(i) = label.and_then(|l| st.invites.remove(&l)) {
@@ -582,6 +588,7 @@ impl Daemon {
                     if st.sessions.get(p).is_some_and(|l| l.handle.local_id == local_id) {
                         st.sessions.remove(p);
                         st.features.remove(p);
+                        st.agent_peers.remove(p);
                     }
                     if !authenticated && st.trust.peers.contains_key(p) {
                         st.last_failure.insert(p.clone(), crate::session::printable(&reason, 64));
@@ -688,6 +695,10 @@ impl Daemon {
                         self.changed.notify_waiters();
                     }
                 }
+                return;
+            }
+            "agent.hello" => {
+                self.st.lock().unwrap().agent_peers.insert(peer.to_string());
                 return;
             }
             "codes.candidate" => {

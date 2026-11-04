@@ -131,3 +131,66 @@ fn ffi_calls_answer_json() {
     let out: serde_json::Value = serde_json::from_str(&bridgey_codes::ffi::call("nope")).unwrap();
     assert_eq!(out["ok"], false);
 }
+
+/// A runner whose context holds only short prompts, counting completions.
+struct Small {
+    completions: Arc<Mutex<u32>>,
+    log: Arc<Mutex<Vec<String>>>,
+}
+
+impl ModelRunner for Small {
+    fn load(&mut self, _path: &Path) -> Result<(), ModelError> {
+        self.log.lock().unwrap().push("load".into());
+        Ok(())
+    }
+    fn complete(&mut self, user: &str, _max: usize) -> Result<String, ModelError> {
+        *self.completions.lock().unwrap() += 1;
+        if user.len() > 200 {
+            return Err(ModelError::PromptTooLong);
+        }
+        let code = user.split_whitespace().find(|w| w.len() == 6 && w.chars().all(|c| c.is_ascii_digit()));
+        Ok(code.map(|c| format!("{{\"kind\":\"otp\",\"code\":\"{c}\"}}")).unwrap_or_else(|| "{\"kind\":\"none\"}".into()))
+    }
+    fn unload(&mut self) {
+        self.log.lock().unwrap().push("unload".into());
+    }
+}
+
+#[test]
+fn a_prompt_too_long_is_read_on_a_window_and_the_model_stays_loaded() {
+    let log = Arc::new(Mutex::new(vec![]));
+    let completions = Arc::new(Mutex::new(0));
+    let (l, c) = (log.clone(), completions.clone());
+    let e = LocalEngine::new(Duration::from_secs(60), Box::new(|| Some(PathBuf::from("/m.gguf"))),
+        Box::new(move || Box::new(Small { completions: c.clone(), log: l.clone() })));
+    let text = format!("OTP is 482913 for login. {}", "word ".repeat(40));
+    assert_eq!(Reader::new(&e).read(&text, None, Channel::Sms), Outcome::Code("482913".into()));
+    assert_eq!(e.status(), (true, 1), "loaded once, never unloaded");
+    assert_eq!(*log.lock().unwrap(), vec!["load".to_string()]);
+    assert_eq!(*completions.lock().unwrap(), 2, "the whole text, then its first half");
+}
+
+#[test]
+fn jobs_whose_caller_gave_up_are_dropped() {
+    let log = Arc::new(Mutex::new(vec![]));
+    let completions = Arc::new(Mutex::new(0u32));
+    let (l, c) = (log.clone(), completions.clone());
+    struct Slow(Arc<Mutex<u32>>, Arc<Mutex<Vec<String>>>);
+    impl ModelRunner for Slow {
+        fn load(&mut self, _: &Path) -> Result<(), ModelError> { Ok(()) }
+        fn complete(&mut self, _: &str, _: usize) -> Result<String, ModelError> {
+            *self.0.lock().unwrap() += 1;
+            std::thread::sleep(Duration::from_millis(300));
+            Ok("{\"kind\":\"none\"}".into())
+        }
+        fn unload(&mut self) { self.1.lock().unwrap().push("unload".into()); }
+    }
+    let e = Arc::new(LocalEngine::new(Duration::from_secs(60), Box::new(|| Some(PathBuf::from("/m.gguf"))),
+        Box::new(move || Box::new(Slow(c.clone(), l.clone())))));
+    // Five callers that wait 50 ms each, at once: the first job runs, the four queued behind it are skipped.
+    let handles: Vec<_> = (0..5).map(|_| { let e = e.clone(); std::thread::spawn(move || e.answer("OTP 482913", None, Duration::from_millis(50))) }).collect();
+    for h in handles { assert_eq!(h.join().unwrap(), Answer::Failed(Failure::Timeout)); }
+    std::thread::sleep(Duration::from_millis(700));
+    assert_eq!(e.status(), (true, 1));
+    assert_eq!(*completions.lock().unwrap(), 1, "only the job already running when its caller gave up");
+}

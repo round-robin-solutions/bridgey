@@ -164,6 +164,12 @@ class MemoryGrantStore(private val initial: Map<String, String> = emptyMap()) : 
     }
 }
 
+/**
+ * Whether a Mac may change [grant] for an agent (agents.grant_set). Detect codes may not: it sends code text messages to
+ * a server, so it is switched only on the phone. The Mac shows it read-only.
+ */
+fun grantSettableFromMac(grant: AgentGrant): Boolean = grant.grantable && grant != AgentGrant.CODES_DETECT
+
 /** The presets on the device page after an invite pairing (Codes is never in one). */
 enum class GrantPreset(val grants: List<AgentGrant>) {
     MESSAGES(listOf(AgentGrant.NOTIFY, AgentGrant.ASK)),

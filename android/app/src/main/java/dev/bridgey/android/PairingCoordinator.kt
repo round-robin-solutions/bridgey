@@ -5112,7 +5112,16 @@ class PairingCoordinator(
         override fun mirrorMacs(): List<String> =
             registry.connectedIds().filter { !isAgent(it) && registry.state(it)?.remoteAgentsMirror == true }
 
-        override fun codeReaders(): Int = mirrorMacs().count { registry.state(it)?.remoteSmsCodes == true }
+        override fun readerLinks(): List<dev.bridgey.android.agents.ReaderLink> {
+            val notified = broadcastTargets(BridgeyFeature.NOTIFICATIONS).mapTo(HashSet()) { it.remoteDeviceId }
+            return registry.connectedIds().map { id ->
+                val state = registry.state(id)
+                dev.bridgey.android.agents.ReaderLink(
+                    agent = isAgent(id), smsCodes = state?.remoteSmsCodes == true, notifiedHere = id in notified,
+                    mirror = state?.remoteAgentsMirror == true,
+                )
+            }
+        }
 
         override fun canDetect(deviceId: String): Boolean = isAgent(deviceId) && registry.state(deviceId)?.remoteCodesDetect == true
 

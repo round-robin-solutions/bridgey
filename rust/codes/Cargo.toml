@@ -32,3 +32,7 @@ jni.workspace = true
 [[example]]
 name = "codes_eval"
 required-features = ["llama"]
+
+[[example]]
+name = "token_check"
+required-features = ["llama"]

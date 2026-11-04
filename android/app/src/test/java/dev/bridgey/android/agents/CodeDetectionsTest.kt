@@ -21,8 +21,39 @@ class CodeDetectionsTest {
         assertNull(detections.pick(macReaders = 0, anyReader = true, detectors = emptyList()))
     }
 
-    @Test fun exactlyOneDetectorTheLowestId() {
-        assertEquals("agent-a", detections.pick(0, true, listOf("agent-b", "agent-a")))
+    /** The order is the one the phone gives (when Rahul allowed each), never the device IDs the devices chose. */
+    @Test fun exactlyOneDetectorInTheGivenOrder() {
+        assertEquals("agent-b", detections.pick(0, true, listOf("agent-b", "agent-a")))
+        assertEquals("00000000-0000-0000-0000-000000000000", detections.pick(0, true, listOf("00000000-0000-0000-0000-000000000000", "agent-a")))
+    }
+
+    /** Picking reserves the rate slot and a pending slot at once, so two messages at the same moment cannot both pass. */
+    @Test fun pickingReservesAtOnce() {
+        repeat(DETECT_PER_HOUR) { assertEquals("agent-a", detections.pick(0, true, listOf("agent-a", "agent-b"))); detections.release() }
+        assertEquals("agent-b", detections.pick(0, true, listOf("agent-a", "agent-b")))
+        val fresh = CodeDetections { now }
+        repeat(DETECT_PENDING_MAX) { index -> assertEquals("a$index", fresh.pick(0, true, listOf("a$index"))) }
+        assertNull("reserved candidates count towards the pending cap", fresh.pick(0, true, listOf("z")))
+        fresh.release()
+        assertEquals("z", fresh.pick(0, true, listOf("z")))
+    }
+
+    /** M1: any Mac this phone sends notifications to that reads codes counts, mirror or not; one with Notifications off does not. */
+    @Test fun macsThatReadCodes() {
+        val mirrorless = ReaderLink(agent = false, smsCodes = true, notifiedHere = true, mirror = false)
+        val off = ReaderLink(agent = false, smsCodes = true, notifiedHere = false, mirror = true)
+        val reporting = ReaderLink(agent = false, smsCodes = true, notifiedHere = true, mirror = true)
+        val agent = ReaderLink(agent = true, smsCodes = true, notifiedHere = true, mirror = true)
+        assertEquals(1, macsReadingCodes(listOf(mirrorless, off, agent)))
+        assertEquals(0, macsReportingCodes(listOf(mirrorless, off, agent)))
+        assertEquals(1, macsReportingCodes(listOf(reporting, off)))
+        assertEquals(0, macsReadingCodes(listOf(off)))
+    }
+
+    @Test fun detectCodesIsSetOnlyOnThePhone() {
+        assertFalse(grantSettableFromMac(AgentGrant.CODES_DETECT))
+        assertFalse(grantSettableFromMac(AgentGrant.NOTIFICATIONS))
+        assertTrue(grantSettableFromMac(AgentGrant.CODES))
     }
 
     @Test fun aFoundCodeIsGuardedAndTheServiceIsThePhones() {
@@ -59,10 +90,12 @@ class CodeDetectionsTest {
 
     @Test fun oneAgentGetsAtMostSixtyAnHour() {
         repeat(DETECT_PER_HOUR) { index ->
+            assertEquals("agent-a", detections.pick(0, true, listOf("agent-a", "agent-b")))
             detections.sent(candidate().copy(candidateId = "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e%04d".format(index)))
-            now += 1
+            now += DETECT_WAIT_MILLIS
         }
-        now += DETECT_WAIT_MILLIS
         assertEquals("agent-b", detections.pick(0, true, listOf("agent-a", "agent-b")))
+        now += 3_600_000
+        assertEquals("agent-a", detections.pick(0, true, listOf("agent-a", "agent-b")))
     }
 }

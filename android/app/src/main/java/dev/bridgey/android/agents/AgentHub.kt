@@ -29,8 +29,8 @@ interface AgentTransport {
     /** Connected Macs whose latest map shows agents_mirror_draft1 (this phone always advertises it to Macs). */
     fun mirrorMacs(): List<String>
 
-    /** Connected Macs reading codes for this phone now: agents_mirror_draft1 and sms_codes_draft1 in their map. */
-    fun codeReaders(): Int
+    /** Every connected device as the Detect codes rule sees it (CodeDetections.ReaderLink). */
+    fun readerLinks(): List<ReaderLink>
 
     /** The agent advertised codes_detect_draft1 in this session: it has the code model and can read candidates. */
     fun canDetect(deviceId: String): Boolean = false
@@ -537,14 +537,16 @@ class AgentHub(
 
     // MARK: Detect codes (codes_detect_draft1, docs/mesh-and-codes.md)
 
-    /** Connected agents that can read candidates and hold Detect codes now. */
+    /** Connected agents that can read candidates and hold Detect codes now, the one Rahul allowed first first. */
     fun detectors(): List<String> {
         val now = clock()
-        return transport.connectedAgents().filter { transport.canDetect(it) && grants.isOn(it, AgentGrant.CODES_DETECT, now) }
+        return transport.connectedAgents()
+            .filter { transport.canDetect(it) && grants.isOn(it, AgentGrant.CODES_DETECT, now) }
+            .sortedWith(compareBy({ grants.record(it, AgentGrant.CODES_DETECT).grantedAt ?: Long.MAX_VALUE }, { it }))
     }
 
-    /** How many devices read codes for this phone now: Macs, and agents with Detect codes (codes.result `readers`). */
-    fun readers(): Int = transport.codeReaders() + detectors().size
+    /** How many devices find codes for agents now: Macs that send them back, and agents with Detect codes. */
+    fun readers(): Int = macsReportingCodes(transport.readerLinks()) + detectors().size
 
     /**
      * A notification from the default SMS app (not hidden, not a summary, not a call). It goes to one agent with Detect
@@ -553,16 +555,16 @@ class AgentHub(
      */
     fun smsCandidate(notificationId: String, title: String, applicationName: String, text: String, postedAt: Long) {
         val joined = dev.bridgey.android.codes.smsCandidateText(text) ?: return
-        val anyReader = transport.agentIds().any { grants.isOn(it, AgentGrant.CODES) }
-        val target = detections.pick(transport.codeReaders(), anyReader, detectors()) ?: return
         if (!detections.firstSight(notificationId, joined)) return
+        val anyReader = transport.agentIds().any { grants.isOn(it, AgentGrant.CODES) }
+        val target = detections.pick(macsReadingCodes(transport.readerLinks()), anyReader, detectors()) ?: return
         val sender = dev.bridgey.android.codes.codeSender(title, applicationName).let { name ->
             val points = name.codePoints().limit(64).toArray()
             String(points, 0, points.size)
         }
         val candidate = PendingCandidate(java.util.UUID.randomUUID().toString(), target, joined, sender, CodeSource.SMS, "messages", notificationId.take(512), postedAt, clock())
         val payload = codesCandidatePayload(candidate.candidateId, candidate.source, candidate.app, candidate.sender, candidate.text, candidate.postedAt)
-        if (!transport.send(target, AgentKinds.CODES_CANDIDATE, payload)) return
+        if (!transport.send(target, AgentKinds.CODES_CANDIDATE, payload)) return detections.release()
         detections.sent(candidate)
         audit.record(target, AuditAction.CODES_DETECT, AuditOutcome.DELIVERED, applicationName.take(64))
         changed()
@@ -591,6 +593,8 @@ class AgentHub(
             AgentKinds.AGENTS_GRANT_SET -> {
                 val set = decodeAgentsGrantSet(plaintext) ?: return
                 if (set.deviceId !in transport.agentIds()) return
+                // Detect codes sends message text to a server: only a tap on this phone turns it on or off.
+                if (!grantSettableFromMac(set.grant)) return sendAgentsState(macId)
                 setGrant(set.deviceId, set.grant, set.on, set.window, macName = macName)
                 sendAgentsState(macId)
             }

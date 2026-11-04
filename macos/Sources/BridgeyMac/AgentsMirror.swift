@@ -34,6 +34,9 @@ enum AgentGrantKey: String, CaseIterable, Codable, Equatable {
 
     /// Read your notifications is not available in this version: always off, never granted.
     var grantable: Bool { self != .notifications }
+
+    /// Detect codes sends code text messages to a server, so only a tap on the phone changes it; this Mac shows it.
+    var changeableFromMac: Bool { grantable && self != .codesDetect }
 }
 
 enum AgentGrantState: String, Codable, Equatable {
@@ -241,7 +244,7 @@ enum AgentsMirrorWire {
 
     /// agents.grant_set's payload, or nil: on needs a window, and Read your notifications cannot be granted.
     static func grantSet(requestId: String, deviceId: String, key: AgentGrantKey, on: Bool, window: AgentGrantWindow?) -> [String: Any]? {
-        guard !deviceId.isEmpty, !on || (window != nil && key.grantable) else { return nil }
+        guard !deviceId.isEmpty, key != .codesDetect, !on || (window != nil && key.grantable) else { return nil }
         var payload: [String: Any] = ["version": 1, "requestId": requestId, "deviceId": deviceId, "key": key.rawValue, "on": on]
         if on, let window { payload["window"] = window.rawValue }
         guard let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= grantSetMaximumBytes else { return nil }

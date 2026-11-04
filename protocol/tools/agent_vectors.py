@@ -57,6 +57,10 @@ invite = {
         {"name": "no control URL", "json": json.dumps({k: v for k, v in invite_json.items() if k != "c"})},
         {"name": "expiry not a number", "json": json.dumps({**invite_json, "x": "soon"})},
         {"name": "name over 64 characters", "json": json.dumps({**invite_json, "n": "n" * 65})},
+        # A link must not choose the trust level: an invite naming a Mac or a phone is refused in this version.
+        {"name": "platform macos", "json": json.dumps({**invite_json, "p": "macos"})},
+        {"name": "platform android", "json": json.dumps({**invite_json, "p": "android"})},
+        {"name": "no platform", "json": json.dumps({k: v for k, v in invite_json.items() if k != "p"})},
     ],
 }
 

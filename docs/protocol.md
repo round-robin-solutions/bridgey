@@ -1934,20 +1934,23 @@ prompt and guard as the Mac) reads code text messages for the phone when no Mac 
 
 - **When the phone sends one.** For a notification from the default SMS app that is not hidden, not a summary and
   not a call, and whose text passes the shared gate: only while some agent has Read codes on, no connected Mac reads
-  codes for this phone (`codes.result` `readers` counted Macs), and a connected agent advertised the key with
-  Detect codes on. It goes to exactly one agent, the lowest device ID, at most 60 an hour per agent and 20 waiting
-  in all. The same notification with the same text is sent once in two minutes.
+  codes for this phone (a Mac with `sms_codes_draft1` that this phone forwards notifications to, with or without the
+  mirror), and a connected agent advertised the key with Detect codes on. It goes to exactly one agent: the one Rahul
+  gave Detect codes first (device IDs are chosen by the devices, so they never decide), at most 60 an hour per agent
+  (taken when it is picked) and 20 waiting in all. The same notification with the same text is sent once in two
+  minutes. Only the phone switches Detect codes; a Mac's `agents.grant_set` for it is refused.
 - **What the phone takes back.** One `codes.detected` per candidate, from the agent it went to, within 30 seconds,
   while Detect codes is still on. For `found`, the phone runs its own guard on the code against the text it sent
   (links and copyright years blanked); a refused code is logged as `codes.detect` `invalid` and dropped. The service
   is the phone's (`sender`, its service key, or the sender lowercased for a number); the agent cannot name one. The
   code then joins the broker like a Mac's `codes.found` (`via` `sms`).
-- **The agent.** Reads with the shared reader on its own thread (at most 4 at once, `busy` beyond), budget 20
-  seconds, and answers; it never stores or logs the text or the code. A candidate without the grant in its latest
+- **The agent.** Takes candidates only from a peer paired as a phone that never sent `agent.hello`. Reads with the
+  shared reader on its own thread (at most 4 at once, `busy` beyond), budget 20 seconds, and answers; it never stores or logs the text or the code. A candidate without the grant in its latest
   map, or without a model, is answered `failed` (`not_configured` or `model_missing`).
 - **Audit.** The phone writes `codes.detect` `delivered` with the app's name for each candidate it sends ("Read a code
   message"); the agent writes `codes.detect` with the outcome and the app in its own log.
-- **Readers.** `codes.result` `readers` counts connected Macs reading codes and connected agents with Detect codes on.
+- **Readers.** `codes.result` `readers` counts connected Macs that read codes and send them back (the mirror), and
+  connected agents with Detect codes on.
 
 ### Audit
 

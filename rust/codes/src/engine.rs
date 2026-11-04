@@ -5,8 +5,9 @@
 use crate::prompt;
 use crate::reader::{Answer, AnswerSource, Failure};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -41,7 +42,8 @@ pub struct Timed {
 }
 
 enum Job {
-    Answer { text: String, sender: Option<String>, reply: Sender<Timed> },
+    /// `gone` is set when the caller stopped waiting: the job is skipped if it has not started.
+    Answer { text: String, sender: Option<String>, reply: Sender<Timed>, gone: Arc<AtomicBool> },
     Unload,
     Status(Sender<(bool, u32)>),
 }
@@ -70,13 +72,17 @@ impl LocalEngine {
     pub fn timed_answer(&self, text: &str, sender: Option<&str>, budget: Duration) -> Timed {
         let started = Instant::now();
         let (reply, answer) = mpsc::channel();
-        let job = Job::Answer { text: text.to_string(), sender: sender.map(str::to_string), reply };
+        let gone = Arc::new(AtomicBool::new(false));
+        let job = Job::Answer { text: text.to_string(), sender: sender.map(str::to_string), reply, gone: gone.clone() };
         if self.jobs.lock().unwrap().send(job).is_err() {
             return Timed { answer: Answer::Failed(Failure::Unavailable), elapsed: started.elapsed(), loaded: false };
         }
         match answer.recv_timeout(budget) {
             Ok(timed) => timed,
-            Err(_) => Timed { answer: Answer::Failed(Failure::Timeout), elapsed: started.elapsed(), loaded: false },
+            Err(_) => {
+                gone.store(true, Ordering::SeqCst);
+                Timed { answer: Answer::Failed(Failure::Timeout), elapsed: started.elapsed(), loaded: false }
+            }
         }
     }
 
@@ -113,8 +119,11 @@ impl Worker {
         loop {
             let wait = if self.runner.is_some() { idle } else { Duration::from_secs(3600) };
             match jobs.recv_timeout(wait) {
-                Ok(Job::Answer { text, sender, reply }) => {
-                    let _ = reply.send(self.answer_now(&text, sender.as_deref()));
+                Ok(Job::Answer { text, sender, reply, gone }) => {
+                    // A caller that gave up (its budget ended while earlier jobs ran) gets nothing: the queue drains.
+                    if !gone.load(Ordering::SeqCst) {
+                        let _ = reply.send(self.answer_now(&text, sender.as_deref()));
+                    }
                 }
                 Ok(Job::Unload) => self.unload_now(),
                 Ok(Job::Status(reply)) => {
@@ -147,14 +156,20 @@ impl Worker {
             self.loads += 1;
             loaded = true;
         }
-        let output = self.runner.as_mut().unwrap().complete(&prompt::user(sender, text), prompt::MAXIMUM_ANSWER_TOKENS);
-        match output {
-            Ok(output) => Timed { answer: prompt::parse(&output), elapsed: started.elapsed(), loaded },
-            Err(_) => {
-                self.unload_now();
-                Timed { answer: Answer::Failed(Failure::Unavailable), elapsed: started.elapsed(), loaded }
+        // A text that tokenizes past the context (600 characters of some scripts can) is read on a shorter window,
+        // its first half each time, at most twice; the model stays loaded. The guard still checks the whole text.
+        let mut window = text.to_string();
+        for _ in 0..3 {
+            match self.runner.as_mut().unwrap().complete(&prompt::user(sender, &window), prompt::MAXIMUM_ANSWER_TOKENS) {
+                Ok(output) => return Timed { answer: prompt::parse(&output), elapsed: started.elapsed(), loaded },
+                Err(ModelError::PromptTooLong) => window = first_half(&window),
+                Err(_) => {
+                    self.unload_now();
+                    return Timed { answer: Answer::Failed(Failure::Unavailable), elapsed: started.elapsed(), loaded };
+                }
             }
         }
+        Timed { answer: Answer::Failed(Failure::Unavailable), elapsed: started.elapsed(), loaded }
     }
 
     fn unload_now(&mut self) {
@@ -163,4 +178,14 @@ impl Worker {
         }
         self.loaded_path = None;
     }
+}
+
+/// The first half of a text, cut at whitespace so no token (a code) is split.
+fn first_half(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut end = chars.len() / 2;
+    while end > 0 && !chars[end].is_whitespace() {
+        end -= 1;
+    }
+    chars[..end].iter().collect::<String>().trim_end().to_string()
 }

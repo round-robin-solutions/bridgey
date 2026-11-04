@@ -24,6 +24,11 @@ pub const ASSET_PREFIX: &str = "https://github.com/round-robin-solutions/bridgey
 const BUNDLED_MANIFEST: &str = r#"{"schema":1,"version":1,"name":"Gemma 3 270M, fine-tuned for codes (Q4_K_M)","url":"https://github.com/round-robin-solutions/bridgey/releases/download/models/bridgey-otp-v1.gguf","size":253115744,"sha256":"69fe14b205ecaebbd1fa5d167f48a25c687b493341ff92476ca163a2ea12390f","termsVersion":"gemma-2026-04-01+pup-2024-02-21+bridgey-1","licenceURL":"https://ai.google.dev/gemma/terms","prohibitedUseURL":"https://ai.google.dev/gemma/prohibited_use_policy"}"#;
 const MAXIMUM_BYTES: u64 = 2_000_000_000;
 
+/// The only model files this build will use: (version, SHA-256, size). A manifest online can offer a newer version,
+/// but its file is used only if this build knows its hash, so write access to the release alone cannot swap the
+/// model. A new model ships with a new build.
+pub const KNOWN_MODELS: &[(u64, &str, u64)] = &[(1, "69fe14b205ecaebbd1fa5d167f48a25c687b493341ff92476ca163a2ea12390f", 253_115_744)];
+
 /// How long one candidate may take on this install (the phone waits 30 seconds).
 #[cfg(feature = "detect")]
 const DETECT_BUDGET: std::time::Duration = std::time::Duration::from_secs(20);
@@ -73,7 +78,12 @@ impl Manifest {
             && m.sha256.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
             && m.licence_url.starts_with("https://")
             && m.prohibited_use_url.starts_with("https://");
-        valid.then_some(m)
+        (valid && m.known()).then_some(m)
+    }
+
+    /// The file is one this build was made to trust.
+    pub fn known(&self) -> bool {
+        KNOWN_MODELS.iter().any(|(v, sha, size)| *v == self.version && *sha == self.sha256 && *size == self.size)
     }
 
     pub fn file_name(&self) -> String {
@@ -99,8 +109,9 @@ pub fn installed(paths: &Paths) -> Option<(Value, PathBuf)> {
         return None;
     }
     let file = dir.join(name);
-    let size = std::fs::metadata(&file).ok()?.len();
-    (Some(size) == record["size"].as_u64()).then_some((record, file))
+    let known = KNOWN_MODELS.iter().any(|(v, sha, size)| record["version"].as_u64() == Some(*v) && record["sha256"].as_str() == Some(*sha) && record["size"].as_u64() == Some(*size));
+    let meta = std::fs::symlink_metadata(&file).ok().filter(|m| m.is_file())?;
+    (known && Some(meta.len()) == record["size"].as_u64()).then_some((record, file))
 }
 
 /// Whether this install can detect codes now: built with the runner and a model in place.
@@ -124,7 +135,8 @@ fn manifest_json(m: &Manifest) -> Value {
 
 fn curl(args: &[&str]) -> Result<Vec<u8>, CliError> {
     let out = std::process::Command::new("curl")
-        .args(["--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir", "=https", "--retry", "2"])
+        // -q first: no ~/.curlrc can add options (an insecure flag, a proxy) to these requests.
+        .args(["-q", "--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir", "=https", "--retry", "2"])
         .args(args)
         .output()
         .map_err(|e| CliError::new("failed", format!("curl is needed to download the model: {e}")))?;
@@ -182,7 +194,15 @@ pub fn download(paths: &Paths, accept_terms: bool) -> Result<Value, CliError> {
     let part = dir.join(format!("{}.part", manifest.file_name()));
     let part_text = part.to_string_lossy().to_string();
     let size_text = manifest.size.to_string();
-    curl(&["--continue-at", "-", "--max-filesize", &size_text, "--output", &part_text, &manifest.url])?;
+    let have = std::fs::symlink_metadata(&part).ok().filter(|m| m.is_file()).map(|m| m.len());
+    match resume_plan(have, manifest.size) {
+        Resume::Fresh => {
+            let _ = std::fs::remove_file(&part);
+            curl(&["--max-filesize", &size_text, "--output", &part_text, &manifest.url])?;
+        }
+        Resume::From => curl(&["--continue-at", "-", "--max-filesize", &size_text, "--output", &part_text, &manifest.url]).map(|_| ())?,
+        Resume::Complete => {}
+    }
     let got = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
     if got != manifest.size {
         let _ = std::fs::remove_file(&part);
@@ -210,6 +230,25 @@ pub fn download(paths: &Paths, accept_terms: bool) -> Result<Value, CliError> {
     Ok(record)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum Resume {
+    /// No usable partial file (none, a symlink, or larger than the model): start again.
+    Fresh,
+    /// Continue the partial file.
+    From,
+    /// The partial file is full size: only the checksum is left.
+    Complete,
+}
+
+/// What to do with a partial download of `have` bytes for a model of `size` bytes.
+pub fn resume_plan(have: Option<u64>, size: u64) -> Resume {
+    match have {
+        Some(n) if n == size => Resume::Complete,
+        Some(n) if n > 0 && n < size => Resume::From,
+        _ => Resume::Fresh,
+    }
+}
+
 /// Removes the model and its records (the terms acceptance stays, with its date).
 pub fn remove(paths: &Paths) -> Result<Value, CliError> {
     let dir = models_dir(paths);
@@ -223,6 +262,52 @@ pub fn remove(paths: &Paths) -> Result<Value, CliError> {
         }
     }
     Ok(json!({"removed": removed}))
+}
+
+// MARK: - Slots
+
+/// At most `limit` candidates read at once. A slot is held by its guard and freed when the guard drops, on every path.
+pub struct DetectSlots {
+    used: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    limit: usize,
+}
+
+pub struct DetectSlot(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for DetectSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl DetectSlots {
+    pub fn new(limit: usize) -> DetectSlots {
+        DetectSlots { used: Default::default(), limit }
+    }
+
+    pub fn take(&self) -> Option<DetectSlot> {
+        use std::sync::atomic::Ordering;
+        let mut n = self.used.load(Ordering::SeqCst);
+        loop {
+            if n >= self.limit {
+                return None;
+            }
+            match self.used.compare_exchange(n, n + 1, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => return Some(DetectSlot(self.used.clone())),
+                Err(now) => n = now,
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub fn in_use(&self) -> usize {
+        self.used.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// Only a phone sends code candidates: a peer paired as a phone that never introduced itself as an agent.
+pub fn candidate_allowed(platform: &str, said_agent_hello: bool) -> bool {
+    platform == "phone" && !said_agent_hello
 }
 
 // MARK: - Wire
@@ -334,6 +419,45 @@ mod tests {
         assert!(Manifest::parse(nested.as_bytes()).is_none());
         let upper = BUNDLED_MANIFEST.replace("69fe14b2", "69FE14B2");
         assert!(Manifest::parse(upper.as_bytes()).is_none());
+    }
+
+    #[test]
+    fn a_manifest_whose_file_this_build_does_not_know_is_refused() {
+        // Same host and shape, but another file (a release asset swapped by someone with write access).
+        let swapped = BUNDLED_MANIFEST.replace("69fe14b205ecaebbd1fa5d167f48a25c687b493341ff92476ca163a2ea12390f", &"a".repeat(64));
+        assert!(Manifest::parse(swapped.as_bytes()).is_none());
+        let newer = BUNDLED_MANIFEST.replace("\"version\":1", "\"version\":2").replace("bridgey-otp-v1", "bridgey-otp-v2");
+        assert!(Manifest::parse(newer.as_bytes()).is_none(), "a newer version needs a build that knows its hash");
+        assert!(bundled().known());
+    }
+
+    #[test]
+    fn a_full_size_partial_file_is_only_checked() {
+        assert_eq!(resume_plan(Some(253_115_744), 253_115_744), Resume::Complete);
+        assert_eq!(resume_plan(Some(1_000), 253_115_744), Resume::From);
+        assert_eq!(resume_plan(Some(300_000_000), 253_115_744), Resume::Fresh);
+        assert_eq!(resume_plan(Some(0), 253_115_744), Resume::Fresh);
+        assert_eq!(resume_plan(None, 253_115_744), Resume::Fresh);
+    }
+
+    #[test]
+    fn detection_slots_are_released_on_every_path() {
+        let slots = DetectSlots::new(2);
+        let a = slots.take().unwrap();
+        let b = slots.take().unwrap();
+        assert!(slots.take().is_none(), "two at once");
+        drop(a);
+        let c = slots.take().expect("released when the guard drops");
+        drop((b, c));
+        assert_eq!(slots.in_use(), 0);
+    }
+
+    #[test]
+    fn candidates_come_only_from_a_phone() {
+        assert!(candidate_allowed("phone", false));
+        assert!(!candidate_allowed("cli", false), "another server");
+        assert!(!candidate_allowed("phone", true), "a peer that introduced itself as an agent");
+        assert!(!candidate_allowed("", false));
     }
 
     #[test]

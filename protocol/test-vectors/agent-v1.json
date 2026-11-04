@@ -36,6 +36,18 @@
    {
     "name": "name over 64 characters",
     "json": "{\"v\": 1, \"s\": \"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA\", \"c\": \"wss://connect.roundrobin.in/v1/ws\", \"n\": \"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\", \"p\": \"cli\", \"x\": 1798000600}"
+   },
+   {
+    "name": "platform macos",
+    "json": "{\"v\": 1, \"s\": \"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA\", \"c\": \"wss://connect.roundrobin.in/v1/ws\", \"n\": \"Contabo Europe\", \"p\": \"macos\", \"x\": 1798000600}"
+   },
+   {
+    "name": "platform android",
+    "json": "{\"v\": 1, \"s\": \"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA\", \"c\": \"wss://connect.roundrobin.in/v1/ws\", \"n\": \"Contabo Europe\", \"p\": \"android\", \"x\": 1798000600}"
+   },
+   {
+    "name": "no platform",
+    "json": "{\"v\": 1, \"s\": \"AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA\", \"c\": \"wss://connect.roundrobin.in/v1/ws\", \"n\": \"Contabo Europe\", \"x\": 1798000600}"
    }
   ]
  },

@@ -72,14 +72,36 @@ impl LlamaRunner {
         }
     }
 
-    fn tokenize(&self, text: &str, add_special: bool) -> Result<Vec<sys::llama_token>, ModelError> {
+    /// The prompt's tokens: the chat template's own parts with special tokens parsed, the user turn (which holds the
+    /// message text) without, so a message that contains `<end_of_turn>` or `<start_of_turn>` stays plain text and
+    /// cannot steer the model. A template that already starts with the BOS marker gets no second one.
+    pub fn prompt_tokens(&self, user: &str) -> Result<Vec<sys::llama_token>, ModelError> {
+        let text = self.formatted(user);
+        let Some(at) = text.find(user) else { return Err(ModelError::PromptTooLong) };
+        let (prefix, suffix) = (&text[..at], &text[at + user.len()..]);
+        let mut tokens = self.tokenize(prefix, !text.starts_with("<bos>"), true)?;
+        tokens.extend(self.tokenize(user, false, false)?);
+        tokens.extend(self.tokenize(suffix, false, true)?);
+        Ok(tokens)
+    }
+
+    /// The Mac's way (the whole formatted prompt with special tokens parsed), kept for the token equality check.
+    pub fn whole_prompt_tokens(&self, user: &str) -> Result<Vec<sys::llama_token>, ModelError> {
+        let text = self.formatted(user);
+        self.tokenize(&text, !text.starts_with("<bos>"), true)
+    }
+
+    fn tokenize(&self, text: &str, add_special: bool, parse_special: bool) -> Result<Vec<sys::llama_token>, ModelError> {
+        if text.is_empty() {
+            return Ok(Vec::new());
+        }
         let length = text.len() as i32;
         let mut tokens = vec![0 as sys::llama_token; text.len() + 8];
         unsafe {
-            let mut count = sys::llama_tokenize(self.vocab, text.as_ptr().cast(), length, tokens.as_mut_ptr(), tokens.len() as i32, add_special, true);
+            let mut count = sys::llama_tokenize(self.vocab, text.as_ptr().cast(), length, tokens.as_mut_ptr(), tokens.len() as i32, add_special, parse_special);
             if count < 0 {
                 tokens = vec![0; (-count) as usize];
-                count = sys::llama_tokenize(self.vocab, text.as_ptr().cast(), length, tokens.as_mut_ptr(), tokens.len() as i32, add_special, true);
+                count = sys::llama_tokenize(self.vocab, text.as_ptr().cast(), length, tokens.as_mut_ptr(), tokens.len() as i32, add_special, parse_special);
             }
             if count < 0 {
                 return Err(ModelError::PromptTooLong);
@@ -130,9 +152,7 @@ impl ModelRunner for LlamaRunner {
         if self.context.is_null() || self.sampler.is_null() || self.vocab.is_null() {
             return Err(ModelError::LoadFailed);
         }
-        let text = self.formatted(user);
-        // A template that already starts with the BOS marker must not get a second one.
-        let mut tokens = self.tokenize(&text, !text.starts_with("<bos>"))?;
+        let mut tokens = self.prompt_tokens(user)?;
         if tokens.is_empty() || tokens.len() + max_tokens >= CONTEXT_TOKENS as usize {
             return Err(ModelError::PromptTooLong);
         }

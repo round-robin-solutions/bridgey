@@ -214,3 +214,19 @@ Update all lets one device ask the devices connected to it to update themselves 
   one) or a distributed notification (any process on the Mac can post one). The request is "check
   now, then Update all" and names nothing to install, so it can do no more than clicking Update all
   in that user's own session; it still waits for anyone busy.
+
+## Bridgey by Round Robin edition: mesh pairing and Detect codes
+
+Design and threat table: `docs/mesh-and-codes.md` (sections 3.5, 4 and 7). The decisions that bind future work:
+
+- **A link never decides trust.** Invites stay `v: 1` and server-only until invites for other device kinds ship as
+  `v: 2`, which binds the whole invite JSON into the signed transcript, takes the device kind from the signed
+  `pairing.confirm` (not the link), and starts every invite-paired device, Macs included, with nothing granted. Builds
+  before that refuse `v: 2`. Today the phone and `bridgey` refuse an invite whose `p` is not `cli`.
+- **Detect codes** sends code text messages from the default SMS app, after the gate, to one server Rahul allowed on
+  the phone, only while no Mac reads codes for the phone and some server has Read codes on. The phone takes back one
+  answer per message, from that server, within 30 seconds, runs its own guard on it and names the service itself.
+  Only the phone can switch it (a Mac's request is refused). Text and codes are never logged or written on either
+  side; each read is in the phone's and the server's activity.
+- **The code model** is used only if its (version, SHA-256, size) is built into the binary; downloads ignore
+  `~/.curlrc`.
