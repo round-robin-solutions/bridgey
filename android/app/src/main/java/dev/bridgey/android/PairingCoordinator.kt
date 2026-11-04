@@ -294,6 +294,31 @@ class PairingCoordinator(
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val settingsLane = Dispatchers.IO.limitedParallelism(1)
 
+    // Call quieting is independent of notification mirroring and selected-device media controls.
+    @Volatile private var callQuietRunning = false
+    private val mutableCallMediaResult = MutableStateFlow(dev.bridgey.android.media.CallMediaResult())
+    val callMediaResult = mutableCallMediaResult.asStateFlow()
+    private val mutableCallQuietPeerResults = MutableStateFlow<Map<String, dev.bridgey.android.media.CallQuietResult>>(emptyMap())
+    val callQuietPeerResults = mutableCallQuietPeerResults.asStateFlow()
+    private val callQuietScheduler = dev.bridgey.android.media.AndroidCallMediaScheduler()
+    private val callMediaPlatform = dev.bridgey.android.media.AndroidCallMediaPlatform(appContext)
+    private val callMediaController = dev.bridgey.android.media.CallMediaController(
+        callMediaPlatform, callQuietScheduler,
+        onResult = { result -> mutableCallMediaResult.value = result; callQuietHub.effectsChanged(result) },
+    )
+    private val callQuietHub = dev.bridgey.android.media.CallQuietHub(
+        effects = callMediaController,
+        scheduler = callQuietScheduler,
+        now = SystemClock::elapsedRealtime,
+        enabled = ::callQuietEnabled,
+        policy = { settings.state.value.callMediaPolicy },
+        peers = ::callQuietPeers,
+        send = ::sendCallQuiet,
+        connectedSession = { registry.session(it)?.id },
+        resultsChanged = { mutableCallQuietPeerResults.value = it },
+    )
+    private val callQuietSources = dev.bridgey.android.media.CallQuietSources(appContext, callQuietHub::localCallsChanged)
+
     /** Set by the application: a Mac's photo request was accepted; show the camera or its notification. */
     @Volatile var cameraRequested: (dev.bridgey.android.camera.CameraRequest) -> Unit = {}
 
@@ -627,11 +652,14 @@ class PairingCoordinator(
                 registry.connectedIds().filter { id -> !isFeatureAvailable(BridgeyFeature.CAMERA, id) }.forEach(::endCameraRequest)
                 registry.connectedIds().forEach(::screenPolicyChanged)
                 smsAvailabilityChanged()
+                scope.launch(Dispatchers.Main.immediate) { callQuietPolicyChanged() }
             }
         }
     }
 
     fun start() {
+        callQuietRunning = true
+        scope.launch(Dispatchers.Main.immediate) { callQuietPolicyChanged() }
         if (acceptJob != null) return
         diagnostics.record("transport", "listener_started")
         startReconnecting()
@@ -3100,6 +3128,11 @@ class PairingCoordinator(
 
     /** Bridgey turned off: every session closes and nothing redials. */
     fun pause() {
+        callQuietRunning = false
+        scope.launch(Dispatchers.Main.immediate) {
+            callQuietHub.stop()
+            callQuietSources.update(false)
+        }
         reconnecting = false
         synchronized(discoveryLock) {
             discoveryRestartTask?.cancel()
@@ -3162,6 +3195,7 @@ class PairingCoordinator(
 
     /** One device's session ended: only its state, transfers and clipboard fetches go, and its reconnect starts. */
     private fun deviceDisconnected(deviceId: String, reason: String) {
+        scope.launch(Dispatchers.Main.immediate) { callQuietHub.disconnected(deviceId) }
         dev.bridgey.android.connect.ConnectTiming.mark("app.disconnected", deviceId, reason)
         cancelTransfers(deviceId)
         clipboardSessionEnded(deviceId)
@@ -3528,6 +3562,7 @@ class PairingCoordinator(
             return
         }
         when (message.kind) {
+            "calls.quiet_state", "calls.quiet_result" -> receiveCallQuiet(current, message)
             "quick.request", "quick.result", "media.state" -> receiveQuickPayload(current, message)
             "heartbeat.ping" -> {
                 if (message.sessionId != current.id || !registry.isActive(current)) return
@@ -4747,6 +4782,8 @@ class PairingCoordinator(
         BridgeyFeature.entries.forEach { feature ->
             featureValues.put(feature.key, settings.isEnabled(feature, current.remoteDeviceId))
         }
+        featureValues.put(BridgeyFeature.CALL_QUIET.key,
+            settings.isEnabled(BridgeyFeature.CALL_QUIET, current.remoteDeviceId) && current.envelopeKey != null)
         // Draft, edition only: images, files and long text through clipboard offers.
         featureValues.put(
             CLIPBOARD_FILES_FEATURE_KEY,
@@ -4791,7 +4828,9 @@ class PairingCoordinator(
             .put("features", featureValues)
             .toString()
             .toByteArray()
-        sendEncrypted(current, "features.update", payload)
+        if (sendEncrypted(current, "features.update", payload)) {
+            scope.launch(Dispatchers.Main.immediate) { callQuietHub.peersChanged() }
+        }
     }
 
     private fun receiveFeatureState(current: Session, message: Message) {
@@ -4847,6 +4886,7 @@ class PairingCoordinator(
         if (current.agent) {
             // An agent's map lists what it can do; this phone starts nothing towards it. Once per session, the endings
             // of its questions go now, and Connect anywhere sets up the pair secret.
+            scope.launch(Dispatchers.Main.immediate) { callQuietHub.peersChanged() }
             publish()
             if (!current.agentStarted) {
                 current.agentStarted = true
@@ -4859,6 +4899,7 @@ class PairingCoordinator(
         if (received[BridgeyFeature.FILES] == false) stopFileQueue(deviceId, "File transfer is turned off on ${current.peerName}")
         if (received[BridgeyFeature.FIND_DEVICE] == false && phoneRingingFrom == deviceId) stopPhoneRinging()
         val isTarget = registry.target(selectedDeviceId) == deviceId
+        scope.launch(Dispatchers.Main.immediate) { callQuietHub.peersChanged() }
         if (isTarget && received[BridgeyFeature.CLIPBOARD] == false) mutableClipboardStatus.value = null
         if (received[BridgeyFeature.PING] == false && pendingPing?.first == deviceId) clearPingStatus()
         publish()
@@ -4888,6 +4929,71 @@ class PairingCoordinator(
         // Agents mirror: a Mac that speaks it hears the agents (and stops hearing them when it turns the key off).
         if (drafts[dev.bridgey.android.agents.AGENTS_MIRROR_FEATURE_KEY] == true) agents.macReady(deviceId)
     }
+
+    // MARK: Quiet media during calls (draft call_quiet_draft1)
+
+    private fun callQuietEnabled(): Boolean = callQuietRunning &&
+        settings.state.value.globalFeatures[BridgeyFeature.CALL_QUIET] == true
+
+    private fun callQuietAvailable(current: Session): Boolean = callQuietEnabled() &&
+        registry.isActive(current) && !current.agent && !isAgent(current.remoteDeviceId) &&
+        current.envelopeKey != null && current.remoteProtocol >= SessionSecurity.PROTOCOL_VERSION &&
+        settings.isEnabled(BridgeyFeature.CALL_QUIET, current.remoteDeviceId) &&
+        registry.state(current.remoteDeviceId)?.remoteFeatures?.get(BridgeyFeature.CALL_QUIET) == true
+
+    private fun callQuietPeers(): List<dev.bridgey.android.media.CallQuietPeer> = registry.connectedIds().mapNotNull { id ->
+        registry.session(id)?.takeIf(::callQuietAvailable)?.let { dev.bridgey.android.media.CallQuietPeer(id, it.id) }
+    }
+
+    private fun sendCallQuiet(peer: dev.bridgey.android.media.CallQuietPeer, kind: String, payload: JSONObject): Boolean {
+        val current = registry.session(peer.deviceId)?.takeIf { it.id == peer.sessionId && callQuietAvailable(it) } ?: return false
+        val bytes = payload.toString().toByteArray(Charsets.UTF_8)
+        scope.launch(settingsLane) {
+            if (registry.session(peer.deviceId) === current && callQuietAvailable(current)) sendEncrypted(current, kind, bytes)
+        }
+        return true
+    }
+
+    private fun receiveCallQuiet(current: Session, message: Message) {
+        if (!callQuietAvailable(current) || message.sessionId != current.id) return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        val plaintext = Crypto.decrypt(current.pairingKey ?: return, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        val state = if (message.kind == "calls.quiet_state") dev.bridgey.android.media.decodeCallQuietState(plaintext) ?: return else null
+        val result = if (message.kind == "calls.quiet_result") dev.bridgey.android.media.decodeCallQuietResult(plaintext) ?: return else null
+        val peer = dev.bridgey.android.media.CallQuietPeer(current.remoteDeviceId, current.id)
+        scope.launch(Dispatchers.Main.immediate) {
+            if (!registry.isActive(current) || current.id != peer.sessionId || !callQuietAvailable(current)) return@launch
+            if (state != null) callQuietHub.receiveState(peer, state)
+            if (result != null) callQuietHub.receiveResult(peer, result)
+        }
+    }
+
+    private fun callQuietPolicyChanged() {
+        callQuietHub.policyChanged()
+        callQuietSources.update(callQuietEnabled())
+        if (callQuietEnabled()) BridgeyNotificationListenerService.refreshCallQuietSources()
+    }
+
+    /** Notification call classification is independent of ordinary forwarding/filter settings. */
+    fun callQuietNotificationPosted(notification: android.service.notification.StatusBarNotification, cellular: Boolean) {
+        scope.launch(Dispatchers.Main.immediate) { callQuietSources.notificationPosted(notification, cellular) }
+    }
+
+    fun callQuietNotificationRemoved(notification: android.service.notification.StatusBarNotification) {
+        scope.launch(Dispatchers.Main.immediate) { callQuietSources.notificationRemoved(notification) }
+    }
+
+    fun callQuietNotificationsConnected(notifications: List<Pair<android.service.notification.StatusBarNotification, Boolean>>) {
+        scope.launch(Dispatchers.Main.immediate) { callQuietSources.notificationsConnected(notifications) }
+    }
+
+    fun callQuietNotificationsDisconnected() {
+        scope.launch(Dispatchers.Main.immediate) { callQuietSources.notificationsDisconnected() }
+    }
+
+    /** The reset UI calls this before any hooks or data deletion; no player is resumed. */
+    fun prepareCallMediaReset(): Boolean = callMediaPlatform.prepareForReset()
 
     // MARK: Update all (draft updates_draft1)
 

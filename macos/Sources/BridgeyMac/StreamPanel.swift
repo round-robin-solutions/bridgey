@@ -61,6 +61,8 @@ struct PanelModel {
     var mediaPlayer: MediaPlayer = .off
     var mediaChoices: [MediaPlayer] = MediaPlayer.fixed
     var mediaDetail = ""
+    var callMediaEnabled = false
+    var callMediaManual = false
     /// The browser "Send the current tab" asks (Safari or Chrome), nil when none is running.
     var browserName: String?
     /// The selected phone takes photos for this Mac (camera_draft1): its name, for File > Take Photo.
@@ -138,6 +140,7 @@ struct PanelActions {
     var stopFinding: () -> Void = {}
     var setPlayer: (MediaPlayer) -> Void = { _ in }
     var refreshMedia: () -> Void = {}
+    var setManualCall: (Bool) -> Void = { _ in }
     var openLink: () -> Void = {}
     var dismissLink: () -> Void = {}
     var cancelTransfer: (String) -> Void = { _ in }
@@ -233,6 +236,11 @@ struct StreamPanelView: View {
         }
         LiveCards(model: model, actions: actions)
         StreamList(rows: model.rows, showPreviews: model.showPreviews, now: model.now, hasLiveCards: hasLiveCards)
+        if model.callMediaEnabled {
+            CallMediaManualPanelRow(active: model.callMediaManual) { actions.setManualCall(!model.callMediaManual) }
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+        }
         if model.isConnected {
             QuickActionBar(model: model, actions: actions)
                 .padding(.horizontal, 12)
@@ -1518,6 +1526,8 @@ struct BridgeyPanel: View {
         model.mediaPlayer = media.player
         model.mediaChoices = media.choices
         model.mediaDetail = media.snapshot.detail
+        model.callMediaEnabled = settings.globalFeatures[.callQuiet] == true
+        model.callMediaManual = pairing.callMedia.manualActive
         model.browserName = browserTab.browser?.name
         if case let .connected(deviceID, name) = pairing.state, pairing.cameraAvailable(for: deviceID) { model.cameraPhone = name }
         model.screenPhones = Set(pairing.connectedPhones.map(\.id).filter { pairing.screenAvailable(for: $0) })
@@ -1573,6 +1583,7 @@ struct BridgeyPanel: View {
         actions.stopFinding = { pairing.stopFinding() }
         actions.setPlayer = { media.player = $0 }
         actions.refreshMedia = { media.refresh() }
+        actions.setManualCall = { pairing.callMedia.setManualCall($0) }
         actions.openLink = { quickActions.openLink() }
         actions.dismissLink = { quickActions.dismissLink() }
         actions.cancelTransfer = { pairing.cancelFileTransfer(id: $0) }

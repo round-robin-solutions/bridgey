@@ -151,6 +151,8 @@ enum class ResetKept(val key: String) { SETTINGS("settings"), PAIRINGS("pairings
 
 /** The phone's storage and the running app, as the reset sees them. Tests pass temporary directories. */
 interface ResetEnvironment {
+    /** Must succeed before any hook/deletion; failed sound recovery keeps user data intact. */
+    fun prepare(choice: ResetChoice): Boolean = true
     fun directory(root: ResetRoot): File
     fun deletePreferences(name: String)
     fun deleteKeystoreAlias(alias: String)
@@ -163,7 +165,8 @@ interface ResetEnvironment {
  * then need a restart (the app holds settings in memory); the caller restarts Bridgey.
  */
 class LocalDataReset(private val environment: ResetEnvironment) {
-    fun perform(choice: ResetChoice) {
+    fun perform(choice: ResetChoice): Boolean {
+        if (!environment.prepare(choice)) return false
         val targets = items(choice).flatMap { it.targets }
         val hooks = targets.filterIsInstance<ResetTarget.Live>().map { it.hook }.distinct()
             .sortedBy { if (it == ResetHook.DISCONNECT) 0 else 1 }
@@ -176,6 +179,7 @@ class LocalDataReset(private val environment: ResetEnvironment) {
                 is ResetTarget.Live -> Unit
             }
         }
+        return true
     }
 
     private fun delete(target: ResetTarget.Path) {
@@ -236,6 +240,12 @@ class AndroidResetEnvironment(
     },
     private val deleteAlias: (String) -> Unit = ::deleteAndroidKeystoreAlias,
 ) : ResetEnvironment {
+    override fun prepare(choice: ResetChoice): Boolean {
+        if (choice != ResetChoice.SETTINGS && choice != ResetChoice.EVERYTHING) return true
+        val app = context.applicationContext as? dev.bridgey.android.BridgeyApplication ?: return true
+        return runCatching { app.pairing.prepareCallMediaReset() }.getOrDefault(false)
+    }
+
     override fun directory(root: ResetRoot): File = directories(root)
 
     override fun deletePreferences(name: String) {
