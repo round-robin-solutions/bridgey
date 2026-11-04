@@ -545,4 +545,23 @@ final class CallMediaControllerTests: XCTestCase {
         XCTAssertTrue(platform.requested.isEmpty)
     }
 
+
+    func testLegacyLossRevokesAnOlderNormalEndAcknowledgementBeforeANewInterval() {
+        let platform = CallMediaTestPlatform()
+        platform.sessions = [CallMediaSession(id: "player", bundleID: "test.media", contentID: "track", playing: true)]
+        let controller = CallMediaController(platform: platform)
+        let policy = CallMediaPolicy(mode: .pauseOnly)
+        controller.updateCalls(["old"], policy: policy)
+        platform.complete(holdReply: true)
+        controller.setPlaybackRestorationBlocked(true)
+        controller.updateCalls([], policy: policy)
+        controller.release(reason: .disconnected)
+        controller.setPlaybackRestorationBlocked(false)
+        controller.updateCalls(["next"], policy: policy)
+        platform.deliverHeldReply()
+        controller.updateCalls([], policy: policy)
+        platform.completeAll()
+        XCTAssertEqual(platform.applied, [.pause], "a lossy old interval cannot donate autoplay ownership to a later call")
+    }
+
 }
