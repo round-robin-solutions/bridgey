@@ -55,6 +55,21 @@ fun macsReportingCodes(links: List<ReaderLink>): Int = links.count { !it.agent &
 fun cloudReads(macReaders: Int, anyReader: Boolean, detectors: Int, cloudOn: Boolean): Boolean =
     cloudOn && anyReader && macReaders == 0 && detectors == 0
 
+/** Tailscale's ranges, 100.64.0.0/10 and fd7a:115c:a1e0::/48 (an IPv4-mapped form counts as its IPv4 address). */
+fun isTailnetAddress(host: String): Boolean {
+    val text = host.trim().lowercase().removePrefix("[").removeSuffix("]").removePrefix("::ffff:")
+    val v4 = text.split('.').mapNotNull { it.toIntOrNull()?.takeIf { n -> n in 0..255 } }
+    if (v4.size == 4 && text.count { it == '.' } == 3) return v4[0] == 100 && v4[1] in 64..127
+    return text.startsWith("fd7a:115c:a1e0:")
+}
+
+/** An address typed by hand that is an IP literal outside the tailnet: refused (names resolve, and are checked after). */
+fun refusedTailnetLiteral(host: String): Boolean {
+    val text = host.trim().removePrefix("[").removeSuffix("]")
+    val literal = text.contains(':') || Regex("^[0-9.]+$").matches(text)
+    return literal && !isTailnetAddress(text)
+}
+
 /** A typed tailnet name, address or address:port, to the host and port to dial (Bridgey's 42458 by default). */
 fun tailnetTarget(typed: String): Pair<String, Int> {
     val text = typed.trim()

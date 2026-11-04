@@ -61,7 +61,9 @@ on a server, which accepts connections only from Tailscale's ranges 100.64.0.0/1
 minute, one pairing). Discovery is advisory: the Mac and `bridgey tailnet` read `tailscale status --json` and knock on
 port 42458 at each online peer; a name or address can also be typed. A tailnet entry has no device ID until the pairing
 authenticates. After pairing, the two set a pair secret (`connect.setup`) and reconnect over Connect anywhere tunnels.
-A server (`agent_draft1`, `notify_draft1` and `ask_draft1` in its own authenticated map) paired this way gets nothing:
+Any first pairing made over a tailnet address starts restricted on the phone and the Mac until the person taps Trust as
+my device, whatever the other device says it is. A server (`agent_draft1`, `notify_draft1` and `ask_draft1` in its own
+authenticated map) stays restricted:
 on the phone it is an agent with every grant off, on a Mac every feature reads off for it and anything it sends beyond
 the session and `connect.*` is dropped. The kind is never taken from discovery.
 

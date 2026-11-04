@@ -401,14 +401,26 @@ server and server, and the phone with Tailscale on.
   addresses already known for a trusted device are left out. `bridgey tailnet` lists the same. A tailnet name (MagicDNS)
   or address can be typed on all three (`bridgey pair --to NAME`). Discovery decides nothing: an entry has no device ID
   and no kind until the pairing authenticates.
+- **Restricted until trusted.** A first pairing made over a tailnet address starts restricted on the phone and the Mac,
+  whatever the other device says it is: on the phone it is an agent with every grant off, on the Mac every feature reads
+  off and only the session and `connect.*` are taken from it. Only the person lifts that, with **Trust as my device**
+  (the device's page on the phone, Settings > Devices on the Mac); a device that advertises itself as a server is
+  restricted again at its next features.update. Being on the tailnet grants nothing by itself, and a modified server
+  that hides its kind gains nothing either.
 - **What a server gets: nothing.** The kind comes from the authenticated session, not from discovery or a link: a server
   advertises `agent_draft1`, `notify_draft1` and `ask_draft1` in its own map. The phone then stores it as an agent with
   every grant off, exactly like one paired by invite. A Mac keeps it in `agents.directDevices`: every feature reads off
   for it whatever the switches say, its features.update to it is empty apart from Connect anywhere, and anything it sends
   beyond the session and `connect.*` is dropped. Another server records it as `cli` and never takes code candidates from
   it (only from a phone paired by its own invite).
-- **`bridgey pair --allow`** listens for at most 10 minutes (2 by default) on port 42458 (config `tcp_port`), takes
-  connections only from Tailscale's ranges (and loopback for tests), at most three a minute, and pairs once.
+- **`bridgey pair --allow`** listens for at most 10 minutes (2 by default) on port 42458 (config `tcp_port`), bound only
+  to this device's own tailnet addresses (loopback too in debug builds), takes connections only from Tailscale's ranges,
+  at most three a minute from each source, ends every attempt with the window, and pairs once. `bridgey pair --to`, the
+  Mac's typed address and the phone's typed IP refuse anything outside the tailnet, and a name two peers answer to
+  dials neither. A phone paired with a server over the tailnet is restricted there too (`tailnet`, not `phone`), so it
+  sends that server no code candidates: phones pair with servers by invite for Detect codes.
+- **The cloud read** needs a server with Read codes that is connected now; its hourly limit is kept on disk, the whole
+  call (DNS included) has 3 seconds, at most 4 KiB of answer is read, and turning the opt-in off forgets the install id.
 - **After pairing** the two set a pair secret (`connect.setup`) and reconnect over Connect anywhere tunnels like any pair.
 
 ### Detect codes default

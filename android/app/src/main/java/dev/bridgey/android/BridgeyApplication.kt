@@ -243,6 +243,7 @@ class BridgeyApplication : Application() {
             pairing.agents.cloud = dev.bridgey.android.agents.CloudCodes(
                 enabled = { settings.state.value.cloudCodes },
                 extractor = dev.bridgey.android.agents.HttpCloudExtractor(BuildConfig.OTP_PROXY_URL) { settings.cloudInstallId() },
+                history = settings.cloudHistory,
             )
         }
         pairing.agents.onCloudRead = { outcome, appName ->

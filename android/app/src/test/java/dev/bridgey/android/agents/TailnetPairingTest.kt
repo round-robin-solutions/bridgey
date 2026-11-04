@@ -23,4 +23,28 @@ class TailnetPairingTest {
         assertFalse(advertisesAgent(mapOf(AGENT_FEATURE_KEY to true)))
         assertFalse(advertisesAgent(mapOf(AGENTS_MIRROR_FEATURE_KEY to true, "sms_codes_draft1" to true)))
     }
+
+    /** A pairing from a tailnet address starts restricted; an IP typed by hand outside the tailnet is not dialled. */
+    @Test fun tailnetAddresses() {
+        assertTrue(isTailnetAddress("100.77.183.42"))
+        assertTrue(isTailnetAddress("100.64.0.1"))
+        assertFalse(isTailnetAddress("100.128.0.1"))
+        assertFalse(isTailnetAddress("192.168.1.10"))
+        assertTrue(isTailnetAddress("fd7a:115c:a1e0::9833:b72b"))
+        assertTrue(isTailnetAddress("::ffff:100.90.0.3"))
+        assertFalse(isTailnetAddress("work"))
+        assertTrue(refusedTailnetLiteral("192.168.1.10"))
+        assertTrue(refusedTailnetLiteral("2001:db8::1"))
+        assertFalse(refusedTailnetLiteral("100.90.0.3"))
+        assertFalse(refusedTailnetLiteral("work.tail1234.ts.net"))
+    }
+
+    /** The saving rule in PairingCoordinator: tailnet first pairings are stored as agents and marked for promotion. */
+    @Test fun aTailnetPairingIsSavedRestricted() {
+        val source = java.io.File(java.io.File(System.getProperty("bridgey.repoRoot") ?: "../.."),
+            "android/app/src/main/java/dev/bridgey/android/PairingCoordinator.kt").readText()
+        assertTrue(source.contains("current.remoteHost?.let(dev.bridgey.android.agents::isTailnetAddress) == true"))
+        assertTrue(source.contains("platform = if (current.invite != null || viaTailnet) dev.bridgey.android.agents.AGENT_PLATFORM else null"))
+        assertTrue(source.contains("trust.markTailnet(current.remoteDeviceId)"))
+    }
 }

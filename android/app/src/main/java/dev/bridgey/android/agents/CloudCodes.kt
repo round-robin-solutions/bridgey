@@ -35,24 +35,57 @@ enum class CloudRead(val word: String) {
     OFF("off"),
 }
 
+/** Where the times of the last hour's cloud reads are kept, so the limit survives a restart. */
+interface CloudHistory {
+    fun load(): List<Long>
+    fun save(times: List<Long>)
+}
+
+class MemoryCloudHistory : CloudHistory {
+    private var times = emptyList<Long>()
+    override fun load(): List<Long> = times
+    override fun save(times: List<Long>) {
+        this.times = times
+    }
+}
+
 class CloudCodes(
     private val enabled: () -> Boolean,
     private val extractor: CloudExtractor,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val history: CloudHistory = MemoryCloudHistory(),
 ) {
-    private val limiter = SlidingWindowLimiter(CLOUD_READS_PER_HOUR, 3_600_000L)
-
     fun isOn(): Boolean = enabled()
+
+    /** Takes one of the hour's [CLOUD_READS_PER_HOUR] reads; false when they are used up. */
+    @Synchronized private fun admit(now: Long): Boolean {
+        val recent = history.load().filter { now - it in 0 until 3_600_000L }
+        if (recent.size >= CLOUD_READS_PER_HOUR) return false
+        history.save(recent + now)
+        return true
+    }
 
     /** Reads one candidate text ([text] already joined and gated); the code when the guard accepts it. Blocking. */
     fun read(text: String, sender: String?): Pair<CloudRead, String?> {
         if (!enabled()) return CloudRead.OFF to null
-        if (limiter.tryAcquire("cloud", clock()) != null) return CloudRead.LIMITED to null
-        return when (val answer = runCatching { extractor.extract(text, sender) }.getOrElse { CodeRelay.Answer.Failed("unavailable") }) {
+        if (!admit(clock())) return CloudRead.LIMITED to null
+        return when (val answer = withDeadline { extractor.extract(text, sender) }) {
             is CodeRelay.Answer.Candidate -> CodeGuard.accept(answer.code, codeGuardText(text))?.let { CloudRead.FOUND to it } ?: (CloudRead.REFUSED to null)
             CodeRelay.Answer.NoCode -> CloudRead.NONE to null
             is CodeRelay.Answer.Failed -> CloudRead.FAILED to null
         }
+    }
+}
+
+/** The whole call (DNS, connect, request, answer) within [CLOUD_TIMEOUT_MS]; a time-out or error is a failure. */
+private fun withDeadline(call: () -> CodeRelay.Answer): CodeRelay.Answer {
+    val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    return try {
+        executor.submit(java.util.concurrent.Callable { call() }).get(CLOUD_TIMEOUT_MS.toLong(), java.util.concurrent.TimeUnit.MILLISECONDS)
+    } catch (_: Exception) {
+        CodeRelay.Answer.Failed("timeout")
+    } finally {
+        executor.shutdownNow()
     }
 }
 
@@ -76,7 +109,17 @@ class HttpCloudExtractor(private val baseUrl: String, private val installId: () 
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val reply = stream?.use { it.readBytes().take(4_096).toByteArray().toString(Charsets.UTF_8) }.orEmpty()
+            val reply = stream?.use { input ->
+                // At most 4 KiB of answer is read; the relay's is a few dozen bytes.
+                val buffer = ByteArray(4_096)
+                var total = 0
+                while (total < buffer.size) {
+                    val n = input.read(buffer, total, buffer.size - total)
+                    if (n < 0) break
+                    total += n
+                }
+                String(buffer, 0, total, Charsets.UTF_8)
+            }.orEmpty()
             CodeRelay.parse(status, reply)
         } finally {
             connection.disconnect()

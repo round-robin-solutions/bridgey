@@ -30,6 +30,9 @@ final class TailnetPairingTests: XCTestCase {
         XCTAssertEqual(TailnetStatus.find(peers, name: "contabo-europe.tail1234.ts.net")?.name, "contabo-europe")
         XCTAssertEqual(TailnetStatus.find(peers, name: "oneplus-11-5g")?.os, "android")
         XCTAssertTrue(TailnetStatus.parse(Data(#"{"BackendState":"Stopped","Peer":{}}"#.utf8)).isEmpty)
+        XCTAssertTrue(TailnetStatus.isTailnet("::ffff:100.90.0.3"))
+        let twins = TailnetStatus.parse(Data(#"{"Peer":{"a":{"HostName":"twin","TailscaleIPs":["100.90.0.4"],"Online":true},"b":{"HostName":"twin","TailscaleIPs":["100.90.0.5"],"Online":true}}}"#.utf8))
+        XCTAssertNil(TailnetStatus.find(twins, name: "twin"), "a name two peers answer to dials neither")
     }
 
     /// Only online peers that answered on Bridgey's port are listed, and none already known for a trusted device.
@@ -70,6 +73,9 @@ final class TailnetPairingTests: XCTestCase {
         for feature in BridgeyFeature.allCases {
             XCTAssertFalse(settings.isEnabled(feature, for: id), feature.rawValue)
         }
+        settings.unmarkAgent(id)
+        XCTAssertFalse(settings.isAgent(id), "Trust as my device lifts it")
+        settings.markAgent(id)
         settings.removeDevice(id)
         XCTAssertFalse(settings.isAgent(id))
     }

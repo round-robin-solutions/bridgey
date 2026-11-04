@@ -339,8 +339,17 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
 
     /** Use cloud when no Mac is reading: only ever switched by the person on this phone, after the consent dialog. */
     fun setCloudCodes(enabled: Boolean) {
-        preferences.edit().putBoolean(KEY_CLOUD_CODES, enabled).apply()
+        // Turning it off also forgets the install id, so a later opt-in starts as a new install at the relay.
+        preferences.edit().putBoolean(KEY_CLOUD_CODES, enabled).apply { if (!enabled) remove(KEY_CLOUD_INSTALL_ID) }.apply()
         mutableState.value = mutableState.value.copy(cloudCodes = enabled)
+    }
+
+    /** The times of the last hour's cloud reads, so the hourly limit survives a restart. */
+    val cloudHistory: dev.bridgey.android.agents.CloudHistory = object : dev.bridgey.android.agents.CloudHistory {
+        override fun load(): List<Long> = preferences.getString(KEY_CLOUD_HISTORY, null).orEmpty().split(',').mapNotNull { it.toLongOrNull() }
+        override fun save(times: List<Long>) {
+            preferences.edit().putString(KEY_CLOUD_HISTORY, times.takeLast(64).joinToString(",")).apply()
+        }
     }
 
     /** A random per-install id, used only as the relay's rate-limit key (as the Mac's codes install id). */
@@ -525,6 +534,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         internal const val KEY_EMAIL_CODES = "codes.email"
         private const val KEY_CLOUD_CODES = "codes.cloud_when_no_mac"
         private const val KEY_CLOUD_INSTALL_ID = "codes.cloud_install_id"
+        private const val KEY_CLOUD_HISTORY = "codes.cloud_history"
         private const val KEY_CONNECT_DEBUG_URL = "connect.debug.controlUrl"
         private const val KEY_CONNECT_DEBUG_RELAY_ONLY = "connect.debug.relayOnly"
     }

@@ -568,7 +568,9 @@ class AgentHub(
         val target = detections.pick(macs, anyReader, servers) ?: run {
             // The order: an awake Mac, then a server with Detect codes, then this phone over cloud (servers are your
             // own machines; the cloud is a third party). The cloud only when no server can read it at all.
-            if (cloudReads(macs, anyReader, servers.size, cloud?.isOn() == true)) readOverCloud(joined, title, applicationName, notificationId, postedAt)
+            // The cloud only for a server that is connected now and reads codes (an offline one would not see it soon).
+            val connectedReader = transport.connectedAgents().any { grants.isOn(it, AgentGrant.CODES) }
+            if (cloudReads(macs, connectedReader, servers.size, cloud?.isOn() == true)) readOverCloud(joined, title, applicationName, notificationId, postedAt)
             return
         }
         val sender = dev.bridgey.android.codes.codeSender(title, applicationName).let { name ->

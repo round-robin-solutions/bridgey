@@ -161,6 +161,11 @@ final class BridgeySettings: ObservableObject {
         defaults.set(Array(agentDevices).sorted(), forKey: Self.agentDevicesKey)
     }
 
+    func unmarkAgent(_ deviceID: String) {
+        guard agentDevices.remove(deviceID) != nil else { return }
+        defaults.set(Array(agentDevices).sorted(), forKey: Self.agentDevicesKey)
+    }
+
     init() {
         let storedDefaults = UserDefaults.standard
         let systemName = Host.current().localizedName ?? "Mac"

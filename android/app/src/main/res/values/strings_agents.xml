@@ -32,6 +32,11 @@
     <string name="agent_grant_battery_detail">Level and charging</string>
     <string name="agent_grant_codes">Read codes</string>
     <string name="agent_grant_codes_detail">One-time codes your Mac finds in messages and mail</string>
+    <string name="agent_trust_row">Trust as my device</string>
+    <string name="agent_trust_row_detail">Paired over your tailnet, so it gets nothing until you trust it. Do this only for your own Mac or phone.</string>
+    <string name="agent_trust_title">Trust %1$s as your device?</string>
+    <string name="agent_trust_body">It then gets what your other Macs get here (notifications, clipboard, files), as set in its permissions. A server stays restricted whatever you choose.</string>
+    <string name="agent_trust_confirm">Trust</string>
     <string name="agent_grant_codes_detect">Detect codes</string>
     <string name="agent_grant_codes_detect_detail">Reads your code messages when no Mac is reading</string>
     <string name="agent_grant_notifications">Read your notifications</string>

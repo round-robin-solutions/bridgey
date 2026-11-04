@@ -88,6 +88,8 @@ data class AgentPageState(
     /** The folder name under Download/Bridgey for Send you files. */
     val folderName: String,
     val now: Long,
+    /** Paired over the tailnet and restricted until trusted: shows Trust as my device. */
+    val overTailnet: Boolean = false,
 )
 
 class AgentPageActions(
@@ -99,6 +101,7 @@ class AgentPageActions(
     val applyPreset: (GrantPreset, GrantWindow) -> Unit = { _, _ -> },
     val export: () -> Unit = {},
     val clear: () -> Unit = {},
+    val trustAsDevice: () -> Unit = {},
 )
 
 enum class AgentTab { PERMISSIONS, ACTIVITY }
@@ -137,7 +140,7 @@ fun AgentDeviceScreen(state: AgentPageState, actions: AgentPageActions) {
             ) { shown ->
                 val padding = PaddingValues(bottom = navBottom + 24.dp)
                 when (shown) {
-                    AgentTab.PERMISSIONS -> AgentPermissions(state, padding, onSwitch = { grant, on ->
+                    AgentTab.PERMISSIONS -> AgentPermissions(state, padding, onTrust = actions.trustAsDevice, onSwitch = { grant, on ->
                         if (on) asking = grant else actions.setGrant(grant, false, null)
                     }, onPreset = { askingPreset = it })
                     AgentTab.ACTIVITY -> AgentActivity(state, padding, actions.export) { clearing = true }
@@ -275,9 +278,36 @@ private fun AgentPermissions(
     contentPadding: PaddingValues,
     onSwitch: (AgentGrant, Boolean) -> Unit,
     onPreset: (GrantPreset) -> Unit,
+    onTrust: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    var confirmTrust by remember { mutableStateOf(false) }
+    if (confirmTrust) {
+        AlertDialog(
+            onDismissRequest = { confirmTrust = false },
+            containerColor = BridgeyTheme.colors.surface2,
+            title = { Text(stringResource(R.string.agent_trust_title, state.ring.name)) },
+            text = { Text(stringResource(R.string.agent_trust_body), style = BridgeyType.bodyText) },
+            confirmButton = { TextButton(onClick = { confirmTrust = false; onTrust() }) { Text(stringResource(R.string.agent_trust_confirm)) } },
+            dismissButton = { TextButton(onClick = { confirmTrust = false }) { Text(stringResource(R.string.action_cancel)) } },
+        )
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = contentPadding) {
+        if (state.overTailnet) {
+            item(key = "tailnet") {
+                ListRow(
+                    shape = RoundedCornerShape(16.dp),
+                    title = stringResource(R.string.agent_trust_row),
+                    detail = stringResource(R.string.agent_trust_row_detail),
+                    icon = BridgeyIcons.Link,
+                    tint = Tint.BLUE,
+                    compact = true,
+                    onClick = { confirmTrust = true },
+                    role = Role.Button,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp).testTag("agent-trust-as-device"),
+                ) {}
+            }
+        }
         if (state.showPresets) {
             item(key = "presets") {
                 Column(

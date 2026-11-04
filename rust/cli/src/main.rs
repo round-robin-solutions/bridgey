@@ -502,7 +502,7 @@ async fn execute(ctx: &Ctx, command: Command) -> Result<(Value, String), CliErro
                     Some(ip) => tailnet::probe(std::net::SocketAddr::new(ip, tailnet::PORT), std::time::Duration::from_millis(800)).await,
                     None => false,
                 };
-                rows.push(json!({"name": p.name, "dns": p.dns, "ips": p.ips, "os": p.os, "bridgey": bridgey}));
+                rows.push(json!({"name": session::printable(&p.name, 64), "dns": session::printable(&p.dns, 253), "ips": p.ips, "os": session::printable(&p.os, 32), "bridgey": bridgey}));
             }
             let mut t = String::from("On your tailnet:\n");
             for r in &rows {

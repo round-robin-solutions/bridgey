@@ -1558,7 +1558,8 @@ private fun BridgeyApp(
             onAddress = { typed ->
                 pairDialog = false
                 val (host, port) = dev.bridgey.android.agents.tailnetTarget(typed)
-                pairing.pair(host, port, host)
+                // An IP outside the tailnet is not paired this way (a name is dialled; a pairing from a tailnet address starts restricted).
+                if (!dev.bridgey.android.agents.refusedTailnetLiteral(host)) pairing.pair(host, port, host)
             },
         )
     }
@@ -1743,6 +1744,7 @@ private fun AgentRoute(
             showPresets = showPresets,
             folderName = dev.bridgey.android.agents.agentFolderName(ring.name),
             now = now,
+            overTailnet = remember(deviceId, changes) { pairing.pairedOverTailnet(deviceId) },
         ),
         actions = dev.bridgey.android.ui.AgentPageActions(
             back = back,
@@ -1753,6 +1755,7 @@ private fun AgentRoute(
             applyPreset = { preset, window -> Thread { hub.applyPreset(deviceId, preset, window) }.start() },
             export = { export.launch("bridgey-activity-${dev.bridgey.android.agents.agentFolderName(ring.name)}.json") },
             clear = { Thread { hub.clearActivity(deviceId) }.start() },
+            trustAsDevice = { pairing.trustAsMyDevice(deviceId); back() },
         ),
     )
 }

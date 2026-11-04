@@ -2888,6 +2888,19 @@ final class PairingCoordinator: ObservableObject {
                     settings.markAgent(phoneID)
                     sendFeatureState(to: current)
                 }
+                if settings.isAgent(phoneID) {
+                    // A restricted device (a server, or anything paired over the tailnet until trusted): nothing it claims
+                    // (settings sync, Focus, updates, texts, the agents mirror) is set up; only Connect anywhere, which keeps
+                    // the pair reachable.
+                    registry.update(phoneID) { link in
+                        link.remoteFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map { ($0, false) })
+                        link.featureStateReceived = true
+                        link.remoteConnect = draftKeys[connectFeatureKey] == true
+                    }
+                    publish()
+                    if draftKeys[connectFeatureKey] == true { sendConnectAddresses(to: current) }
+                    return
+                }
                 registry.update(phoneID) { link in
                     link.remoteFeatures = features
                     link.featureStateReceived = true
@@ -3917,6 +3930,17 @@ final class PairingCoordinator: ObservableObject {
         tailnetPeers = TailnetStatus.discovered(peers, answering: answering, known: known, port: port)
     }
 
+    /// Settings > Devices > Trust as my device: a device paired over the tailnet gets this Mac's switches like any other.
+    /// A server (its own map says agent) is restricted again at its next features.update.
+    func trustAsMyDevice(_ deviceID: String) {
+        settings.unmarkAgent(deviceID)
+        objectWillChange.send()
+        if let current = registry.session(for: deviceID) {
+            current.dropReason = "trusted_as_device"
+            current.close()
+        }
+    }
+
     /// Pair by a tailnet name or address typed in Settings: the name is looked up in the tailnet, then the address is
     /// dialled as a tap on the nearby list would (Allow pairing on the other side, the code on both).
     func pairTailnet(_ target: String) {
@@ -3933,6 +3957,11 @@ final class PairingCoordinator: ObservableObject {
             } else if let colon = typed.lastIndex(of: ":"), !typed.contains("::"), let p = Int(typed[typed.index(after: colon)...]) {
                 host = String(typed[..<colon])
                 port = p
+            }
+            // Only tailnet addresses: pairing over plain TCP to anything else is refused (use the same Wi-Fi instead).
+            guard TailnetStatus.isTailnet(host) else {
+                BridgeyLog.pairing.notice("tailnet pair refused: not a tailnet address")
+                return
             }
             self?.pair(host: host, port: port, peerName: String(name.prefix(64)))
         }
@@ -5519,6 +5548,12 @@ final class PairingCoordinator: ObservableObject {
         guard let identityKey = current.remoteIdentityKey else { return }
         if current.envelopeKey != nil { protocolPins.pin(current.remoteDeviceID, version: SessionSecurity.protocolVersion) }
         let wasTrusted = trustedIdentityKey(current.remoteDeviceID) != nil
+        // A first pairing over the tailnet starts restricted, whatever the device says it is: everything off until the
+        // person taps Trust as my device (Settings > Devices). Being on the tailnet grants nothing by itself.
+        if !wasTrusted, current.tunnel == nil, let host = current.remoteHost, TailnetStatus.isTailnet(host) {
+            settings.markAgent(current.remoteDeviceID)
+            sendFeatureState(to: current)
+        }
         if trustRegistry.remember(
             deviceID: current.remoteDeviceID,
             name: current.peerName,

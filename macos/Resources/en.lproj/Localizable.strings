@@ -58,6 +58,8 @@
 "devices.pair.address" = "Pair by tailnet name or address";
 "devices.pair.address.detail" = "For a device on your tailnet. Tap Allow pairing there first.";
 "devices.pair.address.placeholder" = "work or 100.64.0.10";
+"devices.trustAsMine" = "Trust as my device";
+"devices.restricted.detail" = "Paired over your tailnet or a server: nothing is shared with it until you trust it.";
 "devices.pair.searching" = "Looking for devices on this network…";
 "devices.permissions.intro" = "What this Mac shares with %@.";
 "drop.detail" = "This window stays open while you switch to Finder.";

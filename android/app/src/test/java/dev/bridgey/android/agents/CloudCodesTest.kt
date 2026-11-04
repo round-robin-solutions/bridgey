@@ -32,6 +32,23 @@ class CloudCodesTest {
         assertEquals(CloudRead.NONE to null, cloud { CodeRelay.Answer.NoCode }.read("OTP is 482913", null))
     }
 
+    /** The hourly limit is kept where it survives a restart: a new CloudCodes over the same history is still limited. */
+    @Test fun theLimitSurvivesARestart() {
+        val history = MemoryCloudHistory()
+        val first = CloudCodes({ on }, { _, _ -> CodeRelay.Answer.NoCode }, { now }, history)
+        repeat(CLOUD_READS_PER_HOUR) { first.read("OTP 482913", null) }
+        val restarted = CloudCodes({ on }, { _, _ -> CodeRelay.Answer.NoCode }, { now }, history)
+        assertEquals(CloudRead.LIMITED, restarted.read("OTP 482913", null).first)
+    }
+
+    /** A relay that hangs is a failure after the time limit, never a wait without end. */
+    @Test fun aHangingRelayTimesOut() {
+        val started = System.nanoTime()
+        val read = cloud { Thread.sleep(10_000); CodeRelay.Answer.Candidate("482913") }.read("OTP is 482913", null)
+        assertEquals(CloudRead.FAILED to null, read)
+        assertTrue((System.nanoTime() - started) / 1_000_000 < CLOUD_TIMEOUT_MS + 1_500)
+    }
+
     @Test fun atMostTwentyAnHour() {
         val c = cloud { CodeRelay.Answer.NoCode }
         repeat(CLOUD_READS_PER_HOUR) { assertEquals(CloudRead.NONE, c.read("OTP 482913", null).first) }

@@ -4590,8 +4590,16 @@ class PairingCoordinator(
             publish()
             return
         }
-        // A device paired by invite is always an agent: the link never chooses how far it is trusted (H1).
-        trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!, platform = current.invite?.let { dev.bridgey.android.agents.AGENT_PLATFORM })
+        // A device paired by invite is always an agent: the link never chooses how far it is trusted (H1). A first pairing
+        // over the tailnet starts the same way, whatever the device says it is, until the person trusts it as theirs.
+        val viaTailnet = current.tunnel == null && current.invite == null && trust.identityKey(current.remoteDeviceId) == null &&
+            current.remoteHost?.let(dev.bridgey.android.agents::isTailnetAddress) == true
+        trust.save(current.remoteDeviceId, current.peerName, current.remoteIdentityKey!!,
+            platform = if (current.invite != null || viaTailnet) dev.bridgey.android.agents.AGENT_PLATFORM else null)
+        if (viaTailnet) {
+            trust.markTailnet(current.remoteDeviceId)
+            agents.paired(current.remoteDeviceId)
+        }
         // From here on only answers and agent messages go to an agent on this session.
         current.agent = isAgent(current.remoteDeviceId)
         // The core resets its back-off for this peer only once a session on the tunnel authenticated.
@@ -5148,6 +5156,16 @@ class PairingCoordinator(
         }
 
         override fun stopRing(deviceId: String) = stopAgentRing(deviceId)
+    }
+
+    /** Paired over the tailnet and still restricted: its page offers Trust as my device. */
+    fun pairedOverTailnet(deviceId: String): Boolean = trust.pairedOverTailnet(deviceId)
+
+    /** Trust as my device (a device paired over the tailnet): it reconnects as an ordinary paired device. */
+    fun trustAsMyDevice(deviceId: String) {
+        trust.promote(deviceId)
+        registry.session(deviceId)?.let { it.dropReason = "trusted_as_device"; it.close() }
+        publish()
     }
 
     /**
@@ -6105,8 +6123,22 @@ private class AndroidTrustRegistry(context: Context) {
         mutableDevices.value = loadDevices()
     }
 
+    /** Paired over the tailnet: restricted (an agent, every grant off) until the person trusts it as their device. */
+    fun markTailnet(deviceId: String) {
+        preferences.edit().putBoolean("peer.$deviceId.tailnet", true).apply()
+    }
+
+    fun pairedOverTailnet(deviceId: String): Boolean = preferences.getBoolean("peer.$deviceId.tailnet", false)
+
+    /** Trust as my device: no longer an agent here; the next session is an ordinary paired device. */
+    fun promote(deviceId: String) {
+        preferences.edit().putString("peer.$deviceId.platform", "device").remove("peer.$deviceId.tailnet").apply()
+        mutableDevices.value = loadDevices()
+    }
+
     fun remove(deviceId: String) {
         preferences.edit()
+            .remove("peer.$deviceId.tailnet")
             .remove("peer.$deviceId.name")
             .remove("peer.$deviceId.identityKey")
             .remove("peer.$deviceId.protocol")

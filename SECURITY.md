@@ -246,7 +246,8 @@ Design and threat table: `docs/mesh-and-codes.md` (sections 3.5, 4 and 7). The d
   At most 20 an hour, 3 seconds each, no redirects; the answer counts only if the strict guard finds it verbatim; a
   failure does nothing. Each read is in the activity list without the text or the code.
 - **Pairing over the tailnet** is the normal protocol 2 first pairing over plain TCP (code on both ends, Allow pairing
-  on the receiving side). Tailnet discovery is advisory and never names a device or its kind. A server paired this way
-  is restricted from its own authenticated map: an agent with every grant off on the phone, every feature off and every
-  non-session message dropped on a Mac. `bridgey pair --allow` accepts only Tailscale's address ranges, three attempts a
+  on the receiving side). Tailnet discovery is advisory and never names a device or its kind. Any first pairing made over a
+  tailnet address starts restricted on the phone and the Mac (an agent with every grant off on the phone, every feature
+  off and every non-session message dropped on a Mac) until the person taps Trust as my device; a server stays
+  restricted whatever is chosen. `bridgey pair --allow` accepts only Tailscale's address ranges, three attempts a
   minute, one pairing, ten minutes at most. Being on the tailnet grants nothing by itself.

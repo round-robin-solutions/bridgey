@@ -24,6 +24,7 @@ struct TailnetPeerInfo: Equatable {
 enum TailnetStatus {
     /// Tailscale's ranges: 100.64.0.0/10 and fd7a:115c:a1e0::/48.
     static func isTailnet(_ address: String) -> Bool {
+        if address.lowercased().hasPrefix("::ffff:") { return isTailnet(String(address.dropFirst(7))) }
         if let v4 = IPv4Address(address) {
             let bytes = [UInt8](v4.rawValue)
             return bytes[0] == 100 && (bytes[1] & 0xc0) == 64
@@ -52,11 +53,13 @@ enum TailnetStatus {
     }
 
     /// The peer a typed name means: its host name, MagicDNS name, or that name's first label.
+    /// A name more than one peer answers to means none, so a node that took another's name is not dialled by mistake.
     static func find(_ peers: [TailnetPeerInfo], name: String) -> TailnetPeerInfo? {
         let wanted = name.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
-        return peers.first { peer in
+        let matches = peers.filter { peer in
             peer.name.lowercased() == wanted || peer.dns.lowercased() == wanted || peer.dns.split(separator: ".").first.map { $0.lowercased() == wanted } == true
         }
+        return matches.count == 1 ? matches.first : nil
     }
 
     /// Tailnet peers that answered on Bridgey's port, as entries for the nearby list. Addresses already known for a
@@ -85,9 +88,11 @@ enum TailnetProbe {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { return [] }
-        let deadline = DispatchTime.now() + 5
+        // A Tailscale command that hangs is stopped after 5 seconds, so discovery never stalls or piles up processes.
+        let stop = DispatchWorkItem { if process.isRunning { process.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: stop)
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        if DispatchTime.now() > deadline { process.terminate() }
+        stop.cancel()
         process.waitUntilExit()
         return process.terminationStatus == 0 ? TailnetStatus.parse(data) : []
     }
