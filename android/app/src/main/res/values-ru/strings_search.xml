@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Поиск в настройках (ui/search). -->
+    <string name="settings_search_open">Поиск в настройках</string>
+    <string name="settings_search_placeholder">Поиск в настройках</string>
+    <string name="settings_search_clear">Очистить поиск</string>
+    <string name="settings_search_hint">Ищите по названию настройки или по тому, что она делает, например: код, ретранслятор или обновление.</string>
+    <string name="settings_search_no_results">Ничего не найдено по запросу «%1$s»</string>
+    <string name="settings_search_closest">Похожие настройки</string>
+    <string name="settings_search_devices">Устройства</string>
+    <string name="settings_search_check_updates">Проверить обновления</string>
+    <string name="settings_search_oem">Настройки батареи от производителя</string>
+</resources>

@@ -75,6 +75,7 @@ import dev.bridgey.android.ui.theme.BridgeyTheme
 import dev.bridgey.android.ui.theme.BridgeyType
 import dev.bridgey.android.ui.theme.OnBand
 import dev.bridgey.android.ui.theme.ScreenBackdrop
+import dev.bridgey.android.ui.search.settingsSearchScroll
 
 /** An agent's page, "Devices and permissions": its grants and its activity. */
 data class AgentPageState(
@@ -292,7 +293,12 @@ private fun AgentPermissions(
             dismissButton = { TextButton(onClick = { confirmTrust = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = contentPadding) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LazyColumn(
+        Modifier.fillMaxSize().settingsSearchScroll(listState),
+        state = listState,
+        contentPadding = contentPadding,
+    ) {
         if (state.overTailnet) {
             item(key = "tailnet") {
                 ListRow(

@@ -1673,3 +1673,13 @@
 "clipboard.status.off" = "Буфер обмена выключен на %@";
 "clipboard.status.noAck" = "Нет подтверждения доставки";
 "clipboard.status.missed" = "Не доставлено на %@";
+
+/* Settings search */
+"settings.search" = "Поиск";
+"settings.search.label" = "Поиск в настройках";
+"settings.search.clear" = "Очистить поиск";
+"settings.search.results" = "Результаты поиска";
+"settings.search.none" = "Ничего не найдено по запросу «%@»";
+"settings.search.closest" = "Похожие варианты";
+"settings.search.checkUpdates" = "Проверить обновления";
+"settings.search.version" = "Версия";

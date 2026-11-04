@@ -72,6 +72,8 @@ import dev.bridgey.android.ui.theme.OnBand
 import dev.bridgey.android.ui.theme.ScreenBackdrop
 import dev.bridgey.android.updateCardPhase
 import dev.bridgey.android.updateErrorText
+import dev.bridgey.android.ui.search.settingsSearchScroll
+import dev.bridgey.android.ui.search.settingsSearchHighlight
 
 data class SettingsState(
     val deviceName: String,
@@ -138,6 +140,8 @@ data class SettingsState(
 
 class SettingsActions(
     val back: () -> Unit = {},
+    /** Settings home: open Settings search. */
+    val openSearch: () -> Unit = {},
     val openDevices: () -> Unit = {},
     /** Settings home: open a section's page. */
     val openSection: (SettingsSection) -> Unit = {},
@@ -235,13 +239,24 @@ private val PageBandHeight = 64.dp
 
 /** A pushed settings page: page bar on the band, then a list. */
 @Composable
-fun SettingsPage(title: String, onBack: () -> Unit, listState: LazyListState = rememberLazyListState(), content: LazyListScope.() -> Unit) {
+fun SettingsPage(
+    title: String,
+    onBack: () -> Unit,
+    listState: LazyListState = rememberLazyListState(),
+    actions: @Composable RowScope.() -> Unit = {},
+    content: LazyListScope.() -> Unit,
+) {
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     ScreenBackdrop(bandHeight = statusTop + PageBandHeight) {
         Column(Modifier.fillMaxSize()) {
-            OnBand { PageBar(title, onBack) }
-            LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = navBottom + 32.dp), content = content)
+            OnBand { PageBar(title, onBack, actions) }
+            LazyColumn(
+                Modifier.fillMaxSize().settingsSearchScroll(listState),
+                state = listState,
+                contentPadding = PaddingValues(bottom = navBottom + 32.dp),
+                content = content,
+            )
         }
     }
 }
@@ -281,7 +296,10 @@ fun SettingsScreen(
 @Composable
 private fun SettingsHome(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
     var renaming by rememberSaveable { mutableStateOf(false) }
-    SettingsPage(stringResource(R.string.settings_title), actions.back, listState) {
+    SettingsPage(
+        stringResource(R.string.settings_title), actions.back, listState,
+        actions = { BarIconButton(BridgeyIcons.Search, stringResource(R.string.settings_search_open), actions.openSearch) },
+    ) {
         item(key = "phone") { ThisPhoneCard(state, onRename = { renaming = true }, Modifier.padding(top = 20.dp)) }
         SettingsGroup.entries.forEach { group ->
             item(key = "group.${group.name}") {
@@ -421,6 +439,8 @@ private fun NotificationsPage(state: SettingsState, actions: SettingsActions, li
                             stringResource(if (state.notificationAccessEnabled) R.string.settings_forwarding_on else R.string.settings_forwarding_off),
                             BridgeyIcons.Notifications, if (state.notificationAccessEnabled) Tint.GREEN else Tint.NEUTRAL,
                             detailWarning = !state.notificationAccessEnabled,
+                            // Same title as the switch above; search names it by what it opens.
+                            searchTitle = stringResource(R.string.perm_notification_access_name),
                             onClick = actions.notificationAccess,
                         ) { ManageLabel(state.notificationAccessEnabled) }
                     }
@@ -733,7 +753,7 @@ private fun DeveloperPage(state: SettingsState, actions: SettingsActions, listSt
         item(key = "developer.paths") {
             RowGroup(Modifier.padding(top = 8.dp)) {
                 if (state.transferPaths.isEmpty()) {
-                    row { shape -> ListRow(shape, stringResource(R.string.developer_no_devices), null, BridgeyIcons.Devices, Tint.NEUTRAL) }
+                    row { shape -> ListRow(shape, stringResource(R.string.developer_no_devices), null, BridgeyIcons.Devices, Tint.NEUTRAL, searchable = false) }
                 }
                 state.transferPaths.forEach { path ->
                     row { shape ->
@@ -744,7 +764,7 @@ private fun DeveloperPage(state: SettingsState, actions: SettingsActions, listSt
                         }
                         val how = stringResource(if (path.fast) R.string.developer_path_fast else R.string.developer_path_json)
                         ListRow(shape, path.deviceName, "$how. $route", if (path.tunnelRoute == null) BridgeyIcons.Lan else BridgeyIcons.Public,
-                            if (path.fast) Tint.GREEN else Tint.NEUTRAL)
+                            if (path.fast) Tint.GREEN else Tint.NEUTRAL, searchable = false)
                     }
                 }
             }
@@ -752,7 +772,7 @@ private fun DeveloperPage(state: SettingsState, actions: SettingsActions, listSt
         item(key = "developer.experimental.label") { SectionLabel(stringResource(R.string.developer_experimental), Modifier.padding(top = 20.dp)) }
         item(key = "developer.experimental") {
             RowGroup(Modifier.padding(top = 8.dp)) {
-                row { shape -> ListRow(shape, stringResource(R.string.developer_experimental_empty), null, BridgeyIcons.Sensors, Tint.NEUTRAL) }
+                row { shape -> ListRow(shape, stringResource(R.string.developer_experimental_empty), null, BridgeyIcons.Sensors, Tint.NEUTRAL, searchable = false) }
             }
         }
         item(key = "developer.off") {
@@ -779,6 +799,7 @@ private fun ThisPhoneCard(state: SettingsState, onRename: () -> Unit, modifier: 
             .heightIn(min = 76.dp)
             .clip(RoundedCornerShape(24.dp))
             .background(colors.surface1)
+            .settingsSearchHighlight(stringResource(R.string.settings_this_phone), RoundedCornerShape(24.dp))
             .clickable(onClickLabel = stringResource(R.string.action_rename), role = Role.Button, onClick = onRename)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -809,6 +830,8 @@ private fun SectionRow(shape: androidx.compose.ui.graphics.Shape, section: Setti
         shape, stringResource(section.titleRes), summary.text, icon, tint,
         // Compact rows keep the whole home on one phone screen.
         compact = true, detailWarning = summary.warning, onClick = onClick,
+        // A way to a page, not a setting: search finds the page's own rows.
+        searchable = false,
     ) {
         if (summary.badge) UpdateDot()
         Chevron()
@@ -1224,8 +1247,13 @@ fun UpdatesCard(
     val colors = BridgeyTheme.colors
     val cardModifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(colors.surface1)
     Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        UpdateStatusCard(updateCardPhase(state), installedVersion, now, actions, cardModifier.padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 16.dp))
-        Column(cardModifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+        val cardShape = RoundedCornerShape(28.dp)
+        UpdateStatusCard(
+            updateCardPhase(state), installedVersion, now, actions,
+            cardModifier.settingsSearchHighlight(stringResource(R.string.settings_search_check_updates), cardShape)
+                .padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 16.dp),
+        )
+        Column(cardModifier.settingsSearchHighlight(stringResource(R.string.updates_channel), cardShape).padding(horizontal = 20.dp, vertical = 16.dp)) {
             Text(stringResource(R.string.updates_channel), style = BridgeyType.itemTitle, modifier = Modifier.semantics { heading() })
             ChannelPicker(state.channel, actions.setChannel, Modifier.padding(top = 10.dp))
             Text(channelDescription(state.channel), style = BridgeyType.itemBody, color = colors.onSurface, modifier = Modifier.padding(top = 10.dp))

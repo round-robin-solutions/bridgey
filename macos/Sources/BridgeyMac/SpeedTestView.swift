@@ -174,16 +174,18 @@ struct SpeedReportView: View {
     @State private var copied = false
 
     var body: some View {
+        // The results of a run, not settings: search skips them.
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
                 figure(L10n.text("speed.macToPhone", fallback: "Mac to phone"), report.macToPhone)
                 figure(L10n.text("speed.phoneToMac", fallback: "Phone to Mac"), report.phoneToMac)
             }
             .padding(.bottom, 10)
-            SettingsRow(title: L10n.text("speed.roundTrip", fallback: "Round trip"), subtitle: roundTrip) { EmptyView() }
-            SettingsRow(title: L10n.text("speed.thisMac", fallback: "This Mac"), subtitle: SpeedFormat.link(report.mac)) { EmptyView() }
+            SettingsRow(title: L10n.text("speed.roundTrip", fallback: "Round trip"), subtitle: roundTrip) { EmptyView() }.settingsSearchSkip()
+            SettingsRow(title: L10n.text("speed.thisMac", fallback: "This Mac"), subtitle: SpeedFormat.link(report.mac)) { EmptyView() }.settingsSearchSkip()
             SettingsRow(title: L10n.text("speed.phone", fallback: "Phone"),
                         subtitle: [SpeedFormat.link(report.phone), SpeedFormat.lock(report.phone)].compactMap { $0 }.joined(separator: ". ")) { EmptyView() }
+                .settingsSearchSkip()
             Text(SpeedFormat.verdict(report.verdict))
                 .font(BrandFont.body(13))
                 .foregroundStyle(c.on)

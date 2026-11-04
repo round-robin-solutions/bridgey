@@ -65,6 +65,7 @@ import dev.bridgey.android.ui.DeviceActions
 import dev.bridgey.android.ui.DeviceGlyph
 import dev.bridgey.android.ui.DeviceRing
 import dev.bridgey.android.ui.DeviceScreen
+import dev.bridgey.android.ui.DeviceTab
 import dev.bridgey.android.ui.DeviceState
 import dev.bridgey.android.ui.DevicesSettingsActions
 import dev.bridgey.android.ui.DevicesSettingsScreen
@@ -992,7 +993,8 @@ private fun BridgeyApp(
 
     val animatorScale = rememberAnimatorScale()
     val motion = remember(animatorScale, reduceMotion) { resolveMotion(animatorScale, reduceMotion) }
-    CompositionLocalProvider(LocalMotion provides motion, LocalShowPreviews provides showPreviews) {
+    val searchHost = remember { dev.bridgey.android.ui.search.SettingsSearchHost() }
+    CompositionLocalProvider(LocalMotion provides motion, LocalShowPreviews provides showPreviews, dev.bridgey.android.ui.search.LocalSettingsSearch provides searchHost) {
         MotionNavHost(stack) { route ->
             when (route) {
                 Route.Home -> HomeScreen(
@@ -1118,6 +1120,8 @@ private fun BridgeyApp(
                             ),
                             snackbar = snackbar,
                             deviceName = nameFor,
+                            // A search result for this device opens its Permissions.
+                            initialTab = if (searchHost.pending?.routeKey == route.key) DeviceTab.PERMISSIONS else DeviceTab.ACTIVITY,
                         )
                     }
                 }
@@ -1128,7 +1132,7 @@ private fun BridgeyApp(
                     preferences = remotePrefs,
                     onBack = { stack.pop() },
                 )
-                Route.Settings, is Route.SettingsPane, Route.Setup, Route.Permissions, Route.Reset -> {
+                Route.Settings, is Route.SettingsPane, Route.Setup, Route.Permissions, Route.Reset, Route.SettingsSearch -> {
                     val (enabledApps, totalApps) = notificationAppCounts(settingsState.notificationApplications, settingsState.disabledNotificationPackages)
                     val bridgeyApp = context.applicationContext as BridgeyApplication
                     val bgSourceStatus by bridgeyApp.backgroundClipboardSource.status.collectAsStateWithLifecycle()
@@ -1220,6 +1224,7 @@ private fun BridgeyApp(
                     val settingsUiActions =
                         SettingsActions(
                             back = { stack.pop() },
+                            openSearch = { stack.push(Route.SettingsSearch) },
                             openDevices = { stack.push(Route.Devices) },
                             openSection = { stack.push(settingsRoute(it)) },
                             openPerfTest = { stack.push(Route.PerfTest) },
@@ -1387,6 +1392,23 @@ private fun BridgeyApp(
                             onOpenSection = { stack.push(settingsRoute(it)) },
                         )
                         Route.Reset -> ResetRoute(setup, onBack = { stack.pop() })
+                        Route.SettingsSearch -> {
+                            val searchEntries = remember(settingsUi.developerMenu, settingsUi.sync, trustedDevices, androidx.compose.ui.platform.LocalConfiguration.current) {
+                                dev.bridgey.android.ui.search.SettingsSearchRegistry.resolve(
+                                    context, settingsUi.developerMenu, settingsUi.sync,
+                                    trustedDevices.map { dev.bridgey.android.ui.search.SearchDevice(it.id, it.name, it.isAgent) },
+                                )
+                            }
+                            dev.bridgey.android.ui.search.SettingsSearchScreen(
+                                entries = searchEntries,
+                                onBack = { stack.pop() },
+                                onOpen = { entry ->
+                                    // The page opens on top of the search, so back returns to the results.
+                                    searchHost.open(entry.route.key, entry.rowTitle.orEmpty())
+                                    if (entry.route == Route.Settings) stack.pop() else stack.push(entry.route)
+                                },
+                            )
+                        }
                         else -> SettingsScreen(section = (route as? Route.SettingsPane)?.section, state = settingsUi, actions = settingsUiActions)
                     }
                 }

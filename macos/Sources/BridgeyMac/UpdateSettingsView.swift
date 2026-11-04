@@ -9,7 +9,9 @@ struct UpdatesPane: View {
 
     var body: some View {
         UpdateStatusCard(model: model, actions: actions)
+            .settingsSearchAnchor(SettingsSearchRegistry.checkForUpdates)
         UpdateAllDevicesCard(display: model.updateAll, actions: actions.updateAll)
+            .settingsSearchAnchor(L10n.text("updateAll.devices", fallback: "Your devices"))
         SettingsCard {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 12) {
@@ -31,6 +33,7 @@ struct UpdatesPane: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.vertical, 12)
+            .settingsSearchAnchor(L10n.text("updates.channel", fallback: "Release channel"))
             SettingsToggle(
                 title: L10n.text("updates.automatic", fallback: "Check automatically"),
                 isOn: model.automaticallyChecks,

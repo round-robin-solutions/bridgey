@@ -40,6 +40,7 @@ struct ResetPane: View {
                 }
                 .padding(.vertical, 10)
                 .frame(minHeight: 56)
+                .settingsSearchAnchor(choice.title)
                 .overlay(alignment: .top) { if index > 0 { Rectangle().fill(c.olv).frame(height: 1) } }
             }
         }

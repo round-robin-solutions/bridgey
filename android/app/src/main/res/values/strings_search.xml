@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Settings search (ui/search). -->
+    <string name="settings_search_open">Search settings</string>
+    <string name="settings_search_placeholder">Search settings</string>
+    <string name="settings_search_clear">Clear search</string>
+    <string name="settings_search_hint">Search by a setting\'s name or by what it does, for example otp, relay or update.</string>
+    <string name="settings_search_no_results">No results for “%1$s”</string>
+    <string name="settings_search_closest">Closest matches</string>
+    <string name="settings_search_devices">Devices</string>
+    <string name="settings_search_check_updates">Check for updates</string>
+    <string name="settings_search_oem">Phone maker battery steps</string>
+</resources>

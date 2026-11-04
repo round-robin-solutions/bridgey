@@ -215,6 +215,7 @@ struct CodesCard: View {
             SyncStatusLine(key: .codesEmail, model: model, actions: actions)
             CodeEngineChoice(selected: model.codesEngine, cloudAvailable: model.codesAvailable, localAvailable: display.available,
                              size: display.size, select: selectEngine)
+                .settingsSearchAnchor(L10n.text("codes.engine", fallback: "Read codes"))
             // Email codes need the model on this Mac even when Cloud reads text messages.
             if local || (model.codesEnabled && model.codesEmail) {
                 CodeModelRow(model: display, actions: actions,

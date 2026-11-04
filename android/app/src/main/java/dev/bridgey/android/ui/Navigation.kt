@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import dev.bridgey.android.ui.motion.LocalMotion
+import dev.bridgey.android.ui.search.LocalSearchRoute
 import dev.bridgey.android.ui.motion.MotionMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -62,6 +63,11 @@ sealed interface Route {
 
     data object Devices : Route {
         override val key = "devices"
+    }
+
+    /** Settings › Search (ui/search/SettingsSearchScreen.kt). */
+    data object SettingsSearch : Route {
+        override val key = "settings_search"
     }
 
     data object NotificationApps : Route {
@@ -110,6 +116,7 @@ sealed interface Route {
             key == Reset.key -> Reset
             key == Settings.key -> Settings
             key == Devices.key -> Devices
+            key == SettingsSearch.key -> SettingsSearch
             key == NotificationApps.key -> NotificationApps
             key == PerfTest.key -> PerfTest
             key == SpeedTest.key -> SpeedTest
@@ -317,7 +324,7 @@ fun MotionNavHost(stack: BackStack, content: @Composable (Route) -> Unit) {
                     },
                 ) {
                     holder.SaveableStateProvider(below.key) {
-                        CompositionLocalProvider(LocalPageBack provides pageBack(below.key)) { content(below) }
+                        CompositionLocalProvider(LocalPageBack provides pageBack(below.key), LocalSearchRoute provides below.key) { content(below) }
                     }
                     if (motion.moves) {
                         Box(Modifier.fillMaxSize().graphicsLayer { alpha = motion.recedeDim * p.coerceIn(0f, 1f) }.background(Color.Black))
@@ -334,7 +341,7 @@ fun MotionNavHost(stack: BackStack, content: @Composable (Route) -> Unit) {
                 },
             ) {
                 holder.SaveableStateProvider(top.key) {
-                    CompositionLocalProvider(LocalPageBack provides pageBack(top.key)) { content(top) }
+                    CompositionLocalProvider(LocalPageBack provides pageBack(top.key), LocalSearchRoute provides top.key) { content(top) }
                 }
             }
         }

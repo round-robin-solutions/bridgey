@@ -363,34 +363,71 @@ struct SettingsWindowView: View {
     @Binding var pane: SettingsPane
     @Environment(\.brand) private var c
     @Environment(\.snapshotRendering) private var snapshot
+    @Environment(\.brandReduceMotion) private var reduce
+    @State private var query: String
+    @State private var selected: Int
+    @State private var target: SettingsSearchTarget?
+    @FocusState private var searchFocused: Bool
+    @StateObject private var keys = SettingsSearchKeys()
+    /// Screenshots draw the search field as focused.
+    private let showsSearchFocus: Bool
 
     static let size = CGSize(width: 880, height: 600)
 
+    /// `searchQuery`, `searchSelection` and `searchTarget` start the window mid-search, for screenshots.
+    init(model: SettingsModel, actions: SettingsActions, pane: Binding<SettingsPane>,
+         searchQuery: String = "", searchSelection: Int = 0, searchTarget: SettingsSearchTarget? = nil, showsSearchFocus: Bool = false) {
+        self.model = model
+        self.actions = actions
+        _pane = pane
+        _query = State(initialValue: searchQuery)
+        _selected = State(initialValue: searchSelection)
+        _target = State(initialValue: searchTarget)
+        self.showsSearchFocus = showsSearchFocus
+    }
+
+    private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
+
     var body: some View {
+        let outcome = searching ? SettingsSearchOutcome.run(query, entries: SettingsSearchRegistry.entries(model)) : SettingsSearchOutcome()
         HStack(spacing: 0) {
-            SettingsSidebar(model: model, pane: $pane)
+            SettingsSidebar(model: model, pane: $pane, query: $query, focused: $searchFocused, showsFocus: showsSearchFocus || searchFocused,
+                            outcome: outcome, selected: selected, open: open, hover: { selected = $0 },
+                            choose: { target = nil })
             VStack(alignment: .leading, spacing: 0) {
-                BoundedScroll {
-                    VStack(alignment: .leading, spacing: 16) {
-                        SettingsBackButton(pane: $pane)
-                        Text(pane.title)
-                            .font(BrandFont.heading(24))
-                            .foregroundStyle(c.on)
-                            .frame(height: 30)
-                            .accessibilityAddTraits(.isHeader)
-                        SettingsPaneView(pane: pane, model: model, actions: actions)
+                ScrollViewReader { proxy in
+                    BoundedScroll {
+                        VStack(alignment: .leading, spacing: 16) {
+                            SettingsBackButton(pane: $pane)
+                            Text(pane.title)
+                                .font(BrandFont.heading(24))
+                                .foregroundStyle(c.on)
+                                .frame(height: 30)
+                                .accessibilityAddTraits(.isHeader)
+                            SettingsPaneView(pane: pane, model: model, actions: actions)
+                        }
+                        .padding(.horizontal, 40)
+                        .padding(.top, 32)
+                        .padding(.bottom, 24)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(.horizontal, 40)
-                    .padding(.top, 32)
-                    .padding(.bottom, 24)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onChange(of: target) { shown in reveal(shown, proxy: proxy) }
                 }
                 footer
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(c.isDark ? Color(hex: 0x0A101D) : c.bg)
+            .environment(\.settingsSearchHighlight, target?.pane == pane ? target : nil)
         }
         .frame(width: Self.size.width, height: Self.size.height)
+        .onChange(of: query) { _ in
+            selected = 0
+            keys.hasQuery = searching
+        }
+        .onChange(of: searchFocused) { keys.fieldFocused = $0 }
+        .onReceive(keys.commands) { command in handle(command, outcome: outcome) }
+        .onAppear { if !snapshot { keys.install() } }
+        .onDisappear { keys.remove() }
     }
 
     private var footer: some View {
@@ -410,6 +447,52 @@ struct SettingsWindowView: View {
         .padding(.horizontal, 40)
         .frame(height: 40)
     }
+
+    // MARK: Search
+
+    /// Opens the result's pane and shows its row; the results stay, as in System Settings, until Escape.
+    private func open(_ row: SettingsSearchRow) {
+        let entry = row.entry
+        withAnimation(BrandMotion.animation(BrandMotion.small, reduce: reduce)) { pane = entry.pane }
+        target = SettingsSearchTarget(pane: entry.pane, scope: entry.scope, title: entry.anchorTitle)
+    }
+
+    /// Scrolls the found row to the middle once its pane has laid out; the row pulses by itself
+    /// (SearchPulse). The highlight is dropped after it has faded, so coming back later shows no stale mark.
+    private func reveal(_ shown: SettingsSearchTarget?, proxy: ScrollViewProxy) {
+        guard let shown else { return }
+        if let title = shown.title {
+            let id = SearchAnchorID(scope: shown.scope, title: title)
+            // An agent's card opens first (AgentBlock), so its rows exist only once it has.
+            let settle = shown.scope?.hasPrefix("agent:") == true ? 0.45 : 0.12
+            DispatchQueue.main.asyncAfter(deadline: .now() + settle) {
+                if reduce {
+                    proxy.scrollTo(id, anchor: .center)
+                } else {
+                    withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(id, anchor: .center) }
+                }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
+            if target?.token == shown.token { target = nil }
+        }
+    }
+
+    private func handle(_ command: SettingsSearchKeys.Command, outcome: SettingsSearchOutcome) {
+        let rows = outcome.choosable
+        switch command {
+        case .focus:
+            searchFocused = true
+        case let .move(delta):
+            guard !rows.isEmpty else { return }
+            selected = min(max(selected + delta, 0), rows.count - 1)
+        case .submit:
+            if rows.indices.contains(selected) { open(rows[selected]) }
+        case .clear:
+            query = ""
+            target = nil
+        }
+    }
 }
 
 // MARK: - Sidebar
@@ -417,9 +500,20 @@ struct SettingsWindowView: View {
 private struct SettingsSidebar: View {
     let model: SettingsModel
     @Binding var pane: SettingsPane
+    @Binding var query: String
+    var focused: FocusState<Bool>.Binding
+    let showsFocus: Bool
+    let outcome: SettingsSearchOutcome
+    let selected: Int
+    let open: (SettingsSearchRow) -> Void
+    let hover: (Int) -> Void
+    /// A pane chosen from the list: the search highlight is dropped.
+    let choose: () -> Void
     @Environment(\.brand) private var c
     @Environment(\.snapshotRendering) private var snapshot
     @Environment(\.brandReduceMotion) private var reduce
+
+    private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
 
     var body: some View {
         let side = c.isDark ? c : BrandPalette.band
@@ -431,6 +525,53 @@ private struct SettingsSidebar: View {
             }
             .padding(.horizontal, 6)
             .frame(height: 44)
+            SettingsSearchField(query: $query, focused: focused, showsFocus: showsFocus)
+                .padding(.bottom, 10)
+            ZStack(alignment: .topLeading) {
+                if searching {
+                    SettingsSearchResultsList(query: query, outcome: outcome, selected: selected, open: open, hover: hover)
+                        .transition(.opacity)
+                } else {
+                    paneList(side)
+                        .transition(.opacity)
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+            .animation(BrandMotion.fade, value: searching)
+            HStack(spacing: 8) {
+                AuroraMark(size: 24)
+                Text("\(Edition.displayName)\n\(model.shortVersion)")
+                    .font(BrandFont.body(12))
+                    .foregroundStyle(side.on2)
+                    .lineSpacing(1)
+            }
+            .padding(.horizontal, 6)
+            .padding(.top, 8)
+            .padding(.bottom, 18)
+        }
+        .padding(.horizontal, 10)
+        .frame(width: 210)
+        .frame(maxHeight: .infinity)
+        .background {
+            if c.isDark {
+                c.s1
+            } else {
+                SidebarBand()
+            }
+        }
+        .overlay(alignment: .trailing) { if c.isDark { Rectangle().fill(c.olv).frame(width: 1) } }
+        .environment(\.brand, side)
+    }
+
+    /// Scrolls only when it is taller than the window (the Developer pane on, a large text size).
+    private func paneList(_ side: BrandPalette) -> some View {
+        BoundedScroll {
+            paneButtons(side)
+        }
+    }
+
+    private func paneButtons(_ side: BrandPalette) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
             ThisMacHeader(model: model, selected: pane == .thisMac) { select(.thisMac) }
                 .padding(.bottom, 8)
             ForEach(SettingsPane.sidebar(developer: model.developerMenu)) { item in
@@ -456,32 +597,11 @@ private struct SettingsSidebar: View {
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(item == pane.sidebarPane ? .isSelected : [])
             }
-            Spacer(minLength: 0)
-            HStack(spacing: 8) {
-                AuroraMark(size: 24)
-                Text("\(Edition.displayName)\n\(model.shortVersion)")
-                    .font(BrandFont.body(12))
-                    .foregroundStyle(side.on2)
-                    .lineSpacing(1)
-            }
-            .padding(.horizontal, 6)
-            .padding(.bottom, 18)
         }
-        .padding(.horizontal, 10)
-        .frame(width: 210)
-        .frame(maxHeight: .infinity)
-        .background {
-            if c.isDark {
-                c.s1
-            } else {
-                SidebarBand()
-            }
-        }
-        .overlay(alignment: .trailing) { if c.isDark { Rectangle().fill(c.olv).frame(width: 1) } }
-        .environment(\.brand, side)
     }
 
     private func select(_ item: SettingsPane) {
+        choose()
         withAnimation(BrandMotion.animation(BrandMotion.small, reduce: reduce)) { pane = item }
     }
 }
@@ -604,6 +724,7 @@ struct SettingsRow<Trailing: View>: View {
         }
         .padding(.vertical, 8)
         .frame(minHeight: 44)
+        .settingsSearchAnchor(title)
         .overlay(alignment: .top) { if divider { Rectangle().fill(c.olv).frame(height: 1) } }
     }
 }
@@ -653,6 +774,7 @@ struct SettingsToggle: View {
         .toggleStyle(BrandSwitchStyle())
         .padding(.vertical, 8)
         .frame(minHeight: 44)
+        .settingsSearchAnchor(title)
         .overlay(alignment: .top) { if divider { Rectangle().fill(c.olv).frame(height: 1) } }
     }
 }
@@ -1099,6 +1221,7 @@ private struct DevicesPane: View {
                             subtitle: L10n.text("devices.none.detail", fallback: "Pair a device below. Both screens show a code; confirm it only if they match."),
                             divider: false) { EmptyView() }
             }
+            .settingsSearchSkip()
         }
         SettingsCard {
             SettingsRow(
@@ -1150,6 +1273,7 @@ struct DeviceCard: View {
                     .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
             }
             .padding(.vertical, 8)
+            .settingsSearchAnchor(device.name)
             Text(String(format: L10n.text("devices.permissions.intro", fallback: "What this Mac shares with %@."), device.name))
                 .font(BrandFont.body(12))
                 .foregroundStyle(c.on2)
@@ -1184,6 +1308,8 @@ struct DeviceCard: View {
             MacActionsGrantToggle(device: device, model: model, actions: actions)
             SettingsSyncDeviceToggle(device: device, model: model, actions: actions)
         }
+        // Rows here have the same titles in every device's card: search tells them apart by device.
+        .settingsSearchScope(device.id)
         .confirmationDialog(
             String(format: L10n.text("devices.forget.title", fallback: "Forget %@?"), device.name),
             isPresented: $confirmForget
@@ -1212,18 +1338,22 @@ struct PairNewCard: View {
         let nearby = model.rings.filter { !$0.trusted }
         SettingsCard(title: L10n.text("devices.pair", fallback: "Pair a new device"),
                      footnote: L10n.text("devices.pair.detail", fallback: "Open Bridgey on the phone, on the same Wi-Fi as this Mac. Both screens then show the same code.")) {
-            if nearby.isEmpty {
-                SettingsRow(title: L10n.text("devices.pair.searching", fallback: "Looking for devices on this network\u{2026}"), divider: false) { EmptyView() }
-            }
-            ForEach(Array(nearby.enumerated()), id: \.element.id) { index, ring in
-                SettingsRow(title: ring.name, subtitle: ringStatusText(ring), divider: index > 0) {
-                    Button(L10n.text("action.pair", fallback: "Pair")) { actions.pair(ring) }
-                        .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
-                        .disabled(!ring.canConnect)
+            Group {
+                if nearby.isEmpty {
+                    SettingsRow(title: L10n.text("devices.pair.searching", fallback: "Looking for devices on this network\u{2026}"), divider: false) { EmptyView() }
+                }
+                ForEach(Array(nearby.enumerated()), id: \.element.id) { index, ring in
+                    SettingsRow(title: ring.name, subtitle: ringStatusText(ring), divider: index > 0) {
+                        Button(L10n.text("action.pair", fallback: "Pair")) { actions.pair(ring) }
+                            .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                            .disabled(!ring.canConnect)
+                    }
                 }
             }
+            .settingsSearchSkip()
             PairAddressRow(actions: actions)
         }
+        .settingsSearchAnchor(L10n.text("devices.pair", fallback: "Pair a new device"))
     }
 }
 
@@ -1358,6 +1488,7 @@ struct NotificationHistoryCard: View {
             if model.historyEnabled {
                 if model.history.isEmpty {
                     SettingsRow(title: L10n.text("settings.history.empty", fallback: "No forwarded notifications yet."), divider: true) { EmptyView() }
+                        .settingsSearchSkip()
                 } else {
                     ForEach(Array(model.history.prefix(20))) { item in
                         VStack(alignment: .leading, spacing: 2) {
@@ -1423,6 +1554,7 @@ struct TextMessagesCard: View {
                     Button(L10n.text("sms.open", fallback: "Open Messages")) { actions.openMessages(nil, nil) }
                         .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
                 }
+                .settingsSearchSkip()
                 SettingsRow(title: L10n.text("sms.limits", fallback: "Group conversations and pictures"),
                             subtitle: L10n.text("sms.limits.detail", fallback: "You can read them here. Reply to groups and send pictures from your phone."), divider: true) { EmptyView() }
             }
@@ -1617,6 +1749,7 @@ struct AboutPane: View {
                 }
             }
             .padding(.vertical, 10)
+            .settingsSearchAnchor(SettingsSearchRegistry.version)
             SettingsRow(title: L10n.text("about.credit", fallback: "Built on Bridgey by Semyon Mikhailov (MIT)"),
                         subtitle: L10n.text("about.license", fallback: "Open source under the MIT License.")) {
                 Button(L10n.text("about.original", fallback: "Original project")) { actions.openURL(Edition.upstreamProjectURL) }
@@ -1656,6 +1789,7 @@ struct DeveloperPane: View {
     var body: some View {
         SpeedTestCard(phones: model.speedPhones)
         PerfTestPanel()
+        // Facts and an empty list, not settings: search skips them.
         SettingsCard(title: L10n.text("developer.transfers", fallback: "How files travel now")) {
             if model.transferPaths.isEmpty {
                 SettingsRow(title: L10n.text("developer.noPhones", fallback: "No phone connected"), subtitle: nil, divider: false) { EmptyView() }
@@ -1664,10 +1798,12 @@ struct DeveloperPane: View {
                 SettingsRow(title: path.name, subtitle: Self.describe(path), divider: index > 0) { EmptyView() }
             }
         }
+        .settingsSearchSkip()
         SettingsCard(title: L10n.text("developer.experimental", fallback: "Experimental features")) {
             SettingsRow(title: L10n.text("developer.experimental.empty", fallback: "Nothing to try right now. New experiments show up here before everyone gets them."),
                         subtitle: nil, divider: false) { EmptyView() }
         }
+        .settingsSearchSkip()
         SettingsCard {
             SettingsRow(title: L10n.text("developer.hide", fallback: "Hide this pane"),
                         subtitle: L10n.text("developer.hide.detail", fallback: "Click the version in About five times to bring it back"), divider: false) {
@@ -1718,6 +1854,8 @@ final class SettingsWindowController {
             created.titleVisibility = .hidden
             created.setContentSize(NSSize(width: SettingsWindowView.size.width, height: SettingsWindowView.size.height))
             created.isReleasedWhenClosed = false
+            // Settings search listens for its keys (Command-F, arrows) in this window only.
+            created.identifier = SettingsSearchKeys.windowID
             created.setFrameAutosaveName("BridgeySettingsWindowB")
             created.center()
             window = created

@@ -49,7 +49,9 @@ struct MacActionsCards: View {
                     .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
                     .disabled(!on || model.macActions.apps.count >= MacActionsConfig.maximumApps)
             }
+            .settingsSearchSkip()
         }
+        .settingsSearchAnchor(L10n.text("actions.apps", fallback: "Apps a phone can open"))
         SettingsCard(title: L10n.text("actions.shortcuts", fallback: "Shortcuts a phone can run"),
                      footnote: L10n.text("actions.shortcuts.detail", fallback: "From the Shortcuts app on this Mac. They run with no input from the phone, one at a time, for up to a minute.")) {
             ForEach(Array(model.macActions.shortcuts.enumerated()), id: \.element.id) { index, shortcut in
@@ -71,15 +73,19 @@ struct MacActionsCards: View {
                 }
                 .disabled(!on || model.macActions.shortcuts.count >= MacActionsConfig.maximumShortcuts)
             }
+            .settingsSearchSkip()
         }
+        .settingsSearchAnchor(L10n.text("actions.shortcuts", fallback: "Shortcuts a phone can run"))
         SettingsCard(title: L10n.text("actions.devices", fallback: "Phones allowed to use Mac actions")) {
             if model.trustedDevices.isEmpty {
                 SettingsRow(title: L10n.text("devices.none", fallback: "No paired devices yet"), divider: false) { EmptyView() }
+                    .settingsSearchSkip()
             }
             ForEach(Array(model.trustedDevices.enumerated()), id: \.element.id) { index, device in
                 MacActionsGrantToggle(device: device, model: model, actions: actions, title: device.name, divider: index > 0)
             }
         }
+        .settingsSearchAnchor(L10n.text("actions.devices", fallback: "Phones allowed to use Mac actions"))
         SettingsCard(title: L10n.text("actions.log", fallback: "Action log"),
                      footnote: L10n.text("actions.log.detail", fallback: "Kept only on this Mac, for 30 days: which phone asked for what, when, and whether it ran.")) {
             if model.macActionsAudit.isEmpty {
@@ -96,6 +102,8 @@ struct MacActionsCards: View {
                 }
             }
         }
+        .settingsSearchSkip()
+        .settingsSearchAnchor(L10n.text("actions.log", fallback: "Action log"))
         .confirmationDialog(L10n.text("actions.log.clear.title", fallback: "Clear the action log?"), isPresented: $confirmClear) {
             Button(L10n.text("action.clear", fallback: "Clear"), role: .destructive, action: actions.clearMacActionsAudit)
         } message: {

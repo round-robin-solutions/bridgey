@@ -203,6 +203,7 @@ struct AgentsOnPhoneCard: View {
                 ForEach(Array(state.agents.enumerated()), id: \.element.id) { index, agent in
                     AgentBlock(agent: agent, phoneID: phoneID, phoneName: phoneName, live: live, divider: index > 0,
                                startsOpen: index == 0, model: model, actions: actions)
+                        .settingsSearchScope("agent:\(phoneID):\(agent.deviceId)")
                 }
             }
         }
@@ -235,6 +236,8 @@ private struct AgentBlock: View {
     @State private var tab: AgentTab = .permissions
     @Environment(\.brand) private var c
     @Environment(\.brandReduceMotion) private var reduce
+    @Environment(\.settingsSearchHighlight) private var highlight
+    @Environment(\.settingsSearchScope) private var scope
 
     init(agent: AgentDevice, phoneID: String, phoneName: String, live: Bool, divider: Bool, startsOpen: Bool,
          model: SettingsModel, actions: SettingsActions) {
@@ -268,6 +271,15 @@ private struct AgentBlock: View {
             }
         }
         .overlay(alignment: .top) { if divider { Rectangle().fill(c.olv).frame(height: 1) } }
+        .onAppear { openForSearch(highlight) }
+        .onChange(of: highlight) { openForSearch($0) }
+    }
+
+    /// A search result in this agent: open it on Permissions, so the row is there to scroll to.
+    private func openForSearch(_ target: SettingsSearchTarget?) {
+        guard let target, target.scope == scope else { return }
+        tab = .permissions
+        if !open { withAnimation(BrandMotion.animation(BrandMotion.page, reduce: reduce)) { open = true } }
     }
 
     private var header: some View {
@@ -300,6 +312,7 @@ private struct AgentBlock: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(AgentHeaderPressStyle())
+        .settingsSearchAnchor(agent.name)
         .accessibilityLabel(agent.name)
         .accessibilityHint(open ? L10n.agents("mac.hide", fallback: "Hide permissions and activity")
                                 : L10n.agents("mac.show", fallback: "Show permissions and activity"))
@@ -449,6 +462,7 @@ private struct AgentGrantRow: View {
         .toggleStyle(BrandSwitchStyle())
         .padding(.vertical, 8)
         .frame(minHeight: 44)
+        .settingsSearchAnchor(AgentsText.grantTitle(key))
         .overlay(alignment: .top) { Rectangle().fill(c.olv).frame(height: 1) }
         .opacity(pending == nil ? 1 : 0.7)
         .disabled(!live || !key.changeableFromMac || pending != nil)

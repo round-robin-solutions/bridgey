@@ -65,6 +65,7 @@ import dev.bridgey.android.updates.isSlow
 import dev.bridgey.android.updates.summarizeRun
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import dev.bridgey.android.ui.theme.BridgeyType
+import dev.bridgey.android.ui.search.settingsSearchHighlight
 
 /** Update all as the screens draw it: the plan (what one tap would do), the run if one is going, and every device. */
 data class UpdateAllUiState(
@@ -468,7 +469,7 @@ private fun DeviceRowFrame(
 @Composable
 fun YourDevicesCard(state: UpdateAllUiState, actions: UpdateAllActions, modifier: Modifier = Modifier) {
     val colors = BridgeyTheme.colors
-    Column(modifier) {
+    Column(modifier.settingsSearchHighlight(stringResource(R.string.update_all_devices_title), RoundedCornerShape(28.dp))) {
         Text(
             stringResource(R.string.update_all_devices_title),
             style = BridgeyType.itemTitle,
@@ -508,6 +509,7 @@ fun YourDevicesCard(state: UpdateAllUiState, actions: UpdateAllActions, modifier
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = 64.dp)
+                .settingsSearchHighlight(stringResource(R.string.update_all_remote_start_title), androidx.compose.ui.graphics.RectangleShape)
                 .toggleable(value = state.remoteStart, role = Role.Switch) { actions.setRemoteStart(it) }
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -622,6 +624,7 @@ fun AutoUpdateSettings(view: AutoUpdateView, now: Long, setAuto: (Boolean) -> Un
                 .fillMaxWidth()
                 .heightIn(min = 56.dp)
                 .clip(RoundedCornerShape(12.dp))
+                .settingsSearchHighlight(stringResource(R.string.update_auto_title), RoundedCornerShape(12.dp))
                 .toggleable(value = on, enabled = view.supported, role = Role.Switch) { setAuto(it) },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
