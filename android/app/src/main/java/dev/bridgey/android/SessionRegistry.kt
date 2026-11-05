@@ -21,6 +21,8 @@ data class DeviceLinkState(
     val remoteLinksOpen: Boolean = false,
     /** The device advertised focus_sync_draft1: it understands focus.state. */
     val remoteFocusSync: Boolean = false,
+    val remoteDevicePresence: Boolean = false,
+    val remoteNotificationRouting: Boolean = false,
     /** The device advertised updates_draft1: it sends updates.status and understands updates.start. */
     val remoteUpdates: Boolean = false,
     /** The device advertised files_fast_draft1: binary chunk frames and the byte window (FastTransfer.kt). */

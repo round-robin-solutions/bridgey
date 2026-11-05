@@ -728,6 +728,7 @@ private fun BridgeyApp(
     val macRunning by pairing.macActions.running.collectAsStateWithLifecycle()
     val healthTick by pairing.health.changes.collectAsStateWithLifecycle()
     val settingsState by settings.state.collectAsStateWithLifecycle()
+    val smartRoutingRevision by pairing.smartRoutingRevision.collectAsStateWithLifecycle()
     val updateState by updater.state.collectAsStateWithLifecycle()
     val updateRun by updateAll.state.collectAsStateWithLifecycle()
     val updateOverview by updateAll.overview.collectAsStateWithLifecycle()
@@ -831,7 +832,10 @@ private fun BridgeyApp(
         }
         return LiveCard.Reconnecting(ring.deviceId!!, ring.name, seen, retry.struggling)
     }
-    val target = sendTarget(rings, pickedTarget)
+    val homeSuggestion = remember(connections, trustedDevices, settingsState, smartRoutingRevision) {
+        pairing.suggestedDevice(BridgeyFeature.CLIPBOARD)
+    }
+    val target = sendTarget(rings, pickedTarget ?: homeSuggestion.deviceId)
     // The send bar's pick is the coordinator's target for actions without an explicit device.
     LaunchedEffect(target?.deviceId) { pairing.selectDevice(target?.deviceId) }
     fun connectionOf(deviceId: String?): DeviceConnection? = connections.firstOrNull { it.deviceId == deviceId }
@@ -1020,6 +1024,7 @@ private fun BridgeyApp(
                     state = HomeState(
                         rings = rings,
                         target = target,
+                        targetDetail = target?.deviceId?.let(pairing::deviceActivityLabel),
                         activity = activity,
                         live = homeLive,
                         canSendClipboard = target != null && BridgeyFeature.CLIPBOARD in availableWith(target.deviceId),
@@ -1210,6 +1215,13 @@ private fun BridgeyApp(
                             notificationAppsTotal = totalApps,
                             appNotificationsEnabled = appNotificationsEnabled,
                             notificationAccessEnabled = notificationAccessEnabled,
+                            smartRouting = dev.bridgey.android.ui.SmartRoutingSettingsState(
+                                enabled = settingsState.smartNotificationRouting,
+                                preferredId = settingsState.preferredNotificationDeviceId,
+                                devices = trustedDevices.filterNot { it.isAgent }.map { dev.bridgey.android.ui.PreferredRoutingDevice(it.id, it.name) },
+                                destinationId = pairing.suggestedDevice(BridgeyFeature.NOTIFICATIONS).deviceId,
+                                reason = pairing.suggestedDevice(BridgeyFeature.NOTIFICATIONS).reason,
+                            ),
                             reduceMotion = reduceMotion,
                             showPreviews = showPreviews,
                             activityCount = activity.size,
@@ -1284,6 +1296,10 @@ private fun BridgeyApp(
                                 // Text messages asks for SMS and contacts only now, when it is turned on.
                                 if (feature == BridgeyFeature.SMS && on) messagesPermissions.askAll()
                             },
+                            smartRouting = dev.bridgey.android.ui.SmartRoutingSettingsActions(
+                                setEnabled = settings::setSmartNotificationRouting,
+                                setPreferred = settings::setPreferredNotificationDeviceId,
+                            ),
                             setDirectCalls = onSetDirectCalls,
                             callQuiet = dev.bridgey.android.ui.CallQuietSettingsActions(
                                 setMode = settings::setCallMediaMode,
@@ -1720,52 +1736,59 @@ private fun BridgeyApp(
     }
 
     sharedContent?.let { content ->
-        val isConnected = pairingState is PairingState.Connected
         val requiredFeature = if (content.files.isNotEmpty()) BridgeyFeature.FILES else BridgeyFeature.CLIPBOARD
-        val featureAvailable = requiredFeature in availableWith((pairingState as? PairingState.Connected)?.deviceId)
-        val summary = when {
-            content.files.size == 1 -> "Send the selected file to your Mac?"
-            content.files.isNotEmpty() -> "Send ${content.files.size} selected files to your Mac?"
-            else -> "Send the shared text to your Mac?"
+        val canOfferLink = content.files.isEmpty() && content.text?.let(::validatedWebLink) != null
+        val choices = dev.bridgey.android.ui.destinationChoices(context, pairing, requiredFeature).map { choice ->
+            if (!choice.available && canOfferLink && pairing.isFeatureAvailable(BridgeyFeature.LINKS, choice.deviceId))
+                choice.copy(available = true, detail = context.getString(R.string.destination_links_only)) else choice
+        }
+        var shareTarget by rememberSaveable(content) { mutableStateOf<String?>(null) }
+        var unavailable by remember(content) { mutableStateOf(false) }
+        val selected = dev.bridgey.android.ui.DeviceDestinationSelection.selected(choices, shareTarget)
+        fun liveTarget(feature: BridgeyFeature = requiredFeature): String? = shareTarget?.takeIf { id ->
+            pairing.connections.value.any { it.deviceId == id } && pairing.isFeatureAvailable(feature, id)
         }
         AlertDialog(
             onDismissRequest = onSharedContentHandled,
-            title = { Text("Share with Bridgey") },
+            title = { Text(stringResource(R.string.share_content_title)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(summary)
-                    when {
-                        !isConnected -> Text(
-                            "Waiting for a trusted Mac to reconnect.",
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                        !featureAvailable -> Text(
-                            "This feature is turned off on one of your devices.",
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(when {
+                        content.files.size == 1 -> R.string.share_content_file
+                        content.files.isNotEmpty() -> R.string.share_content_files
+                        else -> R.string.share_content_text
+                    }, content.files.size))
+                    dev.bridgey.android.ui.DeviceDestinationList(choices, shareTarget, { shareTarget = it; unavailable = false })
+                    Text(stringResource(if (unavailable || (shareTarget != null && selected?.available != true))
+                        R.string.destination_unavailable else R.string.destination_pick_first),
+                        color = if (unavailable) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
             confirmButton = {
                 Button(
-                    enabled = isConnected && featureAvailable,
+                    enabled = selected?.available == true && shareTarget?.let { pairing.isFeatureAvailable(requiredFeature, it) } == true,
                     onClick = {
-                        content.text?.let { pairing.sendText(it) }
-                        if (content.files.isNotEmpty()) pairing.sendFiles(content.files)
-                        onSharedContentHandled()
+                        val id = liveTarget()
+                        if (id == null) unavailable = true else {
+                            content.text?.let { pairing.sendText(it, deviceId = id) }
+                            if (content.files.isNotEmpty()) pairing.sendFiles(content.files, id)
+                            onSharedContentHandled()
+                        }
                     },
-                ) { Text("Send") }
+                ) { Text(selected?.name?.let { stringResource(R.string.destination_send_to, it) } ?: stringResource(R.string.share_content_send)) }
             },
             dismissButton = {
                 Row {
-                    if (content.files.isEmpty() && content.text?.let(::validatedWebLink) != null &&
-                        pairing.isFeatureAvailable(BridgeyFeature.LINKS)) {
-                        TextButton(onClick = {
-                            pairing.quickActions.sendLink(content.text.orEmpty())
-                            onSharedContentHandled()
-                        }) { Text("Send as link") }
+                    if (canOfferLink) {
+                        TextButton(enabled = selected?.available == true && shareTarget?.let { pairing.isFeatureAvailable(BridgeyFeature.LINKS, it) } == true,
+                            onClick = {
+                                val id = liveTarget(BridgeyFeature.LINKS)
+                                if (id == null || !pairing.isFeatureAvailable(BridgeyFeature.LINKS, id) ||
+                                    !pairing.sendLinkToDevice(content.text.orEmpty(), id)) unavailable = true
+                                else onSharedContentHandled()
+                            }) { Text(stringResource(R.string.share_content_as_link)) }
                     }
-                    TextButton(onClick = onSharedContentHandled) { Text("Cancel") }
+                    TextButton(onClick = onSharedContentHandled) { Text(stringResource(R.string.action_cancel)) }
                 }
             },
         )

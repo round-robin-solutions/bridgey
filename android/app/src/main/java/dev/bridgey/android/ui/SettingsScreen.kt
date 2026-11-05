@@ -135,6 +135,7 @@ data class SettingsState(
     /** Developer menu > Transfers: how files travel to each connected device. */
     val transferPaths: List<dev.bridgey.android.TransferPath> = emptyList(),
     val callQuiet: CallQuietSettingsState = CallQuietSettingsState(),
+    val smartRouting: SmartRoutingSettingsState = SmartRoutingSettingsState(),
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean = if (feature == BridgeyFeature.CALL_QUIET) globalFeatures[feature] == true else globalFeatures[feature] != false
 }
@@ -147,6 +148,7 @@ class SettingsActions(
     /** Settings home: open a section's page. */
     val openSection: (SettingsSection) -> Unit = {},
     val openNotificationApps: () -> Unit = {},
+    val smartRouting: SmartRoutingSettingsActions = SmartRoutingSettingsActions(),
     val appNotifications: () -> Unit = {},
     val notificationAccess: () -> Unit = {},
     val rename: (String) -> Unit = {},
@@ -453,8 +455,18 @@ private fun NotificationsPage(state: SettingsState, actions: SettingsActions, li
                             BridgeyIcons.Notifications, Tint.PURPLE, onClick = actions.openNotificationApps,
                         ) { Chevron() }
                     }
-                    codesRows(state.codes, actions.codes, state.sync, actions.sync)
                 }
+            }
+        }
+        item(key = "notifications.routing") {
+            Box(Modifier.padding(top = 16.dp)) { SmartRoutingSettings(state.smartRouting, actions.smartRouting) }
+        }
+        item(key = "notifications.routing.note") {
+            Note(stringResource(R.string.smart_routing_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp))
+        }
+        item(key = "notifications.other") {
+            RowGroup(Modifier.padding(top = 16.dp)) {
+                if (notificationsOn) codesRows(state.codes, actions.codes, state.sync, actions.sync)
                 row { shape ->
                     ListRow(
                         shape, stringResource(R.string.settings_app_notifications),

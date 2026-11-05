@@ -81,6 +81,8 @@ class FolderSender(
 
     fun owns(folderTransferId: String?): Boolean = folderTransferId != null && synchronized(this) { items.containsKey(folderTransferId) }
 
+    fun ownsTree(treeUri: String): Boolean = synchronized(this) { items.values.any { it.releaseTree == treeUri } }
+
     fun ownsFile(transferId: String?): Boolean = transferId != null && fileOwners.containsKey(transferId)
 
     /** Whether a folder of this device is being sent or waits to resume (Files off mid-way still finishes it). */
@@ -89,9 +91,14 @@ class FolderSender(
     // Starting.
 
     /** Sends the folder [root] to [deviceId]. Returns the folder transfer ID (the row's ID). */
-    fun send(deviceId: String, deviceName: String, root: SendNode, releaseTree: String? = null): String {
+    fun send(deviceId: String, deviceName: String, root: SendNode, releaseTree: String? = null): String =
+        sendReserved(makeId(), deviceId, deviceName, root, releaseTree)
+
+    /** A caller can reserve bounded grant metadata before any item, row or preparation starts. */
+    internal fun sendReserved(transferId: String, deviceId: String, deviceName: String, root: SendNode, releaseTree: String? = null): String {
         val item = synchronized(this) {
-            Item(makeId(), deviceId, deviceName, PortableName.convert(root.name) ?: root.name, download = false, downloadRequestId = null,
+            require(!items.containsKey(transferId))
+            Item(transferId, deviceId, deviceName, PortableName.convert(root.name) ?: root.name, download = false, downloadRequestId = null,
                 releaseTree = releaseTree, queuedAt = clock()).also { items[it.id] = it }
         }
         emit(item, force = true)

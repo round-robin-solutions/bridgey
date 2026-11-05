@@ -57,6 +57,8 @@ struct RemoteCallStatus: Equatable {
     let detail: String
     let type: String
     let actions: [RemoteCallAction]
+    /// Quiet calls still maintain lifecycle/media barriers and manual controls.
+    var presentation: NotificationPresentation = .alert
 }
 
 struct FileTransferRow: Identifiable, Equatable {
@@ -140,6 +142,10 @@ private struct RemoteNotificationPayload: Codable {
     var emailApp: LenientFlag? = nil
     /// Edition (email_codes_draft1), only with emailApp: the expanded text, at most 600 UTF-16 units. Never logged.
     var preview: LenientText? = nil
+    /// Negotiated routing; a present value is validated strictly before decoding.
+    var presentation: NotificationPresentation? = nil
+    /// Opaque identity of a new message in a reused conversation notification, never a call.
+    var eventId: String? = nil
 }
 
 private struct RemoteNotificationActionPayload: Codable {
@@ -405,6 +411,10 @@ final class PairingCoordinator: ObservableObject {
     }
     private var discoveryCancellable: AnyCancellable?
     private var settingsCancellable: AnyCancellable?
+    private var presenceSettingsCancellable: AnyCancellable?
+    private let devicePresence = DevicePresenceMonitor()
+    private var notificationPresentations = NotificationPresentationLedger()
+    private var floatedNotificationIdentifier: String?
     private var lastPeers: [DiscoveredPeer] = []
     /// Reconnects. Both sides keep trying a dropped trusted phone at its known addresses, whoever
     /// dialled before; the session registry keeps one socket when both dial at once.
@@ -464,6 +474,7 @@ final class PairingCoordinator: ObservableObject {
     let agentsMirror = AgentsMirror()
     /// Reads waiting for the engine, by notification request identifier.
     private var codeReads: [String: Task<Void, Never>] = [:]
+    private var codeReadPermissions = CodeReadPermissionFence()
     /// Codes that can still be copied, in memory only.
     private var liveCodes: [String: LiveCodeCard] = [:]
     /// Cards dismissed in the panel: still live for Copy code, duplicates and Latest or Older.
@@ -506,7 +517,10 @@ final class PairingCoordinator: ObservableObject {
     private lazy var callOverlayWindow: CallOverlayWindowController = {
         let controller = CallOverlayWindowController()
         controller.onHide = { [weak self] in self?.hideCallOverlay() }
-        controller.onAction = { [weak self] in self?.performRemoteCallAction($0) }
+        controller.onAction = { [weak self] action in
+            guard let self, let call = self.activeRemoteCalls.mostRelevantPresented else { return }
+            self.performRemoteCallAction(action, for: call)
+        }
         controller.onRepair = { [weak self] reason, call in
             self?.logCall("overlay_repaired", notificationID: call?.notificationID ?? "", deviceID: call?.deviceID ?? "", reason: reason)
         }
@@ -628,6 +642,18 @@ final class PairingCoordinator: ObservableObject {
             }
         }
         focusSync.onSettingsChange = { [weak self] in self?.sendFeatureState() }
+        devicePresence.send = { [weak self] peer, packet in
+            guard let self, let current = self.registry.session(for: peer.deviceID),
+                  current.id == peer.sessionID, self.devicePresencePermitted(current) else { return }
+            _ = self.sendQuickPayload(kind: "presence.state", payload: packet.payload, to: current)
+        }
+        presenceSettingsCancellable = settings.$shareActivityStatus.removeDuplicates().dropFirst()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.sendFeatureState()
+                    self?.refreshDevicePresence()
+                }
+            }
         wireSettingsSync()
         camera.send = { [weak self] id, payload in
             guard let self, let current = self.registry.session(for: id) else { return false }
@@ -1072,6 +1098,8 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func forget(deviceID: String) {
+        alertedNotificationIdentifiers.remove(deviceID: deviceID)
+        notificationPresentations.remove(deviceID: deviceID)
         folders.forget(deviceID)
         folderReceiver.forget(deviceID)
         transferHistory.forget(deviceID: deviceID)
@@ -1095,7 +1123,7 @@ final class PairingCoordinator: ObservableObject {
 
     /// Recomputes the per-phone list and the selected phone's mirrors (state, features, battery).
     private func publish() {
-        defer { phoneFilesController.phonesChanged() }
+        defer { phoneFilesController.phonesChanged(); refreshDevicePresence() }
         publishHealth()
         let phones = registry.connections
         if connectedPhones != phones { connectedPhones = phones }
@@ -1121,6 +1149,8 @@ final class PairingCoordinator: ObservableObject {
     /// `detail`: the session's route, direction, age and silence (`disconnectDetail`), for diagnostics.
     private func deviceDisconnected(_ id: String, reason: String, detail: String? = nil) {
         callMedia.drop(id)
+        notificationPresentations.remove(deviceID: id)
+        refreshDevicePresence()
         ConnectTiming.mark("app.disconnected", peer: id, detail: reason)
         cancelTransfers(for: id)
         focusSync.forget(id)
@@ -2946,6 +2976,8 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteSmsCodes = draftKeys[smsCodesFeatureKey] == true
                     link.remoteEmailCodes = draftKeys[emailCodesFeatureKey] == true
                     link.remoteFocusSync = draftKeys[focusSyncFeatureKey] == true
+                    link.remoteDevicePresence = draftKeys[devicePresenceFeatureKey] == true
+                    link.remoteNotificationRouting = draftKeys[notificationRoutingFeatureKey] == true
                     link.remoteCamera = draftKeys[cameraFeatureKey] == true
                     link.remoteUpdates = draftKeys[updatesFeatureKey] == true
                     if !link.remoteUpdates { link.updateStatus = nil }
@@ -3111,6 +3143,9 @@ final class PairingCoordinator: ObservableObject {
                       let nonce = message.nonce,
                       let ciphertext = message.ciphertext,
                       let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: current.pairingKey!),
+                      let presentation = NotificationPresentation.decode(plaintext, negotiated:
+                        current.remoteProtocol >= 2 && current.envelopeKey != nil &&
+                        registry.state(for: current.remoteDeviceID)?.remoteNotificationRouting == true),
                       let payload = try? JSONDecoder().decode(RemoteNotificationPayload.self, from: plaintext),
                       !payload.packageName.isEmpty,
                       !payload.applicationName.isEmpty,
@@ -3118,12 +3153,15 @@ final class PairingCoordinator: ObservableObject {
                       (!payload.title.isEmpty || !payload.text.isEmpty) else {
                     throw PairingError.invalidMessage
                 }
-                if payload.callType == nil {
+                let ticket = notificationPresentations.receive(deviceID: current.remoteDeviceID,
+                    notificationID: payload.notificationId, sessionID: current.id, presentation: presentation)
+                if presentation == .quiet { retractNotificationPresentation(ticket.identifier) }
+                if payload.callType == nil, presentation == .alert {
                     recordActivity(.notificationsShown, in: current, appName: payload.applicationName)
                 }
                 updateRemoteCall(payload, deviceID: current.remoteDeviceID)
                 if shouldUseSystemNotification(callType: payload.callType) {
-                    deliverNotification(payload, deviceID: current.remoteDeviceID, deviceName: current.peerName)
+                    deliverNotification(payload, deviceID: current.remoteDeviceID, deviceName: current.peerName, ticket: ticket)
                 } else {
                     recordNotificationHistory(payload, deviceID: current.remoteDeviceID)
                 }
@@ -3629,6 +3667,7 @@ final class PairingCoordinator: ObservableObject {
     /// Feature state goes to every connected phone (each gets its own per-device settings).
     private func sendFeatureState() {
         for (_, current) in registry.broadcastTargets({ _, _ in true }) { sendFeatureState(to: current) }
+        refreshDevicePresence()
     }
 
     private func sendFeatureState(to current: Session) {
@@ -3664,6 +3703,8 @@ final class PairingCoordinator: ObservableObject {
         features[linksOpenFeatureKey] = settings.isEnabled(.links, for: current.remoteDeviceID)
         // Draft, edition only: focus.state, while either Focus direction is on.
         features[focusSyncFeatureKey] = focusSync.advertised
+        features[devicePresenceFeatureKey] = settings.shareActivityStatus && current.remoteProtocol >= 2 && current.envelopeKey != nil
+        features[notificationRoutingFeatureKey] = true
         // Draft, edition only: this Mac can ask for photos; they arrive as files.
         features[cameraFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
         // Draft, edition only: Update all. Always on; whether phones may start this Mac's update is in updates.status.
@@ -4496,13 +4537,14 @@ final class PairingCoordinator: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + (current.tunnel == nil ? ReconnectPolicy.heartbeatInterval : 25), execute: work)
     }
 
-    private func postNotification(_ payload: RemoteNotificationPayload, deviceID: String) {
+    private func postNotification(_ payload: RemoteNotificationPayload, deviceID: String, ticket: NotificationPresentationTicket) {
+        guard notificationAlertAllowed(ticket, deviceID: deviceID) else { return }
         let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: payload.notificationId)
         let content = UNMutableNotificationContent()
         content.title = payload.callType == nil ? payload.applicationName : remoteCallStatusTitle(payload.callType)
         content.subtitle = payload.title
         content.body = payload.callType == nil ? payload.text : remoteCallDetail(payload.text, type: payload.callType)
-        content.sound = alertedNotificationIdentifiers.insert(identifier) ? .default : nil
+        content.sound = alertedNotificationIdentifiers.insert(identifier, eventID: payload.eventId, deviceID: deviceID) ? .default : nil
         content.categoryIdentifier = notificationCategoryIdentifier(for: payload, deviceID: deviceID)
         if let attachment = notificationIconAttachment(for: payload) {
             content.attachments = [attachment]
@@ -4536,7 +4578,7 @@ final class PairingCoordinator: ObservableObject {
     /// A forwarded notification: an SMS (or, with Also read codes in email, a mail preview) that may hold a code
     /// waits up to two seconds for the code reader; everything else (and every failure) posts the plain
     /// notification as before.
-    private func deliverNotification(_ payload: RemoteNotificationPayload, deviceID: String, deviceName: String) {
+    private func deliverNotification(_ payload: RemoteNotificationPayload, deviceID: String, deviceName: String, ticket: NotificationPresentationTicket) {
         let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: payload.notificationId)
         codeReads.removeValue(forKey: identifier)?.cancel()
         // A conversation muted in the Messages window shows no banner on this Mac; history still lists it.
@@ -4557,7 +4599,13 @@ final class PairingCoordinator: ObservableObject {
                                             text: payload.text, emailApp: payload.emailApp?.value, preview: payload.preview?.value,
                                             emailCodes: settings.codesEmail) else {
             recordNotificationHistory(payload, deviceID: deviceID)
-            postNotification(payload, deviceID: deviceID)
+            postNotification(payload, deviceID: deviceID, ticket: ticket)
+            return
+        }
+        let channel: CodeChannel = candidate.isEmail ? .email : .sms
+        guard let readPermission = codeReadPermissions.ticket(for: channel) else {
+            recordNotificationHistory(payload, deviceID: deviceID)
+            postNotification(payload, deviceID: deviceID, ticket: ticket)
             return
         }
         // Email is always read by the model on this Mac, even when Cloud reads text messages; never the cloud.
@@ -4566,16 +4614,26 @@ final class PairingCoordinator: ObservableObject {
         let sender = candidate.isEmail ? codeSender(title: payload.title, applicationName: payload.applicationName) : payload.title
         codeReads[identifier] = Task { @MainActor [weak self] in
             let outcome = await reader.read(text: candidate.text, sender: sender, channel: candidate.isEmail ? .email : .sms)
-            guard let self, !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled,
+                  self.notificationSessionCurrent(ticket, deviceID: deviceID),
+                  self.notificationPresentations.isCurrent(ticket) else { return }
             self.codeReads.removeValue(forKey: identifier)
+            // A revoked read must not show/copy/report its result even if permission was re-enabled.
+            // The ordinary notification still follows its own current permission and presentation.
+            guard self.codeReadPermissions.permits(readPermission), self.settings.codesEnabled,
+                  !candidate.isEmail || self.settings.codesEmail else {
+                self.recordNotificationHistory(payload, deviceID: deviceID)
+                self.postNotification(payload, deviceID: deviceID, ticket: ticket)
+                return
+            }
             self.diagnostics.record(category: "notification", event: candidate.isEmail ? "email_code_read" : "code_read",
                                     outcome: outcome.diagnosticName)
             if case let .code(code) = outcome {
-                self.acceptCode(payload, code: code, channel: candidate.isEmail ? .email : .sms, deviceID: deviceID, deviceName: deviceName)
+                self.acceptCode(payload, code: code, channel: candidate.isEmail ? .email : .sms, deviceID: deviceID, deviceName: deviceName, ticket: ticket)
             } else {
                 self.recordNotificationHistory(payload, deviceID: deviceID)
-                self.postNotification(payload, deviceID: deviceID)
-                if candidate.isEmail, outcome == .fallback(.modelMissing) { self.promptForEmailCodeModel() }
+                self.postNotification(payload, deviceID: deviceID, ticket: ticket)
+                if candidate.isEmail, outcome == .fallback(.modelMissing), self.notificationAlertAllowed(ticket, deviceID: deviceID) { self.promptForEmailCodeModel() }
             }
         }
     }
@@ -4592,7 +4650,17 @@ final class PairingCoordinator: ObservableObject {
     /// A code passed the guard. A duplicate (same code, same service, card still live; any channel, mail app or
     /// phone) goes to history only and its card lists the extra way it came. A new code gets its card and banner;
     /// only the newest of its service is copied automatically and floated.
-    private func acceptCode(_ payload: RemoteNotificationPayload, code: String, channel: CodeChannel, deviceID: String, deviceName: String) {
+    private func acceptCode(_ payload: RemoteNotificationPayload, code: String, channel: CodeChannel, deviceID: String, deviceName: String, ticket: NotificationPresentationTicket) {
+        // Quiet recipients still read/report permitted codes and retain redacted local history.
+        // A late model completion cannot resurrect a removed, replaced or newly quiet alert.
+        guard notificationAlertAllowed(ticket, deviceID: deviceID) else {
+            recordNotificationHistory(payload, deviceID: deviceID, codeShown: true)
+            if notificationSessionCurrent(ticket, deviceID: deviceID) {
+                sendCodesFound(payload, code: code, channel: channel,
+                               sender: codeSender(title: payload.title, applicationName: payload.applicationName), to: deviceID)
+            }
+            return
+        }
         let now = Date()
         pruneCodes(now: now)
         codeArrivals += 1
@@ -4615,12 +4683,13 @@ final class PairingCoordinator: ObservableObject {
             sendCodesFound(payload, code: code, channel: channel, sender: sender, to: deviceID)
             if !late {
                 floatedCode = card.id
+                floatedNotificationIdentifier = ticket.identifier
                 // The floating card always shows the newest code; it says which older one it replaces.
                 if let seconds = settings.codesFloat.seconds {
                     codeFloat.show(card, seconds: seconds, replaces: replaces.flatMap { liveCodes[$0] }.map { codeReplacesLine($0, now: now) })
                 }
             }
-            postCodeNotification(payload, card: card, deviceID: deviceID)
+            postCodeNotification(payload, card: card, deviceID: deviceID, ticket: ticket)
             if late {
                 diagnostics.record(category: "notification", event: "code_late")
             } else if shouldAutoCopyCode(enabled: settings.codesAutoCopy, screenLocked: macScreenIsLocked(), idleSeconds: macIdleSeconds()) {
@@ -4631,12 +4700,13 @@ final class PairingCoordinator: ObservableObject {
 
     /// "Code 482913 from HDFC Bank" in place of the plain notification (same identifier, so never two
     /// banners), with Copy code. The code itself stays in memory; the notification only carries a reference.
-    private func postCodeNotification(_ payload: RemoteNotificationPayload, card: LiveCodeCard, deviceID: String) {
+    private func postCodeNotification(_ payload: RemoteNotificationPayload, card: LiveCodeCard, deviceID: String, ticket: NotificationPresentationTicket) {
+        guard notificationAlertAllowed(ticket, deviceID: deviceID) else { return }
         let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: payload.notificationId)
         let content = UNMutableNotificationContent()
         content.title = codeNotificationTitle(code: card.code, sender: card.sender, applicationName: payload.applicationName)
         content.body = payload.text
-        content.sound = alertedNotificationIdentifiers.insert(identifier) ? .default : nil
+        content.sound = alertedNotificationIdentifiers.insert(identifier, eventID: payload.eventId, deviceID: deviceID) ? .default : nil
         content.categoryIdentifier = notificationCategoryIdentifier(for: payload, deviceID: deviceID, copyCode: true)
         if let attachment = notificationIconAttachment(for: payload) {
             content.attachments = [attachment]
@@ -4694,6 +4764,7 @@ final class PairingCoordinator: ObservableObject {
         dismissedCodes.remove(reference)
         if floatedCode == reference {
             floatedCode = nil
+            floatedNotificationIdentifier = nil
             codeFloat.dismiss()
         }
     }
@@ -4892,6 +4963,11 @@ final class PairingCoordinator: ObservableObject {
         }
         settings.$codesEnabled
             .sink { [weak self] on in self?.codesSyncGate.codesChanged(on: on) }
+            .store(in: &settingsSyncCancellables)
+        settings.$codesEnabled.combineLatest(settings.$codesEmail)
+            .sink { [weak self] enabled, emailEnabled in
+                self?.codeReadPermissions.update(enabled: enabled, emailEnabled: emailEnabled)
+            }
             .store(in: &settingsSyncCancellables)
         // email_codes_draft1 follows Codes from messages and Also read codes in email: phones learn at once.
         settings.$codesEnabled.combineLatest(settings.$codesEmail)
@@ -5144,6 +5220,42 @@ final class PairingCoordinator: ObservableObject {
         if TestInstance.enabled, sent { testCodesFoundSent += 1 }
     }
 
+    private func devicePresencePermitted(_ current: Session) -> Bool {
+        registry.isActive(current) && current.remoteProtocol >= 2 && current.envelopeKey != nil &&
+        settings.shareActivityStatus && trustedDeviceIDs.contains(current.remoteDeviceID) &&
+        !settings.isAgent(current.remoteDeviceID) && registry.state(for: current.remoteDeviceID)?.remoteDevicePresence == true &&
+        registry.state(for: current.remoteDeviceID)?.remoteHandoffTakeover == false
+    }
+
+    private func refreshDevicePresence() {
+        let peers = registry.connectedIDs.compactMap { id -> DevicePresencePeer? in
+            guard let current = registry.session(for: id), devicePresencePermitted(current) else { return nil }
+            return DevicePresencePeer(deviceID: id, sessionID: current.id)
+        }
+        devicePresence.update(subscribers: Set(peers))
+    }
+
+    private func notificationSessionCurrent(_ ticket: NotificationPresentationTicket, deviceID: String) -> Bool {
+        guard let current = registry.session(for: deviceID), current.id == ticket.sessionID else { return false }
+        return registry.isActive(current) && featureEnabled(.notifications, current: current) &&
+            registry.state(for: deviceID)?.remoteFeatures[.notifications] != false
+    }
+
+    private func notificationAlertAllowed(_ ticket: NotificationPresentationTicket, deviceID: String) -> Bool {
+        notificationSessionCurrent(ticket, deviceID: deviceID) && notificationPresentations.allowsAlert(ticket)
+    }
+
+    private func retractNotificationPresentation(_ identifier: String) {
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        if floatedNotificationIdentifier == identifier {
+            floatedNotificationIdentifier = nil
+            floatedCode = nil
+            codeFloat.dismiss()
+        }
+    }
+
     /// A switch in Agents on <phone>: the phone applies it and answers with agents.state. The switch shows the change
     /// until then, and goes back after five seconds without an answer.
     func setAgentGrant(phone phoneID: String, agent agentID: String, key: AgentGrantKey, on: Bool, window: AgentGrantWindow?) {
@@ -5208,6 +5320,12 @@ final class PairingCoordinator: ObservableObject {
 
     func performRemoteCallAction(_ action: RemoteCallAction) {
         guard let call = remoteCall else { return }
+        performRemoteCallAction(action, for: call)
+    }
+
+    private func performRemoteCallAction(_ action: RemoteCallAction, for call: RemoteCallStatus) {
+        guard activeRemoteCalls.contains(notificationID: call.notificationID, deviceID: call.deviceID),
+              call.actions.contains(where: { $0.id == action.id }) else { return }
         // Answering or declining from the Mac stops the ring right away; the phone confirms the rest.
         silencedCallIdentities.insert(callOverlayIdentity(call.notificationID, deviceID: call.deviceID))
         logCall("action", call, reason: String(describing: callActionRole(action.title)))
@@ -5223,7 +5341,7 @@ final class PairingCoordinator: ObservableObject {
     /// Hide is the only way the call card leaves the screen before the call ends; the menu bar
     /// panel keeps the call. Hiding also stops the ring for that call.
     func hideCallOverlay() {
-        if let call = remoteCall {
+        if let call = activeRemoteCalls.mostRelevantPresented {
             let identity = callOverlayIdentity(call.notificationID, deviceID: call.deviceID)
             hiddenCallOverlayIdentities.insert(identity)
             silencedCallIdentities.insert(identity)
@@ -5275,7 +5393,8 @@ final class PairingCoordinator: ObservableObject {
             caller: payload.title,
             detail: remoteCallDetail(payload.text, type: callType),
             type: callType,
-            actions: actions
+            actions: actions,
+            presentation: payload.presentation ?? .alert
         ))
         if resumed {
             logCall("removal_cancelled", notificationID: payload.notificationId, deviceID: deviceID, reason: "reposted")
@@ -5294,7 +5413,7 @@ final class PairingCoordinator: ObservableObject {
             recordActivity(.callShown, deviceID: deviceID, deviceName: name, preview: caller.isEmpty ? nil : caller)
         }
         // With ringing off, an incoming call still beeps once (the ring itself is in refreshCallRinging).
-        if callType == "incoming", !settings.ringForIncomingCalls, !audibleCallIdentities.contains(identity) {
+        if payload.presentation != .quiet, callType == "incoming", !settings.ringForIncomingCalls, !audibleCallIdentities.contains(identity) {
             NSSound.beep()
             audibleCallIdentities.insert(identity)
         }
@@ -5310,7 +5429,7 @@ final class PairingCoordinator: ObservableObject {
         }.map(\.deviceID))
         mediaController.callChanged(active: !legacySources.isEmpty)
         callMedia.setLegacySources(mediaController.pauseForCalls ? legacySources : [])
-        if let call = remoteCall,
+        if let call = activeRemoteCalls.mostRelevantPresented,
            !hiddenCallOverlayIdentities.contains(callOverlayIdentity(call.notificationID, deviceID: call.deviceID)) {
             callOverlayWindow.show(call)
         } else {
@@ -5588,6 +5707,7 @@ final class PairingCoordinator: ObservableObject {
     /// A call card is persistent: a retraction the phone did not mark as the call's end keeps the
     /// card for `remoteCallRemovalGrace`, and a re-post of the call meanwhile keeps it for good.
     private func removeRemoteNotification(_ notificationID: String, deviceID: String, callEnded: Bool = false) {
+        notificationPresentations.remove(deviceID: deviceID, notificationID: notificationID)
         if activeRemoteCalls.contains(notificationID: notificationID, deviceID: deviceID) {
             if !callEnded {
                 if !activeRemoteCalls.isPendingRemoval(notificationID: notificationID, deviceID: deviceID) {
@@ -5645,6 +5765,7 @@ final class PairingCoordinator: ObservableObject {
 
     /// One phone's calls go when it disconnects or turns notifications off; the others stay.
     private func clearRemoteCall(for id: String, reason: String) {
+        notificationPresentations.remove(deviceID: id)
         let calls = activeRemoteCalls.removeAll(deviceID: id)
         guard !calls.isEmpty else { return }
         callMedia.legacySourceLost(id)

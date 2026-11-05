@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.bridgey.android.ui.destinationChoices
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
@@ -20,6 +22,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** The first http(s) link in shared text (browsers often share "Title https://..."), validated, or null. */
 internal fun firstWebLink(text: String?): String? {
@@ -47,26 +50,27 @@ class OpenOnMacActivity : ComponentActivity() {
         if (!app.isPrimaryUser) { finish(); return }
         link = firstWebLink(intent?.takeIf { it.action == Intent.ACTION_SEND }?.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString())
         val pairing = app.pairing
-        val targets = pairing.connections.value
-            .filter { pairing.isFeatureAvailable(BridgeyFeature.LINKS, it.deviceId) }
-            .map { OpenOnMacTarget(it.deviceId, it.peerName) }
-        val selectedNow = pairing.state.value.let { (it as? PairingState.Connected)?.deviceId }
         state = OpenOnMacState(
             host = link?.let(::linkHost),
-            targets = targets,
-            selected = targets.firstOrNull { it.deviceId == selectedNow }?.deviceId ?: targets.firstOrNull()?.deviceId,
-            phase = when {
-                link == null -> OpenOnMacPhase.Nothing(getString(R.string.open_on_mac_no_link))
-                !app.isBridgeyEnabled || targets.isEmpty() -> OpenOnMacPhase.Nothing(getString(R.string.open_on_mac_no_mac))
-                else -> OpenOnMacPhase.Confirm
-            },
+            targets = emptyList(),
+            selected = savedInstanceState?.getString(SELECTED_DEVICE),
+            phase = if (link == null) OpenOnMacPhase.Nothing(getString(R.string.open_on_mac_no_link)) else OpenOnMacPhase.Confirm,
         )
         setContent {
+            val connections by pairing.connections.collectAsStateWithLifecycle()
+            val trusted by pairing.trustedDevices.collectAsStateWithLifecycle()
+            val settings by app.settings.state.collectAsStateWithLifecycle()
+            val revision by pairing.smartRoutingRevision.collectAsStateWithLifecycle()
+            val choices = androidx.compose.runtime.remember(connections, trusted, settings, revision) {
+                destinationChoices(this, pairing, BridgeyFeature.LINKS).map {
+                    OpenOnMacTarget(it.deviceId, it.name, it.available && app.isBridgeyEnabled, it.detail, it.suggested)
+                }
+            }
             BridgeyTheme {
                 OpenOnMacSheet(
-                    state,
+                    state.copy(targets = choices),
                     OpenOnMacActions(
-                        select = { id -> state = state.copy(selected = id) },
+                        select = { id -> state = state.copy(selected = id, message = null) },
                         open = ::open,
                         cancel = ::finish,
                     ),
@@ -75,23 +79,39 @@ class OpenOnMacActivity : ComponentActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        state.selected?.let { outState.putString(SELECTED_DEVICE, it) }
+        super.onSaveInstanceState(outState)
+    }
+
     private fun open() {
         val url = link ?: return
-        val target = state.targets.firstOrNull { it.deviceId == state.selected } ?: return
+        val id = state.selected ?: return
         if (state.phase != OpenOnMacPhase.Confirm) return
-        val pairing = (application as BridgeyApplication).pairing
-        state = state.copy(phase = OpenOnMacPhase.Sending(target.name))
+        val app = application as BridgeyApplication
+        val pairing = app.pairing
+        val target = pairing.connections.value.firstOrNull { it.deviceId == id }
+        if (!app.isBridgeyEnabled || target == null || !pairing.isFeatureAvailable(BridgeyFeature.LINKS, id)) {
+            state = state.copy(message = getString(R.string.destination_unavailable))
+            return
+        }
+        state = state.copy(phase = OpenOnMacPhase.Sending(target.peerName), message = null)
         val before = pairing.quickActions.linkResult.value?.serial ?: 0
         lifecycleScope.launch {
-            pairing.selectDevice(target.deviceId)
-            pairing.quickActions.sendLink(url, open = true)
-            val result = pairing.quickActions.linkResult.filterNotNull().first { it.serial > before }
-            val (message, success) = when (result.outcome) {
-                LinkSendResult.Outcome.OPENED -> getString(R.string.open_on_mac_opened, target.name) to true
-                LinkSendResult.Outcome.QUEUED -> getString(R.string.open_on_mac_queued, target.name) to true
-                LinkSendResult.Outcome.DECLINED -> getString(R.string.open_on_mac_declined, target.name) to false
-                LinkSendResult.Outcome.NOT_CONFIRMED -> getString(R.string.mac_action_not_confirmed, target.name) to false
-                LinkSendResult.Outcome.NOT_SENT -> getString(R.string.open_on_mac_not_sent, target.name) to false
+            if (!pairing.sendLinkToDevice(url, id, open = true)) {
+                state = state.copy(phase = OpenOnMacPhase.Confirm, message = getString(R.string.destination_unavailable))
+                return@launch
+            }
+            val result = withTimeoutOrNull(12_000) {
+                pairing.quickActions.linkResult.filterNotNull().first { it.serial > before }
+            }
+            val (message, success) = when (result?.outcome) {
+                LinkSendResult.Outcome.OPENED -> getString(R.string.open_on_mac_opened, target.peerName) to true
+                LinkSendResult.Outcome.QUEUED -> getString(R.string.open_on_mac_queued, target.peerName) to true
+                LinkSendResult.Outcome.DECLINED -> getString(R.string.open_on_mac_declined, target.peerName) to false
+                LinkSendResult.Outcome.NOT_CONFIRMED -> getString(R.string.mac_action_not_confirmed, target.peerName) to false
+                null -> getString(R.string.mac_action_not_confirmed, target.peerName) to false
+                LinkSendResult.Outcome.NOT_SENT -> getString(R.string.open_on_mac_not_sent, target.peerName) to false
             }
             state = state.copy(phase = OpenOnMacPhase.Finished(message, success))
             if (success) {
@@ -99,5 +119,8 @@ class OpenOnMacActivity : ComponentActivity() {
                 finish()
             }
         }
+    }
+    private companion object {
+        const val SELECTED_DEVICE = "selected_destination"
     }
 }

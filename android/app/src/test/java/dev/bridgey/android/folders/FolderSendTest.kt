@@ -78,6 +78,8 @@ class SendHarness(journalDir: java.io.File, receiverJournalDir: java.io.File) {
     val scheduler = FakeScheduler(clock)
     val snapshots = ArrayList<FolderSnapshot>()
     val finished = ArrayList<FolderSnapshot>()
+    var onFinished: (FolderSnapshot) -> Unit = {}
+    var onReleaseTree: (String) -> Unit = {}
     val sendJournals = FolderSendJournals(journalDir, clock::read)
     val mac = Phone(receiverJournalDir, FolderReceiveSettings(mode = DestinationMode.FIXED, defaultPlaceId = Phone.PICTURES))
     var dropChunkAcksAfter = Int.MAX_VALUE
@@ -151,7 +153,10 @@ class SendHarness(journalDir: java.io.File, receiverJournalDir: java.io.File) {
 
             override fun finished(snapshot: FolderSnapshot) {
                 finished += snapshot
+                onFinished(snapshot)
             }
+
+            override fun releaseTree(treeUri: String) = onReleaseTree(treeUri)
         },
         linkFor = { if (bridge.connected) phoneLink else null },
         newWorker = { bridge.Worker() },

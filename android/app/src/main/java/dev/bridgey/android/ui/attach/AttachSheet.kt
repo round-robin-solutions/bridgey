@@ -95,6 +95,14 @@ fun AttachSheetContent(state: AttachState, actions: AttachActions, modifier: Mod
     val selection = rememberAttachPickerSelection(state, actions)
     Column(modifier.fillMaxWidth().height(640.dp).onPreviewKeyEvent { selection.escape(it.nativeKeyEvent) }) {
         AttachHeader(state, actions)
+        dev.bridgey.android.ui.DeviceDestinationList(
+            state.targets.map { dev.bridgey.android.ui.DeviceDestination(it.deviceId, it.name, it.available, it.detail, it.suggested) },
+            state.targetId, actions.pickTarget,
+            Modifier.fillMaxWidth().heightIn(max = 180.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+            enabled = !state.submitting,
+        )
+        if (state.extraSelectionCount > 0) Text(stringResource(R.string.attach_browsed_count, state.extraSelectionCount),
+            style = BridgeyType.small, color = BridgeyTheme.colors.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp))
         AttachTabs(state.tab, actions.selectTab)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (state.tab) {
@@ -120,7 +128,7 @@ private fun AttachHeader(state: AttachState, actions: AttachActions) {
             modifier = Modifier.weight(1f).semantics { heading() },
         )
         Box {
-            TonalPillButton(stringResource(R.string.attach_browse), { browsing = true }, tint = Tint.NEUTRAL)
+            TonalPillButton(stringResource(R.string.attach_browse), { if (!state.submitting) browsing = true }, tint = Tint.NEUTRAL)
             DropdownMenu(
                 expanded = browsing,
                 onDismissRequest = { browsing = false },
@@ -476,38 +484,20 @@ private fun FoldersTab(state: AttachState, actions: AttachActions, selection: At
 @Composable
 private fun SendBar(state: AttachState, actions: AttachActions) {
     val context = LocalContext.current
-    val colors = BridgeyTheme.colors
-    var picking by remember { mutableStateOf(false) }
-    val count = state.selection.size
+    val count = state.selection.size + state.extraSelectionCount
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (state.targets.size > 1) {
-            Box {
-                OutlinePillButton(state.target?.name ?: "", BridgeyIcons.LaptopMac, { picking = true }, modifier = Modifier.widthIn(max = 180.dp))
-                DropdownMenu(expanded = picking, onDismissRequest = { picking = false }, containerColor = colors.surface2, shape = RoundedCornerShape(20.dp)) {
-                    state.targets.forEach { target ->
-                        DropdownMenuItem(
-                            text = { Text(target.name, style = BridgeyType.label, color = colors.onSurface) },
-                            trailingIcon = if (target.deviceId == state.target?.deviceId) ({ Icon(BridgeyIcons.Check, null, tint = colors.primary) }) else null,
-                            onClick = {
-                                picking = false
-                                actions.pickTarget(target.deviceId)
-                            },
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        )
-                    }
-                }
-            }
-        }
+        OutlinePillButton(stringResource(R.string.action_cancel), null, actions.close, enabled = !state.submitting)
         Box(Modifier.weight(1f))
         val label = when {
+            state.submitting -> stringResource(R.string.attach_draft_preparing)
             count == 0 -> stringResource(R.string.attach_send_none)
             state.selectedBytes > 0 -> pluralStringResource(R.plurals.attach_send_count_size, count, count, Formatter.formatShortFileSize(context, state.selectedBytes))
             else -> pluralStringResource(R.plurals.attach_send_count, count, count)
         }
-        GradientButton(label, BridgeyIcons.Send, actions.send, enabled = count > 0 && state.target != null, height = 48.dp, textStyle = BridgeyType.label)
+        GradientButton(label, BridgeyIcons.Send, actions.send, enabled = !state.submitting && count > 0 && state.target?.available == true, height = 48.dp, textStyle = BridgeyType.label)
     }
 }

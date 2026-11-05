@@ -24,6 +24,7 @@ import android.telecom.InCallService
 import android.telecom.TelecomManager
 import android.telephony.TelephonyManager
 import android.util.Base64
+import androidx.core.app.NotificationCompat
 import java.io.ByteArrayOutputStream
 import dev.bridgey.android.codes.EmailNotificationContent
 import dev.bridgey.android.codes.StyleMessage
@@ -178,9 +179,9 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         }
         forwardedNotifications.record(notificationId, sbn.key, sbn.packageName)
         // Detect codes: when no Mac reads codes, an agent the user allowed may read this text message for its code.
-        if (smsDefaultApp && !groupSummary && redacted != true) {
-            bridgey.pairing.offerSmsCodeCandidate(notificationId, title, applicationName, text, sbn.postTime)
-        }
+        val detectSmsCodeCandidate = smsDefaultApp && !groupSummary && redacted != true
+        val alertEventId = notificationMessageEventId(notificationId, sbn.packageName, notification, title, text,
+            smsDefaultApp, emailApp)
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
         val callType = if (isCall) resolvedNotificationCallType(notification, telephonyCallType, isTelephonyCall) else null
         val actions = storeActions(
@@ -236,6 +237,8 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
                 smsThreadId = smsThreadId,
                 emailApp = emailApp,
                 preview = mailPreview,
+                detectSmsCodeCandidate = detectSmsCodeCandidate,
+                alertEventId = if (callType == null) alertEventId else null,
             )
             if (callType != null) {
                 callLifecycle.forwarded(notificationId, sbn.key, sbn.packageName, isTelephonyCall)
@@ -273,14 +276,17 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
             pendingCallPosts.remove(callId)?.let(mainHandler::removeCallbacks)
             return
         }
-        val notificationId = forwardedNotifications.removeSystemKey(sbn.key) ?: return
+        // Routing ownership outlives the bounded forwarding indexes. Android still reports a real
+        // removal for an evicted entry, whose stable ordinary ID can be derived from its system key.
+        val notificationId = forwardedNotifications.removedBySystem(sbn.key)
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
         removeActions(notificationId)
         dev.bridgey.android.sms.SmsNotificationTargets.remove(notificationId)
-        if (!forwardedNotificationIds.remove(notificationId)) return
+        val wasForwarded = forwardedNotificationIds.remove(notificationId)
         val bridgey = application as BridgeyApplication
-        if (!bridgey.isPrimaryUser || !bridgey.isBridgeyEnabled) return
-        bridgey.pairing.sendNotificationRemoved(notificationId)
+        if (!wasForwarded && !bridgey.pairing.hasNotificationRoute(notificationId)) return
+        if (bridgey.isPrimaryUser && bridgey.isBridgeyEnabled) bridgey.pairing.sendNotificationRemoved(notificationId)
+        else bridgey.pairing.forgetNotificationRoute(notificationId)
     }
 
     private fun dismissForwardedNotification(notificationId: String): Boolean {
@@ -545,6 +551,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
 
     private fun retractStaleForwardedNotifications(activeNotificationIds: Set<String>) {
         val bridgey = application as BridgeyApplication
+        bridgey.pairing.reconcileNotificationRoutes(activeNotificationIds, callLifecycle::isTrackedId)
         val tracked = forwardedNotificationIds + pendingCallPosts.keys
         staleForwardedNotificationIds(tracked, activeNotificationIds).forEach { notificationId ->
             // A call's id stays after a re-key, so compare its current key; its end is decided by the lifecycle.
@@ -917,6 +924,10 @@ internal class ForwardedNotificationRegistry(
         return notificationId
     }
 
+    /** Android removals remain useful after this bounded index evicts an ordinary notification. */
+    @Synchronized
+    fun removedBySystem(systemKey: String): String = removeSystemKey(systemKey) ?: notificationToken(systemKey)
+
     @Synchronized
     fun removePackage(packageName: String): List<String> {
         val notificationIds = entriesByNotificationId.filterValues { it.packageName == packageName }.keys.toList()
@@ -933,6 +944,28 @@ internal fun staleForwardedNotificationIds(
 internal fun notificationToken(systemKey: String): String = MessageDigest.getInstance("SHA-256")
     .digest(systemKey.toByteArray(Charsets.UTF_8))
     .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+/** A conversation may reuse its notification key for many messages. Reposts retain their event ID;
+ * a new message changes it without putting message text or sender names in a routing identifier. */
+@Suppress("DEPRECATION")
+internal fun notificationMessageEventId(
+    notificationId: String, packageName: String, notification: Notification, title: String, text: String,
+    sms: Boolean, email: Boolean,
+): String? {
+    if (notification.category == Notification.CATEGORY_CALL) return null
+    val latest = runCatching { NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification)?.messages?.lastOrNull() }.getOrNull()
+    if (latest == null && !sms && !email && notification.category !in setOf(Notification.CATEGORY_MESSAGE, Notification.CATEGORY_EMAIL)) return null
+    val timestamp = (latest?.timestamp ?: 0).coerceAtLeast(0)
+    // Generic post/when clocks can change on a repost. Without message metadata, use content;
+    // identical messages from such an app cannot be distinguished safely from a repost.
+    // A null metadata sender means the current user, not the rendered conversation title.
+    // Presentation changes must not turn that same message into a new routing event.
+    val sender = if (latest == null) title else latest.sender?.toString().orEmpty()
+    val message = if (latest == null) text else latest.text?.toString().orEmpty()
+    val identity = org.json.JSONArray(listOf(notificationId, packageName, timestamp,
+        sender.take(1_024), message.take(8_192))).toString()
+    return notificationToken(identity)
+}
 
 internal fun notificationActionToken(notificationId: String, index: Int): String = notificationToken("$notificationId\u0000$index")
 
