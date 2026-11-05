@@ -60,7 +60,7 @@ if [ "$KIND" = play ]; then
   CERT=$(unzip -p "$ARTIFACT" 'META-INF/*.RSA' 2>/dev/null | openssl pkcs7 -inform DER -print_certs 2>/dev/null \
     | openssl x509 -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)
   MANIFEST=$(unzip -p "$ARTIFACT" base/manifest/AndroidManifest.xml | strings -n 6)
-  for perm in REQUEST_INSTALL_PACKAGES UPDATE_PACKAGES_WITHOUT_USER_ACTION READ_SMS SEND_SMS RECEIVE_SMS; do
+  for perm in REQUEST_INSTALL_PACKAGES UPDATE_PACKAGES_WITHOUT_USER_ACTION READ_SMS SEND_SMS RECEIVE_SMS READ_CONTACTS READ_CALL_LOG WRITE_CALL_LOG PROCESS_OUTGOING_CALLS; do
     ! printf '%s' "$MANIFEST" | grep -q "android.permission.$perm" || die "the Play bundle still declares $perm"
   done
 else
