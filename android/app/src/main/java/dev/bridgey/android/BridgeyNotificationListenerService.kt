@@ -24,6 +24,7 @@ import android.telecom.InCallService
 import android.telecom.TelecomManager
 import android.telephony.TelephonyManager
 import android.util.Base64
+import androidx.core.app.NotificationCompat
 import java.io.ByteArrayOutputStream
 import dev.bridgey.android.codes.EmailNotificationContent
 import dev.bridgey.android.codes.StyleMessage
@@ -952,7 +953,7 @@ internal fun notificationMessageEventId(
     sms: Boolean, email: Boolean,
 ): String? {
     if (notification.category == Notification.CATEGORY_CALL) return null
-    val latest = runCatching { Notification.MessagingStyle.extractMessagingStyleFromNotification(notification)?.messages?.lastOrNull() }.getOrNull()
+    val latest = runCatching { NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification)?.messages?.lastOrNull() }.getOrNull()
     if (latest == null && !sms && !email && notification.category !in setOf(Notification.CATEGORY_MESSAGE, Notification.CATEGORY_EMAIL)) return null
     val timestamp = (latest?.timestamp ?: 0).coerceAtLeast(0)
     // Generic post/when clocks can change on a repost. Without message metadata, use content;
