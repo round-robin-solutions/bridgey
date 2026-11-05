@@ -1311,4 +1311,5 @@
     <string name="attach_draft_access_lost">Доступ к выбранному элементу изменился. Снова выберите его через Обзор перед отправкой; остальные элементы сохранены.</string>
     <string name="attach_draft_preparing">Подготовка…</string>
     <string name="attach_draft_not_queued">Некоторые элементы не удалось поставить в очередь. Они всё ещё выбраны. Проверьте подключение устройства и доступ к файлам, затем повторите попытку.</string>
+    <string name="screen_destination_unavailable">Этот Mac недоступен. Выберите другой Mac или подключите его снова перед трансляцией экрана.</string>
 </resources>
