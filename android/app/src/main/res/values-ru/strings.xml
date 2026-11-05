@@ -1279,4 +1279,36 @@
         <item quantity="many">Ещё %d касаний, и откроется меню для разработчиков</item>
         <item quantity="other">Ещё %d касания, и откроется меню для разработчиков</item>
     </plurals>
+    <string name="destination_choose">Куда отправить</string>
+    <string name="destination_suggested">Рекомендуется</string>
+    <string name="destination_active">Сейчас используется этот Mac</string>
+    <string name="destination_preferred">Ваш предпочтительный Mac</string>
+    <string name="destination_connected">Подключено</string>
+    <string name="destination_offline">Не в сети · подключите устройство для отправки</string>
+    <string name="destination_feature_off">Эта функция отключена на одном из устройств</string>
+    <string name="destination_none">Пока нет сопряжённых устройств. Добавьте Mac в Bridgey, чтобы отправлять на него файлы.</string>
+    <string name="destination_unavailable">Устройство больше недоступно. Выбранные элементы сохранены; выберите другое устройство или подключите это снова.</string>
+    <string name="smart_routing_title">Умный выбор Mac для уведомлений</string>
+    <string name="smart_routing_detail">Уведомлять на Mac, которым вы пользуетесь, затем на предпочтительном Mac. Остальные Mac получат копию без сигналов.</string>
+    <string name="smart_routing_preferred">Предпочтительный Mac</string>
+    <string name="smart_routing_none">Не выбран · если активность неизвестна, уведомления останутся на телефоне</string>
+    <string name="smart_routing_status">Куда идут уведомления</string>
+    <string name="smart_routing_active_status">%1$s · сейчас используется</string>
+    <string name="smart_routing_preferred_status">%1$s · предпочтительный Mac</string>
+    <string name="smart_routing_phone_status">Только телефон · нет активного или доступного предпочтительного Mac</string>
+    <string name="smart_routing_all_status">Все разрешённые устройства · умный выбор выключен</string>
+    <string name="smart_routing_note">Доверенные устройства получают только время с последнего ввода и состояние блокировки. Названия приложений и окон, а также нажатия клавиш не передаются.</string>
+    <string name="screen_destination_title">Трансляция экрана</string>
+    <string name="screen_destination_note">Выберите Mac. Затем Android запросит разрешение на захват экрана.</string>
+    <string name="screen_destination_continue">Продолжить</string>
+    <string name="smart_routing_change">Изменить</string>
+    <string name="attach_browsed_count">Выбрано через Обзор: %1$d · выберите устройство и нажмите «Отправить»</string>
+    <string name="smart_routing_none_option">Не выбран</string>
+    <string name="destination_idle">Не используется</string>
+    <string name="destination_locked">Заблокировано</string>
+    <string name="destination_activity_unavailable">Активность недоступна</string>
+    <string name="attach_draft_not_kept">Не удалось сохранить этот выбор. Попробуйте выбрать меньше элементов или файлы из другого приложения. Предыдущий выбор сохранён.</string>
+    <string name="attach_draft_access_lost">Доступ к выбранному элементу изменился. Снова выберите его через Обзор перед отправкой; остальные элементы сохранены.</string>
+    <string name="attach_draft_preparing">Подготовка…</string>
+    <string name="attach_draft_not_queued">Некоторые элементы не удалось поставить в очередь. Они всё ещё выбраны. Проверьте подключение устройства и доступ к файлам, затем повторите попытку.</string>
 </resources>
