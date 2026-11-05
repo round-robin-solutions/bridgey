@@ -77,6 +77,7 @@ fun DeviceDestinationList(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
     showHeading: Boolean = true,
+    enabled: Boolean = true,
 ) {
     val colors = BridgeyTheme.colors
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -91,7 +92,7 @@ fun DeviceDestinationList(
                         Modifier.fillMaxWidth()
                             .clip(groupShape(choices.indexOf(choice), choices.size, outer = 16.dp, inner = 4.dp))
                             .background(colors.surface2)
-                            .selectable(selected, enabled = choice.available, role = Role.RadioButton) { onSelect(choice.deviceId) }
+                            .selectable(selected, enabled = choice.available && enabled, role = Role.RadioButton) { onSelect(choice.deviceId) }
                             .heightIn(min = 60.dp)
                             .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,

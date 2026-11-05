@@ -559,11 +559,11 @@ class AgentHub(
      * codes when no Mac reads codes and some agent has Read codes on (CodeDetections), as `codes.candidate`, with one
      * activity entry for that agent. The text is never logged or kept beyond the 30 second wait.
      */
-    fun smsCandidate(notificationId: String, title: String, applicationName: String, text: String, postedAt: Long, readerLinks: List<ReaderLink> = transport.readerLinks()) {
+    fun smsCandidate(notificationId: String, title: String, applicationName: String, text: String, postedAt: Long, readerLinks: () -> List<ReaderLink> = { transport.readerLinks() }) {
         val joined = dev.bridgey.android.codes.smsCandidateText(text) ?: return
         if (!detections.firstSight(notificationId, joined)) return
         val anyReader = transport.agentIds().any { grants.isOn(it, AgentGrant.CODES) }
-        val macs = macsReadingCodes(readerLinks)
+        val macs = macsReadingCodes(readerLinks())
         val servers = detectors()
         val target = detections.pick(macs, anyReader, servers) ?: run {
             // The order: an awake Mac, then a server with Detect codes, then this phone over cloud (servers are your

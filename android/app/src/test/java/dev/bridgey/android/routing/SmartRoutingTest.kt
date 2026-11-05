@@ -6,6 +6,73 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SmartRoutingTest {
+    @Test fun sameSessionOptOutDoesNotEraseReplayProtection() {
+        val store = DevicePresenceStore()
+        val messageIds = dev.bridgey.android.ReplayWindow()
+        val active = DevicePresencePacket(10, PresenceState.ACTIVE, 0)
+        val locked = DevicePresencePacket(20, PresenceState.LOCKED, null)
+        assertTrue(messageIds.accept("old-active-frame"))
+        assertTrue(store.receive("mac", "session", active, 0))
+        assertTrue(store.receive("mac", "session", locked, 1_000))
+        store.invalidate("mac")
+        assertNull(store.get("mac", "session"))
+        // Even when the outer message-ID window no longer remembers the old frame, its
+        // authenticated sequence cannot acquire a fresh local timestamp after off/on.
+        repeat(257) { assertTrue(messageIds.accept("later-$it")) }
+        assertTrue(messageIds.accept("old-active-frame"))
+        assertFalse(store.receive("mac", "session", active, 100_000))
+        assertNull(store.get("mac", "session"))
+        assertTrue(store.receive("mac", "session", active.copy(sequence = 21), 100_000))
+        store.remove("mac")
+        assertTrue(store.receive("mac", "new-session", active.copy(sequence = 1), 100_001))
+    }
+
+    @Test fun removalBetweenRecipientsCannotReselectOrResurrectAnAlert() {
+        val routes = NotificationAlertRoutes()
+        var activeMac = "A"
+        val ticket = routes.plan("notification") { activeMac }!!
+        val sent = mutableListOf<Pair<String, Boolean>>()
+        val delivered = dispatchNotification(ticket, listOf("A", "B"), false,
+            current = { routes.current(ticket) }, deviceId = { it }, send = { mac, alert ->
+                sent += mac to alert
+                if (mac == "A") { routes.remove("notification"); activeMac = "B" }
+                true
+            })
+        assertEquals(listOf("A"), delivered)
+        assertEquals(listOf("A" to true), sent)
+        assertFalse(routes.contains("notification"))
+        val replacement = routes.plan("notification") { activeMac }!!
+        assertEquals("B", replacement.owner)
+        assertFalse(routes.current(ticket), "a new lifetime with the same ID cannot validate old work")
+        assertTrue(dispatchNotification(ticket, listOf("B"), false, { routes.current(ticket) }, { it },
+            { _, _ -> fail("removed work must not send after the removal frame"); true }).isEmpty())
+    }
+
+    @Test fun activityChangeDuringFanoutCannotMoveItsCapturedOwner() {
+        val routes = NotificationAlertRoutes()
+        var activeMac = "A"
+        val ticket = routes.plan("notification") { activeMac }!!
+        val sent = mutableListOf<Pair<String, Boolean>>()
+        dispatchNotification(ticket, listOf("A", "B"), false, { routes.current(ticket) }, { it }, { mac, alert ->
+            sent += mac to alert
+            activeMac = "B"
+            true
+        })
+        assertEquals(listOf("A" to true, "B" to false), sent)
+        assertEquals("A", routes.owner("notification") { activeMac })
+    }
+
+    @Test fun listenerRebindRetiresMissingOwnersButKeepsLiveAndTrackedCalls() {
+        val routes = NotificationAlertRoutes()
+        val live = routes.plan("live") { "A" }!!
+        val missing = routes.plan("gone-during-unbind") { "A" }!!
+        val call = routes.plan("rekeyed-call") { "A" }!!
+        assertEquals(listOf("gone-during-unbind"), routes.retain(setOf("live")) { it == "rekeyed-call" })
+        assertTrue(routes.current(live))
+        assertTrue(routes.current(call))
+        assertFalse(routes.current(missing))
+    }
+
     private fun observed(state: PresenceState = PresenceState.ACTIVE, idle: Long? = 0, at: Long = 0) =
         ObservedPresence("session", DevicePresencePacket(1, state, idle), at)
 

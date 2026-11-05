@@ -1246,4 +1246,8 @@
     <string name="destination_idle">Idle</string>
     <string name="destination_locked">Locked</string>
     <string name="destination_activity_unavailable">Activity unavailable</string>
+    <string name="attach_draft_not_kept">Couldn’t keep that selection for later. Try fewer items or choose the files from another app. Your earlier selections are still here.</string>
+    <string name="attach_draft_access_lost">Access to a selected item changed. Choose it again in Browse before sending; your other selections are still here.</string>
+    <string name="attach_draft_preparing">Preparing…</string>
+    <string name="attach_draft_not_queued">Some items could not be queued. They are still selected. Check the device connection and file access, then try again.</string>
 </resources>
