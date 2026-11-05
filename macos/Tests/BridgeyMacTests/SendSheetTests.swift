@@ -255,7 +255,8 @@ final class SendSheetTests: XCTestCase {
         let (items, denied) = RecentFilesQuery.listFolders(home: home.path, now: now, folders: folders + [outside, missing])
         XCTAssertEqual(Set(items.map(\.name)), ["recent.pdf", "recent.mov"])
         XCTAssertFalse(denied, "an unavailable folder must not hide readable fixture folders")
-        XCTAssertTrue(items.allSatisfy { $0.url.path.hasPrefix(home.path + "/") && !$0.isDirectory })
+        XCTAssertTrue(items.allSatisfy { $0.url.standardizedFileURL.path.hasPrefix(home.path + "/") && !$0.isDirectory },
+                      "Foundation may return an aliased URL; its standardized path must stay inside the fixture home")
         XCTAssertTrue(items.allSatisfy { $0.date >= now.addingTimeInterval(-30 * day) })
 
         let (unavailable, allDenied) = RecentFilesQuery.listFolders(home: home.path, now: now, folders: [missing])
