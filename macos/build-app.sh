@@ -92,7 +92,7 @@ if [ "$(lipo -archs "$LLAMA_BINARY")" != "$APP_ARCHS" ]; then
 fi
 # Connect anywhere core (rust/core, MIT): libbridgey_connect.dylib, loaded with dlopen. Built for this
 # Mac's architecture with cargo; without cargo the app still builds and the setting says "not available".
-CARGO_BIN=${CARGO:-$(command -v cargo || echo "$HOME/.cargo/bin/cargo")}
+. ../scripts/rr/rust-env.sh
 if [ -x "$CARGO_BIN" ]; then
   CARGO_PROFILE=debug
   set -- build -p bridgey-connect --manifest-path ../rust/Cargo.toml --locked
@@ -104,9 +104,9 @@ if [ -x "$CARGO_BIN" ]; then
   CONNECT_DYLIB="$APP_PATH/Contents/Frameworks/libbridgey_connect.dylib"
   cp "../rust/target/$CARGO_PROFILE/libbridgey_connect.dylib" "$CONNECT_DYLIB"
   install_name_tool -id "@rpath/libbridgey_connect.dylib" "$CONNECT_DYLIB"
-elif [ "$CONFIGURATION" = release ] && [ "${BRIDGEY_CONNECT_CORE:-}" != skip ]; then
+elif { [ "$CONFIGURATION" = release ] || [ "${CI:-}" = 1 ]; } && [ "${BRIDGEY_CONNECT_CORE:-}" != skip ]; then
   # A release must never ship without the core; scripts/rr/rust-toolchain.sh mac installs cargo.
-  echo "error: cargo not found; release builds need the Connect anywhere core (or BRIDGEY_CONNECT_CORE=skip)" >&2
+  echo "error: cargo not found; release and CI builds need the Connect anywhere core (or BRIDGEY_CONNECT_CORE=skip)" >&2
   exit 1
 else
   echo "warning: cargo not found; building without the Connect anywhere core (it will show as not available)" >&2

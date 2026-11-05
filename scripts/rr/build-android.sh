@@ -6,6 +6,7 @@
 # Secrets are loaded only into the Gradle process environment and never printed.
 set -eu
 . "$(dirname -- "$0")/common.sh"
+. "$RR_ROOT/scripts/rr/rust-env.sh"
 
 OUTPUT=${1:?usage: build-android.sh <output.apk>}
 : "${BRIDGEY_VERSION_NAME:?set BRIDGEY_VERSION_NAME}"
