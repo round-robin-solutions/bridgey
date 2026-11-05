@@ -16,7 +16,7 @@ class SmartRoutingTest {
         assertTrue(routes.current(first))
         val second = routes.plan("conversation", eventId = "message-two") { activeMac }!!
         assertEquals("B", second.owner)
-        assertFalse(routes.current(first), "a delayed earlier-message fanout must not overwrite the new message")
+        assertFalse("a delayed earlier-message fanout must not overwrite the new message", routes.current(first))
         assertTrue(routes.current(second))
         val call = routes.plan("call") { "A" }!!
         assertEquals("A", routes.plan("call") { "B" }!!.owner)
@@ -60,7 +60,7 @@ class SmartRoutingTest {
         assertFalse(routes.contains("notification"))
         val replacement = routes.plan("notification") { activeMac }!!
         assertEquals("B", replacement.owner)
-        assertFalse(routes.current(ticket), "a new lifetime with the same ID cannot validate old work")
+        assertFalse("a new lifetime with the same ID cannot validate old work", routes.current(ticket))
         assertTrue(dispatchNotification(ticket, listOf("B"), false, { routes.current(ticket) }, { it },
             { _, _ -> fail("removed work must not send after the removal frame"); true }).isEmpty())
     }

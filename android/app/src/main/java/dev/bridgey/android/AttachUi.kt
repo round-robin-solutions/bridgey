@@ -123,15 +123,11 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
     val selection = draft.selection
     val browsedFiles = draft.files.map(Uri::parse)
     val browsedFolder = draft.folder?.let(Uri::parse)
-    val fileTransfers by pairing.fileTransfers.collectAsStateWithLifecycle()
     val thumbnails = remember { AndroidMediaThumbnails(context.contentResolver) }
     val connections by pairing.connections.collectAsStateWithLifecycle()
     val trustedTargets by pairing.trustedDevices.collectAsStateWithLifecycle()
     val routingRevision by pairing.smartRoutingRevision.collectAsStateWithLifecycle()
     val places by pairing.placesStore.places.collectAsStateWithLifecycle()
-    LaunchedEffect(fileTransfers, places, draft.fileLeases, draft.folderLeases, draft.ownedReads) {
-        draftStore.transferStates(fileTransfers.values.filter { !it.active && !it.retryable && it.outcome != null }.map { it.id }.toSet())
-    }
     var tab by remember { mutableStateOf(preferences.tab) }
     var access by remember { mutableStateOf(MediaAccess.NONE) }
     var prompt by remember { mutableStateOf(MediaPrompt.ASK) }
@@ -310,7 +306,6 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
                 say(context.getString(R.string.attach_draft_access_lost))
                 return@send
             }
-            if (!draftStore.beginSubmission()) return@send
             val sending = draftStore.value
             val byKey = media.associate { AttachKeys.media(it) to it.uri }
             val selectedFiles = sending.selection.mapNotNull { key ->
@@ -321,26 +316,39 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
                 }
             }
             val allFiles = (sending.files + selectedFiles.map { it.second }).distinct()
-            val accepted = pairing.sendFilesForShare(allFiles.map(Uri::parse), deviceId)
-            allFiles.zip(accepted).forEach { (uri, transferId) ->
-                draftStore.fileQueued(uri, transferId, selectedFiles.filter { it.second == uri }.map { it.first }.toSet())
-            }
             val folderRequests = buildList<Pair<FolderSource, String?>> {
                 sending.folder?.let { add(FolderSource.Tree(it) to null) }
                 sending.selection.filter { it.startsWith(AttachKeys.FOLDER) }.forEach { key ->
                     add(FolderSource.Place(key.removePrefix(AttachKeys.FOLDER)) to key)
                 }
             }
+            val treeUris = folderRequests.mapNotNull { (source, _) -> (source as? FolderSource.Tree)?.treeUri }
+            if (!draftStore.beginSubmission(allFiles, treeUris)) {
+                say(context.getString(R.string.attach_draft_not_queued))
+                return@send
+            }
+            var acknowledgementFailed = false
+            val accepted = pairing.sendFilesForShare(allFiles.map(Uri::parse), deviceId)
+            allFiles.zip(accepted).forEach { (uri, transferId) ->
+                if (!draftStore.fileQueued(uri, transferId, selectedFiles.filter { it.second == uri }.map { it.first }.toSet()))
+                    acknowledgementFailed = true
+            }
+            if (acknowledgementFailed) {
+                // An accepted item was not recorded: keep the gate closed and do not queue more work.
+                say(context.getString(R.string.attach_draft_not_queued))
+                return@send
+            }
             var remaining = folderRequests.size
             fun finishSubmission() {
-                draftStore.submissionFinished()
-                if (draftStore.value.hasContent) say(context.getString(R.string.attach_draft_not_queued))
+                val recorded = draftStore.submissionFinished()
+                if (!recorded || acknowledgementFailed || draftStore.value.hasContent) say(context.getString(R.string.attach_draft_not_queued))
                 else preferences.lastTarget = deviceId
             }
             if (remaining == 0) finishSubmission()
             folderRequests.forEach { (source, key) ->
                 pairing.sendFolderForShare(source, deviceId) { transferId ->
-                    if (transferId != null) draftStore.folderQueued((source as? FolderSource.Tree)?.treeUri, transferId, key)
+                    if (transferId != null && !draftStore.folderQueued((source as? FolderSource.Tree)?.treeUri, transferId, key))
+                        acknowledgementFailed = true
                     remaining--
                     if (remaining == 0) finishSubmission()
                 }

@@ -1098,6 +1098,8 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func forget(deviceID: String) {
+        alertedNotificationIdentifiers.remove(deviceID: deviceID)
+        notificationPresentations.remove(deviceID: deviceID)
         folders.forget(deviceID)
         folderReceiver.forget(deviceID)
         transferHistory.forget(deviceID: deviceID)
@@ -3152,8 +3154,7 @@ final class PairingCoordinator: ObservableObject {
                     throw PairingError.invalidMessage
                 }
                 let ticket = notificationPresentations.receive(deviceID: current.remoteDeviceID,
-                    notificationID: payload.notificationId, sessionID: current.id, presentation: presentation, eventID: payload.eventId)
-                if ticket.isNewMessage { alertedNotificationIdentifiers.remove(ticket.identifier) }
+                    notificationID: payload.notificationId, sessionID: current.id, presentation: presentation)
                 if presentation == .quiet { retractNotificationPresentation(ticket.identifier) }
                 if payload.callType == nil, presentation == .alert {
                     recordActivity(.notificationsShown, in: current, appName: payload.applicationName)
@@ -4543,7 +4544,7 @@ final class PairingCoordinator: ObservableObject {
         content.title = payload.callType == nil ? payload.applicationName : remoteCallStatusTitle(payload.callType)
         content.subtitle = payload.title
         content.body = payload.callType == nil ? payload.text : remoteCallDetail(payload.text, type: payload.callType)
-        content.sound = alertedNotificationIdentifiers.insert(identifier) ? .default : nil
+        content.sound = alertedNotificationIdentifiers.insert(identifier, eventID: payload.eventId, deviceID: deviceID) ? .default : nil
         content.categoryIdentifier = notificationCategoryIdentifier(for: payload, deviceID: deviceID)
         if let attachment = notificationIconAttachment(for: payload) {
             content.attachments = [attachment]
@@ -4705,7 +4706,7 @@ final class PairingCoordinator: ObservableObject {
         let content = UNMutableNotificationContent()
         content.title = codeNotificationTitle(code: card.code, sender: card.sender, applicationName: payload.applicationName)
         content.body = payload.text
-        content.sound = alertedNotificationIdentifiers.insert(identifier) ? .default : nil
+        content.sound = alertedNotificationIdentifiers.insert(identifier, eventID: payload.eventId, deviceID: deviceID) ? .default : nil
         content.categoryIdentifier = notificationCategoryIdentifier(for: payload, deviceID: deviceID, copyCode: true)
         if let attachment = notificationIconAttachment(for: payload) {
             content.attachments = [attachment]

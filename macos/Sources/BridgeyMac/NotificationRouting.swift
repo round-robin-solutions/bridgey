@@ -54,7 +54,6 @@ struct NotificationPresentationTicket: Equatable {
     let identifier: String
     let sessionID: String
     let generation: UInt64
-    let isNewMessage: Bool
 }
 
 /// One bounded policy record per notification. Updating to quiet, removing, replacing the
@@ -64,7 +63,6 @@ struct NotificationPresentationLedger {
         let ticket: NotificationPresentationTicket
         let deviceID: String
         let presentation: NotificationPresentation
-        let eventID: String?
     }
     private var records: [String: Record] = [:]
     private var order: [String] = []
@@ -73,13 +71,12 @@ struct NotificationPresentationLedger {
     init(limit: Int = 1_024) { self.limit = max(1, limit) }
 
     mutating func receive(deviceID: String, notificationID: String, sessionID: String,
-                          presentation: NotificationPresentation, eventID: String? = nil) -> NotificationPresentationTicket {
+                          presentation: NotificationPresentation) -> NotificationPresentationTicket {
         let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: notificationID)
         generation &+= 1
-        let newMessage = eventID != nil && records[identifier]?.eventID != eventID
-        let ticket = NotificationPresentationTicket(identifier: identifier, sessionID: sessionID, generation: generation, isNewMessage: newMessage)
+        let ticket = NotificationPresentationTicket(identifier: identifier, sessionID: sessionID, generation: generation)
         if records[identifier] == nil { order.append(identifier) }
-        records[identifier] = Record(ticket: ticket, deviceID: deviceID, presentation: presentation, eventID: eventID)
+        records[identifier] = Record(ticket: ticket, deviceID: deviceID, presentation: presentation)
         while order.count > limit { records.removeValue(forKey: order.removeFirst()) }
         return ticket
     }
