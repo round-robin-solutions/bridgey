@@ -209,7 +209,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(deviceName = name)
     }
 
-    fun setGlobal(feature: BridgeyFeature, enabled: Boolean) {
+    fun setGlobal(feature: BridgeyFeature, requested: Boolean) {
+        val enabled = requested && BuildGates.featureBuilt(feature)
         preferences.edit().putBoolean("global.${feature.key}", enabled).apply()
         mutableState.value = mutableState.value.copy(
             globalFeatures = mutableState.value.globalFeatures + (feature to enabled),
@@ -226,6 +227,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
 
     fun isEnabled(feature: BridgeyFeature, deviceId: String?): Boolean {
         val snapshot = mutableState.value
+        if (!BuildGates.featureBuilt(feature)) return false
         return effectiveFeatureEnabled(
             globalEnabled = snapshot.globalFeatures[feature] != false,
             deviceEnabled = deviceId?.let { snapshot.deviceFeatures[it]?.get(feature) },
@@ -329,7 +331,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
     }
 
     /** Text messages is on for at least one Mac (its global switch). */
-    fun smsOn(): Boolean = mutableState.value.globalFeatures[BridgeyFeature.SMS] == true
+    fun smsOn(): Boolean = BuildGates.sms && mutableState.value.globalFeatures[BridgeyFeature.SMS] == true
 
     /** The person's own choice (or a synced one) for Connect away from home: from now on it no longer follows the default. */
     fun setConnectAway(enabled: Boolean) {
@@ -457,7 +459,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
 
     private fun load(defaultDeviceName: String): BridgeySettingsState {
         val globals = BridgeyFeature.entries.associateWith {
-            preferences.getBoolean("global.${it.key}", dev.bridgey.android.setup.DefaultsGeneration.featureDefault(it, defaultsGeneration))
+            BuildGates.featureBuilt(it) &&
+                preferences.getBoolean("global.${it.key}", dev.bridgey.android.setup.DefaultsGeneration.featureDefault(it, defaultsGeneration))
         }
         val perDevice = mutableMapOf<String, MutableMap<BridgeyFeature, Boolean>>()
         preferences.all.forEach { (key, value) ->
