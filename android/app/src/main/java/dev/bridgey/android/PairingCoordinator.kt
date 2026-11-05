@@ -242,6 +242,9 @@ class PairingCoordinator(
     )
     private val registry = SessionRegistry<Session>(localDeviceId)
     private val devicePresence = DevicePresenceStore()
+    private val notificationDispatchLock = Any()
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val notificationLane = Dispatchers.IO.limitedParallelism(1)
     private val presenceExpiry = ConcurrentHashMap<String, Job>()
     private val mutablePresenceRevision = MutableStateFlow(0L)
     val presenceRevision = mutablePresenceRevision.asStateFlow()
@@ -279,15 +282,24 @@ class PairingCoordinator(
         })
     }
 
-    private fun notificationTargets(notificationId: String? = null): List<Session> {
+    private fun notificationTargets(): List<Session> = notificationTargets(
+        suggestedDevice(BridgeyFeature.NOTIFICATIONS).deviceId, settings.state.value.smartNotificationRouting)
+
+    private fun notificationTargets(owner: String?, routed: Boolean): List<Session> {
         val eligible = broadcastTargets(BridgeyFeature.NOTIFICATIONS)
-        if (!settings.state.value.smartNotificationRouting) return eligible
-        val owner = if (notificationId == null) suggestedDevice(BridgeyFeature.NOTIFICATIONS).deviceId
-            else notificationAlertRoutes.owner(notificationId) { suggestedDevice(BridgeyFeature.NOTIFICATIONS).deviceId }
-        // A legacy receiver cannot honor quiet presentation: never send it a non-chosen alert.
+        if (!routed) return eligible
         return eligible.filter { it.remoteDeviceId == owner ||
             it.envelopeKey != null && registry.state(it.remoteDeviceId)?.remoteNotificationRouting == true }
     }
+
+    /** Actual successful recipients, revalidated at candidate processing time, never an earlier snapshot. */
+    private fun notificationReaderLinks(delivered: List<Session>): List<dev.bridgey.android.agents.ReaderLink> =
+        delivered.filter { registry.isActive(it) && isFeatureAvailable(BridgeyFeature.NOTIFICATIONS, it.remoteDeviceId) }
+            .map { current ->
+                val state = registry.state(current.remoteDeviceId)
+                dev.bridgey.android.agents.ReaderLink(agent = false, smsCodes = state?.remoteSmsCodes == true,
+                    notifiedHere = true, mirror = state?.remoteAgentsMirror == true)
+            }
 
     private fun receivePresence(current: Session, message: Message) {
         if (!registry.isActive(current) || message.sessionId != current.id || current.agent || current.envelopeKey == null ||
@@ -1864,8 +1876,15 @@ class PairingCoordinator(
         }
 
         override fun releaseTree(treeUri: String) {
-            if (placesStore.places.value.any { it.treeUri == treeUri } || placesStore.defaultTree.value == treeUri) return
-            runCatching { appContext.contentResolver.releasePersistableUriPermission(Uri.parse(treeUri), android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            // Draft ownership and UI updates share Main: a pending Browse result can adopt the
+            // core's one-off grant before release, without a check/release race or an orphaned grant.
+            scope.launch(Dispatchers.Main.immediate) {
+                if (placesStore.places.value.any { it.treeUri == treeUri } || placesStore.defaultTree.value == treeUri) return@launch
+                if (dev.bridgey.android.ui.attach.AttachDraftOwner.retainReleasedFolderGrant(appContext, treeUri)) return@launch
+                val uri = Uri.parse(treeUri)
+                if (hasOutgoingFileSource(uri)) return@launch
+                runCatching { appContext.contentResolver.releasePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            }
         }
     }
 
@@ -2530,9 +2549,13 @@ class PairingCoordinator(
         smsThreadId: Long? = null,
         emailApp: Boolean = false,
         preview: String? = null,
-    ): List<DeviceConnection> {
-        val targets = notificationTargets(notificationId)
-        if (targets.isEmpty()) return emptyList()
+        detectSmsCodeCandidate: Boolean = false,
+    ): List<DeviceConnection> = synchronized(notificationDispatchLock) {
+        val routed = settings.state.value.smartNotificationRouting
+        val ticket = notificationAlertRoutes.plan(notificationId, pinOwner = routed) {
+            suggestedDevice(BridgeyFeature.NOTIFICATIONS).deviceId
+        } ?: return@synchronized emptyList()
+        val targets = notificationTargets(ticket.owner, routed)
         // A Mac with Calls off still sees the call, but gets no Answer, Decline or Hang Up.
         fun payload(callsEnabled: Boolean) = JSONObject()
             .put("packageName", packageName.take(256))
@@ -2570,43 +2593,52 @@ class PairingCoordinator(
             }
             email.forEach { (key, value) -> put(key, value) }
         }.toString().toByteArray()
-        val emailSwitchOn = settings.state.value.emailCodes
         val smsCapable = smsDefaultApp && smsReply
-        scope.launch {
-            targets.forEach { current ->
-                val callsEnabled = callType == null || settings.isEnabled(BridgeyFeature.CALLS, current.remoteDeviceId)
-                val sms = smsCapable && isFeatureAvailable(BridgeyFeature.SMS, current.remoteDeviceId)
-                val email = dev.bridgey.android.codes.emailPayloadFields(
-                    emailApp, preview, redacted, registry.state(current.remoteDeviceId)?.remoteEmailCodes == true, emailSwitchOn,
-                )
-                // Recheck eligibility on the actual session immediately before dispatch; no redirect on loss.
-                if (!registry.isActive(current) || !isFeatureAvailable(BridgeyFeature.NOTIFICATIONS, current.remoteDeviceId)) return@forEach
-                val supportsRouting = current.envelopeKey != null && registry.state(current.remoteDeviceId)?.remoteNotificationRouting == true
-                val routed = settings.state.value.smartNotificationRouting
-                val alertOwner = if (routed) notificationAlertRoutes.owner(notificationId) { suggestedDevice(BridgeyFeature.NOTIFICATIONS).deviceId } else null
-                val alert = !routed || current.remoteDeviceId == alertOwner
-                if (!alert && !supportsRouting) return@forEach
-                if (sendEncrypted(current, "notifications.post", body(callsEnabled, sms, email, if (supportsRouting) { if (alert) "alert" else "quiet" } else null))) {
-                    // Text messages and mail can carry codes: their content never reaches the log, whatever Logging says.
-                    BridgeyLogging.line(
-                        dev.bridgey.android.codes.forwardedNotificationLogLine(
-                            BridgeyLogging.policy, applicationName, packageName, smsDefaultApp, title, text,
-                        ),
-                    )
-                }
+        scope.launch(notificationLane) {
+            val delivered = dispatchNotification(ticket, targets, allDevices = !routed,
+                current = { notificationAlertRoutes.current(ticket) && settings.state.value.smartNotificationRouting == routed },
+                deviceId = { it.remoteDeviceId }, send = send@{ current, alert ->
+                    if (!registry.isActive(current) || !isFeatureAvailable(BridgeyFeature.NOTIFICATIONS, current.remoteDeviceId)) return@send false
+                    val supportsRouting = current.envelopeKey != null && registry.state(current.remoteDeviceId)?.remoteNotificationRouting == true
+                    if (!alert && !supportsRouting) return@send false
+                    val callsEnabled = callType == null || settings.isEnabled(BridgeyFeature.CALLS, current.remoteDeviceId)
+                    val sms = smsCapable && isFeatureAvailable(BridgeyFeature.SMS, current.remoteDeviceId)
+                    val email = dev.bridgey.android.codes.emailPayloadFields(emailApp, preview, redacted,
+                        registry.state(current.remoteDeviceId)?.remoteEmailCodes == true, settings.state.value.emailCodes)
+                    val sent = sendEncrypted(current, "notifications.post", body(callsEnabled, sms, email,
+                        if (supportsRouting) { if (alert) "alert" else "quiet" } else null))
+                    if (sent) BridgeyLogging.line(dev.bridgey.android.codes.forwardedNotificationLogLine(
+                        BridgeyLogging.policy, applicationName, packageName, smsDefaultApp, title, text))
+                    sent
+                })
+            // No receiver and revoked/dead receivers must not suppress permitted detector/cloud fallback.
+            // This executes after notification dispatch on the same lane and uses its exact recipients.
+            if (detectSmsCodeCandidate && notificationAlertRoutes.current(ticket)) {
+                agents.smsCandidate(notificationId, title, applicationName, text, timestamp) { notificationReaderLinks(delivered) }
             }
         }
         val ids = targets.mapTo(HashSet()) { it.remoteDeviceId }
-        return registry.connections().filter { it.deviceId in ids }
+        registry.connections().filter { it.deviceId in ids }
     }
 
     /**
      * Retracts a mirrored notification on every Mac. [callEnded] marks a call the phone saw end, so
      * the Mac drops its call card at once instead of waiting for a re-post.
      */
-    fun sendNotificationRemoved(notificationId: String, callEnded: Boolean = false) {
+    fun sendNotificationRemoved(notificationId: String, callEnded: Boolean = false) = synchronized(notificationDispatchLock) {
         notificationAlertRoutes.remove(notificationId)
         sendNotificationReference("notifications.remove", notificationId, callEnded)
+    }
+
+    fun hasNotificationRoute(notificationId: String): Boolean = notificationAlertRoutes.contains(notificationId)
+
+    fun forgetNotificationRoute(notificationId: String) = synchronized(notificationDispatchLock) {
+        notificationAlertRoutes.remove(notificationId)
+    }
+
+    /** Listener rebind reconciles against actual Android notifications, independent of its bounded indexes. */
+    fun reconcileNotificationRoutes(activeIds: Set<String>, keepCall: (String) -> Boolean) = synchronized(notificationDispatchLock) {
+        notificationAlertRoutes.retain(activeIds, keepCall).forEach { id -> sendNotificationReference("notifications.remove", id) }
     }
 
     /** Call lifecycle event for the exported diagnostics: public tokens only, never caller or app. */
@@ -2634,7 +2666,7 @@ class PairingCoordinator(
             .apply { if (callEnded) put("callEnded", true) }
             .toString()
             .toByteArray()
-        scope.launch { targets.forEach { sendEncrypted(it, kind, payload) } }
+        scope.launch(notificationLane) { targets.forEach { sendEncrypted(it, kind, payload) } }
     }
 
     /** Find device: rings [deviceId] (null: the selected device). */
@@ -2739,48 +2771,65 @@ class PairingCoordinator(
 
     /** Files 2.0: sends a whole folder to [deviceId] (null: the selected device), phone to Mac. */
     fun sendFolder(source: dev.bridgey.android.browse.FolderSource, deviceId: String? = null) {
+        queueFolder(source, deviceId, null)
+    }
+
+    /** Explicit share acceptance; callback runs on Main and names the queued folder, or null. */
+    fun sendFolderForShare(source: dev.bridgey.android.browse.FolderSource, deviceId: String, onQueued: (String?) -> Unit) {
+        queueFolder(source, deviceId, onQueued)
+    }
+
+    private fun queueFolder(source: dev.bridgey.android.browse.FolderSource, deviceId: String?, onQueued: ((String?) -> Unit)?) {
+        fun report(id: String?) { if (onQueued != null) scope.launch(Dispatchers.Main.immediate) { onQueued(id) } }
         val connectedSession = sessionFor(deviceId)
         if (connectedSession == null) {
             mutableFileTransferStatus.value = appContext.getString(R.string.folder_send_not_connected)
+            report(null)
             return
         }
         val target = connectedSession.remoteDeviceId
         if (!sendsFoldersTo(target)) {
             mutableFileTransferStatus.value = appContext.getString(R.string.folder_send_unsupported, connectedSession.peerName)
+            report(null)
             return
         }
         val peerName = connectedSession.peerName
         scope.launch {
-            val (root, releaseTree) = when (source) {
-                is dev.bridgey.android.browse.FolderSource.Tree -> {
-                    val tree = Uri.parse(source.treeUri)
-                    // A one-off grant: kept for resume after a restart, released when the folder ends.
-                    val persisted = runCatching {
-                        appContext.contentResolver.takePersistableUriPermission(tree, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        true
-                    }.getOrDefault(false)
-                    val store = runCatching { dev.bridgey.android.folders.SafTreeStore(appContext.contentResolver, tree) }.getOrNull()
-                    if (store == null) {
-                        mutableFileTransferStatus.value = appContext.getString(R.string.folder_send_unreadable)
-                        return@launch
+            var accepted: String? = null
+            try {
+                val (root, releaseTree) = when (source) {
+                    is dev.bridgey.android.browse.FolderSource.Tree -> {
+                        val tree = Uri.parse(source.treeUri)
+                        // A one-off grant: kept for resume after a restart, released when the folder ends.
+                        val persisted = runCatching {
+                            appContext.contentResolver.takePersistableUriPermission(tree, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            true
+                        }.getOrDefault(false)
+                        val store = runCatching { dev.bridgey.android.folders.SafTreeStore(appContext.contentResolver, tree) }.getOrNull()
+                        if (store == null) {
+                            mutableFileTransferStatus.value = appContext.getString(R.string.folder_send_unreadable)
+                            return@launch
+                        }
+                        val name = store.rootName() ?: "Folder"
+                        dev.bridgey.android.folders.TreeSendNode.folder(store, store.rootId, name) to
+                            source.treeUri.takeIf { persisted && placesStore.places.value.none { it.treeUri == source.treeUri } }
                     }
-                    val name = store.rootName() ?: "Folder"
-                    dev.bridgey.android.folders.TreeSendNode.folder(store, store.rootId, name) to
-                        source.treeUri.takeIf { persisted && placesStore.places.value.none { it.treeUri == source.treeUri } }
-                }
-                is dev.bridgey.android.browse.FolderSource.Place -> {
-                    val place = placeDirectory.place(source.placeId)?.takeIf { it.available }
-                    val store = place?.let { runCatching { it.open() }.getOrNull() }
-                    val dirId = store?.let { runCatching { dev.bridgey.android.folders.resolveExistingPath(it, source.path) }.getOrNull() }
-                    if (place == null || store == null || dirId == null) {
-                        mutableFileTransferStatus.value = appContext.getString(R.string.folder_send_unreadable)
-                        return@launch
+                    is dev.bridgey.android.browse.FolderSource.Place -> {
+                        val place = placeDirectory.place(source.placeId)?.takeIf { it.available }
+                        val store = place?.let { runCatching { it.open() }.getOrNull() }
+                        val dirId = store?.let { runCatching { dev.bridgey.android.folders.resolveExistingPath(it, source.path) }.getOrNull() }
+                        if (place == null || store == null || dirId == null) {
+                            mutableFileTransferStatus.value = appContext.getString(R.string.folder_send_unreadable)
+                            return@launch
+                        }
+                        val name = if (source.path.isEmpty()) place.label.substringAfterLast('/') else dev.bridgey.android.folders.FolderPaths.leaf(source.path)
+                        dev.bridgey.android.folders.TreeSendNode.folder(store, dirId, name) to null
                     }
-                    val name = if (source.path.isEmpty()) place.label.substringAfterLast('/') else dev.bridgey.android.folders.FolderPaths.leaf(source.path)
-                    dev.bridgey.android.folders.TreeSendNode.folder(store, dirId, name) to null
                 }
-            }
-            transferDevices[folderSender.send(target, peerName, root, releaseTree)] = target
+                val id = folderSender.send(target, peerName, root, releaseTree)
+                transferDevices[id] = target
+                accepted = id
+            } finally { report(accepted) }
         }
     }
 
@@ -2819,7 +2868,16 @@ class PairingCoordinator(
         sendClipboardContent(text, html = null, target = target, explicitShare = true, onResult = onResult)
     }
 
-    /** Queues [uris]; [beforeStart] sees the first transfer ID before it can start. Returns that ID, or null. */
+    /** All accepted IDs let a saved attach draft hand read grants to the actual queued transfers. */
+    fun sendFilesForShare(uris: List<Uri>, deviceId: String): List<String> {
+        var accepted = emptyList<String>()
+        queueFiles(uris, deviceId, beforeBatch = { accepted = it })
+        return accepted
+    }
+
+    fun hasOutgoingFileSource(uri: Uri): Boolean = outgoingFileSources.values.contains(uri)
+
+    /** Queues [uris]; [beforeBatch] sees every ID and [beforeStart] the first before any transfer can start. Returns the first ID, or null. */
     private fun queueFiles(uris: List<Uri>, deviceId: String?, beforeBatch: ((List<String>) -> Unit)? = null, beforeStart: ((String) -> Unit)? = null): String? {
         if (uris.isEmpty()) return null
         val connectedSession = sessionFor(deviceId)
@@ -5462,20 +5520,6 @@ class PairingCoordinator(
         trust.promote(deviceId)
         registry.session(deviceId)?.let { it.dropReason = "trusted_as_device"; it.close() }
         publish()
-    }
-
-    /**
-     * Detect codes (docs/mesh-and-codes.md): a text message from the default SMS app that is not hidden, a summary or a
-     * call. The hub decides whether an agent reads it (no Mac reading, some agent with Read codes) and which one.
-     */
-    fun offerSmsCodeCandidate(notificationId: String, title: String, applicationName: String, text: String, postedAt: Long) {
-        val notified = notificationTargets(notificationId).mapTo(HashSet()) { it.remoteDeviceId }
-        val readers = registry.connectedIds().map { id ->
-            val state = registry.state(id)
-            dev.bridgey.android.agents.ReaderLink(agent = isAgent(id), smsCodes = state?.remoteSmsCodes == true,
-                notifiedHere = id in notified, mirror = state?.remoteAgentsMirror == true)
-        }
-        scope.launch { agents.smsCandidate(notificationId, title, applicationName, text, postedAt, readers) }
     }
 
     /** Set by the application: an agent's grants changed (See battery: the battery goes out at once). */

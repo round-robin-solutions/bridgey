@@ -178,9 +178,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         }
         forwardedNotifications.record(notificationId, sbn.key, sbn.packageName)
         // Detect codes: when no Mac reads codes, an agent the user allowed may read this text message for its code.
-        if (smsDefaultApp && !groupSummary && redacted != true) {
-            bridgey.pairing.offerSmsCodeCandidate(notificationId, title, applicationName, text, sbn.postTime)
-        }
+        val detectSmsCodeCandidate = smsDefaultApp && !groupSummary && redacted != true
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
         val callType = if (isCall) resolvedNotificationCallType(notification, telephonyCallType, isTelephonyCall) else null
         val actions = storeActions(
@@ -236,6 +234,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
                 smsThreadId = smsThreadId,
                 emailApp = emailApp,
                 preview = mailPreview,
+                detectSmsCodeCandidate = detectSmsCodeCandidate,
             )
             if (callType != null) {
                 callLifecycle.forwarded(notificationId, sbn.key, sbn.packageName, isTelephonyCall)
@@ -273,14 +272,17 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
             pendingCallPosts.remove(callId)?.let(mainHandler::removeCallbacks)
             return
         }
-        val notificationId = forwardedNotifications.removeSystemKey(sbn.key) ?: return
+        // Routing ownership outlives the bounded forwarding indexes. Android still reports a real
+        // removal for an evicted entry, whose stable ordinary ID can be derived from its system key.
+        val notificationId = forwardedNotifications.removedBySystem(sbn.key)
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
         removeActions(notificationId)
         dev.bridgey.android.sms.SmsNotificationTargets.remove(notificationId)
-        if (!forwardedNotificationIds.remove(notificationId)) return
+        val wasForwarded = forwardedNotificationIds.remove(notificationId)
         val bridgey = application as BridgeyApplication
-        if (!bridgey.isPrimaryUser || !bridgey.isBridgeyEnabled) return
-        bridgey.pairing.sendNotificationRemoved(notificationId)
+        if (!wasForwarded && !bridgey.pairing.hasNotificationRoute(notificationId)) return
+        if (bridgey.isPrimaryUser && bridgey.isBridgeyEnabled) bridgey.pairing.sendNotificationRemoved(notificationId)
+        else bridgey.pairing.forgetNotificationRoute(notificationId)
     }
 
     private fun dismissForwardedNotification(notificationId: String): Boolean {
@@ -545,6 +547,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
 
     private fun retractStaleForwardedNotifications(activeNotificationIds: Set<String>) {
         val bridgey = application as BridgeyApplication
+        bridgey.pairing.reconcileNotificationRoutes(activeNotificationIds, callLifecycle::isTrackedId)
         val tracked = forwardedNotificationIds + pendingCallPosts.keys
         staleForwardedNotificationIds(tracked, activeNotificationIds).forEach { notificationId ->
             // A call's id stays after a re-key, so compare its current key; its end is decided by the lifecycle.
@@ -956,6 +959,10 @@ internal class ForwardedNotificationRegistry(
         entriesByNotificationId.remove(notificationId)
         return notificationId
     }
+
+    /** Android removals remain useful after this bounded index evicts an ordinary notification. */
+    @Synchronized
+    fun removedBySystem(systemKey: String): String = removeSystemKey(systemKey) ?: notificationToken(systemKey)
 
     @Synchronized
     fun removePackage(packageName: String): List<String> {

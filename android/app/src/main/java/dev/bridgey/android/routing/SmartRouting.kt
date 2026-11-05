@@ -23,17 +23,48 @@ fun chooseRoutingTarget(candidates: List<RoutingCandidate>, preferred: String?, 
         else RoutingDecision(null, RoutingReason.PHONE_ONLY)
 }
 
-/** Pin an alert to its original presenter: updates and ongoing calls never chase the latest activity. */
+data class NotificationDispatchTicket(val notificationId: String, val generation: Long, val owner: String?)
+
+/** Pin an alert to its original presenter and invalidate queued work on removal/reconciliation. */
 class NotificationAlertRoutes(private val capacity: Int = 1_024) {
-    private val owners = linkedMapOf<String, String?>()
-    @Synchronized fun owner(id: String, choose: () -> String?): String? {
-        if (owners.containsKey(id)) return owners[id]
+    private data class Record(val generation: Long, val owner: String?, val chosen: Boolean)
+    private val owners = linkedMapOf<String, Record>()
+    private var generation = 0L
+
+    @Synchronized fun plan(id: String, pinOwner: Boolean = true, choose: () -> String?): NotificationDispatchTicket? {
+        val old = owners[id]
+        if (old != null && (old.chosen || !pinOwner)) return NotificationDispatchTicket(id, old.generation, old.owner)
         // Never evict a live owner's identity and accidentally alert it twice on a later update.
-        if (owners.size >= capacity) return null
-        val result = choose()
-        owners[id] = result
-        return result
+        if (old == null && owners.size >= capacity) return null
+        val record = Record(++generation, if (pinOwner) choose() else null, pinOwner)
+        owners[id] = record
+        return NotificationDispatchTicket(id, record.generation, record.owner)
     }
-    @Synchronized fun remove(id: String) { owners.remove(id) }
+    @Synchronized fun owner(id: String, choose: () -> String?): String? = plan(id, choose = choose)?.owner
+    @Synchronized fun contains(id: String): Boolean = id in owners
+    @Synchronized fun current(ticket: NotificationDispatchTicket): Boolean = owners[ticket.notificationId]?.generation == ticket.generation
+    @Synchronized fun remove(id: String): Boolean = owners.remove(id) != null
+    @Synchronized fun retain(active: Set<String>, keep: (String) -> Boolean = { false }): List<String> {
+        val removed = owners.keys.filter { it !in active && !keep(it) }
+        removed.forEach(owners::remove)
+        return removed
+    }
     @Synchronized fun clear() { owners.clear() }
+}
+
+/** Executed on the coordinator's serial notification lane, using an immutable owner per fanout. */
+fun <T> dispatchNotification(
+    ticket: NotificationDispatchTicket,
+    recipients: List<T>,
+    allDevices: Boolean,
+    current: () -> Boolean,
+    deviceId: (T) -> String,
+    send: (recipient: T, alert: Boolean) -> Boolean,
+): List<T> {
+    val delivered = mutableListOf<T>()
+    for (recipient in recipients) {
+        if (!current()) break
+        if (send(recipient, allDevices || deviceId(recipient) == ticket.owner)) delivered += recipient
+    }
+    return delivered
 }

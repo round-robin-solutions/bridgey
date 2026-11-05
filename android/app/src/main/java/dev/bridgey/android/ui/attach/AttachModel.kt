@@ -53,6 +53,7 @@ data class AttachState(
     val targets: List<AttachTarget> = emptyList(),
     val targetId: String? = null,
     val extraSelectionCount: Int = 0,
+    val submitting: Boolean = false,
 ) {
     val target: AttachTarget? get() = targets.firstOrNull { it.deviceId == targetId }
 
