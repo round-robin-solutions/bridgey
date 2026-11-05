@@ -183,15 +183,20 @@ final class RecentFilesQuery: ObservableObject {
 
     /// The top level of Downloads, Desktop and Documents, changed in the last 30 days. The first listing may
     /// ask once for each folder (macOS Files and Folders privacy).
-    nonisolated static func listFolders(home: String, now: Date = Date()) -> ([SendCandidate], Bool) {
+    nonisolated static func listFolders(home: String, now: Date = Date(), folders: [URL]? = nil) -> ([SendCandidate], Bool) {
         let manager = FileManager.default
         let since = now.addingTimeInterval(-30 * 24 * 60 * 60)
         let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .addedToDirectoryDateKey]
         var items: [SendCandidate] = []
         var denied = 0
-        let folders = [FileManager.SearchPathDirectory.downloadsDirectory, .desktopDirectory, .documentDirectory]
-            .compactMap { manager.urls(for: $0, in: .userDomainMask).first }
-        for folder in folders {
+        let sources: [URL]
+        if let folders {
+            sources = folders
+        } else {
+            sources = [FileManager.SearchPathDirectory.downloadsDirectory, .desktopDirectory, .documentDirectory]
+                .compactMap { manager.urls(for: $0, in: .userDomainMask).first }
+        }
+        for folder in sources {
             guard let entries = try? manager.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else {
                 denied += 1
                 continue
@@ -206,7 +211,7 @@ final class RecentFilesQuery: ObservableObject {
                 items.append(SendCandidate(url: url, name: url.lastPathComponent, size: size, date: date, isDirectory: false))
             }
         }
-        return (items, denied == folders.count)
+        return (items, denied == sources.count)
     }
 
     private func candidates(_ query: NSMetadataQuery, screenshot: Bool) -> [SendCandidate] {

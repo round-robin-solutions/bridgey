@@ -223,13 +223,48 @@ final class SendSheetTests: XCTestCase {
     }
 
     func testFolderListingFallbackKeepsRecentFilesOnly() throws {
-        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
-        let (items, _) = RecentFilesQuery.listFolders(home: home)
-        let cutoff = Date().addingTimeInterval(-30 * 24 * 60 * 60 - 60)
-        for item in items {
-            XCTAssertGreaterThanOrEqual(item.date, cutoff)
-            XCTAssertFalse(item.name.hasPrefix("."))
-            XCTAssertFalse(item.isDirectory)
+        let manager = FileManager.default
+        let root = manager.temporaryDirectory.appendingPathComponent("bridgey-recent-folders-\(UUID().uuidString)", isDirectory: true).standardizedFileURL
+        try manager.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? manager.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let folders = ["Downloads", "Desktop", "Documents"].map { home.appendingPathComponent($0, isDirectory: true) }
+        for folder in folders { try manager.createDirectory(at: folder, withIntermediateDirectories: true) }
+        // Advance the test clock so a fixture's actual creation/addition date cannot make an old file recent.
+        let day: TimeInterval = 24 * 60 * 60
+        let now = Date().addingTimeInterval(45 * day)
+        func file(_ folder: URL, _ name: String, daysOld: Double = 1, data: Data = Data("fixture".utf8)) throws {
+            let url = folder.appendingPathComponent(name)
+            try data.write(to: url)
+            try manager.setAttributes([.modificationDate: now.addingTimeInterval(-daysOld * day)], ofItemAtPath: url.path)
         }
+        try file(folders[0], "recent.pdf")
+        try file(folders[1], "recent.mov", daysOld: 7)
+        try file(folders[2], "old.txt", daysOld: 31)
+        try file(folders[0], ".hidden.txt")
+        try file(folders[0], "partial.mp4.crdownload")
+        try file(folders[2], "empty.txt", data: Data())
+        let nested = folders[1].appendingPathComponent("Folder", isDirectory: true)
+        try manager.createDirectory(at: nested, withIntermediateDirectories: false)
+        try file(nested, "nested.txt")
+        let outside = root.appendingPathComponent("outside", isDirectory: true)
+        try manager.createDirectory(at: outside, withIntermediateDirectories: false)
+        try file(outside, "outside.txt")
+        let missing = home.appendingPathComponent("Missing", isDirectory: true)
+
+        let (items, denied) = RecentFilesQuery.listFolders(home: home.path, now: now, folders: folders + [outside, missing])
+        XCTAssertEqual(Set(items.map(\.name)), ["recent.pdf", "recent.mov"])
+        XCTAssertFalse(denied, "an unavailable folder must not hide readable fixture folders")
+        XCTAssertTrue(items.allSatisfy { $0.url.path.hasPrefix(home.path + "/") && !$0.isDirectory })
+        XCTAssertTrue(items.allSatisfy { $0.date >= now.addingTimeInterval(-30 * day) })
+
+        let (unavailable, allDenied) = RecentFilesQuery.listFolders(home: home.path, now: now, folders: [missing])
+        XCTAssertTrue(unavailable.isEmpty)
+        XCTAssertTrue(allDenied)
+        let empty = home.appendingPathComponent("Empty", isDirectory: true)
+        try manager.createDirectory(at: empty, withIntermediateDirectories: false)
+        let (noFiles, emptyDenied) = RecentFilesQuery.listFolders(home: home.path, now: now, folders: [empty])
+        XCTAssertTrue(noFiles.isEmpty)
+        XCTAssertFalse(emptyDenied, "an empty readable folder does not mean access is denied")
     }
 }
