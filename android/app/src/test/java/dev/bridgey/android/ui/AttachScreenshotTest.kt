@@ -208,7 +208,7 @@ class AttachScreenshotTest {
     @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi") fun selectionRangeLight() =
         sheet("android-attach-selection-range", base.copy(selection = media.subList(1, 7).map(AttachKeys::media)))
 
-    @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi-night") fun selectionRangeDark() =
+    @Test @Config(qualifiers = "w390dp-h844dp-port-night-xxhdpi") fun selectionRangeDark() =
         sheet("android-attach-selection-range", base.copy(selection = media.subList(1, 7).map(AttachKeys::media)))
 
     @Test fun partialLight() = sheet("android-attach-partial", base.copy(mediaAccess = MediaAccess.PARTIAL, media = media.take(7)))
