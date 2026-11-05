@@ -1,5 +1,38 @@
 import Foundation
 
+struct CodeReadPermissionTicket {
+    let channel: CodeChannel
+    let codesRevision: UInt64
+    let emailRevision: UInt64
+}
+
+/// Permission changes invalidate in-flight work, including an off/on cycle before it completes.
+/// Email-only changes leave an unrelated SMS read alone. The coordinator updates this synchronously
+/// from the published permission values, before scheduling feature-map refreshes.
+struct CodeReadPermissionFence {
+    private var enabled = false
+    private var emailEnabled = false
+    private var codesRevision: UInt64 = 0
+    private var emailRevision: UInt64 = 0
+
+    mutating func update(enabled: Bool, emailEnabled: Bool) {
+        if self.enabled != enabled { codesRevision &+= 1 }
+        if self.emailEnabled != emailEnabled { emailRevision &+= 1 }
+        self.enabled = enabled
+        self.emailEnabled = emailEnabled
+    }
+
+    func ticket(for channel: CodeChannel) -> CodeReadPermissionTicket? {
+        guard enabled, channel != .email || emailEnabled else { return nil }
+        return CodeReadPermissionTicket(channel: channel, codesRevision: codesRevision, emailRevision: emailRevision)
+    }
+
+    func permits(_ ticket: CodeReadPermissionTicket) -> Bool {
+        enabled && ticket.codesRevision == codesRevision &&
+            (ticket.channel != .email || emailEnabled && ticket.emailRevision == emailRevision)
+    }
+}
+
 enum NotificationPresentation: String, Codable, Equatable {
     case alert, quiet
 

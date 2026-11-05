@@ -2,6 +2,64 @@ import XCTest
 @testable import BridgeyMac
 
 final class NotificationRoutingTests: XCTestCase {
+    func testHeldCodeResultsAreRevokedForAlertAndQuietWithoutRevokingOrdinaryNotification() throws {
+        for presentation in [NotificationPresentation.alert, .quiet] {
+            for channel in [CodeChannel.sms, .email] {
+                var permissions = CodeReadPermissionFence()
+                permissions.update(enabled: true, emailEnabled: true)
+                let read = try XCTUnwrap(permissions.ticket(for: channel))
+                var notifications = NotificationPresentationLedger()
+                let notification = notifications.receive(deviceID: "phone", notificationID: "held",
+                    sessionID: "S", presentation: presentation)
+                // The model response is held while the switch changes. The notification itself
+                // is still current, so it may fall back to its ordinary alert/quiet behavior.
+                permissions.update(enabled: false, emailEnabled: true)
+                XCTAssertFalse(permissions.permits(read), "a held result cannot reach any code side effect")
+                XCTAssertTrue(notifications.isCurrent(notification))
+                XCTAssertEqual(notifications.allowsAlert(notification), presentation == .alert)
+            }
+        }
+    }
+
+    func testOffOnCycleCannotReviveHeldSMSOrEmailRead() throws {
+        for channel in [CodeChannel.sms, .email] {
+            var permissions = CodeReadPermissionFence()
+            permissions.update(enabled: true, emailEnabled: true)
+            let held = try XCTUnwrap(permissions.ticket(for: channel))
+            permissions.update(enabled: false, emailEnabled: true)
+            permissions.update(enabled: true, emailEnabled: true)
+            XCTAssertFalse(permissions.permits(held))
+            XCTAssertTrue(permissions.permits(try XCTUnwrap(permissions.ticket(for: channel))))
+        }
+    }
+
+    func testEmailRevocationDoesNotCancelAnUnrelatedSMSReadAndOffOnDoesNotReviveEmail() throws {
+        var permissions = CodeReadPermissionFence()
+        permissions.update(enabled: true, emailEnabled: true)
+        let sms = try XCTUnwrap(permissions.ticket(for: .sms))
+        let email = try XCTUnwrap(permissions.ticket(for: .email))
+        permissions.update(enabled: true, emailEnabled: false)
+        XCTAssertTrue(permissions.permits(sms))
+        XCTAssertFalse(permissions.permits(email))
+        XCTAssertNil(permissions.ticket(for: .email))
+        permissions.update(enabled: true, emailEnabled: true)
+        XCTAssertTrue(permissions.permits(sms))
+        XCTAssertFalse(permissions.permits(email))
+        XCTAssertTrue(permissions.permits(try XCTUnwrap(permissions.ticket(for: .email))))
+    }
+
+    func testRepeatedPermissionValuesDoNotInvalidateReadsAndDisabledCannotStartOne() throws {
+        var permissions = CodeReadPermissionFence()
+        XCTAssertNil(permissions.ticket(for: .sms))
+        XCTAssertNil(permissions.ticket(for: .email))
+        permissions.update(enabled: false, emailEnabled: true)
+        XCTAssertNil(permissions.ticket(for: .email))
+        permissions.update(enabled: true, emailEnabled: true)
+        let held = try XCTUnwrap(permissions.ticket(for: .email))
+        permissions.update(enabled: true, emailEnabled: true)
+        XCTAssertTrue(permissions.permits(held))
+    }
+
     func testPresentationRequiresNegotiationAndExactEnumButMissingKeepsLegacyAlerts() {
         XCTAssertEqual(decode("{}", negotiated: false), .alert)
         XCTAssertEqual(decode("{}"), .alert)
