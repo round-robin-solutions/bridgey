@@ -1209,4 +1209,32 @@
         <item quantity="one">%d more tap to open the developer menu</item>
         <item quantity="other">%d more taps to open the developer menu</item>
     </plurals>
+    <string name="destination_choose">Send to</string>
+    <string name="destination_suggested">Suggested</string>
+    <string name="destination_active">Active on this Mac</string>
+    <string name="destination_preferred">Your preferred Mac</string>
+    <string name="destination_connected">Connected</string>
+    <string name="destination_offline">Offline · reconnect to send here</string>
+    <string name="destination_feature_off">This feature is turned off on one of your devices</string>
+    <string name="destination_none">No paired devices yet. Pair a Mac in Bridgey to share with it.</string>
+    <string name="destination_unavailable">This device is no longer available. Your items are still here; choose another device or reconnect it.</string>
+    <string name="smart_routing_title">Smart notification routing</string>
+    <string name="smart_routing_detail">Alert on the Mac you are using, then your preferred Mac. Other Macs keep a quiet copy.</string>
+    <string name="smart_routing_preferred">Preferred Mac</string>
+    <string name="smart_routing_none">None · keep alerts on the phone when activity is unclear</string>
+    <string name="smart_routing_status">Notifications now</string>
+    <string name="smart_routing_active_status">%1$s · currently active</string>
+    <string name="smart_routing_preferred_status">%1$s · preferred fallback</string>
+    <string name="smart_routing_phone_status">Phone only · no active or available preferred Mac</string>
+    <string name="smart_routing_all_status">All allowed devices · smart routing is off</string>
+    <string name="smart_routing_note">Only activity age and lock state are shared with trusted devices. No app names, window titles or keystrokes.</string>
+    <string name="screen_destination_title">Share screen</string>
+    <string name="screen_destination_note">Choose a Mac. Android will ask for screen capture permission next.</string>
+    <string name="screen_destination_continue">Continue</string>
+    <string name="smart_routing_change">Change</string>
+    <string name="attach_browsed_count">%1$d items selected from Browse · choose a device and tap Send</string>
+    <string name="smart_routing_none_option">None</string>
+    <string name="destination_idle">Idle</string>
+    <string name="destination_locked">Locked</string>
+    <string name="destination_activity_unavailable">Activity unavailable</string>
 </resources>

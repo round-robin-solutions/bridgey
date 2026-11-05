@@ -123,6 +123,9 @@ data class BridgeySettingsState(
     val recentFolderDestinations: List<FolderDestination> = emptyList(),
     /** Privacy > Logging: what reaches Logcat and exported diagnostics. On this phone only. */
     val logging: LoggingPolicy = LoggingPolicy(),
+    /** Local notification routing preference; never synced as another device's identity. */
+    val smartNotificationRouting: Boolean = true,
+    val preferredNotificationDeviceId: String? = null,
     /** Notifications > Share Do Not Disturb with Macs (focus_sync_draft1). Off by default. */
     val focusShare: Boolean = false,
     /** Notifications > Follow the Mac's Focus: Do Not Disturb follows the Macs. Off by default. */
@@ -337,6 +340,17 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(keepWifiAwake = enabled)
     }
 
+    fun setSmartNotificationRouting(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_SMART_NOTIFICATIONS, enabled).apply()
+        mutableState.value = mutableState.value.copy(smartNotificationRouting = enabled)
+    }
+
+    fun setPreferredNotificationDeviceId(deviceId: String?) {
+        val id = deviceId?.takeIf { it.isNotBlank() && it.length <= 128 }
+        preferences.edit().apply { if (id == null) remove(KEY_PREFERRED_NOTIFICATION_DEVICE) else putString(KEY_PREFERRED_NOTIFICATION_DEVICE, id) }.apply()
+        mutableState.value = mutableState.value.copy(preferredNotificationDeviceId = id)
+    }
+
     fun setFocusShare(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_FOCUS_SHARE, enabled).apply()
         mutableState.value = mutableState.value.copy(focusShare = enabled)
@@ -480,6 +494,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
     }
 
     fun removeDevice(deviceId: String) {
+        if (mutableState.value.preferredNotificationDeviceId == deviceId) setPreferredNotificationDeviceId(null)
         val editor = preferences.edit()
         BridgeyFeature.entries.forEach { editor.remove("device.$deviceId.${it.key}") }
         editor.remove("$KEY_AUTO_CLIPBOARD_DEVICE_PREFIX$deviceId")
@@ -537,6 +552,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             allowBrowseFromOtherDevices = preferences.getBoolean(KEY_FILES_ALLOW_BROWSE, true),
             recentFolderDestinations = decodeDestinations(preferences.getString(KEY_FOLDER_RECENT, null)),
             logging = loggingPolicyFrom { key, default -> preferences.getBoolean(key, default) },
+            smartNotificationRouting = preferences.getBoolean(KEY_SMART_NOTIFICATIONS, true),
+            preferredNotificationDeviceId = preferences.getString(KEY_PREFERRED_NOTIFICATION_DEVICE, null)?.takeIf { it.isNotBlank() && it.length <= 128 },
             focusShare = preferences.getBoolean(KEY_FOCUS_SHARE, false),
             focusFollow = preferences.getBoolean(KEY_FOCUS_FOLLOW, false),
             updatesRemoteStart = preferences.getBoolean(KEY_UPDATES_REMOTE_START, true),
@@ -577,6 +594,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         internal const val KEY_FOLDER_INCLUDE_SYSTEM = "files.folder_include_system"
         private const val KEY_FILES_ALLOW_BROWSE = "files.allow_browse"
         private const val KEY_FOLDER_RECENT = "files.folder_recent"
+        private const val KEY_SMART_NOTIFICATIONS = "notifications.smart_routing"
+        private const val KEY_PREFERRED_NOTIFICATION_DEVICE = "notifications.preferred_device"
         internal const val KEY_FOCUS_SHARE = "focus.share"
         internal const val KEY_FOCUS_FOLLOW = "focus.follow"
         private const val KEY_UPDATES_REMOTE_START = "updates.remote_start"

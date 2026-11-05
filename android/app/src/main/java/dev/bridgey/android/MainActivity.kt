@@ -698,6 +698,7 @@ private fun BridgeyApp(
     val macRunning by pairing.macActions.running.collectAsStateWithLifecycle()
     val healthTick by pairing.health.changes.collectAsStateWithLifecycle()
     val settingsState by settings.state.collectAsStateWithLifecycle()
+    val presenceRevision by pairing.presenceRevision.collectAsStateWithLifecycle()
     val updateState by updater.state.collectAsStateWithLifecycle()
     val updateRun by updateAll.state.collectAsStateWithLifecycle()
     val updateOverview by updateAll.overview.collectAsStateWithLifecycle()
@@ -802,7 +803,10 @@ private fun BridgeyApp(
         }
         return LiveCard.Reconnecting(ring.deviceId!!, ring.name, seen, retry.struggling)
     }
-    val target = sendTarget(rings, pickedTarget)
+    val homeSuggestion = remember(connections, trustedDevices, settingsState, presenceRevision) {
+        pairing.suggestedDevice(BridgeyFeature.CLIPBOARD)
+    }
+    val target = sendTarget(rings, pickedTarget ?: homeSuggestion.deviceId)
     // The send bar's pick is the coordinator's target for actions without an explicit device.
     LaunchedEffect(target?.deviceId) { pairing.selectDevice(target?.deviceId) }
     fun connectionOf(deviceId: String?): DeviceConnection? = connections.firstOrNull { it.deviceId == deviceId }
@@ -991,6 +995,7 @@ private fun BridgeyApp(
                     state = HomeState(
                         rings = rings,
                         target = target,
+                        targetDetail = target?.deviceId?.let(pairing::deviceActivityLabel),
                         activity = activity,
                         live = homeLive,
                         canSendClipboard = target != null && BridgeyFeature.CLIPBOARD in availableWith(target.deviceId),
@@ -1182,6 +1187,13 @@ private fun BridgeyApp(
                             notificationAppsTotal = totalApps,
                             appNotificationsEnabled = appNotificationsEnabled,
                             notificationAccessEnabled = notificationAccessEnabled,
+                            smartRouting = dev.bridgey.android.ui.SmartRoutingSettingsState(
+                                enabled = settingsState.smartNotificationRouting,
+                                preferredId = settingsState.preferredNotificationDeviceId,
+                                devices = trustedDevices.filterNot { it.isAgent }.map { dev.bridgey.android.ui.PreferredRoutingDevice(it.id, it.name) },
+                                destinationId = pairing.suggestedDevice(BridgeyFeature.NOTIFICATIONS).deviceId,
+                                reason = pairing.suggestedDevice(BridgeyFeature.NOTIFICATIONS).reason,
+                            ),
                             reduceMotion = reduceMotion,
                             showPreviews = showPreviews,
                             activityCount = activity.size,
@@ -1257,6 +1269,10 @@ private fun BridgeyApp(
                                 // Text messages asks for SMS and contacts only now, when it is turned on.
                                 if (feature == BridgeyFeature.SMS && on && BuildGates.sms) messagesPermissions.askAll()
                             },
+                            smartRouting = dev.bridgey.android.ui.SmartRoutingSettingsActions(
+                                setEnabled = settings::setSmartNotificationRouting,
+                                setPreferred = settings::setPreferredNotificationDeviceId,
+                            ),
                             setDirectCalls = onSetDirectCalls,
                             callQuiet = dev.bridgey.android.ui.CallQuietSettingsActions(
                                 setMode = settings::setCallMediaMode,

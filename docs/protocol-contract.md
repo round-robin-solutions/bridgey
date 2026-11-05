@@ -166,6 +166,7 @@ the tables at the end of this page are generated from it with
 | `call_quiet_draft1` | edition-draft | no | false |
 | `device_presence_draft1` | edition-draft | no | false |
 | `share_receive_draft1` | edition-draft | no | false |
+| `notification_routing_draft1` | edition-draft | no | false |
 
 ### Envelope fields
 
@@ -422,8 +423,9 @@ Idempotent.
 - `preview`: string, optional, edition extension (email_codes_draft1), only with emailApp true: the expanded text (subject and body start), at most 600 UTF-16 units, cut only at whitespace; sent only when it looks like it holds a code. Never logged
 - `smsReply`: boolean, edition extension (sms_draft1), only to a Mac that shows the key: the phone answers this notification by sms.send with notificationId
 - `smsThreadId`: integer, optional, edition extension (sms_draft1): the conversation the message belongs to, when the phone found it
+- `presentation`: optional alert | quiet, only when both peers advertise notification_routing_draft1; missing means alert. Quiet retains history/call state/code extraction but forbids banners, sound, call overlays, code floats and automatic code copying
 
-Content is sensitive and never logged.
+Content is sensitive and never logged. Smart routing chooses one alert recipient on the phone; compatible other Macs receive quiet history. Legacy peers receive content only if chosen, since they cannot honor quiet. Alert ownership sticks until removal; call/media state uses its independent all-device protocol.
 
 `notifications.remove`
 

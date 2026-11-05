@@ -969,7 +969,7 @@
 "tray.title" = "Tray";
 "drop.tiles.collect" = "Collect, send later";
 "drop.tiles.trayCount" = "%d waiting";
-"settings.drop.note" = "Hovering over the icon while dragging opens the panel with a tile for each device and the Tray.";
+"settings.drop.note" = "Hover over the icon while dragging to choose a device. A quick drop uses the last connected device you sent to, then the selected device, then the first connected device. Drop on a named tile to change the last-used destination, or choose Always collect in the Tray to decide later.";
 "settings.drop" = "When I drop on the menu-bar icon";
 "settings.drop.spring" = "Show devices and Tray";
 "settings.drop.tray" = "Always collect in the Tray";

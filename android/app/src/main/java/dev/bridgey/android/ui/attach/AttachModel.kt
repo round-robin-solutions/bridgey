@@ -21,7 +21,7 @@ data class AttachFolder(
     val isDefault: Boolean = false,
 )
 
-data class AttachTarget(val deviceId: String, val name: String)
+data class AttachTarget(val deviceId: String, val name: String, val available: Boolean = true, val detail: String = "", val suggested: Boolean = false)
 
 /** What the photo permission card shows. */
 enum class MediaPrompt {
@@ -52,8 +52,9 @@ data class AttachState(
     val selection: List<String> = emptyList(),
     val targets: List<AttachTarget> = emptyList(),
     val targetId: String? = null,
+    val extraSelectionCount: Int = 0,
 ) {
-    val target: AttachTarget? get() = targets.firstOrNull { it.deviceId == targetId } ?: targets.firstOrNull()
+    val target: AttachTarget? get() = targets.firstOrNull { it.deviceId == targetId }
 
     /** 1-based pick order for the counters, keyed like [selection]. */
     val order: Map<String, Int> get() = AttachSelection.order(selection)

@@ -103,11 +103,15 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
     val preferences = remember { AttachPreferences(context) }
     val thumbnails = remember { AndroidMediaThumbnails(context.contentResolver) }
     val connections by pairing.connections.collectAsStateWithLifecycle()
+    val trustedTargets by pairing.trustedDevices.collectAsStateWithLifecycle()
+    val routingRevision by pairing.presenceRevision.collectAsStateWithLifecycle()
     val places by pairing.placesStore.places.collectAsStateWithLifecycle()
     var visible by remember { mutableStateOf(false) }
     var tab by remember { mutableStateOf(preferences.tab) }
     var targetId by remember { mutableStateOf<String?>(null) }
     var selection by remember { mutableStateOf(emptyList<String>()) }
+    var browsedFiles by remember { mutableStateOf(emptyList<Uri>()) }
+    var browsedFolder by remember { mutableStateOf<Uri?>(null) }
     var access by remember { mutableStateOf(MediaAccess.NONE) }
     var prompt by remember { mutableStateOf(MediaPrompt.ASK) }
     var media by remember { mutableStateOf(emptyList<MediaItem>()) }
@@ -130,7 +134,11 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
         }
     }
 
-    val targets = connections.filter { pairing.isFeatureAvailable(BridgeyFeature.FILES, it.deviceId) }.map { AttachTarget(it.deviceId, it.peerName) }
+    val targets = remember(connections, trustedTargets, routingRevision) {
+        dev.bridgey.android.ui.destinationChoices(context, pairing, BridgeyFeature.FILES).map {
+            AttachTarget(it.deviceId, it.name, it.available, it.detail, it.suggested)
+        }
+    }
 
     val mediaPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         preferences.mediaAsked = true
@@ -156,16 +164,16 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
     }
     val browseFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) {
-            pairing.sendFiles(uris, targetId)
-            visible = false
+            browsedFiles = (browsedFiles + uris).distinct()
+            visible = true
         }
     }
     val browseFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         // sendFolder takes a persisted read grant (so a resume after a restart can still read it) and releases it
         // when the folder ends; taking another grant here would leave a write grant behind.
-        pairing.sendFolder(FolderSource.Tree(uri.toString()), targetId)
-        visible = false
+        browsedFolder = uri
+        visible = true
     }
 
     // Access can change in system Settings while the app is away.
@@ -209,7 +217,7 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
         }
     }
 
-    val target = targets.firstOrNull { it.deviceId == targetId } ?: targets.firstOrNull()
+    val target = targets.firstOrNull { it.deviceId == targetId }
     val state = AttachState(
         tab = tab,
         mediaAccess = access,
@@ -221,10 +229,11 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
         showDocumentsCard = places.isEmpty() && !cardDismissed,
         hasDocumentPlace = places.isNotEmpty(),
         folders = folders,
-        canSendFolders = target != null && pairing.canSendFolders(target.deviceId),
+        canSendFolders = target?.available == true && pairing.canSendFolders(target.deviceId),
         selection = selection,
         targets = targets,
-        targetId = target?.deviceId,
+        targetId = targetId,
+        extraSelectionCount = browsedFiles.size + if (browsedFolder != null) 1 else 0,
     )
 
     fun openSettings() {
@@ -267,7 +276,16 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
             preferences.lastTarget = it
         },
         send = send@{
-            val deviceId = target?.deviceId ?: return@send
+            val deviceId = targetId
+            if (deviceId == null || pairing.connections.value.none { it.deviceId == deviceId } ||
+                !pairing.isFeatureAvailable(BridgeyFeature.FILES, deviceId)) {
+                say(context.getString(R.string.destination_unavailable))
+                return@send
+            }
+            if ((browsedFolder != null || selection.any { it.startsWith(AttachKeys.FOLDER) }) && !pairing.canSendFolders(deviceId)) {
+                say(context.getString(R.string.destination_feature_off))
+                return@send
+            }
             val byKey = HashMap<String, Uri>()
             media.forEach { byKey[AttachKeys.media(it)] = Uri.parse(it.uri) }
             val files = selection.mapNotNull { key ->
@@ -277,12 +295,16 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
                     else -> null
                 }
             }
-            if (files.isNotEmpty()) pairing.sendFiles(files, deviceId)
+            val allFiles = (browsedFiles + files).distinct()
+            if (allFiles.isNotEmpty()) pairing.sendFiles(allFiles, deviceId)
+            browsedFolder?.let { pairing.sendFolder(FolderSource.Tree(it.toString()), deviceId) }
             selection.filter { it.startsWith(AttachKeys.FOLDER) }.forEach { key ->
                 pairing.sendFolder(FolderSource.Place(key.removePrefix(AttachKeys.FOLDER)), deviceId)
             }
             preferences.lastTarget = deviceId
             selection = emptyList()
+            browsedFiles = emptyList()
+            browsedFolder = null
             visible = false
         },
         close = { visible = false },
@@ -290,9 +312,11 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
 
     return AttachUi(
         open = { deviceId ->
-            targetId = deviceId ?: preferences.lastTarget?.takeIf { id -> connections.any { it.deviceId == id } }
+            targetId = deviceId
             refreshAccess()
             selection = emptyList()
+            browsedFiles = emptyList()
+            browsedFolder = null
             visible = true
         },
         visible = visible,
