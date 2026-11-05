@@ -11,7 +11,7 @@ struct SendOptionsSettingsSection: View {
         SendOptimizationSettings(options: preferences.optimization, change: preferences.setOptimization, preview: preview.state)
             .onAppear { preview.update(preferences.optimization) }
             .onChange(of: preferences.optimization) { preview.update($0) }
-        SettingsCard(footnote: L10n.text("settings.drop.note", fallback: "Hovering over the icon while dragging opens the panel with a tile for each device and the Tray.")) {
+        SettingsCard(footnote: L10n.text("settings.drop.note", fallback: "Hover over the icon while dragging to choose a device. A quick drop uses the last connected device you sent to, then the selected device, then the first connected device. Drop on a named tile to change the last-used destination, or choose Always collect in the Tray to decide later.")) {
             SettingsRow(title: L10n.text("settings.drop", fallback: "When I drop on the menu-bar icon"), subtitle: nil, divider: false) {
                 ChoiceButton(value: menuBarDropModeTitle(preferences.menuBarDropMode)) {
                     MenuBarDropMode.allCases.map { mode in

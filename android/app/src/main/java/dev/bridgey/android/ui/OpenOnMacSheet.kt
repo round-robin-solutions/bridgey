@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -20,7 +18,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -30,7 +27,7 @@ import dev.bridgey.android.ui.theme.BridgeyTheme
 import dev.bridgey.android.ui.theme.BridgeyType
 
 /** One Mac Open on Mac can send to. */
-data class OpenOnMacTarget(val deviceId: String, val name: String)
+data class OpenOnMacTarget(val deviceId: String, val name: String, val available: Boolean = true, val detail: String = "", val suggested: Boolean = false)
 
 sealed interface OpenOnMacPhase {
     /** Waiting for the person's tap: nothing is sent before it. */
@@ -48,6 +45,7 @@ data class OpenOnMacState(
     val targets: List<OpenOnMacTarget>,
     val selected: String?,
     val phase: OpenOnMacPhase,
+    val message: String? = null,
 )
 
 class OpenOnMacActions(
@@ -79,7 +77,7 @@ fun OpenOnMacSheet(state: OpenOnMacState, actions: OpenOnMacActions) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 IconTile(BridgeyIcons.OpenInNew, Tint.BLUE)
                 Column(Modifier.weight(1f)) {
-                    val title = if (state.targets.size == 1 || state.phase !is OpenOnMacPhase.Confirm) {
+                    val title = if (state.phase !is OpenOnMacPhase.Confirm) {
                         stringResource(R.string.open_on_mac_title, selectedName.ifEmpty { "Mac" })
                     } else {
                         stringResource(R.string.open_on_mac_pick)
@@ -95,35 +93,15 @@ fun OpenOnMacSheet(state: OpenOnMacState, actions: OpenOnMacActions) {
             }
             when (val phase = state.phase) {
                 OpenOnMacPhase.Confirm -> {
-                    if (state.targets.size > 1) {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            state.targets.forEachIndexed { index, target ->
-                                val chosen = target.deviceId == state.selected
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clip(groupShape(index, state.targets.size, outer = 16.dp, inner = 4.dp))
-                                        .background(colors.surface2)
-                                        .selectable(chosen, role = Role.RadioButton) { actions.select(target.deviceId) }
-                                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    Box(
-                                        Modifier.size(20.dp).clip(CircleShape).background(if (chosen) colors.primary else colors.outline),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Box(Modifier.size(if (chosen) 8.dp else 16.dp).clip(CircleShape).background(if (chosen) colors.onPrimary else colors.surface2))
-                                    }
-                                    Text(target.name, style = BridgeyType.itemTitle, color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
-                        }
-                    }
+                    DeviceDestinationList(
+                        state.targets.map { DeviceDestination(it.deviceId, it.name, it.available, it.detail, it.suggested) },
+                        state.selected, actions.select,
+                    )
+                    state.message?.let { Text(it, style = BridgeyType.itemBody, color = colors.onTintPurple) }
                     Text(stringResource(R.string.open_on_mac_body), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
                         OutlinePillButton(stringResource(R.string.action_cancel), null, actions.cancel)
-                        GradientButton(stringResource(R.string.action_open), null, actions.open, enabled = state.selected != null, height = 40.dp, textStyle = BridgeyType.label)
+                        GradientButton(stringResource(R.string.action_open), null, actions.open, enabled = state.targets.any { it.deviceId == state.selected && it.available }, height = 40.dp, textStyle = BridgeyType.label)
                     }
                 }
                 is OpenOnMacPhase.Sending -> Text(stringResource(R.string.open_on_mac_sending, phase.macName), style = BridgeyType.bodyText, color = colors.onSurfaceVariant)

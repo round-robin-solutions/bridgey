@@ -20,6 +20,7 @@ import android.media.RingtoneManager
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import dev.bridgey.android.routing.*
 import dev.bridgey.core.discovery.DiscoveredPeer
 import java.io.OutputStream
 import java.math.BigInteger
@@ -218,8 +219,9 @@ data class RemoteBatteryStatus(val level: Int, val isCharging: Boolean)
 /**
  * Multi-device sessions: one authenticated session per trusted device (several Macs at once), plus
  * pending sessions that are still handshaking or pairing. Pairing a new device never touches the
- * others. Outgoing actions go to the selected device; broadcasts (notifications, calls, battery,
- * automatic clipboard) go to every connected device that has the feature on.
+ * others. Explicit outgoing actions stay pinned to their device. Smart notification routing chooses
+ * one alert presenter; compatible other Macs receive quiet history. Call/media state, battery and
+ * automatic clipboard keep their independent all-device policies.
  */
 class PairingCoordinator(
     context: Context,
@@ -233,8 +235,74 @@ class PairingCoordinator(
     val quickActions = QuickActions(
         appContext, scope, { isFeatureAvailable(it) }, ::sendQuickPayload, ::linksOpenSupported,
         availableFor = { feature, deviceId -> isFeatureAvailable(feature, deviceId) },
+        sendTo = { deviceId, kind, payload -> sendQuickPayloadTo(sessionFor(deviceId), kind, payload) },
+        linksOpenFor = { deviceId -> linksOpenSupported(deviceId) },
     )
     private val registry = SessionRegistry<Session>(localDeviceId)
+    private val devicePresence = DevicePresenceStore()
+    private val notificationAlertRoutes = NotificationAlertRoutes()
+    private val presenceExpiry = ConcurrentHashMap<String, Job>()
+    private val mutableSmartRoutingRevision = MutableStateFlow(0L)
+    val smartRoutingRevision: StateFlow<Long> = mutableSmartRoutingRevision.asStateFlow()
+
+    private fun routingChanged() { mutableSmartRoutingRevision.update { it + 1 } }
+
+    /** One recommendation for notifications and all sending surfaces; never substitutes for a user's tap. */
+    fun suggestedDevice(feature: BridgeyFeature): RoutingDecision {
+        val candidates = registry.connectedIds().mapNotNull { id ->
+            val current = registry.session(id) ?: return@mapNotNull null
+            if (isAgent(id) || id !in trust.trustedDeviceIds.value || !isFeatureAvailable(feature, id)) return@mapNotNull null
+            RoutingCandidate(id, devicePresence.get(id, current.id).takeIf { registry.state(id)?.remoteDevicePresence == true })
+        }
+        return chooseRoutingTarget(candidates, settings.state.value.preferredNotificationDeviceId, SystemClock.elapsedRealtime())
+    }
+
+    fun deviceActivityLabel(deviceId: String): String? {
+        val current = registry.session(deviceId) ?: return null
+        val unavailable = appContext.getString(R.string.destination_activity_unavailable)
+        if (registry.state(deviceId)?.remoteDevicePresence != true) return unavailable
+        val presence = devicePresence.get(deviceId, current.id) ?: return unavailable
+        val now = SystemClock.elapsedRealtime()
+        if (!presence.fresh(now)) return unavailable
+        return appContext.getString(when (presence.packet.state) {
+            PresenceState.ACTIVE -> if (presence.activeAge(now) != null) R.string.destination_active else R.string.destination_idle
+            PresenceState.IDLE -> R.string.destination_idle
+            PresenceState.LOCKED -> R.string.destination_locked
+            PresenceState.UNKNOWN -> R.string.destination_activity_unavailable
+        })
+    }
+
+    private fun notificationTargets(notificationId: String? = null): List<Session> {
+        val eligible = broadcastTargets(BridgeyFeature.NOTIFICATIONS)
+        if (!settings.state.value.smartNotificationRouting) return eligible
+        val owner = if (notificationId == null) suggestedDevice(BridgeyFeature.NOTIFICATIONS).deviceId
+            else notificationAlertRoutes.owner(notificationId) { suggestedDevice(BridgeyFeature.NOTIFICATIONS).deviceId }
+        // A legacy receiver cannot honor quiet presentation: never send it a non-chosen alert.
+        return eligible.filter { it.remoteDeviceId == owner ||
+            it.envelopeKey != null && registry.state(it.remoteDeviceId)?.remoteNotificationRouting == true }
+    }
+
+    /** A share chooser pins this request to a concrete device; disconnect never chooses another one. */
+    fun sendLinkToDevice(value: String, deviceId: String, open: Boolean = false): Boolean =
+        quickActions.sendLinkToDevice(value, deviceId, open)
+
+    private fun receivePresence(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id || current.agent || current.envelopeKey == null ||
+            current.remoteDeviceId !in trust.trustedDeviceIds.value || registry.state(current.remoteDeviceId)?.remoteDevicePresence != true) return
+        val key = current.pairingKey ?: return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        val sample = decodeDevicePresence(data) ?: return
+        if (!registry.isActive(current) || !devicePresence.receive(current.remoteDeviceId, current.id, sample, SystemClock.elapsedRealtime())) return
+        routingChanged()
+        presenceExpiry.remove(current.remoteDeviceId)?.cancel()
+        presenceExpiry[current.remoteDeviceId] = scope.launch {
+            delay(PRESENCE_FRESH_MILLIS)
+            routingChanged()
+        }
+    }
+
 
     /** Mac actions (draft `mac_actions_draft1`): each Mac's list, runs and results. */
     val macActions = dev.bridgey.android.actions.MacActionsClient(
@@ -637,6 +705,7 @@ class PairingCoordinator(
         settingsSync.diagnostics = { event, outcome, deviceId -> diagnostics.record("settings_sync", event, outcome ?: "ok", device = deviceId) }
         scope.launch {
             settings.state.collect {
+                routingChanged()
                 if (!clipboardOffersEnabledLocally()) clipboardOutbox.supersede(currentClipLink())
                 if (!featureEnabled(BridgeyFeature.CLIPBOARD)) mutableClipboardStatus.value = null
                 registry.connectedIds().forEach { id ->
@@ -2431,8 +2500,8 @@ class PairingCoordinator(
     }
 
     /**
-     * Forwards a notification (and call state, which rides on notifications) to every connected
-     * device with notifications on. Returns the devices it went to, for the activity stream.
+     * Forwards permitted notification/call state, with one chosen alert presenter when smart routing
+     * is on and quiet history on compatible other Macs. Returns planned recipients for the activity stream.
      */
     fun sendNotification(
         packageName: String,
@@ -2451,7 +2520,7 @@ class PairingCoordinator(
         emailApp: Boolean = false,
         preview: String? = null,
     ): List<DeviceConnection> {
-        val targets = broadcastTargets(BridgeyFeature.NOTIFICATIONS)
+        val targets = notificationTargets(notificationId)
         if (targets.isEmpty()) return emptyList()
         // A Mac with Calls off still sees the call, but gets no Answer, Decline or Hang Up.
         fun payload(callsEnabled: Boolean) = JSONObject()
@@ -2482,7 +2551,8 @@ class PairingCoordinator(
             })
         // Text messages (sms_draft1): only a Mac that shows the key hears that it can reply by SMS.
         // Codes from email (email_codes_draft1): only a Mac that shows the key gets emailApp, redacted and preview.
-        fun body(callsEnabled: Boolean, sms: Boolean, email: Map<String, Any>): ByteArray = payload(callsEnabled).apply {
+        fun body(callsEnabled: Boolean, sms: Boolean, email: Map<String, Any>, presentation: String?): ByteArray = payload(callsEnabled).apply {
+            if (presentation != null) put("presentation", presentation)
             if (sms) {
                 put("smsReply", true)
                 smsThreadId?.takeIf { it >= 1 }?.let { put("smsThreadId", it) }
@@ -2498,7 +2568,14 @@ class PairingCoordinator(
                 val email = dev.bridgey.android.codes.emailPayloadFields(
                     emailApp, preview, redacted, registry.state(current.remoteDeviceId)?.remoteEmailCodes == true, emailSwitchOn,
                 )
-                if (sendEncrypted(current, "notifications.post", body(callsEnabled, sms, email))) {
+                // Recheck eligibility on the actual session immediately before dispatch; no redirect on loss.
+                if (!registry.isActive(current) || !isFeatureAvailable(BridgeyFeature.NOTIFICATIONS, current.remoteDeviceId)) return@forEach
+                val supportsRouting = current.envelopeKey != null && registry.state(current.remoteDeviceId)?.remoteNotificationRouting == true
+                val routed = settings.state.value.smartNotificationRouting
+                val alertOwner = if (routed) notificationAlertRoutes.owner(notificationId) { suggestedDevice(BridgeyFeature.NOTIFICATIONS).deviceId } else null
+                val alert = !routed || current.remoteDeviceId == alertOwner
+                if (!alert && !supportsRouting) return@forEach
+                if (sendEncrypted(current, "notifications.post", body(callsEnabled, sms, email, if (supportsRouting) { if (alert) "alert" else "quiet" } else null))) {
                     // Text messages and mail can carry codes: their content never reaches the log, whatever Logging says.
                     BridgeyLogging.line(
                         dev.bridgey.android.codes.forwardedNotificationLogLine(
@@ -2517,6 +2594,7 @@ class PairingCoordinator(
      * the Mac drops its call card at once instead of waiting for a re-post.
      */
     fun sendNotificationRemoved(notificationId: String, callEnded: Boolean = false) {
+        notificationAlertRoutes.remove(notificationId)
         sendNotificationReference("notifications.remove", notificationId, callEnded)
     }
 
@@ -3148,6 +3226,11 @@ class PairingCoordinator(
             crossedTarget = null
         }
         registry.clear().forEach(Session::close)
+        devicePresence.clear()
+        notificationAlertRoutes.clear()
+        presenceExpiry.values.forEach(Job::cancel)
+        presenceExpiry.clear()
+        routingChanged()
         stopPhoneRinging()
         clearPingStatus()
         quickActions.reset()
@@ -3205,6 +3288,9 @@ class PairingCoordinator(
         if (pendingPing?.first == deviceId) clearPingStatus()
         if (isAgent(deviceId)) agents.sessionEnded(deviceId)
         macActions.sessionEnded(deviceId)
+        devicePresence.remove(deviceId)
+        presenceExpiry.remove(deviceId)?.cancel()
+        routingChanged()
         focusSync.sessionEnded(deviceId)
         speedTest.disconnected(deviceId)
         settingsSync.sessionEnded(deviceId)
@@ -3796,6 +3882,7 @@ class PairingCoordinator(
             "notifications.dismiss" -> receiveNotificationDismiss(current, message)
             "codes.advertise_result", "codes.link_request" -> receiveCodesMessage(current, message)
             "actions.catalog", "actions.result" -> receiveActionsMessage(current, message)
+            "presence.state" -> receivePresence(current, message)
             "focus.state" -> receiveFocusMessage(current, message)
             "updates.status", "updates.start", "updates.result" -> receiveUpdatesMessage(current, message)
             dev.bridgey.android.connect.ConnectKinds.SETUP, dev.bridgey.android.connect.ConnectKinds.SETUP_ACK,
@@ -4729,6 +4816,10 @@ class PairingCoordinator(
                 cancelTransfers(current.remoteDeviceId)
             }
         }
+        // SessionRegistry retains ordinary capabilities on replacement; activity never survives it.
+        devicePresence.remove(current.remoteDeviceId)
+        presenceExpiry.remove(current.remoteDeviceId)?.cancel()
+        routingChanged()
         current.authenticated = true
         dialFinished(current)
         val source = if (current.initiatedLocally) AddressSource.OUTBOUND else AddressSource.INBOUND
@@ -4812,6 +4903,8 @@ class PairingCoordinator(
         )
         // Draft, edition only: Focus and Do Not Disturb sync, while either direction is on.
         featureValues.put(dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY, focusSync.advertised())
+        featureValues.put(DEVICE_PRESENCE_FEATURE_KEY, current.envelopeKey != null)
+        featureValues.put(NOTIFICATION_ROUTING_FEATURE_KEY, current.envelopeKey != null)
         // Draft, edition only: Update all. Always advertised; whether paired devices may start this phone's
         // update is the remoteStart field of updates.status.
         featureValues.put(dev.bridgey.android.updates.UPDATES_FEATURE_KEY, true)
@@ -4872,6 +4965,8 @@ class PairingCoordinator(
                 remoteEmailCodes = drafts[dev.bridgey.android.codes.EMAIL_CODES_FEATURE_KEY] == true,
                 remoteLinksOpen = drafts[dev.bridgey.android.actions.LINKS_OPEN_FEATURE_KEY] == true,
                 remoteFocusSync = drafts[dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY] == true,
+                remoteDevicePresence = !current.agent && current.envelopeKey != null && drafts[DEVICE_PRESENCE_FEATURE_KEY] == true,
+                remoteNotificationRouting = !current.agent && current.envelopeKey != null && drafts[NOTIFICATION_ROUTING_FEATURE_KEY] == true,
                 remoteUpdates = drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true,
                 remoteFastTransfers = drafts[FILES_FAST_FEATURE_KEY] == true,
                 updateStatus = state.updateStatus.takeIf { drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true },
@@ -4895,6 +4990,11 @@ class PairingCoordinator(
             if (connectAvailable(deviceId)) sendConnectAddresses(current)
             return
         }
+        if (drafts[DEVICE_PRESENCE_FEATURE_KEY] != true) {
+            devicePresence.remove(deviceId)
+            presenceExpiry.remove(deviceId)?.cancel()
+        }
+        routingChanged()
         if (!clipboardOffersAvailable(deviceId)) clipboardOutbox.disconnected(deviceId)
         if (received[BridgeyFeature.FILES] == false) stopFileQueue(deviceId, "File transfer is turned off on ${current.peerName}")
         if (received[BridgeyFeature.FIND_DEVICE] == false && phoneRingingFrom == deviceId) stopPhoneRinging()
@@ -5293,7 +5393,7 @@ class PairingCoordinator(
             registry.connectedIds().filter { !isAgent(it) && registry.state(it)?.remoteAgentsMirror == true }
 
         override fun readerLinks(): List<dev.bridgey.android.agents.ReaderLink> {
-            val notified = broadcastTargets(BridgeyFeature.NOTIFICATIONS).mapTo(HashSet()) { it.remoteDeviceId }
+            val notified = notificationTargets().mapTo(HashSet()) { it.remoteDeviceId }
             return registry.connectedIds().map { id ->
                 val state = registry.state(id)
                 dev.bridgey.android.agents.ReaderLink(
@@ -5336,7 +5436,13 @@ class PairingCoordinator(
      * call. The hub decides whether an agent reads it (no Mac reading, some agent with Read codes) and which one.
      */
     fun offerSmsCodeCandidate(notificationId: String, title: String, applicationName: String, text: String, postedAt: Long) {
-        scope.launch { agents.smsCandidate(notificationId, title, applicationName, text, postedAt) }
+        val notified = notificationTargets(notificationId).mapTo(HashSet()) { it.remoteDeviceId }
+        val readers = registry.connectedIds().map { id ->
+            val state = registry.state(id)
+            dev.bridgey.android.agents.ReaderLink(agent = isAgent(id), smsCodes = state?.remoteSmsCodes == true,
+                notifiedHere = id in notified, mirror = state?.remoteAgentsMirror == true)
+        }
+        scope.launch { agents.smsCandidate(notificationId, title, applicationName, text, postedAt, readers) }
     }
 
     /** Set by the application: an agent's grants changed (See battery: the battery goes out at once). */

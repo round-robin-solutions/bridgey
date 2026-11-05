@@ -146,6 +146,7 @@ struct SettingsModel {
     var callMediaStatuses: [String: String] = [:]
     var callMediaRecovery: [CallMediaRecoveryItem] = []
     var ringForCalls = true
+    var shareActivityStatus = true
     var otherAppCallPolicy: MacOtherAppCallPolicy = .ask
     var logging = LoggingPolicy()
     var mediaDetail = ""
@@ -274,6 +275,7 @@ struct SettingsActions {
     var lookForDevices: () -> Void = {}
     var enableNotifications: () -> Void = {}
     var setHistoryEnabled: (Bool) -> Void = { _ in }
+    var setShareActivityStatus: (Bool) -> Void = { _ in }
     var setCodesEnabled: (Bool) -> Void = { _ in }
     var setCodesAutoCopy: (Bool) -> Void = { _ in }
     var setCodesEmail: (Bool) -> Void = { _ in }
@@ -955,6 +957,9 @@ private struct NotificationsPane: View {
         SettingsCard {
             FeatureSwitch(feature: .notifications, model: model, actions: actions)
             NotificationPermissionRow(model: model, actions: actions)
+            SettingsToggle(title: L10n.text("settings.presence.share", fallback: "Share my activity status"),
+                           subtitle: L10n.text("settings.presence.share.detail", fallback: "Helps your phone alert the Mac you are using. Shares only active, idle, locked or unknown and time since input with trusted paired devices. Never keys, app names or screen contents. Choose your preferred Mac on your phone."),
+                           isOn: model.shareActivityStatus, set: actions.setShareActivityStatus)
         }
         CodesCard(model: model, actions: actions)
         FocusSyncCard(model: model, actions: actions)
@@ -2048,6 +2053,7 @@ struct LiveSettingsView: View {
         model.callMediaStatuses = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, pairing.callMedia.resultSummary($0.id)) })
         model.callMediaRecovery = pairing.callMedia.recoveryItems
         model.ringForCalls = settings.ringForIncomingCalls
+        model.shareActivityStatus = settings.shareActivityStatus
         model.otherAppCallPolicy = settings.otherAppCallPolicy
         model.logging = settings.logging
         model.mediaDetail = media.snapshot.detail
@@ -2198,6 +2204,7 @@ struct LiveSettingsView: View {
         actions.lookForDevices = { pairing.lookForDevices() }
         actions.enableNotifications = { pairing.enableNotifications() }
         actions.setHistoryEnabled = { settings.setNotificationHistoryEnabled($0) }
+        actions.setShareActivityStatus = { settings.setShareActivityStatus($0) }
         actions.setCodesEnabled = { on in
             // Off from the row that reads on while it waits: the wait ends and the off syncs as a normal edit.
             if !on { pairing.codesSyncGate.turnedOffLocally() }

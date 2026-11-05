@@ -163,6 +163,8 @@ the tables at the end of this page are generated from it with
 | `agents_mirror_draft1` | edition-draft | no | false |
 | `codes_detect_draft1` | edition-draft | no | false |
 | `call_quiet_draft1` | edition-draft | no | false |
+| `device_presence_draft1` | edition-draft | no | false |
+| `notification_routing_draft1` | edition-draft | no | false |
 
 ### Envelope fields
 
@@ -189,7 +191,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-174 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+175 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -410,8 +412,9 @@ Idempotent.
 - `preview`: string, optional, edition extension (email_codes_draft1), only with emailApp true: the expanded text (subject and body start), at most 600 UTF-16 units, cut only at whitespace; sent only when it looks like it holds a code. Never logged
 - `smsReply`: boolean, edition extension (sms_draft1), only to a Mac that shows the key: the phone answers this notification by sms.send with notificationId
 - `smsThreadId`: integer, optional, edition extension (sms_draft1): the conversation the message belongs to, when the phone found it
+- `presentation`: optional alert | quiet, only when both peers advertise notification_routing_draft1; missing means alert. Quiet retains history/call state/code extraction but forbids banners, sound, call overlays, code floats and automatic code copying
 
-Content is sensitive and never logged.
+Content is sensitive and never logged. Smart routing chooses one alert recipient on the phone; compatible other Macs receive quiet history. Legacy peers receive content only if chosen, since they cannot honor quiet. Alert ownership sticks until removal; call/media state uses its independent all-device protocol.
 
 `notifications.remove`
 
@@ -1973,5 +1976,20 @@ After features.update with the key on both sides and on every change, at most on
 Answered by `agents.state`.
 
 Applied as if switched on the phone, recorded as changed on that Mac.
+
+#### `presence.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `presence.state` | edition-draft | mac-to-phone | device_presence_draft1 | yes | messageId + sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+
+`presence.state`
+
+- `version`: integer, 1
+- `sequence`: integer, 1 to 2^53-1, increasing within the authenticated session
+- `state`: active | idle | locked | unknown
+- `idleSeconds`: integer 0 to 86400, present only for active (0 to 119) or idle (120 to 86400)
+
+Trusted protocol-2 peers only, both presence keys enabled. Receiver derives freshness from its own monotonic arrival clock, never a sender wall clock; expires after 20 seconds. New session, disconnect, revocation and forgetting invalidate old samples. Aggregate idle polling only; no key events or foreground app names. Samples change on input/state changes or a ten-second keepalive.
 
 <!-- END GENERATED -->

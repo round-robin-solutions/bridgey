@@ -116,6 +116,39 @@ class AttachScreenshotTest {
         }
     }
 
+    @Test fun smartShareDestinations() {
+        capture("smart-share-three-macs-${theme()}") {
+            OpenOnMacSheet(
+                OpenOnMacState("example.com", listOf(
+                    OpenOnMacTarget("personal", "Personal Mac", true, "Active on this Mac", true),
+                    OpenOnMacTarget("work", "Work MacBook Pro with a long display name", true, "Connected"),
+                    OpenOnMacTarget("offline", "MacBook Pro", false, "Offline · reconnect to send here"),
+                ), "work", OpenOnMacPhase.Confirm), OpenOnMacActions(),
+            )
+        }
+    }
+
+    @Test fun smartScreenDestinations() {
+        capture("smart-screen-devices-${theme()}") {
+            ScreenDestinationSheet(listOf(
+                DeviceDestination("personal", "Personal Mac", true, "Active on this Mac", true),
+                DeviceDestination("work", "Work MacBook Pro", true, "Connected"),
+                DeviceDestination("offline", "MacBook Pro", false, "Offline · reconnect to send here"),
+            ), "offline", true, {}, {}, {})
+        }
+    }
+
+    @Test fun smartNotificationRoutingSettings() {
+        capture("smart-notification-routing-${theme()}") {
+            SettingsScreen(
+                state = sampleSettingsState(now).copy(smartRouting = SmartRoutingSettingsState(
+                    preferredId = "work", devices = listOf(PreferredRoutingDevice("personal", "Personal Mac"), PreferredRoutingDevice("work", "Work MacBook Pro")),
+                    destinationId = "personal", reason = dev.bridgey.android.routing.RoutingReason.ACTIVE,
+                )), actions = SettingsActions(), section = SettingsSection.NOTIFICATIONS,
+            )
+        }
+    }
+
     /** Photo-like gradients instead of real photos: every cell already cached, as on a reopened sheet. */
     private object SampleThumbnails : MediaThumbnails {
         private val palettes = listOf(

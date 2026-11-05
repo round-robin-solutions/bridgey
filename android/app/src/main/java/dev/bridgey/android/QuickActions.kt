@@ -87,6 +87,8 @@ class QuickActions(
     private val linksOpenSupported: () -> Boolean = { false },
     /** [BridgeyFeature] is on for one device, whether or not it is the selected one. */
     private val availableFor: (BridgeyFeature, String) -> Boolean = { feature, _ -> available(feature) },
+    private val sendTo: (String, String, JSONObject) -> Boolean = { _, _, _ -> false },
+    private val linksOpenFor: (String) -> Boolean = { linksOpenSupported() },
 ) {
     private val mutableLinkResult = MutableStateFlow<LinkSendResult?>(null)
 
@@ -108,31 +110,39 @@ class QuickActions(
     private val mutableMedia = MutableStateFlow(MacMediaState())
     val media = mutableMedia.asStateFlow()
     private val pending = mutableMapOf<String, Pair<String, Job>>()
+    private val pendingTargets = mutableMapOf<String, String>()
     private var sequence = 0L
 
-    @Synchronized fun request(feature: BridgeyFeature, action: String, value: String = "") {
-        if (!available(feature)) { mutableStatus.value = "Feature is unavailable on one of your devices"; return }
-        if (feature.key in pending) return
+    @Synchronized fun request(feature: BridgeyFeature, action: String, value: String = "", deviceId: String? = null): Boolean {
+        val allowed = if (deviceId == null) available(feature) else availableFor(feature, deviceId)
+        if (!allowed) { mutableStatus.value = "Feature is unavailable on one of your devices"; return false }
+        if (feature.key in pending) return false
         val id = UUID.randomUUID().toString()
         val expiry = scope.launch {
             delay(8000)
             synchronized(this@QuickActions) {
                 if (pending[feature.key]?.first == id) {
                     pending.remove(feature.key)
+                    pendingTargets.remove(feature.key)
                     mutableStatus.value = "The other device did not confirm the request"
                     if (feature == BridgeyFeature.LINKS) linkResult(LinkSendResult.Outcome.NOT_CONFIRMED)
                 }
             }
         }
         pending[feature.key] = id to expiry
+        if (deviceId != null) pendingTargets[feature.key] = deviceId
         sequence += 1
         mutableStatus.value = "Sending…"
-        if (!send("quick.request", JSONObject().put("version", 1).put("requestId", id)
-                .put("feature", feature.key).put("action", action).put("value", value).put("sequence", sequence))) {
+        val payload = JSONObject().put("version", 1).put("requestId", id)
+            .put("feature", feature.key).put("action", action).put("value", value).put("sequence", sequence)
+        val sent = if (deviceId == null) send("quick.request", payload) else sendTo(deviceId, "quick.request", payload)
+        if (!sent) {
             pending.remove(feature.key)?.second?.cancel()
+            pendingTargets.remove(feature.key)
             mutableStatus.value = "Not connected — request not sent"
             if (feature == BridgeyFeature.LINKS) linkResult(LinkSendResult.Outcome.NOT_SENT)
         }
+        return sent
     }
 
     /**
@@ -149,6 +159,15 @@ class QuickActions(
         }
         if (open && (!available(BridgeyFeature.LINKS) || BridgeyFeature.LINKS.key in pending)) linkResult(LinkSendResult.Outcome.NOT_SENT)
         request(BridgeyFeature.LINKS, if (open && linksOpenSupported()) "open" else "offer", url)
+    }
+
+    /** A chooser-selected destination is pinned for the request and its answer. */
+    @Synchronized fun sendLinkToDevice(value: String, deviceId: String, open: Boolean = false): Boolean {
+        val url = validatedWebLink(value)
+        if (url == null) { mutableStatus.value = "Copy a valid http or https link first"; linkResult(LinkSendResult.Outcome.NOT_SENT); return false }
+        val result = request(BridgeyFeature.LINKS, if (open && linksOpenFor(deviceId)) "open" else "offer", url, deviceId)
+        if (!result) linkResult(LinkSendResult.Outcome.NOT_SENT)
+        return result
     }
 
     /**
@@ -175,7 +194,9 @@ class QuickActions(
             "quick.result" -> {
                 val feature = payload.optString("feature")
                 if (pending[feature]?.first != payload.optString("requestId")) return
+                if (pendingTargets[feature]?.let { it != sender } == true) return
                 pending.remove(feature)?.second?.cancel()
+                pendingTargets.remove(feature)
                 val accepted = payload.opt("accepted") == true
                 val opened = feature == "links" && accepted && payload.opt("opened") == true
                 if (feature == "links") {
@@ -212,19 +233,23 @@ class QuickActions(
         if (!linkAllowed()) mutableLink.value = null
         if (!available(BridgeyFeature.MEDIA)) mutableMedia.value = MacMediaState()
         pending.entries.removeAll { (feature, operation) ->
-            val disabled = BridgeyFeature.entries.find { it.key == feature }?.let { !available(it) } ?: true
-            if (disabled) { operation.second.cancel(); mutableStatus.value = null }
+            val disabled = BridgeyFeature.entries.find { it.key == feature }?.let { f ->
+                pendingTargets[feature]?.let { !availableFor(f, it) } ?: !available(f)
+            } ?: true
+            if (disabled) { operation.second.cancel(); pendingTargets.remove(feature); mutableStatus.value = null }
             disabled
         }
     }
     /** The selected device changed: pending requests end, and its own media state (if known) shows. */
     @Synchronized fun targetChanged(media: JSONObject?) {
-        pending.values.forEach { it.second.cancel() }; pending.clear()
+        pending.entries.removeAll { (feature, operation) ->
+            if (feature in pendingTargets) false else { operation.second.cancel(); true }
+        }
         mutableMedia.value = MacMediaState()
         media?.let { receive("media.state", it) }
     }
     @Synchronized fun reset() {
-        pending.values.forEach { it.second.cancel() }; pending.clear()
+        pending.values.forEach { it.second.cancel() }; pending.clear(); pendingTargets.clear()
         mutableLink.value = null; mutableMedia.value = MacMediaState(); mutableStatus.value = null
     }
 }

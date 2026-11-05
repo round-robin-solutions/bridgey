@@ -50,6 +50,13 @@ struct ActiveRemoteCalls {
         calls.last { $0.type == "incoming" } ?? calls.last
     }
 
+    /// The overlay follows only alert-enabled calls. Quiet calls remain in mostRelevant/all
+    /// for manual controls, media barriers and final-end handling.
+    var mostRelevantPresented: RemoteCallStatus? {
+        calls.last { $0.presentation == .alert && $0.type == "incoming" }
+            ?? calls.last { $0.presentation == .alert }
+    }
+
     func contains(notificationID: String, deviceID: String) -> Bool {
         calls.contains { $0.deviceID == deviceID && $0.notificationID == notificationID }
     }
@@ -137,7 +144,7 @@ func ringingRemoteCallIdentities(
     identity: (RemoteCallStatus) -> String
 ) -> [String] {
     guard enabled else { return [] }
-    return calls.filter { $0.type == "incoming" }.map(identity).filter { !silenced.contains($0) }
+    return calls.filter { $0.type == "incoming" && $0.presentation == .alert }.map(identity).filter { !silenced.contains($0) }
 }
 
 /// The phone's id is per notification, not per call: a dialer posts every call under the same

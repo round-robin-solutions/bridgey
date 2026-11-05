@@ -83,6 +83,8 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var loginItemMessage: String?
     @Published private(set) var hasCompletedOnboarding: Bool
     @Published private(set) var notificationHistoryEnabled: Bool
+    /// Coarse activity for trusted paired devices; no keys, app names or screen contents.
+    @Published private(set) var shareActivityStatus: Bool
     /// Settings > Privacy > Show previews in activity. On by default.
     @Published private(set) var showActivityPreviews: Bool
     /// Settings > Privacy > Logging: what reaches the unified log and exported diagnostics. Per Mac.
@@ -177,6 +179,7 @@ final class BridgeySettings: ObservableObject {
         deviceName = storedDefaults.string(forKey: "settings.deviceName") ?? systemName
         hasCompletedOnboarding = storedDefaults.bool(forKey: "settings.onboarding.completed")
         notificationHistoryEnabled = storedDefaults.bool(forKey: "settings.notificationHistory.enabled")
+        shareActivityStatus = storedDefaults.object(forKey: "settings.presence.share") as? Bool ?? true
         showActivityPreviews = storedDefaults.object(forKey: "settings.activity.previews") as? Bool ?? true
         reduceMotion = storedDefaults.bool(forKey: "settings.reduceMotion")
         ringForIncomingCalls = storedDefaults.object(forKey: "settings.calls.ring") as? Bool ?? true
@@ -337,6 +340,11 @@ final class BridgeySettings: ObservableObject {
         let created = CodeRelay.newInstallID()
         defaults.set(created, forKey: "settings.codes.installId")
         return created
+    }
+
+    func setShareActivityStatus(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.presence.share")
+        shareActivityStatus = enabled
     }
 
     func setShowActivityPreviews(_ enabled: Bool) {

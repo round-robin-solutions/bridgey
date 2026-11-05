@@ -214,6 +214,9 @@ object SettingsSearchRegistry {
         SettingsSearchEntry("files.system", SearchPage.FILES, null, R.string.settings_folder_system, R.string.settings_folder_system_detail, listOf("ds_store", "thumbs.db", "системные"), syncKey = SyncKey.FOLDER_INCLUDE_SYSTEM),
         SettingsSearchEntry("files.places", SearchPage.FILES, null, R.string.settings_places, null, listOf("storage", "sd card", "folders", "места")),
 
+        SettingsSearchEntry("notifications.smartRouting", SearchPage.NOTIFICATIONS, null, R.string.smart_routing_title, R.string.smart_routing_detail, listOf("active Mac", "situational awareness", "duplicate alerts", "notification routing")),
+        SettingsSearchEntry("notifications.preferredMac", SearchPage.NOTIFICATIONS, null, R.string.smart_routing_preferred, null, listOf("default Mac", "preferred device", "fallback", "destination")),
+
         // Media and quick actions
         feature("media.media", SearchPage.MEDIA, R.string.feature_media, R.string.settings_media_detail, BridgeyFeature.MEDIA, MEDIA_WORDS),
         feature("media.macActions", SearchPage.MEDIA, R.string.feature_mac_actions, R.string.settings_mac_actions_detail, BridgeyFeature.MAC_ACTIONS, listOf("lock", "sleep", "shortcuts", "заблокировать")),
