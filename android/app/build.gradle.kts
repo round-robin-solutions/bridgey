@@ -13,7 +13,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "dev.bridgey.android"
+        applicationId = "in.roundrobin.bridgey"
         minSdk = 26
         targetSdk = 36
         versionCode = 25
