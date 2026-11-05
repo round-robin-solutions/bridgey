@@ -116,7 +116,7 @@ class AttachScreenshotTest {
         }
     }
 
-    @Test fun smartShareDestinations() {
+    @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi") fun smartShareDestinations() {
         capture("smart-share-three-macs-${theme()}") {
             OpenOnMacSheet(
                 OpenOnMacState("example.com", listOf(
@@ -128,7 +128,7 @@ class AttachScreenshotTest {
         }
     }
 
-    @Test fun smartScreenDestinations() {
+    @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi") fun smartScreenDestinations() {
         capture("smart-screen-devices-${theme()}") {
             ScreenDestinationSheet(listOf(
                 DeviceDestination("personal", "Personal Mac", true, "Active on this Mac", true),
@@ -138,7 +138,7 @@ class AttachScreenshotTest {
         }
     }
 
-    @Test fun smartNotificationRoutingSettings() {
+    @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi") fun smartNotificationRoutingSettings() {
         capture("smart-notification-routing-${theme()}") {
             SettingsScreen(
                 state = sampleSettingsState(now).copy(smartRouting = SmartRoutingSettingsState(
@@ -148,6 +148,10 @@ class AttachScreenshotTest {
             )
         }
     }
+
+    @Test @Config(qualifiers = "w390dp-h844dp-port-night-xxhdpi") fun smartShareDestinationsDark() = smartShareDestinations()
+    @Test @Config(qualifiers = "w390dp-h844dp-port-night-xxhdpi") fun smartScreenDestinationsDark() = smartScreenDestinations()
+    @Test @Config(qualifiers = "w390dp-h844dp-port-night-xxhdpi") fun smartNotificationRoutingSettingsDark() = smartNotificationRoutingSettings()
 
     /** Photo-like gradients instead of real photos: every cell already cached, as on a reopened sheet. */
     private object SampleThumbnails : MediaThumbnails {

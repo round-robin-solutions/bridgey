@@ -455,8 +455,18 @@ private fun NotificationsPage(state: SettingsState, actions: SettingsActions, li
                             BridgeyIcons.Notifications, Tint.PURPLE, onClick = actions.openNotificationApps,
                         ) { Chevron() }
                     }
-                    codesRows(state.codes, actions.codes, state.sync, actions.sync)
                 }
+            }
+        }
+        item(key = "notifications.routing") {
+            Box(Modifier.padding(top = 16.dp)) { SmartRoutingSettings(state.smartRouting, actions.smartRouting) }
+        }
+        item(key = "notifications.routing.note") {
+            Note(stringResource(R.string.smart_routing_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp))
+        }
+        item(key = "notifications.other") {
+            RowGroup(Modifier.padding(top = 16.dp)) {
+                if (notificationsOn) codesRows(state.codes, actions.codes, state.sync, actions.sync)
                 row { shape ->
                     ListRow(
                         shape, stringResource(R.string.settings_app_notifications),
@@ -466,10 +476,6 @@ private fun NotificationsPage(state: SettingsState, actions: SettingsActions, li
                     ) { ManageLabel(state.appNotificationsEnabled) }
                 }
             }
-        }
-        item(key = "notifications.routing") { SmartRoutingSettings(state.smartRouting, actions.smartRouting) }
-        item(key = "notifications.routing.note") {
-            Note(stringResource(R.string.smart_routing_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp))
         }
         if (notificationsOn) {
             item(key = "notifications.codes") { CodesFootnote(state.codes, actions.codes) }

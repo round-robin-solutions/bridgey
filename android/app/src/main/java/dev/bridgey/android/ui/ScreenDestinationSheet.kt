@@ -36,7 +36,7 @@ fun ScreenDestinationSheet(
             Text(stringResource(R.string.screen_destination_title), style = BridgeyType.cardTitle, color = colors.onSurface)
             Text(stringResource(R.string.screen_destination_note), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
             DeviceDestinationList(choices, selected, select)
-            if (unavailable) Text(stringResource(R.string.destination_unavailable), style = BridgeyType.itemBody, color = colors.onTintPurple)
+            if (unavailable) Text(stringResource(R.string.screen_destination_unavailable), style = BridgeyType.itemBody, color = colors.onTintPurple)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
                 OutlinePillButton(stringResource(R.string.action_cancel), null, cancel)
                 GradientButton(stringResource(R.string.screen_destination_continue), null, continueSharing,

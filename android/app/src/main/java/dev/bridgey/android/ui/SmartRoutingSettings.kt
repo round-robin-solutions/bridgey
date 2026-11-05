@@ -12,6 +12,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.bridgey.android.ui.theme.BridgeyTheme
+import dev.bridgey.android.ui.theme.BridgeyType
 import dev.bridgey.android.R
 import dev.bridgey.android.routing.RoutingReason
 
@@ -31,6 +33,7 @@ class SmartRoutingSettingsActions(
 
 @Composable
 fun SmartRoutingSettings(state: SmartRoutingSettingsState, actions: SmartRoutingSettingsActions) {
+    val colors = BridgeyTheme.colors
     var choosing by remember { mutableStateOf(false) }
     val preferredName = state.devices.firstOrNull { it.id == state.preferredId }?.name
     val destinationName = state.devices.firstOrNull { it.id == state.destinationId }?.name
@@ -45,7 +48,7 @@ fun SmartRoutingSettings(state: SmartRoutingSettingsState, actions: SmartRouting
             BridgeyIcons.Notifications, Tint.PURPLE, state.enabled, actions.setEnabled) }
         row { shape -> ListRow(shape, stringResource(R.string.smart_routing_preferred),
             preferredName ?: stringResource(R.string.smart_routing_none), BridgeyIcons.LaptopMac, Tint.BLUE,
-            onClick = { choosing = true }) { Text(stringResource(R.string.smart_routing_change)) } }
+            onClick = { choosing = true }) { Text(stringResource(R.string.smart_routing_change), style = BridgeyType.label, color = colors.primary) } }
         row { shape -> ListRow(shape, stringResource(R.string.smart_routing_status), status,
             BridgeyIcons.Notifications, Tint.NEUTRAL, searchable = false) }
     }

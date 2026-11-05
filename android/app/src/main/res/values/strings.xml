@@ -1250,4 +1250,5 @@
     <string name="attach_draft_access_lost">Access to a selected item changed. Choose it again in Browse before sending; your other selections are still here.</string>
     <string name="attach_draft_preparing">Preparing…</string>
     <string name="attach_draft_not_queued">Some items could not be queued. They are still selected. Check the device connection and file access, then try again.</string>
+    <string name="screen_destination_unavailable">This Mac is unavailable. Choose another Mac or reconnect it before sharing your screen.</string>
 </resources>
