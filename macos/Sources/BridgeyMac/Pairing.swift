@@ -472,6 +472,7 @@ final class PairingCoordinator: ObservableObject {
     let agentsMirror = AgentsMirror()
     /// Reads waiting for the engine, by notification request identifier.
     private var codeReads: [String: Task<Void, Never>] = [:]
+    private var codeReadPermissions = CodeReadPermissionFence()
     /// Codes that can still be copied, in memory only.
     private var liveCodes: [String: LiveCodeCard] = [:]
     /// Cards dismissed in the panel: still live for Copy code, duplicates and Latest or Older.
@@ -4597,6 +4598,12 @@ final class PairingCoordinator: ObservableObject {
             postNotification(payload, deviceID: deviceID, ticket: ticket)
             return
         }
+        let channel: CodeChannel = candidate.isEmail ? .email : .sms
+        guard let readPermission = codeReadPermissions.ticket(for: channel) else {
+            recordNotificationHistory(payload, deviceID: deviceID)
+            postNotification(payload, deviceID: deviceID, ticket: ticket)
+            return
+        }
         // Email is always read by the model on this Mac, even when Cloud reads text messages; never the cloud.
         let reader = codeReader(engine: candidate.isEmail ? .local : settings.codesEngine, local: codeModel.engine,
                                 relay: CodeRelay.baseURL, installID: settings.codesInstallID)
@@ -4607,6 +4614,14 @@ final class PairingCoordinator: ObservableObject {
                   self.notificationSessionCurrent(ticket, deviceID: deviceID),
                   self.notificationPresentations.isCurrent(ticket) else { return }
             self.codeReads.removeValue(forKey: identifier)
+            // A revoked read must not show/copy/report its result even if permission was re-enabled.
+            // The ordinary notification still follows its own current permission and presentation.
+            guard self.codeReadPermissions.permits(readPermission), self.settings.codesEnabled,
+                  !candidate.isEmail || self.settings.codesEmail else {
+                self.recordNotificationHistory(payload, deviceID: deviceID)
+                self.postNotification(payload, deviceID: deviceID, ticket: ticket)
+                return
+            }
             self.diagnostics.record(category: "notification", event: candidate.isEmail ? "email_code_read" : "code_read",
                                     outcome: outcome.diagnosticName)
             if case let .code(code) = outcome {
@@ -4944,6 +4959,11 @@ final class PairingCoordinator: ObservableObject {
         }
         settings.$codesEnabled
             .sink { [weak self] on in self?.codesSyncGate.codesChanged(on: on) }
+            .store(in: &settingsSyncCancellables)
+        settings.$codesEnabled.combineLatest(settings.$codesEmail)
+            .sink { [weak self] enabled, emailEnabled in
+                self?.codeReadPermissions.update(enabled: enabled, emailEnabled: emailEnabled)
+            }
             .store(in: &settingsSyncCancellables)
         // email_codes_draft1 follows Codes from messages and Also read codes in email: phones learn at once.
         settings.$codesEnabled.combineLatest(settings.$codesEmail)
