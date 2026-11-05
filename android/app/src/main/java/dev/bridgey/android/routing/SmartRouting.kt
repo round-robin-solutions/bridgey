@@ -23,24 +23,26 @@ fun chooseRoutingTarget(candidates: List<RoutingCandidate>, preferred: String?, 
         else RoutingDecision(null, RoutingReason.PHONE_ONLY)
 }
 
-data class NotificationDispatchTicket(val notificationId: String, val generation: Long, val owner: String?)
+data class NotificationDispatchTicket(val notificationId: String, val generation: Long, val owner: String?, val eventId: String? = null)
 
 /** Pin an alert to its original presenter and invalidate queued work on removal/reconciliation. */
 class NotificationAlertRoutes(private val capacity: Int = 1_024) {
-    private data class Record(val generation: Long, val owner: String?, val chosen: Boolean)
+    private data class Record(val generation: Long, val owner: String?, val chosen: Boolean, val eventId: String?)
     private val owners = linkedMapOf<String, Record>()
     private var generation = 0L
 
-    @Synchronized fun plan(id: String, pinOwner: Boolean = true, choose: () -> String?): NotificationDispatchTicket? {
+    @Synchronized fun plan(id: String, pinOwner: Boolean = true, eventId: String? = null, choose: () -> String?): NotificationDispatchTicket? {
         val old = owners[id]
-        if (old != null && (old.chosen || !pinOwner)) return NotificationDispatchTicket(id, old.generation, old.owner)
+        if (old != null && old.eventId == eventId && (old.chosen || !pinOwner))
+            return NotificationDispatchTicket(id, old.generation, old.owner, old.eventId)
         // Never evict a live owner's identity and accidentally alert it twice on a later update.
         if (old == null && owners.size >= capacity) return null
-        val record = Record(++generation, if (pinOwner) choose() else null, pinOwner)
+        val record = Record(++generation, if (pinOwner) choose() else null, pinOwner, eventId)
         owners[id] = record
-        return NotificationDispatchTicket(id, record.generation, record.owner)
+        return NotificationDispatchTicket(id, record.generation, record.owner, record.eventId)
     }
-    @Synchronized fun owner(id: String, choose: () -> String?): String? = plan(id, choose = choose)?.owner
+    @Synchronized fun owner(id: String, choose: () -> String?): String? =
+        if (owners.containsKey(id)) owners[id]?.owner else plan(id, choose = choose)?.owner
     @Synchronized fun contains(id: String): Boolean = id in owners
     @Synchronized fun current(ticket: NotificationDispatchTicket): Boolean = owners[ticket.notificationId]?.generation == ticket.generation
     @Synchronized fun remove(id: String): Boolean = owners.remove(id) != null

@@ -144,6 +144,8 @@ private struct RemoteNotificationPayload: Codable {
     var preview: LenientText? = nil
     /// Negotiated routing; a present value is validated strictly before decoding.
     var presentation: NotificationPresentation? = nil
+    /// Opaque identity of a new message in a reused conversation notification, never a call.
+    var eventId: String? = nil
 }
 
 private struct RemoteNotificationActionPayload: Codable {
@@ -3168,7 +3170,8 @@ final class PairingCoordinator: ObservableObject {
                     throw PairingError.invalidMessage
                 }
                 let ticket = notificationPresentations.receive(deviceID: current.remoteDeviceID,
-                    notificationID: payload.notificationId, sessionID: current.id, presentation: presentation)
+                    notificationID: payload.notificationId, sessionID: current.id, presentation: presentation, eventID: payload.eventId)
+                if ticket.isNewMessage { alertedNotificationIdentifiers.remove(ticket.identifier) }
                 if presentation == .quiet { retractNotificationPresentation(ticket.identifier) }
                 if payload.callType == nil, presentation == .alert {
                     recordActivity(.notificationsShown, in: current, appName: payload.applicationName)
