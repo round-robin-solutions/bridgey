@@ -229,7 +229,14 @@ enum class SettingsSection(val titleRes: Int, val group: SettingsGroup?) {
 
     companion object {
         /** The rows on the Settings home: every section but This phone, which is the header card. */
-        val homeRows: List<SettingsSection> get() = entries.filter { it.group != null }
+        val homeRows: List<SettingsSection> get() = entries.filter { it.group != null && it.built }
+    }
+
+    /** False for a page whose feature this build leaves out (the Play build: Text messages, Updates). */
+    val built: Boolean get() = when (this) {
+        MESSAGES -> dev.bridgey.android.BuildGates.sms
+        UPDATES -> dev.bridgey.android.BuildGates.selfUpdate
+        else -> true
     }
 }
 

@@ -241,6 +241,7 @@ class AppUpdater(
 
     /** Installs the update [prepareForRun] verified. */
     fun commitPrepared() {
+        if (!canUpdate) return
         val (apk, update) = prepared ?: return runInstall(commit = true)
         if (installJob?.isActive == true) return
         if (!context.packageManager.canRequestPackageInstalls()) {
@@ -255,6 +256,7 @@ class AppUpdater(
     }
 
     private fun runInstall(commit: Boolean) {
+        if (!canUpdate) return
         val update = mutableState.value.available ?: return
         if (installJob?.isActive == true) return
         if (!context.packageManager.canRequestPackageInstalls()) {
@@ -423,6 +425,7 @@ class AppUpdater(
     private fun lastCheckedAt(): Long = preferences.getLong(KEY_LAST_CHECKED, 0L)
 
     private suspend fun check(notify: Boolean, userInitiated: Boolean) = checkMutex.withLock {
+        if (!canUpdate) return@withLock
         mutableState.update { it.copy(checking = true, error = if (userInitiated) null else it.error) }
         val channel = mutableState.value.channel
         val result = withContext(Dispatchers.IO) { runCatching { fetchCandidates(channel) } }

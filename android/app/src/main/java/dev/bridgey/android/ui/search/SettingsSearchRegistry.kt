@@ -337,6 +337,8 @@ object SettingsSearchRegistry {
         val out = mutableListOf<SearchResultEntry>()
         for (entry in entries) {
             if (entry.developerOnly && !developerMenu) continue
+            if (entry.page == SearchPage.MESSAGES && !dev.bridgey.android.BuildGates.sms) continue
+            if (entry.page == SearchPage.UPDATES && !dev.bridgey.android.BuildGates.selfUpdate) continue
             val page = context.getString(entry.page.titleRes)
             val section = entry.section?.let(context::getString)
             val title = context.getString(entry.title)
