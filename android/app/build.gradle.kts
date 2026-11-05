@@ -107,6 +107,8 @@ dependencies {
     // minified release then cannot create WorkDatabase and crashes at startup. Pin a current WorkManager.
     implementation("androidx.work:work-runtime-ktx:2.11.0")
     testImplementation("junit:junit:4.13.2")
+    // Controlled scheduling for notification-routing races; match core:discovery's coroutine runtime.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     // Real org.json for JVM unit tests of the update feed parser (android.jar only has stubs).
     testImplementation("org.json:json:20240303")
     // Test only: JVM screenshots of the Stream screens (nothing here ships in the APK).
