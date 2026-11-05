@@ -354,19 +354,49 @@ final class PhoneFilesUITests: XCTestCase {
 
     func testHoverPrefetchOnlyOnLanAfterTheDelay() {
         let fake = UIFakePhoneFiles()
-        let prefetch = PhoneHoverPrefetcher(service: fake, cache: PhoneThumbnailCache(directory: nil))
+        let timer = ManualClock()
+        let prefetch = PhoneHoverPrefetcher(service: fake, cache: PhoneThumbnailCache(directory: nil), scheduler: timer)
         prefetch.phoneID = phone
         let entry = UIFakeImages.media(1)[0]
         prefetch.route = .relay
         prefetch.hoverBegan(entry)
-        spin(0.25)
+        timer.advance(by: 1)
         XCTAssertEqual(fake.previewRequests, 0, "not on relay")
         prefetch.route = .lan
         prefetch.hoverBegan(entry)
-        spin(0.05)
+        timer.advance(by: 0.149)
         XCTAssertEqual(fake.previewRequests, 0, "not before 150 ms")
-        spin(0.2)
+        timer.advance(by: 0.002)
         XCTAssertEqual(fake.previewRequests, 1)
+        timer.advance(by: 1)
+        XCTAssertEqual(fake.previewRequests, 1, "the hover timer fires only once")
+    }
+
+    func testHoverDelayCancelsOnLeavingReplacementAndShutdown() {
+        let fake = UIFakePhoneFiles()
+        let timer = ManualClock()
+        let prefetch = PhoneHoverPrefetcher(service: fake, cache: PhoneThumbnailCache(directory: nil), scheduler: timer)
+        prefetch.phoneID = phone
+        prefetch.route = .lan
+        let entries = UIFakeImages.media(3)
+        prefetch.hoverBegan(entries[0])
+        timer.advance(by: 0.1)
+        prefetch.hoverEnded(entries[0])
+        timer.advance(by: 1)
+        XCTAssertEqual(fake.previewRequests, 0, "leaving cancels the pending hover")
+
+        prefetch.hoverBegan(entries[0])
+        timer.advance(by: 0.1)
+        prefetch.hoverBegan(entries[1])
+        timer.advance(by: 0.1)
+        XCTAssertEqual(fake.previewRequests, 0, "a replacement starts its own delay")
+        timer.advance(by: 0.051)
+        XCTAssertEqual(fake.previewRequests, 1, "only the replacement fires")
+
+        prefetch.hoverBegan(entries[2])
+        prefetch.cancelAll()
+        timer.advance(by: 1)
+        XCTAssertEqual(fake.previewRequests, 1, "shutdown cancels the pending hover")
     }
 
     func testHoverLeavingEarlyCancelsAndAtMostThreeRun() {
