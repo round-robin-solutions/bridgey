@@ -957,8 +957,12 @@ internal fun notificationMessageEventId(
     val timestamp = (latest?.timestamp ?: 0).coerceAtLeast(0)
     // Generic post/when clocks can change on a repost. Without message metadata, use content;
     // identical messages from such an app cannot be distinguished safely from a repost.
+    // A null metadata sender means the current user, not the rendered conversation title.
+    // Presentation changes must not turn that same message into a new routing event.
+    val sender = if (latest == null) title else latest.sender?.toString().orEmpty()
+    val message = if (latest == null) text else latest.text?.toString().orEmpty()
     val identity = org.json.JSONArray(listOf(notificationId, packageName, timestamp,
-        (latest?.sender?.toString() ?: title).take(1_024), (latest?.text?.toString() ?: text).take(8_192))).toString()
+        sender.take(1_024), message.take(8_192))).toString()
     return notificationToken(identity)
 }
 
