@@ -126,7 +126,13 @@ final class UpdateLogicTests: XCTestCase {
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Resources/Info.plist")
         let plist = try XCTUnwrap(NSDictionary(contentsOf: plistURL) as? [String: Any])
-        XCTAssertEqual(plist["CFBundleIdentifier"] as? String, Edition.identifier)
+        // This disposable acceptance edition must never share the installed app's data namespace.
+        XCTAssertEqual(plist["CFBundleIdentifier"] as? String, "in.roundrobin.bridgey.qa9383509")
+        XCTAssertEqual(plist["BridgeyTestInstance"] as? Bool, true)
+        XCTAssertEqual((plist["BridgeyTestPort"] as? NSNumber)?.intValue, 42459)
+        #if !DEBUG
+        XCTFail("The isolated acceptance bundle requires the existing DEBUG TestInstance mechanism")
+        #endif
         let key = try XCTUnwrap(plist["SUPublicEDKey"] as? String)
         XCTAssertEqual(Data(base64Encoded: key)?.count, 32)
         XCTAssertEqual(plist["SUVerifyUpdateBeforeExtraction"] as? Bool, true, "the EdDSA signature is checked before an update is unpacked")
