@@ -59,6 +59,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -617,6 +619,56 @@ class PairingCoordinator(
 
     /** Places on this phone (granted folders plus Download/Bridgey). */
     val placesStore = dev.bridgey.android.folders.PlacesStore(appContext)
+    private var folderDraftRecoveryComplete = false
+    private val deferredFolderGrantReleases = linkedSetOf<String>()
+    private var attachDraftStoreValue: dev.bridgey.android.ui.attach.AttachDraftStore? = null
+    private var attachDraftObserver: android.content.SharedPreferences.OnSharedPreferenceChangeListener? = null
+    private var attachDraftOwnershipJob: Job? = null
+
+    /** A single application owner; Activity ViewModels observe this store rather than owning leases. */
+    internal val attachDraftStore: dev.bridgey.android.ui.attach.AttachDraftStore
+        get() {
+            check(Looper.myLooper() == Looper.getMainLooper()) { "Share draft ownership must change on Main" }
+            attachDraftStoreValue?.let { return it }
+            val model = dev.bridgey.android.ui.attach.AttachDraftOwner.createStore(appContext, this, !folderDraftRecoveryComplete)
+            attachDraftStoreValue = model
+            val preferences = appContext.getSharedPreferences(dev.bridgey.android.ui.attach.AttachDraftOwner.PREFERENCES, Context.MODE_PRIVATE)
+            val observer = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                if (key == null || key == dev.bridgey.android.ui.attach.AttachDraftOwner.KEY) {
+                    scope.launch(Dispatchers.Main.immediate) { attachDraftStoreValue?.reload() }
+                }
+            }
+            attachDraftObserver = observer
+            preferences.registerOnSharedPreferenceChangeListener(observer)
+            observeAttachDraftOwnership()
+            if (folderDraftRecoveryComplete) model.reconcileFolderOwners(model.value.folderLeases.values.flatten().filter { folderSender.owns(it) }.toSet())
+            return model
+        }
+
+    private fun observeAttachDraftOwnership() {
+        if (attachDraftOwnershipJob != null) return
+        attachDraftOwnershipJob = scope.launch(Dispatchers.Main) {
+            val transferOwners = mutableFileTransfers.map { rows -> rows.keys.toSet() to rows.values
+                .filter { !it.active && !it.retryable && it.outcome != null }.map { it.id }.toSet() }
+            val placeOwners = placesStore.places.map { places -> places.map { it.treeUri }.toSet() }
+            kotlinx.coroutines.flow.combine(transferOwners, placeOwners, placesStore.defaultTree) { transfers, places, default ->
+                Triple(transfers, places, default)
+            }.distinctUntilChanged().collect { reconcileAttachDraftOwnership() }
+        }
+    }
+
+    private fun reconcileAttachDraftOwnership() {
+        check(Looper.myLooper() == Looper.getMainLooper())
+        val prefs = appContext.getSharedPreferences(dev.bridgey.android.ui.attach.AttachDraftOwner.PREFERENCES, Context.MODE_PRIVATE)
+        if (attachDraftStoreValue == null && !prefs.contains(dev.bridgey.android.ui.attach.AttachDraftOwner.KEY)) return
+        val model = attachDraftStore
+        model.transferStates(mutableFileTransfers.value.values.filter { !it.active && !it.retryable && it.outcome != null }.map { it.id }.toSet())
+        model.reconcileFileOwners(outgoingFileSources.keys.toSet())
+        if (folderDraftRecoveryComplete) model.reconcileFolderOwners(model.value.folderLeases.values.flatten().filter { folderSender.owns(it) }.toSet())
+    }
+
+    private fun outgoingOwnershipChanged() { scope.launch(Dispatchers.Main.immediate) { reconcileAttachDraftOwnership() } }
+
     val placeDirectory = dev.bridgey.android.folders.AndroidPlaceDirectory(appContext.contentResolver, placesStore)
     private val folderJournals = dev.bridgey.android.folders.FolderJournals(java.io.File(appContext.noBackupFilesDir, FOLDER_JOURNAL_DIRECTORY))
     private val folderTimers = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -702,7 +754,17 @@ class PairingCoordinator(
                 folderJournals.recover(::journalStore).forEach { record -> record.header.oneOffTree?.let(placesStore::releaseOneOff) }
             }
             // Folders this phone was sending come back as interrupted rows and resume when their Mac connects.
-            runCatching { folderSender.loadJournals() }
+            if (runCatching { folderSender.loadJournals() }.isSuccess) {
+                scope.launch(Dispatchers.Main) {
+                    folderDraftRecoveryComplete = true
+                    // Reconcile only after real recoverable journals have been loaded. A PREPARING
+                    // ID from a previous process is not proof of durable ownership.
+                    reconcileAttachDraftOwnership()
+                    val deferred = deferredFolderGrantReleases.toList()
+                    deferredFolderGrantReleases.clear()
+                    deferred.forEach(::releaseCompletedFolderRead)
+                }
+            }
         }
         settingsSync.transport = object : dev.bridgey.android.sync.SettingsSyncController.Transport {
             override fun send(deviceId: String, kind: String, payload: JSONObject, messageId: String) = sendSettingsMessage(deviceId, kind, payload, messageId)
@@ -739,6 +801,7 @@ class PairingCoordinator(
     }
 
     fun start() {
+        observeAttachDraftOwnership()
         callQuietRunning = true
         scope.launch(Dispatchers.Main.immediate) { callQuietPolicyChanged() }
         if (acceptJob != null) return
@@ -1305,6 +1368,7 @@ class PairingCoordinator(
         held.release(deviceId)
         folderJournals.deleteForPeer(deviceId).forEach { record -> record.header.oneOffTree?.let(placesStore::releaseOneOff) }
         folderSender.forget(deviceId)
+        outgoingOwnershipChanged()
         mutableFileTransfers.update { transfers -> transfers.filterValues { it.kind != TransferKind.FOLDER || it.active || it.deviceId != deviceId } }
         trust.remove(deviceId)
         connectStore.forget(deviceId)
@@ -1873,19 +1937,31 @@ class PairingCoordinator(
         override fun finished(snapshot: dev.bridgey.android.folders.FolderSnapshot) {
             updateFolderTransfer(snapshot)
             diagnostics.record("folder_send", snapshot.end?.name?.lowercase() ?: "ended", snapshot.endCode ?: "none")
+            scope.launch(Dispatchers.Main.immediate) {
+                // This callback is delivered independently of Activity lifecycle and before rows can vanish.
+                attachDraftStore.transferStates(setOf(snapshot.folderTransferId))
+                reconcileAttachDraftOwnership()
+            }
         }
 
         override fun releaseTree(treeUri: String) {
-            // Draft ownership and UI updates share Main: a pending Browse result can adopt the
-            // core's one-off grant before release, without a check/release race or an orphaned grant.
             scope.launch(Dispatchers.Main.immediate) {
-                if (placesStore.places.value.any { it.treeUri == treeUri } || placesStore.defaultTree.value == treeUri) return@launch
-                if (dev.bridgey.android.ui.attach.AttachDraftOwner.retainReleasedFolderGrant(appContext, treeUri)) return@launch
-                val uri = Uri.parse(treeUri)
-                if (hasOutgoingFileSource(uri)) return@launch
-                runCatching { appContext.contentResolver.releasePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                if (!folderDraftRecoveryComplete) {
+                    attachDraftStore.deferCoreReadRelease(treeUri)
+                    deferredFolderGrantReleases += treeUri
+                }
+                else releaseCompletedFolderRead(treeUri)
             }
         }
+    }
+
+    private fun releaseCompletedFolderRead(treeUri: String) {
+        check(Looper.myLooper() == Looper.getMainLooper())
+        if (placesStore.places.value.any { it.treeUri == treeUri } || placesStore.defaultTree.value == treeUri) return
+        if (attachDraftStore.adoptReleasedRead(treeUri)) return
+        val uri = Uri.parse(treeUri)
+        if (hasOutgoingFileSource(uri) || hasOutgoingFolderSource(treeUri)) return
+        runCatching { appContext.contentResolver.releasePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
     }
 
     /** The browse server of a device session (created on its first browse request). */
@@ -2828,9 +2904,23 @@ class PairingCoordinator(
                         dev.bridgey.android.folders.TreeSendNode.folder(store, dirId, name) to null
                     }
                 }
-                val id = folderSender.send(target, peerName, root, releaseTree)
-                transferDevices[id] = target
-                accepted = id
+                accepted = kotlinx.coroutines.withContext(Dispatchers.Main.immediate) {
+                    val id = UUID.randomUUID().toString()
+                    val treeUri = (source as? dev.bridgey.android.browse.FolderSource.Tree)?.treeUri
+                    if (onQueued != null && !attachDraftStore.reserveFolder(treeUri, id)) {
+                        mutableFileTransferStatus.value = appContext.getString(R.string.attach_draft_not_queued)
+                        return@withContext null
+                    }
+                    try {
+                        folderSender.sendReserved(id, target, peerName, root, releaseTree)
+                        transferDevices[id] = target
+                        id
+                    } catch (error: Exception) {
+                        if (onQueued != null) attachDraftStore.rejectReserved(id)
+                        mutableFileTransferStatus.value = appContext.getString(R.string.folder_send_unreadable)
+                        null
+                    }
+                }
             } finally { report(accepted) }
         }
     }
@@ -2873,14 +2963,19 @@ class PairingCoordinator(
     /** All accepted IDs let a saved attach draft hand read grants to the actual queued transfers. */
     fun sendFilesForShare(uris: List<Uri>, deviceId: String): List<String> {
         var accepted = emptyList<String>()
-        queueFiles(uris, deviceId, beforeBatch = { accepted = it })
+        check(Looper.myLooper() == Looper.getMainLooper())
+        queueFiles(uris, deviceId,
+            admit = { files -> attachDraftStore.reserveFiles(files.map { it.second.toString() to it.first }) },
+            beforeBatch = { accepted = it })
         return accepted
     }
 
     fun hasOutgoingFileSource(uri: Uri): Boolean = outgoingFileSources.values.contains(uri)
+    fun hasOutgoingFolderSource(treeUri: String): Boolean = folderSender.ownsTree(treeUri)
 
-    /** Queues [uris]; [beforeBatch] sees every ID and [beforeStart] the first before any transfer can start. Returns the first ID, or null. */
-    private fun queueFiles(uris: List<Uri>, deviceId: String?, beforeBatch: ((List<String>) -> Unit)? = null, beforeStart: ((String) -> Unit)? = null): String? {
+    /** Queues [uris]; [admit] may refuse the batch, then [beforeBatch] sees every ID and [beforeStart] the first before any transfer can start. Returns the first ID, or null. */
+    private fun queueFiles(uris: List<Uri>, deviceId: String?, beforeBatch: ((List<String>) -> Unit)? = null,
+                           admit: ((List<Pair<String, Uri>>) -> Boolean)? = null, beforeStart: ((String) -> Unit)? = null): String? {
         if (uris.isEmpty()) return null
         val connectedSession = sessionFor(deviceId)
         if (connectedSession == null) {
@@ -2896,8 +2991,6 @@ class PairingCoordinator(
         val status = appContext.getString(R.string.file_queued)
         val queued = uris.distinct().mapIndexed { index, uri ->
             val transferId = UUID.randomUUID().toString()
-            outgoingFileSources[transferId] = uri
-            transferDevices[transferId] = target
             FileTransferState(
                 id = transferId,
                 name = "Selected file",
@@ -2910,6 +3003,11 @@ class PairingCoordinator(
                 queued = true,
             ) to uri
         }
+        if (admit?.invoke(queued.map { it.first.id to it.second }) == false) {
+            mutableFileTransferStatus.value = appContext.getString(R.string.attach_draft_not_queued)
+            return null
+        }
+        queued.forEach { (transfer, uri) -> outgoingFileSources[transfer.id] = uri; transferDevices[transfer.id] = target }
         mutableFileTransfers.update { transfers -> transfers + queued.associate { (transfer, _) -> transfer.id to transfer } }
         queued.firstOrNull()?.let { (transfer, _) -> beforeStart?.invoke(transfer.id) }
         beforeBatch?.invoke(queued.map { it.first.id })
@@ -3126,6 +3224,7 @@ class PairingCoordinator(
             }
             if (withTimeoutOrNull(15_000) { completed.await() } == true) {
                 outgoingFileSources.remove(transferId)
+                outgoingOwnershipChanged()
                 if (cameraTransfers.containsKey(transferId)) cameraTransferSent.add(transferId)
                 updateFileTransfer(transferId, metadata.first, "${metadata.first} saved on $peer", false, TransferEnd.SENT)
                 diagnostics.record("transfer", "send_completed")
@@ -3233,26 +3332,31 @@ class PairingCoordinator(
 
     /** Retries to the same device the file first went to. */
     fun retryFileTransfer(transferId: String) {
-        // An interrupted folder sent from here resumes as soon as its device takes folders again.
-        if (folderSender.owns(transferId)) {
-            mutableFileTransfers.value[transferId]?.deviceId?.takeIf(::sendsFoldersTo)?.let(folderSender::deviceReady)
-            return
+        scope.launch(Dispatchers.Main.immediate) {
+            if (folderSender.owns(transferId)) {
+                mutableFileTransfers.value[transferId]?.deviceId?.takeIf(::sendsFoldersTo)?.let(folderSender::deviceReady)
+                return@launch
+            }
+            val uri = outgoingFileSources[transferId] ?: return@launch
+            val deviceId = transferDevices[transferId] ?: mutableFileTransfers.value[transferId]?.deviceId
+            if (deviceId == null || registry.session(deviceId) == null) {
+                removeFileTransfer(transferId, "Reconnect before retrying", TransferEnd.FAILED)
+                return@launch
+            }
+            if (!isFeatureAvailable(BridgeyFeature.FILES, deviceId)) {
+                removeFileTransfer(transferId, "File transfer is turned off on one of your devices", TransferEnd.FAILED)
+                return@launch
+            }
+            // Keep F1's source until its read lease has moved to F2, before F2 can start.
+            val replacement = queueFiles(listOf(uri), deviceId,
+                admit = { files -> attachDraftStore.replaceFileTransfer(transferId, files.single().first) }) ?: return@launch
+            check(replacement != transferId)
+            mutableFileTransfers.update { it - transferId }
+            outgoingFileSources.remove(transferId)
+            transferDevices.remove(transferId)
+            reconcileAttachDraftOwnership()
+            diagnostics.record("transfer", "retry_started")
         }
-        val uri = outgoingFileSources[transferId] ?: return
-        val deviceId = transferDevices[transferId] ?: mutableFileTransfers.value[transferId]?.deviceId
-        if (deviceId == null || registry.session(deviceId) == null) {
-            removeFileTransfer(transferId, "Reconnect before retrying", TransferEnd.FAILED)
-            return
-        }
-        if (!isFeatureAvailable(BridgeyFeature.FILES, deviceId)) {
-            removeFileTransfer(transferId, "File transfer is turned off on one of your devices", TransferEnd.FAILED)
-            return
-        }
-        mutableFileTransfers.value = mutableFileTransfers.value.toMutableMap().apply { remove(transferId) }
-        outgoingFileSources.remove(transferId)
-        transferDevices.remove(transferId)
-        diagnostics.record("transfer", "retry_started")
-        sendFile(uri, deviceId)
     }
 
     fun diagnosticsReport(): String {
@@ -3274,17 +3378,20 @@ class PairingCoordinator(
     }
 
     fun clearTransferHistory() {
-        val inactiveIds = mutableFileTransfers.value.values.filterNot(FileTransferState::active).map(FileTransferState::id)
-        inactiveIds.forEach {
-            outgoingFileSources.remove(it)
-            transferDevices.remove(it)
+        scope.launch(Dispatchers.Main.immediate) {
+            val inactiveIds = mutableFileTransfers.value.values.filterNot(FileTransferState::active).map(FileTransferState::id)
+            inactiveIds.forEach { outgoingFileSources.remove(it); transferDevices.remove(it) }
+            mutableFileTransfers.value = mutableFileTransfers.value.filterValues(FileTransferState::active)
+            reconcileAttachDraftOwnership()
+            refreshFileTransferSummary()
         }
-        mutableFileTransfers.value = mutableFileTransfers.value.filterValues(FileTransferState::active)
-        refreshFileTransferSummary()
     }
 
     fun stop() {
         pause()
+        attachDraftObserver?.let { appContext.getSharedPreferences(dev.bridgey.android.ui.attach.AttachDraftOwner.PREFERENCES, Context.MODE_PRIVATE)
+            .unregisterOnSharedPreferenceChangeListener(it) }
+        attachDraftObserver = null
         scope.cancel()
     }
 
@@ -4676,7 +4783,11 @@ class PairingCoordinator(
         val history = mutableFileTransfers.value.values.filterNot(FileTransferState::active)
             .sortedByDescending(FileTransferState::startedAtMillis)
             .take(MAX_TRANSFER_HISTORY)
-        mutableFileTransfers.value = (active + history).associateBy(FileTransferState::id)
+        val retained = (active + history).associateBy(FileTransferState::id)
+        val discarded = mutableFileTransfers.value.keys - retained.keys
+        discarded.forEach { outgoingFileSources.remove(it); transferDevices.remove(it) }
+        mutableFileTransfers.value = retained
+        if (discarded.isNotEmpty()) outgoingOwnershipChanged()
     }
 
     private fun refreshFileTransferSummary(fallback: String? = null) {

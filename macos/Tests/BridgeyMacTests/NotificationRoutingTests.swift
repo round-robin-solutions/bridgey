@@ -2,25 +2,43 @@ import XCTest
 @testable import BridgeyMac
 
 final class NotificationRoutingTests: XCTestCase {
-    func testNewMessageCanAlertAgainWhileRepostKeepsItsSoundDeduplication() {
+    func testSameMessageAfterReconnectOrPermissionToggleCannotReplaySoundButNewMessageCan() {
         var ledger = NotificationPresentationLedger()
         var alerted = AlertedNotificationIdentifiers()
         let a = String(repeating: "a", count: 64), b = String(repeating: "b", count: 64)
-        let first = ledger.receive(deviceID: "phone", notificationID: "conversation", sessionID: "S", presentation: .alert, eventID: a)
-        XCTAssertTrue(first.isNewMessage)
-        if first.isNewMessage { alerted.remove(first.identifier) }
-        XCTAssertTrue(alerted.insert(first.identifier))
-        let repost = ledger.receive(deviceID: "phone", notificationID: "conversation", sessionID: "S", presentation: .alert, eventID: a)
-        XCTAssertFalse(repost.isNewMessage)
-        XCTAssertFalse(alerted.insert(repost.identifier))
-        let next = ledger.receive(deviceID: "phone", notificationID: "conversation", sessionID: "S", presentation: .alert, eventID: b)
-        XCTAssertTrue(next.isNewMessage)
-        if next.isNewMessage { alerted.remove(next.identifier) }
-        XCTAssertTrue(alerted.insert(next.identifier))
-        XCTAssertFalse(ledger.isCurrent(first))
-        let quiet = ledger.receive(deviceID: "phone", notificationID: "conversation", sessionID: "S", presentation: .quiet, eventID: b)
-        XCTAssertFalse(quiet.isNewMessage)
+        let first = ledger.receive(deviceID: "phone", notificationID: "conversation", sessionID: "S", presentation: .alert)
+        XCTAssertTrue(alerted.insert(first.identifier, eventID: a, deviceID: "phone"))
+        // Disconnect and Notifications off/on both invalidate asynchronous tickets, but the
+        // production sound cache survives them. Replaying the same event must remain silent.
+        for session in ["reconnected", "permission-reenabled"] {
+            ledger.remove(deviceID: "phone")
+            XCTAssertFalse(ledger.isCurrent(first))
+            let repost = ledger.receive(deviceID: "phone", notificationID: "conversation", sessionID: session, presentation: .alert)
+            XCTAssertFalse(alerted.insert(repost.identifier, eventID: a, deviceID: "phone"))
+        }
+        let next = ledger.receive(deviceID: "phone", notificationID: "conversation", sessionID: "new", presentation: .alert)
+        XCTAssertTrue(alerted.insert(next.identifier, eventID: b, deviceID: "phone"))
+        XCTAssertFalse(alerted.insert(next.identifier, eventID: b, deviceID: "phone"))
+        let quiet = ledger.receive(deviceID: "phone", notificationID: "conversation", sessionID: "new", presentation: .quiet)
         XCTAssertFalse(ledger.allowsAlert(quiet))
+        // An actual Android removal or forgetting the phone clears the appropriate event.
+        alerted.remove(next.identifier)
+        XCTAssertTrue(alerted.insert(next.identifier, eventID: b, deviceID: "phone"))
+        alerted.remove(deviceID: "phone")
+        XCTAssertTrue(alerted.insert(next.identifier, eventID: b, deviceID: "phone"))
+    }
+
+    func testLegacySoundIdentityAdoptsMessageMetadataWithoutReplayingAndStaysBounded() {
+        var alerted = AlertedNotificationIdentifiers(capacity: 2)
+        XCTAssertTrue(alerted.insert("legacy", deviceID: "A"))
+        XCTAssertFalse(alerted.insert("legacy", eventID: "event-one", deviceID: "A"))
+        XCTAssertTrue(alerted.insert("legacy", eventID: "event-two", deviceID: "A"))
+        XCTAssertTrue(alerted.insert("other", eventID: "x", deviceID: "B"))
+        alerted.remove(deviceID: "A")
+        XCTAssertFalse(alerted.insert("other", eventID: "x", deviceID: "B"))
+        XCTAssertTrue(alerted.insert("third", eventID: "y", deviceID: "B"))
+        XCTAssertTrue(alerted.insert("fourth", eventID: "z", deviceID: "B"))
+        XCTAssertTrue(alerted.insert("other", eventID: "x", deviceID: "B"), "eviction removes matching message identity too")
     }
 
     func testMessageEventIdentityIsStrictNegotiatedAndNeverAttachedToCalls() {

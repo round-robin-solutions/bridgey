@@ -42,7 +42,9 @@ internal interface AttachDraftReadGrants {
 internal object AttachDraftCodec {
     const val MAX_BYTES = 32 * 1024
     private const val MAX_URI = 4096
-    private const val MAX_LEASES = 256
+    const val MAX_LEASES = 256
+    private val TRANSFER_ID = Regex("[A-Za-z0-9_.:-]{1,128}")
+    fun validTransferId(value: String): Boolean = TRANSFER_ID.matches(value)
 
     fun validUri(value: String): Boolean = value.length in 1..MAX_URI && runCatching {
         val uri = URI(value)
@@ -56,7 +58,7 @@ internal object AttachDraftCodec {
             value.selection.distinct().size != value.selection.size || value.ownedReads.size > MAX_LEASES ||
             value.fileLeases.values.sumOf { it.size } + value.folderLeases.values.sumOf { it.size } > MAX_LEASES ||
             (value.pendingUris + value.ownedReads + value.fileLeases.keys + value.folderLeases.keys).any { !validUri(it) } ||
-            (value.fileLeases.values + value.folderLeases.values).any { ids -> ids.isEmpty() || ids.any { it.length !in 1..128 } }) return null
+            (value.fileLeases.values + value.folderLeases.values).any { ids -> ids.isEmpty() || ids.any { !validTransferId(it) } }) return null
         val encoded = JSONObject().put("version", 1).put("visible", value.visible)
             .put("target", value.targetId ?: JSONObject.NULL).put("selection", JSONArray(value.selection))
             .put("files", JSONArray(value.files)).put("folder", value.folder ?: JSONObject.NULL)
@@ -108,62 +110,149 @@ internal class AttachDraftStore(
     private val persistence: AttachDraftPersistence,
     private val grants: AttachDraftReadGrants,
     private val processId: String,
+    deferCleanup: Boolean = false,
 ) {
     private val mutableState = MutableStateFlow(AttachDraftCodec.decode(persistence.read()) ?: AttachDraft())
     val state = mutableState.asStateFlow()
     val value: AttachDraft get() = mutableState.value
 
+    private data class Receipt(val file: Boolean, val uri: String?, val acknowledged: Boolean = false)
+    private data class Submission(val files: List<String>, val trees: List<String>, val places: Int)
+    // Queue admission happens on Main. These bounded receipts outlive a fast terminal callback, but are
+    // never replayed after process death; persisted pending items still require a new explicit Send.
+    private val receipts = linkedMapOf<String, Receipt>()
+    private val failedAcknowledgements = mutableSetOf<String>()
+    private var invalidAcknowledgement = false
+    private var submission: Submission? = null
+    private var recoveryPending = deferCleanup
+
     init {
-        // Single-file queue/source ownership is process-local. Folder leases, backed by the existing
-        // durable folder sender's journal, remain until a known nonretryable terminal state.
-        if (value.leaseProcess != processId) {
-            save(value.copy(fileLeases = emptyMap(), submitting = false, leaseProcess = processId))
-        }
+        // Single-file sources are process-local. Keep folders until core journal recovery reconciles
+        // genuine owners; a preparing/queued ID alone is not proof that a durable journal exists.
+        if (value.leaseProcess != processId) save(value.copy(fileLeases = emptyMap(), submitting = false))
         releaseUnused()
     }
 
     private fun save(next: AttachDraft): Boolean {
-        val currentProcess = next.copy(leaseProcess = processId)
-        // Reserve ownership space for any borrowed grant whose core owner finishes while this draft waits.
-        if (AttachDraftCodec.encode(currentProcess.copy(ownedReads = currentProcess.ownedReads + currentProcess.pendingUris + currentProcess.fileLeases.keys + currentProcess.folderLeases.keys)) == null) return false
-        val encoded = AttachDraftCodec.encode(currentProcess) ?: return false
+        val current = next.copy(leaseProcess = processId)
+        if (encodeWithPotentialOwnership(current) == null) return false
+        val encoded = AttachDraftCodec.encode(current) ?: return false
         persistence.write(encoded)
-        mutableState.value = currentProcess
+        mutableState.value = current
         return true
     }
 
-    /** Other activity owners may finish a queued folder after this Activity was recreated. */
-    fun reload() { mutableState.value = AttachDraftCodec.decode(persistence.read()) ?: AttachDraft() }
+    private fun encodeWithPotentialOwnership(draft: AttachDraft): String? = AttachDraftCodec.encode(draft.copy(
+        ownedReads = draft.ownedReads + draft.pendingUris + draft.fileLeases.keys + draft.folderLeases.keys,
+    ))
+
+    /** Preferences may be updated by grant adoption. Ordinary reload preserves live admission receipts. */
+    fun reload() {
+        val restored = AttachDraftCodec.decode(persistence.read())
+        mutableState.value = restored ?: AttachDraft()
+        if (restored == null || !restored.submitting) clearSubmission()
+    }
+
+    private fun clearSubmission() {
+        receipts.clear(); failedAcknowledgements.clear(); invalidAcknowledgement = false; submission = null
+    }
 
     fun open(targetId: String?): Boolean = save(value.copy(visible = true, targetId = if (value.hasContent || value.submitting) value.targetId else targetId))
     fun dismiss(): Boolean = save(value.copy(visible = false))
     fun target(id: String): Boolean = !value.submitting && save(value.copy(targetId = id))
     fun select(keys: List<String>): Boolean = !value.submitting && save(value.copy(selection = keys.distinct()))
     fun pendingAccessAvailable(): Boolean = value.pendingUris.all(grants::hasRead)
-    fun beginSubmission(): Boolean = !value.submitting && save(value.copy(submitting = true))
 
-    /** Refuse a non-persistable/oversized new result without discarding the prior draft or copying file contents. */
+    /** Preflight every prospective lease slot and worst-case 128-character ID before queue side effects. */
+    fun beginSubmission(fileUris: List<String> = value.files, treeUris: List<String> = listOfNotNull(value.folder)): Boolean {
+        if (value.submitting) return false
+        val plan = Submission(fileUris.distinct(), treeUris, value.selection.count { it.startsWith(AttachKeys.FOLDER) })
+        if (plan.files.size + plan.trees.size + plan.places > AttachSelection.MAX ||
+            (plan.files + plan.trees).any { !AttachDraftCodec.validUri(it) } || !fitsSubmission(value, plan)) return false
+        if (!save(value.copy(submitting = true))) return false
+        clearSubmission()
+        submission = plan
+        return true
+    }
+
+    private fun fitsSubmission(base: AttachDraft, remaining: Submission): Boolean {
+        val files = base.fileLeases.mapValues { it.value.toMutableSet() }.toMutableMap()
+        val folders = base.folderLeases.mapValues { it.value.toMutableSet() }.toMutableMap()
+        val used = (files.values + folders.values).flatten().toMutableSet()
+        var serial = 0
+        fun nextId(): String {
+            var id: String
+            do { id = ("admission-" + serial++).padEnd(128, 'x') } while (!used.add(id))
+            return id
+        }
+        remaining.files.filter { needsFileLease(base, it) }.forEach { files.getOrPut(it) { mutableSetOf() }.add(nextId()) }
+        remaining.trees.forEach { folders.getOrPut(it) { mutableSetOf() }.add(nextId()) }
+        return encodeWithPotentialOwnership(base.copy(fileLeases = files, folderLeases = folders, submitting = true)) != null
+    }
+
+    private fun needsFileLease(draft: AttachDraft, uri: String): Boolean =
+        uri in draft.files || uri in draft.ownedReads || uri in draft.fileLeases || uri in draft.folderLeases
+
+    /** Root calls this before creating any source, transfer row, queue entry or network item. */
+    fun reserveFiles(assignments: List<Pair<String, String>>): Boolean {
+        val plan = submission ?: return false
+        if (!value.submitting || assignments.isEmpty() || receipts.size + assignments.size > AttachSelection.MAX ||
+            assignments.map { it.second }.distinct().size != assignments.size ||
+            assignments.any { (uri, id) -> !AttachDraftCodec.validTransferId(id) || id in receipts || id in allLeaseIds() || uri !in plan.files } ||
+            assignments.map { it.first }.distinct().size != assignments.size) return false
+        val remaining = plan.copy(files = plan.files - assignments.map { it.first }.toSet())
+        val files = value.fileLeases.toMutableMap()
+        assignments.filter { needsFileLease(value, it.first) }.forEach { (uri, id) -> files[uri] = files[uri].orEmpty() + id }
+        val next = value.copy(fileLeases = files)
+        if (!fitsSubmission(next, remaining) || !save(next)) return false
+        submission = remaining
+        assignments.forEach { (uri, id) -> receipts[id] = Receipt(file = true, uri = uri) }
+        return true
+    }
+
+    /** Place folders need a receipt but no one-off tree URI lease. */
+    fun reserveFolder(uri: String?, id: String): Boolean {
+        val plan = submission ?: return false
+        if (!value.submitting || receipts.size >= AttachSelection.MAX || !AttachDraftCodec.validTransferId(id) ||
+            id in receipts || id in allLeaseIds() || (if (uri == null) plan.places == 0 else uri !in plan.trees)) return false
+        val remaining = if (uri == null) plan.copy(places = plan.places - 1) else plan.copy(trees = plan.trees.toMutableList().apply { remove(uri) })
+        val folders = if (uri == null) value.folderLeases else value.folderLeases + (uri to (value.folderLeases[uri].orEmpty() + id))
+        val next = value.copy(folderLeases = folders)
+        if (!fitsSubmission(next, remaining) || !save(next)) return false
+        submission = remaining
+        receipts[id] = Receipt(file = false, uri = uri)
+        return true
+    }
+
+    /** A failed core enqueue retires admission, preserving the pending content for an explicit retry. */
+    fun rejectReserved(id: String): Boolean {
+        val receipt = receipts[id]?.takeUnless { it.acknowledged } ?: return false
+        val next = withoutIds(value, setOf(id), file = true, folder = true)
+        if (!save(next)) return false
+        receipts.remove(id); failedAcknowledgements.remove(id)
+        submission = submission?.let { plan ->
+            when { receipt.file -> plan.copy(files = plan.files + requireNotNull(receipt.uri))
+                receipt.uri != null -> plan.copy(trees = plan.trees + receipt.uri)
+                else -> plan.copy(places = plan.places + 1) }
+        }
+        releaseUnused()
+        return true
+    }
+
+    /** Refuse a non-persistable/oversized new result without losing earlier selections or copying contents. */
     fun addFiles(uris: List<String>): Boolean = retain(value.copy(files = (value.files + uris).distinct(), visible = true), uris)
     fun addFolder(uri: String): Boolean = retain(value.copy(folder = uri, visible = true), listOf(uri))
 
     private fun retain(next: AttachDraft, candidates: List<String>): Boolean {
-        // Include worst-case ownership before touching grants, so a bound failure cannot leak a new permission.
         val bounded = AttachDraftCodec.encode(next.copy(ownedReads = next.ownedReads + candidates)) ?: return false
-        // Leave room for the accepted transfer IDs before removing their URI from the pending list.
         if (bounded.toByteArray(Charsets.UTF_8).size > AttachDraftCodec.MAX_BYTES - 8 * 1024 || value.submitting) return false
         val acquired = mutableSetOf<String>()
         for (uri in candidates.distinct()) {
             if (grants.hasRead(uri)) continue
-            if (!grants.retainRead(uri)) {
-                rollback(acquired)
-                return false
-            }
+            if (!grants.retainRead(uri)) { rollback(acquired); return false }
             acquired += uri
         }
-        if (!save(next.copy(ownedReads = next.ownedReads + acquired))) {
-            rollback(acquired)
-            return false
-        }
+        if (!save(next.copy(ownedReads = next.ownedReads + acquired))) { rollback(acquired); return false }
         releaseUnused()
         return true
     }
@@ -173,53 +262,105 @@ internal class AttachDraftStore(
         if (retained.isNotEmpty()) save(value.copy(ownedReads = value.ownedReads + retained))
     }
 
-    /** Accepted files leave the draft individually; failed dispatches stay selected for another explicit Send. */
-    fun fileQueued(uri: String, transferId: String, selectedKeys: Set<String> = emptySet()): Boolean {
-        val leases = if (uri in value.files || uri in value.ownedReads) value.fileLeases +
-            (uri to (value.fileLeases[uri].orEmpty() + transferId)) else value.fileLeases
-        return save(value.copy(files = value.files.filterNot { it == uri },
-            selection = value.selection.filterNot(selectedKeys::contains), fileLeases = leases, leaseProcess = processId))
+    private fun acknowledgementFailed(id: String): Boolean {
+        if (value.submitting) {
+            if (AttachDraftCodec.validTransferId(id) && failedAcknowledgements.size < AttachSelection.MAX) failedAcknowledgements += id
+            else invalidAcknowledgement = true
+        }
+        return false
     }
 
-    /** Track the accepted folder too: its core cleanup can race with this Main-thread queue callback. */
+    /** Acknowledge existing admission only. A fast terminal callback must never recreate its retired lease. */
+    fun fileQueued(uri: String, transferId: String, selectedKeys: Set<String> = emptySet()): Boolean {
+        val receipt = receipts[transferId]
+        if (!value.submitting || receipt == null || !receipt.file || receipt.uri != uri) return acknowledgementFailed(transferId)
+        if (receipt.acknowledged) return true
+        if (!save(value.copy(files = value.files.filterNot { it == uri }, selection = value.selection.filterNot(selectedKeys::contains))))
+            return acknowledgementFailed(transferId)
+        receipts[transferId] = receipt.copy(acknowledged = true)
+        failedAcknowledgements.remove(transferId)
+        releaseUnused()
+        return true
+    }
+
     fun folderQueued(uri: String?, transferId: String, selectedKey: String? = null): Boolean {
-        reload()
-        return save(value.copy(
-            folder = value.folder.takeUnless { it == uri },
-            selection = value.selection.filterNot { it == selectedKey },
-            folderLeases = if (uri == null) value.folderLeases else value.folderLeases +
-                (uri to (value.folderLeases[uri].orEmpty() + transferId)),
-        ))
+        val receipt = receipts[transferId]
+        if (!value.submitting || receipt == null || receipt.file || receipt.uri != uri) return acknowledgementFailed(transferId)
+        if (receipt.acknowledged) return true
+        if (!save(value.copy(folder = value.folder.takeUnless { it == uri }, selection = value.selection.filterNot { it == selectedKey })))
+            return acknowledgementFailed(transferId)
+        receipts[transferId] = receipt.copy(acknowledged = true)
+        failedAcknowledgements.remove(transferId)
+        releaseUnused()
+        return true
     }
 
     fun adoptReleasedRead(uri: String): Boolean {
-        reload()
         val encoded = AttachDraftCodec.adoptingReleasedRead(value, uri, grants.hasRead(uri)) ?: return false
         persistence.write(encoded)
         mutableState.value = requireNotNull(AttachDraftCodec.decode(encoded))
         return true
     }
 
-    fun submissionFinished(): Boolean {
-        reload()
-        return save(value.copy(visible = value.visible && value.hasContent, submitting = false, targetId = value.targetId.takeIf { value.hasContent }))
+    /** Retain the core's cleanup evidence while journal ownership is still being recovered. */
+    fun deferCoreReadRelease(uri: String): Boolean {
+        if (!AttachDraftCodec.validUri(uri) || !grants.hasRead(uri)) return false
+        return save(value.copy(ownedReads = value.ownedReads + uri))
     }
 
-    /** A swipe/outside tap only dismisses; this is called solely by the explicit Cancel control. */
+    /** Unrecorded accepted content keeps the Send gate closed rather than silently inviting a duplicate. */
+    fun submissionFinished(): Boolean {
+        if (!value.submitting || submission == null || receipts.values.any { !it.acknowledged } || failedAcknowledgements.isNotEmpty() || invalidAcknowledgement) return false
+        if (!save(value.copy(visible = value.visible && value.hasContent, submitting = false, targetId = value.targetId.takeIf { value.hasContent }))) return false
+        clearSubmission()
+        releaseUnused()
+        return true
+    }
+
     fun cancel(): Boolean {
         if (value.submitting || !save(value.copy(visible = false, targetId = null, selection = emptyList(), files = emptyList(), folder = null))) return false
         releaseUnused()
         return true
     }
 
+    private fun allLeaseIds(): Set<String> = (value.fileLeases.values + value.folderLeases.values).flatten().toSet()
+    private fun withoutIds(draft: AttachDraft, ids: Set<String>, file: Boolean, folder: Boolean): AttachDraft = draft.copy(
+        fileLeases = if (file) draft.fileLeases.mapValues { (_, live) -> live - ids }.filterValues { it.isNotEmpty() } else draft.fileLeases,
+        folderLeases = if (folder) draft.folderLeases.mapValues { (_, live) -> live - ids }.filterValues { it.isNotEmpty() } else draft.folderLeases,
+    )
+
     fun transferStates(nonRetryableFinished: Set<String>) {
-        val leases = value.fileLeases.mapValues { (_, ids) -> ids - nonRetryableFinished }.filterValues { it.isNotEmpty() }
-        val folders = value.folderLeases.mapValues { (_, ids) -> ids - nonRetryableFinished }.filterValues { it.isNotEmpty() }
-        if (leases != value.fileLeases || folders != value.folderLeases) save(value.copy(fileLeases = leases, folderLeases = folders))
+        val next = withoutIds(value, nonRetryableFinished, file = true, folder = true)
+        if (next != value) save(next)
         releaseUnused()
     }
 
+    /** Core invokes these only after its actual source/journal owners are authoritative. */
+    fun reconcileFileOwners(liveIds: Set<String>) {
+        val stale = value.fileLeases.values.flatten().toSet() - liveIds
+        val next = withoutIds(value, stale, file = true, folder = false)
+        if (next != value) save(next)
+        releaseUnused()
+    }
+    fun reconcileFolderOwners(liveIds: Set<String>) {
+        recoveryPending = false
+        val stale = value.folderLeases.values.flatten().toSet() - liveIds
+        val next = withoutIds(value, stale, file = false, folder = true)
+        if (next != value) save(next)
+        releaseUnused()
+    }
+
+    /** Migrate ownership before the retry's source/queue can start; absence means this URI was not draft-owned. */
+    fun replaceFileTransfer(oldId: String, newId: String): Boolean {
+        if (value.fileLeases.values.none { oldId in it }) return true
+        if (oldId == newId) return true
+        if (!AttachDraftCodec.validTransferId(newId) || newId in allLeaseIds() || newId in receipts) return false
+        val files = value.fileLeases.mapValues { (_, ids) -> if (oldId in ids) ids - oldId + newId else ids }
+        return save(value.copy(fileLeases = files))
+    }
+
     private fun releaseUnused() {
+        if (recoveryPending) return
         val unused = value.ownedReads - value.pendingUris - value.fileLeases.keys - value.folderLeases.keys
         val released = unused.filter { !grants.hasOtherOwner(it) && (!grants.hasRead(it) || grants.releaseRead(it)) }.toSet()
         if (released.isNotEmpty()) save(value.copy(ownedReads = value.ownedReads - released))
