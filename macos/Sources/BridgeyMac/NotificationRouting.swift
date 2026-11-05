@@ -40,6 +40,10 @@ enum NotificationPresentation: String, Codable, Equatable {
     /// null, numbers, unknown enum values and duplicate top-level keys are never alerts.
     static func decode(_ data: Data, negotiated: Bool) -> NotificationPresentation? {
         guard let object = routingJSONObject(data) else { return nil }
+        if let event = object["eventId"] {
+            guard negotiated, object["callType"] == nil, let id = event as? String,
+                  id.utf8.count == 64, id.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { return nil }
+        }
         guard let value = object["presentation"] else { return .alert }
         guard negotiated, let text = value as? String else { return nil }
         return NotificationPresentation(rawValue: text)
@@ -50,6 +54,7 @@ struct NotificationPresentationTicket: Equatable {
     let identifier: String
     let sessionID: String
     let generation: UInt64
+    let isNewMessage: Bool
 }
 
 /// One bounded policy record per notification. Updating to quiet, removing, replacing the
@@ -59,6 +64,7 @@ struct NotificationPresentationLedger {
         let ticket: NotificationPresentationTicket
         let deviceID: String
         let presentation: NotificationPresentation
+        let eventID: String?
     }
     private var records: [String: Record] = [:]
     private var order: [String] = []
@@ -67,12 +73,13 @@ struct NotificationPresentationLedger {
     init(limit: Int = 1_024) { self.limit = max(1, limit) }
 
     mutating func receive(deviceID: String, notificationID: String, sessionID: String,
-                          presentation: NotificationPresentation) -> NotificationPresentationTicket {
+                          presentation: NotificationPresentation, eventID: String? = nil) -> NotificationPresentationTicket {
         let identifier = remoteNotificationRequestIdentifier(deviceID: deviceID, notificationID: notificationID)
         generation &+= 1
-        let ticket = NotificationPresentationTicket(identifier: identifier, sessionID: sessionID, generation: generation)
+        let newMessage = eventID != nil && records[identifier]?.eventID != eventID
+        let ticket = NotificationPresentationTicket(identifier: identifier, sessionID: sessionID, generation: generation, isNewMessage: newMessage)
         if records[identifier] == nil { order.append(identifier) }
-        records[identifier] = Record(ticket: ticket, deviceID: deviceID, presentation: presentation)
+        records[identifier] = Record(ticket: ticket, deviceID: deviceID, presentation: presentation, eventID: eventID)
         while order.count > limit { records.removeValue(forKey: order.removeFirst()) }
         return ticket
     }

@@ -413,8 +413,9 @@ Idempotent.
 - `smsReply`: boolean, edition extension (sms_draft1), only to a Mac that shows the key: the phone answers this notification by sms.send with notificationId
 - `smsThreadId`: integer, optional, edition extension (sms_draft1): the conversation the message belongs to, when the phone found it
 - `presentation`: optional alert | quiet, only when both peers advertise notification_routing_draft1; missing means alert. Quiet retains history/call state/code extraction but forbids banners, sound, call overlays, code floats and automatic code copying
+- `eventId`: optional 64 lowercase hexadecimal SHA-256 characters, notification_routing_draft1 only, never with callType: opaque logical-message identity. Reposts retain ownership; a new message in a reused conversation notification chooses the current active/preferred Mac and may alert again.
 
-Content is sensitive and never logged. Smart routing chooses one alert recipient on the phone; compatible other Macs receive quiet history. Legacy peers receive content only if chosen, since they cannot honor quiet. Alert ownership sticks until removal; call/media state uses its independent all-device protocol.
+Content is sensitive and never logged. Smart routing chooses one alert recipient on the phone; compatible other Macs receive quiet history. Legacy peers receive content only if chosen, since they cannot honor quiet. Alert ownership sticks per logical message; a new message event may choose the current Mac. Calls and non-message updates stay pinned until removal; call/media state uses its independent all-device protocol.
 
 `notifications.remove`
 

@@ -2,6 +2,37 @@ import XCTest
 @testable import BridgeyMac
 
 final class NotificationRoutingTests: XCTestCase {
+    func testNewMessageCanAlertAgainWhileRepostKeepsItsSoundDeduplication() {
+        var ledger = NotificationPresentationLedger()
+        var alerted = AlertedNotificationIdentifiers()
+        let a = String(repeating: "a", count: 64), b = String(repeating: "b", count: 64)
+        let first = ledger.receive(deviceID: "phone", notificationID: "conversation", sessionID: "S", presentation: .alert, eventID: a)
+        XCTAssertTrue(first.isNewMessage)
+        if first.isNewMessage { alerted.remove(first.identifier) }
+        XCTAssertTrue(alerted.insert(first.identifier))
+        let repost = ledger.receive(deviceID: "phone", notificationID: "conversation", sessionID: "S", presentation: .alert, eventID: a)
+        XCTAssertFalse(repost.isNewMessage)
+        XCTAssertFalse(alerted.insert(repost.identifier))
+        let next = ledger.receive(deviceID: "phone", notificationID: "conversation", sessionID: "S", presentation: .alert, eventID: b)
+        XCTAssertTrue(next.isNewMessage)
+        if next.isNewMessage { alerted.remove(next.identifier) }
+        XCTAssertTrue(alerted.insert(next.identifier))
+        XCTAssertFalse(ledger.isCurrent(first))
+        let quiet = ledger.receive(deviceID: "phone", notificationID: "conversation", sessionID: "S", presentation: .quiet, eventID: b)
+        XCTAssertFalse(quiet.isNewMessage)
+        XCTAssertFalse(ledger.allowsAlert(quiet))
+    }
+
+    func testMessageEventIdentityIsStrictNegotiatedAndNeverAttachedToCalls() {
+        let valid = String(repeating: "a", count: 64)
+        XCTAssertEqual(decode("{\"presentation\":\"alert\",\"eventId\":\"\(valid)\"}"), .alert)
+        XCTAssertNil(decode("{\"eventId\":\"\(valid)\"}", negotiated: false))
+        XCTAssertNil(decode("{\"eventId\":\"\(valid)\",\"callType\":\"incoming\"}"))
+        for value in ["null", "true", "1", "\"short\"", "\"\(String(repeating: "A", count: 64))\""] {
+            XCTAssertNil(decode("{\"eventId\":\(value)}"))
+        }
+    }
+
     func testHeldCodeResultsAreRevokedForAlertAndQuietWithoutRevokingOrdinaryNotification() throws {
         for presentation in [NotificationPresentation.alert, .quiet] {
             for channel in [CodeChannel.sms, .email] {

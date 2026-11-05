@@ -179,6 +179,8 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         forwardedNotifications.record(notificationId, sbn.key, sbn.packageName)
         // Detect codes: when no Mac reads codes, an agent the user allowed may read this text message for its code.
         val detectSmsCodeCandidate = smsDefaultApp && !groupSummary && redacted != true
+        val alertEventId = notificationMessageEventId(notificationId, sbn.packageName, notification, title, text,
+            smsDefaultApp, emailApp)
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
         val callType = if (isCall) resolvedNotificationCallType(notification, telephonyCallType, isTelephonyCall) else null
         val actions = storeActions(
@@ -235,6 +237,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
                 emailApp = emailApp,
                 preview = mailPreview,
                 detectSmsCodeCandidate = detectSmsCodeCandidate,
+                alertEventId = if (callType == null) alertEventId else null,
             )
             if (callType != null) {
                 callLifecycle.forwarded(notificationId, sbn.key, sbn.packageName, isTelephonyCall)
@@ -940,6 +943,24 @@ internal fun staleForwardedNotificationIds(
 internal fun notificationToken(systemKey: String): String = MessageDigest.getInstance("SHA-256")
     .digest(systemKey.toByteArray(Charsets.UTF_8))
     .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+/** A conversation may reuse its notification key for many messages. Reposts retain their event ID;
+ * a new message changes it without putting message text or sender names in a routing identifier. */
+@Suppress("DEPRECATION")
+internal fun notificationMessageEventId(
+    notificationId: String, packageName: String, notification: Notification, title: String, text: String,
+    sms: Boolean, email: Boolean,
+): String? {
+    if (notification.category == Notification.CATEGORY_CALL) return null
+    val latest = runCatching { Notification.MessagingStyle.extractMessagingStyleFromNotification(notification)?.messages?.lastOrNull() }.getOrNull()
+    if (latest == null && !sms && !email && notification.category !in setOf(Notification.CATEGORY_MESSAGE, Notification.CATEGORY_EMAIL)) return null
+    val timestamp = (latest?.timestamp ?: 0).coerceAtLeast(0)
+    // Generic post/when clocks can change on a repost. Without message metadata, use content;
+    // identical messages from such an app cannot be distinguished safely from a repost.
+    val identity = org.json.JSONArray(listOf(notificationId, packageName, timestamp,
+        (latest?.sender?.toString() ?: title).take(1_024), (latest?.text?.toString() ?: text).take(8_192))).toString()
+    return notificationToken(identity)
+}
 
 internal fun notificationActionToken(notificationId: String, index: Int): String = notificationToken("$notificationId\u0000$index")
 

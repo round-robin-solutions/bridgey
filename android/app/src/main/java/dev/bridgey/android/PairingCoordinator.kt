@@ -2539,9 +2539,10 @@ class PairingCoordinator(
         emailApp: Boolean = false,
         preview: String? = null,
         detectSmsCodeCandidate: Boolean = false,
+        alertEventId: String? = null,
     ): List<DeviceConnection> = synchronized(notificationDispatchLock) {
         val routed = settings.state.value.smartNotificationRouting
-        val ticket = notificationAlertRoutes.plan(notificationId, pinOwner = routed) {
+        val ticket = notificationAlertRoutes.plan(notificationId, pinOwner = routed, eventId = alertEventId.takeIf { callType == null }) {
             suggestedDevice(BridgeyFeature.NOTIFICATIONS).deviceId
         } ?: return@synchronized emptyList()
         val targets = notificationTargets(ticket.owner, routed)
@@ -2576,6 +2577,7 @@ class PairingCoordinator(
         // Codes from email (email_codes_draft1): only a Mac that shows the key gets emailApp, redacted and preview.
         fun body(callsEnabled: Boolean, sms: Boolean, email: Map<String, Any>, presentation: String?): ByteArray = payload(callsEnabled).apply {
             if (presentation != null) put("presentation", presentation)
+            if (presentation != null && ticket.eventId != null) put("eventId", ticket.eventId)
             if (sms) {
                 put("smsReply", true)
                 smsThreadId?.takeIf { it >= 1 }?.let { put("smsThreadId", it) }

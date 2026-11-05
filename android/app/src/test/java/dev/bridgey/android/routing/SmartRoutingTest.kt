@@ -6,6 +6,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SmartRoutingTest {
+    @Test fun newMessageInReusedConversationChoosesCurrentMacButRepostsAndCallsStayPinned() {
+        val routes = NotificationAlertRoutes()
+        var activeMac = "A"
+        val first = routes.plan("conversation", eventId = "message-one") { activeMac }!!
+        activeMac = "B"
+        val repost = routes.plan("conversation", eventId = "message-one") { fail("same message must not reselect"); activeMac }!!
+        assertEquals("A", repost.owner)
+        assertTrue(routes.current(first))
+        val second = routes.plan("conversation", eventId = "message-two") { activeMac }!!
+        assertEquals("B", second.owner)
+        assertFalse(routes.current(first), "a delayed earlier-message fanout must not overwrite the new message")
+        assertTrue(routes.current(second))
+        val call = routes.plan("call") { "A" }!!
+        assertEquals("A", routes.plan("call") { "B" }!!.owner)
+        assertTrue(routes.current(call))
+    }
+
     @Test fun sameSessionOptOutDoesNotEraseReplayProtection() {
         val store = DevicePresenceStore()
         val messageIds = dev.bridgey.android.ReplayWindow()
