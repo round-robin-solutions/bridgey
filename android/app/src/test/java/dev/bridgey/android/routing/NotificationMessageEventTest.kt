@@ -15,8 +15,24 @@ import org.robolectric.annotation.Config
 @Config(sdk = [28], application = Application::class)
 class NotificationMessageEventTest {
     private fun builder() = Notification.Builder(ApplicationProvider.getApplicationContext<Application>(), "test")
-    private fun id(notification: Notification, text: String = "hello", key: String = "conversation") =
-        notificationMessageEventId(key, "test.messages", notification, "Alice", text, false, false)
+    private fun id(notification: Notification, text: String = "hello", key: String = "conversation", title: String = "Alice") =
+        notificationMessageEventId(key, "test.messages", notification, title, text, false, false)
+
+    @Test fun renamedConversationWithNullMetadataSenderIsStillTheSameMessage() {
+        fun message(at: Long) = builder().setStyle(Notification.MessagingStyle("You")
+            .addMessage("OK", at, null as CharSequence?)).setCategory(Notification.CATEGORY_MESSAGE).build()
+        val original = id(message(100), title = "Old conversation name")!!
+        val renamed = id(message(100), title = "Renamed conversation")!!
+        assertEquals(original, renamed)
+        val routes = NotificationAlertRoutes()
+        val first = routes.plan("conversation", eventId = original) { "A" }!!
+        val repost = routes.plan("conversation", eventId = renamed) { fail("rename must not reselect"); "B" }!!
+        assertEquals(first, repost)
+        val newMessage = id(message(200), title = "Renamed conversation")!!
+        assertNotEquals(original, newMessage)
+        assertEquals("B", routes.plan("conversation", eventId = newMessage) { "B" }!!.owner)
+        assertFalse(routes.current(first))
+    }
 
     @Test fun repeatedMessageMetadataIgnoresAndroidRepostClocksAndSummaryChanges() {
         val style = Notification.MessagingStyle("You").addMessage("hello", 100, "Alice")
