@@ -2,102 +2,119 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleDevelopmentRegion</key>
-    <string>en</string>
-    <key>CFBundleExecutable</key>
-    <string>BridgeyMac</string>
-    <key>CFBundleIdentifier</key>
-    <string>in.roundrobin.bridgey</string>
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
-    <key>CFBundleName</key>
-    <string>Bridgey RR</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>BridgeyMac</string>
+	<key>CFBundleIdentifier</key>
+	<string>in.roundrobin.bridgey</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Bridgey RR</string>
 	<key>CFBundleDisplayName</key>
 	<string>Bridgey by Round Robin</string>
 	<key>CFBundleIconFile</key>
 	<string>Bridgey.icns</string>
-    <key>CFBundleIconName</key>
-    <string>AppIcon</string>
-    <key>NSLocalNetworkUsageDescription</key>
-    <string>Bridgey discovers and connects to your paired Android devices on your local network.</string>
-    <key>NSAppleEventsUsageDescription</key>
-    <string>When you enable media controls, Bridgey controls your selected Music or Spotify player and shares now-playing information with your paired phone. When you send the current browser tab, Bridgey reads the address of the front Safari or Chrome tab.</string>
-    <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>Bridgey uses Bluetooth only while you link your phone, so Android can show Bridgey the codes in your text messages. Nothing connects over Bluetooth.</string>
-    <key>NSBonjourServices</key>
-    <array>
-        <string>_bridgey._tcp</string>
-    </array>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.6.0-rr.1-dev</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>13.0</string>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSUserNotificationAlertStyle</key>
-    <string>alert</string>
-    <!-- Sparkle (Round Robin edition). build-app.sh adds SUFeedURL from rr-edition.properties. -->
-    <key>SUPublicEDKey</key>
-    <string>lbOBQU/lFebstlkZGt2hiRCB76NkkBCvRRrQPQ8vcpg=</string>
-    <key>SUEnableAutomaticChecks</key>
-    <true/>
-    <key>SUScheduledCheckInterval</key>
-    <integer>86400</integer>
-    <key>SUVerifyUpdateBeforeExtraction</key>
-    <true/>
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleTypeRole</key>
-            <string>Viewer</string>
-            <key>CFBundleURLName</key>
-            <string>in.roundrobin.bridgey.phone</string>
-            <key>CFBundleURLSchemes</key>
-            <array><string>tel</string></array>
-        </dict>
-        <dict>
-            <key>CFBundleTypeRole</key>
-            <string>Viewer</string>
-            <key>CFBundleURLName</key>
-            <string>in.roundrobin.bridgey.send</string>
-            <key>CFBundleURLSchemes</key>
-            <array><string>in.roundrobin.bridgey.send</string></array>
-        </dict>
-    </array>
-    <key>NSServices</key>
-    <array>
-        <dict>
-            <key>NSMenuItem</key>
-            <dict><key>default</key><string>Call with Bridgey RR</string></dict>
-            <key>NSMessage</key>
-            <string>callWithBridgey</string>
-            <key>NSPortName</key>
-            <string>BridgeyMac</string>
-            <key>NSSendTypes</key>
-            <array><string>public.utf8-plain-text</string></array>
-        </dict>
-        <dict>
-            <key>NSMenuItem</key>
-            <dict><key>default</key><string>Send to Phone with Bridgey</string></dict>
-            <key>NSMessage</key>
-            <string>sendToPhoneWithBridgey</string>
-            <key>NSPortName</key>
-            <string>BridgeyMac</string>
-            <key>NSSendFileTypes</key>
-            <array><string>public.item</string></array>
-            <key>NSSendTypes</key>
-            <array>
-                <string>public.file-url</string>
-                <string>public.url</string>
-                <string>public.utf8-plain-text</string>
-                <string>public.png</string>
-                <string>public.tiff</string>
-            </array>
-        </dict>
-    </array>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Bridgey discovers and connects to your paired Android devices on your local network.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>When you enable media controls, Bridgey controls your selected Music or Spotify player and shares now-playing information with your paired phone. When you send the current browser tab, Bridgey reads the address of the front Safari or Chrome tab.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Bridgey uses Bluetooth only while you link your phone, so Android can show Bridgey the codes in your text messages. Nothing connects over Bluetooth.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_bridgey._tcp</string>
+	</array>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.6.0-rr.1-dev</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSUserNotificationAlertStyle</key>
+	<string>alert</string>
+	<key>SUPublicEDKey</key>
+	<string>lbOBQU/lFebstlkZGt2hiRCB76NkkBCvRRrQPQ8vcpg=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>in.roundrobin.bridgey.phone</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>tel</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>in.roundrobin.bridgey.send</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>in.roundrobin.bridgey.send</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Call with Bridgey RR</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>callWithBridgey</string>
+			<key>NSPortName</key>
+			<string>BridgeyMac</string>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.utf8-plain-text</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Send to Phone with Bridgey</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>sendToPhoneWithBridgey</string>
+			<key>NSPortName</key>
+			<string>BridgeyMac</string>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.item</string>
+			</array>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.file-url</string>
+				<string>public.url</string>
+				<string>public.utf8-plain-text</string>
+				<string>public.png</string>
+				<string>public.tiff</string>
+			</array>
+		</dict>
+	</array>
+	<key>BridgeyTestInstance</key>
+	<true/>
+	<key>BridgeyTestPort</key>
+	<integer>42459</integer>
 </dict>
 </plist>
