@@ -196,21 +196,33 @@ final class PhoneFilesUITests: XCTestCase {
     /// Visible items never wait behind items further ahead.
     func testVisibleItemsPushOutARequestForItemsAhead() {
         let fake = UIFakePhoneFiles()
-        fake.simulated = .init(rtt: 0.5)
+        fake.holdThumbnailResponses = true
+        var now = Date(timeIntervalSince1970: 1_000)
         let entries = UIFakeImages.media(400)
-        let scheduler = scheduler(fake)
+        let scheduler = PhoneThumbnailScheduler(service: fake, cache: PhoneThumbnailCache(directory: nil), clock: { now })
+        scheduler.setPhone(phone)
+        defer { scheduler.stop() }
         scheduler.setOrder(entries)
         // Three requests: the screen, then two of 64 coming items each.
         scheduler.setVisible(Array(entries[0..<6]), ahead: Array(entries[6..<200]))
-        spin(0.01)
+        scheduler.pumpNow()
         XCTAssertEqual(fake.thumbnailRequests.count, 3)
+        XCTAssertEqual(scheduler.requestsInFlight, PhoneThumbnailScheduler.maxInFlight)
+        let originalLanes = fake.thumbnailRequests.map(\.lane)
         // Every request still carries wanted items (all of them are ahead now), but a new screen needs a slot:
         // the newest request that carries nothing visible gives way.
         scheduler.setVisible(Array(entries[300..<306]), ahead: Array(entries[0..<200]))
-        spin(PhoneThumbnailScheduler.settle + 0.05)
+        scheduler.pumpNow()
+        XCTAssertEqual(fake.cancelledThumbnailRequests, 0, "nothing is preempted before scrolling settles")
+        XCTAssertEqual(fake.thumbnailRequests.count, 3)
+        // Held responses keep all three slots occupied regardless of the CI host's speed.
+        now = now.addingTimeInterval(PhoneThumbnailScheduler.settle)
+        scheduler.pumpNow()
         XCTAssertEqual(fake.cancelledThumbnailRequests, 1)
         XCTAssertEqual(fake.thumbnailRequests.last?.keys, entries[300..<306].map(\.id))
         XCTAssertEqual(scheduler.requestsInFlight, PhoneThumbnailScheduler.maxInFlight)
+        XCTAssertEqual(fake.pendingThumbnailLanes, Set(Array(originalLanes.prefix(2)) + fake.thumbnailRequests.suffix(1).map(\.lane)),
+                       "the newest prefetch gives way while both earlier requests keep going")
         XCTAssertEqual(scheduler.state(of: entries[0]), "wire", "the first screen's request kept going")
     }
 
