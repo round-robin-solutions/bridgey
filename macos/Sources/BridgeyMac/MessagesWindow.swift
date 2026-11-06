@@ -35,6 +35,63 @@ final class MessagesSelection: ObservableObject {
     @Published var forwardText: String?
     /// Command-F: the search field takes the focus each time this changes.
     @Published var searchFocus = 0
+    private var presentedContext: MessagesContext?
+
+    var context: MessagesContext { MessagesContext(phoneID: phoneID, target: target) }
+
+    /// Every window-opening route applies the same reset before a notification's explicit thread.
+    func prepareToShow(phoneID: String?, threadID: Int?) {
+        if let phoneID { selectPhone(phoneID) }
+        if let threadID { target = .thread(threadID) }
+    }
+
+    /// Conversation IDs and selection state belong to one phone, never the replacement source.
+    @discardableResult
+    func selectPhone(_ id: String?) -> Bool {
+        guard phoneID != id else { return false }
+        target = nil
+        query = ""
+        selected = []
+        selecting = false
+        rangeStart = nil
+        focusMessage = nil
+        unread = nil
+        forwardText = nil
+        phoneID = id
+        return true
+    }
+
+    func selectedPhone(in phones: [MessagesPhone]) -> MessagesPhone? {
+        phones.first { $0.id == phoneID }
+    }
+
+    @discardableResult
+    func reconcilePhones(_ phones: [MessagesPhone]) -> Bool {
+        let resolved = phones.first(where: { $0.id == phoneID })?.id ?? phones.first?.id
+        return selectPhone(resolved)
+    }
+
+    /// One gate for appearance, phone-list updates and explicit source/target changes.
+    /// An unchanged source and target must not reopen a conversation or reset its unread marker.
+    func beginPresentation(phones: [MessagesPhone], force: Bool = false) -> MessagesPresentationChange? {
+        reconcilePhones(phones)
+        let next = context
+        guard force || presentedContext != next else { return nil }
+        let change = MessagesPresentationChange(sourceChanged: force || presentedContext?.phoneID != next.phoneID)
+        presentedContext = next
+        return change
+    }
+
+    func endPresentation() { presentedContext = nil }
+}
+
+struct MessagesContext: Equatable {
+    let phoneID: String?
+    let target: MessagesTarget?
+}
+
+struct MessagesPresentationChange {
+    let sourceChanged: Bool
 }
 
 /// What the unread divider sits above: worked out once per opening, so marking read does not move it.
@@ -64,8 +121,7 @@ enum MessagesWindowController {
 
     /// Opens the window, on `phoneID`'s conversations and `threadID` when given.
     static func show(pairing: PairingCoordinator, phoneID: String? = nil, threadID: Int? = nil) {
-        if let phoneID { selection.phoneID = phoneID }
-        if let threadID { selection.target = .thread(threadID) }
+        selection.prepareToShow(phoneID: phoneID, threadID: threadID)
         if window == nil {
             let root = MessagesLiveView(pairing: pairing, messages: pairing.textMessages, settings: pairing.observedSettings, selection: selection)
             let created = NSWindow(contentViewController: NSHostingController(rootView: root))
@@ -238,16 +294,23 @@ private struct MessagesLiveView: View {
         }
         .ignoresSafeArea()
         .onAppear {
-            appeared()
+            appeared(force: true)
             installKeys()
         }
         .onDisappear {
+            selection.endPresentation()
             messages.close()
             if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
             keyMonitor = nil
         }
-        .onChange(of: selection.phoneID) { _ in appeared() }
-        .onChange(of: selection.target) { target in open(target) }
+        .onChange(of: selection.context) { _ in appeared() }
+        .onChange(of: phones) { _ in appeared() }
+        .onChange(of: pairing.textMessagesSettingOn) { enabled in
+            if enabled { appeared(force: true) } else {
+                selection.endPresentation()
+                messages.close()
+            }
+        }
         .onChange(of: selection.filter) { filter in if filter != .archived, let phoneID { messages.fillThreads(phoneID) } }
         .onChange(of: selection.query) { _ in refreshSearch() }
         .onChange(of: messages.revision) { _ in
@@ -274,15 +337,25 @@ private struct MessagesLiveView: View {
     }
 
     private var phoneID: String? {
-        let list = phones
-        if let chosen = selection.phoneID, list.contains(where: { $0.id == chosen }) { return chosen }
-        return list.first?.id
+        // Reconciliation resets phone-scoped state before a replacement becomes actionable.
+        selection.selectedPhone(in: phones)?.id
     }
 
-    private func appeared() {
-        guard let phoneID, pairing.textMessagesAvailable(for: phoneID) else { return }
-        messages.refreshThreads(phoneID)
-        messages.fillThreads(phoneID)
+    private func appeared(force: Bool = false) {
+        guard let change = selection.beginPresentation(phones: phones, force: force) else { return }
+        if change.sourceChanged {
+            messages.close()
+            messages.clearContacts()
+            search = SmsSearchResults()
+        }
+        guard let phoneID, pairing.textMessagesAvailable(for: phoneID) else {
+            messages.close()
+            return
+        }
+        if change.sourceChanged {
+            messages.refreshThreads(phoneID)
+            messages.fillThreads(phoneID)
+        }
         open(selection.target)
     }
 
@@ -349,7 +422,7 @@ private struct MessagesLiveView: View {
         }
         guard let phoneID else {
             // A connected phone that has Text messages off says so; otherwise there is no phone.
-            if let off = pairing.connectedPhones.first { model.availability = .phoneOff(off.name) } else { model.availability = .noPhone }
+            if let off = pairing.textMessageSourceCandidates.first { model.availability = .phoneOff(off.name) } else { model.availability = .noPhone }
             return model
         }
         let name = phones.first { $0.id == phoneID }?.name ?? ""
@@ -423,10 +496,8 @@ private struct MessagesLiveView: View {
     private var actions: MessagesActions {
         var actions = MessagesActions()
         actions.selectPhone = { id in
-            selection.phoneID = id
-            selection.target = nil
-            selection.selected = []
-            selection.query = ""
+            guard phones.contains(where: { $0.id == id }) else { return }
+            selection.selectPhone(id)
         }
         actions.select = { target in
             if target != selection.target { selection.forwardText = target == .compose || isFromCompose(target) ? selection.forwardText : nil }

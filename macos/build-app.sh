@@ -16,11 +16,19 @@ APP_NAME=$(edition_value EDITION_MAC_APP_NAME)
 FEED_BASE_URL=$(edition_value UPDATE_FEED_BASE_URL)
 APP_PATH=".build/$CONFIGURATION/$APP_NAME.app"
 
+# CI supplies a bounded worker allocation. Ordinary local builds keep SwiftPM's defaults.
+set --
+if [ -n "${RR_CI_CPU:-}" ]; then
+  case "$RR_CI_CPU" in *[!0-9]*) echo "RR_CI_CPU must be a positive integer" >&2; exit 2;; esac
+  [ "${#RR_CI_CPU}" -le 3 ] && [ "$RR_CI_CPU" -gt 0 ] || { echo "RR_CI_CPU must be a positive integer" >&2; exit 2; }
+  set -- --jobs "$RR_CI_CPU"
+fi
+
 env \
   SDKROOT="$SDK_PATH" \
   CLANG_MODULE_CACHE_PATH="$CACHE_ROOT/clang" \
   SWIFTPM_MODULECACHE_OVERRIDE="$CACHE_ROOT/swift" \
-  swift build -c "$CONFIGURATION"
+  swift build --build-system native -c "$CONFIGURATION" "$@"
 
 rm -rf "$APP_PATH"
 mkdir -p "$APP_PATH/Contents/MacOS"
@@ -84,7 +92,7 @@ if [ "$(lipo -archs "$LLAMA_BINARY")" != "$APP_ARCHS" ]; then
 fi
 # Connect anywhere core (rust/core, MIT): libbridgey_connect.dylib, loaded with dlopen. Built for this
 # Mac's architecture with cargo; without cargo the app still builds and the setting says "not available".
-CARGO_BIN=${CARGO:-$(command -v cargo || echo "$HOME/.cargo/bin/cargo")}
+. ../scripts/rr/rust-env.sh
 if [ -x "$CARGO_BIN" ]; then
   CARGO_PROFILE=debug
   set -- build -p bridgey-connect --manifest-path ../rust/Cargo.toml --locked
@@ -96,9 +104,9 @@ if [ -x "$CARGO_BIN" ]; then
   CONNECT_DYLIB="$APP_PATH/Contents/Frameworks/libbridgey_connect.dylib"
   cp "../rust/target/$CARGO_PROFILE/libbridgey_connect.dylib" "$CONNECT_DYLIB"
   install_name_tool -id "@rpath/libbridgey_connect.dylib" "$CONNECT_DYLIB"
-elif [ "$CONFIGURATION" = release ] && [ "${BRIDGEY_CONNECT_CORE:-}" != skip ]; then
+elif { [ "$CONFIGURATION" = release ] || [ "${CI:-}" = 1 ]; } && [ "${BRIDGEY_CONNECT_CORE:-}" != skip ]; then
   # A release must never ship without the core; scripts/rr/rust-toolchain.sh mac installs cargo.
-  echo "error: cargo not found; release builds need the Connect anywhere core (or BRIDGEY_CONNECT_CORE=skip)" >&2
+  echo "error: cargo not found; release and CI builds need the Connect anywhere core (or BRIDGEY_CONNECT_CORE=skip)" >&2
   exit 1
 else
   echo "warning: cargo not found; building without the Connect anywhere core (it will show as not available)" >&2

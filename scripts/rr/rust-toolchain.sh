@@ -9,7 +9,7 @@
 set -eu
 MODE=${1:?usage: rust-toolchain.sh android|mac}
 ROOT=$(cd "$(dirname -- "$0")/../.." && pwd)
-CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}
+. "$ROOT/scripts/rr/rust-env.sh"
 PATH="$CARGO_HOME/bin:$PATH"
 export PATH
 

@@ -87,6 +87,35 @@ final class SendDesignScreenshots: XCTestCase {
 
     // MARK: Renders
 
+    /// Source recovery states retained by the existing owned Mac screenshot task.
+    @MainActor func testMessagesPhoneSources() throws {
+        for connectedPhone in [false, true] {
+            for scheme in [ColorScheme.light, .dark] {
+                var model = MessagesModel()
+                if connectedPhone {
+                    model.phones = [MessagesPhone(id: "phone", name: "OnePlus 11")]
+                    model.phoneID = "phone"
+                    model.phoneName = "OnePlus 11"
+                    model.availability = .loading("OnePlus 11")
+                } else {
+                    model.availability = .noPhone
+                }
+                let view = BrandRoot(reduceMotion: true) {
+                    MessagesView(model: model, actions: MessagesActions(), copiedMessage: nil)
+                        .frame(width: MessagesView.size.width, height: MessagesView.size.height)
+                }.frame(width: 1440, height: 900)
+                    .environment(\.colorScheme, scheme).environment(\.snapshotRendering, true)
+                let renderer = ImageRenderer(content: view)
+                renderer.scale = 1
+                guard let image = renderer.cgImage,
+                      let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+                    throw XCTSkip("ImageRenderer produced no PNG")
+                }
+                try data.write(to: directory.appendingPathComponent("mac-sms-source-\(connectedPhone ? "phone" : "no-phone")-\(scheme == .dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
     @MainActor func testSendSheet() throws {
         for scheme in [ColorScheme.light, .dark] {
             let suffix = scheme == .dark ? "dark" : "light"

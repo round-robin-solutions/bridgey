@@ -641,7 +641,8 @@ final class PairingCoordinator: ObservableObject {
             self?.publish()
         }
         textMessages.send = { [weak self] id, kind, payload in
-            guard let self, let current = self.registry.session(for: id) else { return false }
+            guard let self, self.textMessagesAvailable(for: id),
+                  let current = self.registry.session(for: id) else { return false }
             return self.sendQuickPayload(kind: kind, payload: payload, to: current)
         }
         textMessages.isAvailable = { [weak self] id in self?.textMessagesAvailable(for: id) == true }
@@ -2907,6 +2908,10 @@ final class PairingCoordinator: ObservableObject {
                     registry.update(phoneID) { link in
                         link.remoteFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map { ($0, false) })
                         link.featureStateReceived = true
+                        link.smsFeaturesReceived = true
+                        link.smsPlatform = nil
+                        link.remoteSms = false
+                        link.smsProviderConfirmed = false
                         link.remoteConnect = draftKeys[connectFeatureKey] == true
                     }
                     publish()
@@ -2916,6 +2921,7 @@ final class PairingCoordinator: ObservableObject {
                 registry.update(phoneID) { link in
                     link.remoteFeatures = features
                     link.featureStateReceived = true
+                    link.smsFeaturesReceived = true
                     link.remoteClipboardFiles = clipboardFiles
                     link.remoteFolders = draftKeys[foldersFeatureKey] == true
                     link.remotePlaces = draftKeys[placesFeatureKey] == true
@@ -2969,8 +2975,9 @@ final class PairingCoordinator: ObservableObject {
                 if draftKeys[updatesFeatureKey] == true { updatesPeerReady(phoneID) }
                 // Text messages: the phone's sms.status starts the sync. A phone that turned it off
                 // takes its conversations with it: this Mac deletes what it kept.
-                if draftKeys[smsFeatureKey] == true {
-                    if settings.smsEnabled { textMessages.phoneReady(phoneID) }
+                if SmsSourceRules.permitsProvider(registry.state(for: phoneID), restricted: settings.isAgent(phoneID)),
+                   draftKeys[smsFeatureKey] == true {
+                    if textMessagesAvailable(for: phoneID) { textMessages.phoneReady(phoneID) }
                 } else {
                     textMessages.phoneTurnedOff(phoneID)
                 }
@@ -4805,7 +4812,10 @@ final class PairingCoordinator: ObservableObject {
         switch message.kind {
         case "updates.status":
             guard let status = PeerUpdateStatus.decode(data) else { return }
-            registry.update(phoneID) { $0.updateStatus = status }
+            registry.update(phoneID) {
+                $0.updateStatus = status
+                $0.smsPlatform = status.platform
+            }
             publish()
             updatesStatusReceived(phoneID, status)
         case "updates.start":
@@ -6651,7 +6661,8 @@ func smsFailureText(_ reason: SmsSendReason?) -> String {
 extension PairingCoordinator {
     /// Text messages is on here and on the phone, and the phone is connected.
     func textMessagesAvailable(for id: String) -> Bool {
-        settings.smsEnabled && registry.session(for: id) != nil && registry.state(for: id)?.remoteSms == true
+        settings.smsEnabled && registry.session(for: id) != nil &&
+            SmsSourceRules.canRequest(registry.state(for: id), restricted: settings.isAgent(id))
     }
 
     /// Settings > Text messages is on.
@@ -6661,8 +6672,13 @@ extension PairingCoordinator {
     /// Copy code shows on messages only while Codes from messages is on.
     var codesEnabledForMessages: Bool { settings.codesEnabled }
 
-    /// Connected phones with Text messages on, in connection order.
-    var textMessagePhones: [PhoneConnection] { connectedPhones.filter { $0.state.remoteSms } }
+    /// Authenticated phone sources; a Mac's Text messages switch only enables its client.
+    var textMessageSourceCandidates: [PhoneConnection] {
+        connectedPhones.filter { SmsSourceRules.isPhone($0.state, restricted: settings.isAgent($0.id)) }
+    }
+
+    /// Connected SMS providers with Text messages on, in connection order.
+    var textMessagePhones: [PhoneConnection] { textMessageSourceCandidates.filter { $0.state.remoteSms } }
 
     /// Settings > Text messages. Off deletes every conversation this Mac kept.
     func setTextMessagesEnabled(_ enabled: Bool) {
@@ -6670,7 +6686,7 @@ extension PairingCoordinator {
         if !enabled { textMessages.deleteAll() }
         sendFeatureState()
         if enabled {
-            for phone in connectedPhones where phone.state.remoteSms { textMessages.phoneReady(phone.id) }
+            for phone in textMessagePhones { textMessages.phoneReady(phone.id) }
         }
     }
 
@@ -6688,10 +6704,13 @@ extension PairingCoordinator {
 
     /// Settings card: the selected phone's Text messages state.
     var textMessagesDisplay: SmsPhoneDisplay {
-        guard let current = session, let link = registry.state(for: current.remoteDeviceID) else { return .noPhone }
-        guard link.remoteSms else { return .phoneOff(current.peerName) }
-        guard let status = textMessages.data(current.remoteDeviceID).status else { return .waiting(current.peerName) }
-        return .ready(current.peerName, status)
+        let phones = textMessageSourceCandidates
+        // Keep a selected phone, otherwise prefer an enabled provider over a connected Mac or disabled phone.
+        guard let phone = phones.first(where: { $0.id == session?.remoteDeviceID && $0.state.remoteSms }) ??
+                textMessagePhones.first ?? phones.first else { return .noPhone }
+        guard phone.state.remoteSms else { return .phoneOff(phone.name) }
+        guard let status = textMessages.data(phone.id).status else { return .waiting(phone.name) }
+        return .ready(phone.name, status)
     }
 
     fileprivate func receiveTextMessage(_ message: PairingMessage, in current: Session) {
@@ -6699,7 +6718,16 @@ extension PairingCoordinator {
               let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
               let nonce = message.nonce, let ciphertext = message.ciphertext,
               let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return }
-        textMessages.receive(kind: message.kind, data: data, from: current.remoteDeviceID)
+        let phoneID = current.remoteDeviceID
+        let link = registry.state(for: phoneID)
+        if message.kind == SmsKinds.status {
+            guard SmsSourceRules.acceptsStatus(data, link: link, restricted: settings.isAgent(phoneID)) else { return }
+            registry.update(phoneID) { $0.smsProviderConfirmed = true }
+            publish()
+        } else {
+            guard textMessagesAvailable(for: phoneID) else { return }
+        }
+        textMessages.receive(kind: message.kind, data: data, from: phoneID)
     }
 
     fileprivate func smsReplyAvailable(_ payload: RemoteNotificationPayload, deviceID: String) -> Bool {

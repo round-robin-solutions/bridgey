@@ -7,6 +7,7 @@
 # signed. Either way Sparkle trusts the EdDSA signature that rrrelease.py adds to the appcast.
 set -eu
 . "$(dirname -- "$0")/common.sh"
+. "$RR_ROOT/scripts/rr/rust-env.sh"
 
 OUTPUT=${1:?usage: build-macos.sh <output-dir>}
 : "${BRIDGEY_VERSION_NAME:?set BRIDGEY_VERSION_NAME}"
@@ -45,7 +46,7 @@ fi
 sh "$RR_ROOT/scripts/rr/rust-toolchain.sh" mac
 PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 export PATH
-swift test -c release --skip MacTrustRegistryTests
+swift test --build-system native -c release --skip MacTrustRegistryTests
 OUTPUT_DIR="$OUTPUT" ./package-release.sh
 
 APP=".build/release/$(edition_value EDITION_MAC_APP_NAME).app"
