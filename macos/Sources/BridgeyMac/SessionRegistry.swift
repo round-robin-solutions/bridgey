@@ -29,6 +29,8 @@ struct PhoneLinkState: Equatable {
     var remoteScreen = false
     /// The phone advertised `sms_draft1`: Text messages is on there for this Mac.
     var remoteSms = false
+    /// This session supplied a validated sms.status, including older Android peers without platform metadata.
+    var smsProviderConfirmed = false
     /// The phone advertised `files_fast_draft1`: binary chunk frames and the byte window (FastTransfer.swift).
     var remoteFastTransfers = false
     /// The phone advertised `settings_sync_draft1`: it syncs settings with this Mac.
@@ -187,6 +189,7 @@ final class SessionRegistry<S: AnyObject> {
         let existing = active[index]
         guard isStale(existing.session) || prefers(entry, over: existing) else { return .rejected }
         entry.state = existing.state
+        entry.state.smsProviderConfirmed = false
         active.remove(at: index)
         active.append(entry)
         return .accepted(replaced: existing.session)
