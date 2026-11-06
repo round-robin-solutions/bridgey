@@ -51,6 +51,72 @@ final class MenuBarPresentationTests: XCTestCase {
         }
     }
 
+    func testPreparingContentDoesNotShowOrRefreshThePanel() {
+        var reads = 0
+        controller.presentation.readClipboard = { _ in
+            reads += 1
+            return PasteboardPreview(changeCount: 1, line: "fixture", hidden: false)
+        }
+        controller.onDidOpen = { [unowned self] in controller.presentation.refreshClipboard() }
+        controller.prepareContent()
+        XCTAssertFalse(controller.isOpen)
+        XCTAssertFalse(controller.panel.isVisible)
+        XCTAssertFalse(controller.presentation.isPresented)
+        XCTAssertTrue(refreshes.isEmpty)
+        XCTAssertTrue(fades.isEmpty)
+        XCTAssertEqual(reads, 0)
+    }
+
+    func testProviderRefreshWaitsForTheEntranceToComplete() async {
+        controller.reduceMotion = { false }
+        var calls = 0
+        controller.onDidOpen = { calls += 1 }
+        controller.open(byDrag: false)
+        XCTAssertTrue(refreshes.isEmpty, "provider work must not compete with the entrance")
+        fadeCompletions[0]()
+        await drainMainQueue()
+        XCTAssertEqual(refreshes.count, 1)
+        refreshes.removeFirst()()
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testClosingDuringEntranceCancelsTheRefreshCompletion() async {
+        controller.reduceMotion = { false }
+        controller.open(byDrag: false)
+        let entrance = fadeCompletions[0]
+        controller.close(animated: false)
+        entrance()
+        await drainMainQueue()
+        XCTAssertTrue(refreshes.isEmpty)
+        XCTAssertFalse(controller.isOpen)
+    }
+
+    func testEntranceCompletionQueuesOnlyOneRefresh() async {
+        controller.reduceMotion = { false }
+        controller.open(byDrag: false)
+        let entrance = fadeCompletions[0]
+        entrance()
+        entrance()
+        await drainMainQueue()
+        XCTAssertEqual(refreshes.count, 1)
+    }
+
+    func testEntranceDeadlineStillRefreshesWhenAnimatorNeverCompletes() {
+        let deadline = BridgeyWindows.fadeDeadline
+        BridgeyWindows.fadeDeadline = 0.01
+        defer { BridgeyWindows.fadeDeadline = deadline }
+        let refreshed = expectation(description: "the entrance fallback schedules a refresh")
+        controller.scheduleOpenRefresh = { [unowned self] work in
+            refreshes.append(work)
+            refreshed.fulfill()
+        }
+        controller.reduceMotion = { false }
+        controller.open(byDrag: false)
+        wait(for: [refreshed], timeout: 2)
+        XCTAssertEqual(controller.panel.alphaValue, 1)
+        XCTAssertEqual(refreshes.count, 1)
+    }
+
     func testRefreshIsDeferredUntilAfterTheExistingPanelIsOrderedIn() {
         var calls = 0
         controller.onDidOpen = { [unowned self] in

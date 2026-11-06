@@ -139,6 +139,20 @@ enum MenuBarOpeningProbe {
                 controller.dismissFromOutside()
                 controller.togglePanel()
                 let rapidReopen = controller.isOpen
+                // Exercise the real animator through a reversal, then outlive the stale exit.
+                pump(until: ProcessInfo.processInfo.systemUptime + 0.20)
+                controller.close()
+                pump(until: ProcessInfo.processInfo.systemUptime + 0.03)
+                let reversalAlpha = serverAlpha(controller.panel)
+                controller.open(byDrag: false)
+                pump(until: ProcessInfo.processInfo.systemUptime + 0.25)
+                let reversalSucceeded = controller.isOpen && controller.panel.isVisible
+                    && controller.panel.alphaValue == 1 && !controller.panel.ignoresMouseEvents
+                    && !controller.panel.isAccessibilityHidden()
+                if retainingRoot {
+                    XCTAssertTrue(rapidReopen, "a distinct new click must reopen immediately")
+                    XCTAssertTrue(reversalSucceeded, "a stale exit must not hide a reopened panel")
+                }
                 controller.close()
                 BridgeyWindows.orderOut(controller.panel)
                 scenarios.append([
@@ -146,6 +160,8 @@ enum MenuBarOpeningProbe {
                     "preparationMs": (prepared - initialized) * 1000, "rootConstructions": fixture.roots,
                     "appearances": fixture.appearances, "providerReads": fixture.providerReads,
                     "rapidReopenHonored": rapidReopen, "screenUnavailable": BridgeyWindows.screenUnavailable(),
+                    "reversalStartServerAlpha": reversalAlpha.map { $0 as Any } ?? NSNull(),
+                    "reversalSucceeded": reversalSucceeded,
                     "samples": samples,
                 ])
             }

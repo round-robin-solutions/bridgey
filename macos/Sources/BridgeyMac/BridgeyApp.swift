@@ -80,6 +80,7 @@ enum MenuBarHost {
             controller.close()
             openSettings()
         }))
+        Task { @MainActor [weak controller] in controller?.prepareContent() }
         controller.reduceMotion = { settings.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
         controller.onWillOpen = { pairing.activity.prune() }
         controller.onDidOpen = { [weak controller] in

@@ -100,7 +100,7 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
     static let closingDuration: TimeInterval = 0.10
     /// Lightweight state cleanup before layout; provider refreshes belong in onDidOpen.
     var onWillOpen: () -> Void = {}
-    /// Refreshes happen on the next main turn, after the existing panel has been ordered in.
+    /// Refresh after entrance completion; reduced motion uses the next main turn.
     var onDidOpen: () -> Void = {}
     var scheduleOpenRefresh: (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
         DispatchQueue.main.async(execute: work)
@@ -176,6 +176,13 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
         close()
     }
 
+    /// Prepare the retained hierarchy once while hidden, without provider reads or showing a window.
+    func prepareContent() {
+        guard !panel.isVisible else { return }
+        hosting.view.layoutSubtreeIfNeeded()
+        fitToContent()
+    }
+
     func open(byDrag: Bool) {
         guard !isOpen else { return }
         dismissedIconClick = nil
@@ -196,10 +203,20 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
         wantsOpen = true
         panel.orderFrontRegardless()
         if !byDrag { panel.makeKey() }
-        if animate { BridgeyWindows.fadeIn(panel, duration: Self.openingDuration) }
         presentation.setPresented(true)
         statusItem.button?.highlight(true)
         installOutsideClickMonitor()
+        if animate {
+            BridgeyWindows.fadeIn(panel, duration: Self.openingDuration) { [weak self] in
+                self?.refreshAfterOpening(generation)
+            }
+        } else {
+            refreshAfterOpening(generation)
+        }
+    }
+
+    private func refreshAfterOpening(_ generation: Int) {
+        // A slow pasteboard provider must not block the entrance animation itself.
         scheduleOpenRefresh { [weak self] in
             guard let self, self.visibilityGeneration == generation, self.isOpen else { return }
             self.onDidOpen()
