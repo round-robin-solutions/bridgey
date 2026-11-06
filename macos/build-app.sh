@@ -16,11 +16,19 @@ APP_NAME=$(edition_value EDITION_MAC_APP_NAME)
 FEED_BASE_URL=$(edition_value UPDATE_FEED_BASE_URL)
 APP_PATH=".build/$CONFIGURATION/$APP_NAME.app"
 
+# CI supplies a bounded worker allocation. Ordinary local builds keep SwiftPM's defaults.
+set --
+if [ -n "${RR_CI_CPU:-}" ]; then
+  case "$RR_CI_CPU" in *[!0-9]*) echo "RR_CI_CPU must be a positive integer" >&2; exit 2;; esac
+  [ "${#RR_CI_CPU}" -le 3 ] && [ "$RR_CI_CPU" -gt 0 ] || { echo "RR_CI_CPU must be a positive integer" >&2; exit 2; }
+  set -- --jobs "$RR_CI_CPU"
+fi
+
 env \
   SDKROOT="$SDK_PATH" \
   CLANG_MODULE_CACHE_PATH="$CACHE_ROOT/clang" \
   SWIFTPM_MODULECACHE_OVERRIDE="$CACHE_ROOT/swift" \
-  swift build -c "$CONFIGURATION"
+  swift build -c "$CONFIGURATION" "$@"
 
 rm -rf "$APP_PATH"
 mkdir -p "$APP_PATH/Contents/MacOS"
