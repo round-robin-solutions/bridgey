@@ -4,14 +4,14 @@ import Foundation
 /// Role evidence comes from the authenticated session, never Bonjour names or platform hints.
 enum SmsSourceRules {
     static func permitsProvider(_ link: PhoneLinkState?, restricted: Bool) -> Bool {
-        guard let link, link.featureStateReceived, !restricted else { return false }
-        return !link.remoteHandoffTakeover && link.updateStatus?.platform != .macos
+        guard let link, link.smsFeaturesReceived, !restricted else { return false }
+        return !link.remoteHandoffTakeover && link.smsPlatform != .macos
     }
 
     static func isPhone(_ link: PhoneLinkState?, restricted: Bool) -> Bool {
         guard permitsProvider(link, restricted: restricted), let link else { return false }
         // Older Android peers have no platform status. Their validated sms.status proves the role.
-        return link.updateStatus?.platform == .android || link.smsProviderConfirmed
+        return link.smsPlatform == .android || link.smsProviderConfirmed
     }
 
     static func canRequest(_ link: PhoneLinkState?, restricted: Bool) -> Bool {

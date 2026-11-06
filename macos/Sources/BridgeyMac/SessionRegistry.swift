@@ -31,6 +31,9 @@ struct PhoneLinkState: Equatable {
     var remoteSms = false
     /// This session supplied a validated sms.status, including older Android peers without platform metadata.
     var smsProviderConfirmed = false
+    /// SMS eligibility uses evidence from this session, unlike carried UI/link state.
+    var smsFeaturesReceived = false
+    var smsPlatform: UpdatePlatform?
     /// The phone advertised `files_fast_draft1`: binary chunk frames and the byte window (FastTransfer.swift).
     var remoteFastTransfers = false
     /// The phone advertised `settings_sync_draft1`: it syncs settings with this Mac.
@@ -190,6 +193,8 @@ final class SessionRegistry<S: AnyObject> {
         guard isStale(existing.session) || prefers(entry, over: existing) else { return .rejected }
         entry.state = existing.state
         entry.state.smsProviderConfirmed = false
+        entry.state.smsFeaturesReceived = false
+        entry.state.smsPlatform = nil
         active.remove(at: index)
         active.append(entry)
         return .accepted(replaced: existing.session)

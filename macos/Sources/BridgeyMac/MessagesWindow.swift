@@ -35,6 +35,15 @@ final class MessagesSelection: ObservableObject {
     @Published var forwardText: String?
     /// Command-F: the search field takes the focus each time this changes.
     @Published var searchFocus = 0
+    private var presentedContext: MessagesContext?
+
+    var context: MessagesContext { MessagesContext(phoneID: phoneID, target: target) }
+
+    /// Every window-opening route applies the same reset before a notification's explicit thread.
+    func prepareToShow(phoneID: String?, threadID: Int?) {
+        if let phoneID { selectPhone(phoneID) }
+        if let threadID { target = .thread(threadID) }
+    }
 
     /// Conversation IDs and selection state belong to one phone, never the replacement source.
     @discardableResult
@@ -61,6 +70,28 @@ final class MessagesSelection: ObservableObject {
         let resolved = phones.first(where: { $0.id == phoneID })?.id ?? phones.first?.id
         return selectPhone(resolved)
     }
+
+    /// One gate for appearance, phone-list updates and explicit source/target changes.
+    /// An unchanged source and target must not reopen a conversation or reset its unread marker.
+    func beginPresentation(phones: [MessagesPhone], force: Bool = false) -> MessagesPresentationChange? {
+        reconcilePhones(phones)
+        let next = context
+        guard force || presentedContext != next else { return nil }
+        let change = MessagesPresentationChange(sourceChanged: force || presentedContext?.phoneID != next.phoneID)
+        presentedContext = next
+        return change
+    }
+
+    func endPresentation() { presentedContext = nil }
+}
+
+struct MessagesContext: Equatable {
+    let phoneID: String?
+    let target: MessagesTarget?
+}
+
+struct MessagesPresentationChange {
+    let sourceChanged: Bool
 }
 
 /// What the unread divider sits above: worked out once per opening, so marking read does not move it.
@@ -90,8 +121,7 @@ enum MessagesWindowController {
 
     /// Opens the window, on `phoneID`'s conversations and `threadID` when given.
     static func show(pairing: PairingCoordinator, phoneID: String? = nil, threadID: Int? = nil) {
-        if let phoneID { selection.phoneID = phoneID }
-        if let threadID { selection.target = .thread(threadID) }
+        selection.prepareToShow(phoneID: phoneID, threadID: threadID)
         if window == nil {
             let root = MessagesLiveView(pairing: pairing, messages: pairing.textMessages, settings: pairing.observedSettings, selection: selection)
             let created = NSWindow(contentViewController: NSHostingController(rootView: root))
@@ -264,17 +294,23 @@ private struct MessagesLiveView: View {
         }
         .ignoresSafeArea()
         .onAppear {
-            appeared()
+            appeared(force: true)
             installKeys()
         }
         .onDisappear {
+            selection.endPresentation()
             messages.close()
             if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
             keyMonitor = nil
         }
-        .onChange(of: selection.phoneID) { _ in appeared() }
+        .onChange(of: selection.context) { _ in appeared() }
         .onChange(of: phones) { _ in appeared() }
-        .onChange(of: selection.target) { target in open(target) }
+        .onChange(of: pairing.textMessagesSettingOn) { enabled in
+            if enabled { appeared(force: true) } else {
+                selection.endPresentation()
+                messages.close()
+            }
+        }
         .onChange(of: selection.filter) { filter in if filter != .archived, let phoneID { messages.fillThreads(phoneID) } }
         .onChange(of: selection.query) { _ in refreshSearch() }
         .onChange(of: messages.revision) { _ in
@@ -305,8 +341,9 @@ private struct MessagesLiveView: View {
         selection.selectedPhone(in: phones)?.id
     }
 
-    private func appeared() {
-        if selection.reconcilePhones(phones) {
+    private func appeared(force: Bool = false) {
+        guard let change = selection.beginPresentation(phones: phones, force: force) else { return }
+        if change.sourceChanged {
             messages.close()
             messages.clearContacts()
             search = SmsSearchResults()
@@ -315,8 +352,10 @@ private struct MessagesLiveView: View {
             messages.close()
             return
         }
-        messages.refreshThreads(phoneID)
-        messages.fillThreads(phoneID)
+        if change.sourceChanged {
+            messages.refreshThreads(phoneID)
+            messages.fillThreads(phoneID)
+        }
         open(selection.target)
     }
 

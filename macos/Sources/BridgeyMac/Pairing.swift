@@ -2908,6 +2908,8 @@ final class PairingCoordinator: ObservableObject {
                     registry.update(phoneID) { link in
                         link.remoteFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map { ($0, false) })
                         link.featureStateReceived = true
+                        link.smsFeaturesReceived = true
+                        link.smsPlatform = nil
                         link.remoteSms = false
                         link.smsProviderConfirmed = false
                         link.remoteConnect = draftKeys[connectFeatureKey] == true
@@ -2919,6 +2921,7 @@ final class PairingCoordinator: ObservableObject {
                 registry.update(phoneID) { link in
                     link.remoteFeatures = features
                     link.featureStateReceived = true
+                    link.smsFeaturesReceived = true
                     link.remoteClipboardFiles = clipboardFiles
                     link.remoteFolders = draftKeys[foldersFeatureKey] == true
                     link.remotePlaces = draftKeys[placesFeatureKey] == true
@@ -4809,7 +4812,10 @@ final class PairingCoordinator: ObservableObject {
         switch message.kind {
         case "updates.status":
             guard let status = PeerUpdateStatus.decode(data) else { return }
-            registry.update(phoneID) { $0.updateStatus = status }
+            registry.update(phoneID) {
+                $0.updateStatus = status
+                $0.smsPlatform = status.platform
+            }
             publish()
             updatesStatusReceived(phoneID, status)
         case "updates.start":
