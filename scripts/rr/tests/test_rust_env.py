@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -53,6 +54,85 @@ class RustEnvironmentTests(unittest.TestCase):
 
     def captured(self):
         return json.loads(self.record.read_text())
+
+    def mac_preparer(self, provide=True, exit_code=0):
+        project = self.root / "project"
+        scripts = project / "scripts/rr"
+        scripts.mkdir(parents=True)
+        prepared = self.cargo(self.root / "prepared", "prepared")
+        marker = self.root / "preparation.json"
+        program = scripts / "prepare.py"
+        program.write_text(
+            "import json, os, sys\nfrom pathlib import Path\n"
+            "Path(" + repr(str(marker)) + ").write_text(json.dumps(sys.argv[1:]))\n"
+            + ("destination = Path(os.environ['CARGO_HOME']) / 'bin/cargo'\n"
+               "destination.parent.mkdir(parents=True, exist_ok=True)\n"
+               "destination.write_text(Path(" + repr(str(prepared)) + ").read_text())\n"
+               "destination.chmod(0o700)\n" if provide else "")
+            + "raise SystemExit(" + str(exit_code) + ")\n"
+        )
+        (scripts / "rust-toolchain.sh").write_text(
+            "#!/bin/sh\nexec " + shlex.quote(sys.executable) + " " + shlex.quote(str(program)) + ' "$@"\n'
+        )
+        return project, marker
+
+    def run_mac_preparation(self, project, configuration="debug", execute=True, **changes):
+        env = {**self.env, **changes}
+        env = {key: value for key, value in env.items() if value is not None}
+        script = '. "$1"; bridgey_prepare_macos_rust "$2" "$3"'
+        if execute:
+            script += '; exec "$CARGO_BIN" sentinel'
+        return subprocess.run(
+            ["/bin/sh", "-eu", "-c", script, "mac-rust-test", str(SCRIPT), str(project), configuration],
+            cwd=self.root, env=env, capture_output=True, text=True, timeout=10,
+        )
+
+    def test_ci_mac_packaging_prepares_missing_tools_and_resolves_the_new_cargo(self):
+        project, marker = self.mac_preparer()
+        result = self.run_mac_preparation(project, CI="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(marker.read_text()), ["mac"])
+        self.assertEqual(self.captured()["kind"], "prepared")
+        self.assertEqual(self.captured()["HOME"], str(self.attempt_home))
+        self.assertEqual(self.captured()["CARGO_HOME"], str(self.host_home / ".cargo"))
+
+    def test_mac_packaging_preserves_existing_tools_without_running_the_installer(self):
+        self.cargo(self.host_home / ".cargo/bin", "host")
+        project, marker = self.mac_preparer(provide=False, exit_code=99)
+        result = self.run_mac_preparation(project, CI="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.captured()["kind"], "host")
+        self.assertFalse(marker.exists())
+
+    def test_local_debug_and_explicit_core_skip_do_not_install_missing_tools(self):
+        project, marker = self.mac_preparer()
+        for changes in ({"CI": None}, {"CI": "1", "BRIDGEY_CONNECT_CORE": "skip"}):
+            with self.subTest(changes=changes):
+                result = self.run_mac_preparation(project, execute=False, **changes)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(marker.exists())
+
+    def test_local_release_requires_the_same_rust_preparation(self):
+        project, marker = self.mac_preparer()
+        result = self.run_mac_preparation(project, configuration="release", CI=None)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(marker.read_text()), ["mac"])
+        self.assertEqual(self.captured()["kind"], "prepared")
+
+    def test_required_packaging_fails_when_preparation_still_leaves_cargo_missing(self):
+        project, marker = self.mac_preparer(provide=False)
+        result = self.run_mac_preparation(project, CI="1")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("did not provide executable Cargo", result.stderr)
+        self.assertTrue(marker.exists())
+        self.assertFalse(self.record.exists())
+
+    def test_installer_failure_stops_packaging_before_cargo_runs(self):
+        project, marker = self.mac_preparer(provide=False, exit_code=17)
+        result = self.run_mac_preparation(project, CI="1")
+        self.assertEqual(result.returncode, 17)
+        self.assertTrue(marker.exists())
+        self.assertFalse(self.record.exists())
 
     def test_isolated_ci_home_uses_installed_host_tools_without_changing_home(self):
         self.cargo(self.host_home / ".cargo/bin", "host")

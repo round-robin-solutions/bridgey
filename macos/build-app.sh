@@ -5,6 +5,11 @@ SDK_PATH="${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}"
 CACHE_ROOT="${TMPDIR:-/private/tmp}/bridgey-swift-build"
 CONFIGURATION="${CONFIGURATION:-debug}"
 
+# A CI worker may have Xcode but no Rust yet. Prepare this declared dependency before the
+# packaging build, rather than compiling the app and only then discovering Cargo is absent.
+. ../scripts/rr/rust-env.sh
+bridgey_prepare_macos_rust "$(cd .. && pwd)" "$CONFIGURATION"
+
 # Round Robin edition settings live in rr-edition.properties at the repository root.
 edition_value() {
   value=$(sed -n "s/^$1=//p" ../rr-edition.properties | tail -n 1)
@@ -92,7 +97,6 @@ if [ "$(lipo -archs "$LLAMA_BINARY")" != "$APP_ARCHS" ]; then
 fi
 # Connect anywhere core (rust/core, MIT): libbridgey_connect.dylib, loaded with dlopen. Built for this
 # Mac's architecture with cargo; without cargo the app still builds and the setting says "not available".
-. ../scripts/rr/rust-env.sh
 if [ -x "$CARGO_BIN" ]; then
   CARGO_PROFILE=debug
   set -- build -p bridgey-connect --manifest-path ../rust/Cargo.toml --locked
