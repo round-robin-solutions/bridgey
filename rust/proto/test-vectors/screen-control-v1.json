@@ -1,0 +1,39 @@
+{
+  "protocol": "bridgey-screen-control-draft1",
+  "host": {
+    "v": 1,
+    "screenSource": true,
+    "screenViewer": false,
+    "fullDisplaySource": true,
+    "h264Encode": true,
+    "h264Decode": false,
+    "inputHost": {"pointer": true, "touch": true, "keys": true, "text": true, "navigation": true},
+    "inputController": {"pointer": false, "touch": false, "keys": false, "text": false, "navigation": false},
+    "captureRequiresPrompt": true,
+    "captureRestoreSupported": false
+  },
+  "controller": {
+    "v": 1,
+    "screenSource": false,
+    "screenViewer": true,
+    "fullDisplaySource": false,
+    "h264Encode": false,
+    "h264Decode": true,
+    "inputHost": {"pointer": false, "touch": false, "keys": false, "text": false, "navigation": false},
+    "inputController": {"pointer": true, "touch": true, "keys": true, "text": true, "navigation": true},
+    "captureRequiresPrompt": false,
+    "captureRestoreSupported": false
+  },
+  "geometry": {"generation": 1, "source": 9, "kind": "display", "width": 1920, "height": 1080},
+  "packets": [
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "geometry_ack"}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 2, "input": {"op": "pointer", "x": 0.25, "y": 0.75}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 3, "input": {"op": "button", "button": "primary", "down": true, "x": 0.25, "y": 0.75}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 4, "input": {"op": "button", "button": "primary", "down": false, "x": 0.25, "y": 0.75}}
+  ],
+  "invalidPackets": [
+    {"v": 1, "session": 1, "transport": 1, "connection": [7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "heartbeat"}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 0, "input": {"op": "heartbeat"}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "shell"}}
+  ]
+}
