@@ -35,8 +35,6 @@ final class UIFakePhoneFiles: PhoneFilesService {
     var uploadResult: Result<Void, PhoneFilesError> = .success(())
     /// Every thumbnail request ends with this (after the round trip) instead of answering.
     var thumbnailFailure: PhoneFilesError?
-    /// Keep requests on the wire without scheduling callbacks, for deterministic scheduling tests.
-    var holdThumbnailResponses = false
 
     private(set) var thumbnailRequests: [(lane: String, keys: [String])] = []
     /// The size asked for each entry, by entry ID (the latest request wins).
@@ -51,7 +49,6 @@ final class UIFakePhoneFiles: PhoneFilesService {
     private(set) var uploads: [(urls: [URL], placeId: String, path: String)] = []
     private(set) var listRequests: [(kind: String, cursor: String?)] = []
     private var lanes: [String: UUID] = [:]
-    var pendingThumbnailLanes: Set<String> { Set(lanes.keys) }
 
     init(phones: [BrowsablePhone] = [BrowsablePhone(id: UIFakeImages.phoneID, name: "OnePlus 11", browsable: true, route: .lan)]) {
         self.phones = phones
@@ -116,13 +113,6 @@ final class UIFakePhoneFiles: PhoneFilesService {
         thumbnailRequests.append((lane, entries.map(\.id)))
         for entry in entries { thumbnailSizes[entry.id] = size(entry) }
         let live = { [weak self] in self?.lanes[lane] == token }
-        if holdThumbnailResponses {
-            return PhoneFilesCancellable { [weak self] in
-                guard let self, self.lanes[lane] == token else { return }
-                self.lanes[lane] = nil
-                self.cancelledThumbnailRequests += 1
-            }
-        }
         if let failure = thumbnailFailure {
             after(simulated?.rtt ?? 0) { [weak self] in
                 guard live() else { return }
