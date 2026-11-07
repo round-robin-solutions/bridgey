@@ -209,11 +209,11 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(deviceName = name)
     }
 
-    fun setGlobal(feature: BridgeyFeature, requested: Boolean) {
-        val enabled = requested && BuildGates.featureBuilt(feature)
-        preferences.edit().putBoolean("global.${feature.key}", enabled).apply()
+    fun setGlobal(feature: BridgeyFeature, enabled: Boolean) {
+        val effective = enabled && BuildGates.featureBuilt(feature)
+        preferences.edit().putBoolean("global.${feature.key}", effective).apply()
         mutableState.value = mutableState.value.copy(
-            globalFeatures = mutableState.value.globalFeatures + (feature to enabled),
+            globalFeatures = mutableState.value.globalFeatures + (feature to effective),
         )
     }
 

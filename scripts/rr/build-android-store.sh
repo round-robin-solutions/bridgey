@@ -7,6 +7,7 @@
 # and "test"); values go only into the Gradle environment and are never printed.
 set -eu
 . "$(dirname -- "$0")/common.sh"
+. "$RR_ROOT/scripts/rr/rust-env.sh"
 
 KIND=${1:?usage: build-android-store.sh play|qa <output>}
 OUTPUT=${2:?usage: build-android-store.sh play|qa <output>}
@@ -22,6 +23,7 @@ case "$KIND" in
         ARTIFACT="$RR_ROOT/android/app/build/outputs/apk/qa/app-qa.apk" ;;
   *) die "kind must be play or qa" ;;
 esac
+EXPECTED=$(printf '%s' "$EXPECTED" | tr -d ':' | tr 'A-F' 'a-f')
 [ "$EXPECTED" != "$RELEASE_CERT" ] || die "the $ROLE certificate in rr-edition.properties is the release certificate"
 
 sh "$(dirname -- "$0")/rust-toolchain.sh" android
@@ -42,7 +44,9 @@ PY
 (
   cd "$RR_ROOT/android"
   unset ANDROID_STORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD BRIDGEY_ANDROID_KEYSTORE \
-    BRIDGEY_ANDROID_STORE_PASSWORD BRIDGEY_ANDROID_KEY_ALIAS BRIDGEY_ANDROID_KEY_PASSWORD GH_TOKEN GITHUB_TOKEN
+    BRIDGEY_ANDROID_STORE_PASSWORD BRIDGEY_ANDROID_KEY_ALIAS BRIDGEY_ANDROID_KEY_PASSWORD \
+    BRIDGEY_PLAY_UPLOAD_KEYSTORE BRIDGEY_PLAY_UPLOAD_STORE_PASSWORD BRIDGEY_PLAY_UPLOAD_KEY_ALIAS BRIDGEY_PLAY_UPLOAD_KEY_PASSWORD \
+    BRIDGEY_TEST_KEYSTORE BRIDGEY_TEST_STORE_PASSWORD BRIDGEY_TEST_KEY_ALIAS BRIDGEY_TEST_KEY_PASSWORD GH_TOKEN GITHUB_TOKEN
   . "$ENVFILE"
   rm -f "$ENVFILE"
   $SLOT ./gradlew --console=plain "$TASK"
@@ -56,7 +60,8 @@ for dir in $(ls -d "$SDK"/build-tools/* | sort -V -r); do
 done
 [ -n "$BUILD_TOOLS" ] || die "no build-tools with apksigner and aapt2 under $SDK"
 if [ "$KIND" = play ]; then
-  # AABs are JAR-signed: compare the signer certificate's SHA-256.
+  # Verify signed contents before trusting the embedded certificate.
+  jarsigner -verify "$ARTIFACT" >/dev/null || die "the Play bundle signature is invalid"
   CERT=$(unzip -p "$ARTIFACT" 'META-INF/*.RSA' 2>/dev/null | openssl pkcs7 -inform DER -print_certs 2>/dev/null \
     | openssl x509 -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)
   MANIFEST=$(unzip -p "$ARTIFACT" base/manifest/AndroidManifest.xml | strings -n 6)

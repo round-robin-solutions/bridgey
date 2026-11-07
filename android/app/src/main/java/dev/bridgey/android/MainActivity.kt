@@ -1060,7 +1060,7 @@ private fun BridgeyApp(
                                 connected = isConnected,
                                 available = available,
                                 ringing = isConnected && (connection?.state?.ringing == true || phoneRinging),
-                                permissions = PermissionOrder.map { features ->
+                                permissions = PermissionOrder.filter { features -> features.all(BuildGates::featureBuilt) }.map { features ->
                                     val deviceId = ring.deviceId!!
                                     PermissionRow(
                                         features = features,
@@ -1264,7 +1264,7 @@ private fun BridgeyApp(
                             setGlobal = { feature, on ->
                                 onSetGlobalFeature(feature, on)
                                 // Text messages asks for SMS and contacts only now, when it is turned on.
-                                if (feature == BridgeyFeature.SMS && on) messagesPermissions.askAll()
+                                if (feature == BridgeyFeature.SMS && on && BuildGates.sms) messagesPermissions.askAll()
                             },
                             setDirectCalls = onSetDirectCalls,
                             setAutoClipboard = settings::setAutoClipboardGlobal,
