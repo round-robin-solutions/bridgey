@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notification_open_link">Открыть ссылку</string>
+    <string name="notification_call">Позвонить</string>
+    <string name="notification_email">Написать</string>
+    <string name="clipboard_action_changed">Буфер изменился или недоступен. Откройте Bridgey для проверки и повторите действие.</string>
+    <string name="clipboard_action_no_app">Не удалось открыть скопированное. Выберите или включите браузер, приложение звонков или почты и повторите попытку.</string>
+</resources>

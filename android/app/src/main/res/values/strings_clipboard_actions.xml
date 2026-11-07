@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notification_open_link">Open link</string>
+    <string name="notification_call">Call</string>
+    <string name="notification_email">Email</string>
+    <string name="clipboard_action_changed">Clipboard changed or is unavailable. Open Bridgey to check it, then try again.</string>
+    <string name="clipboard_action_no_app">No app could open this copied item. Choose or enable a browser, dialler or email app, then try again.</string>
+</resources>

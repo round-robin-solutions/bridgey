@@ -28,6 +28,8 @@ class BridgeyConnectionService : Service() {
     private var supportedProfile = true
     private var lastStatus = "Not connected · waiting for paired device"
     private var wifiKeeper: WifiKeeper? = null
+    private var localClipboardAction: ClipboardContextAction? = null
+    private var pendingLocalClipboardAction: PendingIntent? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -81,6 +83,11 @@ class BridgeyConnectionService : Service() {
         }
         serviceScope.launch {
             bridgey.pairing.connections.collect {
+                notificationManager.notify(NOTIFICATION_ID, buildNotification(lastStatus))
+            }
+        }
+        serviceScope.launch {
+            bridgey.clipboardContext.action.collect {
                 notificationManager.notify(NOTIFICATION_ID, buildNotification(lastStatus))
             }
         }
@@ -304,21 +311,30 @@ class BridgeyConnectionService : Service() {
         val pairing = (application as BridgeyApplication).pairing
         val connectedDeviceId = (pairing.state.value as? PairingState.Connected)?.deviceId
         if (connectedDeviceId != null && pairing.isFeatureAvailable(BridgeyFeature.CLIPBOARD)) {
-            // One full-width, easy-to-hit "Send copied item" button in a decorated custom view,
-            // rather than the small action chip. The status stays above it; Turn off stays an action.
-            val content = android.widget.RemoteViews(packageName, R.layout.notification_clipboard).apply {
-                setTextViewText(R.id.notification_status, status)
-                setTextViewText(R.id.notification_send, getString(R.string.notification_send_copied_text))
-                setOnClickPendingIntent(R.id.notification_send, pendingCapture)
-            }
+            val action = (application as BridgeyApplication).clipboardContext.action.value
+            val pendingLocal = localClipboardPendingIntent(action, captureIntent)
             notification
                 .setStyle(android.app.Notification.DecoratedCustomViewStyle())
-                .setCustomContentView(content)
-                .setCustomBigContentView(content)
-        }
+                .setCustomContentView(clipboardNotificationContent(this, status, pendingCapture, pendingLocal, action?.kind, expanded = false))
+                .setCustomBigContentView(clipboardNotificationContent(this, status, pendingCapture, pendingLocal, action?.kind))
+        } else localClipboardPendingIntent(null, captureIntent)
         return notification
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.notification_turn_off), turnOff)
             .build()
+    }
+
+    private fun localClipboardPendingIntent(action: ClipboardContextAction?, capture: Intent): PendingIntent? {
+        if (action == localClipboardAction) return pendingLocalClipboardAction
+        pendingLocalClipboardAction?.cancel()
+        localClipboardAction = action
+        pendingLocalClipboardAction = action?.let {
+            val open = Intent(capture)
+                .setAction(ClipboardCaptureActivity.ACTION_OPEN_CONTEXT)
+                .putExtra(ClipboardCaptureActivity.EXTRA_CONTEXT_KIND, it.kind.name)
+                .putExtra(ClipboardCaptureActivity.EXTRA_CONTEXT_FINGERPRINT, it.fingerprint)
+            PendingIntent.getActivity(this, 6, open, PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        }
+        return pendingLocalClipboardAction
     }
 
     private fun buildFindNotification(): android.app.Notification {
@@ -384,9 +400,12 @@ class BridgeyConnectionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        wifiKeeper?.set(false)
-        if (supportedProfile) runCatching { (application as BridgeyApplication).backgroundClipboardSource.stop() }
         serviceScope.cancel()
+        wifiKeeper?.set(false)
+        pendingLocalClipboardAction?.cancel()
+        pendingLocalClipboardAction = null
+        if (supportedProfile) (application as BridgeyApplication).clipboardContext.clear()
+        if (supportedProfile) runCatching { (application as BridgeyApplication).backgroundClipboardSource.stop() }
         super.onDestroy()
     }
 
@@ -426,6 +445,9 @@ class ClipboardCaptureActivity : Activity() {
 
         /** Device Controls and widgets: send to this Mac instead of the selected one. */
         const val EXTRA_DEVICE_ID = "dev.bridgey.android.extra.DEVICE_ID"
+        internal const val ACTION_OPEN_CONTEXT = "dev.bridgey.android.OPEN_CLIPBOARD_CONTEXT"
+        internal const val EXTRA_CONTEXT_KIND = "dev.bridgey.android.extra.CONTEXT_KIND"
+        internal const val EXTRA_CONTEXT_FINGERPRINT = "dev.bridgey.android.extra.CONTEXT_FINGERPRINT"
         private const val REQUEST_PHOTOS = 7_301
     }
 
@@ -448,7 +470,13 @@ class ClipboardCaptureActivity : Activity() {
         // Clipboard access is allowed only to the app with input focus. From the Quick Settings tile
         // the shade is still collapsing after onResume, so wait for window focus (1.5 s fallback).
         gate = FocusGatedRun(Handler(Looper.getMainLooper())) {
-            val pairing = (application as BridgeyApplication).pairing
+            val app = application as BridgeyApplication
+            val pairing = app.pairing
+            if (intent?.action == ACTION_OPEN_CONTEXT) {
+                openClipboardContext(app)
+                close()
+                return@FocusGatedRun
+            }
             // Background trigger (optional READ_LOGS source): auto-send silently through the same
             // path as a copy made while Bridgey is open, with the same skip rules.
             if (intent?.getBooleanExtra(EXTRA_AUTOMATIC, false) == true) {
@@ -469,6 +497,23 @@ class ClipboardCaptureActivity : Activity() {
         }.also { it.arm() }
         // Focus may already be here by the time onResume runs.
         if (hasWindowFocus()) gate?.onWindowFocusChanged(true)
+    }
+
+    private fun openClipboardContext(app: BridgeyApplication) {
+        val kind = intent?.getStringExtra(EXTRA_CONTEXT_KIND)?.let { value ->
+            ClipboardContextKind.entries.firstOrNull { it.name == value }
+        }
+        val fingerprint = intent?.getStringExtra(EXTRA_CONTEXT_FINGERPRINT)
+        // The fallback focus timer must not turn a background clipboard denial into an action.
+        val expected = if (kind != null && fingerprint != null) ClipboardContextAction(kind, fingerprint) else null
+        // User initiated local intent only. Call uses the dialler; this path never sends to a peer,
+        // asks for screenshot access, places a call, or sends an email automatically.
+        when (executeClipboardContext(app.clipboardContext, expected, hasWindowFocus(), app.isBridgeyEnabled,
+            read = { readClipboardContext(this) }, open = ::startActivity)) {
+            ClipboardContextOpenResult.OPENED -> Unit
+            ClipboardContextOpenResult.CHANGED -> Toast.makeText(this, R.string.clipboard_action_changed, Toast.LENGTH_LONG).show()
+            ClipboardContextOpenResult.NO_HANDLER -> Toast.makeText(this, R.string.clipboard_action_no_app, Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {

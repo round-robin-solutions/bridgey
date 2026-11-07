@@ -1,94 +1,112 @@
-# Controlling the phone from the Mac: decision note
+# Screen sharing and control: implementation plan
 
-Status: **research and recommendation only, nothing built.** Screen sharing (`screen_draft1`) is view
-only. This note compares the two practical ways to let the Mac's mouse and keyboard drive the phone
-and recommends one. Building it needs Rahul's go-ahead on the trade-offs below.
+Status: planned, not shipped. User decisions on 2026-11-07: both directions,
+persistent unattended grants for explicitly selected trusted devices, and native
+Android/macOS/Windows/Linux/iOS clients as core targets. The
+[five-platform architecture](platform-architecture.md) defines the shared core.
 
-## What "control" has to do
+## Existing behavior
 
-Tap, long press, drag and scroll at the point the mouse is over in the screen window; type text;
-Back, Home and Recents; ideally the phone's clipboard and a few keys (Enter, Backspace, arrows). It
-has to feel immediate (a tap lands within one or two frames of the picture) and must never run
-without the person on the phone knowing.
+Android can share a view-only H.264 screen to the Mac using MediaProjection and
+MediaCodec. The phone can also control a Mac's pointer/keyboard through the
+separate, Accessibility-gated remote-input feature. The Mac cannot yet send its
+screen to the phone, and the Mac viewer cannot inject input into Android.
+Windows, Linux and iOS native apps are not implemented in this repository yet.
 
-## The two routes
+## First complete phone/computer slice
 
-### A. An AccessibilityService that dispatches gestures
+1. Add shared Rust capability, session/grant, replay/rate and geometry rules.
+   Keep old peers' view-only and touchpad behavior compatible.
+2. Add a selected-display Mac screen source using ScreenCaptureKit/VideoToolbox
+   and an Android viewer. Bind input to that stream through the existing Mac
+   input adapter, extended for selected-display absolute coordinates.
+3. Add a separately enabled Android AccessibilityService for gestures and
+   navigation, and pointer/keyboard interaction to the existing Mac viewer.
+   Use the current encrypted connection stack on LAN, Tailscale, direct and relay
+   routes; do not introduce Wireless ADB or a second control transport.
+4. Add native Windows, Linux and iOS adapters against the same contract. Their
+   capabilities reflect actual OS support, rather than copying Android/Mac
+   permission assumptions.
 
-Bridgey adds an accessibility service. While a share runs and control is allowed, the Mac sends
-pointer and key messages over the same encrypted session (a `screen_control_draft1` key, modelled on
-`remote_input_draft1`), and the phone turns them into `dispatchGesture` strokes (taps, long presses,
-continued strokes for drags and scrolls, Android 8 and later), `performGlobalAction` (Back, Home,
-Recents, notifications) and, on Android 13 and later, typed text through the service's own input
-method (`FLAG_INPUT_METHOD_EDITOR`, which commits text into the focused field). On older versions
-text falls back to setting the focused field's text.
+## Grants and session ownership
 
-- **Setup for the person:** once, turn the service on in Settings > Accessibility. Android 13 and
-  later block that switch for apps installed from a browser or file manager until the person opens
-  App info and allows restricted settings; whether a GitHub or Obtainium install counts as restricted
-  has to be checked on the OnePlus. Nothing else: no developer options, no computer.
-- **Works wherever the session works:** same network, Tailscale, and later the relay, because it
-  rides the existing session. It survives Wi-Fi changes and reboots like the rest of Bridgey.
-- **What it cannot do:** no hardware-key-level events (volume, power), text only into fields that
-  accept the input method. Some banking apps warn or refuse to run while a third-party accessibility
-  service is on.
-- **Effort:** small to medium. The pointer and key model, rate limits, indicator and audit log already
-  exist in remote input; the phone side is one service and a mapper from window coordinates to screen
-  coordinates (the share already knows the captured size and rotation).
+A per-device host-local grant permits unattended Bridgey session requests from
+that pinned identity. Pairing alone does not grant screen/control access. Keep
+screen viewing and input control separately permissioned, revocable, and off
+until chosen. Server/agent identities do not inherit device control.
 
-### B. Wireless ADB, scrcpy style
+An unattended Bridgey grant does not bypass OS consent. Android still requires
+MediaProjection approval for a new capture session; Accessibility activation is
+another explicit system setting. Linux Wayland approval/persistence depends on
+the portal. Windows input follows integrity restrictions. iOS does not provide
+ordinary apps unrestricted input injection into other apps.
 
-The Mac connects to the phone's ADB daemon over Wi-Fi, pushes scrcpy's server (Apache-2.0) and runs
-it as the shell user, which may inject input events directly, and can also capture the screen without
-MediaProjection.
+While active, show which device is controlling, retain a local Stop action and
+allow either end to stop. Disconnect, lock, permission loss, grant revocation or
+source replacement drops pending input and releases held state. Do not silently
+sync control grants or let reconnect resurrect a stopped session.
 
-- **Setup for the person:** turn on Developer options, then Wireless debugging (Android 11 and later),
-  pair the Mac with a six-digit code, and repeat after reboots and Wi-Fi changes (Wireless debugging
-  turns itself off). Some OEMs need more: Xiaomi requires "USB debugging (Security settings)", which
-  needs a SIM and a Mi account, before input injection works.
-- **Same Wi-Fi only.** Wireless debugging listens on the local network; it does not work over mobile
-  data, and only awkwardly over a VPN.
-- **The Mac needs an ADB client.** Either ship Google's `adb` binary (and keep it updated) or
-  implement the ADB protocol including its TLS pairing in Swift. scrcpy's own server would replace
-  this edition's encoder, or we keep ours and use ADB only for input.
-- **What it can do:** everything a person at the phone can, including real key events and the
-  clipboard; very low latency; no accessibility switch.
-- **Effort:** medium to large, mostly in pairing, the ADB client and keeping the connection alive.
+## Geometry is part of the protocol
 
-## Security
+Each stream identifies its source display, pixel dimensions, scale, orientation
+and geometry version. Input binds to the current authenticated transport and
+stream, plus an acknowledged geometry version. Ignore letterboxing and reject
+coordinates outside the selected source. Use host-controlled display selection,
+including Retina scaling and negative multi-monitor origins.
 
-| | A. Accessibility gestures | B. Wireless ADB |
-| --- | --- | --- |
-| Power granted | Gestures, Back/Home/Recents and typing into focused fields. The service can be declared **without** `canRetrieveWindowContent` and without event types, so it cannot read anything on screen; the picture still comes only through the consented MediaProjection share | Shell user: install and remove apps, read shared storage, run commands, read logs (which can contain personal data), capture the screen with no consent dialog and no indicator |
-| Who holds it | Bridgey on the phone, used only for an authenticated, pinned Mac during a share the person confirmed, with control allowed on both sides | Any program on the Mac that can read the Mac's ADB key, for as long as Wireless debugging stays on, whether or not Bridgey is running |
-| Visibility | Android shows the service as on in Accessibility settings; Bridgey adds "MacBook Air is controlling this phone" with Stop, and stops on screen off, like the share | A small "Wireless debugging connected" notification; nothing tells the person what the shell is doing |
-| Side effects | Accessibility services are the classic tool of Android banking malware, so Play Protect and some apps treat them with suspicion. In some regions, including India, Play Protect's fraud protection blocks internet-sideloaded apps that ask for sensitive access such as accessibility; Bridgey already asks for notification access, so this needs checking on a fresh install rather than assuming | Developer options and USB or Wireless debugging make many Indian banking and payment apps refuse to open until they are turned off again |
-| Blast radius of a bug | Wrong taps on the phone, bounded by rate limits and Stop | Full device compromise from the Mac |
+Android 14+ can share one app, while Accessibility gestures target the whole
+display. For the first control-capable session, request full-display capture via
+`MediaProjectionConfig.createConfigForDefaultDisplay()`; retain normal source
+choice for view-only sharing. Rotation or resize invalidates input until the new
+geometry is acknowledged. Never assume video-relative coordinates map directly
+onto the full display.
 
-## Recommendation
+## Android input capabilities
 
-**Route A, the accessibility service, built gesture only and session bound:**
+`dispatchGesture`, continued strokes and global Back/Home/Recents actions cover
+the current API 26 minimum. Serialize gestures through callbacks: starting a new
+gesture can cancel an existing one, so pointer packets cannot each become a new
+independent gesture. Bound duration/queues and fence late completions after Stop.
 
-1. A separate switch on each side, off by default: "Let Macs control this phone" on the phone, "Control
-   phone screens" on the Mac, and its own draft key so a Mac can view without being able to control.
-2. The service declares no window content access and no accessibility events; it only acts while a
-   confirmed share with that Mac runs and drops every message otherwise.
-3. Messages and limits copied from remote input (pointer, button, scroll, drag, text, a fixed key
-   list), positions as fractions of the shared frame, token buckets, a 6 second idle timeout.
-4. A visible "is controlling this phone" notification with Stop; control ends with the share, on
-   screen off and on disconnect. A local audit log of control sessions (no text, no positions).
-5. If the accessibility switch is blocked as a restricted setting, the Permissions page explains the
-   App info step.
+API 33+ offers Accessibility InputMethod APIs for focused-editor text. API 26–32
+needs a product choice: gesture/navigation-only initially, or a separately
+user-enabled Bridgey keyboard. Do not silently add `canRetrieveWindowContent`,
+read accessibility UI trees, overwrite the clipboard, or enable ADB as a typing
+fallback. The earlier proposed `ACTION_SET_TEXT` fallback did not fit the promise
+of no window-content access and is withdrawn.
 
-Route B gives more power for less setup work in code, but it hands the Mac shell access to the phone
-for as long as Wireless debugging is on, only works on the same Wi-Fi, needs developer options that
-banking apps refuse, and has to be redone after every reboot. People who want that today can already
-run scrcpy next to Bridgey; we should say so in the user guide rather than build it in.
+## Performance and acceptance
 
-## Open questions for Rahul
+Keep hardware capture/encode/decode and native GPU surfaces. Share protocol,
+policy, pacing and bounded queue logic in Rust. Separate coalesced pointer motion
+from ordered buttons/keys; prioritize Stop over video and discard obsolete frames.
+Measure input-to-present latency and capture/encode/network/decode stages on real
+supported devices before setting targets. No one-frame or battery claim follows
+from language choice or emulator-only measurements.
 
-- Is the accessibility service acceptable for the edition, given how it reads in Play Protect and to
-  security-minded users, even though it cannot read the screen?
-- Should control be limited to the same local network at first, like the share is measured today?
-- Is "Back, Home, Recents, tap, drag, scroll, type" enough for a first control release, leaving
-  volume and hardware keys out?
+Owned RR CI covers pure rules, cross-platform wire fixtures and injected native
+adapter tests. Native acceptance additionally covers OS permission denial/revoke,
+selected-device grants, source changes, rotation/multi-monitor mapping, held keys
+on disconnect, replay after reconnect, resize-before-input acknowledgement,
+network failover, long-session memory and battery/thermal behavior. Use synthetic
+screens and owned devices; do not change private user accounts or permissions to
+make a test pass.
+
+## Platform references
+
+- [Android MediaProjection lifecycle and consent](https://developer.android.com/media/grow/media-projection)
+- [Android full-display capture configuration](https://developer.android.com/reference/android/media/projection/MediaProjectionConfig)
+- [AccessibilityService and input methods](https://developer.android.com/reference/android/accessibilityservice/AccessibilityService)
+- [Continued gestures](https://developer.android.com/reference/android/accessibilityservice/GestureDescription.StrokeDescription)
+- [Accessibility input connection](https://developer.android.com/reference/android/accessibilityservice/InputMethod.AccessibilityInputConnection)
+- [ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit)
+- [Screen-sharing picker](https://developer.apple.com/documentation/screencapturekit/sccontentsharingpicker)
+- [ReplayKit](https://developer.apple.com/documentation/replaykit)
+- [Windows capture](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/screen-capture)
+- [Windows SendInput/integrity restrictions](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput)
+- [Wayland RemoteDesktop portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html)
+- [Wayland ScreenCast portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html)
+
+Recheck SDK availability during each native implementation. Apple's current
+capture APIs are evolving across OS versions; neither capture framework provides
+general other-app touch injection on iOS.

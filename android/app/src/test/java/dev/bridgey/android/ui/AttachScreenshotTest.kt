@@ -1,13 +1,21 @@
 package dev.bridgey.android.ui
 
 import android.app.Application
+import android.app.Notification
+import android.app.PendingIntent
 import android.content.ComponentName
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
 import android.os.Looper
+import android.view.ContextThemeWrapper
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -35,6 +43,9 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.captureRoboImage
 import dev.bridgey.android.BridgeyFeature
+import dev.bridgey.android.ClipboardContextKind
+import dev.bridgey.android.clipboardNotificationContent
+import dev.bridgey.android.R
 import dev.bridgey.android.FileTransferState
 import dev.bridgey.android.PairingState
 import dev.bridgey.android.TransferKind
@@ -60,6 +71,8 @@ import dev.bridgey.core.discovery.DiscoveredPeer
 import java.util.Calendar
 import java.util.TimeZone
 import org.junit.Before
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Shadows.shadowOf
@@ -115,6 +128,71 @@ class AttachScreenshotTest {
             scenario.onActivity { it.window.decorView.captureRoboImage("$directory/$name.png") }
         }
     }
+
+    /** Real RemoteViews + framework decoration, synthetic labels only; no phone clipboard reads. */
+    private fun clipboardContextNotifications() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val pending = PendingIntent.getActivity(context, 782, Intent("clipboard-fixture"), PendingIntent.FLAG_IMMUTABLE)
+        val directory = System.getProperty("bridgey.screenshots") ?: "build/outputs/roborazzi"
+        for (kind in listOf(null, ClipboardContextKind.LINK, ClipboardContextKind.CALL, ClipboardContextKind.EMAIL)) {
+            for (expanded in listOf(false, true)) {
+                ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+                    var cardView: View? = null
+                    scenario.onActivity { activity ->
+                        val appThemed = ContextThemeWrapper(activity, R.style.Theme_Bridgey)
+                        val density = activity.resources.displayMetrics.density
+                        val local = pending.takeIf { kind != null }
+                        val notification = Notification.Builder(appThemed, "fixture")
+                            .setSmallIcon(R.drawable.ic_bridgey_notification)
+                            .setContentTitle("Bridgey")
+                            .setContentText("Connected to Work Mac")
+                            .setStyle(Notification.DecoratedCustomViewStyle())
+                            .setCustomContentView(clipboardNotificationContent(context, "Connected to Work Mac", pending, local, kind, expanded = false))
+                            .setCustomBigContentView(clipboardNotificationContent(context, "Connected to Work Mac", pending, local, kind))
+                            .build()
+                        val builder = Notification.Builder.recoverBuilder(appThemed, notification)
+                        val content = if (expanded) builder.createBigContentView() else builder.createContentView()
+                        val card = FrameLayout(activity).apply {
+                            setBackgroundColor(if (dark()) android.graphics.Color.parseColor("#1F1F23") else android.graphics.Color.parseColor("#F3F1F6"))
+                        }
+                        val view = content.apply(appThemed, card)
+                        card.addView(view)
+                        cardView = view
+                        val page = FrameLayout(activity).apply {
+                            setBackgroundColor(if (dark()) android.graphics.Color.parseColor("#101014") else android.graphics.Color.parseColor("#DADCE0"))
+                            val pad = (12 * density).toInt()
+                            setPadding(pad, (48 * density).toInt(), pad, pad)
+                            addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                        }
+                        activity.setContentView(page)
+                    }
+                    repeat(3) { shadowOf(Looper.getMainLooper()).idle() }
+                    scenario.onActivity { activity ->
+                        val send = cardView!!.findViewById<TextView>(R.id.notification_send)
+                        val local = cardView!!.findViewById<TextView>(R.id.notification_local_action)
+                        assertTrue(send.width > 0)
+                        assertTrue(send.height >= (48 * activity.resources.displayMetrics.density).toInt())
+                        if (kind != null) {
+                            assertEquals(View.VISIBLE, local.visibility)
+                            val parent = local.parent as View
+                            assertTrue(local.left >= 0 && send.right <= parent.width)
+                            assertTrue(local.height >= local.layout.height + local.paddingTop + local.paddingBottom)
+                            assertTrue(send.height >= send.layout.height + send.paddingTop + send.paddingBottom)
+                        } else assertEquals(null, local)
+                        val state = kind?.name?.lowercase() ?: "unknown"
+                        val size = if (expanded) "expanded" else "collapsed"
+                        activity.window.decorView.captureRoboImage("$directory/android-clipboard-context-$state-$size-${theme()}.png")
+                    }
+                }
+            }
+        }
+    }
+
+    @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi")
+    fun clipboardContextLight() = clipboardContextNotifications()
+
+    @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi-night")
+    fun clipboardContextDark() = clipboardContextNotifications()
 
     /** Photo-like gradients instead of real photos: every cell already cached, as on a reopened sheet. */
     private object SampleThumbnails : MediaThumbnails {

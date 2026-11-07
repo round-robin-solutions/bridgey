@@ -110,6 +110,17 @@ After this the devices reconnect on their own. To stop trusting a device, open i
 
 Anything marked sensitive (for example by a password manager) is not sent.
 
+When Bridgey can identify the current phone clipboard, its connection notification
+also offers **Open link**, **Call** or **Email**, beside **Send copied item**. These
+actions open the item on this phone: Call fills the dialler for you to confirm,
+and Email opens a draft. They do not send the item to a linked device.
+
+Android limits background clipboard access. When the type is unknown, the
+notification keeps **Send copied item** only. Sensitive items and short code-like
+numbers get no local action. On a local-action tap, Bridgey reads the clipboard
+again with input focus; if it changed, the old action is refused. Clipboard text
+is not shown in the notification or stored for these actions.
+
 ### Files
 
 - **From the Mac:** drop files on the panel, or use the send bar.

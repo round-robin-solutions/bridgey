@@ -95,6 +95,9 @@ class BridgeyApplication : Application() {
     // automatically. The coordinator applies the skip rules, de-duplication and loop prevention.
     private var startedActivityCount = 0
     private var clipListenerRegistered = false
+    internal val clipboardContext = ClipboardContextActions()
+    private val clipboardFocusListeners = mutableMapOf<Activity, android.view.ViewTreeObserver.OnWindowFocusChangeListener>()
+    private val localClipboardActionActivities = mutableSetOf<Activity>()
     private val clipboardChangeListener = ClipboardManager.OnPrimaryClipChangedListener { readAndAutoSendClipboard() }
     private var lastBatteryIntent: Intent? = null
     private var batteryReceiverRegistered = false
@@ -376,6 +379,9 @@ class BridgeyApplication : Application() {
     private fun registerForegroundClipboardWatcher() {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {
+                if (activity is ClipboardCaptureActivity && activity.intent?.action == ClipboardCaptureActivity.ACTION_OPEN_CONTEXT) {
+                    localClipboardActionActivities.add(activity)
+                }
                 if (startedActivityCount++ == 0 && !clipListenerRegistered) {
                     getSystemService(ClipboardManager::class.java).addPrimaryClipChangedListener(clipboardChangeListener)
                     clipListenerRegistered = true
@@ -383,19 +389,52 @@ class BridgeyApplication : Application() {
             }
 
             override fun onActivityStopped(activity: Activity) {
+                localClipboardActionActivities.remove(activity)
                 startedActivityCount = (startedActivityCount - 1).coerceAtLeast(0)
                 if (startedActivityCount == 0 && clipListenerRegistered) {
                     getSystemService(ClipboardManager::class.java).removePrimaryClipChangedListener(clipboardChangeListener)
                     clipListenerRegistered = false
                 }
+                if (startedActivityCount == 0) clipboardContext.clear()
             }
 
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
-            override fun onActivityResumed(activity: Activity) = Unit
-            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivityResumed(activity: Activity) {
+                val listener = android.view.ViewTreeObserver.OnWindowFocusChangeListener { focused ->
+                    if (focused) observeClipboardContext()
+                    // Multi-resume can keep us started/resumed while another app edits the
+                    // clipboard. In that mode, lost focus means the current type is unknown.
+                    else if (activity.isInMultiWindowMode) clipboardContext.clear()
+                }
+                clipboardFocusListeners.put(activity, listener)?.let {
+                    activity.window.decorView.viewTreeObserver.removeOnWindowFocusChangeListener(it)
+                }
+                activity.window.decorView.viewTreeObserver.addOnWindowFocusChangeListener(listener)
+                if (activity.hasWindowFocus()) observeClipboardContext()
+            }
+            override fun onActivityPaused(activity: Activity) {
+                removeClipboardFocusListener(activity)
+                // A normal notification-shade overlay only loses window focus; it does not
+                // pause the activity. Keep its known action usable, but clear when another
+                // activity takes over clipboard access.
+                clipboardContext.clear()
+            }
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
-            override fun onActivityDestroyed(activity: Activity) = Unit
+            override fun onActivityDestroyed(activity: Activity) {
+                localClipboardActionActivities.remove(activity)
+                removeClipboardFocusListener(activity)
+            }
         })
+    }
+
+    private fun removeClipboardFocusListener(activity: Activity) {
+        clipboardFocusListeners.remove(activity)?.let { listener ->
+            activity.window.decorView.viewTreeObserver.takeIf { it.isAlive }?.removeOnWindowFocusChangeListener(listener)
+        }
+    }
+
+    private fun observeClipboardContext() {
+        if (isBridgeyEnabled) clipboardContext.observe(readClipboardContext(this)) else clipboardContext.clear()
     }
 
     /**
@@ -418,6 +457,10 @@ class BridgeyApplication : Application() {
     /** Reads the current clipboard (allowed while foreground) and offers it to automatic clipboard. */
     private fun readAndAutoSendClipboard() {
         if (!isBridgeyEnabled) return
+        observeClipboardContext()
+        // A delayed clipboard callback when our local reader gains focus must not turn
+        // Open link/Call/Email into a peer send. Classification can still refresh above.
+        if (localClipboardActionActivities.isNotEmpty()) return
         if (pairing.state.value !is PairingState.Connected) return
         if (!settings.state.value.autoClipboardGlobal) return
         pairing.autoSendClip(pairing.readClipForAutomaticSend())
@@ -451,6 +494,7 @@ class BridgeyApplication : Application() {
         getSharedPreferences("bridgey", MODE_PRIVATE).edit().putBoolean(PREFERENCE_ENABLED, false).commit()
         if (!isBridgeyEnabled) return
         isBridgeyEnabled = false
+        clipboardContext.clear()
         if (batteryReceiverRegistered) {
             runCatching { unregisterReceiver(batteryReceiver) }
             batteryReceiverRegistered = false

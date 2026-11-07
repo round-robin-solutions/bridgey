@@ -241,7 +241,9 @@ capability blocks v1.0. See [automation](docs/automation.md),
 - [x] Add pairing over Tailscale addresses for Mac–Mac, server–Mac and server–server;
       new peers start restricted until explicitly trusted
 - [x] Merge Settings search on Mac and Android: synonyms, typo tolerance, grouped results,
-      and a jump/highlight to the setting (**Beta 23 tagged; release pending**)
+      and a jump/highlight to the setting (included in the published Beta 25 source)
+- [x] Read SMS conversations directly from eligible paired phones instead of selecting a
+      connected Mac as the source (Beta 25)
 - [ ] Complete live Settings search checks on Android and Mac keyboard/scroll interactions
 - [ ] Complete the v1.0 acceptance work below before freezing the protocol or declaring Stable
 
@@ -270,6 +272,31 @@ membership is available, but do not prevent a documented open-source v1.0.
 
 These are open items, not promises for the next Beta:
 
+**Next focused work, in order:**
+
+- [ ] Verify and ship the menu-bar opening optimisation: retained panel, deferred
+      provider reads, reliable rapid reopening and reversible short transitions
+      ([PR #10](https://github.com/round-robin-solutions/bridgey/pull/10); main gates passed,
+      native performance/visual acceptance pending)
+- [ ] Guide external Tailscale setup alongside Bridgey's own connection service,
+      without bundling another VPN engine
+      ([PR #11](https://github.com/round-robin-solutions/bridgey/pull/11); verification pending)
+- [ ] Add contextual phone clipboard notification actions: Open link, Call or Email,
+      beside Send copied item; unknown content keeps Send only, calls open the dialler
+- [ ] Finish integration and native acceptance of call-aware media quieting and standard
+      file-selection shortcuts ([PR #5](https://github.com/round-robin-solutions/bridgey/pull/5));
+      these changes remain outside the published Beta 25 source
+- [ ] Integrate active/preferred-device notification routing and explicit sharing destinations
+      ([PR #7](https://github.com/round-robin-solutions/bridgey/pull/7), stacked on PR #5);
+      earlier green branch checks do not establish release or current-main acceptance
+- [ ] Share screen/control capabilities and session rules in Rust, then complete
+      phone-to-computer and computer-to-phone screen sharing with input control;
+      persistent unattended grants apply only to selected trusted devices
+
+Small follow-up candidates to review after these: copy a device's pairing details
+and search longer device pickers. These are proposals, not implemented features.
+Existing interrupted-send retry stays separate from the resumable transfer engine below.
+
 - [ ] Calls window with a dialer, contacts and WhatsApp voice/video actions
 - [ ] Further email-code sources (phase 2); email detection on servers remains deferred
 - [ ] Fully peer-to-peer mesh invites (`v: 2`) and one-hop Update all without a phone hub
@@ -279,14 +306,26 @@ These are open items, not promises for the next Beta:
 - [ ] Home, Work and Public Network profiles with conservative defaults on unfamiliar networks
 - [ ] A documented plugin SDK for future clients
 
+### Required platform clients
+
+Android, macOS, Windows, Linux and iOS/iPadOS are core targets. Native Android and
+macOS apps exist; Windows, Linux and iOS clients remain required milestones.
+Use the existing shared Rust protocol/networking core and native OS adapters,
+with actual capabilities and permissions negotiated per device. See
+[the five-platform architecture and delivery plan](docs/platform-architecture.md).
+
+- [ ] Windows native app with the shared core and supported screen/view/control adapters
+- [ ] Linux native app, including explicit Wayland and X11 capability handling
+- [ ] iOS/iPadOS native app: viewer/controller, consented capture and supported sharing;
+      do not promise unrestricted remote input into other apps
+- [ ] Cross-platform native builds, mixed-version compatibility and performance acceptance
+
 Time-windowed agent grants, private action audits, image/file clipboard handoff, QR/link server
 invites and the optional end-to-end encrypted relay are already implemented; wider guest
 pairing and mesh invites remain separate work.
 
 ### After v1.0 / exploratory
 
-- [ ] Linux client using the public Bridgey protocol
-- [ ] Windows and iOS clients where platform restrictions permit useful background behavior
 - [ ] Bluetooth transport fallback when local-network discovery is unavailable
 - [ ] Optional accounts for recovery without making accounts mandatory
 - [ ] Contacts and call-history synchronization only as separately consented plugins
