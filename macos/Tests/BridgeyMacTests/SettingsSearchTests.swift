@@ -115,6 +115,8 @@ final class SettingsSearchRegistryTests: XCTestCase {
         let ids = SettingsSearch.search("tailscale login", in: entries.map(\.doc)).map { entries[$0.index].id }
         XCTAssertTrue(ids.contains("devices.tailscaleSetup"))
         XCTAssertTrue(ids.contains("away.tailscaleSetup"))
+        let primary = SettingsSearchOutcome.run("tailscale", entries: entries).rows.first?.entry
+        XCTAssertEqual(primary?.id, "away.tailscaleSetup")
     }
 
     /// Everything on: two phones, an agent, the developer pane, Mac actions with an app and a Shortcut, Focus

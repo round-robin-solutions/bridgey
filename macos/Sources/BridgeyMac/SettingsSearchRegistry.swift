@@ -56,7 +56,7 @@ enum SettingsSearchRegistry {
     static let codesEmail = ["email", "gmail", "mail", "почта"]
     static let away = ["hotspot", "relay", "tailscale", "tailnet", "vpn", "internet", "mobile data", "cellular", "4g", "5g", "away",
                        "outside", "точка доступа", "ретранслятор", "удалённо", "мобильный интернет"]
-    static let tailscaleSetup = away + ["sign in", "login", "войти"]
+    static let tailscaleSetup = ["tailscale", "tailnet", "vpn", "private network", "sign in", "login", "войти", "частная сеть"]
     static let updates = ["update", "upgrade", "version", "beta", "channel", "release", "обновление", "версия", "бета"]
     static let clipboard = ["copy", "paste", "universal clipboard", "копировать", "вставить", "буфер обмена"]
     static let notifications = ["alerts", "mirror", "уведомления", "оповещения"]
@@ -152,7 +152,8 @@ enum SettingsSearchRegistry {
             row("devices.pair", .devices, pairCard, L10n.text("devices.pair.detail", fallback: "Open Bridgey on the phone, on the same Wi-Fi as this Mac. Both screens then show the same code."), pair),
             row("devices.pairAddress", .devices, section: pairCard, L10n.text("devices.pair.address", fallback: "Pair by tailnet name or address"),
                 L10n.text("devices.pair.address.detail", fallback: "For a device on your tailnet. Tap Allow pairing there first."), pair + ["tailnet", "ip address"]),
-            row("devices.tailscaleSetup", .devices, "Tailscale", nil, tailscaleSetup),
+            row("devices.tailscaleSetup", .devices, L10n.text("tailscale.status.notInstalled", fallback: "Set up Tailscale"),
+                nil, tailscaleSetup, anchor: "Tailscale"),
 
             // Clipboard
             feature(.clipboard, .clipboard, clipboard),

@@ -116,7 +116,7 @@ object SettingsSearchRegistry {
     private val CODES_EMAIL = listOf("email", "gmail", "mail", "почта")
     private val AWAY_WORDS = listOf(
         "hotspot", "relay", "tailscale", "tailnet", "vpn", "internet", "mobile data", "cellular", "4g", "5g", "away", "outside",
-        "точка доступа", "ретранслятор", "удалённо", "мобильный интернет", "sign in", "login", "войти",
+        "точка доступа", "ретранслятор", "удалённо", "мобильный интернет", "sign in", "login", "войти", "private network", "частная сеть",
     )
     private val UPDATE_WORDS = listOf("update", "upgrade", "version", "beta", "channel", "release", "обновление", "версия", "бета")
     private val CLIPBOARD_WORDS = listOf("copy", "paste", "universal clipboard", "копировать", "вставить", "буфер обмена")
