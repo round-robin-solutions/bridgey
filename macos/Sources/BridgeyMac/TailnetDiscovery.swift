@@ -21,6 +21,40 @@ struct TailnetPeerInfo: Equatable, Sendable {
     var address: String? { ips.first { !$0.contains(":") } ?? ips.first }
 }
 
+struct TailnetPairTarget: Equatable, Sendable {
+    let host: String
+    let port: Int
+    let name: String
+}
+
+enum TailnetPairing {
+    /// A chosen address never waits for discovery of unrelated devices. Names need only status,
+    /// not a TCP scan of the entire tailnet. Literal addresses outside the tailnet remain refused.
+    static func resolve(_ text: String, peers: @Sendable () async -> [TailnetPeerInfo]) async -> TailnetPairTarget? {
+        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typed.isEmpty else { return nil }
+        var host = typed
+        var port = Int(BonjourDiscovery.defaultPort)
+        if typed.hasPrefix("["), let close = typed.firstIndex(of: "]") {
+            host = String(typed[typed.index(after: typed.startIndex)..<close])
+            let suffix = typed[typed.index(after: close)...]
+            if !suffix.isEmpty {
+                guard suffix.first == ":", let value = Int(suffix.dropFirst()) else { return nil }
+                port = value
+            }
+        } else if IPv6Address(typed) == nil, let colon = typed.lastIndex(of: ":") {
+            guard let value = Int(typed[typed.index(after: colon)...]) else { return nil }
+            host = String(typed[..<colon])
+            port = value
+        }
+        guard (1...65_535).contains(port), !host.isEmpty else { return nil }
+        if TailnetStatus.isTailnet(host) { return TailnetPairTarget(host: host, port: port, name: typed) }
+        guard IPv4Address(host) == nil, IPv6Address(host) == nil,
+              let peer = TailnetStatus.find(await peers(), name: host), let address = peer.address else { return nil }
+        return TailnetPairTarget(host: address, port: port, name: peer.name)
+    }
+}
+
 enum TailnetStatus {
     /// Tailscale's ranges: 100.64.0.0/10 and fd7a:115c:a1e0::/48.
     static func isTailnet(_ address: String) -> Bool {

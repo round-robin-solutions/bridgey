@@ -3,6 +3,31 @@ import XCTest
 @testable import BridgeyMac
 
 final class TailscaleSetupTests: XCTestCase {
+    func testChosenTailnetAddressesNeverWaitForPeerDiscovery() async {
+        for text in ["100.90.0.3", "100.90.0.3:42481", "[fd7a:115c:a1e0::1]:42481", "fd7a:115c:a1e0:0:0:0:1"] {
+            let target = await TailnetPairing.resolve(text) {
+                XCTFail("an explicit address must bypass all status and peer scans")
+                return []
+            }
+            XCTAssertNotNil(target, text)
+        }
+        for text in ["192.168.1.2", "[::1]", "100.90.0.3:0", "100.90.0.3:65536"] {
+            let target = await TailnetPairing.resolve(text) {
+                XCTFail("an invalid or non-tailnet literal must be refused without discovery")
+                return []
+            }
+            XCTAssertNil(target, text)
+        }
+    }
+
+    func testTypedNamesUseStatusOnlyAndKeepAmbiguityProtection() async {
+        let peer = TailnetPeerInfo(name: "work", dns: "work.example.ts.net", ips: ["100.90.0.3"], os: "macOS", online: true)
+        let target = await TailnetPairing.resolve("work:42481") { [peer] }
+        XCTAssertEqual(target, TailnetPairTarget(host: "100.90.0.3", port: 42481, name: "work"))
+        let ambiguous = await TailnetPairing.resolve("work") { [peer, peer] }
+        XCTAssertNil(ambiguous)
+    }
+
     func testOfficialApplicationAndCommandLineDetectionWithoutReadingTheHost() {
         let app = URL(fileURLWithPath: "/fixture/Applications/Renamed Tailscale.app")
         let binary = app.appendingPathComponent("Contents/MacOS/Tailscale")

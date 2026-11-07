@@ -276,7 +276,6 @@ final class PairingCoordinator: ObservableObject {
     private var tailnetRefresh: Task<Void, Never>?
     @Published private(set) var tailscaleSetup = TailscaleSetupDisplay()
     private let tailscaleRefreshGate = TailscaleRefreshGate()
-    private var tailscaleSnapshot = TailscaleSnapshot(state: .checking)
     private var waitingForTailscaleReturn = false
     /// Every connected phone with its own features, battery and ringing state, in connection order.
     @Published private(set) var connectedPhones: [PhoneConnection] = []
@@ -3995,7 +3994,6 @@ final class PairingCoordinator: ObservableObject {
         tailscaleSetup.hasCommandLine = installation.executable != nil
         tailscaleSetup.refreshing = true
         let snapshot = await tailscaleRefreshGate.read { await TailnetProbe.scan(installation: installation) }
-        tailscaleSnapshot = snapshot
         tailscaleSetup.state = snapshot.state
         tailscaleSetup.refreshing = false
         let known = Set(trustedDeviceIDs.flatMap { id in reconnect.addressBook.addresses(for: id).map(\.host) })
@@ -4039,28 +4037,14 @@ final class PairingCoordinator: ObservableObject {
         guard !typed.isEmpty else { return }
         Task { [weak self] in
             guard let self else { return }
-            await self.refreshTailnet()
-            let peers = self.tailscaleSnapshot.peers
-            var host = typed
-            var port = Int(BonjourDiscovery.defaultPort)
-            var name = typed
-            if let peer = TailnetStatus.find(peers, name: typed), let address = peer.address {
-                host = address
-                name = peer.name
-            } else if typed.hasPrefix("["), let close = typed.firstIndex(of: "]") {
-                // [IPv6] or [IPv6]:port
-                host = String(typed[typed.index(after: typed.startIndex)..<close])
-                if let p = Int(typed[typed.index(after: close)...].drop(while: { $0 == ":" })) { port = p }
-            } else if let colon = typed.lastIndex(of: ":"), !typed.contains("::"), let p = Int(typed[typed.index(after: colon)...]) {
-                host = String(typed[..<colon])
-                port = p
-            }
-            // Only tailnet addresses: pairing over plain TCP to anything else is refused (use the same Wi-Fi instead).
-            guard TailnetStatus.isTailnet(host) else {
+            let installation = TailscaleInstallation.detect()
+            guard let target = await TailnetPairing.resolve(typed, peers: {
+                await Task.detached(priority: .userInitiated) { TailnetProbe.snapshot(installation: installation).peers }.value
+            }) else {
                 BridgeyLog.pairing.notice("tailnet pair refused: not a tailnet address")
                 return
             }
-            self.pair(host: host, port: port, peerName: String(name.prefix(64)))
+            self.pair(host: target.host, port: target.port, peerName: String(target.name.prefix(64)))
         }
     }
 
