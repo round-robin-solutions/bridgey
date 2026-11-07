@@ -158,7 +158,9 @@ data class SetupFeature(
 }
 
 object SetupFeatures {
-    val all: List<SetupFeature> = listOf(
+    val all: List<SetupFeature> get() = built
+    private val built: List<SetupFeature> by lazy { everything.filter { it.id != "messages" || dev.bridgey.android.BuildGates.sms } }
+    private val everything: List<SetupFeature> = listOf(
         SetupFeature("clipboard", R.string.feature_clipboard, R.string.feature_clipboard_detail, listOf(SetupSetting.FEATURE_CLIPBOARD), "CLIPBOARD"),
         SetupFeature("notifications", R.string.settings_notifications, R.string.settings_notifications_detail, listOf(SetupSetting.FEATURE_NOTIFICATIONS), "NOTIFICATIONS"),
         SetupFeature("messages", R.string.feature_sms, R.string.feature_sms_detail, listOf(SetupSetting.FEATURE_SMS), "MESSAGES"),
@@ -242,7 +244,9 @@ object SetupQuestions {
     private val off = SettingChange.Companion::off
 
     /** The follow-ups, in order. The pairing card is first and is not tied to a feature. */
-    val all: List<SetupQuestion> = listOf(
+    val all: List<SetupQuestion> get() = built
+    private val built: List<SetupQuestion> by lazy { everything.filter { it.id != "messages" || dev.bridgey.android.BuildGates.sms } }
+    private val everything: List<SetupQuestion> = listOf(
         SetupQuestion(
             id = "pair", section = SetupSection.DEVICES, feature = null,
             title = R.string.setup_q_pair_title, context = R.string.setup_q_pair_context, summary = R.string.setup_q_pair_summary,
