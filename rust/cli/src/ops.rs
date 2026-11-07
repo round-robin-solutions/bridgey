@@ -148,6 +148,7 @@ impl Daemon {
             "send" => self.op_send(args, out).await,
             "transfers" => Ok(json!({"transfers": self.transfers()})),
             "codes" => self.op_codes(args, out).await,
+            "notifications" => self.op_notifications(args).await,
             _ => Err(CliError::new("usage", format!("unknown command {cmd}"))),
         }
     }
@@ -229,8 +230,8 @@ impl Daemon {
     async fn op_grants_request(&self, args: &Value) -> Result<Value, CliError> {
         let peer = self.resolve(arg_str(args, "device"))?;
         let keys: Vec<String> = args["keys"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(str::to_string)).collect()).unwrap_or_default();
-        if keys.is_empty() || keys.len() > 9 || keys.iter().any(|k| !GRANTS.iter().any(|g| g.0 == k)) {
-            return Err(CliError::new("usage", format!("name 1 to 9 grants from: {}", GRANTS.iter().map(|g| g.0).collect::<Vec<_>>().join(", "))));
+        if keys.is_empty() || keys.len() > GRANTS.len() || keys.iter().any(|k| !GRANTS.iter().any(|g| g.0 == k)) {
+            return Err(CliError::new("usage", format!("name 1 to {} grants from: {}", GRANTS.len(), GRANTS.iter().map(|g| g.0).collect::<Vec<_>>().join(", "))));
         }
         let h = self.ensure(&peer, self.connect_timeout(args)).await?;
         if self.features(&peer.device_id).get("agent_draft1") != Some(&Value::Bool(true)) {
@@ -710,6 +711,24 @@ impl Daemon {
             "declined" => Err(CliError::new("declined", "Declined on the phone")),
             _ => Err(CliError::new("timeout", "Nobody tapped Send in time")),
         }
+    }
+
+    async fn op_notifications(&self, args: &Value) -> Result<Value, CliError> {
+        let limit = args["limit"].as_u64().filter(|n| (1..=20).contains(n))
+            .ok_or_else(|| CliError::new("usage", "limit must be an integer from 1 to 20"))?;
+        let peer = self.resolve(arg_str(args, "device"))?;
+        let h = self.ensure(&peer, self.connect_timeout(args)).await?;
+        if !self.features(&peer.device_id).contains_key("agent_notifications_draft1") {
+            return Err(CliError::new("incompatible", "Update Bridgey on the phone to read notifications"));
+        }
+        self.require(&peer, "notifications")?;
+        let query = crate::crypto::uuid4();
+        let mid = crate::crypto::uuid4();
+        let (_guard, mut rx) = self.wait_for(&peer.device_id, vec![format!("notifications:{query}"), format!("msg:{mid}")]);
+        h.send_json_id("agent.notifications.query", &json!({"version": 1, "queryId": query, "limit": limit}), &mid, None);
+        let reply = next_reply(&mut rx, Duration::from_secs(10), &peer, &self.local.name()).await?;
+        let payload = crate::notifications::validate_result(reply.payload.unwrap_or(Value::Null), &query, limit as usize)?;
+        Ok(json!({"device": device_json(&peer), "notifications": payload["notifications"], "truncated": payload["truncated"]}))
     }
 
     async fn op_codes(&self, args: &Value, out: &mut Out) -> Result<Value, CliError> {

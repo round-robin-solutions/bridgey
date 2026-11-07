@@ -236,14 +236,7 @@ internal fun classifyNotificationUpdate(update: NotificationUpdate, calls: CallL
     val tracked = calls.isTracked(update.systemKey)
     val ongoing = update.flags and Notification.FLAG_ONGOING_EVENT != 0
     val isCall = update.category == Notification.CATEGORY_CALL || (tracked && ongoing)
-    val filterReason = when {
-        update.flags and Notification.FLAG_GROUP_SUMMARY != 0 -> "group_summary"
-        !isCall && shouldIgnoreOngoingNotification(update.flags, update.category) -> "ongoing"
-        update.visibility == Notification.VISIBILITY_SECRET -> "secret"
-        update.importance != null && update.importance <= NotificationManager.IMPORTANCE_MIN -> "min_importance"
-        !update.hasContent -> "empty"
-        else -> null
-    }
+    val filterReason = notificationForwardingFilterReason(update, isCall)
     if (filterReason != null) {
         return if (calls.keepOnFilteredUpdate(update.systemKey, filterReason)) {
             UpdateOutcome.KeepCall(filterReason)
@@ -253,4 +246,14 @@ internal fun classifyNotificationUpdate(update: NotificationUpdate, calls: CallL
     }
     if (tracked && !isCall && calls.updateNoLongerCall(update.systemKey)) return UpdateOutcome.KeepCall("not_call")
     return UpdateOutcome.Forward(isCall)
+}
+
+/** Shared by live forwarding and explicit agent snapshots; does not mutate call tracking. */
+internal fun notificationForwardingFilterReason(update: NotificationUpdate, isCall: Boolean): String? = when {
+    update.flags and Notification.FLAG_GROUP_SUMMARY != 0 -> "group_summary"
+    !isCall && shouldIgnoreOngoingNotification(update.flags, update.category) -> "ongoing"
+    update.visibility == Notification.VISIBILITY_SECRET -> "secret"
+    update.importance != null && update.importance <= NotificationManager.IMPORTANCE_MIN -> "min_importance"
+    !update.hasContent -> "empty"
+    else -> null
 }

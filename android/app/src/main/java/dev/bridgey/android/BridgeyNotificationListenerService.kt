@@ -606,9 +606,49 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         }
     }
 
+    /** Read only what current forwarding policy and Android's listener access permit. Never cached. */
+    private fun agentSnapshot(limit: Int): dev.bridgey.android.agents.AgentNotificationsSnapshot {
+        val bridgey = application as? BridgeyApplication ?: return dev.bridgey.android.agents.AgentNotificationsSnapshot(false)
+        fun enabled() = bridgey.isPrimaryUser && bridgey.isBridgeyEnabled &&
+            bridgey.settings.isEnabled(BridgeyFeature.NOTIFICATIONS, null) &&
+            NotificationAccess.isEnabled(this) && activeService?.get() === this
+        if (!enabled()) return dev.bridgey.android.agents.AgentNotificationsSnapshot(false)
+        // A revoked or disconnected listener cannot fall back to previously mirrored notifications.
+        val active = runCatching { activeNotifications }.getOrNull()
+            ?: return dev.bridgey.android.agents.AgentNotificationsSnapshot(false)
+        val rankingMap = runCatching { currentRanking }.getOrNull()
+        val eligible = ArrayList<dev.bridgey.android.agents.AgentNotification>()
+        val max = limit.coerceIn(1, 20)
+        for (sbn in active.sortedByDescending { it.postTime }) {
+            if (sbn.packageName == packageName || !bridgey.settings.isNotificationApplicationEnabled(sbn.packageName)) continue
+            val notification = sbn.notification
+            val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
+            val text = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim().orEmpty()
+            val ranking = Ranking()
+            val importance = if (rankingMap?.getRanking(sbn.key, ranking) == true) ranking.importance else null
+            val update = NotificationUpdate(sbn.key, notification.flags, notification.category, notification.visibility, importance, title.isNotEmpty() || text.isNotEmpty())
+            if (notificationForwardingFilterReason(update, notification.category == Notification.CATEGORY_CALL) != null) continue
+            // Keep Android-redacted code text hidden; do not read expanded extras or reconstruct it.
+            if (isRedactedNotificationText(text, bridgey.codeAccess.redactedPlaceholder)) continue
+            val name = runCatching {
+                packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString()
+            }.getOrDefault(sbn.packageName)
+            eligible += dev.bridgey.android.agents.AgentNotification(notificationToken(sbn.key), sbn.packageName, name, title, text, sbn.postTime.coerceAtLeast(0))
+            if (eligible.size > max) break
+        }
+        if (!enabled()) return dev.bridgey.android.agents.AgentNotificationsSnapshot(false)
+        // Filters may have changed during the OS query; reapply them before handing text to the Hub.
+        val allowed = eligible.filter { bridgey.settings.isNotificationApplicationEnabled(it.packageName) }
+        return dev.bridgey.android.agents.AgentNotificationsSnapshot(true, allowed.take(max), allowed.size > max)
+    }
+
     companion object {
         @Volatile
         private var activeService: java.lang.ref.WeakReference<BridgeyNotificationListenerService>? = null
+
+        /** Explicit agent read; no fallback to the Mac history or an unbound listener. */
+        fun agentNotificationSnapshot(limit: Int): dev.bridgey.android.agents.AgentNotificationsSnapshot =
+            activeService?.get()?.agentSnapshot(limit) ?: dev.bridgey.android.agents.AgentNotificationsSnapshot(false)
 
         fun dismiss(notificationId: String): Boolean {
             val service = activeService?.get() ?: return false

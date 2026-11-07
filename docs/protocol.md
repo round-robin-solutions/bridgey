@@ -1840,10 +1840,26 @@ refuse them.
 
 An agent's own map lists what it can do. The phone's map to an agent lists what Rahul granted: the
 original keys `clipboard` (Set your clipboard), `files`, `battery`, `find_device` (which also covers
-`ping`) and `notifications` (always `false` in this version), plus the draft keys above. The phone never
+`ping`) and `notifications` (always `false` for ordinary broadcasts), plus the draft keys above. The phone never
 pushes its own clipboard, notifications, files, text messages or settings to an agent device, whatever
 the maps say. Agents receive only answers to their requests, `battery.update` while Battery is granted,
 and `agent.*` messages.
+
+### Notification snapshots (`agent_notifications_draft1`)
+
+`agent.notifications.query` requests the phone's current eligible notifications, newest first, with
+`version: 1`, a UUID `queryId` and optional integer `limit` (1 to 20, default 20).
+`agent.notifications.result` correlates that ID and returns `status` (`ok` or `unavailable`),
+`notifications` and `truncated`. Each item has an opaque `id`, `packageName`, `applicationName`,
+`title`, `text` and `postedAt`. The full plaintext is capped at 24 KiB. Unavailable access returns no
+content. This command does not dismiss, reply, trigger intents or store a private history.
+
+The phone advertises the dedicated key according to this server's Read your notifications grant.
+The generic `notifications` key stays false. The phone checks the grant and authenticated session
+again when it queues a response. Revocation or expiry prevents a subsequent content response.
+Phone audit records contain only the outcome and count, never titles or bodies. An explicit read
+can include sensitive message text visible to Bridgey, so it is independent of Send you notifications
+and starts off for every server.
 
 ### Grants
 
@@ -1858,7 +1874,7 @@ and `agent.*` messages.
 | `battery` | `battery` | See battery | receive `battery.update` |
 | `codes` | `agent_codes_draft1` | Read codes | `codes.query`: one-time codes your Macs (or an agent with Detect codes) found in your messages and mail |
 | `codes_detect` | `codes_detect_draft1` | Detect codes | receive `codes.candidate`: your code text messages when no Mac reads codes |
-| `notifications` | `notifications` | Read your notifications | not available in this version; always off |
+| `notifications` | `agent_notifications_draft1` | Read your notifications | query a bounded active snapshot; no actions or notification subscription |
 
 Each grant has a **window**: `1h` (for 1 hour), `today` (until midnight on the phone), `7d` (7 days)
 or `forever` (until you turn it off). When a window ends the phone turns the grant off, records it, and
@@ -1877,7 +1893,7 @@ never as HTML or links, with control and bidi characters removed.
 | --- | --- | --- |
 | `agent.hello` | agent to phone | `platform` (`cli`), `app` (at most 64 characters, for example `bridgey 0.1.0`), `os` (at most 64, for example `linux x86_64`). Once per session, after `features.update` |
 | `agent.grants` | phone to agent | `grants`: one object per grant: `key`, `state` (`on`, `off` or `waiting`), optional `window`, `grantedAt`, `expiresAt`, `scope` (Files: the folder). Sent after `features.update` and on every change. At most 8 KiB |
-| `agent.grant_request` | agent to phone | `requestId`, `keys` (1 to 9 grant names), optional `note` (at most 120). The phone posts "<device> asks for: <grants>" that opens the device's permissions, and marks those grants `waiting` for 24 hours or until Rahul decides. 3 an hour |
+| `agent.grant_request` | agent to phone | `requestId`, `keys` (1 to 10 grant names), optional `note` (at most 120). The phone posts "<device> asks for: <grants>" that opens the device's permissions, and marks those grants `waiting` for 24 hours or until Rahul decides. 3 an hour |
 | `agent.request_result` | phone to agent | `ref` (the request's `messageId`), `requestKind`, `status` `ok` or one of the codes below, optional `retryAfterMs`, `grant`. The answer to `agent.grant_request`, and the refusal of any agent request (`notify.post`, `ask.request`, `clipboard.update`, `clipboard.rich`, `clipboard.request`, `find.start`, `ping.request`, `files.offer`, `codes.query`) |
 | `notify.post` | agent to phone | `notifyId`, `title` (1 to 120), optional `body` (at most 1,000), `priority` (`normal` or `high`), optional `tag` (at most 64: replaces this device's earlier notification with that tag), optional `from` (at most 64, shown as "says it is from") |
 | `notify.result` | phone to agent | `notifyId`, `status` `posted` |
@@ -2099,3 +2115,6 @@ Adding optional fields or message types is backward compatible. Changing field
 meaning, authentication, or required behavior requires a new capability or
 major version. JSON is a codec behind the envelope model; a future protobuf
 codec must preserve IDs, types, correlation, and negotiated semantics.
+
+Notification reads follow the phone's Notification forwarding switch and blocked-app list, and
+exclude Bridgey's own, secret, quiet ongoing, group-summary and Android-redacted notifications.

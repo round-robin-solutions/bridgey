@@ -174,7 +174,8 @@ vectors = {
              {"requestId": U, "deviceId": "agent-id", "key": "codes", "on": True, "window": "today"}),
         case("off", {"version": 1, "requestId": U, "deviceId": "agent-id", "key": "codes", "on": False}, {"requestId": U, "deviceId": "agent-id", "key": "codes", "on": False}),
         case("on without a window", {"version": 1, "requestId": U, "deviceId": "agent-id", "key": "codes", "on": True}, "reject"),
-        case("notifications cannot be granted", {"version": 1, "requestId": U, "deviceId": "agent-id", "key": "notifications", "on": True, "window": "1h"}, "reject"),
+        case("notification reads can be granted separately", {"version": 1, "requestId": U, "deviceId": "agent-id", "key": "notifications", "on": True, "window": "1h"},
+             {"requestId": U, "deviceId": "agent-id", "key": "notifications", "on": True, "window": "1h"}),
     ],
 }
 

@@ -44,7 +44,7 @@ class AgentGrantBook(
 
     @Synchronized fun record(deviceId: String, grant: AgentGrant): GrantRecord = grants[deviceId]?.get(grant) ?: GrantRecord()
 
-    /** On now: switched on and its window not over. Read your notifications is never on. */
+    /** On now: switched on and its window not over. */
     @Synchronized fun isOn(deviceId: String, grant: AgentGrant, now: Long = clock()): Boolean {
         if (!grant.grantable) return false
         val record = grants[deviceId]?.get(grant) ?: return false

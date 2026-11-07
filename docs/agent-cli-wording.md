@@ -32,7 +32,7 @@ The words for agent permissions on all three surfaces: the phone's device page, 
 | `battery` | See battery | Level and charging | Видеть заряд батареи | Уровень и зарядка |
 | `codes` | Read codes | One-time codes your Mac finds in messages and mail | Читать коды | Одноразовые коды, которые Mac находит в сообщениях и почте |
 | `codes_detect` | Detect codes | Reads your code messages when no Mac is reading | Находить коды | Читает сообщения с кодами, когда ни один Mac их не читает |
-| `notifications` | Read your notifications | Not available yet | Читать ваши уведомления | Пока недоступно |
+| `notifications` | Read your notifications | Current notifications allowed by the phone; read only | Читать ваши уведомления | Текущие уведомления, разрешённые телефоном; только чтение |
 
 ## States and windows
 

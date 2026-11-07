@@ -17,6 +17,7 @@ const val NOTIFY_FEATURE_KEY = "notify_draft1"
 const val ASK_FEATURE_KEY = "ask_draft1"
 const val CLIPBOARD_REQUEST_FEATURE_KEY = "clipboard_request_draft1"
 const val AGENT_CODES_FEATURE_KEY = "agent_codes_draft1"
+const val AGENT_NOTIFICATIONS_FEATURE_KEY = "agent_notifications_draft1"
 const val AGENTS_MIRROR_FEATURE_KEY = "agents_mirror_draft1"
 
 /** Detect codes (docs/mesh-and-codes.md): an agent that can run the code model; the phone, while the grant is on. */
@@ -52,13 +53,15 @@ object AgentKinds {
     const val AGENTS_GRANT_SET = "agents.grant_set"
     const val CODES_CANDIDATE = "codes.candidate"
     const val CODES_DETECTED = "codes.detected"
+    const val NOTIFICATIONS_QUERY = "agent.notifications.query"
+    const val NOTIFICATIONS_RESULT = "agent.notifications.result"
 }
 
 /** The agent kinds an agent sends to the phone; the phone's agent handler reads only these from an agent. */
 internal val AGENT_TO_PHONE_KINDS = setOf(
     AgentKinds.HELLO, AgentKinds.GRANT_REQUEST, AgentKinds.NOTIFY_POST, AgentKinds.ASK_REQUEST, AgentKinds.ASK_CANCEL,
     AgentKinds.ASK_STATUS, AgentKinds.CLIPBOARD_REQUEST, AgentKinds.CODES_QUERY, AgentKinds.CODES_CANCEL,
-    AgentKinds.CODES_DETECTED,
+    AgentKinds.CODES_DETECTED, AgentKinds.NOTIFICATIONS_QUERY,
 )
 
 /** The mirror kinds a Mac sends to the phone. */
@@ -93,7 +96,7 @@ private val PHONE_TO_AGENT_KINDS = setOf(
     "connect.setup", "connect.setup.ack", "connect.addresses",
     AgentKinds.GRANTS, AgentKinds.REQUEST_RESULT, AgentKinds.NOTIFY_RESULT, AgentKinds.ASK_POSTED, AgentKinds.ASK_ANSWER,
     AgentKinds.ASK_DISMISSED, AgentKinds.ASK_EXPIRED, AgentKinds.ASK_CANCELLED, AgentKinds.CLIPBOARD_RESPONSE,
-    AgentKinds.CODES_RESULT, AgentKinds.CODES_CANDIDATE,
+    AgentKinds.CODES_RESULT, AgentKinds.CODES_CANDIDATE, AgentKinds.NOTIFICATIONS_RESULT,
     "clipboard.ack", "find.started", "find.stopped", "ping.ack", "battery.update",
     "files.accept", "files.rejected", "files.chunk.ack", "files.complete.ack", "files.cancel", "files.cancel.ack",
 )
@@ -123,11 +126,11 @@ enum class AgentGrant(val key: String, val wireKey: String) {
     /** Detect codes: this phone sends the agent its code text messages when no Mac reads them. Never in a preset. */
     CODES_DETECT("codes_detect", CODES_DETECT_FEATURE_KEY),
 
-    /** Not available in this version: always off, never grantable. */
-    NOTIFICATIONS("notifications", "notifications"),
+    /** On-demand reads only; ordinary notification broadcasts remain blocked for agents. */
+    NOTIFICATIONS("notifications", AGENT_NOTIFICATIONS_FEATURE_KEY),
     ;
 
-    val grantable: Boolean get() = this != NOTIFICATIONS
+    val grantable: Boolean get() = true
 
     companion object {
         fun of(key: String?): AgentGrant? = entries.firstOrNull { it.key == key }
@@ -177,7 +180,7 @@ internal fun grantJson(view: GrantView): JSONObject = JSONObject()
         view.scope?.let { put("scope", it) }
     }
 
-/** agent.grants (at most 8 KiB: nine grants never come close). */
+/** agent.grants (at most 8 KiB: ten grants never come close). */
 fun agentGrantsPayload(grants: List<GrantView>): ByteArray = JSONObject()
     .put("version", 1)
     .put("grants", JSONArray(grants.map(::grantJson)))
@@ -354,9 +357,9 @@ fun decodeGrantRequest(plaintext: ByteArray): GrantRequest? {
     val payload = agentPayload(plaintext, 1_024) ?: return null
     val requestId = payload.optString("requestId").takeIf { payload.opt("requestId") is String && isUuid(it) } ?: return null
     val keys = payload.opt("keys") as? JSONArray ?: return null
-    if (keys.length() !in 1..9) return null
+    if (keys.length() !in 1..AgentGrant.entries.size) return null
     val names = (0 until keys.length()).map { keys.opt(it) as? String ?: return null }
-    // Unknown names (a newer agent) are skipped; Read your notifications cannot be asked for in this version.
+    // Unknown names from a newer agent are skipped; requests never enable a grant.
     val grants = names.mapNotNull(AgentGrant::of).filter { it.grantable }.distinct()
     if (grants.isEmpty()) return null
     val note = payload.text("note", 120, optional = true).takeIf { it.ok } ?: return null
@@ -581,3 +584,13 @@ fun codesCandidatePayload(candidateId: String, source: CodeSource, app: String, 
     .put("postedAt", postedAt)
     .toString()
     .toByteArray(Charsets.UTF_8)
+
+/** A single bounded snapshot, never a subscription or an action on another app. */
+data class AgentNotificationsQuery(val queryId: String, val limit: Int)
+
+fun decodeAgentNotificationsQuery(plaintext: ByteArray): AgentNotificationsQuery? {
+    val payload = agentPayload(plaintext, 1_024) ?: return null
+    val id = payload.optString("queryId").takeIf { payload.opt("queryId") is String && isUuid(it) } ?: return null
+    val limit = if (!payload.has("limit")) 20 else jsonInteger(payload.opt("limit"))?.takeIf { it in 1..20 }?.toInt() ?: return null
+    return AgentNotificationsQuery(id, limit)
+}

@@ -40,7 +40,7 @@
     <string name="agent_grant_codes_detect">Detect codes</string>
     <string name="agent_grant_codes_detect_detail">Reads your code messages when no Mac is reading</string>
     <string name="agent_grant_notifications">Read your notifications</string>
-    <string name="agent_grant_notifications_detail">Not available yet</string>
+    <string name="agent_grant_notifications_detail">Current notifications allowed by the phone; read only</string>
 
     <!-- wording: states and windows -->
     <string name="agent_state_on">On</string>
@@ -117,4 +117,5 @@
     <string name="agent_outcome_rate_limited">Too many requests</string>
     <string name="agent_outcome_not_granted">Not allowed</string>
     <string name="agent_outcome_invalid">Refused, not a valid request</string>
+    <string name="agent_audit_notifications_read">Read notifications</string>
 </resources>

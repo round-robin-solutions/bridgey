@@ -20,8 +20,17 @@ import java.io.File
 
 /** What the hub needs from the session layer (PairingCoordinator). */
 interface AgentTransport {
-    /** One encrypted message to a connected device; false when it is not connected. */
+    /** Enqueue one reply to a connected session; true means accepted, not acknowledged socket delivery. */
     fun send(deviceId: String, kind: String, payload: ByteArray): Boolean
+
+    /** Local opaque identity of the authenticated session, never a peer-chosen protocol ID. */
+    fun currentSessionToken(deviceId: String): String?
+
+    /** Atomically check identity and enqueue to that exact session; false when closed, replaced, or full. */
+    fun sendIfCurrent(deviceId: String, sessionToken: String, kind: String, payload: ByteArray): Boolean
+
+    /** Active on-demand notification snapshot, unavailable without the phone listener. */
+    fun notificationSnapshot(limit: Int): AgentNotificationsSnapshot = AgentNotificationsSnapshot(available = false)
 
     /** Connected agent devices. */
     fun connectedAgents(): List<String>
@@ -63,6 +72,7 @@ class AgentHub(
     private val scope: CoroutineScope,
     private val transport: AgentTransport,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val freshnessClock: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     private val directory = File(context.noBackupFilesDir, "agents")
     private val preferences = context.getSharedPreferences("bridgey.agents", Context.MODE_PRIVATE)
@@ -70,7 +80,7 @@ class AgentHub(
     private val limits = AgentRateLimits(clock)
     val audit = AgentAuditLog(File(directory, "audit"), clock)
     private val asks = AgentAskBook(File(directory, "asks.json"), clock)
-    val codes = CodesBroker(clock)
+    val codes = CodesBroker(clock, freshnessClock)
     private val detections = CodeDetections(clock)
 
     /** Codes over cloud (CloudCodes.kt), set by the application; null in tests and builds without a relay. */
@@ -79,8 +89,13 @@ class AgentHub(
     /** One cloud read happened: its word (CloudRead) and the app's name, for the phone's activity list. */
     @Volatile var onCloudRead: (outcome: String, appName: String) -> Unit = { _, _ -> }
     private val notifier = AgentNotifier(context)
-    private val heldTimers = java.util.concurrent.ConcurrentHashMap<String, Job>()
-    private val clipRequests = java.util.concurrent.ConcurrentHashMap<String, Pair<ClipboardRequest, Job>>()
+    private data class QueryOwner(val deviceId: String, val sessionToken: String, val queryId: String)
+    private data class PendingCodeQuery(val messageId: String, val timer: Job)
+    private data class PendingClipboard(val deviceId: String, val sessionToken: String, val messageId: String, val request: ClipboardRequest, val timer: Job)
+    // These maps and every authority mutation/delivery are protected by this Hub's monitor.
+    private val heldTimers = HashMap<QueryOwner, PendingCodeQuery>()
+    // A fresh phone-local action ID prevents an old PendingIntent approving a reused wire requestId.
+    private val clipRequests = HashMap<String, PendingClipboard>()
     private var expiryJob: Job? = null
     private var scheduledAt: Long? = null
     private var stateJob: Job? = null
@@ -126,16 +141,43 @@ class AgentHub(
     }
 
     /** The agent's session authenticated: last seen, and the endings of questions it may have missed. */
-    fun sessionStarted(deviceId: String) {
+    @Synchronized fun sessionStarted(deviceId: String, sessionToken: String) {
+        if (transport.currentSessionToken(deviceId) != sessionToken) return
+        cancelSessionWork(deviceId, exceptSession = sessionToken)
         preferences.edit().putLong("$deviceId.lastSeen", clock()).apply()
         asks.endedFor(deviceId).forEach(::sendEnding)
         changed()
     }
 
-    fun sessionEnded(deviceId: String) {
+    @Synchronized fun sessionEnded(deviceId: String, sessionToken: String) {
         preferences.edit().putLong("$deviceId.lastSeen", clock()).apply()
-        codes.releaseAll(deviceId).forEach { heldTimers.remove(it.query.queryId)?.cancel() }
+        cancelSessionWork(deviceId, onlySession = sessionToken)
         changed()
+    }
+
+    private fun cancelSessionWork(deviceId: String, onlySession: String? = null, exceptSession: String? = null) {
+        heldTimers.keys.filter { it.deviceId == deviceId && (onlySession == null || it.sessionToken == onlySession) && it.sessionToken != exceptSession }
+            .forEach { key ->
+                codes.release(key.deviceId, key.sessionToken, key.queryId)
+                heldTimers.remove(key)?.timer?.cancel()
+            }
+        clipRequests.filterValues { it.deviceId == deviceId && (onlySession == null || it.sessionToken == onlySession) && it.sessionToken != exceptSession }
+            .keys.toList().forEach(::removeClipboardRequest)
+    }
+
+    private fun cancelGrantWork(deviceId: String, grant: AgentGrant) {
+        if (grant == AgentGrant.CODES) codes.releaseAll(deviceId).forEach {
+            val key = QueryOwner(it.deviceId, it.sessionToken, it.query.queryId)
+            val pending = heldTimers.remove(key) ?: return@forEach
+            pending.timer.cancel()
+            transport.sendIfCurrent(deviceId, it.sessionToken, AgentKinds.REQUEST_RESULT,
+                requestResultPayload(pending.messageId, AgentKinds.CODES_QUERY, AgentStatus.NOT_GRANTED, grant = grant))
+        }
+        if (grant == AgentGrant.CLIPBOARD_REQUEST) clipRequests.filterValues { it.deviceId == deviceId }.keys.toList().forEach { actionId ->
+            val pending = removeClipboardRequest(actionId) ?: return@forEach
+            transport.sendIfCurrent(deviceId, pending.sessionToken, AgentKinds.REQUEST_RESULT,
+                requestResultPayload(pending.messageId, AgentKinds.CLIPBOARD_REQUEST, AgentStatus.NOT_GRANTED, grant = grant))
+        }
     }
 
     /** After features.update to the agent: the grants as it should show them. */
@@ -158,17 +200,18 @@ class AgentHub(
             ASK_FEATURE_KEY to grants.isOn(deviceId, AgentGrant.ASK, now),
             CLIPBOARD_REQUEST_FEATURE_KEY to grants.isOn(deviceId, AgentGrant.CLIPBOARD_REQUEST, now),
             AGENT_CODES_FEATURE_KEY to grants.isOn(deviceId, AgentGrant.CODES, now),
+            AGENT_NOTIFICATIONS_FEATURE_KEY to grants.isOn(deviceId, AgentGrant.NOTIFICATIONS, now),
             CODES_DETECT_FEATURE_KEY to grants.isOn(deviceId, AgentGrant.CODES_DETECT, now),
         )
     }
 
-    fun forget(deviceId: String) {
+    @Synchronized fun forget(deviceId: String) {
         asks.forget(deviceId)
         grants.forget(deviceId)
         limits.forget(deviceId)
-        codes.releaseAll(deviceId).forEach { heldTimers.remove(it.query.queryId)?.cancel() }
+        cancelSessionWork(deviceId)
+        codes.releaseAll(deviceId)
         detections.forget(deviceId)
-        clipRequests.keys.filter { it.startsWith("$deviceId/") }.forEach { clipRequests.remove(it)?.second?.cancel() }
         notifier.cancelAll(deviceId)
         audit.clear(deviceId)
         preferences.edit().remove("$deviceId.app").remove("$deviceId.os").remove("$deviceId.pairedAt").remove("$deviceId.lastSeen").apply()
@@ -181,7 +224,7 @@ class AgentHub(
      * Rahul switched [grant] on (for [window]) or off, on this phone or on [macName]. Sends features.update and
      * agent.grants to the agent and agents.state to the Macs.
      */
-    fun setGrant(deviceId: String, grant: AgentGrant, on: Boolean, window: GrantWindow?, macName: String? = null) {
+    @Synchronized fun setGrant(deviceId: String, grant: AgentGrant, on: Boolean, window: GrantWindow?, macName: String? = null) {
         if (!grants.set(deviceId, grant, on, window)) return
         val detail = buildString {
             append(grant.key).append(' ').append(if (on) window?.wire ?: "on" else "off")
@@ -189,8 +232,9 @@ class AgentHub(
             macName?.let { append(", changed on ").append(it) }
         }
         audit.record(deviceId, AuditAction.GRANT_CHANGE, AuditOutcome.OK, detail)
+        if (!on) cancelGrantWork(deviceId, grant)
         if (!on && grant == AgentGrant.RING) transport.stopRing(deviceId)
-        if (!on && grant == AgentGrant.CODES && transport.agentIds().none { grants.isOn(it, AgentGrant.CODES) }) codes.clear()
+        if (!on && grant == AgentGrant.CODES && transport.agentIds().none { grants.isOn(it, AgentGrant.CODES) }) codes.clear().forEach { heldTimers.remove(QueryOwner(it.deviceId, it.sessionToken, it.query.queryId))?.timer?.cancel() }
         if (grants.views(deviceId, "").none { it.state == GrantShown.WAITING }) notifier.cancelGrantRequest(deviceId)
         grantsChanged(deviceId)
     }
@@ -205,6 +249,7 @@ class AgentHub(
     @Synchronized fun checkExpiry() {
         val ended = grants.expireDue()
         ended.forEach { expired ->
+            cancelGrantWork(expired.deviceId, expired.grant)
             audit.record(expired.deviceId, AuditAction.GRANT_EXPIRED, AuditOutcome.EXPIRED, "${expired.grant.key} ${expired.window?.wire.orEmpty()}".trim())
             if (expired.grant == AgentGrant.RING) transport.stopRing(expired.deviceId)
         }
@@ -260,7 +305,8 @@ class AgentHub(
     // MARK: messages from an agent
 
     /** One decrypted agent.* (and notify.*, ask.*, clipboard.request, codes.*) message from agent [deviceId]. */
-    fun receive(deviceId: String, kind: String, messageId: String, plaintext: ByteArray) {
+    @Synchronized fun receive(deviceId: String, sessionToken: String, kind: String, messageId: String, plaintext: ByteArray) {
+        if (transport.currentSessionToken(deviceId) != sessionToken) return
         checkExpiry()
         when (kind) {
             AgentKinds.HELLO -> hello(deviceId, plaintext)
@@ -269,10 +315,11 @@ class AgentHub(
             AgentKinds.ASK_REQUEST -> askRequest(deviceId, messageId, plaintext)
             AgentKinds.ASK_CANCEL -> askCancel(deviceId, messageId, plaintext)
             AgentKinds.ASK_STATUS -> askStatus(deviceId, messageId, plaintext)
-            AgentKinds.CLIPBOARD_REQUEST -> clipboardRequest(deviceId, messageId, plaintext)
-            AgentKinds.CODES_QUERY -> codesQuery(deviceId, messageId, plaintext)
+            AgentKinds.CLIPBOARD_REQUEST -> clipboardRequest(deviceId, sessionToken, messageId, plaintext)
+            AgentKinds.CODES_QUERY -> codesQuery(deviceId, sessionToken, messageId, plaintext)
+            AgentKinds.NOTIFICATIONS_QUERY -> notificationsQuery(deviceId, sessionToken, messageId, plaintext)
             AgentKinds.CODES_CANCEL -> decodeCodesCancel(plaintext)?.let { queryId ->
-                codes.release(deviceId, queryId)?.let { heldTimers.remove(queryId)?.cancel() }
+                codes.release(deviceId, sessionToken, queryId)?.let { heldTimers.remove(QueryOwner(deviceId, sessionToken, queryId))?.timer?.cancel() }
             }
             AgentKinds.CODES_DETECTED -> codesDetected(deviceId, plaintext)
         }
@@ -457,87 +504,132 @@ class AgentHub(
         }
     }
 
+    /** One ephemeral snapshot; no content in activity, persistence, diagnostics, or mirrored state. */
+    private fun notificationsQuery(deviceId: String, sessionToken: String, messageId: String, plaintext: ByteArray) {
+        val query = decodeAgentNotificationsQuery(plaintext) ?: return invalid(deviceId, messageId, AgentKinds.NOTIFICATIONS_QUERY)
+        if (!admit(deviceId, messageId, AgentKinds.NOTIFICATIONS_QUERY, AgentGrant.NOTIFICATIONS, null, AuditAction.NOTIFICATIONS_READ)) return
+        val snapshot = runCatching { transport.notificationSnapshot(query.limit) }.getOrElse { AgentNotificationsSnapshot(available = false) }
+        // Source access can race with grant expiry or a transport replacement; never send to a replacement session.
+        if (!grants.isOn(deviceId, AgentGrant.NOTIFICATIONS)) return
+        if (!transport.sendIfCurrent(deviceId, sessionToken, AgentKinds.NOTIFICATIONS_RESULT, agentNotificationsResultPayload(query.queryId, snapshot, query.limit))) return
+        audit.record(deviceId, AuditAction.NOTIFICATIONS_READ, if (snapshot.available) AuditOutcome.DELIVERED else AuditOutcome.DECLINED)
+        changed()
+    }
+
     // MARK: clipboard requests
 
-    private fun clipboardRequest(deviceId: String, messageId: String, plaintext: ByteArray) {
+    private fun clipboardRequest(deviceId: String, sessionToken: String, messageId: String, plaintext: ByteArray) {
         val request = decodeClipboardRequest(plaintext, clock()) ?: return invalid(deviceId, messageId, AgentKinds.CLIPBOARD_REQUEST)
         if (!isOn(deviceId, AgentGrant.CLIPBOARD_REQUEST)) {
             admit(deviceId, messageId, AgentKinds.CLIPBOARD_REQUEST, AgentGrant.CLIPBOARD_REQUEST, null, AuditAction.CLIPBOARD_REQUEST)
             return
         }
-        if (clipRequests.keys.any { it.startsWith("$deviceId/") }) return result(deviceId, messageId, AgentKinds.CLIPBOARD_REQUEST, AgentStatus.BUSY)
+        // A replacement session cannot be kept busy by a stale approval.
+        cancelSessionWork(deviceId, exceptSession = sessionToken)
+        if (clipRequests.values.any { it.deviceId == deviceId }) return result(deviceId, messageId, AgentKinds.CLIPBOARD_REQUEST, AgentStatus.BUSY)
         if (!admit(deviceId, messageId, AgentKinds.CLIPBOARD_REQUEST, AgentGrant.CLIPBOARD_REQUEST, AgentAction.CLIP_GET, AuditAction.CLIPBOARD_REQUEST)) return
-        val key = "$deviceId/${request.requestId}"
+        val actionId = java.util.UUID.randomUUID().toString()
         val timer = scope.launch {
             delay((request.expiresAt - clock()).coerceAtLeast(0))
-            clipboardAnswered(deviceId, request.requestId, ClipResponseStatus.EXPIRED)
+            clipboardAnswered(deviceId, actionId, ClipResponseStatus.EXPIRED)
         }
-        clipRequests[key] = request to timer
-        notifier.clipboardRequest(deviceId, transport.deviceName(deviceId), request.requestId, request.expiresAt)
+        clipRequests[actionId] = PendingClipboard(deviceId, sessionToken, messageId, request, timer)
+        notifier.clipboardRequest(deviceId, transport.deviceName(deviceId), actionId, request.expiresAt)
     }
 
-    /** Send on the clipboard request: [text] and [html] read in the foreground by AgentClipboardActivity. */
-    fun clipboardSend(deviceId: String, requestId: String, text: String, html: String?) {
+    private fun removeClipboardRequest(actionId: String): PendingClipboard? = clipRequests.remove(actionId)?.also {
+        it.timer.cancel()
+        notifier.cancelClipboardRequest(it.deviceId, actionId)
+    }
+
+    private fun validClipboardRequest(deviceId: String, actionId: String): PendingClipboard? {
+        val pending = clipRequests[actionId]?.takeIf { it.deviceId == deviceId } ?: return null
+        if (clock() >= pending.request.expiresAt || !grants.isOn(deviceId, AgentGrant.CLIPBOARD_REQUEST) ||
+            transport.currentSessionToken(deviceId) != pending.sessionToken) {
+            removeClipboardRequest(actionId)
+            return null
+        }
+        return pending
+    }
+
+    /** Validate before touching the clipboard; revalidate on the IO scope at the serialized send boundary. */
+    @Synchronized fun clipboardReadAndSend(deviceId: String, actionId: String, read: () -> Pair<String, String?>) {
+        if (validClipboardRequest(deviceId, actionId) == null) return
+        val (text, html) = read()
         val bounded = boundedClip(text, html)
-        clipboardAnswered(deviceId, requestId, ClipResponseStatus.SENT, bounded.first, bounded.second)
+        scope.launch {
+            clipboardAnswered(deviceId, actionId, ClipResponseStatus.SENT, bounded.first, bounded.second)
+        }
     }
 
-    fun clipboardDeny(deviceId: String, requestId: String) = clipboardAnswered(deviceId, requestId, ClipResponseStatus.DECLINED)
+    @Synchronized fun clipboardDeny(deviceId: String, actionId: String) = clipboardAnswered(deviceId, actionId, ClipResponseStatus.DECLINED)
 
-    private fun clipboardAnswered(deviceId: String, requestId: String, status: ClipResponseStatus, text: String? = null, html: String? = null) {
-        val entry = clipRequests.remove("$deviceId/$requestId") ?: return
-        entry.second.cancel()
-        notifier.cancelClipboardRequest(deviceId, requestId)
-        val expired = clock() >= entry.first.expiresAt
-        val final = if (expired && status != ClipResponseStatus.EXPIRED) ClipResponseStatus.EXPIRED else status
-        clipboardResponsePayload(requestId, final, text.takeIf { final == ClipResponseStatus.SENT }, html.takeIf { final == ClipResponseStatus.SENT })
-            ?.let { transport.send(deviceId, AgentKinds.CLIPBOARD_RESPONSE, it) }
-        val outcome = when (final) {
-            ClipResponseStatus.SENT -> AuditOutcome.DELIVERED
-            ClipResponseStatus.DECLINED -> AuditOutcome.DECLINED
-            ClipResponseStatus.EXPIRED -> AuditOutcome.EXPIRED
+    @Synchronized private fun clipboardAnswered(deviceId: String, actionId: String, status: ClipResponseStatus, text: String? = null, html: String? = null) {
+        val pending = clipRequests[actionId]?.takeIf { it.deviceId == deviceId } ?: return
+        val authorized = grants.isOn(deviceId, AgentGrant.CLIPBOARD_REQUEST) && transport.currentSessionToken(deviceId) == pending.sessionToken
+        val entry = removeClipboardRequest(actionId) ?: return
+        if (!authorized) return
+        val final = if (clock() >= entry.request.expiresAt) ClipResponseStatus.EXPIRED else status
+        val delivered = clipboardResponsePayload(entry.request.requestId, final, text.takeIf { final == ClipResponseStatus.SENT }, html.takeIf { final == ClipResponseStatus.SENT })
+            ?.let { transport.sendIfCurrent(deviceId, entry.sessionToken, AgentKinds.CLIPBOARD_RESPONSE, it) } == true
+        val outcome = when {
+            !delivered -> AuditOutcome.EXPIRED
+            final == ClipResponseStatus.SENT -> AuditOutcome.DELIVERED
+            final == ClipResponseStatus.DECLINED -> AuditOutcome.DECLINED
+            else -> AuditOutcome.EXPIRED
         }
         // Never the clipboard's content.
         audit.record(deviceId, AuditAction.CLIPBOARD_REQUEST, outcome)
         changed()
     }
 
-    fun clipboardPending(deviceId: String, requestId: String): Boolean = clipRequests.containsKey("$deviceId/$requestId")
+    @Synchronized fun clipboardPending(deviceId: String, actionId: String): Boolean = validClipboardRequest(deviceId, actionId) != null
 
     // MARK: codes
 
-    private fun codesQuery(deviceId: String, messageId: String, plaintext: ByteArray) {
+    private fun codesQuery(deviceId: String, sessionToken: String, messageId: String, plaintext: ByteArray) {
         val query = decodeCodesQuery(plaintext) ?: return invalid(deviceId, messageId, AgentKinds.CODES_QUERY)
         if (!admit(deviceId, messageId, AgentKinds.CODES_QUERY, AgentGrant.CODES, null, AuditAction.CODES_READ, query.service)) return
         val answer = codes.answer(query)
-        if (answer.codes.isNotEmpty() || query.waitMs == 0L) return answerQuery(deviceId, query, answer, timedOut = false)
-        if (!codes.hold(deviceId, query)) return result(deviceId, messageId, AgentKinds.CODES_QUERY, AgentStatus.BUSY)
-        heldTimers.remove(query.queryId)?.cancel()
-        heldTimers[query.queryId] = scope.launch {
+        if (answer.codes.isNotEmpty() || query.waitMs == 0L) return answerQuery(deviceId, sessionToken, messageId, query, answer, timedOut = false)
+        cancelSessionWork(deviceId, exceptSession = sessionToken)
+        if (!codes.hold(deviceId, sessionToken, query)) return result(deviceId, messageId, AgentKinds.CODES_QUERY, AgentStatus.BUSY)
+        val key = QueryOwner(deviceId, sessionToken, query.queryId)
+        heldTimers.remove(key)?.timer?.cancel()
+        val timer = scope.launch {
             delay(query.waitMs)
-            codes.release(deviceId, query.queryId)?.let { answerQuery(deviceId, query, CodesAnswer(emptyList()), timedOut = true) }
-            heldTimers.remove(query.queryId)
+            synchronized(this@AgentHub) {
+                if (heldTimers[key]?.timer !== coroutineContext[Job]) return@synchronized
+                codes.release(deviceId, sessionToken, query.queryId)?.let { answerQuery(deviceId, sessionToken, messageId, query, CodesAnswer(emptyList()), timedOut = true) }
+                heldTimers.remove(key)
+            }
         }
+        heldTimers[key] = PendingCodeQuery(messageId, timer)
     }
 
-    private fun answerQuery(deviceId: String, query: CodesQuery, answer: CodesAnswer, timedOut: Boolean) {
-        transport.send(deviceId, AgentKinds.CODES_RESULT, codesResultPayload(query.queryId, answer.codes, readers(), timedOut))
+    private fun answerQuery(deviceId: String, sessionToken: String, messageId: String, query: CodesQuery, answer: CodesAnswer, timedOut: Boolean) {
+        // Grant state and transport enqueue are serialized with setGrant/forget/expiry.
+        if (!grants.isOn(deviceId, AgentGrant.CODES)) {
+            transport.sendIfCurrent(deviceId, sessionToken, AgentKinds.REQUEST_RESULT,
+                requestResultPayload(messageId, AgentKinds.CODES_QUERY, AgentStatus.NOT_GRANTED, grant = AgentGrant.CODES))
+            return
+        }
+        if (!transport.sendIfCurrent(deviceId, sessionToken, AgentKinds.CODES_RESULT, codesResultPayload(query.queryId, answer.codes, readers(), timedOut))) return
         val newest = answer.codes.firstOrNull() ?: return
         val service = answer.service(query.service)
-        // One entry per answered query with codes: the service and how many, never a code.
         val entry = audit.record(deviceId, AuditAction.CODES_READ, AuditOutcome.DELIVERED, "$service, ${answer.codes.size}")
-        // The Mac dedupes on `at`: the same moment as this phone's own entry.
         val payload = codesReadPayload(deviceId, transport.deviceName(deviceId), service, newest.source, newest.app, entry.at, answer.codes.size)
         transport.mirrorMacs().forEach { mac -> transport.send(mac, AgentKinds.CODES_READ, payload) }
         changed()
     }
 
     /** A code from a Mac (codes.found) or an agent that detected it: kept only while some agent can read codes. */
-    private fun addFound(found: CodeFound) {
+    @Synchronized private fun addFound(found: CodeFound) {
         if (transport.agentIds().none { grants.isOn(it, AgentGrant.CODES) }) return
         codes.add(found).forEach { held ->
-            heldTimers.remove(held.query.queryId)?.cancel()
-            answerQuery(held.deviceId, held.query, codes.answer(held.query), timedOut = false)
+            val pending = heldTimers.remove(QueryOwner(held.deviceId, held.sessionToken, held.query.queryId)) ?: return@forEach
+            pending.timer.cancel()
+            answerQuery(held.deviceId, held.sessionToken, pending.messageId, held.query, codes.answer(held.query), timedOut = false)
         }
     }
 

@@ -9,7 +9,8 @@
 # One build per host at a time (AGENTS.md 6.0). Publishing is a separate, approved step (tag cli-v<version>).
 set -eu
 ROOT=$(cd "$(dirname -- "$0")/../../.." && pwd)
-PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+. "$ROOT/scripts/rr/rust-env.sh"
+PATH="${RR_CI_HOST_HOME:-$HOME}/.local/bin:$PATH"
 export PATH
 WHAT=${1:-auto}
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/rust/cli/Cargo.toml" | head -n 1)
@@ -32,7 +33,7 @@ linux() {
   command -v cargo-zigbuild >/dev/null || { echo "build-cli: needs cargo-zigbuild and zig (cargo install cargo-zigbuild --locked)" >&2; exit 1; }
   for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
     rustup target add "$target" >/dev/null
-    cargo zigbuild --release -p bridgey-cli --target "$target"
+    "$CARGO_BIN" zigbuild --locked --release -p bridgey-cli --target "$target"
     package "$target" "target/$target/release/bridgey"
   done
 }
@@ -41,7 +42,7 @@ macos() {
   [ "$(uname -s)" = Darwin ] || { echo "build-cli: the macOS build runs on a Mac" >&2; exit 1; }
   for target in aarch64-apple-darwin x86_64-apple-darwin; do
     rustup target add "$target" >/dev/null
-    cargo build --release -p bridgey-cli --target "$target"
+    "$CARGO_BIN" build --locked --release -p bridgey-cli --target "$target"
   done
   universal=$(mktemp -d)/bridgey
   lipo -create -output "$universal" target/aarch64-apple-darwin/release/bridgey target/x86_64-apple-darwin/release/bridgey

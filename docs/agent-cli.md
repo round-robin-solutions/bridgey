@@ -404,7 +404,7 @@ through `bridgey-ffi`.
 | Phase | Contents | Needs |
 | --- | --- | --- |
 | Phase 1 (P5) | `pair`, `devices`, `status`, `grants`, `send` (resumable), `transfers`, `clip set` and `clip get`, `notify`, `ask` and `wait`, `ring`, `battery`, `ping`, `audit`, `doctor`, `forget`, `config`; JSON and exit codes; background agent process; on Android: agent defaults, grants with time windows, rate limits, "Agent messages" and "Agent questions" channels, audit log; tarballs, install script, Homebrew | Connect anywhere P2 (P3 for UDP-blocked phones, P4 for large sends) |
-| Phase 2 (P6) | `bridgey daemon` (systemd user unit, launchd agent); `bridgey inbox` (files the phone sends to the agent's device); `bridgey watch` (JSONL events: clipboard from the phone, answers, battery changes, granted notifications); `bridgey mcp` (an MCP server exposing `send_file`, `notify`, `ask`, `get_answer`, `ring`, `battery`); notification reading behind its explicit grant; `.deb`; `bridgey update` | Phase 1 |
+| Phase 2 (P6) | `bridgey daemon` (systemd user unit, launchd agent); `bridgey inbox` (files the phone sends to the agent's device); `bridgey watch` (JSONL events: clipboard from the phone, answers, battery changes, granted notifications); `bridgey mcp` (an MCP server exposing `send_file`, `notify`, `ask`, `get_answer`, `ring`, `battery`); notification streaming behind its explicit grant; `.deb`; `bridgey update` | Phase 1 |
 
 ## 14. Security notes
 
@@ -495,3 +495,20 @@ Apple Handoff on this Mac: off
 **Before deleting the app,** run `--handoff on` (or turn the switch off) so Handoff comes back the
 way it was. Reset > Settings and Reset > Everything clear the choice but keep the earlier state, so
 the next launch puts Handoff back on its own.
+
+## Current notification reads and delayed permission enforcement
+
+`bridgey notifications [--limit 1..20] [--json]` returns one bounded snapshot of active phone
+notifications with the explicit per-server Read your notifications permission. It never subscribes,
+replies or dismisses. The phone enforces authority when it queues each response, and cancels pending
+OTP waits and clipboard approvals on revocation, expiry, disconnect or session replacement.
+Notification and OTP content stays out of action audit logs. Clipboard reads still require a fresh
+owner tap per request. File permission currently allows server-to-phone delivery only.
+
+Code cache retention is 15 minutes from first phone-local receipt, measured with a monotonic clock;
+remote timestamps and duplicate detections cannot extend it. Codes remain non-consuming so more
+than one independently granted server can read a fresh result. No server-to-server credential or
+code replication is needed.
+
+Notification reads follow the phone's Notification forwarding switch and blocked-app list, and
+exclude Bridgey's own, secret, quiet ongoing, group-summary and Android-redacted notifications.

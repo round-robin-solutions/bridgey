@@ -27,7 +27,7 @@
 "grant.codes_detect" = "Находить коды";
 "grant.codes_detect.detail" = "Читает сообщения с кодами, когда ни один Mac их не читает";
 "grant.notifications" = "Читать ваши уведомления";
-"grant.notifications.detail" = "Пока недоступно";
+"grant.notifications.detail" = "Текущие уведомления, разрешённые телефоном; только чтение";
 
 "state.off" = "Выкл.";
 "state.waiting" = "Ждёт вашего решения";
@@ -71,3 +71,5 @@
 "activity.outcome.rate_limited" = "Слишком много запросов";
 "activity.outcome.not_granted" = "Не разрешено";
 "activity.outcome.invalid" = "Отклонено: неверный запрос";
+
+"activity.notifications.read" = "Прочитал уведомления";
