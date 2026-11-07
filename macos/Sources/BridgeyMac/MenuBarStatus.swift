@@ -19,7 +19,38 @@ final class StatusPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    override func cancelOperation(_ sender: Any?) { BridgeyWindows.orderOut(self) }
+    var onCancel: (() -> Void)?
+    override func cancelOperation(_ sender: Any?) {
+        if let onCancel { onCancel() } else { BridgeyWindows.orderOut(self) }
+    }
+}
+
+/// One mounted panel: refresh transient data after ordering in, and stop polling while hidden.
+@MainActor
+final class MenuBarPanelPresentation: ObservableObject {
+    @Published private(set) var isPresented = false
+    @Published private(set) var clipboard = PasteboardPreview()
+    var readClipboard: (PasteboardPreview) -> PasteboardPreview = { PasteboardPreview.current(previous: $0) }
+
+    func prepareToOpen() { clipboard = PasteboardPreview() }
+    func setPresented(_ presented: Bool) { isPresented = presented }
+    func refreshClipboard() {
+        guard isPresented else { return }
+        let latest = readClipboard(clipboard)
+        if latest != clipboard { clipboard = latest }
+    }
+}
+
+private struct MenuBarIconClick: Equatable {
+    let number: Int
+    let timestamp: TimeInterval
+    let button: Int
+    init?(_ event: NSEvent?) {
+        guard let event, event.type == .leftMouseDown || event.type == .rightMouseDown else { return nil }
+        number = event.eventNumber
+        timestamp = event.timestamp
+        button = event.buttonNumber
+    }
 }
 
 /// Sits over the status button: takes drags, lets every click through to the button.
@@ -51,26 +82,34 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
 
     let statusItem: NSStatusItem
     let panel: StatusPanel
+    let presentation = MenuBarPanelPresentation()
     private let hosting: NSHostingController<AnyView>
     private var sizeObservation: NSKeyValueObservation?
     private var outsideClickMonitor: Any?
+    private var monitorGeneration = 0
+    private var visibilityGeneration = 0
+    private var wantsOpen = false
     private let dropView = StatusDropView()
     /// Opened by a hovering drag: it closes again when the drag ends without a drop inside.
     private(set) var openedByDrag = false
     var reduceMotion: () -> Bool = { false }
-    /// When the panel was last closed because the user clicked (or the keyboard moved) elsewhere,
-    /// which includes a click on the icon itself: that click also runs `togglePanel`.
-    private var dismissedFromOutsideAt: Date?
-    /// A click on the icon that follows an outside dismissal this soon is the same click.
-    static let sameClickWindow: TimeInterval = 0.35
-    var now: () -> Date = Date.init
-    /// Runs before the panel shows (the host renews the panel content).
+    /// Suppress only the very same icon event that already dismissed the panel, never a later click.
+    private var dismissedIconClick: MenuBarIconClick?
+    var currentEvent: () -> NSEvent? = { NSApp.currentEvent }
+    static let openingDuration: TimeInterval = 0.12
+    static let closingDuration: TimeInterval = 0.10
+    /// Lightweight state cleanup before layout; provider refreshes belong in onDidOpen.
     var onWillOpen: () -> Void = {}
+    /// Refresh after entrance completion; reduced motion uses the next main turn.
+    var onDidOpen: () -> Void = {}
+    var scheduleOpenRefresh: (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
+        DispatchQueue.main.async(execute: work)
+    }
     weak var dropHandler: StatusItemDropHandler? {
         didSet { dropView.handler = dropHandler }
     }
 
-    var isOpen: Bool { panel.isVisible }
+    var isOpen: Bool { wantsOpen && panel.isVisible }
 
     init(content: NSHostingController<AnyView>) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -89,6 +128,7 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
         panel.animationBehavior = .none
         panel.contentViewController = hosting
         panel.delegate = self
+        panel.onCancel = { [weak self] in self?.close() }
         hosting.sizingOptions = [.preferredContentSize]
         sizeObservation = hosting.observe(\.preferredContentSize, options: [.new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in self?.fitToContent() }
@@ -119,42 +159,86 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
         if isOpen { close(); return }
         // The icon click that closed the panel (the outside-click monitor or the panel losing key
         // runs first) must not open it again: it toggles closed.
-        if let at = dismissedFromOutsideAt, now().timeIntervalSince(at) < Self.sameClickWindow {
-            dismissedFromOutsideAt = nil
-            return
-        }
+        let suppressed = dismissedIconClick != nil && dismissedIconClick == MenuBarIconClick(currentEvent())
+        dismissedIconClick = nil
+        if suppressed { return }
         open(byDrag: false)
     }
 
-    /// Closes because of a click or focus change outside the panel, remembering when.
-    func dismissFromOutside() {
+    /// Closes on outside interaction, remembering only a matching icon mouse-down event.
+    func dismissFromOutside(event: NSEvent? = nil) {
         guard isOpen else { return }
-        dismissedFromOutsideAt = now()
+        let event = event ?? currentEvent()
+        if let event, let icon = iconFrame {
+            let point = event.window?.convertToScreen(NSRect(origin: event.locationInWindow, size: .zero)).origin ?? event.locationInWindow
+            dismissedIconClick = icon.contains(point) ? MenuBarIconClick(event) : nil
+        } else { dismissedIconClick = nil }
         close()
     }
 
+    /// Prepare the retained hierarchy once while hidden, without provider reads or showing a window.
+    func prepareContent() {
+        guard !panel.isVisible else { return }
+        hosting.view.layoutSubtreeIfNeeded()
+        fitToContent()
+    }
+
     func open(byDrag: Bool) {
-        dismissedFromOutsideAt = nil
-        openedByDrag = byDrag
         guard !isOpen else { return }
+        dismissedIconClick = nil
+        openedByDrag = byDrag
+        visibilityGeneration += 1
+        let generation = visibilityGeneration
+        let alreadyVisible = panel.isVisible
+        BridgeyWindows.cancelFade(panel)
+        presentation.prepareToOpen()
         onWillOpen()
         hosting.view.layoutSubtreeIfNeeded()
         fitToContent()
         let animate = !reduceMotion()
-        panel.alphaValue = animate ? 0 : 1
+        if !alreadyVisible { panel.alphaValue = animate ? 0 : 1 }
+        else if !animate { panel.alphaValue = 1 }
+        panel.ignoresMouseEvents = false
+        panel.setAccessibilityHidden(false)
+        wantsOpen = true
         panel.orderFrontRegardless()
         if !byDrag { panel.makeKey() }
-        if animate { BridgeyWindows.fadeIn(panel, duration: 0.12) } else { BridgeyWindows.cancelFade(panel) }
+        presentation.setPresented(true)
         statusItem.button?.highlight(true)
         installOutsideClickMonitor()
+        if animate {
+            BridgeyWindows.fadeIn(panel, duration: Self.openingDuration) { [weak self] in
+                self?.refreshAfterOpening(generation)
+            }
+        } else {
+            refreshAfterOpening(generation)
+        }
     }
 
-    func close() {
-        guard isOpen else { return }
+    private func refreshAfterOpening(_ generation: Int) {
+        // A slow pasteboard provider must not block the entrance animation itself.
+        scheduleOpenRefresh { [weak self] in
+            guard let self, self.visibilityGeneration == generation, self.isOpen else { return }
+            self.onDidOpen()
+        }
+    }
+
+    func close(animated: Bool = true) {
+        guard wantsOpen || panel.isVisible else { return }
+        let wasDrag = openedByDrag
+        wantsOpen = false
+        visibilityGeneration += 1
+        presentation.setPresented(false)
         openedByDrag = false
-        BridgeyWindows.orderOut(panel)
+        // The outgoing panel is immediately inert, even if the window server is still fading it.
+        panel.ignoresMouseEvents = true
+        panel.setAccessibilityHidden(true)
+        panel.resignKey()
         statusItem.button?.highlight(false)
         removeOutsideClickMonitor()
+        if animated && !wasDrag && !reduceMotion() {
+            BridgeyWindows.fadeOut(panel, duration: Self.closingDuration)
+        } else { BridgeyWindows.orderOut(panel) }
     }
 
     /// The panel stays open after an interaction that happened inside it during a drag.
@@ -185,12 +269,17 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
 
     private func installOutsideClickMonitor() {
         removeOutsideClickMonitor()
-        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.dismissFromOutside() }
+        let generation = monitorGeneration
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            Task { @MainActor [weak self] in
+                guard let self, self.monitorGeneration == generation else { return }
+                self.dismissFromOutside(event: event)
+            }
         }
     }
 
     private func removeOutsideClickMonitor() {
+        monitorGeneration += 1
         if let monitor = outsideClickMonitor { NSEvent.removeMonitor(monitor) }
         outsideClickMonitor = nil
     }

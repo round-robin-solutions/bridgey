@@ -57,8 +57,10 @@ final class MenuBarStatusDropTests: XCTestCase {
     private var pasteboard: NSPasteboard!
 
     override func setUpWithError() throws {
+        _ = NSApplication.shared
         let hosting = NSHostingController(rootView: AnyView(Text("Bridgey").frame(width: 200, height: 120)))
         controller = MenuBarStatusController(content: hosting)
+        controller.reduceMotion = { true }
         handler = RecordingHandler()
         controller.dropHandler = handler
         file = FileManager.default.temporaryDirectory.appendingPathComponent("menubar-drop-\(UUID().uuidString).txt")
@@ -69,7 +71,7 @@ final class MenuBarStatusDropTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        controller.close()
+        controller.close(animated: false)
         NSStatusBar.system.removeStatusItem(controller.statusItem)
         pasteboard.releaseGlobally()
         try? FileManager.default.removeItem(at: file)
@@ -127,18 +129,19 @@ final class MenuBarStatusDropTests: XCTestCase {
 @MainActor
 final class MenuBarStatusToggleTests: XCTestCase {
     private var controller: MenuBarStatusController!
-    private var clock = Date()
+    private var event: NSEvent?
 
     override func setUp() {
         super.setUp()
         _ = NSApplication.shared
         controller = MenuBarStatusController(content: NSHostingController(rootView: AnyView(Text("Bridgey").frame(width: 200, height: 120))))
-        clock = Date()
-        controller.now = { [unowned self] in clock }
+        controller.reduceMotion = { true }
+        controller.currentEvent = { [weak self] in self?.event }
+        event = nil
     }
 
     override func tearDown() {
-        controller.close()
+        controller.close(animated: false)
         NSStatusBar.system.removeStatusItem(controller.statusItem)
         super.tearDown()
     }
@@ -150,29 +153,71 @@ final class MenuBarStatusToggleTests: XCTestCase {
         XCTAssertFalse(controller.isOpen)
     }
 
-    func testIconClickAfterTheMonitorClosedItDoesNotReopen() {
-        controller.togglePanel()
-        controller.dismissFromOutside()
-        XCTAssertFalse(controller.isOpen)
-        clock = clock.addingTimeInterval(0.05)
-        controller.togglePanel()
-        XCTAssertFalse(controller.isOpen, "the click that closed it must not open it again")
-        controller.togglePanel()
-        XCTAssertTrue(controller.isOpen, "the next click opens it")
+    private func mouse(_ number: Int, timestamp: TimeInterval, onIcon: Bool = true,
+                       type: NSEvent.EventType = .leftMouseDown) throws -> NSEvent {
+        let icon = try XCTUnwrap(controller.iconFrame)
+        let point = onIcon ? NSPoint(x: icon.midX, y: icon.midY) : NSPoint(x: icon.minX - 100, y: icon.minY - 100)
+        // A nil event window means the supplied location is already in screen coordinates.
+        return try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: timestamp,
+                                               windowNumber: 0, context: nil, eventNumber: number, clickCount: 1, pressure: 1))
     }
 
-    func testIconClickAfterThePanelLostKeyDoesNotReopen() {
+    func testIconClickAfterTheMonitorClosedItDoesNotReopen() throws {
         controller.togglePanel()
+        event = try mouse(20, timestamp: 10)
+        controller.dismissFromOutside(event: event)
+        XCTAssertFalse(controller.isOpen)
+        controller.togglePanel()
+        XCTAssertFalse(controller.isOpen, "the click that closed it must not open it again")
+        event = try mouse(21, timestamp: 10.001)
+        controller.togglePanel()
+        XCTAssertTrue(controller.isOpen, "a distinct next click opens it immediately")
+    }
+
+    func testIconClickAfterThePanelLostKeyDoesNotReopen() throws {
+        controller.togglePanel()
+        event = try mouse(30, timestamp: 20)
         controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification, object: controller.panel))
         XCTAssertFalse(controller.isOpen)
         controller.togglePanel()
         XCTAssertFalse(controller.isOpen)
     }
 
-    func testLaterIconClickOpensAgain() {
+    func testAnUnrelatedOutsideClickDoesNotSwallowARapidReopen() throws {
         controller.togglePanel()
-        controller.dismissFromOutside()
-        clock = clock.addingTimeInterval(MenuBarStatusController.sameClickWindow + 0.1)
+        event = try mouse(40, timestamp: 30, onIcon: false)
+        controller.dismissFromOutside(event: event)
+        event = try mouse(41, timestamp: 30.001)
+        controller.togglePanel()
+        XCTAssertTrue(controller.isOpen)
+    }
+
+    func testADifferentIconEventIsNotSuppressedEvenBeforeTheOldGuardWouldExpire() throws {
+        controller.togglePanel()
+        event = try mouse(50, timestamp: 40)
+        controller.dismissFromOutside(event: event)
+        event = try mouse(51, timestamp: 40.001)
+        controller.togglePanel()
+        XCTAssertTrue(controller.isOpen)
+    }
+
+    func testKeyboardFocusDismissalDoesNotSuppressTheNextIconClick() throws {
+        controller.togglePanel()
+        event = nil
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification, object: controller.panel))
+        XCTAssertFalse(controller.isOpen)
+        event = try mouse(60, timestamp: 50)
+        controller.togglePanel()
+        XCTAssertTrue(controller.isOpen)
+    }
+
+    func testTheRightIconMouseDownIsAlsoDeduplicatedByItsExactEvent() throws {
+        controller.togglePanel()
+        event = try mouse(70, timestamp: 60, type: .rightMouseDown)
+        controller.dismissFromOutside(event: event)
+        controller.togglePanel()
+        XCTAssertFalse(controller.isOpen)
+        event = try mouse(71, timestamp: 60.001, type: .rightMouseDown)
         controller.togglePanel()
         XCTAssertTrue(controller.isOpen)
     }

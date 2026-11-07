@@ -69,25 +69,23 @@ struct BridgeyApp: App {
 enum MenuBarHost {
     private static var status: MenuBarStatusController?
     private static var subscriptions: [AnyCancellable] = []
-    private static var opens = 0
 
     static func start(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings, updater: AppUpdater,
                       openSettings: @escaping () -> Void) {
         guard status == nil else { return }
         let hosting = NSHostingController(rootView: AnyView(EmptyView()))
         let controller = MenuBarStatusController(content: hosting)
-        let makePanel = {
-            AnyView(BridgeyPanel(discovery: discovery, pairing: pairing, settings: settings, updater: updater, onOpenSettings: {
-                controller.close()
-                openSettings()
-            }).id(opens))
-        }
-        hosting.rootView = makePanel()
+        hosting.rootView = AnyView(BridgeyPanel(discovery: discovery, pairing: pairing, settings: settings, updater: updater,
+                                               presentation: controller.presentation, onOpenSettings: {
+            controller.close()
+            openSettings()
+        }))
+        Task { @MainActor [weak controller] in controller?.prepareContent() }
         controller.reduceMotion = { settings.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
-        controller.onWillOpen = {
-            // A fresh panel each time, as the menu-bar window had: onAppear refreshes clipboard and activity.
-            opens += 1
-            hosting.rootView = makePanel()
+        controller.onWillOpen = { pairing.activity.prune() }
+        controller.onDidOpen = { [weak controller] in
+            pairing.refreshNotificationAuthorization()
+            controller?.presentation.refreshClipboard()
         }
         status = controller
         MenuBarDropController.shared.attach(pairing: pairing, status: controller)
