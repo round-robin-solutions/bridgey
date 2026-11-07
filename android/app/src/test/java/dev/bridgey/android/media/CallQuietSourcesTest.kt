@@ -89,16 +89,38 @@ class CallQuietSourcesTest {
         assertFalse(states.last().second)
     }
 
-    @Test fun notificationStateEndsOnlyAfterTheExistingRekeyGrace() {
+    @Test fun notificationRemovalBecomesUncertainOnlyAfterTheExistingRekeyGrace() {
         shadowOf(app).denyPermissions(Manifest.permission.READ_PHONE_STATE)
         sources.update(true)
         val call = call()
         sources.notificationPosted(call, false)
         sources.notificationRemoved(call)
         assertTrue(states.last().first.isNotEmpty())
+        assertFalse(states.last().second)
         shadowOf(Looper.getMainLooper()).idleFor(1_500, TimeUnit.MILLISECONDS)
         assertTrue(states.last().first.isEmpty())
+        assertTrue(states.last().second)
+        sources.notificationsConnected(emptyList())
         assertFalse(states.last().second)
+    }
+
+    @Test fun notificationRemovalUncertaintySurvivesAnOverlappingCellularEnd() {
+        sources.update(true)
+        val call = call()
+        sources.notificationPosted(call, cellularSource = false)
+        shadowOf(telephony).setCallState(TelephonyManager.CALL_STATE_OFFHOOK)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(2, states.last().first.size)
+
+        sources.notificationRemoved(call)
+        shadowOf(Looper.getMainLooper()).idleFor(1_500, TimeUnit.MILLISECONDS)
+        assertTrue(states.last().first.single().startsWith("cell_"))
+        assertTrue(states.last().second)
+
+        shadowOf(telephony).setCallState(TelephonyManager.CALL_STATE_IDLE)
+        shadowOf(Looper.getMainLooper()).idleFor(1_500, TimeUnit.MILLISECONDS)
+        assertTrue(states.last().first.isEmpty())
+        assertTrue(states.last().second)
     }
 
     @Test fun revokedCellularPermissionCreatesOnlyCellularUncertaintyUntilFreshObservation() {

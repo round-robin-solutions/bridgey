@@ -44,7 +44,13 @@ internal class CallQuietSources(
             cancel
         },
         telephonyState = { null },
-        endCall = { id, _ -> notificationKeys.entries.removeAll { it.value == id }; publish() },
+        endCall = { id, reason ->
+            // A vanished notification is lost evidence, not confirmation that its call ended.
+            // Keep this uncertainty through other calls ending until a fresh listener snapshot.
+            if (reason == "notification_removed") notificationsUncertain = true
+            notificationKeys.entries.removeAll { it.value == id }
+            publish()
+        },
     )
 
     fun update(enabled: Boolean) {
