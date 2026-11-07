@@ -471,7 +471,7 @@ internal fun SetupRoute(
             },
             openOemStep = { OemBattery.open(context, it) },
             openAppInfo = { runCatching { context.startActivity(OemBattery.appDetails(context.packageName)) } },
-            openPage = { page -> SettingsSection.entries.firstOrNull { it.name == page }?.let(onOpenSection) },
+            openPage = { page -> SettingsSection.entries.firstOrNull { it.name == page && it.built }?.let(onOpenSection) },
             allowPermission = { kind -> SetupQuestions.permission(kind)?.let { allow(listOf(it)) } },
             allowAll = { allow(SetupFlow.neededPermissions(flow, currentFacts())) },
             openSettings = { finish(openSettings = true) },

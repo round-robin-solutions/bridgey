@@ -435,6 +435,7 @@ object SetupSummary {
                 add(SummaryItem.Chosen(R.string.setup_q_notification_apps_summary, null, it.removePrefix(Answers.PICKED).split(','), "NOTIFICATIONS"))
             }
             typedOnlyLabels.forEach { (id, labels) ->
+                if (id !in SetupQuestions.typedOnly) return@forEach
                 val key = state.answers[id] ?: return@forEach
                 add(SummaryItem.Chosen(labels.first, labels.second[key], emptyList(), if (id == "focus") "NOTIFICATIONS" else "UPDATES"))
             }

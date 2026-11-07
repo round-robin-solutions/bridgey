@@ -30,21 +30,31 @@ class StoreSigningTests(unittest.TestCase):
         self.certificate = hashlib.sha256(b"upload certificate").hexdigest()
         self.release = "1" * 64
         self.properties = self.root / "rr-edition.properties"
-        self.properties.write_text(f"ANDROID_CERT_SHA256={self.release}\nANDROID_UPLOAD_CERT_SHA256={self.certificate}\nANDROID_TEST_CERT_SHA256={'2' * 64}\n")
+        self.properties.write_text(f"EDITION_APP_ID=in.roundrobin.bridgey\nANDROID_CERT_SHA256={self.release}\nANDROID_UPLOAD_CERT_SHA256={self.certificate}\nANDROID_TEST_CERT_SHA256={'2' * 64}\n")
         self.credentials = self.root / "credentials.json"
-        self.credentials.write_text(json.dumps({"keys": {"upload": {"store": "upload.jks", "password": "upload-secret", "alias": "upload", "keyPassword": "upload-key-secret"}}}))
+        self.credentials.write_text(json.dumps({"keys": {"upload": {"store": "upload.jks", "password": "upload-secret", "alias": "upload", "keyPassword": "upload-key-secret"}, "test": {"store": "test.jks", "password": "test-secret", "alias": "test", "keyPassword": "test-key-secret"}}}))
         sdk = self.root / "sdk/build-tools/36.0.0"
         sdk.mkdir(parents=True)
-        for name in ("apksigner", "aapt2"):
-            self.executable(sdk / name, "#!/bin/sh\nexit 0\n")
+        self.executable(sdk / "apksigner", "#!/bin/sh\nprintf 'Signer #1 certificate SHA-256 digest: %s\\n' " + "2" * 64 + "\n")
+        self.executable(sdk / "aapt2", """#!/usr/bin/env python3
+import os, pathlib, sys
+if os.environ.get('TEST_AAPT_FAIL'): sys.exit(7)
+if sys.argv[1] == 'convert': pathlib.Path(sys.argv[5]).touch()
+else: print("package: name='%s' versionCode='%s' versionName='%s'" % (os.environ.get('TEST_PACKAGE', 'in.roundrobin.bridgey'), os.environ.get('TEST_CODE', '123'), os.environ.get('TEST_NAME', '0.10.0-rr.1-test')))
+""")
         android = self.root / "android"
         android.mkdir()
         self.executable(android / "gradlew", """#!/usr/bin/env python3
-import json, os, pathlib
+import json, os, pathlib, zipfile
 pathlib.Path(os.environ['TEST_CAPTURE']).write_text(json.dumps(dict(os.environ)))
 p = pathlib.Path('app/build/outputs/bundle/play/app-play.aab')
 p.parent.mkdir(parents=True, exist_ok=True)
-p.write_bytes(b'bundle')
+with zipfile.ZipFile(p, 'w') as bundle:
+    bundle.writestr('base/manifest/AndroidManifest.xml', b'fixture')
+    bundle.writestr('base/resources.pb', b'fixture')
+q = pathlib.Path('app/build/outputs/apk/qa/app-qa.apk')
+q.parent.mkdir(parents=True, exist_ok=True)
+q.write_bytes(b'qa fixture')
 """)
         self.executable(self.bin / "unzip", """#!/bin/sh
 case "$3" in META-INF/*) printf 'upload certificate';; *) printf 'android.permission.INTERNET';; esac
@@ -71,11 +81,11 @@ case "$3" in META-INF/*) printf 'upload certificate';; *) printf 'android.permis
         path.write_text(content)
         path.chmod(0o755)
 
-    def run_play(self):
-        return subprocess.run(["sh", str(self.root / "scripts/rr/build-android-store.sh"), "play", str(self.output)], env=self.environment, text=True, capture_output=True)
+    def run_build(self, kind="play"):
+        return subprocess.run(["sh", str(self.root / "scripts/rr/build-android-store.sh"), kind, str(self.output)], env=self.environment, text=True, capture_output=True)
 
     def test_only_upload_credentials_reach_play_gradle(self):
-        result = self.run_play()
+        result = self.run_build()
         self.assertEqual(0, result.returncode, result.stderr)
         captured = json.loads(self.capture.read_text())
         self.assertEqual("upload-secret", captured["BRIDGEY_PLAY_UPLOAD_STORE_PASSWORD"])
@@ -86,18 +96,43 @@ case "$3" in META-INF/*) printf 'upload certificate';; *) printf 'android.permis
 
     def test_invalid_bundle_signature_is_rejected_before_copy(self):
         self.environment["TEST_SIGNATURE_EXIT"] = "1"
-        result = self.run_play()
+        result = self.run_build()
         self.assertNotEqual(0, result.returncode)
         self.assertIn("bundle signature is invalid", result.stderr)
         self.assertFalse(self.output.exists())
 
     def test_release_certificate_cannot_be_the_upload_certificate(self):
         self.properties.write_text(f"ANDROID_CERT_SHA256={self.release}\nANDROID_UPLOAD_CERT_SHA256={':'.join([self.release[i:i+2].upper() for i in range(0, 64, 2)])}\n")
-        result = self.run_play()
+        result = self.run_build()
         self.assertNotEqual(0, result.returncode)
         self.assertIn("is the release certificate", result.stderr)
         self.assertFalse(self.capture.exists())
         self.assertFalse(self.output.exists())
+
+    def test_expected_qa_identity_is_accepted(self):
+        result = self.run_build("qa")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertTrue(self.output.exists())
+
+    def test_both_variants_reject_each_identity_mismatch_before_copy(self):
+        for kind in ("play", "qa"):
+            for field, value in (("TEST_PACKAGE", "another.app"), ("TEST_CODE", "124"), ("TEST_NAME", "wrong-version")):
+                with self.subTest(kind=kind, field=field):
+                    self.environment[field] = value
+                    result = self.run_build(kind)
+                    self.environment.pop(field)
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn("unexpected artifact identity", result.stderr)
+                    self.assertFalse(self.output.exists())
+
+    def test_unreadable_metadata_is_rejected_before_copy(self):
+        self.environment["TEST_AAPT_FAIL"] = "1"
+        for kind in ("play", "qa"):
+            with self.subTest(kind=kind):
+                result = self.run_build(kind)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("could not read artifact identity", result.stderr)
+                self.assertFalse(self.output.exists())
 
     @unittest.skipUnless(JARSIGNER and KEYTOOL, "JDK signing tools are unavailable")
     def test_unsigned_added_entry_is_rejected_with_the_expected_selfsigned_role(self):
@@ -115,6 +150,8 @@ case "$3" in META-INF/*) printf 'upload certificate';; *) printf 'android.permis
         self.assertEqual(0, generated.returncode, "fixture key generation failed")
         with zipfile.ZipFile(bundle, "w") as archive:
             archive.writestr("base/data.txt", "signed entry")
+            archive.writestr("base/manifest/AndroidManifest.xml", "fixture")
+            archive.writestr("base/resources.pb", "fixture")
         signed = subprocess.run([
             JARSIGNER, "-keystore", str(store), "-storepass:env", "TEST_FIXTURE_PASSWORD", str(bundle), "upload",
         ], env=self.environment, capture_output=True, text=True)
@@ -130,12 +167,12 @@ p = pathlib.Path('app/build/outputs/bundle/play/app-play.aab')
 p.parent.mkdir(parents=True, exist_ok=True)
 shutil.copyfile(os.environ['TEST_SIGNED_BUNDLE'], p)
 """)
-        result = self.run_play()
+        result = self.run_build()
         self.assertEqual(0, result.returncode, "valid selfsigned upload role was rejected")
         self.output.unlink()
         with zipfile.ZipFile(bundle, "a") as archive:
             archive.writestr("base/unsigned.txt", "added after signing")
-        result = self.run_play()
+        result = self.run_build()
         self.assertNotEqual(0, result.returncode)
         self.assertIn("bundle signature is invalid", result.stderr)
         self.assertFalse(self.output.exists())

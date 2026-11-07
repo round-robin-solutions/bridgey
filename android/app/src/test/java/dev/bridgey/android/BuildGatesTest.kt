@@ -9,6 +9,14 @@ import dev.bridgey.android.setup.PermissionFacts
 import dev.bridgey.android.setup.PermissionKind
 import dev.bridgey.android.setup.SetupFeatures
 import dev.bridgey.android.setup.SetupQuestions
+import dev.bridgey.android.setup.SetupBundles
+import dev.bridgey.android.setup.SetupTyped
+import dev.bridgey.android.setup.SetupSummary
+import dev.bridgey.android.setup.SetupState
+import dev.bridgey.android.setup.SummaryItem
+import dev.bridgey.android.setup.Answers
+import dev.bridgey.android.setup.SetupFlow
+import dev.bridgey.android.setup.SetupSetting
 import dev.bridgey.android.sync.SyncUiState
 import dev.bridgey.android.ui.SettingsSection
 import dev.bridgey.android.ui.search.SearchDevice
@@ -59,6 +67,7 @@ class BuildGatesTest {
     fun setupAndSettingsOnlyOfferBuiltFeatures() {
         assertEquals(!play, SetupFeatures.all.any { it.id == "messages" })
         assertEquals(!play, SetupQuestions.all.any { it.id == "messages" })
+        assertEquals(!play, SetupBundles.all.any { it.id == "messages" })
         assertEquals(!play, SettingsSection.MESSAGES in SettingsSection.homeRows)
         assertEquals(!play, SettingsSection.UPDATES in SettingsSection.homeRows)
         if (play) assertFalse(BuildConfig.CODE_TEST_AVAILABLE)
@@ -95,5 +104,17 @@ class BuildGatesTest {
         } finally {
             scope.cancel()
         }
+    }
+
+    @Test
+    fun typedAndSavedUpdateChoicesCannotExposeAnUnbuiltUpdater() {
+        val chosen = SetupTyped.match("beta and automatic updates")
+        assertEquals(!play, "updates" in chosen)
+        assertEquals(!play, "updates_auto" in chosen)
+        val saved = SetupState(answers = mapOf("updates" to Answers.EARLY, "updates_auto" to Answers.YES))
+        assertEquals(!play, SetupSummary.items(saved).filterIsInstance<SummaryItem.Chosen>().any { it.page == "UPDATES" })
+        val changes = SetupFlow.startChanges(saved.answers)
+        assertEquals(!play, changes.any { it.setting == SetupSetting.UPDATE_CHANNEL })
+        assertEquals(!play, changes.any { it.setting == SetupSetting.AUTO_UPDATES })
     }
 }

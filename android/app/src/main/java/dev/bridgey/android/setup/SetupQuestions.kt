@@ -342,7 +342,7 @@ object SetupQuestions {
      * its own. Applied in this order (sorted by id, as on the Mac), so "beta, but no automatic
      * updates" ends with automatic updates off. Their settings are on their Settings pages too.
      */
-    val typedOnly: Map<String, Map<String, List<SettingChange>>> = mapOf(
+    val typedOnly: Map<String, Map<String, List<SettingChange>>> by lazy { mapOf(
         "focus" to mapOf(Answers.BOTH to listOf(on(SetupSetting.FOCUS_SHARE), on(SetupSetting.FOCUS_FOLLOW)), Answers.NO to listOf(off(SetupSetting.FOCUS_SHARE), off(SetupSetting.FOCUS_FOLLOW))),
         "updates" to mapOf(
             Answers.STEADY to listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "STABLE"), off(SetupSetting.AUTO_UPDATES)),
@@ -350,7 +350,7 @@ object SetupQuestions {
             Answers.NEWEST to listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "NIGHTLY"), on(SetupSetting.AUTO_UPDATES)),
         ),
         "updates_auto" to mapOf(Answers.YES to listOf(on(SetupSetting.AUTO_UPDATES)), Answers.NO to listOf(off(SetupSetting.AUTO_UPDATES))),
-    )
+    ).filterKeys { it == "focus" || dev.bridgey.android.BuildGates.selfUpdate } }
 
     /** The permissions page: what the chosen features need, in the Permissions order. */
     val permissions: List<SetupPermission> = listOf(
@@ -446,7 +446,8 @@ object SetupQuestions {
 data class SetupBundle(val id: String, @StringRes val title: Int, @StringRes val detail: Int, val answers: Map<String, String>)
 
 object SetupBundles {
-    val all: List<SetupBundle> = listOf(
+    val all: List<SetupBundle> by lazy { everything.filter { it.id != "messages" || dev.bridgey.android.BuildGates.sms } }
+    private val everything: List<SetupBundle> = listOf(
         SetupBundle("clipboard", R.string.feature_clipboard, R.string.setup_bundle_clipboard, mapOf("clipboard" to Answers.PICK)),
         SetupBundle("notifications", R.string.settings_notifications, R.string.setup_bundle_notifications, mapOf("notifications" to Answers.PICK)),
         SetupBundle("messages", R.string.feature_sms, R.string.setup_bundle_messages, mapOf("messages" to Answers.PICK)),

@@ -76,11 +76,45 @@ if [ "$KIND" = play ]; then
   done
 else
   CERT=$("$BUILD_TOOLS/apksigner" verify --print-certs "$ARTIFACT" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr -d ':')
-  BADGING=$("$BUILD_TOOLS/aapt2" dump badging "$ARTIFACT" | head -n 1)
-  echo "$BADGING" | grep -q "versionCode='$BRIDGEY_BUILD_NUMBER'" || die "unexpected versionCode: $BADGING"
 fi
 [ "$CERT" != "$RELEASE_CERT" ] || die "$KIND build is signed with the release key"
 [ "$CERT" = "$EXPECTED" ] || die "$KIND build is not signed with the $ROLE key (got ${CERT:-nothing}, expected $EXPECTED)"
+
+# Read the final artifact with Android's own parser. An AAB's base uses protobuf XML/resources;
+# convert a temporary copy of those resources so aapt2 can read its actual package and version.
+python3 - "$BUILD_TOOLS/aapt2" "$ARTIFACT" "$(edition_value EDITION_APP_ID)" "$BRIDGEY_BUILD_NUMBER" "$BRIDGEY_VERSION_NAME" <<'PY'
+import pathlib
+import shlex
+import subprocess
+import sys
+import tempfile
+import zipfile
+
+aapt, artifact, package, code, version = sys.argv[1:]
+try:
+    with tempfile.TemporaryDirectory(prefix="bridgey-store-metadata-") as directory:
+        target = pathlib.Path(artifact)
+        if target.suffix == ".aab":
+            proto = pathlib.Path(directory) / "base-proto.apk"
+            target = pathlib.Path(directory) / "base.apk"
+            with zipfile.ZipFile(artifact) as source, zipfile.ZipFile(proto, "w") as base:
+                for name in source.namelist():
+                    if name in ("base/manifest/AndroidManifest.xml", "base/resources.pb") or name.startswith("base/res/"):
+                        output = "AndroidManifest.xml" if name == "base/manifest/AndroidManifest.xml" else name.removeprefix("base/")
+                        base.writestr(output, source.read(name))
+            subprocess.run([aapt, "convert", "--output-format", "binary", "-o", str(target), str(proto)],
+                           check=True, capture_output=True)
+        result = subprocess.run([aapt, "dump", "badging", str(target)], check=True, capture_output=True, text=True)
+        header = result.stdout.splitlines()[0]
+        if not header.startswith("package:"):
+            raise ValueError("missing package metadata")
+        fields = dict(token.split("=", 1) for token in shlex.split(header)[1:] if "=" in token)
+        expected = {"name": package, "versionCode": code, "versionName": version}
+        if any(fields.get(key) != value for key, value in expected.items()):
+            raise SystemExit("unexpected artifact identity: package, versionCode and versionName must match this build")
+except (OSError, ValueError, IndexError, zipfile.BadZipFile, subprocess.CalledProcessError):
+    raise SystemExit("could not read artifact identity")
+PY
 mkdir -p "$(dirname -- "$OUTPUT")"
 cp "$ARTIFACT" "$OUTPUT"
 echo "$KIND: $OUTPUT (signed with the $ROLE key $CERT)"
