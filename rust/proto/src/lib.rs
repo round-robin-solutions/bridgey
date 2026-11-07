@@ -6,5 +6,6 @@ pub mod b64;
 pub mod derive;
 pub mod rdv;
 pub mod seal;
+pub mod screen_control;
 pub mod signal;
 pub mod vectors;
