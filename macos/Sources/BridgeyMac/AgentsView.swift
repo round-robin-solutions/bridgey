@@ -122,6 +122,7 @@ enum AgentsText {
             "files.receive": L10n.agents("activity.files.receive", fallback: "Sent you files"),
             "codes.read": L10n.agents("activity.codes.read.any", fallback: "Read a code"),
             "codes.detect": L10n.agents("activity.codes.detect", fallback: "Read a code message"),
+            "notifications.read": L10n.agents("activity.notifications.read", fallback: "Read notifications"),
             "forget": L10n.agents("activity.forget", fallback: "Forgotten"),
         ]
         return words[action] ?? action

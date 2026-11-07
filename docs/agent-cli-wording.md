@@ -79,6 +79,7 @@ Action titles and outcomes in the Activity tab (phone and Mac), and the Mac's ex
 | activity.codes.read | Read the code from %1$s | Прочитал код от %1$s |
 | activity.codes.read.any | Read a code | Прочитал код |
 | activity.codes.detect | Read a code message | Прочитал сообщение с кодом |
+| activity.notifications.read | Read notifications | Прочитал уведомления |
 | activity.forget | Forgotten | Забыт |
 | activity.count | ×%1$d | ×%1$d |
 | activity.outcome.answered | Answered: %1$s | Ответ: %1$s |
