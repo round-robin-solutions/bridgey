@@ -11,6 +11,26 @@ unset ANDROID_STORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD BRIDGEY_ANDR
   BRIDGEY_TEST_KEYSTORE BRIDGEY_TEST_STORE_PASSWORD BRIDGEY_TEST_KEY_ALIAS BRIDGEY_TEST_KEY_PASSWORD GH_TOKEN GITHUB_TOKEN
 
 cd "$RR_ROOT/android"
+finish() {
+  rc=$?
+  trap - EXIT
+  set +e
+  mkdir -p .rrci-reports
+  set --
+  for directory in app/build/test-results/testPlayUnitTest app/build/test-results/testQaUnitTest; do
+    [ ! -d "$directory" ] || set -- "$@" "$directory"
+  done
+  if [ "$#" -gt 0 ]; then
+    (ulimit -f 65536 && tar -czf .rrci-reports/store-test-results.tar.gz "$@")
+    archive_rc=$?
+    if [ "$archive_rc" -ne 0 ]; then
+      rm -f .rrci-reports/store-test-results.tar.gz
+      [ "$rc" -ne 0 ] || rc=$archive_rc
+    fi
+  fi
+  exit "$rc"
+}
+trap finish EXIT
 ./gradlew --console=plain --no-daemon -Dorg.gradle.workers.max="${RR_CI_CPU:-3}" \
   -Pkotlin.compiler.execution.strategy=in-process \
   :app:lintPlay :app:lintQa \
@@ -48,7 +68,3 @@ for artifact in (bundle, qa):
             assert f"{prefix}lib/{abi}/libbridgey_connect.so" in names, f"connection core absent for {abi} in {artifact}"
 print("Play permissions/receivers and both native-core artifacts verified")
 PY
-
-mkdir -p .rrci-reports
-tar -czf .rrci-reports/store-test-results.tar.gz \
-  app/build/test-results/testPlayUnitTest app/build/test-results/testQaUnitTest
