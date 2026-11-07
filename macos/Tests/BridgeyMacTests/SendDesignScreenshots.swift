@@ -116,6 +116,14 @@ final class SendDesignScreenshots: XCTestCase {
         }
     }
 
+    @MainActor func testMenuBarOpeningProbe() throws {
+        try MenuBarOpeningProbe.run(directory: directory, retainingRoot: true) { controller, fixture in
+            controller.currentEvent = { nil }
+            controller.onDidOpen = { fixture.refreshClipboard() }
+            controller.prepareContent()
+        }
+    }
+
     @MainActor func testSendSheet() throws {
         for scheme in [ColorScheme.light, .dark] {
             let suffix = scheme == .dark ? "dark" : "light"

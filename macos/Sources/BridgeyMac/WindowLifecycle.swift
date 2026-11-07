@@ -86,13 +86,18 @@ enum BridgeyWindows {
     }
 
     /// Fades `window` in from where it is; it is fully shown at the deadline even if the fade stalls.
-    static func fadeIn(_ window: NSWindow, duration: TimeInterval = 0.15) {
+    static func fadeIn(_ window: NSWindow, duration: TimeInterval = 0.15, completion: (() -> Void)? = nil) {
         guard duration > 0, !screenUnavailable() else {
             cancelFade(window)
             window.alphaValue = 1
+            completion?()
             return
         }
-        fade(window, to: 1, duration: duration) { [weak window] in window?.alphaValue = 1 }
+        fade(window, to: 1, duration: duration) { [weak window] in
+            guard let window else { return }
+            window.alphaValue = 1
+            completion?()
+        }
     }
 
     /// A newer show or hide: an older fade's end does nothing.

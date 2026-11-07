@@ -1847,21 +1847,13 @@ final class SettingsWindowController {
     func show() {
         if window == nil {
             let content = LiveSettingsView(discovery: discovery, pairing: pairing, settings: settings, updater: updater)
-            let created = NSWindow(contentViewController: NSHostingController(rootView: content))
-            created.title = L10n.text("settings.window", fallback: "Bridgey Settings")
-            created.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
-            created.titlebarAppearsTransparent = true
-            created.titleVisibility = .hidden
-            created.setContentSize(NSSize(width: SettingsWindowView.size.width, height: SettingsWindowView.size.height))
-            created.isReleasedWhenClosed = false
-            // Settings search listens for its keys (Command-F, arrows) in this window only.
-            created.identifier = SettingsSearchKeys.windowID
-            created.setFrameAutosaveName("BridgeySettingsWindowB")
-            created.center()
+            let created = SettingsWindow.make(content: NSHostingController(rootView: content),
+                                              title: L10n.text("settings.window", fallback: "Bridgey Settings"))
             window = created
         }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+        (window as? SettingsWindow)?.trace("show")
     }
 
     /// Opens Settings at `pane` (a notification that points at a setting, such as the email code model prompt).
