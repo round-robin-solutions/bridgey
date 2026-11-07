@@ -206,16 +206,24 @@ final class PhoneFilesUITests: XCTestCase {
         let fake = UIFakePhoneFiles()
         fake.simulated = .init(rtt: 0.5)
         let entries = UIFakeImages.media(400)
-        let scheduler = scheduler(fake)
+        var now = Date(timeIntervalSince1970: 1_798_000_000)
+        let scheduler = PhoneThumbnailScheduler(service: fake, cache: PhoneThumbnailCache(directory: nil), clock: { now })
+        scheduler.setPhone(phone)
         scheduler.setOrder(entries)
         // Three requests: the screen, then two of 64 coming items each.
         scheduler.setVisible(Array(entries[0..<6]), ahead: Array(entries[6..<200]))
-        spin(0.01)
+        scheduler.pumpNow()
         XCTAssertEqual(fake.thumbnailRequests.count, 3)
         // Every request still carries wanted items (all of them are ahead now), but a new screen needs a slot:
         // the newest request that carries nothing visible gives way.
         scheduler.setVisible(Array(entries[300..<306]), ahead: Array(entries[0..<200]))
-        spin(PhoneThumbnailScheduler.settle + 0.05)
+        // Advance the settle boundary without relying on main-queue timer scheduling.
+        now = now.addingTimeInterval(PhoneThumbnailScheduler.settle - 0.001)
+        scheduler.pumpNow()
+        XCTAssertEqual(fake.cancelledThumbnailRequests, 0, "settling keeps the requests that still carry wanted items")
+        XCTAssertEqual(fake.thumbnailRequests.count, 3, "the new screen waits for settling")
+        now = now.addingTimeInterval(0.002)
+        scheduler.pumpNow()
         XCTAssertEqual(fake.cancelledThumbnailRequests, 1)
         XCTAssertEqual(fake.thumbnailRequests.last?.keys, entries[300..<306].map(\.id))
         XCTAssertEqual(scheduler.requestsInFlight, PhoneThumbnailScheduler.maxInFlight)
