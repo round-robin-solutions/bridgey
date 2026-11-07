@@ -9,14 +9,15 @@ final class TailscaleSetupTests: XCTestCase {
     }
 
     func testChosenTailnetAddressesNeverWaitForPeerDiscovery() async {
-        for text in ["100.90.0.3", "100.90.0.3:42481", "[fd7a:115c:a1e0::1]:42481", "fd7a:115c:a1e0:0:0:0:1"] {
+        for text in ["100.90.0.3", "100.90.0.3:42481", "[fd7a:115c:a1e0::1]:42481", "fd7a:115c:a1e0:0:0:0:0:1"] {
             let target = await TailnetPairing.resolve(text) {
                 XCTFail("an explicit address must bypass all status and peer scans")
                 return []
             }
             XCTAssertNotNil(target, text)
         }
-        for text in ["192.168.1.2", "[::1]", "100.90.0.3:0", "100.90.0.3:65536"] {
+        for text in ["192.168.1.2", "[::1]", "100.90.0.3:0", "100.90.0.3:65536",
+                     "fd7a:115c:a1e0:0:0:0:1", "[work]", "[fd7a:115c:a1e0::1", "work:42:43"] {
             let target = await TailnetPairing.resolve(text) {
                 XCTFail("an invalid or non-tailnet literal must be refused without discovery")
                 return []

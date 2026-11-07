@@ -37,6 +37,7 @@ enum TailnetPairing {
         var port = Int(BonjourDiscovery.defaultPort)
         if typed.hasPrefix("["), let close = typed.firstIndex(of: "]") {
             host = String(typed[typed.index(after: typed.startIndex)..<close])
+            guard IPv6Address(host) != nil else { return nil }
             let suffix = typed[typed.index(after: close)...]
             if !suffix.isEmpty {
                 guard suffix.first == ":", let value = Int(suffix.dropFirst()) else { return nil }
@@ -50,6 +51,7 @@ enum TailnetPairing {
         guard (1...65_535).contains(port), !host.isEmpty else { return nil }
         if TailnetStatus.isTailnet(host) { return TailnetPairTarget(host: host, port: port, name: typed) }
         guard IPv4Address(host) == nil, IPv6Address(host) == nil,
+              !host.contains(":"), !host.contains("["), !host.contains("]"),
               let peer = TailnetStatus.find(await peers(), name: host), let address = peer.address else { return nil }
         return TailnetPairTarget(host: address, port: port, name: peer.name)
     }
