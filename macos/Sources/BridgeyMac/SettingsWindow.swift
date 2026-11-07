@@ -207,6 +207,7 @@ struct SettingsModel {
     /// Devices > Connect away from home: the switch and the core's state.
     var connectAway = false
     var connect = ConnectDisplay()
+    var tailscaleSetup = TailscaleSetupDisplay()
     /// Devices > Agents on <phone> (agents_mirror_draft1, AgentsView.swift).
     var agents = AgentsDisplay()
 
@@ -267,6 +268,8 @@ struct SettingsActions {
     var trustAsMyDevice: (String) -> Void = { _ in }
     var retryDevice: (String) -> Void = { _ in }
     var lookForDevices: () -> Void = {}
+    var openTailscaleSetup: () -> Void = {}
+    var checkTailscale: () -> Void = {}
     var enableNotifications: () -> Void = {}
     var setHistoryEnabled: (Bool) -> Void = { _ in }
     var setCodesEnabled: (Bool) -> Void = { _ in }
@@ -1336,11 +1339,12 @@ struct PairNewCard: View {
 
     var body: some View {
         let nearby = model.rings.filter { !$0.trusted }
+        TailscaleSetupCard(display: model.tailscaleSetup, actions: actions)
         SettingsCard(title: L10n.text("devices.pair", fallback: "Pair a new device"),
-                     footnote: L10n.text("devices.pair.detail", fallback: "Open Bridgey on the phone, on the same Wi-Fi as this Mac. Both screens then show the same code.")) {
+                     footnote: L10n.text("devices.pair.detail", fallback: "Open Bridgey on both devices, on the same Wi-Fi or Tailscale network. Confirm only if the codes match.")) {
             Group {
                 if nearby.isEmpty {
-                    SettingsRow(title: L10n.text("devices.pair.searching", fallback: "Looking for devices on this network\u{2026}"), divider: false) { EmptyView() }
+                    SettingsRow(title: L10n.text("devices.pair.searching", fallback: "Looking for Bridgey devices on Wi-Fi and Tailscale\u{2026}"), divider: false) { EmptyView() }
                 }
                 ForEach(Array(nearby.enumerated()), id: \.element.id) { index, ring in
                     SettingsRow(title: ring.name, subtitle: ringStatusText(ring), divider: index > 0) {
@@ -1963,11 +1967,13 @@ struct LiveSettingsView: View {
             remoteInput.refreshAccessibility()
             remoteAudit.prune()
             macActionsAudit.prune()
+            Task { await pairing.refreshTailnet() }
         }
         .onReceive(accessibilityTicker) { _ in
             if pane == .remoteControl || pane == .media { remoteInput.refreshAccessibility() }
         }
         .onChange(of: pane) { shown in
+            if shown == .devices || shown == .away { Task { await pairing.refreshTailnet() } }
             if shown == .media || shown == .notifications { loadShortcuts() }
             if !inSetup { handoff.watch(shown == .clipboard) }
         }
@@ -2075,6 +2081,7 @@ struct LiveSettingsView: View {
         model.syncStatus = Dictionary(uniqueKeysWithValues: SyncKey.allCases.map { ($0, settingsSync.status($0)) })
         model.phoneSettingsSync = Dictionary(pairing.connectedPhones.filter(\.state.featureStateReceived).map { ($0.id, $0.state.remoteSettingsSync) },
                                              uniquingKeysWith: { $1 })
+        model.tailscaleSetup = pairing.tailscaleSetup
         model.connectAway = settings.connectAway
         model.agents = AgentsDisplay(phones: agentsMirror.phones, pending: agentsMirror.pending, codeReads: agentsMirror.codeReads,
                                      live: pairing.agentsMirrorPhones)
@@ -2179,6 +2186,8 @@ struct LiveSettingsView: View {
         actions.trustAsMyDevice = { pairing.trustAsMyDevice($0) }
         actions.retryDevice = { pairing.retryNow(deviceID: $0) }
         actions.lookForDevices = { pairing.lookForDevices() }
+        actions.openTailscaleSetup = { pairing.openTailscaleSetup() }
+        actions.checkTailscale = { Task { await pairing.refreshTailnet() } }
         actions.enableNotifications = { pairing.enableNotifications() }
         actions.setHistoryEnabled = { settings.setNotificationHistoryEnabled($0) }
         actions.setCodesEnabled = { on in

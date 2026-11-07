@@ -28,6 +28,81 @@ struct ConnectAwayCard: View {
     }
 }
 
+/// Status is read from the official client, never inferred from installation or a generic VPN.
+func tailscaleStatusText(_ display: TailscaleSetupDisplay) -> String {
+    switch display.state {
+    case .checking: return L10n.text("tailscale.status.checking", fallback: "Checking Tailscale…")
+    case .notInstalled: return L10n.text("tailscale.status.notInstalled", fallback: "Set up Tailscale")
+    case .needsLogin: return L10n.text("tailscale.status.needsLogin", fallback: "Sign in to Tailscale")
+    case .stopped: return L10n.text("tailscale.status.stopped", fallback: "Tailscale is disconnected")
+    case .needsApproval: return L10n.text("tailscale.status.needsApproval", fallback: "Waiting for device approval")
+    case .starting: return L10n.text("tailscale.status.starting", fallback: "Tailscale is connecting…")
+    case .running: return L10n.text("tailscale.status.running", fallback: "Tailscale is connected")
+    case .unavailable: return L10n.text("tailscale.status.unavailable", fallback: "Couldn’t check Tailscale")
+    }
+}
+
+func tailscaleSetupDetail(_ display: TailscaleSetupDisplay) -> String {
+    if display.hasCommandLine && !display.hasApplication {
+        return L10n.text("tailscale.detail.cli", fallback: "A command-line installation is detected. Connect it to your Tailscale network, then check again. Bridgey does not change its settings.")
+    }
+    switch display.state {
+    case .checking: return L10n.text("tailscale.detail.checking", fallback: "Checking the official Tailscale app on this Mac.")
+    case .notInstalled: return L10n.text("tailscale.detail.notInstalled", fallback: "Optional: install the official Tailscale app on both devices and sign in to the same Tailscale network. Bridgey also works over Wi-Fi and Connect away from home.")
+    case .needsLogin: return L10n.text("tailscale.detail.needsLogin", fallback: "Open Tailscale and sign in. Use the same Tailscale network on your other device, then return here.")
+    case .stopped: return L10n.text("tailscale.detail.stopped", fallback: "Open Tailscale and connect. Keep it connected on both devices, then return here.")
+    case .needsApproval: return L10n.text("tailscale.detail.needsApproval", fallback: "Your Tailscale administrator needs to approve this Mac before it can connect.")
+    case .starting: return L10n.text("tailscale.detail.starting", fallback: "Tailscale is starting. Check again in a moment; Wi-Fi connections keep working.")
+    case .running: return L10n.text("tailscale.detail.running", fallback: "Bridgey looks for devices on this Tailscale network automatically. Open Bridgey on the other device and allow pairing, then compare the codes.")
+    case .unavailable: return L10n.text("tailscale.detail.unavailable", fallback: "Open Tailscale to check its connection, then try again. Bridgey has not changed your Tailscale settings.")
+    }
+}
+
+struct TailscaleSetupCard: View {
+    let display: TailscaleSetupDisplay
+    let actions: SettingsActions
+    @Environment(\.brand) private var c
+    @Environment(\.brandReduceMotion) private var reduceMotion
+
+    var body: some View {
+        SettingsCard(title: "Tailscale") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(tailscaleStatusText(display))
+                    .font(BrandFont.body(13, .semibold))
+                    .foregroundStyle(c.on)
+                    .accessibilityIdentifier("tailscale-status")
+                    .contentTransition(.opacity)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: display.state)
+                Text(tailscaleSetupDetail(display))
+                    .font(BrandFont.body(12))
+                    .foregroundStyle(c.on2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 90, alignment: .topLeading)
+                    .contentTransition(.opacity)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: display.state)
+                HStack(spacing: 8) {
+                    Button(primaryTitle, action: actions.openTailscaleSetup)
+                        .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                        .disabled(display.state == .checking)
+                        .accessibilityIdentifier("tailscale-open")
+                    Button(L10n.text("tailscale.action.check", fallback: "Check again"), action: actions.checkTailscale)
+                        .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+                        .disabled(display.refreshing)
+                        .accessibilityIdentifier("tailscale-check")
+                }
+            }
+            .padding(.vertical, 10)
+        }
+        .settingsSearchAnchor("Tailscale")
+    }
+
+    private var primaryTitle: String {
+        if display.hasApplication { return L10n.text("tailscale.action.open", fallback: "Open Tailscale") }
+        if display.hasCommandLine { return L10n.text("tailscale.action.help", fallback: "Setup guide") }
+        return L10n.text("tailscale.action.install", fallback: "Get Tailscale")
+    }
+}
+
 /// Devices > Connect away from home (docs/connect-anywhere.md, section 12.1).
 struct ConnectAwayPane: View {
     let model: SettingsModel
@@ -53,10 +128,11 @@ struct ConnectAwayPane: View {
                     .disabled(!model.connect.running)
             }
         }
-        Text(L10n.text("connect.privacy", fallback: "Relays and the Round Robin service never see names, files or messages. Turning this off stops every route away from home; the same Wi-Fi keeps working."))
+        Text(L10n.text("connect.privacy", fallback: "Relays and the Round Robin service never see names, files or messages. Turning this off stops Bridgey’s internet connection service. Same Wi-Fi and independently connected Tailscale devices can still connect."))
             .font(BrandFont.body(12))
             .foregroundStyle(c.on2)
             .fixedSize(horizontal: false, vertical: true)
+        TailscaleSetupCard(display: model.tailscaleSetup, actions: actions)
         if model.connect.debug {
             SettingsCard(title: L10n.text("connect.debug", fallback: "Testing")) {
                 SettingsRow(title: L10n.text("connect.debug.url", fallback: "Service address"), subtitle: nil, divider: false) {

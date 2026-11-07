@@ -238,6 +238,12 @@ It is on by default.
   settings sync on, your other devices turn it off too. Once you turn it off it stays off, including
   after updates. Same Wi-Fi keeps working either way.
 
+Already use Tailscale? Bridgey can use that private network too. Its setup helper
+opens the official Tailscale app and explains how to connect both devices; it
+does not add another VPN engine or Tailscale login to Bridgey. See
+[Connect Bridgey through Tailscale](tailscale-setup.md) for setup, device discovery
+and pairing. This method is independent of the Bridgey service switch above.
+
 ## Update channels and updates
 
 Bridgey updates itself. Open **Settings > Updates** on either device.

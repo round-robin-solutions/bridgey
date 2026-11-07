@@ -62,6 +62,8 @@
     <uses-feature android:name="android.software.companion_device_setup" android:required="false" />
 
     <queries>
+        <!-- Guided external setup only; installation does not imply Tailscale is signed in or connected. -->
+        <package android:name="com.tailscale.ipn" />
         <intent>
             <action android:name="android.telecom.InCallService" />
         </intent>

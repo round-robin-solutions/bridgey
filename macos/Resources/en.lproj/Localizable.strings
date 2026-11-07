@@ -28,7 +28,7 @@
 "connect.debug.url" = "Service address";
 "connect.detail" = "Reach your paired devices from any network. They connect directly when they can, or through a Round Robin relay that only sees encrypted data. No account needed.";
 "connect.open" = "Open";
-"connect.privacy" = "Relays and the Round Robin service never see names, files or messages. Turning this off stops every route away from home; the same Wi-Fi keeps working.";
+"connect.privacy" = "Relays and the Round Robin service never see names, files or messages. Turning this off stops Bridgey’s internet connection service. Same Wi-Fi and independently connected Tailscale devices can still connect.";
 "connect.relay.bom" = "Mumbai";
 "connect.relay.cf" = "Cloudflare";
 "connect.relay.sin" = "Singapore";
@@ -54,13 +54,13 @@
 "devices.none" = "No paired devices yet";
 "devices.none.detail" = "Pair a device below. Both screens show a code; confirm it only if they match.";
 "devices.pair" = "Pair a new device";
-"devices.pair.detail" = "Open Bridgey on the phone, on the same Wi-Fi as this Mac. Both screens then show the same code.";
+"devices.pair.detail" = "Open Bridgey on both devices, on the same Wi-Fi or Tailscale network. Confirm only if the codes match.";
 "devices.pair.address" = "Pair by tailnet name or address";
 "devices.pair.address.detail" = "For a device on your tailnet. Tap Allow pairing there first.";
 "devices.pair.address.placeholder" = "work or 100.64.0.10";
 "devices.trustAsMine" = "Trust as my device";
 "devices.restricted.detail" = "Paired over your tailnet or a server: nothing is shared with it until you trust it.";
-"devices.pair.searching" = "Looking for devices on this network…";
+"devices.pair.searching" = "Looking for Bridgey devices on Wi-Fi and Tailscale…";
 "devices.permissions.intro" = "What this Mac shares with %@.";
 "drop.detail" = "This window stays open while you switch to Finder.";
 "drop.hint" = "Drop files or folders to send them to the connected Android device one after another";
@@ -1683,3 +1683,26 @@
 "settings.search.closest" = "Closest matches";
 "settings.search.checkUpdates" = "Check for updates";
 "settings.search.version" = "Version";
+
+/* External Tailscale setup; Bridgey never handles the account or VPN configuration. */
+"tailscale.status.checking" = "Checking Tailscale…";
+"tailscale.status.notInstalled" = "Set up Tailscale";
+"tailscale.status.needsLogin" = "Sign in to Tailscale";
+"tailscale.status.stopped" = "Tailscale is disconnected";
+"tailscale.status.needsApproval" = "Waiting for device approval";
+"tailscale.status.starting" = "Tailscale is connecting…";
+"tailscale.status.running" = "Tailscale is connected";
+"tailscale.status.unavailable" = "Couldn’t check Tailscale";
+"tailscale.detail.checking" = "Checking the official Tailscale app on this Mac.";
+"tailscale.detail.notInstalled" = "Optional: install the official Tailscale app on both devices and sign in to the same Tailscale network. Bridgey also works over Wi-Fi and Connect away from home.";
+"tailscale.detail.needsLogin" = "Open Tailscale and sign in. Use the same Tailscale network on your other device, then return here.";
+"tailscale.detail.stopped" = "Open Tailscale and connect. Keep it connected on both devices, then return here.";
+"tailscale.detail.needsApproval" = "Your Tailscale administrator needs to approve this Mac before it can connect.";
+"tailscale.detail.starting" = "Tailscale is starting. Check again in a moment; Wi-Fi connections keep working.";
+"tailscale.detail.running" = "Bridgey looks for devices on this Tailscale network automatically. Open Bridgey on the other device and allow pairing, then compare the codes.";
+"tailscale.detail.unavailable" = "Open Tailscale to check its connection, then try again. Bridgey has not changed your Tailscale settings.";
+"tailscale.detail.cli" = "A command-line installation is detected. Connect it to your Tailscale network, then check again. Bridgey does not change its settings.";
+"tailscale.action.open" = "Open Tailscale";
+"tailscale.action.install" = "Get Tailscale";
+"tailscale.action.check" = "Check again";
+"tailscale.action.help" = "Setup guide";

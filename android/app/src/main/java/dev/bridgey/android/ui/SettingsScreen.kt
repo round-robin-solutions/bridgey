@@ -130,6 +130,8 @@ data class SettingsState(
     val messages: MessagesSettingsState = MessagesSettingsState(),
     /** Connect away from home (Connect anywhere). */
     val connect: ConnectSettingsState = ConnectSettingsState(),
+    /** External Tailscale package availability; never sign-in or VPN connection state. */
+    val tailscale: dev.bridgey.android.tailscale.TailscaleSetupState = dev.bridgey.android.tailscale.TailscaleSetupState(),
     /** The hidden Developer and experimental menu is on (DeveloperMenu.kt); never synced. */
     val developerMenu: Boolean = false,
     /** Developer menu > Transfers: how files travel to each connected device. */
@@ -194,6 +196,7 @@ class SettingsActions(
     val updateAll: UpdateAllActions = UpdateAllActions(),
     val messages: MessagesSettingsActions = MessagesSettingsActions(),
     val connect: ConnectSettingsActions = ConnectSettingsActions(),
+    val tailscale: dev.bridgey.android.tailscale.TailscaleSetupActions = dev.bridgey.android.tailscale.TailscaleSetupActions(),
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"

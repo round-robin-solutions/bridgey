@@ -274,6 +274,10 @@ final class PairingCoordinator: ObservableObject {
     /// Bridgey devices on the tailnet that answered on Bridgey's port (TailnetDiscovery.swift), for "Pair a new device".
     @Published private(set) var tailnetPeers: [DiscoveredPeer] = []
     private var tailnetRefresh: Task<Void, Never>?
+    @Published private(set) var tailscaleSetup = TailscaleSetupDisplay()
+    private let tailscaleRefreshGate = TailscaleRefreshGate()
+    private var tailscaleSnapshot = TailscaleSnapshot(state: .checking)
+    private var waitingForTailscaleReturn = false
     /// Every connected phone with its own features, battery and ringing state, in connection order.
     @Published private(set) var connectedPhones: [PhoneConnection] = []
     /// The phone outgoing actions aim at (nil: the latest connection).
@@ -3986,18 +3990,35 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func refreshTailnet() async {
-        let port = Int(BonjourDiscovery.defaultPort)
-        let peers = await Task.detached(priority: .utility) { TailnetProbe.status() }.value
-        var answering = Set<String>()
-        await withTaskGroup(of: (String, Bool).self) { group in
-            for peer in peers where peer.online {
-                guard let address = peer.address else { continue }
-                group.addTask { (address, await TailnetProbe.answers(address, port: port)) }
-            }
-            for await (address, ok) in group where ok { answering.insert(address) }
-        }
+        let installation = TailscaleInstallation.detect()
+        tailscaleSetup.hasApplication = installation.application != nil
+        tailscaleSetup.hasCommandLine = installation.executable != nil
+        tailscaleSetup.refreshing = true
+        let snapshot = await tailscaleRefreshGate.read { await TailnetProbe.scan(installation: installation) }
+        tailscaleSnapshot = snapshot
+        tailscaleSetup.state = snapshot.state
+        tailscaleSetup.refreshing = false
         let known = Set(trustedDeviceIDs.flatMap { id in reconnect.addressBook.addresses(for: id).map(\.host) })
-        tailnetPeers = TailnetStatus.discovered(peers, answering: answering, known: known, port: port)
+        tailnetPeers = TailnetStatus.discovered(snapshot.peers, answering: snapshot.answering, known: known,
+                                               port: Int(BonjourDiscovery.defaultPort))
+    }
+
+    /// A user action: the official app owns login/VPN consent; Bridgey never changes its preferences.
+    func openTailscaleSetup() {
+        let installation = TailscaleInstallation.detect()
+        if let application = installation.application {
+            waitingForTailscaleReturn = true
+            NSWorkspace.shared.openApplication(at: application, configuration: NSWorkspace.OpenConfiguration()) { [weak self] _, error in
+                guard error != nil else { return }
+                Task { @MainActor [weak self] in
+                    self?.waitingForTailscaleReturn = false
+                    self?.tailscaleSetup.state = .unavailable
+                }
+            }
+        } else {
+            let link = installation.executable == nil ? "https://tailscale.com/download/mac" : "https://tailscale.com/kb/1080/cli"
+            if let url = URL(string: link) { NSWorkspace.shared.open(url) }
+        }
     }
 
     /// Settings > Devices > Trust as my device: a device paired over the tailnet gets this Mac's switches like any other.
@@ -4017,7 +4038,9 @@ final class PairingCoordinator: ObservableObject {
         let typed = target.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty else { return }
         Task { [weak self] in
-            let peers = await Task.detached(priority: .userInitiated) { TailnetProbe.status() }.value
+            guard let self else { return }
+            await self.refreshTailnet()
+            let peers = self.tailscaleSnapshot.peers
             var host = typed
             var port = Int(BonjourDiscovery.defaultPort)
             var name = typed
@@ -4037,7 +4060,7 @@ final class PairingCoordinator: ObservableObject {
                 BridgeyLog.pairing.notice("tailnet pair refused: not a tailnet address")
                 return
             }
-            self?.pair(host: host, port: port, peerName: String(name.prefix(64)))
+            self.pair(host: host, port: port, peerName: String(name.prefix(64)))
         }
     }
 
@@ -4911,6 +4934,10 @@ final class PairingCoordinator: ObservableObject {
                 self.refreshNotificationAuthorization()
                 self.remoteInput.refreshAccessibility()
                 self.settingsSync.permissionsChanged()
+                if self.waitingForTailscaleReturn {
+                    self.waitingForTailscaleReturn = false
+                    Task { [weak self] in await self?.refreshTailnet() }
+                }
             }
             .store(in: &settingsSyncCancellables)
     }

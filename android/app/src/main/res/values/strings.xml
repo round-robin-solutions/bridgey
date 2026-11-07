@@ -944,7 +944,7 @@
     <!-- Connect anywhere (Connect away from home) -->
     <string name="settings_connect_away">Connect away from home</string>
     <string name="connect_away_detail">Reach your devices from any network, with no VPN on the phone</string>
-    <string name="connect_how">Devices connect directly when they can, or through a Round Robin relay that only sees encrypted data. Relays and the Round Robin service never see names, files or messages. No account is needed. Turning this off stops every route away from home; the same Wi-Fi keeps working.</string>
+    <string name="connect_how">Devices connect directly when they can, or through a Round Robin relay that only sees encrypted data. Relays and the Round Robin service never see names, files or messages. No Bridgey account is needed. Turning this off stops routes through the Bridgey service. Connections over the same Wi-Fi or Tailscale keep working.</string>
     <string name="connect_status">Status</string>
     <string name="connect_status_online">On. Your devices can reach this phone from other networks.</string>
     <plurals name="connect_status_online_devices">
