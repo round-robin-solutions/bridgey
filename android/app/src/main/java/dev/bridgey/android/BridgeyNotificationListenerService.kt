@@ -22,10 +22,8 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.telecom.InCallService
 import android.telecom.TelecomManager
-import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import android.util.Base64
-import androidx.annotation.RequiresApi
 import java.io.ByteArrayOutputStream
 import dev.bridgey.android.codes.EmailNotificationContent
 import dev.bridgey.android.codes.StyleMessage
@@ -44,7 +42,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingCallPosts = mutableMapOf<String, Runnable>()
     private val forwardedNotificationIds = mutableSetOf<String>()
-    private var telephonyCallback: TelephonyCallback? = null
+    private val phoneCallStateObserver = PhoneCallStateObserver(this, ::onPhoneCallStateChanged)
     private val callLifecycle = CallLifecycle(
         scheduler = { delayMs, task ->
             val runnable = Runnable(task)
@@ -58,6 +56,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     )
 
     override fun onDestroy() {
+        runCatching { (application as BridgeyApplication).pairing.callQuietNotificationsDisconnected() }
         unregisterTelephonyCallback()
         callLifecycle.clear()
         pendingCallPosts.values.forEach(mainHandler::removeCallbacks)
@@ -70,6 +69,12 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         super.onListenerConnected()
         activeService = java.lang.ref.WeakReference(this)
         val active = activeNotifications.orEmpty().filterNot { it.packageName == packageName }
+        val bridgey = application as BridgeyApplication
+        if (bridgey.isPrimaryUser && bridgey.isBridgeyEnabled && bridgey.settings.state.value.globalFeatures[BridgeyFeature.CALL_QUIET] == true) {
+            bridgey.pairing.callQuietNotificationsConnected(active.map {
+                it to (it.notification.category == Notification.CATEGORY_CALL && isTelephonyCallSource(it.packageName))
+            })
+        }
         // A tracked call keeps its own id even when the dialer re-posted it under a new key.
         active.filterNot { callLifecycle.isTracked(it.key) }
             .forEach { forwardedNotifications.record(notificationToken(it.key), it.key, it.packageName) }
@@ -82,6 +87,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onListenerDisconnected() {
+        runCatching { (application as BridgeyApplication).pairing.callQuietNotificationsDisconnected() }
         unregisterTelephonyCallback()
         if (activeService?.get() === this) activeService = null
         super.onListenerDisconnected()
@@ -95,6 +101,10 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         BridgeyLogging.d(LogCategory.NOTIFICATIONS, "PLUGIN notification observed package=${sbn.packageName}")
         val bridgey = application as BridgeyApplication
         if (!bridgey.isPrimaryUser || !bridgey.isBridgeyEnabled || sbn.packageName == packageName) return
+        if (bridgey.settings.state.value.globalFeatures[BridgeyFeature.CALL_QUIET] == true) {
+            bridgey.pairing.callQuietNotificationPosted(sbn,
+                sbn.notification.category == Notification.CATEGORY_CALL && isTelephonyCallSource(sbn.packageName))
+        }
 
         // An update that is no longer forwardable retracts any earlier mirrored state for the same key,
         // except a call: its card stays until the call ends (see CallLifecycle).
@@ -257,6 +267,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         super.onNotificationRemoved(sbn)
+        runCatching { (application as BridgeyApplication).pairing.callQuietNotificationRemoved(sbn) }
         // A call's card waits for the call to end; a re-posted call continues it.
         callLifecycle.notificationRemoved(sbn.key)?.let { callId ->
             pendingCallPosts.remove(callId)?.let(mainHandler::removeCallbacks)
@@ -473,7 +484,10 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     private fun currentTelephonyCallType(): String? {
         if (!isCallIntegrationEnabled()) return null
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) return null
-        return telephonyCallType(getSystemService(TelephonyManager::class.java).callState)
+        // The grant can be revoked between the permission check and this binder call.
+        return runCatching {
+            telephonyCallType(getSystemService(TelephonyManager::class.java).callState)
+        }.getOrNull()
     }
 
     private fun canControlSystemCalls(): Boolean =
@@ -507,23 +521,16 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     }.getOrDefault(false)
 
     private fun updateTelephonyCallback() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         unregisterTelephonyCallback()
         if (!isCallIntegrationEnabled()) return
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) return
-        val callback = BridgeyCallStateCallback()
         runCatching {
-            getSystemService(TelephonyManager::class.java).registerTelephonyCallback(mainExecutor, callback)
-            telephonyCallback = callback
+            phoneCallStateObserver.start()
         }.onFailure { BridgeyLogging.w(LogCategory.CALLS, "CALL phone-state listener registration failed", it) }
     }
 
     private fun unregisterTelephonyCallback() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-        telephonyCallback?.let { callback ->
-            runCatching { getSystemService(TelephonyManager::class.java).unregisterTelephonyCallback(callback) }
-        }
-        telephonyCallback = null
+        phoneCallStateObserver.stop()
     }
 
     private fun refreshActiveCallNotifications() {
@@ -593,16 +600,13 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.S)
-    private inner class BridgeyCallStateCallback : TelephonyCallback(), TelephonyCallback.CallStateListener {
-        override fun onCallStateChanged(state: Int) {
-            BridgeyLogging.d(LogCategory.CALLS, "CALL phone state=${telephonyCallType(state) ?: "idle"}")
-            callLifecycle.telephonyChanged(telephonyCallType(state))
-            when (state) {
-                TelephonyManager.CALL_STATE_RINGING,
-                TelephonyManager.CALL_STATE_OFFHOOK,
-                -> refreshActiveCallNotifications()
-            }
+    private fun onPhoneCallStateChanged(state: Int) {
+        BridgeyLogging.d(LogCategory.CALLS, "CALL phone state=${telephonyCallType(state) ?: "idle"}")
+        callLifecycle.telephonyChanged(telephonyCallType(state))
+        when (state) {
+            TelephonyManager.CALL_STATE_RINGING,
+            TelephonyManager.CALL_STATE_OFFHOOK,
+            -> refreshActiveCallNotifications()
         }
     }
 
@@ -656,8 +660,20 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         }
 
         fun callPermissionsChanged() {
+            dev.bridgey.android.media.CallQuietSources.permissionsChanged()
             activeService?.get()?.mainHandler?.post {
                 activeService?.get()?.updateTelephonyCallback()
+            }
+        }
+
+        fun refreshCallQuietSources() {
+            activeService?.get()?.let { service ->
+                service.mainHandler.post {
+                    val active = service.activeNotifications.orEmpty().filterNot { it.packageName == service.packageName }
+                    (service.application as BridgeyApplication).pairing.callQuietNotificationsConnected(
+                        active.map { it to (it.notification.category == Notification.CATEGORY_CALL && service.isTelephonyCallSource(it.packageName)) },
+                    )
+                }
             }
         }
 

@@ -112,6 +112,7 @@ enum SettingsSearchRegistry {
         case .calls: calls
         case .remoteInput: remote
         case .macActions: ["lock", "sleep", "shortcuts", "заблокировать"]
+        case .callQuiet: ["mute", "pause", "call", "sound", "media", "звонок", "звук", "пауза"]
         }
     }
 
@@ -213,6 +214,10 @@ enum SettingsSearchRegistry {
             row("calls.otherApps", .calls, L10n.text("settings.calls.otherApps", fallback: "When another app asks to call"), nil, calls),
             row("calls.ring", .calls, L10n.text("settings.calls.ring", fallback: "Ring for incoming calls"), nil, calls + ["ringtone", "sound", "звук"]),
             row("calls.pause", .calls, L10n.text("settings.media.pauseForCalls", fallback: "Pause media during phone calls"), nil, calls + media),
+            feature(.callQuiet, .calls, calls + media + ["mute", "all devices", "без звука"]),
+            row("calls.quietMode", .calls, L10n.text("callMedia.mode", fallback: "During a call"), nil, calls + media + ["pause", "mute", "пауза"]),
+            row("calls.quietRestore", .calls, L10n.text("callMedia.restore", fallback: "After the last call"), nil, calls + media + ["resume", "restore", "продолжить"]),
+            row("calls.manual", .calls, L10n.text("callMedia.manual", fallback: "This Mac's call status"), nil, calls + ["manual", "FaceTime", "Zoom", "Teams", "вручную"]),
             row("calls.shortcut", .calls, section: shortcutCard, ShortcutAction.call.displayTitle, nil, shortcut + calls),
 
             // Files
@@ -392,6 +397,7 @@ enum SettingsSearchRegistry {
         }
         rows.append((L10n.text("remote.grant", fallback: "Allow remote control"), remote))
         rows.append((L10n.text("actions.grant", fallback: "Allow Mac actions"), featureWords(.macActions)))
+        rows.append((L10n.text("callMedia.grant", fallback: "Allow call status and media quieting"), featureWords(.callQuiet)))
         rows.append((L10n.text("settings.sync.device", fallback: "Sync settings with this device"), sync))
         return rows
     }

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="call_quiet_title">Quiet media during calls</string>
+    <string name="call_quiet_summary_access">Quieting on · media access needed</string>
+    <string name="call_quiet_detail">Share call state with allowed devices and quiet their media once. Manual playback stays allowed. Some players and audio routes cannot be controlled safely.</string>
+    <string name="call_quiet_device_detail">Share call state with %1$s and let its calls quiet media here. Caller details and media titles are never shared by this feature.</string>
+    <string name="call_quiet_mode">When a call starts</string>
+    <string name="call_quiet_after">After the last call</string>
+    <string name="call_quiet_pause_mute">Pause, then mute what cannot pause</string>
+    <string name="call_quiet_pause_only">Pause only</string>
+    <string name="call_quiet_mute_only">Mute only</string>
+    <string name="call_quiet_restore_resume">Restore sound and resume media Bridgey paused</string>
+    <string name="call_quiet_restore_sound">Restore sound, leave playback paused</string>
+    <string name="call_quiet_leave_as_is">Leave sound and playback for manual control</string>
+    <string name="call_quiet_phone_state">Cellular call state</string>
+    <string name="call_quiet_phone_state_on">Allowed. Reads call state, not call audio.</string>
+    <string name="call_quiet_phone_state_off">Allow phone state to share cellular calls. This does not enable answering or ending calls remotely.</string>
+    <string name="call_quiet_access">Media and app call access</string>
+    <string name="call_quiet_access_on">Notification access is on. Media sessions and supported app call notifications are available.</string>
+    <string name="call_quiet_access_off">Allow notification access to control media sessions and read supported app call state. Ordinary notification mirroring can stay off.</string>
+    <string name="call_quiet_status">Quieting on this phone</string>
+    <string name="call_quiet_ready">Ready when an allowed call starts. Later manual playback stays allowed.</string>
+    <string name="call_quiet_pending">Waiting briefly for players to confirm they paused.</string>
+    <string name="call_quiet_unavailable">Media control is unavailable. Check notification access and per-device permissions.</string>
+    <string name="call_quiet_counts">Paused: %1$d · Media mute: %2$d · Limited targets: %3$d</string>
+    <string name="call_quiet_peers">Linked device results</string>
+    <string name="call_quiet_peers_waiting">Devices report observed results when call state is shared. Delivery alone does not confirm quiet playback.</string>
+    <string name="call_quiet_peer_counts">Replies: %1$d · Paused: %2$d · Media mute: %3$d · Limited: %4$d</string>
+    <string name="call_quiet_reset_title">Restore media sound before resetting</string>
+    <string name="call_quiet_reset_detail">Bridgey could not safely restore a media mute it created. Use the phone volume controls to unmute media, then retry. Your data and recovery record are kept.</string>
+    <string name="call_quiet_reset_retry">Retry reset</string>
+</resources>

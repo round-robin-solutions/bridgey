@@ -300,6 +300,9 @@ final class PairingCoordinator: ObservableObject {
     /// The private local activity stream shown in the panel.
     let activity: ActivityLog
     let mediaController = MediaController()
+    /// Minimal call-state sharing and locally owned media effects, separately granted per peer.
+    let callMedia = CallMediaPeers()
+    private var callMediaCancellables = Set<AnyCancellable>()
     let shortcuts = ShortcutSettings()
     /// Remote input (draft): a paired phone as touchpad, keyboard and presentation remote.
     let remoteInput: RemoteInputHost
@@ -664,6 +667,21 @@ final class PairingCoordinator: ObservableObject {
                 _ = self.sendQuickPayload(kind: "media.state", payload: payload, to: current)
             }
         }
+        callMedia.enabled = { [weak self] in self?.settings.globalFeatures[.callQuiet] == true }
+        callMedia.allowed = { [weak self] id in self?.isFeatureAvailable(.callQuiet, for: id) == true }
+        callMedia.policy = { [weak self] in self?.settings.callMediaPolicy ?? CallMediaPolicy() }
+        callMedia.send = { [weak self] id, kind, payload in
+            guard let self, let current = self.registry.session(for: id), self.callMediaPermitted(current) else { return false }
+            return self.sendQuickPayload(kind: kind, payload: payload, to: current)
+        }
+        callMedia.onChanged = { [weak self] in self?.objectWillChange.send() }
+        callMedia.settingsChanged()
+        settings.$callMediaMode.combineLatest(settings.$callMediaRestoration).dropFirst()
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.callMedia.settingsChanged() } }
+            .store(in: &callMediaCancellables)
+        mediaController.$pauseForCalls.dropFirst()
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.publishRemoteCall() } }
+            .store(in: &callMediaCancellables)
         shortcuts.perform = { [weak self] action in
             switch action {
             case .clipboard: self?.sendClipboard()
@@ -723,6 +741,9 @@ final class PairingCoordinator: ObservableObject {
                         self.clearNotificationHistory()
                     }
                     self.sendFeatureState()
+                    self.refreshCallMediaPeers()
+                    self.callMedia.settingsChanged()
+                    self.publishRemoteCall()
                     self.sendActionsCatalogs()
                     self.mediaController.refresh()
                     self.publishLocalBattery(force: true)
@@ -1067,6 +1088,7 @@ final class PairingCoordinator: ObservableObject {
         reconnect.forget(deviceID)
         connect.store.forget(deviceID)
         agentsMirror.forget(deviceID)
+        callMedia.drop(deviceID, reason: .permissionLost)
         disconnect(deviceID: deviceID)
         connectSync()
         BridgeyLog.pairing.notice("pairing revoked peer=\(shortDeviceID(deviceID), privacy: .public)")
@@ -1099,6 +1121,7 @@ final class PairingCoordinator: ObservableObject {
     /// reconnect starts.
     /// `detail`: the session's route, direction, age and silence (`disconnectDetail`), for diagnostics.
     private func deviceDisconnected(_ id: String, reason: String, detail: String? = nil) {
+        callMedia.drop(id)
         ConnectTiming.mark("app.disconnected", peer: id, detail: reason)
         cancelTransfers(for: id)
         focusSync.forget(id)
@@ -2943,6 +2966,8 @@ final class PairingCoordinator: ObservableObject {
                     if features[.battery] == false { link.battery = nil }
                     if features[.findDevice] == false { link.ringing = false }
                 }
+                refreshCallMediaPeer(current)
+                publishRemoteCall()
                 publish()
                 // The phone turned Files off: files it has not been offered yet stay here, retryable.
                 if features[.files] == false { stopFileQueue(for: phoneID, status: "File transfer is turned off on \(current.peerName)") }
@@ -3109,6 +3134,8 @@ final class PairingCoordinator: ObservableObject {
                 } else {
                     recordNotificationHistory(payload, deviceID: current.remoteDeviceID)
                 }
+            case "calls.quiet_state", "calls.quiet_result":
+                try receiveCallMedia(message, in: current)
             case "notifications.remove":
                 guard featureEnabled(.notifications, current: current),
                       let reference = try receiveNotificationReference(message, in: current) else { return }
@@ -4469,6 +4496,7 @@ final class PairingCoordinator: ObservableObject {
             self.reconnect.stillConnected(current.remoteDeviceID)
             self.publishLocalBattery()
             self.mediaController.refresh()
+            self.callMedia.heartbeat()
             self.scheduleHeartbeat(for: current)
         }
         current.heartbeat = work
@@ -5285,7 +5313,13 @@ final class PairingCoordinator: ObservableObject {
     /// Only call events reach this: an ordinary notification never shows, hides or moves the card.
     private func publishRemoteCall() {
         remoteCall = activeRemoteCalls.mostRelevant
-        mediaController.callChanged(active: activeRemoteCalls.pausesMedia)
+        // New-protocol peers are handled by their minimal call state. Older/nonparticipating
+        // peers retain the explicit selected-player/no-autoplay policy, without duplicate Pause.
+        let legacySources = Set(activeRemoteCalls.all.filter {
+            remoteCallPausesMedia($0.type) && !callMedia.handlesCalls(from: $0.deviceID)
+        }.map(\.deviceID))
+        mediaController.callChanged(active: !legacySources.isEmpty)
+        callMedia.setLegacySources(mediaController.pauseForCalls ? legacySources : [])
         if let call = remoteCall,
            !hiddenCallOverlayIdentities.contains(callOverlayIdentity(call.notificationID, deviceID: call.deviceID)) {
             callOverlayWindow.show(call)
@@ -5293,6 +5327,43 @@ final class PairingCoordinator: ObservableObject {
             callOverlayWindow.hide()
         }
         refreshCallRinging()
+    }
+
+    private func callMediaPermitted(_ current: Session) -> Bool {
+        guard registry.isActive(current), current.remoteProtocol >= 2, current.envelopeKey != nil,
+              !settings.isAgent(current.remoteDeviceID),
+              let link = registry.state(for: current.remoteDeviceID), link.featureStateReceived else { return false }
+        return isFeatureAvailable(.callQuiet, for: current.remoteDeviceID)
+    }
+
+    private func refreshCallMediaPeer(_ current: Session) {
+        callMedia.peerReady(current.remoteDeviceID, sessionID: current.id, permitted: callMediaPermitted(current))
+    }
+
+    private func refreshCallMediaPeers() {
+        for id in registry.connectedIDs {
+            if let current = registry.session(for: id) { refreshCallMediaPeer(current) }
+        }
+    }
+
+    /// admitFrame has already verified the protocol-2 sender's envelope tag. The draft is
+    /// additionally current-session, replay, ACL, decryption, strict-key and byte-limit gated.
+    private func receiveCallMedia(_ message: PairingMessage, in current: Session) throws {
+        guard callMediaPermitted(current), message.sessionId == current.id,
+              let messageID = message.messageId, current.acceptMessageID(messageID),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let key = current.pairingKey else { return }
+        guard let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else {
+            throw PairingError.invalidMessage
+        }
+        if message.kind == "calls.quiet_state" {
+            guard let state = CallMediaStatePacket.decode(plaintext) else { return }
+            callMedia.receiveState(state, from: current.remoteDeviceID, sessionID: current.id)
+            publishRemoteCall()
+        } else {
+            guard let result = CallMediaResultPacket.decode(plaintext) else { return }
+            callMedia.receiveResult(result, from: current.remoteDeviceID, sessionID: current.id)
+        }
     }
 
     /// Call lifecycle for the unified log and the exported diagnostics. Diagnostics get the event,
@@ -5561,6 +5632,7 @@ final class PairingCoordinator: ObservableObject {
         let calls = activeRemoteCalls.removeExpired(now: Date())
         guard !calls.isEmpty else { return }
         for call in calls {
+            callMedia.legacySourceLost(call.deviceID)
             forgetCallIdentity(call)
             logCall("ended", call, reason: "removal_grace")
         }
@@ -5585,6 +5657,7 @@ final class PairingCoordinator: ObservableObject {
     private func clearRemoteCall(for id: String, reason: String) {
         let calls = activeRemoteCalls.removeAll(deviceID: id)
         guard !calls.isEmpty else { return }
+        callMedia.legacySourceLost(id)
         for call in calls {
             forgetCallIdentity(call)
             logCall("cleared", call, reason: reason)
@@ -5599,6 +5672,8 @@ final class PairingCoordinator: ObservableObject {
     }
 
     private func clearRemoteCall() {
+        callMedia.allLegacySourcesLost()
+        callMedia.setLegacySources([])
         mediaController.callChanged(active: false)
         let calls = activeRemoteCalls.removeAll()
         remoteCall = nil

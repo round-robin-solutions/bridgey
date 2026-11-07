@@ -67,6 +67,8 @@ data class AttachState(
 class AttachActions(
     val selectTab: (AttachTab) -> Unit = {},
     val toggle: (String) -> Unit = {},
+    /** A synchronous reducer, so successive keyboard events always see the latest picks. */
+    val updateSelection: ((List<String>) -> List<String>) -> Unit = {},
     val requestMedia: () -> Unit = {},
     val selectMorePhotos: () -> Unit = {},
     val allowAllPhotos: () -> Unit = {},
@@ -104,6 +106,18 @@ object AttachSelection {
         selection.size >= max -> selection
         else -> selection + key
     }
+
+    /** The actual loaded display order; inaccessible/unsupported entries never become shortcuts' targets. */
+    fun selectableKeys(state: AttachState): List<String> = when (state.tab) {
+        AttachTab.MEDIA -> if (state.mediaAccess == MediaAccess.NONE) emptyList() else state.media.map(AttachKeys::media)
+        AttachTab.FILES -> state.documents.map(AttachKeys::document)
+        AttachTab.FOLDERS -> if (!state.canSendFolders) emptyList() else
+            state.folders.filter(AttachFolder::available).map { AttachKeys.folder(it.placeId) }
+    }.distinct()
+
+    /** Existing picks keep their badge order; new picks follow the current display order. */
+    fun add(selection: List<String>, keys: List<String>, max: Int = MAX): List<String> =
+        (selection + keys).distinct().take(max)
 
     fun order(selection: List<String>): Map<String, Int> {
         val result = HashMap<String, Int>(selection.size * 2)

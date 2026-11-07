@@ -98,7 +98,8 @@
     { "key": "clipboard_request_draft1", "status": "edition-draft", "requiredInMap": false, "missingMeans": "false", "note": "Agent grant Ask for your clipboard: the phone sets it for an agent while the grant is on; gates clipboard.request (every request needs a tap)" },
     { "key": "agent_codes_draft1", "status": "edition-draft", "requiredInMap": false, "missingMeans": "false", "note": "Agent grant Read codes: the phone sets it for an agent while the grant is on; gates codes.query (codes the Macs found, brokered by the phone)" },
     { "key": "agents_mirror_draft1", "status": "edition-draft", "requiredInMap": false, "missingMeans": "false", "note": "Phone and Mac: both set it for each other when they support the agents mirror; gates agents.state, agents.grant_set, codes.found and codes.read" },
-    { "key": "codes_detect_draft1", "status": "edition-draft", "requiredInMap": false, "missingMeans": "false", "note": "Agent grant Detect codes (docs/mesh-and-codes.md): an agent sets it while it can run the code model; the phone sets it for an agent while the grant is on. Gates codes.candidate and codes.detected" }
+    { "key": "codes_detect_draft1", "status": "edition-draft", "requiredInMap": false, "missingMeans": "false", "note": "Agent grant Detect codes (docs/mesh-and-codes.md): an agent sets it while it can run the code model; the phone sets it for an agent while the grant is on. Gates codes.candidate and codes.detected" },
+    {"key": "call_quiet_draft1", "status": "edition-draft", "requiredInMap": false, "missingMeans": "false", "note": "Optional per-device call status and local media quieting. Protocol 2 only; starts off; independent of notification mirroring. Restricted agents cannot originate or receive these effects. See docs/call-media.md."}
   ],
   "messages": [
     { "kind": "pairing.offer", "status": "upstream-v1", "direction": "either", "feature": null, "encrypted": false,
@@ -943,6 +944,17 @@
       "payload": { "version": "integer, 1", "requestId": "string, UUID", "deviceId": "string, the agent", "key": "string, a grant name", "on": "boolean", "window": "1h | today | 7d | forever, with on" },
       "reply": ["agents.state"],
       "notes": "Applied as if switched on the phone, recorded as changed on that Mac.",
+      "implemented": ["android", "macos"] },
+    { "kind": "calls.quiet_state", "status": "edition-draft", "direction": "either", "feature": "call_quiet_draft1", "encrypted": true, "replay": "messageId", "maxPlaintextBytes": 2048,
+      "outer": ["sessionId", "messageId", "nonce", "ciphertext"],
+      "payload": {"version": "integer, 1", "revision": "integer, 1..2147483647; monotonic within the authenticated session", "calls": "0..16 distinct opaque ASCII IDs, [A-Za-z0-9_-]{1,64}; empty with uncertain false is explicit end", "uncertain": "boolean; a previously advertised active local source was lost without verified end; clears only after that source is freshly observed"},
+      "reply": ["calls.quiet_result"],
+      "notes": "Exactly these keys; no origin or caller/media content. Source identity comes from the authenticated session. Equal revisions renew only identical sets and uncertainty; older revisions ignored. Active or uncertain snapshots renew every 25 s and expire after 75 s monotonic time. Uncertainty prevents autoplay when the last known call disappears. Expiry/revoke/session loss releases owned sound without autoplay; normal last-call end follows local restoration choice. Requires both feature maps and local per-device permission; no transitive forwarding.",
+      "implemented": ["android", "macos"] },
+    { "kind": "calls.quiet_result", "status": "edition-draft", "direction": "either", "feature": "call_quiet_draft1", "encrypted": true, "replay": "messageId", "maxPlaintextBytes": 1024,
+      "outer": ["sessionId", "messageId", "nonce", "ciphertext"],
+      "payload": {"version": "integer, 1", "revision": "integer, 1..2147483647; echoes the current source revision", "paused": "integer, 0..64 observed owned pauses", "muted": "integer, 0..64 observed owned mutes", "limited": "integer, 0..64 limited or unsupported targets", "issues": "0..16 unique fixed reason keys; no content metadata; docs/call-media.md"},
+      "notes": "Exactly these keys. Reports observed local results and capability limits, not success inferred from delivery. Match authenticated current peer/session and the latest sent revision; coalesce unchanged results. Policy/restoration are local settings and never supplied by a remote peer.",
       "implemented": ["android", "macos"] }
   ]
 }

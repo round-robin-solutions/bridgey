@@ -61,6 +61,8 @@ struct PanelModel {
     var mediaPlayer: MediaPlayer = .off
     var mediaChoices: [MediaPlayer] = MediaPlayer.fixed
     var mediaDetail = ""
+    var callMediaEnabled = false
+    var callMediaManual = false
     /// The browser "Send the current tab" asks (Safari or Chrome), nil when none is running.
     var browserName: String?
     /// The selected phone takes photos for this Mac (camera_draft1): its name, for File > Take Photo.
@@ -138,6 +140,7 @@ struct PanelActions {
     var stopFinding: () -> Void = {}
     var setPlayer: (MediaPlayer) -> Void = { _ in }
     var refreshMedia: () -> Void = {}
+    var setManualCall: (Bool) -> Void = { _ in }
     var openLink: () -> Void = {}
     var dismissLink: () -> Void = {}
     var cancelTransfer: (String) -> Void = { _ in }
@@ -233,6 +236,11 @@ struct StreamPanelView: View {
         }
         LiveCards(model: model, actions: actions)
         StreamList(rows: model.rows, showPreviews: model.showPreviews, now: model.now, hasLiveCards: hasLiveCards)
+        if model.callMediaEnabled {
+            CallMediaManualPanelRow(active: model.callMediaManual) { actions.setManualCall(!model.callMediaManual) }
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+        }
         if model.isConnected {
             QuickActionBar(model: model, actions: actions)
                 .padding(.horizontal, 12)
@@ -1422,12 +1430,13 @@ struct BridgeyPanel: View {
     @ObservedObject var browserTab: BrowserTabReader
     @ObservedObject var camera: PhoneCamera
     @ObservedObject var phoneScreen: PhoneScreen
+    @ObservedObject var presentation: MenuBarPanelPresentation
     let onOpenSettings: () -> Void
-    @State private var clipboard = PasteboardPreview()
     @State private var now = Date()
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    init(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings, updater: AppUpdater, onOpenSettings: @escaping () -> Void) {
+    init(discovery: BonjourDiscovery, pairing: PairingCoordinator, settings: BridgeySettings, updater: AppUpdater,
+         presentation: MenuBarPanelPresentation, onOpenSettings: @escaping () -> Void) {
         self.updater = updater
         self.discovery = discovery
         self.pairing = pairing
@@ -1439,6 +1448,7 @@ struct BridgeyPanel: View {
         browserTab = pairing.browserTab
         camera = pairing.camera
         phoneScreen = pairing.phoneScreen
+        self.presentation = presentation
         self.onOpenSettings = onOpenSettings
     }
 
@@ -1448,15 +1458,9 @@ struct BridgeyPanel: View {
                 StreamPanelView(model: model, actions: actions)
             }
         }
-        .onAppear {
-            pairing.refreshNotificationAuthorization()
-            activity.prune()
-            clipboard = PasteboardPreview.current()
-            now = Date()
-        }
-        .onReceive(ticker) { date in
-            let latest = PasteboardPreview.current(previous: clipboard)
-            if latest != clipboard { clipboard = latest }
+        .onChange(of: presentation.isPresented) { presented in if presented { now = Date() } }
+        .onReceive(presentation.isPresented ? ticker.eraseToAnyPublisher() : Empty<Date, Never>().eraseToAnyPublisher()) { date in
+            presentation.refreshClipboard()
             // A copied code counts down "Clears in 42 s" and a code's age ("40 s ago") moves while its card is up;
             // otherwise once a minute is enough. Only when a line would change, never per frame.
             let codesMoved = pairing.liveCodeCards.contains { card in
@@ -1504,8 +1508,8 @@ struct BridgeyPanel: View {
         model.showPreviews = settings.showActivityPreviews
         model.now = now
         model.available = Set(BridgeyFeature.allCases.filter { pairing.isFeatureAvailable($0) })
-        model.clipboardLine = clipboard.line
-        model.clipboardHidden = clipboard.hidden
+        model.clipboardLine = presentation.clipboard.line
+        model.clipboardHidden = presentation.clipboard.hidden
         // The first status that is set, in priority order. Kept as a typed list: one long `??` chain is too
         // slow for older Swift compilers to type-check.
         let fileStatus: String? = pairing.fileTransferActive ? nil : pairing.fileTransferStatus
@@ -1518,6 +1522,8 @@ struct BridgeyPanel: View {
         model.mediaPlayer = media.player
         model.mediaChoices = media.choices
         model.mediaDetail = media.snapshot.detail
+        model.callMediaEnabled = settings.globalFeatures[.callQuiet] == true
+        model.callMediaManual = pairing.callMedia.manualActive
         model.browserName = browserTab.browser?.name
         if case let .connected(deviceID, name) = pairing.state, pairing.cameraAvailable(for: deviceID) { model.cameraPhone = name }
         model.screenPhones = Set(pairing.connectedPhones.map(\.id).filter { pairing.screenAvailable(for: $0) })
@@ -1573,6 +1579,7 @@ struct BridgeyPanel: View {
         actions.stopFinding = { pairing.stopFinding() }
         actions.setPlayer = { media.player = $0 }
         actions.refreshMedia = { media.refresh() }
+        actions.setManualCall = { pairing.callMedia.setManualCall($0) }
         actions.openLink = { quickActions.openLink() }
         actions.dismissLink = { quickActions.dismissLink() }
         actions.cancelTransfer = { pairing.cancelFileTransfer(id: $0) }

@@ -2099,3 +2099,26 @@ Adding optional fields or message types is backward compatible. Changing field
 meaning, authentication, or required behavior requires a new capability or
 major version. JSON is a codec behind the envelope model; a future protobuf
 codec must preserve IDs, types, correlation, and negotiated semantics.
+
+## Draft: calls quiet media (`call_quiet_draft1`)
+
+Optional, starts off, protocol 2 only. The same encrypted, sender-bound call-state snapshots
+reach permitted directly connected paired apps over LAN or Connect anywhere; this draft does
+not grant transitive trust or authorize agent/CLI devices to originate media effects.
+
+The complete [call/media contract](call-media.md#wire-contract) defines `calls.quiet_state`
+(2,048-byte strict plaintext, version/revision/opaque call ID set/uncertainty) and `calls.quiet_result`
+(1,024 bytes, observed counts and fixed capability reasons). Both use the normal tagged
+session envelope, `messageId` replay protection, encryption, both advertised feature maps
+and the receiver's per-device permission. Caller names, numbers, notification/media text,
+volume, payload origin and remote-supplied policy never travel in these messages.
+
+Snapshots renew every 25 seconds while active or uncertain and expire after 75 seconds without
+a valid renewal. Equal revisions renew only identical sets and uncertainty; older revisions are
+ignored. An empty set confirms source call end only when uncertainty is false. A previously
+advertised source lost without a verified end stays uncertain until fresh observation; missing
+evidence and another call ending never authorize autoplay under that uncertainty.
+Local effects aggregate all permitted active sources. Only the final confirmed end follows
+the local restoration setting; expiry, session loss, disable or revoke releases owned sound
+without automatically resuming playback. Already-paused/muted players and later manual
+changes remain the person's own. Shared strict vectors: `protocol/test-vectors/call-media-v1.json`.
