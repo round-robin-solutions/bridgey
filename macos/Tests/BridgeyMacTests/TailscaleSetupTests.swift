@@ -3,6 +3,11 @@ import XCTest
 @testable import BridgeyMac
 
 final class TailscaleSetupTests: XCTestCase {
+    func testBackgroundDiscoveryCanReadTheSharedPortAndItsTestInstanceOverride() async {
+        let port = await Task.detached { BonjourDiscovery.defaultPort }.value
+        XCTAssertEqual(port, Int32(TestInstance.listeningPort))
+    }
+
     func testChosenTailnetAddressesNeverWaitForPeerDiscovery() async {
         for text in ["100.90.0.3", "100.90.0.3:42481", "[fd7a:115c:a1e0::1]:42481", "fd7a:115c:a1e0:0:0:0:1"] {
             let target = await TailnetPairing.resolve(text) {
