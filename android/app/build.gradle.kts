@@ -1,4 +1,5 @@
 import java.util.Properties
+import com.android.build.api.variant.HostTestBuilder
 
 plugins {
     id("com.android.application")
@@ -208,6 +209,12 @@ val buildConnectCore by tasks.registering(Exec::class) {
     commandLine(cargo, "ndk", "-t", "arm64-v8a", "-t", "x86_64", "-o", connectJniDir.get().asFile.path, "build", "--release", "--locked", "-p", "bridgey-connect", "--lib")
     inputs.files(fileTree(connectRustDir) { include("Cargo.toml", "Cargo.lock", "core/**", "proto/**"); exclude("**/target/**") })
     outputs.dir(connectJniDir)
+}
+// Host tests are opt-in for these release-derived build types in AGP 9.
+androidComponents.beforeVariants { variant ->
+    if (variant.buildType in setOf("play", "qa")) {
+        variant.hostTests.getValue(HostTestBuilder.UNIT_TEST_TYPE).enable = true
+    }
 }
 androidComponents.onVariants { variant ->
     variant.sources.jniLibs?.addStaticSourceDirectory(connectJniDir.get().asFile.path)
