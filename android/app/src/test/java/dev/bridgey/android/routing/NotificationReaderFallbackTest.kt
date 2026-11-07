@@ -21,6 +21,9 @@ class NotificationReaderFallbackTest {
     private class Transport(private val detector: Boolean) : AgentTransport {
         val sent = mutableListOf<String>()
         override fun send(deviceId: String, kind: String, payload: ByteArray): Boolean { sent += kind; return true }
+        override fun currentSessionToken(deviceId: String): String? = "routing-test-session".takeIf { deviceId == "agent" }
+        override fun sendIfCurrent(deviceId: String, sessionToken: String, kind: String, payload: ByteArray): Boolean =
+            currentSessionToken(deviceId) == sessionToken && send(deviceId, kind, payload)
         override fun connectedAgents() = listOf("agent")
         override fun mirrorMacs() = emptyList<String>()
         // This generic status is deliberately stale: candidate processing must use its actual recipients.
@@ -38,7 +41,7 @@ class NotificationReaderFallbackTest {
             val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
             try {
                 val transport = Transport(detector = true)
-                val hub = AgentHub(ApplicationProvider.getApplicationContext<Application>(), scope, transport) { 1_000_000 }
+                val hub = AgentHub(ApplicationProvider.getApplicationContext<Application>(), scope, transport, clock = { 1_000_000 }, freshnessClock = { 1_000_000 })
                 hub.grants.set("agent", AgentGrant.CODES, true, GrantWindow.FOREVER)
                 hub.grants.set("agent", AgentGrant.CODES_DETECT, true, GrantWindow.FOREVER)
                 var live = listOf(mac)
@@ -54,7 +57,7 @@ class NotificationReaderFallbackTest {
         val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
         try {
             val transport = Transport(detector = false)
-            val hub = AgentHub(ApplicationProvider.getApplicationContext<Application>(), scope, transport) { 1_000_000 }
+            val hub = AgentHub(ApplicationProvider.getApplicationContext<Application>(), scope, transport, clock = { 1_000_000 }, freshnessClock = { 1_000_000 })
             hub.grants.set("agent", AgentGrant.CODES, true, GrantWindow.FOREVER)
             val called = CompletableDeferred<Unit>()
             hub.cloud = CloudCodes({ true }, { _, _ -> called.complete(Unit); CodeRelay.Answer.NoCode }, { 1_000_000 })
@@ -74,7 +77,7 @@ class NotificationReaderFallbackTest {
             val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
             try {
                 val transport = Transport(detector = true)
-                val hub = AgentHub(ApplicationProvider.getApplicationContext<Application>(), scope, transport) { 1_000_000 }
+                val hub = AgentHub(ApplicationProvider.getApplicationContext<Application>(), scope, transport, clock = { 1_000_000 }, freshnessClock = { 1_000_000 })
                 hub.grants.set("agent", AgentGrant.CODES, true, GrantWindow.FOREVER)
                 hub.grants.set("agent", AgentGrant.CODES_DETECT, true, GrantWindow.FOREVER)
                 val routes = NotificationAlertRoutes()

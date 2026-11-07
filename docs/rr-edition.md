@@ -756,4 +756,4 @@ then set `EDITION_NEXT_VERSION` to the new upstream base (for example `0.7.0-rr.
 
 ### In development: smart device routing
 
-The unreleased `rr/smart-device-routing` branch adds a phone-owned active-Mac notification choice, an explicit preferred fallback, quiet handling on other compatible Macs and visible phone-share destination lists. Activity sharing defaults on for trusted paired devices by the owner's choice and can be revoked per Mac. Full behavior, compatibility limits and outstanding acceptance are in [smart device routing](smart-device-routing.md). This is not a released-feature or completed-roadmap claim.
+The unreleased `rr/smart-device-routing` branch adds a phone-owned active-Mac notification choice, an explicit preferred fallback, quiet handling on other compatible Macs and visible destination lists for Attach and screen sharing, built on the share flow's device presence. The system share sheet stays the share flow's Send to device. Full behavior, compatibility limits and outstanding acceptance are in [smart device routing](smart-device-routing.md). This is not a released-feature or completed-roadmap claim.
