@@ -299,13 +299,13 @@ class AttachScreenshotTest {
     @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi")
     fun tailscalePairLight390() = tailscalePairing(true, "installed")
 
-    @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi-night")
+    @Test @Config(qualifiers = "w390dp-h844dp-port-night-xxhdpi")
     fun tailscalePairDark390() = tailscalePairing(false, "missing")
 
     @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi")
     fun tailscalePairMissingLight390() = tailscalePairing(false, "missing")
 
-    @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi-night")
+    @Test @Config(qualifiers = "w390dp-h844dp-port-night-xxhdpi")
     fun tailscalePairInstalledDark390() = tailscalePairing(true, "installed")
 
     @Test @Config(qualifiers = "w844dp-h390dp-land-xxhdpi")

@@ -55,7 +55,7 @@ internal fun TailscaleSetupGuidance(
             else -> R.string.tailscale_unknown
         }
         Text(stringResource(status), style = BridgeyType.itemBody, color = BridgeyTheme.colors.onSurfaceVariant,
-            minLines = 5, modifier = Modifier.testTag("tailscale-availability"))
+            minLines = 3, modifier = Modifier.testTag("tailscale-availability"))
         Text(stringResource(if (forPairing) R.string.tailscale_setup_steps else R.string.tailscale_settings_steps),
             style = BridgeyType.itemBody, color = BridgeyTheme.colors.onSurfaceVariant)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
