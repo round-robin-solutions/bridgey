@@ -1,3 +1,5 @@
+> **This is the Round Robin Solutions fork of Bridgey.** [Round Robin Solutions](https://roundrobin.in) builds Bridgey by Round Robin, an edition with its own releases: see the [`rr/main` branch](https://github.com/round-robin-solutions/bridgey/tree/rr/main), the [website](https://roundrobin.in/bridgey) and the [releases](https://github.com/round-robin-solutions/bridgey/releases). This `main` branch follows the original project, [singeol/bridgey](https://github.com/singeol/bridgey) by Semyon Mikhailov, and the text below is its README.
+
 # Bridgey
 
 [![Build](https://github.com/singeol/bridgey/actions/workflows/ci.yml/badge.svg)](https://github.com/singeol/bridgey/actions/workflows/ci.yml)
