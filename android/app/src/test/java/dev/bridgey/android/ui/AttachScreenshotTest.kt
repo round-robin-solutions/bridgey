@@ -191,7 +191,7 @@ class AttachScreenshotTest {
     @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi")
     fun clipboardContextLight() = clipboardContextNotifications()
 
-    @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi-night")
+    @Test @Config(qualifiers = "w390dp-h844dp-port-night-xxhdpi")
     fun clipboardContextDark() = clipboardContextNotifications()
 
     /** Photo-like gradients instead of real photos: every cell already cached, as on a reopened sheet. */
