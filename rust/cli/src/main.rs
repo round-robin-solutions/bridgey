@@ -14,6 +14,7 @@ mod errors;
 mod invite;
 mod ipc;
 mod ops;
+mod notifications;
 mod paths;
 mod service;
 mod session;
@@ -151,6 +152,11 @@ enum Command {
         /// How far back to look (default 10m, at most 1h)
         #[arg(long, value_name = "DURATION", default_value = "10m")]
         since: String,
+    },
+    /// Read the phone's currently visible notifications (separate phone grant; no actions)
+    Notifications {
+        #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u8).range(1..=20))]
+        limit: u8,
     },
     /// This install's audit log
     Audit {
@@ -405,6 +411,7 @@ fn command_name(c: &Command) -> &'static str {
         Command::Codes { action: Some(CodesAction::Model { action: ModelAction::Download { .. } }), .. } => "codes model download",
         Command::Codes { action: Some(CodesAction::Model { action: ModelAction::Remove }), .. } => "codes model remove",
         Command::Codes { .. } => "codes",
+        Command::Notifications { .. } => "notifications",
         Command::Audit { .. } => "audit",
         Command::Doctor => "doctor",
         Command::Forget { .. } => "forget",
@@ -694,6 +701,19 @@ async fn execute(ctx: &Ctx, command: Command) -> Result<(Value, String), CliErro
             );
             Ok((out, t))
         }
+        Command::Notifications { limit } => {
+            let v = ctx.call("notifications", json!({"limit": limit})).await?;
+            let mut text = String::new();
+            for item in v["notifications"].as_array().into_iter().flatten() {
+                let app = session::printable(item["applicationName"].as_str().unwrap_or(""), 128);
+                let title = session::printable(item["title"].as_str().unwrap_or(""), 512);
+                let body = session::printable(item["text"].as_str().unwrap_or(""), 2048);
+                text.push_str(&format!("{app}: {title}\n{body}\n\n"));
+            }
+            if text.is_empty() { text.push_str("No visible notifications.\n"); }
+            if v["truncated"] == true { text.push_str("Showing a bounded snapshot; more notifications are active.\n"); }
+            Ok((v, text))
+        }
         Command::Audit { since } => {
             let since_ms = now.saturating_sub(ms(&since)?);
             let entries = audit::read(&ctx.paths, since_ms);
@@ -938,5 +958,20 @@ async fn service_cmd(ctx: &Ctx, action: ServiceAction) -> Result<(Value, String)
             let t = format!("{}: {}{}\n", v["manager"].as_str().unwrap_or(""), if v["active"] == true { "running" } else if v["installed"] == true { "installed, not running" } else { "not installed" }, if v["linger"] == false { " (lingering off)" } else { "" });
             Ok((v, t))
         }
+    }
+}
+
+#[cfg(test)]
+mod command_tests {
+    use super::*;
+
+    #[test]
+    fn notification_read_is_bounded_and_explicit() {
+        assert!(matches!(Cli::try_parse_from(["bridgey", "notifications"]).unwrap().command, Command::Notifications { limit: 20 }));
+        assert!(matches!(Cli::try_parse_from(["bridgey", "notifications", "--limit", "1", "--json"]).unwrap().command, Command::Notifications { limit: 1 }));
+        for limit in ["0", "21", "-1", "huge"] {
+            assert!(Cli::try_parse_from(["bridgey", "notifications", "--limit", limit]).is_err());
+        }
+        assert!(Cli::try_parse_from(["bridgey", "notifications", "--dismiss", "any"]).is_err());
     }
 }

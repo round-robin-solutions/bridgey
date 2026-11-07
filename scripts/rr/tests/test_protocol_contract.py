@@ -24,6 +24,15 @@ class ProtocolContractTest(unittest.TestCase):
     def test_every_kind_in_the_sources_is_listed(self):
         self.assertEqual(contract.coverage_problems(self.data), [])
 
+    def test_agent_ingress_uses_the_complete_protocol_role_gate(self):
+        # Dispatch must use the same set as admission, so a newly allowed request cannot be
+        # silently dropped between the authenticated session and the Hub.
+        source = (ROOT / "android/app/src/main/java/dev/bridgey/android/PairingCoordinator.kt").read_text()
+        start = source.index("    private fun receive(current: Session, message: Message)")
+        end = source.index("    private fun ", start + 1)
+        dispatch = source[start:end]
+        self.assertIn("in dev.bridgey.android.agents.AGENT_TO_PHONE_KINDS -> receiveAgentMessage(current, message)", dispatch)
+
     def test_validation_catches_mistakes(self):
         broken = contract.load()
         broken["messages"].append(dict(broken["messages"][0]))

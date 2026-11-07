@@ -32,8 +32,8 @@ enum AgentGrantKey: String, CaseIterable, Codable, Equatable {
     case codesDetect = "codes_detect"
     case notifications
 
-    /// Read your notifications is not available in this version: always off, never granted.
-    var grantable: Bool { self != .notifications }
+    /// Supported grants remain off until the phone owner enables them.
+    var grantable: Bool { true }
 
     /// Detect codes sends code text messages to a server, so only a tap on the phone changes it; this Mac shows it.
     var changeableFromMac: Bool { grantable && self != .codesDetect }
@@ -80,7 +80,7 @@ struct AgentGrant: Codable, Equatable {
 struct AgentActivityEntry: Codable, Equatable {
     static let actions: Set<String> = [
         "pair", "grant.change", "grant.request", "grant.expired", "notify", "ask", "answer", "ring", "ping", "battery",
-        "clipboard.set", "clipboard.request", "files.receive", "codes.read", "codes.detect", "forget",
+        "clipboard.set", "clipboard.request", "files.receive", "codes.read", "codes.detect", "notifications.read", "forget",
     ]
 
     let at: Int64
@@ -242,7 +242,7 @@ enum AgentsMirrorWire {
         return data
     }
 
-    /// agents.grant_set's payload, or nil: on needs a window, and Read your notifications cannot be granted.
+    /// agents.grant_set's payload, or nil: on needs a window; Detect codes stays phone-only.
     static func grantSet(requestId: String, deviceId: String, key: AgentGrantKey, on: Bool, window: AgentGrantWindow?) -> [String: Any]? {
         guard !deviceId.isEmpty, key != .codesDetect, !on || (window != nil && key.grantable) else { return nil }
         var payload: [String: Any] = ["version": 1, "requestId": requestId, "deviceId": deviceId, "key": key.rawValue, "on": on]

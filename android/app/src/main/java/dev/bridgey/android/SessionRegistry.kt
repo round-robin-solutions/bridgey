@@ -183,6 +183,12 @@ internal class SessionRegistry<S : Any>(private val localDeviceId: String) {
 
     fun session(deviceId: String): S? = synchronized(lock) { active[deviceId]?.session }
 
+    /** Identity check and bounded enqueue to the captured session; block must never write a socket or call a Hub. */
+    fun <T> withSession(deviceId: String, block: (S?) -> T): T = synchronized(lock) {
+        block(active[deviceId]?.session)
+    }
+
+
     fun deviceIdOf(session: S): String? = synchronized(lock) {
         active.entries.firstOrNull { it.value.session === session }?.key
     }

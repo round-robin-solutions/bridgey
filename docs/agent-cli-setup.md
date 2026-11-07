@@ -76,6 +76,7 @@ Bridgey, **Devices**, this server, **Permissions**. Each switch asks **How long?
 | Permission | Lets the server |
 | --- | --- |
 | Send you files | send files to `Download/Bridgey/<server name>` |
+| Read your notifications | read a bounded snapshot of current phone notifications; no reply or dismiss |
 | Set your clipboard | put text on the phone's clipboard |
 | Ask for your clipboard | ask for it; you tap Send each time |
 | Send you notifications | post in "Agent messages" |
@@ -162,3 +163,19 @@ rm -rf ~/.config/bridgey ~/.local/bin/bridgey
 ```
 
 On the phone: Devices, this server, **Forget**. That deletes its trust, its pair secret and its grants.
+
+## Independent agents and fresh codes
+
+Pair each server separately; never copy another server's identity or pairing files. The phone owner
+chooses Read codes and its duration on each server's Devices and permissions page. `bridgey codes --latest --json` reads the phone broker, and `bridgey codes --wait 2m --json` waits for a new code.
+Reads do not consume a code, so independently granted servers can retrieve the same fresh code.
+The phone must have an available Mac or explicitly granted Detect codes server (or the separately
+opted-in cloud reader). Reading codes does not grant raw message detection.
+
+`bridgey notifications --limit 20 --json` reads current notifications under the separate Read your
+notifications grant. Send you notifications only permits messages in the opposite direction.
+No notification actions or persistent server notification history are provided. The phone needs
+notification access; older phone builds report that this command requires an update.
+
+Notification reads follow the phone's Notification forwarding switch and blocked-app list, and
+exclude Bridgey's own, secret, quiet ongoing, group-summary and Android-redacted notifications.

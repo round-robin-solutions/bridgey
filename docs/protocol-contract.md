@@ -162,6 +162,7 @@ the tables at the end of this page are generated from it with
 | `agent_codes_draft1` | edition-draft | no | false |
 | `agents_mirror_draft1` | edition-draft | no | false |
 | `codes_detect_draft1` | edition-draft | no | false |
+| `agent_notifications_draft1` | edition-draft | no | false |
 
 ### Envelope fields
 
@@ -188,7 +189,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-172 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+174 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -1782,6 +1783,8 @@ rate_limited: more than 20 settings.* messages from this peer in 10 seconds; the
 | `agent.grants` | edition-draft | phone-to-agent | agent_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, cli |
 | `agent.grant_request` | edition-draft | agent-to-phone | agent_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, cli |
 | `agent.request_result` | edition-draft | phone-to-agent | agent_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `agent.notifications.query` | edition-draft | agent-to-phone | agent_notifications_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `agent.notifications.result` | edition-draft | phone-to-agent | agent_notifications_draft1 | yes | messageId | 24,576 B | sessionId, messageId, nonce, ciphertext | android, cli |
 
 `agent.hello`
 
@@ -1803,7 +1806,7 @@ Sent after features.update and on every change, including a window that ended. R
 
 - `version`: integer, 1
 - `requestId`: string, UUID
-- `keys`: array of 1 to 9 grant names
+- `keys`: array of 1 to 10 grant names
 - `note`: optional string, at most 120 characters
 
 Answered by `agent.request_result`.
@@ -1820,6 +1823,24 @@ The phone posts a notification that opens the device's permissions and marks the
 - `grant`: optional string, with not_granted
 
 Answers agent.grant_request, and refuses any agent request (notify.post, ask.request, clipboard.update, clipboard.rich, clipboard.request, find.start, ping.request, files.offer, codes.query).
+
+`agent.notifications.query`
+
+- `version`: integer, 1
+- `queryId`: string, UUID
+- `limit`: optional integer, 1 to 20; default 20
+
+Answered by `agent.notifications.result`, `agent.request_result`.
+
+One bounded active snapshot, never a subscription, reply or dismiss action. Phone grant and authenticated session checked at delivery. No notification content in audit records.
+
+`agent.notifications.result`
+
+- `version`: integer, 1
+- `queryId`: string, UUID
+- `status`: ok | unavailable
+- `notifications`: array of at most the requested limit: {id (128), packageName (256), applicationName (128), title (512), text (2048), postedAt (Unix ms)}; unavailable always empty
+- `truncated`: boolean; more eligible items or the size budget was reached
 
 #### `notify.*`
 

@@ -35,7 +35,7 @@
     <string name="agent_grant_codes_detect">Находить коды</string>
     <string name="agent_grant_codes_detect_detail">Читает сообщения с кодами, когда ни один Mac их не читает</string>
     <string name="agent_grant_notifications">Читать ваши уведомления</string>
-    <string name="agent_grant_notifications_detail">Пока недоступно</string>
+    <string name="agent_grant_notifications_detail">Текущие уведомления, разрешённые телефоном; только чтение</string>
 
     <string name="agent_state_on">Вкл.</string>
     <string name="agent_state_off">Выкл.</string>
@@ -108,4 +108,5 @@
     <string name="agent_outcome_rate_limited">Слишком много запросов</string>
     <string name="agent_outcome_not_granted">Не разрешено</string>
     <string name="agent_outcome_invalid">Отклонено: неверный запрос</string>
+    <string name="agent_audit_notifications_read">Прочитал уведомления</string>
 </resources>

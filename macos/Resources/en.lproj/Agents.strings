@@ -29,7 +29,7 @@
 "grant.codes_detect" = "Detect codes";
 "grant.codes_detect.detail" = "Reads your code messages when no Mac is reading";
 "grant.notifications" = "Read your notifications";
-"grant.notifications.detail" = "Not available yet";
+"grant.notifications.detail" = "Current notifications allowed by the phone; read only";
 
 "state.off" = "Off";
 "state.waiting" = "Waiting for you";
@@ -73,3 +73,5 @@
 "activity.outcome.rate_limited" = "Too many requests";
 "activity.outcome.not_granted" = "Not allowed";
 "activity.outcome.invalid" = "Refused, not a valid request";
+
+"activity.notifications.read" = "Read notifications";

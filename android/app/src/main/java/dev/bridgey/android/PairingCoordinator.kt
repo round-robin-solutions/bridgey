@@ -1187,7 +1187,7 @@ class PairingCoordinator(
         registry.remove(current)
         current.dropReason = "user_disconnect"
         current.close()
-        deviceDisconnected(deviceId, "user_disconnect")
+        deviceDisconnected(deviceId, "user_disconnect", current.agentSessionToken)
     }
 
     fun forget(deviceId: String) {
@@ -3114,7 +3114,10 @@ class PairingCoordinator(
             parkedPairing = null
             crossedTarget = null
         }
-        registry.clear().forEach(Session::close)
+        registry.clear().forEach { current ->
+            if (current.agent) agents.sessionEnded(current.remoteDeviceId, current.agentSessionToken)
+            current.close()
+        }
         stopPhoneRinging()
         clearPingStatus()
         quickActions.reset()
@@ -3161,7 +3164,7 @@ class PairingCoordinator(
     }
 
     /** One device's session ended: only its state, transfers and clipboard fetches go, and its reconnect starts. */
-    private fun deviceDisconnected(deviceId: String, reason: String) {
+    private fun deviceDisconnected(deviceId: String, reason: String, agentSessionToken: String) {
         dev.bridgey.android.connect.ConnectTiming.mark("app.disconnected", deviceId, reason)
         cancelTransfers(deviceId)
         clipboardSessionEnded(deviceId)
@@ -3169,7 +3172,7 @@ class PairingCoordinator(
         if (phoneRingingFrom == deviceId) stopPhoneRinging()
         agentRingStops.remove(deviceId)?.cancel()
         if (pendingPing?.first == deviceId) clearPingStatus()
-        if (isAgent(deviceId)) agents.sessionEnded(deviceId)
+        if (isAgent(deviceId)) agents.sessionEnded(deviceId, agentSessionToken)
         macActions.sessionEnded(deviceId)
         focusSync.sessionEnded(deviceId)
         speedTest.disconnected(deviceId)
@@ -3208,7 +3211,7 @@ class PairingCoordinator(
             // A tunnel is kept alive by QUIC (15 s on NATed paths) and ICE checks; the session heartbeat over it
             // only needs to catch a dead peer, so it runs less often and spares the radio on mobile data.
             socket.soTimeout = (if (tunnel != null) TUNNEL_HEARTBEAT_INTERVAL_MILLIS else ReconnectPolicy.HEARTBEAT_INTERVAL_MILLIS).toInt()
-            Session(socket)
+            Session(socket, scope) { current, kind, payload -> sendEncrypted(current, kind, payload) }
         }.getOrElse {
             runCatching { socket.close() }
             dialDeviceId?.let(reconnect::dialEnded)
@@ -3385,7 +3388,7 @@ class PairingCoordinator(
         dialFinished(current)
         val deviceId = registry.remove(current)
         when {
-            deviceId != null -> deviceDisconnected(deviceId, reason)
+            deviceId != null -> deviceDisconnected(deviceId, reason, current.agentSessionToken)
             pairingSession === current -> {
                 if (result.exceptionOrNull() != null) BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING disconnected before confirmation")
                 manualPairingEnded(current)
@@ -3723,12 +3726,7 @@ class PairingCoordinator(
                 current.close()
             }
             "features.update" -> receiveFeatureState(current, message)
-            dev.bridgey.android.agents.AgentKinds.HELLO, dev.bridgey.android.agents.AgentKinds.GRANT_REQUEST,
-            dev.bridgey.android.agents.AgentKinds.NOTIFY_POST, dev.bridgey.android.agents.AgentKinds.ASK_REQUEST,
-            dev.bridgey.android.agents.AgentKinds.ASK_CANCEL, dev.bridgey.android.agents.AgentKinds.ASK_STATUS,
-            dev.bridgey.android.agents.AgentKinds.CLIPBOARD_REQUEST, dev.bridgey.android.agents.AgentKinds.CODES_QUERY,
-            dev.bridgey.android.agents.AgentKinds.CODES_CANCEL, dev.bridgey.android.agents.AgentKinds.CODES_DETECTED,
-            -> receiveAgentMessage(current, message)
+            in dev.bridgey.android.agents.AGENT_TO_PHONE_KINDS -> receiveAgentMessage(current, message)
             dev.bridgey.android.agents.AgentKinds.CODES_FOUND, dev.bridgey.android.agents.AgentKinds.AGENTS_GRANT_SET ->
                 receiveMirrorMessage(current, message)
             "clipboard.update", "clipboard.rich" -> {
@@ -4687,6 +4685,7 @@ class PairingCoordinator(
                 BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT duplicate session replaced peerId=${current.remoteDeviceId.take(8)}")
                 // "stale": the old session had gone silent, so the new one won whichever side dialled it.
                 diagnostics.record("transport", "duplicate_replaced", device = current.remoteDeviceId, detail = if (stale(it)) "stale" else null)
+                if (it.agent) agents.sessionEnded(it.remoteDeviceId, it.agentSessionToken)
                 it.dropReason = "replaced"
                 it.close()
                 // The registry already gave this device to the new session, so the old one's close finds nothing to
@@ -4850,7 +4849,7 @@ class PairingCoordinator(
             publish()
             if (!current.agentStarted) {
                 current.agentStarted = true
-                agents.sessionStarted(deviceId)
+                agents.sessionStarted(deviceId, current.agentSessionToken)
             }
             if (connectAvailable(deviceId)) sendConnectAddresses(current)
             return
@@ -5179,7 +5178,17 @@ class PairingCoordinator(
     /** The session layer for [agents]: encrypted sends, who is connected, names and routes. */
     private inner class AgentLink : dev.bridgey.android.agents.AgentTransport {
         override fun send(deviceId: String, kind: String, payload: ByteArray): Boolean =
-            registry.session(deviceId)?.let { sendEncrypted(it, kind, payload) } == true
+            registry.withSession(deviceId) { it?.enqueueAgentReply(kind, payload) == true }
+
+        override fun currentSessionToken(deviceId: String): String? = registry.session(deviceId)?.agentSessionToken
+
+        override fun sendIfCurrent(deviceId: String, sessionToken: String, kind: String, payload: ByteArray): Boolean =
+            registry.withSession(deviceId) { current ->
+                current?.takeIf { it.agentSessionToken == sessionToken }?.enqueueAgentReply(kind, payload) == true
+            }
+
+        override fun notificationSnapshot(limit: Int): dev.bridgey.android.agents.AgentNotificationsSnapshot =
+            BridgeyNotificationListenerService.agentNotificationSnapshot(limit)
 
         override fun connectedAgents(): List<String> = registry.connectedIds().filter(::isAgent)
 
@@ -5337,7 +5346,7 @@ class PairingCoordinator(
         val messageId = message.messageId ?: return
         if (!current.acceptMessageId(messageId)) return
         val plaintext = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
-        agents.receive(current.remoteDeviceId, message.kind, messageId, plaintext)
+        agents.receive(current.remoteDeviceId, current.agentSessionToken, message.kind, messageId, plaintext)
     }
 
     /** codes.found and agents.grant_set from a Mac that speaks the agents mirror. */
@@ -5614,7 +5623,23 @@ class PairingCoordinator(
         const val MAX_DROPPED_FRAMES = 16
     }
 
-    private class Session(private val socket: Socket) {
+    private class Session(
+        private val socket: Socket,
+        replyScope: CoroutineScope,
+        sendReply: (Session, String, ByteArray) -> Boolean,
+    ) {
+        private val agentReplyLock = Any()
+        private val agentReplyQueue = lazy {
+            AgentSessionOutbox(replyScope, write = { reply -> sendReply(this, reply.kind, reply.payload) }, onFailure = { close() })
+        }
+
+        /** No encryption or socket access here: called under the Hub/registry admission boundary. */
+        fun enqueueAgentReply(kind: String, payload: ByteArray): Boolean = synchronized(agentReplyLock) {
+            if (closed) false else agentReplyQueue.value.enqueue(kind, payload)
+        }
+
+        /** Local generation, never reused even if the peer reuses its protocol session ID. */
+        val agentSessionToken: String = UUID.randomUUID().toString()
         /** Frames of both kinds, read with the reader's own buffer (FastTransfer.kt). */
         val frames = ProtocolStreamReader(socket.getInputStream(), reuseBinaryBuffer = true)
         private val output = java.io.BufferedOutputStream(socket.getOutputStream(), 64 * 1024)
@@ -5809,6 +5834,7 @@ class PairingCoordinator(
         }
 
         private fun write(message: Message): Boolean = synchronized(writeLock) {
+            if (closed) return@synchronized false
             // The phone never pushes its own clipboard, notifications, files, texts or settings to an agent.
             if (agent && !dev.bridgey.android.agents.phoneMaySendToAgent(message.kind)) {
                 BridgeyLogging.w(LogCategory.CONNECTION, "AGENT send refused kind=${message.kind.take(32)}")
@@ -5833,7 +5859,11 @@ class PairingCoordinator(
         }
 
         fun close() {
-            closed = true
+            val outbox = synchronized(agentReplyLock) {
+                closed = true
+                if (agentReplyQueue.isInitialized()) agentReplyQueue.value else null
+            }
+            outbox?.close()
             runCatching { socket.close() }
         }
 

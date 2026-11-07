@@ -263,6 +263,14 @@ final class AgentsMirrorTests: XCTestCase {
         XCTAssertEqual(rows.map(\.detail), [nil, "Nightly passed", "Deploy? \u{00B7} Declined"])
     }
 
+    func testNotificationReadGrantUsesExistingOwnerWindow() {
+        XCTAssertTrue(AgentGrantKey.notifications.grantable)
+        XCTAssertTrue(AgentGrantKey.notifications.changeableFromMac)
+        XCTAssertNil(AgentsMirrorWire.grantSet(requestId: UUID().uuidString, deviceId: "server", key: .notifications, on: true, window: nil))
+        XCTAssertNotNil(AgentsMirrorWire.grantSet(requestId: UUID().uuidString, deviceId: "server", key: .notifications, on: true, window: .oneHour))
+        XCTAssertTrue(AgentActivityEntry.actions.contains("notifications.read"))
+    }
+
     func testGrantStateWords() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!

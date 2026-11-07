@@ -532,6 +532,7 @@ private fun auditTitle(action: String): String = when (action) {
     AuditAction.CLIPBOARD_SET -> stringResource(R.string.agent_audit_clipboard_set)
     AuditAction.CLIPBOARD_REQUEST -> stringResource(R.string.agent_audit_clipboard_request)
     AuditAction.FILES_RECEIVE -> stringResource(R.string.agent_audit_files_receive)
+    AuditAction.NOTIFICATIONS_READ -> stringResource(R.string.agent_audit_notifications_read)
     AuditAction.CODES_READ -> stringResource(R.string.agent_audit_codes_read)
     AuditAction.CODES_DETECT -> stringResource(R.string.agent_audit_codes_detect)
     AuditAction.FORGET -> stringResource(R.string.agent_audit_forget)

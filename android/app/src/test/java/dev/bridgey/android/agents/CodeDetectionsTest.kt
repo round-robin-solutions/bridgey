@@ -52,7 +52,7 @@ class CodeDetectionsTest {
 
     @Test fun detectCodesIsSetOnlyOnThePhone() {
         assertFalse(grantSettableFromMac(AgentGrant.CODES_DETECT))
-        assertFalse(grantSettableFromMac(AgentGrant.NOTIFICATIONS))
+        assertTrue("notification reads follow the other supported read grants", grantSettableFromMac(AgentGrant.NOTIFICATIONS))
         assertTrue(grantSettableFromMac(AgentGrant.CODES))
     }
 

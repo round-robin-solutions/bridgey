@@ -17,13 +17,13 @@ internal class CachedCode(
     val source: CodeSource,
     val app: String,
     val postedAt: Long,
-    /** When this phone first heard of it (its 15 minutes run from here or [postedAt], whichever is later). */
+    /** Phone-local monotonic time when first received; source timestamps never extend its lifetime. */
     val heardAt: Long,
     val via: LinkedHashSet<String>,
 )
 
 /** A query held until a matching newer code arrives or its wait ends. */
-data class HeldQuery(val deviceId: String, val query: CodesQuery, val heldAt: Long)
+data class HeldQuery(val deviceId: String, val sessionToken: String, val query: CodesQuery, val heldAt: Long)
 
 /** What answering a query gives: the codes for codes.result, and what the audit and codes.read get (never the code). */
 data class CodesAnswer(val codes: List<CodeOut>) {
@@ -35,7 +35,12 @@ data class CodesAnswer(val codes: List<CodeOut>) {
  * The codes broker: codes from the Macs' `codes.found`, kept in memory only (15 minutes, at most 50), folded by
  * serviceKey and code, and answered to agents with Read codes. Codes are never written to disk, logs or diagnostics.
  */
-class CodesBroker(private val clock: () -> Long = System::currentTimeMillis) {
+class CodesBroker(private val clock: () -> Long, private val freshnessClock: () -> Long) {
+    constructor() : this(System::currentTimeMillis, { android.os.SystemClock.elapsedRealtime() })
+
+    /** One injected clock keeps existing deterministic callers simple. Production uses a monotonic freshness clock. */
+    constructor(clock: () -> Long) : this(clock, clock)
+
     private val codes = ArrayList<CachedCode>()
     private val held = ArrayList<HeldQuery>()
 
@@ -44,12 +49,13 @@ class CodesBroker(private val clock: () -> Long = System::currentTimeMillis) {
     /** Adds a code; returns the held queries it now answers (removed from the held list). */
     @Synchronized fun add(found: CodeFound): List<HeldQuery> {
         val now = clock()
-        prune(now)
+        val receivedAt = freshnessClock()
+        prune(receivedAt)
         val existing = codes.firstOrNull { it.serviceKey.equals(found.serviceKey, ignoreCase = true) && it.code == found.code }
         if (existing != null) {
             existing.via += via(found)
         } else {
-            codes += CachedCode(found.code, found.service, found.serviceKey, found.source, found.app, found.postedAt, now, linkedSetOf(via(found)))
+            codes += CachedCode(found.code, found.service, found.serviceKey, found.source, found.app, found.postedAt, receivedAt, linkedSetOf(via(found)))
             if (codes.size > CODE_KEEP_MAX) {
                 codes.sortByDescending { it.postedAt }
                 while (codes.size > CODE_KEEP_MAX) codes.removeAt(codes.lastIndex)
@@ -61,7 +67,7 @@ class CodesBroker(private val clock: () -> Long = System::currentTimeMillis) {
     }
 
     private fun prune(now: Long) {
-        codes.removeAll { now - maxOf(it.postedAt, it.heardAt) >= CODE_KEEP_MILLIS }
+        codes.removeAll { now - it.heardAt >= CODE_KEEP_MILLIS }
     }
 
     private fun matching(query: CodesQuery, now: Long): List<CachedCode> = codes.filter { code ->
@@ -73,7 +79,7 @@ class CodesBroker(private val clock: () -> Long = System::currentTimeMillis) {
     /** Newest first, with latest and replaced per service; at most 20. Empty when nothing matches. */
     @Synchronized fun answer(query: CodesQuery): CodesAnswer {
         val now = clock()
-        prune(now)
+        prune(freshnessClock())
         val newestByService = codes.groupBy { it.serviceKey.lowercase() }.mapValues { (_, list) -> list.maxOf { it.postedAt } }
         val matched = matching(query, now).sortedByDescending { it.postedAt }.map { code ->
             val latest = newestByService[code.serviceKey.lowercase()] == code.postedAt
@@ -84,28 +90,31 @@ class CodesBroker(private val clock: () -> Long = System::currentTimeMillis) {
     }
 
     /** Holds [query] for its wait; false when [deviceId] already holds [CODES_HELD_MAX]. */
-    @Synchronized fun hold(deviceId: String, query: CodesQuery): Boolean {
-        if (held.count { it.deviceId == deviceId } >= CODES_HELD_MAX) return false
+    @Synchronized fun hold(deviceId: String, sessionToken: String, query: CodesQuery): Boolean {
+        // Replacing a query at capacity must not consume a third slot or retain its old session owner.
+        if (held.count { it.deviceId == deviceId && it.query.queryId != query.queryId } >= CODES_HELD_MAX) return false
         held.removeAll { it.deviceId == deviceId && it.query.queryId == query.queryId }
-        held += HeldQuery(deviceId, query, clock())
+        held += HeldQuery(deviceId, sessionToken, query, clock())
         return true
     }
 
     /** Takes a held query out (its wait ended, codes.cancel, or the agent left); null when not held. */
-    @Synchronized fun release(deviceId: String, queryId: String): HeldQuery? =
-        held.firstOrNull { it.deviceId == deviceId && it.query.queryId == queryId }?.also { held.remove(it) }
+    @Synchronized fun release(deviceId: String, sessionToken: String, queryId: String): HeldQuery? =
+        held.firstOrNull { it.deviceId == deviceId && it.sessionToken == sessionToken && it.query.queryId == queryId }?.also { held.remove(it) }
 
-    @Synchronized fun releaseAll(deviceId: String): List<HeldQuery> = held.filter { it.deviceId == deviceId }.also { held.removeAll(it.toSet()) }
+    @Synchronized fun releaseAll(deviceId: String, sessionToken: String? = null): List<HeldQuery> =
+        held.filter { it.deviceId == deviceId && (sessionToken == null || it.sessionToken == sessionToken) }.also { held.removeAll(it.toSet()) }
 
     @Synchronized fun heldCount(deviceId: String): Int = held.count { it.deviceId == deviceId }
 
-    /** Forgets every code (Codes turned off for every agent, or Bridgey reset). */
-    @Synchronized fun clear() {
+    /** Forgets every code and pending read (Codes turned off for every agent, or Bridgey reset). */
+    @Synchronized fun clear(): List<HeldQuery> {
         codes.clear()
+        return held.toList().also { held.clear() }
     }
 
     @Synchronized fun size(): Int {
-        prune(clock())
+        prune(freshnessClock())
         return codes.size
     }
 }

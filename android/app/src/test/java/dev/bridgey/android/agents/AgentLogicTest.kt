@@ -66,10 +66,14 @@ class AgentLogicTest {
         assertFalse("nothing changed", grants.set("agent", AgentGrant.FILES, on = false, window = null))
     }
 
-    @Test fun notificationsCannotBeGranted() {
+    @Test fun notificationReadsNeedTheirOwnGrant() {
         val grants = book()
-        assertFalse(grants.set("agent", AgentGrant.NOTIFICATIONS, on = true, window = GrantWindow.FOREVER))
         assertFalse(grants.isOn("agent", AgentGrant.NOTIFICATIONS))
+        grants.set("agent", AgentGrant.NOTIFY, on = true, window = GrantWindow.FOREVER)
+        assertFalse("sending notices is not reading them", grants.isOn("agent", AgentGrant.NOTIFICATIONS))
+        assertTrue(grants.set("agent", AgentGrant.NOTIFICATIONS, on = true, window = GrantWindow.FOREVER))
+        assertTrue(grants.isOn("agent", AgentGrant.NOTIFICATIONS))
+        assertFalse(grants.isOn("other", AgentGrant.NOTIFICATIONS))
         assertFalse("on needs a window", grants.set("agent", AgentGrant.ASK, on = true, window = null))
     }
 
@@ -77,7 +81,7 @@ class AgentLogicTest {
         val grants = book()
         grants.set("agent", AgentGrant.NOTIFY, on = true, window = GrantWindow.FOREVER)
         val marked = grants.markWaiting("agent", listOf(AgentGrant.NOTIFY, AgentGrant.CODES, AgentGrant.NOTIFICATIONS))
-        assertEquals(listOf(AgentGrant.CODES), marked)
+        assertEquals(listOf(AgentGrant.CODES, AgentGrant.NOTIFICATIONS), marked)
         assertEquals(GrantShown.WAITING, grants.views("agent", "").first { it.grant == AgentGrant.CODES }.state)
         assertFalse(grants.isOn("agent", AgentGrant.CODES))
         now += GRANT_WAITING_MILLIS
@@ -205,20 +209,96 @@ class AgentLogicTest {
         assertEquals(CODES_RESULT_MAX, broker.answer(query()).codes.size)
     }
 
+    @Test fun futureSourceTimestampCannotExtendPhoneRetention() {
+        var elapsed = 0L
+        val broker = CodesBroker({ now }, { elapsed })
+        val future = now + 365 * 24 * hour
+        broker.add(found("482913", "HDFC Bank", future))
+        assertEquals("source metadata is preserved", future, broker.answer(query()).codes.single().postedAt)
+        elapsed = CODE_KEEP_MILLIS - 1
+        assertEquals(1, broker.size())
+        elapsed++
+        assertTrue(broker.answer(query()).codes.isEmpty())
+    }
+
+    @Test fun phoneClockRollbackCannotExtendRetention() {
+        var elapsed = 100L
+        val broker = CodesBroker({ now }, { elapsed })
+        broker.add(found("482913", "HDFC Bank", now))
+        now -= 24 * hour
+        elapsed += CODE_KEEP_MILLIS
+        assertEquals(0, broker.size())
+    }
+
+    @Test fun duplicateProvenanceCannotRefreshTheFirstArrival() {
+        var elapsed = 0L
+        val broker = CodesBroker({ now }, { elapsed })
+        val posted = now
+        broker.add(found("482913", "HDFC Bank", posted))
+        elapsed = CODE_KEEP_MILLIS - 1
+        broker.add(found("482913", "HDFC Bank", now + hour, CodeSource.EMAIL, "gmail"))
+        val answer = broker.answer(query()).codes.single()
+        assertEquals(posted, answer.postedAt)
+        assertEquals(listOf("sms", "email:gmail"), answer.via)
+        elapsed++
+        assertEquals(0, broker.size())
+    }
+
+    @Test fun freshCodeCanBeReadOnMultipleServersWithoutConsumption() {
+        val broker = CodesBroker { now }
+        broker.add(found("482913", "HDFC Bank", now))
+        val ovh = query(since = 10 * 60_000L)
+        val contabo = ovh.copy(queryId = "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d32")
+        val bluehost = ovh.copy(queryId = "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d33")
+        assertEquals(listOf("482913"), broker.answer(ovh).codes.map { it.code })
+        assertEquals(listOf("482913"), broker.answer(contabo).codes.map { it.code })
+        assertEquals(listOf("482913"), broker.answer(bluehost).codes.map { it.code })
+        now += 10 * 60_000L + 1
+        assertTrue("the CLI's ten-minute window still applies", broker.answer(ovh).codes.isEmpty())
+        assertEquals("the retained cache remains non-consuming", 1, broker.size())
+    }
+
     @Test fun heldQueries() {
         val broker = CodesBroker { now }
         val waiting = query(service = "HDFC Bank", wait = 120_000).copy(queryId = "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d31")
-        assertTrue(broker.hold("agent", waiting))
-        assertTrue(broker.hold("agent", waiting.copy(queryId = "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d32")))
-        assertFalse("two held per agent", broker.hold("agent", waiting.copy(queryId = "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d33")))
-        assertTrue(broker.hold("other", waiting))
+        assertTrue(broker.hold("agent", "session-a", waiting))
+        assertTrue(broker.hold("agent", "session-a", waiting.copy(queryId = "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d32")))
+        assertFalse("two held per agent", broker.hold("agent", "session-a", waiting.copy(queryId = "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d33")))
+        assertTrue("replacement remains possible at capacity", broker.hold("agent", "session-a", waiting))
+        assertTrue(broker.hold("other", "session-b", waiting))
         assertTrue("another service answers nothing", broker.add(found("555123", "Google", now)).isEmpty())
         val answered = broker.add(found("482913", "HDFC Bank", now))
         assertEquals(3, answered.size)
         assertEquals(0, broker.heldCount("agent"))
-        assertTrue(broker.hold("agent", waiting))
-        assertNotNull(broker.release("agent", waiting.queryId))
-        assertNull(broker.release("agent", waiting.queryId))
+        assertTrue(broker.hold("agent", "session-a", waiting))
+        assertNotNull(broker.release("agent", "session-a", waiting.queryId))
+        assertNull(broker.release("agent", "session-a", waiting.queryId))
+    }
+
+    @Test fun heldReadsAreIsolatedByServerAndAuthenticatedSession() {
+        val broker = CodesBroker { now }
+        val waiting = query(wait = 120_000)
+        assertTrue(broker.hold("ovh", "ovh-old", waiting))
+        assertTrue(broker.hold("contabo", "contabo-current", waiting))
+        assertTrue(broker.hold("ovh", "ovh-current", waiting))
+        assertNull("old timers cannot release a replacement session's read", broker.release("ovh", "ovh-old", waiting.queryId))
+        assertTrue(broker.releaseAll("ovh", "ovh-old").isEmpty())
+        assertNull("one server cannot cancel another's read", broker.release("contabo", "ovh-current", waiting.queryId))
+        assertEquals(listOf("ovh-current"), broker.releaseAll("ovh").map { it.sessionToken })
+        val answered = broker.add(found("482913", "HDFC Bank", now))
+        assertEquals(listOf("contabo"), answered.map { it.deviceId })
+        assertEquals(listOf("contabo-current"), answered.map { it.sessionToken })
+    }
+
+    @Test fun clearingCodesAlsoForgetsPendingReads() {
+        val broker = CodesBroker { now }
+        val waiting = query(wait = 120_000)
+        broker.add(found("482913", "HDFC Bank", now))
+        assertTrue(broker.hold("ovh", "session", waiting))
+        assertEquals(listOf("ovh"), broker.clear().map { it.deviceId })
+        assertEquals(0, broker.size())
+        assertEquals(0, broker.heldCount("ovh"))
+        assertTrue(broker.add(found("119204", "HDFC Bank", now)).isEmpty())
     }
 
     // MARK: activity

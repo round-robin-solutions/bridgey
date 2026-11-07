@@ -46,6 +46,7 @@ pub const OWN_FEATURES: &[(&str, bool)] = &[
     ("agent_codes_draft1", true),
     // Detect codes: true only while this build has the model runner and a model is installed (detect.rs).
     ("codes_detect_draft1", false),
+    ("agent_notifications_draft1", true),
 ];
 
 /// Grant name (as `bridgey grants` shows it) to the phone's feature key and the words the phone uses.
@@ -59,7 +60,7 @@ pub const GRANTS: &[(&str, &str, &str, &str)] = &[
     ("battery", "battery", "See battery", "Level and charging"),
     ("codes", "agent_codes_draft1", "Read codes", "One-time codes your Mac finds in messages and mail"),
     ("codes_detect", "codes_detect_draft1", "Detect codes", "Reads your code messages when no Mac is reading"),
-    ("notifications", "notifications", "Read your notifications", "Not available yet"),
+    ("notifications", "agent_notifications_draft1", "Read your notifications", "Current notifications allowed by the phone; read only"),
 ];
 
 pub fn grant_wire(name: &str) -> Option<&'static str> {
@@ -794,6 +795,7 @@ impl Daemon {
             "find.started" | "find.stopped" => p["alertId"].as_str().map(|i| format!("find:{i}")),
             "clipboard.response" => p["requestId"].as_str().map(|i| format!("cliprq:{i}")),
             "codes.result" => p["queryId"].as_str().map(|i| format!("codes:{i}")),
+            "agent.notifications.result" => p["queryId"].as_str().map(|i| format!("notifications:{i}")),
             k if k.starts_with("files.") => m.transfer_id.as_ref().map(|t| format!("xfer:{t}")),
             _ => None,
         };

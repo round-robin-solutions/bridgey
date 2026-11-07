@@ -61,12 +61,13 @@ class AgentClipboardActivity : Activity() {
         val requestId = intent.getStringExtra(AgentNotifier.EXTRA_ID)
         val app = application as? BridgeyApplication
         if (deviceId == null || requestId == null || app == null || !app.isPrimaryUser) return finish()
-        val clip = runCatching { getSystemService(ClipboardManager::class.java).primaryClip }.getOrNull()
-        val item = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)
-        val text = item?.coerceToText(this)?.toString().orEmpty()
-        val html = item?.htmlText
-        val hub = app.pairing.agents
-        Thread { hub.clipboardSend(deviceId, requestId, text, html) }.start()
+        // The owner may have revoked the grant or replaced the connection while this action was waiting.
+        // Validate before reading, then the Hub revalidates before sending on its IO scope.
+        app.pairing.agents.clipboardReadAndSend(deviceId, requestId) {
+            val clip = runCatching { getSystemService(ClipboardManager::class.java).primaryClip }.getOrNull()
+            val item = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)
+            item?.coerceToText(this)?.toString().orEmpty() to item?.htmlText
+        }
         Handler(Looper.getMainLooper()).post { finish() }
     }
 
