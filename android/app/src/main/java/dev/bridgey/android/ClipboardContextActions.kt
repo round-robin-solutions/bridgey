@@ -53,14 +53,22 @@ internal fun classifyClipboardContext(text: String, sensitive: Boolean = false):
 private val EMAIL = Regex("[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+")
 private val PHONE = Regex("\\+?[0-9(][0-9 ()\\-.]*[0-9)]")
 
-/** No coercion or provider I/O: contextual actions accept one text item and respect sensitive clips. */
+/** No coercion or provider I/O: one text/web-URI item, respecting sensitive clips. */
 internal fun readClipboardContext(context: Context): LocalClip.Text? = runCatching {
     val clipboard = context.getSystemService(ClipboardManager::class.java)
     val clip = clipboard.primaryClip?.takeIf { it.itemCount == 1 } ?: return@runCatching null
     val item = clip.getItemAt(0)
-    if (item.uri != null || item.intent != null) return@runCatching null
-    val source = item.text?.takeIf { it.length <= 8_192 } ?: return@runCatching null
-    val text = source.toString()
+    if (item.intent != null) return@runCatching null
+    val uri = item.uri
+    val text = if (uri != null) {
+        // A raw web URI needs no provider access. Mixed payloads and content/file URIs
+        // stay with Send rather than being coerced into a local destination.
+        if (item.text != null || uri.scheme?.lowercase() !in setOf("http", "https")) return@runCatching null
+        uri.toString().takeIf { it.length <= 8_192 } ?: return@runCatching null
+    } else {
+        val source = item.text?.takeIf { it.length <= 8_192 } ?: return@runCatching null
+        source.toString()
+    }
     LocalClip.Text(text, null, clip.description.isMarkedSensitive())
 }.getOrNull()
 

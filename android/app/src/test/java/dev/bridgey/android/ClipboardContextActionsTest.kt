@@ -150,6 +150,8 @@ class ClipboardContextActionsTest {
         assertEquals("https://example.com", readClipboardContext(context)?.text)
         clipboard.setPrimaryClip(ClipData.newRawUri("fixture", Uri.parse("content://fixture/private")))
         assertNull(readClipboardContext(context))
+        clipboard.setPrimaryClip(ClipData.newRawUri("fixture", Uri.parse("https://example.com/raw-link")))
+        assertEquals("https://example.com/raw-link", readClipboardContext(context)?.text)
         clipboard.setPrimaryClip(ClipData.newPlainText("fixture", "https://example.com").apply {
             addItem(ClipData.Item("other"))
         })
