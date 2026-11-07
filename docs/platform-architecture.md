@@ -47,7 +47,7 @@ public APIs do not permit input hosting.
 
 | Platform | Capture and input adapter | Material boundary |
 | --- | --- | --- |
-| Android | MediaProjection/MediaCodec; explicitly enabled AccessibilityService for input | Fresh OS capture consent; secure content remains protected. API 26–32 typing needs a separate keyboard design, rather than silent UI-tree access. |
+| Android | MediaProjection/MediaCodec; explicitly enabled AccessibilityService for input | Fresh OS capture consent; secure content remains protected. API 26–32 retain gesture/navigation support; remote typing requires API 33+ without adding UI-tree access. |
 | macOS | ScreenCaptureKit/VideoToolbox; existing Accessibility/CGEvent input adapter | Screen Recording and Accessibility are separate permissions. Select the source display and map its coordinates explicitly. |
 | Windows | Windows.Graphics.Capture or measured DXGI capture; hardware encoder; SendInput | Elevated apps and the secure desktop are subject to Windows integrity restrictions. |
 | Linux | Wayland portals/PipeWire/EIS; separate X11 capture/XTest adapter | Portal consent and persistence depend on the compositor. Do not bypass it or assume X11 behavior on Wayland. |

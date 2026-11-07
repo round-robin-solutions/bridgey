@@ -68,9 +68,10 @@ the current API 26 minimum. Serialize gestures through callbacks: starting a new
 gesture can cancel an existing one, so pointer packets cannot each become a new
 independent gesture. Bound duration/queues and fence late completions after Stop.
 
-API 33+ offers Accessibility InputMethod APIs for focused-editor text. API 26–32
-needs a product choice: gesture/navigation-only initially, or a separately
-user-enabled Bridgey keyboard. Do not silently add `canRetrieveWindowContent`,
+API 33+ offers Accessibility InputMethod APIs for focused-editor text. The user
+chose remote typing on Android 13+ only, while retaining basic compatibility and
+gesture/navigation support on Android 8–12. No older-version keyboard workaround
+is planned for the first release. Do not silently add `canRetrieveWindowContent`,
 read accessibility UI trees, overwrite the clipboard, or enable ADB as a typing
 fallback. The earlier proposed `ACTION_SET_TEXT` fallback did not fit the promise
 of no window-content access and is withdrawn.
