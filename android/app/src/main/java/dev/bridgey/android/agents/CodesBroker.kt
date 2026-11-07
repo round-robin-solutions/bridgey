@@ -36,7 +36,7 @@ data class CodesAnswer(val codes: List<CodeOut>) {
  * serviceKey and code, and answered to agents with Read codes. Codes are never written to disk, logs or diagnostics.
  */
 class CodesBroker(private val clock: () -> Long, private val freshnessClock: () -> Long) {
-    constructor() : this(System::currentTimeMillis, { System.nanoTime() / 1_000_000 })
+    constructor() : this(System::currentTimeMillis, { android.os.SystemClock.elapsedRealtime() })
 
     /** One injected clock keeps existing deterministic callers simple. Production uses a monotonic freshness clock. */
     constructor(clock: () -> Long) : this(clock, clock)

@@ -326,6 +326,18 @@ class AgentHubAuthorizationTest {
         assertEquals(2, link.delivered.size)
     }
 
+    @Test fun productionBrokerExpiresCodesAcrossAndroidDeepSleep() {
+        val broker = CodesBroker()
+        val nowMillis = System.currentTimeMillis()
+        broker.add(CodeFound(id(), "654321", "Synthetic", "synthetic", CodeSource.SMS, "messages", "fixture", nowMillis))
+        val query = CodesQuery(id(), null, 3_600_000, null, 0, false)
+        assertEquals(1, broker.answer(query).codes.size)
+        val uptime = android.os.SystemClock.uptimeMillis()
+        org.robolectric.shadows.ShadowSystemClock.simulateDeepSleep(java.time.Duration.ofMinutes(20))
+        assertEquals("sleep does not advance the awake clock", uptime, android.os.SystemClock.uptimeMillis())
+        assertTrue("retention counts time spent asleep", broker.answer(query).codes.isEmpty())
+    }
+
     private fun notifications(device: String = "a") = receive(device, AgentKinds.NOTIFICATIONS_QUERY, JSONObject().put("queryId", id()).put("limit", 5))
     private fun notificationSnapshot() = AgentNotificationsSnapshot(true, listOf(
         AgentNotification("synthetic-id", "example.package", "Synthetic app", "Private synthetic title", "Private synthetic body", now),

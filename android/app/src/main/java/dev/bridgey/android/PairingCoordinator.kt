@@ -3726,12 +3726,7 @@ class PairingCoordinator(
                 current.close()
             }
             "features.update" -> receiveFeatureState(current, message)
-            dev.bridgey.android.agents.AgentKinds.HELLO, dev.bridgey.android.agents.AgentKinds.GRANT_REQUEST,
-            dev.bridgey.android.agents.AgentKinds.NOTIFY_POST, dev.bridgey.android.agents.AgentKinds.ASK_REQUEST,
-            dev.bridgey.android.agents.AgentKinds.ASK_CANCEL, dev.bridgey.android.agents.AgentKinds.ASK_STATUS,
-            dev.bridgey.android.agents.AgentKinds.CLIPBOARD_REQUEST, dev.bridgey.android.agents.AgentKinds.CODES_QUERY,
-            dev.bridgey.android.agents.AgentKinds.CODES_CANCEL, dev.bridgey.android.agents.AgentKinds.CODES_DETECTED,
-            -> receiveAgentMessage(current, message)
+            in dev.bridgey.android.agents.AGENT_TO_PHONE_KINDS -> receiveAgentMessage(current, message)
             dev.bridgey.android.agents.AgentKinds.CODES_FOUND, dev.bridgey.android.agents.AgentKinds.AGENTS_GRANT_SET ->
                 receiveMirrorMessage(current, message)
             "clipboard.update", "clipboard.rich" -> {

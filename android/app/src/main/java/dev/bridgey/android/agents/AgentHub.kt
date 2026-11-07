@@ -72,7 +72,7 @@ class AgentHub(
     private val scope: CoroutineScope,
     private val transport: AgentTransport,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val freshnessClock: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val freshnessClock: () -> Long = { android.os.SystemClock.elapsedRealtime() },
 ) {
     private val directory = File(context.noBackupFilesDir, "agents")
     private val preferences = context.getSharedPreferences("bridgey.agents", Context.MODE_PRIVATE)
