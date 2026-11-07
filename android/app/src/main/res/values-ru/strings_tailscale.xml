@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tailscale_title">Использовать Tailscale</string>
+    <string name="tailscale_installed">Tailscale установлен. Откройте его, чтобы войти или проверить подключение.</string>
+    <string name="tailscale_not_installed">Установите официальное приложение Tailscale для подключения через вашу частную сеть.</string>
+    <string name="tailscale_unknown">Откройте Tailscale, чтобы проверить настройку. Bridgey не может узнать статус входа в Android.</string>
+    <string name="tailscale_open_failed">Не удалось открыть Tailscale или страницу загрузки. Проверьте наличие браузера и повторите попытку.</string>
+    <string name="tailscale_download_opened">Не удалось открыть приложение Tailscale, поэтому открыта официальная страница загрузки. Установите или включите Tailscale и проверьте снова.</string>
+    <string name="tailscale_setup_steps">Подключите оба устройства к одной сети Tailscale. На Mac выберите устройство в разделе «В вашей сети Tailscale». Здесь введите его имя или адрес Tailscale ниже и сравните коды сопряжения.</string>
+    <string name="tailscale_settings_steps">Tailscale — ещё один способ подключения; подключение Bridgey выше работает и без него. Войдите в одну сеть Tailscale на обоих устройствах, затем выберите «Добавить устройство» и укажите имя или адрес Tailscale.</string>
+    <string name="tailscale_open">Открыть Tailscale</string>
+    <string name="tailscale_install">Установить Tailscale</string>
+    <string name="tailscale_check_again">Проверить снова</string>
+</resources>

@@ -42,6 +42,11 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.github.takahirom.roborazzi.captureScreenRoboImage
+import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
+import dev.bridgey.android.PairDialog
+import dev.bridgey.android.tailscale.TailscaleSetupState
+import dev.bridgey.android.tailscale.TailscaleSetupActions
 import dev.bridgey.android.BridgeyFeature
 import dev.bridgey.android.ClipboardContextKind
 import dev.bridgey.android.clipboardNotificationContent
@@ -107,7 +112,8 @@ class AttachScreenshotTest {
 
     private fun theme() = if (dark()) "dark" else "light"
 
-    private fun capture(name: String, content: @Composable () -> Unit) {
+    @OptIn(ExperimentalRoborazziApi::class)
+    private fun capture(name: String, dialog: Boolean = false, content: @Composable () -> Unit) {
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.enableEdgeToEdge()
@@ -125,7 +131,8 @@ class AttachScreenshotTest {
             }
             repeat(4) { shadowOf(Looper.getMainLooper()).idle() }
             val directory = System.getProperty("bridgey.screenshots") ?: "build/outputs/roborazzi"
-            scenario.onActivity { it.window.decorView.captureRoboImage("$directory/$name.png") }
+            if (dialog) captureScreenRoboImage("$directory/$name.png")
+            else scenario.onActivity { it.window.decorView.captureRoboImage("$directory/$name.png") }
         }
     }
 
@@ -355,6 +362,45 @@ class AttachScreenshotTest {
     @Test fun settingsLight() = settingsFiles()
 
     @Test @Config(qualifiers = "+night") fun settingsDark() = settingsFiles()
+
+    private fun tailscalePairing(installed: Boolean, name: String) = capture("android-tailscale-pair-$name-${theme()}", dialog = true) {
+        Box(Modifier.fillMaxSize().background(BridgeyTheme.colors.background)) {
+            PairDialog(
+                peers = emptyList(), trustedIds = emptySet(), connectedIds = emptySet(),
+                onPair = {}, onDismiss = {}, onAddress = {},
+                tailscale = TailscaleSetupState(installed = installed), tailscaleActions = TailscaleSetupActions(),
+                scrollState = androidx.compose.foundation.rememberScrollState(Int.MAX_VALUE),
+            )
+        }
+    }
+
+    @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi")
+    fun tailscalePairLight390() = tailscalePairing(true, "installed")
+
+    @Test @Config(qualifiers = "w390dp-h844dp-port-night-xxhdpi")
+    fun tailscalePairDark390() = tailscalePairing(false, "missing")
+
+    @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi")
+    fun tailscalePairMissingLight390() = tailscalePairing(false, "missing")
+
+    @Test @Config(qualifiers = "w390dp-h844dp-port-night-xxhdpi")
+    fun tailscalePairInstalledDark390() = tailscalePairing(true, "installed")
+
+    @Test @Config(qualifiers = "w844dp-h390dp-land-xxhdpi")
+    fun tailscalePairLandscape() = tailscalePairing(true, "landscape")
+
+    private fun tailscaleSettings() = capture("android-tailscale-settings-${theme()}") {
+        SettingsScreen(
+            state = sampleSettingsState(now).copy(
+                connect = ConnectSettingsState(on = false, state = ConnectState.OFF),
+                tailscale = TailscaleSetupState(installed = true),
+            ),
+            actions = SettingsActions(), section = SettingsSection.AWAY,
+        )
+    }
+
+    @Test fun tailscaleSettingsLight() = tailscaleSettings()
+    @Test @Config(qualifiers = "+night") fun tailscaleSettingsDark() = tailscaleSettings()
 
     private fun outgoing(): List<LiveCard> {
         val sending = FolderSnapshot(

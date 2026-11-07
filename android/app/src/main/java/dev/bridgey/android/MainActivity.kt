@@ -19,6 +19,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -52,6 +54,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -759,6 +762,7 @@ private fun BridgeyApp(
     val stack = rememberBackStack(if (showOnboarding) listOf(Route.Home, Route.Setup) else listOf(Route.Home))
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
+    val (tailscaleState, tailscaleActions) = dev.bridgey.android.ui.rememberTailscaleSetup()
     // Setup on screen: Update all devices automatically waits (busy "setup") while Bridgey is in front with it.
     val setupOpen = Route.Setup in stack.entries
     androidx.lifecycle.compose.LifecycleStartEffect(setupOpen) {
@@ -1218,6 +1222,7 @@ private fun BridgeyApp(
                             updateAll = updateAllState,
                             messages = messagesPermissions.state,
                             connect = connectSettingsState(settingsState.connectAway, connectStatus),
+                            tailscale = tailscaleState,
                             developerMenu = developerOn,
                             transferPaths = transferPaths,
                         )
@@ -1318,6 +1323,7 @@ private fun BridgeyApp(
                                 setOn = settings::setConnectAway,
                                 resetIdentity = bridgeyApp::resetConnectIdentity,
                             ),
+                            tailscale = tailscaleActions,
                             focus = FocusSettingsActions(
                                 setShare = settings::setFocusShare,
                                 setFollow = { on ->
@@ -1595,6 +1601,8 @@ private fun BridgeyApp(
                     }.start()
                 }
             },
+            tailscale = tailscaleState,
+            tailscaleActions = tailscaleActions,
         )
     }
 
@@ -1838,6 +1846,9 @@ internal fun PairDialog(
     onInvite: (() -> Unit)? = null,
     /** Pairing over the tailnet: a typed tailnet name or address; null hides the field. */
     onAddress: ((String) -> Unit)? = null,
+    tailscale: dev.bridgey.android.tailscale.TailscaleSetupState? = null,
+    tailscaleActions: dev.bridgey.android.tailscale.TailscaleSetupActions = dev.bridgey.android.tailscale.TailscaleSetupActions(),
+    scrollState: androidx.compose.foundation.ScrollState = rememberScrollState(),
 ) {
     val colors = BridgeyTheme.colors
     val visible = peers.filter { it.deviceIdHint == null || it.deviceIdHint !in connectedIds }
@@ -1851,7 +1862,10 @@ internal fun PairDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.pair_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                Modifier.heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.55f).verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Text(stringResource(R.string.pair_body), style = BridgeyType.bodyText, color = colors.onSurfaceVariant)
                 PairingReadyCard(request, armedSeconds, onAllow, onNotNow, onStop, Modifier.padding(top = 4.dp))
                 if (visible.isEmpty()) {
@@ -1881,7 +1895,10 @@ internal fun PairDialog(
                     }
                 }
                 onInvite?.let { dev.bridgey.android.ui.InviteEntryRow(it, Modifier.padding(top = 8.dp)) }
-                onAddress?.let { pairAddress -> TailnetAddressRow(pairAddress) }
+                onAddress?.let { pairAddress ->
+                    tailscale?.let { dev.bridgey.android.ui.TailscaleSetupGuidance(it, tailscaleActions, Modifier.padding(top = 8.dp)) }
+                    TailnetAddressRow(pairAddress)
+                }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) } },

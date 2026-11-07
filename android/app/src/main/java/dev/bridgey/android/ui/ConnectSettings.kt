@@ -63,6 +63,10 @@ internal fun ConnectAwayPage(state: SettingsState, actions: SettingsActions, lis
         item(key = "connect.how") {
             Note(stringResource(R.string.connect_how), Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp))
         }
+        item(key = "connect.tailscale") {
+            TailscaleSetupGuidance(state.tailscale, actions.tailscale,
+                Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp), forPairing = false)
+        }
         if (connect.on && connect.state != ConnectState.UNAVAILABLE) {
             item(key = "connect.reset") {
                 RowGroup(Modifier.padding(top = 24.dp)) {

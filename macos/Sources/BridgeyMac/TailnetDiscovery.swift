@@ -10,7 +10,7 @@ import Network
  * trusted, and a server paired this way gets nothing on this Mac (BridgeySettings.agentDevices).
  */
 
-struct TailnetPeerInfo: Equatable {
+struct TailnetPeerInfo: Equatable, Sendable {
     let name: String
     let dns: String
     let ips: [String]
@@ -19,6 +19,42 @@ struct TailnetPeerInfo: Equatable {
 
     /// The address to dial: IPv4 first.
     var address: String? { ips.first { !$0.contains(":") } ?? ips.first }
+}
+
+struct TailnetPairTarget: Equatable, Sendable {
+    let host: String
+    let port: Int
+    let name: String
+}
+
+enum TailnetPairing {
+    /// A chosen address never waits for discovery of unrelated devices. Names need only status,
+    /// not a TCP scan of the entire tailnet. Literal addresses outside the tailnet remain refused.
+    static func resolve(_ text: String, peers: @Sendable () async -> [TailnetPeerInfo]) async -> TailnetPairTarget? {
+        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typed.isEmpty else { return nil }
+        var host = typed
+        var port = Int(BonjourDiscovery.defaultPort)
+        if typed.hasPrefix("["), let close = typed.firstIndex(of: "]") {
+            host = String(typed[typed.index(after: typed.startIndex)..<close])
+            guard IPv6Address(host) != nil else { return nil }
+            let suffix = typed[typed.index(after: close)...]
+            if !suffix.isEmpty {
+                guard suffix.first == ":", let value = Int(suffix.dropFirst()) else { return nil }
+                port = value
+            }
+        } else if IPv6Address(typed) == nil, let colon = typed.lastIndex(of: ":") {
+            guard let value = Int(typed[typed.index(after: colon)...]) else { return nil }
+            host = String(typed[..<colon])
+            port = value
+        }
+        guard (1...65_535).contains(port), !host.isEmpty else { return nil }
+        if TailnetStatus.isTailnet(host) { return TailnetPairTarget(host: host, port: port, name: typed) }
+        guard IPv4Address(host) == nil, IPv6Address(host) == nil,
+              !host.contains(":"), !host.contains("["), !host.contains("]"),
+              let peer = TailnetStatus.find(await peers(), name: host), let address = peer.address else { return nil }
+        return TailnetPairTarget(host: address, port: port, name: peer.name)
+    }
 }
 
 enum TailnetStatus {
@@ -77,24 +113,40 @@ enum TailnetStatus {
 
 /// Runs the Tailscale app's command line and knocks on Bridgey's port at each online peer. Off the main thread.
 enum TailnetProbe {
-    private static let binaries = ["/Applications/Tailscale.app/Contents/MacOS/Tailscale", "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale"]
+    static func snapshot(installation: TailscaleInstallation) -> TailscaleSnapshot {
+        guard let executable = installation.executable else {
+            return TailscaleSnapshot(state: installation.application == nil ? .notInstalled : .unavailable)
+        }
+        switch TailscaleStatusCommand.run(executable: executable) {
+        case .output(let data): return TailscaleSnapshot.decode(data)
+        case .unavailable, .timedOut, .outputTooLarge: return TailscaleSnapshot(state: .unavailable)
+        }
+    }
 
-    static func status() -> [TailnetPeerInfo] {
-        guard let binary = binaries.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return [] }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: binary)
-        process.arguments = ["status", "--json"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return [] }
-        // A Tailscale command that hangs is stopped after 5 seconds, so discovery never stalls or piles up processes.
-        let stop = DispatchWorkItem { if process.isRunning { process.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: stop)
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        stop.cancel()
-        process.waitUntilExit()
-        return process.terminationStatus == 0 ? TailnetStatus.parse(data) : []
+    /// All peers are considered, but only eight probes may be in flight at once.
+    static func scan(installation: TailscaleInstallation) async -> TailscaleSnapshot {
+        var result = await Task.detached(priority: .utility) { snapshot(installation: installation) }.value
+        guard result.state == .running else { return result }
+        let addresses = result.peers.filter(\.online).compactMap(\.address)
+        let port = Int(BonjourDiscovery.defaultPort)
+        result.answering = await answering(addresses: addresses) { await answers($0, port: port) }
+        return result
+    }
+
+    static func answering(addresses: [String], limit: Int = 8,
+                          probe: @escaping @Sendable (String) async -> Bool) async -> Set<String> {
+        await withTaskGroup(of: (String, Bool).self) { group in
+            var iterator = addresses.makeIterator()
+            for _ in 0..<max(1, limit) {
+                if let address = iterator.next() { group.addTask { (address, await probe(address)) } }
+            }
+            var found = Set<String>()
+            while let (address, ok) = await group.next() {
+                if ok { found.insert(address) }
+                if let next = iterator.next() { group.addTask { (next, await probe(next)) } }
+            }
+            return found
+        }
     }
 
     /// Whether something accepts a TCP connection there within `timeout` seconds (nothing is sent).

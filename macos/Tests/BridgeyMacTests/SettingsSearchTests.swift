@@ -110,6 +110,15 @@ final class SettingsSearchRegistryTests: XCTestCase {
     private let phoneID = "11111111-1111-1111-1111-111111111111"
     private let tabletID = "22222222-2222-2222-2222-222222222222"
 
+    func testTailscaleLoginSearchFindsBothSetupCards() {
+        let entries = SettingsSearchRegistry.staticEntries
+        let ids = SettingsSearch.search("tailscale login", in: entries.map(\.doc)).map { entries[$0.index].id }
+        XCTAssertTrue(ids.contains("devices.tailscaleSetup"))
+        XCTAssertTrue(ids.contains("away.tailscaleSetup"))
+        let primary = SettingsSearchOutcome.run("tailscale", entries: entries).rows.first?.entry
+        XCTAssertEqual(primary?.id, "away.tailscaleSetup")
+    }
+
     /// Everything on: two phones, an agent, the developer pane, Mac actions with an app and a Shortcut, Focus
     /// following, text messages, Connect away from home in testing mode.
     private var fullModel: SettingsModel {

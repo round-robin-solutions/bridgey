@@ -250,6 +250,8 @@ capability blocks v1.0. See [automation](docs/automation.md),
 Details: [edition](docs/rr-edition.md), [connect anywhere](docs/connect-anywhere.md),
 [email codes](docs/codes-from-email.md), [agent CLI setup](docs/agent-cli-setup.md) and
 [codes without a Mac and tailnet pairing](docs/mesh-and-codes.md#phase-2-2026-11-04).
+For an existing Tailscale network, follow the
+[Tailscale setup and pairing guide](docs/tailscale-setup.md).
 The default CLI package does not include the optional local detection model/runner.
 
 ### v1.0.0 — stable local companion

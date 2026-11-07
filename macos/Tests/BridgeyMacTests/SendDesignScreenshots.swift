@@ -88,6 +88,28 @@ final class SendDesignScreenshots: XCTestCase {
     // MARK: Renders
 
     /// Source recovery states retained by the existing owned Mac screenshot task.
+    /// Entirely synthetic Tailscale setup; no external app, CLI, account or preference reads.
+    @MainActor func testTailscaleSetupStates() throws {
+        for state in TailscaleSetupState.allCases {
+            for scheme in [ColorScheme.light, .dark] {
+                var model = SettingsModel()
+                model.connect.available = true
+                model.tailscaleSetup = TailscaleSetupDisplay(state: state, hasApplication: state != .notInstalled,
+                                                           hasCommandLine: state != .notInstalled, refreshing: state == .checking)
+                let suffix = "\(state.rawValue)-\(scheme == .dark ? "dark" : "light")"
+                let pane = VStack(alignment: .leading, spacing: 16) {
+                    ConnectAwayPane(model: model, actions: SettingsActions())
+                }.frame(width: 620).padding(24).frame(width: 1440, height: 900)
+                try write(pane, scheme: scheme, name: "mac-tailscale-1440-\(suffix)", padding: 0)
+                if state == .notInstalled || state == .running || state == .unavailable {
+                    let component = TailscaleSetupCard(display: model.tailscaleSetup, actions: SettingsActions())
+                        .frame(width: 342).padding(24).frame(width: 390, height: 844, alignment: .top)
+                    try write(component, scheme: scheme, name: "mac-tailscale-390-\(suffix)", padding: 0)
+                }
+            }
+        }
+    }
+
     @MainActor func testMessagesPhoneSources() throws {
         for connectedPhone in [false, true] {
             for scheme in [ColorScheme.light, .dark] {

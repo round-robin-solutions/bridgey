@@ -28,7 +28,7 @@
 "connect.debug.url" = "Адрес сервиса";
 "connect.detail" = "Связь с вашими устройствами из любой сети. Они соединяются напрямую, когда это возможно, или через ретранслятор Round Robin, который видит только зашифрованные данные. Без учётной записи.";
 "connect.open" = "Открыть";
-"connect.privacy" = "Ретрансляторы и сервис Round Robin никогда не видят имён, файлов и сообщений. Если выключить, связь вне дома прекратится; в той же сети Wi-Fi всё работает.";
+"connect.privacy" = "Ретрансляторы и сервис Round Robin не видят имён, файлов и сообщений. Выключение отключает интернет-сервис Bridgey. Устройства в одной сети Wi-Fi или с отдельным подключением Tailscale по-прежнему могут соединяться.";
 "connect.relay.bom" = "Мумбаи";
 "connect.relay.cf" = "Cloudflare";
 "connect.relay.sin" = "Сингапур";
@@ -54,13 +54,13 @@
 "devices.none" = "Пока нет связанных устройств";
 "devices.none.detail" = "Свяжите устройство ниже. На обоих экранах появится код; подтверждайте, только если он совпадает.";
 "devices.pair" = "Связать новое устройство";
-"devices.pair.detail" = "Откройте Bridgey на телефоне в той же сети Wi-Fi, что и этот Mac. Затем на обоих экранах появится один и тот же код.";
+"devices.pair.detail" = "Откройте Bridgey на обоих устройствах в одной сети Wi-Fi или Tailscale. Подтверждайте сопряжение, только если коды совпадают.";
 "devices.pair.address" = "Сопряжение по имени или адресу в Tailscale";
 "devices.pair.address.detail" = "Для устройства в вашей сети Tailscale. Сначала нажмите там «Разрешить сопряжение».";
 "devices.pair.address.placeholder" = "work или 100.64.0.10";
 "devices.trustAsMine" = "Доверять как своему устройству";
 "devices.restricted.detail" = "Сопряжено через Tailscale или это сервер: с ним ничего не делится, пока вы не доверите ему.";
-"devices.pair.searching" = "Поиск устройств в этой сети…";
+"devices.pair.searching" = "Поиск устройств Bridgey в Wi-Fi и Tailscale…";
 "devices.permissions.intro" = "Что этот Mac передаёт на %@.";
 "drop.detail" = "Это окно останется открытым при переходе в Finder.";
 "drop.hint" = "Перетащите файлы или папки, чтобы по очереди отправить их на подключенное Android-устройство";
@@ -1683,3 +1683,26 @@
 "settings.search.closest" = "Похожие варианты";
 "settings.search.checkUpdates" = "Проверить обновления";
 "settings.search.version" = "Версия";
+
+/* External Tailscale setup; Bridgey never handles the account or VPN configuration. */
+"tailscale.status.checking" = "Проверка Tailscale…";
+"tailscale.status.notInstalled" = "Настройте Tailscale";
+"tailscale.status.needsLogin" = "Войдите в Tailscale";
+"tailscale.status.stopped" = "Tailscale отключён";
+"tailscale.status.needsApproval" = "Ожидается одобрение устройства";
+"tailscale.status.starting" = "Tailscale подключается…";
+"tailscale.status.running" = "Tailscale подключён";
+"tailscale.status.unavailable" = "Не удалось проверить Tailscale";
+"tailscale.detail.checking" = "Проверяем официальное приложение Tailscale на этом Mac.";
+"tailscale.detail.notInstalled" = "При желании установите официальное приложение Tailscale на оба устройства и войдите в одну сеть Tailscale. Bridgey также работает через Wi-Fi и подключение вне дома.";
+"tailscale.detail.needsLogin" = "Откройте Tailscale и войдите в аккаунт. Подключите другое устройство к той же сети Tailscale и вернитесь сюда.";
+"tailscale.detail.stopped" = "Откройте Tailscale и подключитесь. Оставьте подключение включённым на обоих устройствах и вернитесь сюда.";
+"tailscale.detail.needsApproval" = "Администратор вашей сети Tailscale должен одобрить этот Mac, прежде чем он сможет подключиться.";
+"tailscale.detail.starting" = "Tailscale запускается. Проверьте ещё раз через некоторое время; подключение по Wi-Fi продолжает работать.";
+"tailscale.detail.running" = "Bridgey автоматически ищет устройства в этой сети Tailscale. Откройте Bridgey на другом устройстве, разрешите сопряжение и сравните коды.";
+"tailscale.detail.unavailable" = "Откройте Tailscale, проверьте подключение и повторите попытку. Bridgey не менял ваши настройки Tailscale.";
+"tailscale.detail.cli" = "Обнаружена версия для командной строки. Подключите её к своей сети Tailscale и проверьте ещё раз. Bridgey не меняет её настройки.";
+"tailscale.action.open" = "Открыть Tailscale";
+"tailscale.action.install" = "Установить Tailscale";
+"tailscale.action.check" = "Проверить снова";
+"tailscale.action.help" = "Инструкция";

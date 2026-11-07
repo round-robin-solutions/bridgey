@@ -397,6 +397,14 @@ Round Robin's relay `https://bridgey-otp-proxy.cs-share.workers.dev` (services/o
 Devices on Rahul's tailnet find and pair with each other without sharing a local network: Mac and Mac, server and Mac,
 server and server, and the phone with Tailscale on.
 
+The apps now guide setup through the separately installed official Tailscale app:
+see [Tailscale setup](tailscale-setup.md). This is another connection method beside
+Bridgey's own Connect anywhere service. No Tailscale engine, administrator API key
+or new Bridgey account is added. The Mac can show Tailscale's read-only connection
+state and discover Bridgey peers; Android exposes installation/open guidance and
+the existing name/address entry, because the official Android client does not
+publish its account state or peer list to other apps.
+
 - **The pairing is the normal one.** The dialling side opens plain TCP to the other's tailnet address, port 42458, and
   makes a protocol 2 first pairing: committed offer, reveal, the six-digit code compared on both ends, the
   `bridgey-auth-v1` transcript, envelope tags. The receiving side answers only while it allows pairing (Allow pairing

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tailscale_title">Use Tailscale</string>
+    <string name="tailscale_installed">Tailscale is installed. Open it to sign in or check your connection.</string>
+    <string name="tailscale_not_installed">Get the official Tailscale app to connect over your private network.</string>
+    <string name="tailscale_unknown">Open Tailscale to check setup. Bridgey cannot read its sign-in status on Android.</string>
+    <string name="tailscale_open_failed">Could not open Tailscale or its download page. Check that a browser is available, then try again.</string>
+    <string name="tailscale_download_opened">Tailscale could not open. Its download page was opened instead. Install or enable it, then check again.</string>
+    <string name="tailscale_setup_steps">Connect both devices to the same Tailscale network. On the Mac, choose your device under On your tailnet. Here, enter its Tailscale name or address below and compare the pairing codes.</string>
+    <string name="tailscale_settings_steps">Tailscale is another way to connect; the Bridgey connection above works without it. Sign in to the same Tailscale network on both devices, then use Add device to pair by Tailscale name or address.</string>
+    <string name="tailscale_open">Open Tailscale</string>
+    <string name="tailscale_install">Get Tailscale</string>
+    <string name="tailscale_check_again">Check again</string>
+</resources>
