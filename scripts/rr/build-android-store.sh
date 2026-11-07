@@ -50,6 +50,14 @@ PY
   . "$ENVFILE"
   rm -f "$ENVFILE"
   $SLOT ./gradlew --console=plain "$TASK"
+  if [ "$KIND" = play ]; then
+    [ -f "$ARTIFACT" ] || die "$ARTIFACT was not produced"
+    # Trust this role's certificate while rejecting unsigned entries and wrong aliases.
+    # The password stays in the scoped environment rather than the command's arguments.
+    jarsigner -verify -strict -keystore "$BRIDGEY_PLAY_UPLOAD_KEYSTORE" \
+      -storepass:env BRIDGEY_PLAY_UPLOAD_STORE_PASSWORD "$ARTIFACT" "$BRIDGEY_PLAY_UPLOAD_KEY_ALIAS" \
+      >/dev/null || die "the Play bundle signature is invalid"
+  fi
 )
 [ -f "$ARTIFACT" ] || die "$ARTIFACT was not produced"
 
@@ -60,8 +68,6 @@ for dir in $(ls -d "$SDK"/build-tools/* | sort -V -r); do
 done
 [ -n "$BUILD_TOOLS" ] || die "no build-tools with apksigner and aapt2 under $SDK"
 if [ "$KIND" = play ]; then
-  # Verify signed contents before trusting the embedded certificate.
-  jarsigner -verify "$ARTIFACT" >/dev/null || die "the Play bundle signature is invalid"
   CERT=$(unzip -p "$ARTIFACT" 'META-INF/*.RSA' 2>/dev/null | openssl pkcs7 -inform DER -print_certs 2>/dev/null \
     | openssl x509 -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)
   MANIFEST=$(unzip -p "$ARTIFACT" base/manifest/AndroidManifest.xml | strings -n 6)

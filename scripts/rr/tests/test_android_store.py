@@ -7,9 +7,12 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import zipfile
 
 
 SOURCE = Path(__file__).resolve().parents[1]
+JARSIGNER = shutil.which("jarsigner")
+KEYTOOL = shutil.which("keytool")
 
 
 class StoreSigningTests(unittest.TestCase):
@@ -94,4 +97,45 @@ case "$3" in META-INF/*) printf 'upload certificate';; *) printf 'android.permis
         self.assertNotEqual(0, result.returncode)
         self.assertIn("is the release certificate", result.stderr)
         self.assertFalse(self.capture.exists())
+        self.assertFalse(self.output.exists())
+
+    @unittest.skipUnless(JARSIGNER and KEYTOOL, "JDK signing tools are unavailable")
+    def test_unsigned_added_entry_is_rejected_with_the_expected_selfsigned_role(self):
+        # Ordinary jarsigner verification returns success for this case. Strict verification
+        # must accept our selfsigned upload role, then reject an entry added after signing.
+        store = self.root / "upload.p12"
+        bundle = self.root / "signed.aab"
+        password = "temporary-fixture-only"
+        self.environment["TEST_FIXTURE_PASSWORD"] = password
+        generated = subprocess.run([
+            KEYTOOL, "-genkeypair", "-alias", "upload", "-keyalg", "EC", "-dname", "CN=Bridgey offline fixture",
+            "-validity", "2", "-storetype", "PKCS12", "-keystore", str(store),
+            "-storepass:env", "TEST_FIXTURE_PASSWORD",
+        ], env=self.environment, capture_output=True, text=True)
+        self.assertEqual(0, generated.returncode, "fixture key generation failed")
+        with zipfile.ZipFile(bundle, "w") as archive:
+            archive.writestr("base/data.txt", "signed entry")
+        signed = subprocess.run([
+            JARSIGNER, "-keystore", str(store), "-storepass:env", "TEST_FIXTURE_PASSWORD", str(bundle), "upload",
+        ], env=self.environment, capture_output=True, text=True)
+        self.assertEqual(0, signed.returncode, "fixture signing failed")
+        self.credentials.write_text(json.dumps({"keys": {"upload": {
+            "store": str(store), "password": password, "alias": "upload", "keyPassword": password,
+        }}}))
+        (self.bin / "jarsigner").unlink()
+        self.environment["TEST_SIGNED_BUNDLE"] = str(bundle)
+        self.executable(self.root / "android/gradlew", """#!/usr/bin/env python3
+import os, pathlib, shutil
+p = pathlib.Path('app/build/outputs/bundle/play/app-play.aab')
+p.parent.mkdir(parents=True, exist_ok=True)
+shutil.copyfile(os.environ['TEST_SIGNED_BUNDLE'], p)
+""")
+        result = self.run_play()
+        self.assertEqual(0, result.returncode, "valid selfsigned upload role was rejected")
+        self.output.unlink()
+        with zipfile.ZipFile(bundle, "a") as archive:
+            archive.writestr("base/unsigned.txt", "added after signing")
+        result = self.run_play()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("bundle signature is invalid", result.stderr)
         self.assertFalse(self.output.exists())
