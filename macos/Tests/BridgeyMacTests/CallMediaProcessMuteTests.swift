@@ -297,4 +297,130 @@ final class CallMediaProcessMuteControllerTests: XCTestCase {
         XCTAssertFalse(platform.sessions[0].playing)
         XCTAssertNil(platform.sessions[1].processMuteToken)
     }
+
+    func testStaleVerificationCannotClearANewerMuteForTheSamePlayer() throws {
+        for explicitRecoveryCheck in [false, true] {
+            let platform = CallMediaTestPlatform()
+            platform.sessions = [session()]
+            let controller = CallMediaController(platform: platform)
+            let policy = CallMediaPolicy(mode: .muteOnly)
+            controller.updateCalls(["A"], policy: policy)
+            platform.completeAll()
+            let oldToken = try XCTUnwrap(platform.sessions[0].processMuteToken)
+            platform.deferSoundRecovery = true
+            if explicitRecoveryCheck { controller.checkSoundRecovery() }
+            else {
+                platform.forcedFailure = .commandFailed
+                controller.updateCalls([], policy: policy)
+                platform.completeAll()
+                platform.forcedFailure = nil
+            }
+            XCTAssertEqual(platform.soundCheckCount, 1)
+            if explicitRecoveryCheck { controller.updateCalls([], policy: policy) }
+            platform.deferScan = true
+            controller.updateCalls(["B"], policy: policy)
+            // The HAL releases T1 by notification while B's scan and T1's verification are
+            // queued. B can then own T2 before the old verification reply reaches main.
+            platform.sessions[0].processMuteToken = nil
+            platform.processMuteChanged?(oldToken, .changedByUser, true)
+            platform.finishScan()
+            platform.completeAll()
+            let newToken = try XCTUnwrap(platform.sessions[0].processMuteToken)
+            XCTAssertNotEqual(newToken, oldToken)
+            platform.completeSoundRecovery(released: true)
+            XCTAssertTrue(controller.canRestoreSound, "T1's verification must not erase T2")
+            XCTAssertEqual(controller.result.muted, 1)
+            controller.updateCalls([], policy: policy)
+            platform.completeAll()
+            XCTAssertNil(platform.sessions[0].processMuteToken)
+            XCTAssertFalse(controller.canRestoreSound)
+        }
+    }
+
+    func testNewCallCannotUndoBackupVetoWhileCancelledResumeStillAwaitsAReply() {
+        let platform = CallMediaTestPlatform()
+        var other = session(); other.id = "second-player"; other.canPause = false
+        platform.sessions = [session(), other]
+        let controller = CallMediaController(platform: platform)
+        let policy = CallMediaPolicy(mode: .pauseThenMute)
+        controller.updateCalls(["A"], policy: policy)
+        platform.completeAll()
+        controller.updateCalls([], policy: policy)
+        controller.restoreSoundNow()
+        controller.updateCalls(["B"], policy: policy)
+        platform.completeAll()
+        controller.updateCalls([], policy: policy)
+        platform.completeAll()
+        XCTAssertFalse(platform.applied.contains(.resume))
+        XCTAssertFalse(platform.sessions[0].playing)
+        XCTAssertNil(platform.sessions[1].processMuteToken)
+    }
+
+    func testBackupVetoSurvivesAPauseAcknowledgementDeliveredDuringANewerCall() {
+        let platform = CallMediaTestPlatform()
+        var other = session(); other.id = "second-player"; other.canPause = false
+        platform.sessions = [session(), other]
+        let controller = CallMediaController(platform: platform)
+        let policy = CallMediaPolicy(mode: .pauseThenMute)
+        controller.updateCalls(["A"], policy: policy)
+        platform.complete(holdReply: true) // The actual pause has happened; its ack is delayed.
+        platform.completeAll()
+        controller.updateCalls([], policy: policy)
+        controller.restoreSoundNow()
+        controller.updateCalls(["B"], policy: policy)
+        platform.deliverHeldReply()
+        platform.completeAll()
+        controller.updateCalls([], policy: policy)
+        platform.completeAll()
+        XCTAssertFalse(platform.applied.contains(.resume))
+        XCTAssertFalse(platform.sessions[0].playing)
+        XCTAssertNil(platform.sessions[1].processMuteToken)
+    }
+
+    func testSourceLossCannotReviveAnOldPauseAfterANewerCall() {
+        for reason in [CallMediaReleaseReason.disconnected, .permissionLost, .disabled] {
+            for latePauseAcknowledgement in [false, true] {
+            let platform = CallMediaTestPlatform()
+            platform.sessions = [session()]
+            let controller = CallMediaController(platform: platform)
+            let policy = CallMediaPolicy(mode: .pauseOnly)
+            controller.updateCalls(["A"], policy: policy)
+            platform.complete(holdReply: latePauseAcknowledgement)
+            if !latePauseAcknowledgement { controller.updateCalls([], policy: policy) }
+            controller.release(reason: reason)
+            controller.updateCalls(["B"], policy: policy)
+            if latePauseAcknowledgement { platform.deliverHeldReply() }
+            platform.completeAll()
+            controller.updateCalls([], policy: policy)
+            platform.completeAll()
+            XCTAssertFalse(platform.applied.contains(.resume))
+            }
+        }
+    }
+
+    func testBackupRevokesAnAlreadyRunningPauseConfirmationAcrossTheNextCall() {
+        let platform = CallMediaTestPlatform()
+        let scheduler = CallMediaTestScheduler()
+        var other = session(); other.id = "second-player"; other.canPause = false
+        platform.sessions = [session(), other]
+        platform.pauseConfirms = false
+        let controller = CallMediaController(platform: platform, scheduler: scheduler)
+        let policy = CallMediaPolicy(mode: .pauseThenMute)
+        controller.updateCalls(["A"], policy: policy)
+        platform.completeAll()
+        platform.deferScan = true
+        scheduler.advance() // A's confirmation scan is already in flight.
+        platform.sessions[0].playing = false
+        controller.updateCalls([], policy: policy)
+        controller.restoreSoundNow()
+        controller.updateCalls(["B"], policy: policy)
+        platform.finishScan()
+        platform.finishScan()
+        platform.completeAll()
+        controller.updateCalls([], policy: policy)
+        platform.completeAll()
+        XCTAssertFalse(platform.applied.contains(.resume))
+        XCTAssertNil(platform.sessions[1].processMuteToken)
+        XCTAssertEqual(controller.result.pending, 0)
+    }
 }

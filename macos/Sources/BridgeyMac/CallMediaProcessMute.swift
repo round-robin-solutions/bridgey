@@ -22,7 +22,10 @@ protocol CallMediaProcessTapDriver: AnyObject {
     func destroy(_ tap: CallMediaProcessTap) -> Bool
 }
 
-final class CallMediaProcessMute {
+// The live platform publishes this object to its serial queue before use. Every operation,
+// driver callback and observer installation/removal is confined to that queue; no mutable
+// state is read by the main actor. Test drivers use the same synchronous ownership model.
+final class CallMediaProcessMute: @unchecked Sendable {
     private struct Lease {
         let session: CallMediaSession
         let target: CallMediaProcessTarget

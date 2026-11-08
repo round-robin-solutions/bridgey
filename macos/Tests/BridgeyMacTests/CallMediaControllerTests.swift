@@ -35,25 +35,38 @@ final class CallMediaTestPlatform: CallMediaPlatform {
     var pauseWorks = true
     var pauseConfirms = true
     var deferScan = false
+    var deferSoundRecovery = false
     var forcedFailure: CallMediaIssue?
     var postApplyFailure: CallMediaIssue?
     private var scans: [@MainActor (CallMediaScan) -> Void] = []
     private var commands: [Command] = []
     private var heldReplies: [@MainActor () -> Void] = []
+    private var soundChecks: [(CallMediaMutedOwnership, @MainActor (Bool) -> Void)] = []
     private(set) var requested: [CallMediaAction] = []
     private(set) var applied: [CallMediaAction] = []
     private(set) var localCallActive = false
     private(set) var scanCount = 0
     var processMuteChanged: (@MainActor (UUID, CallMediaIssue, Bool) -> Void)?
     var commandCount: Int { commands.count }
+    var soundCheckCount: Int { soundChecks.count }
 
     func observeProcessMuteRelease(_ changed: @escaping @MainActor (UUID, CallMediaIssue, Bool) -> Void) {
         processMuteChanged = changed
     }
     func soundWasReleased(_ ownership: CallMediaMutedOwnership, completion: @escaping @MainActor (Bool) -> Void) {
+        if deferSoundRecovery { soundChecks.append((ownership, completion)); return }
+        completion(soundReleased(ownership))
+    }
+    private func soundReleased(_ ownership: CallMediaMutedOwnership) -> Bool {
         if let token = ownership.after.processMuteToken {
-            completion(!sessions.contains { $0.processMuteToken == token })
-        } else { completion(sessions.contains { $0.bundleID == ownership.before.bundleID && ($0.volume ?? 0) > 0 }) }
+            return !sessions.contains { $0.processMuteToken == token }
+        } else { return sessions.contains { $0.bundleID == ownership.before.bundleID && ($0.volume ?? 0) > 0 } }
+    }
+    func completeSoundRecovery(released: Bool? = nil) {
+        XCTAssertFalse(soundChecks.isEmpty)
+        guard !soundChecks.isEmpty else { return }
+        let (ownership, completion) = soundChecks.removeFirst()
+        completion(released ?? soundReleased(ownership))
     }
     func setLocalCallActive(_ active: Bool) { localCallActive = active }
     func scan(_ completion: @escaping @MainActor (CallMediaScan) -> Void) {

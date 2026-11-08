@@ -112,7 +112,7 @@ final class CallMediaCoreAudioTap: CallMediaProcessTapDriver {
         var tap = AudioObjectID(kAudioObjectUnknown)
         let status = AudioHardwareCreateProcessTap(description, &tap)
         guard status == noErr, tap != kAudioObjectUnknown else {
-            return .failure(status == kAudioHardwareNotPermittedError ? .permissionNeeded : .commandFailed)
+            return .failure(status == kAudioDevicePermissionsError ? .permissionNeeded : .commandFailed)
         }
         return .success(CallMediaProcessTap(objectID: tap, uid: description.uuid))
     }
