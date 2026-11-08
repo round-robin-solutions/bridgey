@@ -51,6 +51,23 @@ final class CallMediaCoreAudioNativeTests: XCTestCase {
         return AudioObjectHasProperty(tap, &address)
     }
 
+    private func ownedTapIDs() throws -> [AudioObjectID] {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyTapList,
+            mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr,
+              size % UInt32(MemoryLayout<AudioObjectID>.size) == 0, size <= 4096 else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        if size == 0 { return [] }
+        var objects = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        let capacity = size
+        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &objects) == noErr,
+              size == capacity else { throw CocoaError(.fileReadUnknown) }
+        return objects
+    }
+
     func testNativePrivateMuteResourceCanBeCreatedVerifiedAndReleased() throws {
         guard #available(macOS 14.2, *) else { throw XCTSkip("Process taps require macOS 14.2") }
         let queue = try silentOutput()
@@ -65,12 +82,14 @@ final class CallMediaCoreAudioNativeTests: XCTestCase {
         }
         defer { _ = driver.destroy(tap) }
         XCTAssertTrue(hasTap(tap.objectID))
+        XCTAssertTrue(try ownedTapIDs().contains(tap.objectID))
         var address = AudioObjectPropertyAddress(mSelector: kAudioTapPropertyDescription,
             mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
         var description: Unmanaged<CATapDescription>?
         var size = UInt32(MemoryLayout<Unmanaged<CATapDescription>?>.size)
         XCTAssertEqual(AudioObjectGetPropertyData(tap.objectID, &address, 0, nil, &size, &description), noErr)
         let observed = try XCTUnwrap(description?.takeRetainedValue())
+        XCTAssertEqual(observed.uuid, tap.uid, "the handle must retain the identity Core Audio actually created")
         XCTAssertEqual(observed.muteBehavior, .muted)
         XCTAssertTrue(observed.isPrivate)
         XCTAssertFalse(observed.isExclusive)
@@ -78,7 +97,16 @@ final class CallMediaCoreAudioNativeTests: XCTestCase {
         XCTAssertTrue(driver.destroy(CallMediaProcessTap(objectID: tap.objectID, uid: UUID())))
         XCTAssertTrue(hasTap(tap.objectID), "a recycled object number cannot grant ownership of another UUID")
         XCTAssertTrue(driver.destroy(tap))
-        XCTAssertFalse(hasTap(tap.objectID))
+        // Property support can be cached by the HAL client. Confirm the actual owned-object
+        // inventory, with a bounded wait for the native removal notification, rather than
+        // treating AudioObjectHasProperty as an object-lifetime API.
+        let removed = expectation(for: NSPredicate { [self] _, _ in
+            guard let ids = try? ownedTapIDs() else { return false }
+            return !ids.contains(tap.objectID)
+        }, evaluatedWith: nil)
+        wait(for: [removed], timeout: 3)
+        XCTAssertFalse(try ownedTapIDs().contains(tap.objectID))
+        print("Native tap cleanup: absent from owned tap list; cached property support=\(hasTap(tap.objectID))")
         XCTAssertTrue(driver.destroy(tap), "already-destroyed resources count as released")
     }
 
