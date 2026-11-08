@@ -105,8 +105,10 @@ reader handles audio only in memory; no samples or sample pointers are saved or 
 player volume is never changed. Inclusive private taps never attach a replacement player
 by bundle ID. Missing process identity, active audio input, unavailable routes, older macOS,
 permission denial, or failed observation make selective muting unavailable; pausing remains
-independent. Startup remains unmuted through preparation, macOS consent and first-buffer confirmation.
-Only a current permit and unchanged process/route can then activate `mutedWhenTapped`.
+independent. The tap declares `mutedWhenTapped` at creation and has no reader during
+preparation. Starting the reader is the muting transition; validate the current permit,
+process and route immediately before and after Start, then stop/release stale work.
+No live tap-description writes are made during confirmation or teardown.
 That public mode releases sound when reading stops, including owner-process exit; it does
 not guarantee release if a control queue hangs while its separate IO queue still runs.
 Runtime/resource, signed-app permission and forced-exit proof must pass before shipping.
@@ -118,6 +120,8 @@ the same call interval. A failed destruction retains its token for that action/r
 resources retain inactive cleanup tokens without increasing the confirmed-mute count.
 Readiness uses a one-time atomic signal; the native callback does not process sample values.
 Missing data or arbitrary Core Audio errors are not reported as permission denial.
+Successful Start and nonempty callbacks are not proof of recording consent; native
+approval/denial behavior remains an explicit acceptance gate.
 Browsers can mix a call and media in one process. Unknown/call-host processes stay protected;
 report limits instead of claiming every app can be silenced. Existing optional MediaRemote
 support is best effort and private, not a public Apple global-media guarantee.

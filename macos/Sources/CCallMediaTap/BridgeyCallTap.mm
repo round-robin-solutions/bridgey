@@ -85,7 +85,7 @@ static OSStatus noPhysicalSubdevices(AudioObjectID aggregate) {
     if (subdevices != nullptr) CFRelease(subdevices);
     return empty ? noErr : kAudioHardwareUnsupportedOperationError;
 }
-static OSStatus setMute(BridgeyCallTap *tap, CATapMuteBehavior mode) {
+static OSStatus confirmReaderMute(BridgeyCallTap *tap) {
     if (@available(macOS 14.2, *)) {
         bool present = false;
         OSStatus status = owned(tap->tap, kAudioTapPropertyUID, tap->tapUID, &present);
@@ -100,15 +100,7 @@ static OSStatus setMute(BridgeyCallTap *tap, CATapMuteBehavior mode) {
             description.processes.count != 1 || description.processes.firstObject.unsignedIntValue != tap->process ||
             description.exclusive || !description.privateTap) return kAudioHardwareBadObjectError;
         if (@available(macOS 26.0, *)) if (description.processRestoreEnabled) return kAudioHardwareIllegalOperationError;
-        description.muteBehavior = mode;
-        raw = (__bridge CFTypeRef)description;
-        status = AudioObjectSetPropertyData(tap->tap, &property, 0, nullptr, sizeof(raw), &raw);
-        if (status != noErr) return status;
-        raw = nullptr; size = sizeof(raw);
-        status = AudioObjectGetPropertyData(tap->tap, &property, 0, nullptr, &size, &raw);
-        if (status != noErr) return status;
-        CATapDescription *observed = CFBridgingRelease(raw);
-        return observed != nil && observed.muteBehavior == mode ? noErr : kAudioHardwareNotReadyError;
+        return description.muteBehavior == CATapMutedWhenTapped ? noErr : kAudioHardwareNotReadyError;
     }
     return kAudioHardwareUnsupportedOperationError;
 }
@@ -127,7 +119,9 @@ BridgeyCallTap *BridgeyCallTapPrepare(AudioObjectID process, CFStringRef uuid, O
         description.name = @"Bridgey temporary media mute";
         description.privateTap = YES;
         description.exclusive = NO;
-        description.muteBehavior = CATapUnmuted;
+        // Native description writes can fail/hang in the TCC path. Configure this once:
+        // the public contract leaves playback audible whenever no reader is active.
+        description.muteBehavior = CATapMutedWhenTapped;
         if (@available(macOS 26.0, *)) description.processRestoreEnabled = NO;
         *status = AudioHardwareCreateProcessTap(description, &tap->tap);
         if (*status != noErr || tap->tap == kAudioObjectUnknown) {
@@ -135,7 +129,7 @@ BridgeyCallTap *BridgeyCallTapPrepare(AudioObjectID process, CFStringRef uuid, O
             delete tap; return nullptr;
         }
         // From here, return partial resources to the owner even after an error. Nothing can
-        // mute yet: preparation and reader startup both keep the tap explicitly unmuted.
+        // mute yet: no IO reader has started. Start is the only possible mute transition.
         tap->operation = "tap UID";
         NSString *tapUID = nil;
         *status = stringProperty(tap->tap, kAudioTapPropertyUID, &tapUID);
@@ -218,7 +212,7 @@ OSStatus BridgeyCallTapStart(BridgeyCallTap *tap) {
 OSStatus BridgeyCallTapArm(BridgeyCallTap *tap) {
     if (tap->closing || !BridgeyCallTapIsReading(tap)) return kAudioHardwareNotReadyError;
     tap->operation = "mute while reader is active";
-    return setMute(tap, CATapMutedWhenTapped);
+    return confirmReaderMute(tap);
 }
 OSStatus BridgeyCallTapStop(BridgeyCallTap *tap) {
     tap->closing = true;
@@ -234,9 +228,8 @@ OSStatus BridgeyCallTapStop(BridgeyCallTap *tap) {
 }
 OSStatus BridgeyCallTapRelease(BridgeyCallTap *tap) {
     tap->closing = true;
-    // Giving back audibility takes priority over deleting handles. A stopped reader releases
-    // CATapMutedWhenTapped even if later object destruction needs a retry.
-    (void)setMute(tap, CATapUnmuted);
+    // Stop reading first: CATapMutedWhenTapped releases audibility even if later object
+    // destruction needs a retry. Never write a live tap description during cleanup.
     OSStatus status = BridgeyCallTapStop(tap);
     if (status != noErr) return status;
     if (tap->io != nullptr) {
@@ -266,7 +259,7 @@ OSStatus BridgeyCallTapRelease(BridgeyCallTap *tap) {
     bool present = false;
     tap->operation = "destroy tap";
     if (tap->tapUID == nil) {
-        // A transient UID-read failure during unmuted preparation must remain recoverable.
+        // A transient UID-read failure before reader startup must remain recoverable.
         // Bind only after verifying the original random description UUID, never just an ID.
         auto property = address(kAudioTapPropertyDescription);
         CFTypeRef raw = nullptr;

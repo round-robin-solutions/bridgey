@@ -91,7 +91,7 @@ final class CallMediaCoreAudioNativeTests: XCTestCase {
         XCTAssertEqual(AudioObjectGetPropertyData(tap.objectID, &address, 0, nil, &size, &description), noErr)
         let observed = try XCTUnwrap(description?.takeRetainedValue())
         XCTAssertEqual(observed.uuid, tap.uid, "the handle must retain the identity Core Audio actually created")
-        XCTAssertEqual(observed.muteBehavior, .unmuted, "preparation/consent must leave output audible")
+        XCTAssertEqual(observed.muteBehavior, .mutedWhenTapped, "without an active reader, preparation leaves output audible")
         XCTAssertNil(driver.preparationIssue(tap))
         let aggregate = try XCTUnwrap(tap.aggregateObject)
         XCTAssertNotEqual(aggregate, kAudioObjectUnknown)

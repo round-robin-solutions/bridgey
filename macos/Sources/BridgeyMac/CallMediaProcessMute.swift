@@ -19,7 +19,8 @@ protocol CallMediaProcessTapDriver: AnyObject {
     func observe(_ target: CallMediaProcessTarget, changed: @escaping (CallMediaIssue) -> Void)
         -> Result<() -> Void, CallMediaIssue>
     func create(_ target: CallMediaProcessTarget) -> Result<CallMediaProcessTap, CallMediaIssue>
-    /// Preparation and startup must remain audible. Only the final activation may mute.
+    /// Preparation has no reader. Start may quiet playback, so revalidate immediately before
+    /// and after it; the final phase only confirms the native reader-controlled mute.
     func startReading(_ tap: CallMediaProcessTap) -> Result<Void, CallMediaIssue>
     func activateMute(_ tap: CallMediaProcessTap, permit: CallMediaPermit) -> Result<Void, CallMediaIssue>
     /// Success includes an object already removed by Core Audio. A failure retains ownership.

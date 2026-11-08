@@ -4,7 +4,7 @@ import CCallMediaTap
 import Foundation
 
 /// Exact-process private taps, with an input-only discard reader. Startup stays unmuted;
-/// only a confirmed reader can activate mute-while-reading. No player/master volume writes.
+/// mute is tied to actual reading, with immediate pre/post validation. No volume writes.
 final class CallMediaCoreAudioTap: CallMediaProcessTapDriver {
     private let queue: DispatchQueue
     private var readers: [UUID: OpaquePointer] = [:]
