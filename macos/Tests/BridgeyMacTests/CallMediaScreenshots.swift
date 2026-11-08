@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import SwiftUI
 import XCTest
 @testable import BridgeyMac
@@ -76,6 +77,33 @@ final class CallMediaScreenshots: XCTestCase {
                     name: "mac-call-media-recovery-\(Int(width))-\(scheme == .dark ? "dark" : "light")")
             }
         }
+    }
+
+    /// Retain the exact owned-built helper beside native UI proof. Copying it is artifact
+    /// preparation only: this test does not execute capture or claim permission/crash proof.
+    func testNativeAcceptanceProbeArtifact() throws {
+        let binary = Bundle(for: Self.self).bundleURL.resolvingSymlinksInPath()
+            .deletingLastPathComponent().appendingPathComponent("CallMediaTapProbe")
+        let attributes = try FileManager.default.attributesOfItem(atPath: binary.path)
+        guard attributes[.type] as? FileAttributeType == .typeRegular,
+              ((attributes[.size] as? NSNumber)?.intValue ?? Int.max) <= 16 * 1024 * 1024,
+              FileManager.default.isExecutableFile(atPath: binary.path) else {
+            XCTFail("Owned native probe product is missing or outside its artifact bounds"); return
+        }
+        let native = directory.appendingPathComponent("native-probe", isDirectory: true)
+        try FileManager.default.createDirectory(at: native, withIntermediateDirectories: true)
+        let destination = native.appendingPathComponent("CallMediaTapProbe")
+        try FileManager.default.copyItem(at: binary, to: destination)
+        let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        try FileManager.default.copyItem(at: repository.appendingPathComponent("scripts/rr/package-call-mute-probe.sh"),
+            to: native.appendingPathComponent("package-call-mute-probe.sh"))
+        let digest = SHA256.hash(data: try Data(contentsOf: destination)).map { String(format: "%02x", $0) }.joined()
+        let manifest = ["source": ProcessInfo.processInfo.environment["RR_CI_REVISION"] ?? "unknown",
+                        "binary": "CallMediaTapProbe", "sha256": digest,
+                        "purpose": "Isolated native acceptance; does not prove recording permission or crash behavior by itself"]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys, .prettyPrinted])
+            .write(to: native.appendingPathComponent("provenance.json"))
     }
 
     private func write<V: View>(_ view: V, scheme: ColorScheme, name: String) throws {

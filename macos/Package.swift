@@ -46,7 +46,7 @@ let package = Package(
             name: "BridgeyMac",
             dependencies: [.product(name: "Sparkle", package: "Sparkle"), "CBlake3", "CWebP", "CCallMediaTap", "llama"]
         ),
-        .testTarget(name: "BridgeyMacTests", dependencies: ["BridgeyMac"]),
+        .testTarget(name: "BridgeyMacTests", dependencies: ["BridgeyMac", "CallMediaTapProbe"]),
     ],
     swiftLanguageVersions: [.v5]
 )

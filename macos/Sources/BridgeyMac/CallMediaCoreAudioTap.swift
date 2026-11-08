@@ -177,7 +177,7 @@ final class CallMediaCoreAudioTap: CallMediaProcessTapDriver {
 
     private func issue(_ status: OSStatus, reader: OpaquePointer? = nil) -> CallMediaIssue {
         if let reader {
-            NSLog("Bridgey call media: %s failed (%d)", BridgeyCallTapLastOperation(reader), status)
+            NSLog("Bridgey call media: %@ failed (%d)", String(cString: BridgeyCallTapLastOperation(reader)), status)
         }
         // Missing callbacks and arbitrary HAL errors are not invented permission denials.
         return status == kAudioDevicePermissionsError ? .permissionNeeded : .commandFailed
