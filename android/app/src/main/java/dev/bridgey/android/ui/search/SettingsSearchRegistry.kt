@@ -337,6 +337,10 @@ object SettingsSearchRegistry {
         val out = mutableListOf<SearchResultEntry>()
         for (entry in entries) {
             if (entry.developerOnly && !developerMenu) continue
+            if (entry.page == SearchPage.MESSAGES && !dev.bridgey.android.BuildGates.sms) continue
+            if (entry.page == SearchPage.UPDATES && !dev.bridgey.android.BuildGates.selfUpdate) continue
+            if (entry.id in setOf("permissions.sms", "permissions.contacts") && !dev.bridgey.android.BuildGates.sms) continue
+            if (entry.id == "permissions.install" && !dev.bridgey.android.BuildGates.selfUpdate) continue
             val page = context.getString(entry.page.titleRes)
             val section = entry.section?.let(context::getString)
             val title = context.getString(entry.title)
@@ -402,7 +406,7 @@ object SettingsSearchRegistry {
             AgentGrant.entries.map { grantTitle(context, it) to listOf("agent", "server", "агент", "сервер") } +
                 (context.getString(R.string.agent_trust_row) to listOf("trust", "доверять"))
         } else {
-            devicePermissionRows.map { (res, features) ->
+            devicePermissionRows.filter { (_, features) -> features.all(dev.bridgey.android.BuildGates::featureBuilt) }.map { (res, features) ->
                 context.getString(res) to (featureWords(features) + if (features.isEmpty()) SYNC_WORDS else emptyList())
             }
         }

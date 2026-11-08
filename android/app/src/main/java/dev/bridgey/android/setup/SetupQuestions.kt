@@ -158,7 +158,9 @@ data class SetupFeature(
 }
 
 object SetupFeatures {
-    val all: List<SetupFeature> = listOf(
+    val all: List<SetupFeature> get() = built
+    private val built: List<SetupFeature> by lazy { everything.filter { it.id != "messages" || dev.bridgey.android.BuildGates.sms } }
+    private val everything: List<SetupFeature> = listOf(
         SetupFeature("clipboard", R.string.feature_clipboard, R.string.feature_clipboard_detail, listOf(SetupSetting.FEATURE_CLIPBOARD), "CLIPBOARD"),
         SetupFeature("notifications", R.string.settings_notifications, R.string.settings_notifications_detail, listOf(SetupSetting.FEATURE_NOTIFICATIONS), "NOTIFICATIONS"),
         SetupFeature("messages", R.string.feature_sms, R.string.feature_sms_detail, listOf(SetupSetting.FEATURE_SMS), "MESSAGES"),
@@ -242,7 +244,9 @@ object SetupQuestions {
     private val off = SettingChange.Companion::off
 
     /** The follow-ups, in order. The pairing card is first and is not tied to a feature. */
-    val all: List<SetupQuestion> = listOf(
+    val all: List<SetupQuestion> get() = built
+    private val built: List<SetupQuestion> by lazy { everything.filter { it.id != "messages" || dev.bridgey.android.BuildGates.sms } }
+    private val everything: List<SetupQuestion> = listOf(
         SetupQuestion(
             id = "pair", section = SetupSection.DEVICES, feature = null,
             title = R.string.setup_q_pair_title, context = R.string.setup_q_pair_context, summary = R.string.setup_q_pair_summary,
@@ -338,7 +342,7 @@ object SetupQuestions {
      * its own. Applied in this order (sorted by id, as on the Mac), so "beta, but no automatic
      * updates" ends with automatic updates off. Their settings are on their Settings pages too.
      */
-    val typedOnly: Map<String, Map<String, List<SettingChange>>> = mapOf(
+    val typedOnly: Map<String, Map<String, List<SettingChange>>> by lazy { mapOf(
         "focus" to mapOf(Answers.BOTH to listOf(on(SetupSetting.FOCUS_SHARE), on(SetupSetting.FOCUS_FOLLOW)), Answers.NO to listOf(off(SetupSetting.FOCUS_SHARE), off(SetupSetting.FOCUS_FOLLOW))),
         "updates" to mapOf(
             Answers.STEADY to listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "STABLE"), off(SetupSetting.AUTO_UPDATES)),
@@ -346,7 +350,7 @@ object SetupQuestions {
             Answers.NEWEST to listOf(SettingChange(SetupSetting.UPDATE_CHANNEL, "NIGHTLY"), on(SetupSetting.AUTO_UPDATES)),
         ),
         "updates_auto" to mapOf(Answers.YES to listOf(on(SetupSetting.AUTO_UPDATES)), Answers.NO to listOf(off(SetupSetting.AUTO_UPDATES))),
-    )
+    ).filterKeys { it == "focus" || dev.bridgey.android.BuildGates.selfUpdate } }
 
     /** The permissions page: what the chosen features need, in the Permissions order. */
     val permissions: List<SetupPermission> = listOf(
@@ -442,7 +446,8 @@ object SetupQuestions {
 data class SetupBundle(val id: String, @StringRes val title: Int, @StringRes val detail: Int, val answers: Map<String, String>)
 
 object SetupBundles {
-    val all: List<SetupBundle> = listOf(
+    val all: List<SetupBundle> by lazy { everything.filter { it.id != "messages" || dev.bridgey.android.BuildGates.sms } }
+    private val everything: List<SetupBundle> = listOf(
         SetupBundle("clipboard", R.string.feature_clipboard, R.string.setup_bundle_clipboard, mapOf("clipboard" to Answers.PICK)),
         SetupBundle("notifications", R.string.settings_notifications, R.string.setup_bundle_notifications, mapOf("notifications" to Answers.PICK)),
         SetupBundle("messages", R.string.feature_sms, R.string.setup_bundle_messages, mapOf("messages" to Answers.PICK)),

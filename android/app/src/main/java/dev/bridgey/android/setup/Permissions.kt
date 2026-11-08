@@ -58,7 +58,14 @@ object PermissionCatalog {
     const val COMPANION_LINK_SDK = 35
 
     fun entries(facts: PermissionFacts): List<PermissionEntry> =
-        PermissionKind.entries.map { PermissionEntry(it, state(it, facts)) }
+        PermissionKind.entries.filter { built(it) }.map { PermissionEntry(it, state(it, facts)) }
+
+    /** A build cannot request permissions removed from its manifest. */
+    fun built(kind: PermissionKind): Boolean = when (kind) {
+        PermissionKind.SMS, PermissionKind.CONTACTS -> dev.bridgey.android.BuildGates.sms
+        PermissionKind.INSTALL_PACKAGES -> dev.bridgey.android.BuildGates.selfUpdate
+        else -> true
+    }
 
     fun state(kind: PermissionKind, facts: PermissionFacts): PermissionState {
         if (kind == PermissionKind.COMPANION_LINK && facts.sdkInt < COMPANION_LINK_SDK) return PermissionState.NOT_ON_THIS_DEVICE

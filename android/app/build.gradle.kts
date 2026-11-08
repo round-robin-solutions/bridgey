@@ -1,4 +1,5 @@
 import java.util.Properties
+import com.android.build.api.variant.HostTestBuilder
 
 plugins {
     id("com.android.application")
@@ -10,6 +11,16 @@ val releaseStoreFile = System.getenv("BRIDGEY_ANDROID_KEYSTORE")
 val releaseStorePassword = System.getenv("BRIDGEY_ANDROID_STORE_PASSWORD") ?: System.getenv("ANDROID_STORE_PASSWORD")
 val releaseKeyAlias = System.getenv("BRIDGEY_ANDROID_KEY_ALIAS") ?: System.getenv("ANDROID_KEY_ALIAS")
 val releaseKeyPassword = System.getenv("BRIDGEY_ANDROID_KEY_PASSWORD") ?: System.getenv("ANDROID_KEY_PASSWORD")
+
+// One release key per app on every public channel (GitHub releases, update feeds, Play App Signing).
+// Two more builds use their own, separately named env so the keys cannot be swapped by accident:
+//  - "play": Google Play AAB, signed with the Play UPLOAD key (BRIDGEY_PLAY_UPLOAD_*); Play re-signs it
+//    with the release key. No self-updater, no install permissions, no SMS.
+//  - "qa": test/QA builds (minified like release), signed with the TEST key (BRIDGEY_TEST_*). Never published.
+fun signingEnv(prefix: String): List<String>? =
+    listOf("KEYSTORE", "STORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD").map { System.getenv("${prefix}_$it") ?: return null }
+val playSigning = signingEnv("BRIDGEY_PLAY_UPLOAD")
+val testSigning = signingEnv("BRIDGEY_TEST")
 
 // Edition settings (app id, update feed) live in rr-edition.properties at the repository root.
 val edition = Properties().apply {
@@ -43,6 +54,8 @@ android {
         buildConfigField("boolean", "CODE_TEST_AVAILABLE", (!isStableBuild).toString())
         // Connect anywhere: the control service. Empty means routes over learned addresses only.
         buildConfigField("String", "CONNECT_CONTROL_URL", "\"${edition.getProperty("CONNECT_CONTROL_URL").orEmpty()}\"")
+        // Text messages (READ_SMS/SEND_SMS). Off only in the Play build.
+        buildConfigField("boolean", "SMS_AVAILABLE", "true")
     }
 
     signingConfigs {
@@ -54,6 +67,12 @@ android {
                 keyPassword = releaseKeyPassword
             }
         }
+        playSigning?.let { (store, storePw, alias, keyPw) ->
+            create("playUpload") { storeFile = file(store); storePassword = storePw; keyAlias = alias; keyPassword = keyPw }
+        }
+        testSigning?.let { (store, storePw, alias, keyPw) ->
+            create("test") { storeFile = file(store); storePassword = storePw; keyAlias = alias; keyPassword = keyPw }
+        }
     }
     buildTypes {
         release {
@@ -61,6 +80,22 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release")
+        }
+        // Google Play: no self-update (Play updates the app), no SMS, no Code reader test.
+        // src/play/AndroidManifest.xml removes the matching permissions.
+        create("play") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            signingConfig = signingConfigs.findByName("playUpload")
+            buildConfigField("String", "UPDATE_FEED_BASE_URL", "\"\"")
+            buildConfigField("String", "UPDATE_ASSET_URL_PREFIX", "\"\"")
+            buildConfigField("boolean", "SMS_AVAILABLE", "false")
+            buildConfigField("boolean", "CODE_TEST_AVAILABLE", "false")
+        }
+        create("qa") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            signingConfig = signingConfigs.findByName("test")
         }
     }
 
@@ -174,6 +209,12 @@ val buildConnectCore by tasks.registering(Exec::class) {
     commandLine(cargo, "ndk", "-t", "arm64-v8a", "-t", "x86_64", "-o", connectJniDir.get().asFile.path, "build", "--release", "--locked", "-p", "bridgey-connect", "--lib")
     inputs.files(fileTree(connectRustDir) { include("Cargo.toml", "Cargo.lock", "core/**", "proto/**"); exclude("**/target/**") })
     outputs.dir(connectJniDir)
+}
+// Host tests are opt-in for these release-derived build types in AGP 9.
+androidComponents.beforeVariants { variant ->
+    if (variant.buildType in setOf("play", "qa")) {
+        variant.hostTests.getValue(HostTestBuilder.UNIT_TEST_TYPE).enable = true
+    }
 }
 androidComponents.onVariants { variant ->
     variant.sources.jniLibs?.addStaticSourceDirectory(connectJniDir.get().asFile.path)

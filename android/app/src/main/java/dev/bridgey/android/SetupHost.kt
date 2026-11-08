@@ -471,7 +471,7 @@ internal fun SetupRoute(
             },
             openOemStep = { OemBattery.open(context, it) },
             openAppInfo = { runCatching { context.startActivity(OemBattery.appDetails(context.packageName)) } },
-            openPage = { page -> SettingsSection.entries.firstOrNull { it.name == page }?.let(onOpenSection) },
+            openPage = { page -> SettingsSection.entries.firstOrNull { it.name == page && it.built }?.let(onOpenSection) },
             allowPermission = { kind -> SetupQuestions.permission(kind)?.let { allow(listOf(it)) } },
             allowAll = { allow(SetupFlow.neededPermissions(flow, currentFacts())) },
             openSettings = { finish(openSettings = true) },
@@ -510,7 +510,7 @@ internal fun permissionFacts(context: Context, settings: SettingsState): Permiss
         if (settings.focus.access) add(PermissionKind.DO_NOT_DISTURB)
         if (settings.codes.linked) add(PermissionKind.COMPANION_LINK)
         if (settings.batteryExempt) add(PermissionKind.BATTERY)
-        if (context.packageManager.canRequestPackageInstalls()) add(PermissionKind.INSTALL_PACKAGES)
+        if (BuildGates.selfUpdate && context.packageManager.canRequestPackageInstalls()) add(PermissionKind.INSTALL_PACKAGES)
         if (granted(Manifest.permission.READ_SMS) && granted(Manifest.permission.SEND_SMS)) add(PermissionKind.SMS)
         if (granted(Manifest.permission.READ_CONTACTS)) add(PermissionKind.CONTACTS)
         if (granted(Manifest.permission.READ_LOGS)) add(PermissionKind.LOGS)
