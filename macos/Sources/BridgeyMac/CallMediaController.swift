@@ -326,6 +326,7 @@ final class CallMediaController {
                 guard self.muted[id] == lease, self.muteGenerations[id] == epoch else { self.publish(); return }
                 if released { self.clearSoundOwnership(id) }
                 else { self.unresolvedSound.insert(id) }
+                self.restoreIfReleased()
                 self.publish()
             }
         }

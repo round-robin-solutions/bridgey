@@ -423,4 +423,38 @@ final class CallMediaProcessMuteControllerTests: XCTestCase {
         XCTAssertNil(platform.sessions[1].processMuteToken)
         XCTAssertEqual(controller.result.pending, 0)
     }
+
+    func testRecoveryVerificationHandsOffToBackupReleaseAfterItFindsTheTapStillMuted() throws {
+        for callStillActive in [false, true] {
+            let platform = CallMediaTestPlatform()
+            platform.sessions = [session()]
+            let controller = CallMediaController(platform: platform)
+            let policy = CallMediaPolicy(mode: .muteOnly)
+            controller.updateCalls(["call"], policy: policy)
+            platform.completeAll()
+            let token = try XCTUnwrap(platform.sessions[0].processMuteToken)
+            if callStillActive {
+                // The driver's invalidation tried to destroy its tap and failed.
+                platform.processMuteChanged?(token, .commandFailed, false)
+            } else {
+                platform.forcedFailure = .commandFailed
+                controller.updateCalls([], policy: policy)
+                platform.completeAll()
+                platform.forcedFailure = nil
+            }
+            XCTAssertEqual(controller.recoveryItems.count, 1)
+            platform.deferSoundRecovery = true
+            controller.checkSoundRecovery()
+            XCTAssertEqual(platform.soundCheckCount, 1)
+            controller.restoreSoundNow()
+            XCTAssertEqual(platform.commandCount, 0, "the matching verification still owns the operation slot")
+            platform.completeSoundRecovery(released: false)
+            platform.completeAll()
+            XCTAssertNil(platform.sessions[0].processMuteToken)
+            XCTAssertFalse(controller.canRestoreSound)
+            XCTAssertTrue(controller.recoveryItems.isEmpty)
+            XCTAssertFalse(platform.applied.contains(.resume))
+            XCTAssertFalse(platform.applied.contains { if case .setVolume = $0 { return true }; return false })
+        }
+    }
 }
