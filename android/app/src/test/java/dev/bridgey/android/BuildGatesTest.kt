@@ -21,6 +21,7 @@ import dev.bridgey.android.setup.SetupFlow
 import dev.bridgey.android.setup.SetupSetting
 import dev.bridgey.android.sync.SyncUiState
 import dev.bridgey.android.ui.SettingsSection
+import dev.bridgey.android.ui.sampleSettingsState
 import dev.bridgey.android.ui.search.SearchDevice
 import dev.bridgey.android.ui.search.SettingsSearchRegistry
 import kotlinx.coroutines.CoroutineScope
@@ -123,7 +124,7 @@ class BuildGatesTest {
 
     @Test
     fun startupOnlyProbesInstallPermissionWhenSelfUpdateIsBuilt() {
-        val settings = BridgeySettings(context, "Phone").state.value
+        val settings = sampleSettingsState(1_000L)
         val noInstallApi = object : ContextWrapper(context) {
             override fun getPackageManager(): PackageManager =
                 throw SecurityException("REQUEST_INSTALL_PACKAGES is not declared")
