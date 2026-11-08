@@ -175,10 +175,14 @@ final class SilentFixtureSource {
             let remaining = deadline - ProcessInfo.processInfo.systemUptime
             guard remaining > 0 else { return nil }
             var fd = pollfd(fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
-            guard poll(&fd, 1, Int32(max(1, remaining * 1000))) > 0,
-                  let part = try? output.fileHandleForReading.read(upToCount: min(4096, 8192 - data.count)),
-                  !part.isEmpty else { return nil }
-            data.append(part)
+            guard poll(&fd, 1, Int32(max(1, remaining * 1000))) > 0 else { return nil }
+            // Foundation's read(upToCount:) may wait for the whole requested length on a
+            // pipe. A single POSIX read consumes only the bytes poll says are available.
+            var bytes = [UInt8](repeating: 0, count: min(4096, 8192 - data.count))
+            let count = bytes.withUnsafeMutableBytes { Darwin.read(fd.fd, $0.baseAddress, $0.count) }
+            if count < 0 && errno == EINTR { continue }
+            guard count > 0 else { return nil }
+            data.append(contentsOf: bytes.prefix(count))
             if let newline = data.firstIndex(of: 10) {
                 guard newline == data.index(before: data.endIndex) else { return nil }
                 return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]

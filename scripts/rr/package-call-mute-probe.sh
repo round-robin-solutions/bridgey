@@ -21,13 +21,16 @@ cat > "$probe_app/Contents/Info.plist" <<'PLIST'
 <key>NSAudioCaptureUsageDescription</key><string>This isolated check processes only its silent test player's audio in memory. Nothing is recorded or sent.</string>
 </dict></plist>
 PLIST
-probe_entitlements="$probe_app/Contents/probe-entitlements.plist"
+# Contents-root files are interpreted as nested code by codesign. Keep this signing input
+# outside the bundle; it is not an app resource and must not invalidate the resource seal.
+probe_entitlements=$(mktemp "${probe_app}.entitlements.XXXXXX")
+trap 'rm -f "$probe_entitlements"' EXIT
 cat > "$probe_entitlements" <<'PLIST'
 <?xml version="1.0"?><plist version="1.0"><dict>
 <key>com.apple.security.device.audio-input</key><true/>
 </dict></plist>
 PLIST
-codesign --force --sign - --options runtime --entitlements "$probe_entitlements" \
+codesign --force --sign - --options runtime --identifier in.roundrobin.bridgey.qa.callmute --entitlements "$probe_entitlements" \
   --requirements '=designated => identifier "in.roundrobin.bridgey.qa.callmute"' "$probe_app"
 codesign --verify --strict "$probe_app"
 printf '%s\n' "$probe_app"
