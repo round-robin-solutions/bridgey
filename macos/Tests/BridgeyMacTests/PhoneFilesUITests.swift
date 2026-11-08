@@ -314,11 +314,16 @@ final class PhoneFilesUITests: XCTestCase {
     func testADisconnectPausesAndTheReconnectAsksAgain() {
         let fake = UIFakePhoneFiles()
         fake.thumbnailFailure = .notConnected
+        fake.simulated = UIFakePhoneFiles.Network(rtt: 0.2)
+        let disconnected = expectation(description: "scheduler consumed the disconnect")
+        fake.onThumbnailFinished = { result in
+            if case .failure(.notConnected) = result { disconnected.fulfill() }
+        }
         let entries = UIFakeImages.media(4)
         let scheduler = scheduler(fake)
         scheduler.setOrder(entries)
         entries.forEach(scheduler.appeared)
-        spin(0.1)
+        wait(for: [disconnected], timeout: 3)
         XCTAssertEqual(fake.thumbnailRequests.count, 1)
         XCTAssertTrue(entries.allSatisfy { scheduler.box(for: $0).state == .waiting }, "a dropped phone is not a failed thumbnail")
         fake.thumbnailFailure = nil

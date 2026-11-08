@@ -100,16 +100,24 @@ fixed volume or uncertain route may make fallback unavailable; say so.
 
 Mac adapters address Music and Spotify independently and safe compatible media targets. Never
 use system/output mute, which could silence the call. Public process taps start at macOS 14.2
-and mute only the exact eligible player process. Bridgey does not create a reader/aggregate,
-record audio, or change player volume. Inclusive private taps never attach a replacement player
+and mute only the exact eligible player process. Bridgey creates an input-only private aggregate with no physical subdevices. Its discard
+reader handles audio only in memory; no samples or sample pointers are saved or sent, and
+player volume is never changed. Inclusive private taps never attach a replacement player
 by bundle ID. Missing process identity, active audio input, unavailable routes, older macOS,
 permission denial, or failed observation make selective muting unavailable; pausing remains
-independent. Runtime/resource and forced-exit proof must pass before shipping this backend.
+independent. Startup remains unmuted through preparation, macOS consent and first-buffer confirmation.
+Only a current permit and unchanged process/route can then activate `mutedWhenTapped`.
+That public mode releases sound when reading stops, including owner-process exit; it does
+not guarantee release if a control queue hangs while its separate IO queue still runs.
+Runtime/resource, signed-app permission and forced-exit proof must pass before shipping.
 Output/device changes (including A -> B -> A), input activity, playback notifications, player
 exit, sleep and audio-service restart release the owned tap. Later volume values are preserved
 because Bridgey never writes them; instant slider-based release is not promised. The explicit
 Restore sound action releases only Bridgey's temporary mute and prevents reapplying it within
-the same call interval. A failed destruction retains its token for that action/reset to retry.
+the same call interval. A failed destruction retains its token for that action/reset to retry. Partial startup
+resources retain inactive cleanup tokens without increasing the confirmed-mute count.
+Readiness uses a one-time atomic signal; the native callback does not process sample values.
+Missing data or arbitrary Core Audio errors are not reported as permission denial.
 Browsers can mix a call and media in one process. Unknown/call-host processes stay protected;
 report limits instead of claiming every app can be silenced. Existing optional MediaRemote
 support is best effort and private, not a public Apple global-media guarantee.

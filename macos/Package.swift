@@ -4,12 +4,20 @@ import PackageDescription
 let package = Package(
     name: "BridgeyMac",
     platforms: [.macOS(.v13)],
-    products: [.executable(name: "BridgeyMac", targets: ["BridgeyMac"])],
+    products: [.executable(name: "BridgeyMac", targets: ["BridgeyMac"]),
+               .executable(name: "CallMediaTapProbe", targets: ["CallMediaTapProbe"])],
     dependencies: [
         // Round Robin edition: EdDSA-signed self-updates. build-app.sh embeds Sparkle.framework.
         .package(url: "https://github.com/sparkle-project/Sparkle", .upToNextMinor(from: "2.10.0")),
     ],
     targets: [
+        // Core Audio's discard callback uses a C++ atomic and retains no sample pointers.
+        .target(name: "CCallMediaTap", publicHeadersPath: "include",
+                cxxSettings: [.unsafeFlags(["-fobjc-arc"])],
+                linkerSettings: [.linkedFramework("CoreAudio"), .linkedFramework("Foundation")]),
+        // Separate, isolated native acceptance tool; build-app.sh never embeds it in Bridgey.
+        .executableTarget(name: "CallMediaTapProbe", dependencies: ["CCallMediaTap"],
+                          path: "Tests/NativeFixtures/CallMediaTapProbe"),
         // Official BLAKE3 C code, release 1.8.7, unmodified (CC0-1.0 or Apache-2.0). NEON on arm64.
         .target(
             name: "CBlake3",
@@ -36,7 +44,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "BridgeyMac",
-            dependencies: [.product(name: "Sparkle", package: "Sparkle"), "CBlake3", "CWebP", "llama"]
+            dependencies: [.product(name: "Sparkle", package: "Sparkle"), "CBlake3", "CWebP", "CCallMediaTap", "llama"]
         ),
         .testTarget(name: "BridgeyMacTests", dependencies: ["BridgeyMac"]),
     ],

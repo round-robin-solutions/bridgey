@@ -56,7 +56,7 @@ final class CallMediaMacPlatform: CallMediaPlatform {
             case .releaseProcessMute(let token):
                 if !permit.isValid { result = .failure(.cancelled) }
                 else if backend.release(token, sessionID: session.id) {
-                    var released = session; released.processMuteToken = nil
+                    var released = session; released.processMuteToken = nil; released.processMuteActive = false
                     result = .success(released)
                 } else { result = .failure(.commandFailed) }
             case .muteProcess(let token):

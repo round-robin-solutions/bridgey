@@ -11,6 +11,7 @@ struct CallMediaProcessTarget: Equatable {
 struct CallMediaProcessTap: Equatable {
     let objectID: UInt32
     let uid: UUID
+    var aggregateObject: UInt32? = nil
 }
 
 protocol CallMediaProcessTapDriver: AnyObject {
@@ -18,6 +19,9 @@ protocol CallMediaProcessTapDriver: AnyObject {
     func observe(_ target: CallMediaProcessTarget, changed: @escaping (CallMediaIssue) -> Void)
         -> Result<() -> Void, CallMediaIssue>
     func create(_ target: CallMediaProcessTarget) -> Result<CallMediaProcessTap, CallMediaIssue>
+    /// Preparation and startup must remain audible. Only the final activation may mute.
+    func startReading(_ tap: CallMediaProcessTap) -> Result<Void, CallMediaIssue>
+    func activateMute(_ tap: CallMediaProcessTap, permit: CallMediaPermit) -> Result<Void, CallMediaIssue>
     /// Success includes an object already removed by Core Audio. A failure retains ownership.
     func destroy(_ tap: CallMediaProcessTap) -> Bool
 }
@@ -31,6 +35,7 @@ final class CallMediaProcessMute: @unchecked Sendable {
         let target: CallMediaProcessTarget
         let tap: CallMediaProcessTap
         let cancelObservation: () -> Void
+        var active = false
     }
     private let driver: CallMediaProcessTapDriver
     private var leases: [UUID: Lease] = [:]
@@ -50,7 +55,9 @@ final class CallMediaProcessMute: @unchecked Sendable {
             session.processMuteRouteID = target.routeID
             session.canMute = true
         }
-        session.processMuteToken = leases.first(where: { $0.value.session.id == session.id })?.key
+        let owned = leases.first(where: { $0.value.session.id == session.id })
+        session.processMuteToken = owned?.key
+        session.processMuteActive = owned?.value.active
         return session
     }
 
@@ -69,8 +76,8 @@ final class CallMediaProcessMute: @unchecked Sendable {
         var changedDuringCreation: CallMediaIssue?
         let cancel: () -> Void
         switch driver.observe(target, changed: { [weak self] issue in
-            if self?.leases[token] == nil { changedDuringCreation = issue }
-            else { self?.invalidate(token, issue: issue) }
+            changedDuringCreation = issue
+            if self?.leases[token] != nil { self?.invalidate(token, issue: issue) }
         }) {
         case .success(let value): cancel = value
         case .failure(let issue): return .failure(issue)
@@ -86,16 +93,30 @@ final class CallMediaProcessMute: @unchecked Sendable {
         case .failure(let issue): cancel(); return .failure(issue)
         }
         leases[token] = Lease(session: session, target: target, tap: tap, cancelObservation: cancel)
-        if !permit.isValid {
-            if release(token, sessionID: session.id) { return .failure(.cancelled) }
-        } else if changedDuringCreation == nil,
-                  case .success(let current) = driver.target(for: session), current == target {
-            var after = session; after.processMuteToken = token
+        func interruption() -> CallMediaIssue? {
+            if !permit.isValid { return .cancelled }
+            if let issue = changedDuringCreation { return issue }
+            guard leases[token] != nil else { return .changedByUser }
+            switch driver.target(for: session) {
+            case .success(let current): return current == target ? nil : .changedByUser
+            case .failure(let issue): return issue
+            }
+        }
+        func failed(_ issue: CallMediaIssue) -> Result<CallMediaSession, CallMediaIssue> {
+            if release(token, sessionID: session.id) { return .failure(issue) }
+            // A cleanup-only lease never counts as verified muting. Keep its exact token
+            // available to the backup/reset path even when startup or cancellation failed.
+            onInvalidated?(token, issue, false)
+            var after = session; after.processMuteToken = token; after.processMuteActive = false
             return .success(after)
-        } else if release(token, sessionID: session.id) { return .failure(.changedByUser) }
-        // Even a cancelled/stale creation must hand back its resource if cleanup failed. The
-        // controller can release that exact token; losing it would leave an untracked mute.
-        var after = session; after.processMuteToken = token
+        }
+        if let issue = interruption() { return failed(issue) }
+        if case .failure(let issue) = driver.startReading(tap) { return failed(issue) }
+        if let issue = interruption() { return failed(issue) }
+        if case .failure(let issue) = driver.activateMute(tap, permit: permit) { return failed(issue) }
+        if let issue = interruption() { return failed(issue) }
+        leases[token]?.active = true
+        var after = session; after.processMuteToken = token; after.processMuteActive = true
         return .success(after)
     }
 

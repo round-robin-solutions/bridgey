@@ -40,6 +40,9 @@ struct CallMediaSettingsCard: View {
                     ForEach(CallMediaMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }.labelsHidden().frame(maxWidth: 270)
             }.disabled(!enabled)
+            Text(L10n.text("callMedia.audioAccess", fallback: "Mac muting needs macOS 14.2 or later and System Audio Recording access. Audio stays in memory and is discarded; nothing is recorded or sent."))
+                .font(BrandFont.body(12)).foregroundStyle(c.on2).fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 6)
             SettingsRow(title: L10n.text("callMedia.restore", fallback: "After the last call"),
                         subtitle: L10n.text("callMedia.ownership", fallback: "Only changes made by Bridgey are restored. Later playback, volume and output choices stay yours.")) {
                 Picker("", selection: Binding(get: { model.callMediaRestoration == .leaveAsIs ? .restoreSound : model.callMediaRestoration }, set: actions.setCallMediaRestoration)) {
@@ -64,7 +67,7 @@ struct CallMediaSettingsCard: View {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(model.callMediaRecovery) { item in
                         Label(item.temporaryMute ? String(format: L10n.text("callMedia.recovery.temporary",
-                            fallback: "Bridgey could not release %@'s temporary mute. Try Restore sound."), item.appName) :
+                            fallback: "Bridgey could not finish sound recovery for %@. Try Restore sound."), item.appName) :
                             String(format: L10n.text("callMedia.recovery", fallback: "Open %@, restore its volume (previously %d%%), then check sound recovery or retry Reset Everything."),
                                      item.appName, item.originalVolume), systemImage: "exclamationmark.triangle")
                             .font(BrandFont.body(12)).foregroundStyle(c.warn)

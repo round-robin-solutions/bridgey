@@ -58,6 +58,26 @@ final class CallMediaScreenshots: XCTestCase {
         }
     }
 
+    func testTemporaryMuteRecoveryCard() throws {
+        for scheme in [ColorScheme.light, .dark] {
+            for width in [590.0, 390.0] {
+                var model = SettingsModel()
+                model.globalFeatures[.callQuiet] = true
+                model.callMediaMode = .muteOnly
+                model.callMediaRestoration = .restoreSound
+                model.callMediaCanRestoreSound = true
+                model.callMediaRecovery = [CallMediaRecoveryItem(id: "fixture", bundleID: MediaPlayer.musicBundleID,
+                    originalVolume: 50, temporaryMute: true)]
+                let view = BrandRoot(reduceMotion: true) {
+                    CallMediaSettingsCard(model: model, actions: SettingsActions())
+                        .frame(width: width, alignment: .top)
+                }
+                try write(view, scheme: scheme,
+                    name: "mac-call-media-recovery-\(Int(width))-\(scheme == .dark ? "dark" : "light")")
+            }
+        }
+    }
+
     private func write<V: View>(_ view: V, scheme: ColorScheme, name: String) throws {
         let renderer = ImageRenderer(content: view.environment(\.colorScheme, scheme)
             .environment(\.snapshotRendering, true).environment(\.locale, Locale(identifier: "en_GB")))

@@ -1740,6 +1740,7 @@
 
 "sendsheet.selection" = "Files to send";
 "callMedia.restore.macManual" = "Restore sound, resume playback manually";
-"callMedia.recovery.temporary" = "Bridgey could not release %@'s temporary mute. Try Restore sound.";
+"callMedia.recovery.temporary" = "Bridgey could not finish sound recovery for %@. Try Restore sound.";
 "callMedia.restore.backup" = "Restore sound";
 "callMedia.restore.backup.detail" = "Remove Bridgey's temporary mute without starting playback. This also works during a call.";
+"callMedia.audioAccess" = "Mac muting needs macOS 14.2 or later and System Audio Recording access. Audio stays in memory and is discarded; nothing is recorded or sent.";

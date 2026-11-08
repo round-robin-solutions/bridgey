@@ -1,12 +1,19 @@
 import AppKit
 import CoreAudio
+import CCallMediaTap
 import Foundation
 
-/// Inclusive, private process taps. No aggregate device, audio reader, global mute, volume
-/// write, or process-restoration-by-bundle-ID is created here.
+/// Exact-process private taps, with an input-only discard reader. Startup stays unmuted;
+/// only a confirmed reader can activate mute-while-reading. No player/master volume writes.
 final class CallMediaCoreAudioTap: CallMediaProcessTapDriver {
     private let queue: DispatchQueue
+    private var readers: [UUID: OpaquePointer] = [:]
+    private var readerObservers: [UUID: [() -> Void]] = [:]
+    private var preparationIssues: [UUID: CallMediaIssue] = [:]
+    private var targetObservers: [String: (UUID, (CallMediaIssue) -> Void)] = [:]
     init(queue: DispatchQueue) { self.queue = queue }
+
+    deinit { for reader in readers.values { _ = BridgeyCallTapRelease(reader) } }
 
     func target(for session: CallMediaSession) -> Result<CallMediaProcessTarget, CallMediaIssue> {
         guard #available(macOS 14.2, *) else { return .failure(.selectiveMuteUnavailable) }
@@ -93,43 +100,87 @@ final class CallMediaCoreAudioTap: CallMediaProcessTapDriver {
         let playback = notifications.addObserver(forName: Notification.Name(
             target.sessionID.hasPrefix(MediaPlayer.musicBundleID + ":") ? "com.apple.Music.playerInfo" : "com.spotify.client.PlaybackStateChanged"),
             object: nil, queue: nil) { [queue] _ in queue.async { changed(.changedByUser) } }
-        return .success {
+        let observer = UUID()
+        targetObservers[target.sessionID] = (observer, changed)
+        return .success { [weak self] in
             removals.reversed().forEach { $0() }
             workspace.removeObserver(sleep); workspace.removeObserver(exit)
             notifications.removeObserver(playback)
+            if self?.targetObservers[target.sessionID]?.0 == observer {
+                self?.targetObservers.removeValue(forKey: target.sessionID)
+            }
         }
     }
 
     func create(_ target: CallMediaProcessTarget) -> Result<CallMediaProcessTap, CallMediaIssue> {
         guard #available(macOS 14.2, *) else { return .failure(.selectiveMuteUnavailable) }
-        let description = CATapDescription(stereoMixdownOfProcesses: [target.processObject])
-        description.name = "Bridgey temporary media mute"
-        description.uuid = UUID()
-        description.isPrivate = true
-        description.isExclusive = false
-        description.muteBehavior = .muted
-        if #available(macOS 26.0, *) { description.isProcessRestoreEnabled = false }
-        var tap = AudioObjectID(kAudioObjectUnknown)
-        let status = AudioHardwareCreateProcessTap(description, &tap)
-        guard status == noErr, tap != kAudioObjectUnknown else {
-            return .failure(status == kAudioDevicePermissionsError ? .permissionNeeded : .commandFailed)
+        let uid = UUID()
+        var status: OSStatus = noErr
+        guard let reader = BridgeyCallTapPrepare(target.processObject, uid.uuidString as CFString, &status) else {
+            return .failure(issue(status))
         }
-        return .success(CallMediaProcessTap(objectID: tap, uid: description.uuid))
+        readers[uid] = reader
+        let aggregate = BridgeyCallTapAggregate(reader)
+        let tap = CallMediaProcessTap(objectID: BridgeyCallTapObject(reader), uid: uid, aggregateObject: aggregate)
+        if status != noErr { preparationIssues[uid] = issue(status, reader: reader) }
+        var removals: [() -> Void] = []
+        if aggregate != kAudioObjectUnknown {
+            for selector in [kAudioDevicePropertyDeviceIsRunning, kAudioDevicePropertyDeviceIsAlive] {
+                var address = Self.address(selector)
+                let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                    guard let self, let current = self.readers[uid], !BridgeyCallTapIsClosing(current) else { return }
+                    if Self.integer(aggregate, kAudioDevicePropertyDeviceIsAlive) != 1 ||
+                        (BridgeyCallTapIsReading(current) && Self.integer(aggregate, kAudioDevicePropertyDeviceIsRunning) != 1) {
+                        self.targetObservers[target.sessionID]?.1(.sessionGone)
+                    }
+                }
+                if AudioObjectAddPropertyListenerBlock(aggregate, &address, queue, block) != noErr {
+                    preparationIssues[uid] = .selectiveMuteUnavailable
+                } else {
+                    removals.append { [queue] in
+                        var address = Self.address(selector)
+                        AudioObjectRemovePropertyListenerBlock(aggregate, &address, queue, block)
+                    }
+                }
+            }
+        }
+        readerObservers[uid] = removals
+        return .success(tap)
     }
 
+    func startReading(_ tap: CallMediaProcessTap) -> Result<Void, CallMediaIssue> {
+        guard let reader = readers[tap.uid], BridgeyCallTapObject(reader) == tap.objectID else { return .failure(.sessionGone) }
+        if let issue = preparationIssues[tap.uid] { return .failure(issue) }
+        let status = BridgeyCallTapStart(reader)
+        return status == noErr ? .success(()) : .failure(issue(status, reader: reader))
+    }
+
+    func activateMute(_ tap: CallMediaProcessTap, permit: CallMediaPermit) -> Result<Void, CallMediaIssue> {
+        guard permit.isValid else { return .failure(.cancelled) }
+        guard let reader = readers[tap.uid], BridgeyCallTapObject(reader) == tap.objectID else { return .failure(.sessionGone) }
+        let status = BridgeyCallTapArm(reader)
+        return status == noErr ? .success(()) : .failure(issue(status, reader: reader))
+    }
+
+    func preparationIssue(_ tap: CallMediaProcessTap) -> CallMediaIssue? { preparationIssues[tap.uid] }
+
     func destroy(_ tap: CallMediaProcessTap) -> Bool {
-        guard #available(macOS 14.2, *) else { return false }
-        // Core Audio object numbers can be reused after service/process restarts. A lease
-        // may release only its original UUID, never a newer resource with the same number.
-        var address = Self.address(kAudioTapPropertyDescription)
-        var description: Unmanaged<CATapDescription>?
-        var size = UInt32(MemoryLayout<Unmanaged<CATapDescription>?>.size)
-        let read = AudioObjectGetPropertyData(tap.objectID, &address, 0, nil, &size, &description)
-        if read == kAudioHardwareBadObjectError || read == kAudioHardwareUnknownPropertyError { return true }
-        guard read == noErr, let current = description?.takeRetainedValue() else { return false }
-        guard current.uuid == tap.uid else { return true }
-        let status = AudioHardwareDestroyProcessTap(tap.objectID)
-        return status == noErr || status == kAudioHardwareBadObjectError
+        guard let reader = readers[tap.uid] else { return true }
+        guard BridgeyCallTapObject(reader) == tap.objectID else { return false }
+        let status = BridgeyCallTapRelease(reader)
+        guard status == noErr else { _ = issue(status, reader: reader); return false }
+        readers.removeValue(forKey: tap.uid)
+        preparationIssues.removeValue(forKey: tap.uid)
+        readerObservers.removeValue(forKey: tap.uid)?.reversed().forEach { $0() }
+        return true
+    }
+
+    private func issue(_ status: OSStatus, reader: OpaquePointer? = nil) -> CallMediaIssue {
+        if let reader {
+            NSLog("Bridgey call media: %s failed (%d)", BridgeyCallTapLastOperation(reader), status)
+        }
+        // Missing callbacks and arbitrary HAL errors are not invented permission denials.
+        return status == kAudioDevicePermissionsError ? .permissionNeeded : .commandFailed
     }
 
     private static func address(_ selector: AudioObjectPropertySelector,

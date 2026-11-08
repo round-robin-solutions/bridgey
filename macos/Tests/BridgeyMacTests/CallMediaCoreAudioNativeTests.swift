@@ -68,7 +68,7 @@ final class CallMediaCoreAudioNativeTests: XCTestCase {
         return objects
     }
 
-    func testNativePrivateMuteResourceCanBeCreatedVerifiedAndReleased() throws {
+    func testNativeUnmutedInputOnlyResourcesCanBePreparedAndReleased() throws {
         guard #available(macOS 14.2, *) else { throw XCTSkip("Process taps require macOS 14.2") }
         let queue = try silentOutput()
         defer { AudioQueueDispose(queue, true) }
@@ -90,7 +90,15 @@ final class CallMediaCoreAudioNativeTests: XCTestCase {
         XCTAssertEqual(AudioObjectGetPropertyData(tap.objectID, &address, 0, nil, &size, &description), noErr)
         let observed = try XCTUnwrap(description?.takeRetainedValue())
         XCTAssertEqual(observed.uuid, tap.uid, "the handle must retain the identity Core Audio actually created")
-        XCTAssertEqual(observed.muteBehavior, .muted)
+        XCTAssertEqual(observed.muteBehavior, .unmuted, "preparation/consent must leave output audible")
+        XCTAssertNil(driver.preparationIssue(tap))
+        let aggregate = try XCTUnwrap(tap.aggregateObject)
+        XCTAssertNotEqual(aggregate, kAudioObjectUnknown)
+        var outputAddress = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams,
+            mScope: kAudioObjectPropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
+        var outputBytes: UInt32 = 0
+        XCTAssertEqual(AudioObjectGetPropertyDataSize(aggregate, &outputAddress, 0, nil, &outputBytes), noErr)
+        XCTAssertEqual(outputBytes, 0, "the aggregate must have no physical output path")
         XCTAssertTrue(observed.isPrivate)
         XCTAssertFalse(observed.isExclusive)
         if #available(macOS 26.0, *) { XCTAssertFalse(observed.isProcessRestoreEnabled) }
@@ -110,65 +118,15 @@ final class CallMediaCoreAudioNativeTests: XCTestCase {
         XCTAssertTrue(driver.destroy(tap), "already-destroyed resources count as released")
     }
 
-    func testNativeOwnerForceKillDoesNotLeaveItsPrivateMuteResource() throws {
+    func testNativeUnstartedReaderCannotActivateMute() throws {
         guard #available(macOS 14.2, *) else { throw XCTSkip("Process taps require macOS 14.2") }
         let queue = try silentOutput()
         defer { AudioQueueDispose(queue, true) }
-        let object = try processObject(getpid())
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("bridgey-tap-crash-\(UUID())")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-                                               attributes: [.posixPermissions: 0o700])
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let report = directory.appendingPathComponent("owner.json")
-        let child = Process()
-        child.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        child.arguments = ["xctest", "-XCTest", "BridgeyMacTests.CallMediaCoreAudioNativeTests/testIsolatedTapOwnerFixture",
-                           Bundle(for: Self.self).bundleURL.path]
-        child.environment = ProcessInfo.processInfo.environment.merging([
-            "BRIDGEY_TAP_FIXTURE_OBJECT": String(object), "BRIDGEY_TAP_FIXTURE_REPORT": report.path,
-        ]) { _, new in new }
-        child.standardOutput = FileHandle.nullDevice
-        child.standardError = FileHandle.nullDevice
-        try child.run()
-        defer { if child.isRunning { kill(child.processIdentifier, SIGKILL) }; child.waitUntilExit() }
-        let ready = expectation(for: NSPredicate { _, _ in FileManager.default.fileExists(atPath: report.path) }, evaluatedWith: nil)
-        wait(for: [ready], timeout: 10)
-        let data = try Data(contentsOf: report)
-        let result = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Int])
-        guard result["permissionDenied"] != 1 else { throw XCTSkip("System audio permission denied for native child fixture") }
-        let tap = UInt32(try XCTUnwrap(result["tap"]))
-        XCTAssertEqual(result["pid"], Int(child.processIdentifier), "only the owned child may be killed")
-        guard hasTap(tap) else {
-            throw XCTSkip("Private tap is hidden from its supervisor; crash cleanup cannot be verified by this runner")
-        }
-        XCTAssertEqual(kill(child.processIdentifier, SIGKILL), 0)
-        child.waitUntilExit()
-        let gone = expectation(for: NSPredicate { [self] _, _ in !hasTap(tap) }, evaluatedWith: nil)
-        wait(for: [gone], timeout: 5)
-        XCTAssertFalse(hasTap(tap))
-    }
-
-    func testIsolatedTapOwnerFixture() throws {
-        guard let text = ProcessInfo.processInfo.environment["BRIDGEY_TAP_FIXTURE_OBJECT"],
-              let object = UInt32(text),
-              let path = ProcessInfo.processInfo.environment["BRIDGEY_TAP_FIXTURE_REPORT"] else {
-            throw XCTSkip("Child fixture only")
-        }
-        let driver = CallMediaCoreAudioTap(queue: DispatchQueue(label: "bridgey.native-child-tap"))
-        let result = driver.create(CallMediaProcessTarget(sessionID: "isolated-parent-fixture", processObject: object, routeID: "fixture"))
-        var report = ["pid": Int(getpid())]
-        let tap: CallMediaProcessTap
-        switch result {
-        case .success(let value): tap = value; report["tap"] = Int(value.objectID)
-        case .failure(let issue):
-            report["permissionDenied"] = issue == .permissionNeeded ? 1 : 0
-            try JSONSerialization.data(withJSONObject: report).write(to: URL(fileURLWithPath: path), options: .atomic)
-            return
-        }
+        let target = CallMediaProcessTarget(sessionID: "isolated-silent-fixture", processObject: try processObject(getpid()), routeID: "fixture")
+        let driver = CallMediaCoreAudioTap(queue: DispatchQueue(label: "bridgey.native-unstarted-fixture"))
+        let tap = try driver.create(target).get()
         defer { _ = driver.destroy(tap) }
-        try JSONSerialization.data(withJSONObject: report).write(to: URL(fileURLWithPath: path), options: .atomic)
-        // The supervisor kills this fixture, not a real app. A bounded deadline also cleans up
-        // after a failed supervisor rather than leaving a permanent helper process.
-        Thread.sleep(forTimeInterval: 20)
+        XCTAssertThrowsError(try driver.activateMute(tap, permit: CallMediaPermit()).get())
+        XCTAssertTrue(driver.destroy(tap))
     }
 }

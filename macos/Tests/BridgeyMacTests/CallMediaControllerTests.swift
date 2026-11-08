@@ -34,6 +34,7 @@ final class CallMediaTestPlatform: CallMediaPlatform {
     var issues = Set<CallMediaIssue>()
     var pauseWorks = true
     var pauseConfirms = true
+    var processMuteConfirms = true
     var deferScan = false
     var deferSoundRecovery = false
     var forcedFailure: CallMediaIssue?
@@ -119,10 +120,14 @@ final class CallMediaTestPlatform: CallMediaPlatform {
                 }
             case .muteProcess(let token):
                 sessions[index].processMuteToken = token
+                sessions[index].processMuteActive = processMuteConfirms
                 applied.append(command.action)
                 reply = .success(sessions[index])
             case .releaseProcessMute(let token):
-                if current.processMuteToken == token { sessions[index].processMuteToken = nil }
+                if current.processMuteToken == token {
+                    sessions[index].processMuteToken = nil
+                    sessions[index].processMuteActive = false
+                }
                 applied.append(command.action)
                 reply = .success(sessions[index])
             }

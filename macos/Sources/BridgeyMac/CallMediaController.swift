@@ -49,6 +49,7 @@ struct CallMediaSession: Equatable, Codable, Sendable {
     /// Process-tap state is local resource ownership, independent of the player's real volume.
     var processMuteRouteID: String? = nil
     var processMuteToken: UUID? = nil
+    var processMuteActive: Bool? = nil
     var processMuteAvailable: Bool { processMuteRouteID != nil }
     /// A deliberate Stop is not an owned pause, even if the track and position still match.
     var stopped = false
@@ -323,7 +324,7 @@ final class CallMediaController {
                 guard let self else { return }
                 guard self.restoring[id] == ticket else { return }
                 self.restoring.removeValue(forKey: id)
-                guard self.muted[id] == lease, self.muteGenerations[id] == epoch else { self.publish(); return }
+                guard self.ownsSound(id, lease: lease, epoch: epoch) else { self.publish(); return }
                 if released { self.clearSoundOwnership(id) }
                 else { self.unresolvedSound.insert(id) }
                 self.restoreIfReleased()
@@ -502,16 +503,21 @@ final class CallMediaController {
                 (original.processMuteAvailable ? after.processMuteToken == expected.processMuteToken :
                     after.volume == 0 && after.hasSameSoundRoute(as: original)):
                 self.muted[original.id] = CallMediaMutedOwnership(before: original, after: after)
-                self.confirmedMuted.insert(original.id)
+                if !original.processMuteAvailable || after.processMuteActive == true {
+                    self.confirmedMuted.insert(original.id)
+                } else {
+                    self.confirmedMuted.remove(original.id)
+                    self.unresolvedSound.insert(original.id)
+                    self.record(.commandFailed)
+                }
                 _ = self.persistOwnership()
             case .success: self.issues.insert(.commandFailed)
             case .failure(let issue):
                 self.record(issue)
                 // Session loss may happen after the volume write reached the player. Only a
                 // cancelled or superseded command proves this intent can be relinquished here.
-                if issue == .cancelled || issue == .changedByUser {
-                    self.muted.removeValue(forKey: original.id)
-                    _ = self.persistOwnership()
+                if original.processMuteAvailable || issue == .cancelled || issue == .changedByUser {
+                    self.clearSoundOwnership(original.id)
                 }
             }
             self.restoreIfReleased()
@@ -585,7 +591,7 @@ final class CallMediaController {
             self.restorePermits.removeValue(forKey: ticket)
             guard self.restoring[id] == ticket else { return }
             self.restoring.removeValue(forKey: id)
-            guard (sound ? self.muted[id] == lease && self.muteGenerations[id] == soundEpoch :
+            guard (sound ? self.ownsSound(id, lease: lease, epoch: soundEpoch) :
                 self.paused[id] == expected && self.pauseGenerations[id] == pauseEpoch) else {
                 self.restoreIfReleased(); self.publish(); return
             }
@@ -607,7 +613,7 @@ final class CallMediaController {
                         guard let self else { return }
                         guard self.restoring[id] == ticket else { return }
                         self.restoring.removeValue(forKey: id)
-                        guard self.muted[id] == lease, self.muteGenerations[id] == soundEpoch else {
+                        guard self.ownsSound(id, lease: lease, epoch: soundEpoch) else {
                             self.restoreIfReleased(); self.publish(); return
                         }
                         if released { self.clearSoundOwnership(id) }
@@ -629,6 +635,14 @@ final class CallMediaController {
 
     private func record(_ issue: CallMediaIssue) {
         if issue != .cancelled { issues.insert(issue) }
+    }
+
+    private func ownsSound(_ id: String, lease: CallMediaMutedOwnership?, epoch: Int?) -> Bool {
+        guard let lease, let current = muted[id], muteGenerations[id] == epoch else { return false }
+        // Confirmation may update active-reader evidence within the same lease. The token
+        // and generation identify ownership; mutable observation fields do not replace it.
+        return current.before == lease.before && current.after.id == lease.after.id &&
+            current.after.processMuteToken == lease.after.processMuteToken
     }
 
     private func clearSoundOwnership(_ id: String) {

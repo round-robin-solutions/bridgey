@@ -6,14 +6,20 @@ private final class FakeProcessTapDriver: CallMediaProcessTapDriver {
         CallMediaProcessTarget(sessionID: "music:launch", processObject: 15, routeID: "speakers"))
     var observeFailure: CallMediaIssue?
     var createFailure: CallMediaIssue?
+    var startFailure: CallMediaIssue?
+    var armFailure: CallMediaIssue?
     var destroyWorks = true
     var onCreate: (() -> Void)?
     var onObserve: (() -> Void)?
+    var onStart: (() -> Void)?
+    var onArm: (() -> Void)?
     var observers: [(CallMediaIssue) -> Void] = []
     var created: [UInt32] = []
     var destroyed: [UInt32] = []
     var cancellations = 0
     var live = Set<UInt32>()
+    var started: [UInt32] = []
+    var armed: [UInt32] = []
     func target(for session: CallMediaSession) -> Result<CallMediaProcessTarget, CallMediaIssue> { current }
     func observe(_ target: CallMediaProcessTarget, changed: @escaping (CallMediaIssue) -> Void)
         -> Result<() -> Void, CallMediaIssue> {
@@ -34,6 +40,19 @@ private final class FakeProcessTapDriver: CallMediaProcessTapDriver {
         if destroyWorks { live.remove(tap.objectID) }
         return destroyWorks
     }
+    func startReading(_ tap: CallMediaProcessTap) -> Result<Void, CallMediaIssue> {
+        onStart?()
+        if let issue = startFailure { return .failure(issue) }
+        started.append(tap.objectID)
+        return .success(())
+    }
+    func activateMute(_ tap: CallMediaProcessTap, permit: CallMediaPermit) -> Result<Void, CallMediaIssue> {
+        onArm?()
+        guard permit.isValid else { return .failure(.cancelled) }
+        if let issue = armFailure { return .failure(issue) }
+        armed.append(tap.objectID)
+        return .success(())
+    }
 }
 
 final class CallMediaProcessMuteTests: XCTestCase {
@@ -48,6 +67,9 @@ final class CallMediaProcessMuteTests: XCTestCase {
         let after = try backend.mute(session(), token: token, permit: CallMediaPermit()).get()
         XCTAssertEqual(after.volume, 50)
         XCTAssertEqual(after.processMuteToken, token)
+        XCTAssertEqual(after.processMuteActive, true)
+        XCTAssertEqual(driver.started, [100])
+        XCTAssertEqual(driver.armed, [100])
         XCTAssertTrue(backend.release(token, sessionID: after.id))
         XCTAssertTrue(driver.live.isEmpty)
         XCTAssertEqual(driver.destroyed, [100])
@@ -175,6 +197,47 @@ final class CallMediaProcessMuteTests: XCTestCase {
         backend = nil
         XCTAssertTrue(driver.live.isEmpty)
         XCTAssertEqual(driver.cancellations, 1)
+    }
+
+    func testPermissionReadinessAndActivationFailuresNeverBecomeConfirmedMutes() {
+        for failAtActivation in [false, true] {
+            let driver = FakeProcessTapDriver(), token = UUID()
+            let backend = CallMediaProcessMute(driver: driver)
+            if failAtActivation { driver.armFailure = .commandFailed } else { driver.startFailure = .permissionNeeded }
+            XCTAssertThrowsError(try backend.mute(session(), token: token, permit: CallMediaPermit()).get())
+            XCTAssertTrue(driver.armed.isEmpty)
+            XCTAssertTrue(driver.live.isEmpty)
+            XCTAssertFalse(backend.contains(token))
+        }
+    }
+
+    func testCancellationOrRouteChangeWhileStartingReaderCannotPromoteItToMute() {
+        for cancelled in [false, true] {
+            let driver = FakeProcessTapDriver(), token = UUID(), permit = CallMediaPermit()
+            let backend = CallMediaProcessMute(driver: driver)
+            driver.onStart = {
+                if cancelled { permit.invalidate() }
+                else { driver.observers[0](.changedByUser) }
+            }
+            XCTAssertThrowsError(try backend.mute(session(), token: token, permit: permit).get())
+            XCTAssertTrue(driver.armed.isEmpty)
+            XCTAssertTrue(driver.live.isEmpty)
+        }
+    }
+
+    func testFailedStartupCleanupKeepsAnInactiveTokenForBackupRecovery() throws {
+        let driver = FakeProcessTapDriver(), token = UUID()
+        let backend = CallMediaProcessMute(driver: driver)
+        driver.startFailure = .permissionNeeded
+        driver.destroyWorks = false
+        let after = try backend.mute(session(), token: token, permit: CallMediaPermit()).get()
+        XCTAssertEqual(after.processMuteToken, token)
+        XCTAssertEqual(after.processMuteActive, false)
+        XCTAssertTrue(backend.contains(token))
+        XCTAssertTrue(driver.armed.isEmpty)
+        driver.destroyWorks = true
+        XCTAssertTrue(backend.release(token, sessionID: after.id))
+        XCTAssertTrue(driver.live.isEmpty)
     }
 }
 
@@ -456,5 +519,41 @@ final class CallMediaProcessMuteControllerTests: XCTestCase {
             XCTAssertFalse(platform.applied.contains(.resume))
             XCTAssertFalse(platform.applied.contains { if case .setVolume = $0 { return true }; return false })
         }
+    }
+
+    func testPermissionDenialDropsUnownedIntentButPartialStartupRetainsCleanupWithoutCountingMute() {
+        for cleanupOnly in [false, true] {
+            let platform = CallMediaTestPlatform()
+            platform.sessions = [session()]
+            if cleanupOnly { platform.processMuteConfirms = false }
+            else { platform.forcedFailure = .permissionNeeded }
+            let controller = CallMediaController(platform: platform)
+            controller.updateCalls(["call"], policy: CallMediaPolicy(mode: .muteOnly))
+            platform.completeAll()
+            XCTAssertEqual(controller.result.muted, 0)
+            XCTAssertEqual(controller.canRestoreSound, cleanupOnly)
+            if cleanupOnly {
+                controller.restoreSoundNow()
+                platform.completeAll()
+                XCTAssertFalse(controller.canRestoreSound)
+            }
+        }
+    }
+
+    func testActiveReaderAcknowledgementCannotInvalidateAnAlreadyDispatchedCleanup() {
+        let platform = CallMediaTestPlatform()
+        platform.sessions = [session()]
+        let controller = CallMediaController(platform: platform)
+        let policy = CallMediaPolicy(mode: .muteOnly)
+        controller.updateCalls(["call"], policy: policy)
+        platform.complete(holdReply: true)
+        controller.updateCalls([], policy: policy)
+        platform.complete(holdReply: true)
+        platform.deliverHeldReply() // Adds active-reader evidence to the same token.
+        platform.deliverHeldReply() // Its earlier cleanup still owns that token/generation.
+        platform.completeAll()
+        XCTAssertFalse(controller.canRestoreSound)
+        XCTAssertTrue(controller.recoveryItems.isEmpty)
+        XCTAssertNil(platform.sessions[0].processMuteToken)
     }
 }
