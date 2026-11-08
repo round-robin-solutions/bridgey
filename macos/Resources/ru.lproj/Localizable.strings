@@ -1739,3 +1739,7 @@
 "files.selection.help" = "Shift + щелчок: выбрать диапазон. ⌘ + щелчок: выбрать или снять выбор файла. ⌘A: выбрать все. Esc: снять выбор.";
 
 "sendsheet.selection" = "Файлы для отправки";
+"callMedia.restore.macManual" = "Вернуть звук, продолжить вручную";
+"callMedia.recovery.temporary" = "Bridgey не удалось снять временное отключение звука %@. Нажмите «Вернуть звук».";
+"callMedia.restore.backup" = "Вернуть звук";
+"callMedia.restore.backup.detail" = "Снять временное отключение звука Bridgey без запуска воспроизведения. Работает и во время звонка.";

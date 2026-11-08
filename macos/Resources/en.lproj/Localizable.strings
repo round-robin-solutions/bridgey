@@ -1739,3 +1739,7 @@
 "files.selection.help" = "Shift-click: select a range. ⌘-click: toggle a file. ⌘A: select all. Esc: clear.";
 
 "sendsheet.selection" = "Files to send";
+"callMedia.restore.macManual" = "Restore sound, resume playback manually";
+"callMedia.recovery.temporary" = "Bridgey could not release %@'s temporary mute. Try Restore sound.";
+"callMedia.restore.backup" = "Restore sound";
+"callMedia.restore.backup.detail" = "Remove Bridgey's temporary mute without starting playback. This also works during a call.";

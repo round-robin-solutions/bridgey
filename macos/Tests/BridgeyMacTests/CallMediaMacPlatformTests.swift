@@ -14,6 +14,8 @@ final class CallMediaMacPlatformTests: XCTestCase {
         XCTAssertNil(CallMediaMacScripts.command(.pause, bundleID: "com.apple.FaceTime"))
         XCTAssertNil(CallMediaMacScripts.command(.setVolume(-1), bundleID: MediaPlayer.musicBundleID))
         XCTAssertNil(CallMediaMacScripts.command(.setVolume(101), bundleID: MediaPlayer.spotifyBundleID))
+        XCTAssertNil(CallMediaMacScripts.command(.setVolume(0), bundleID: MediaPlayer.spotifyBundleID))
+        XCTAssertNil(CallMediaMacScripts.command(.setVolume(50), bundleID: MediaPlayer.musicBundleID))
         XCTAssertNil(CallMediaMacScripts.command(.pause, bundleID: "evil\"\n do shell script \"anything"))
     }
 
@@ -31,7 +33,7 @@ final class CallMediaMacPlatformTests: XCTestCase {
         XCTAssertEqual(session.position, 123)
         XCTAssertEqual(session.volume, 45)
         XCTAssertTrue(session.canResume)
-        XCTAssertTrue(session.canMute)
+        XCTAssertFalse(session.canMute, "metadata/volume snapshots cannot establish a reliable mute capability")
         XCTAssertNotEqual(session.contentID, "track-id", "raw media identity is not copied into state results")
 
         let unknownItem = try XCTUnwrap(CallMediaMacScripts.parse("playing\u{1f}0\u{1f}45\u{1f}",

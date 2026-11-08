@@ -44,8 +44,17 @@ final class CallMediaTestPlatform: CallMediaPlatform {
     private(set) var applied: [CallMediaAction] = []
     private(set) var localCallActive = false
     private(set) var scanCount = 0
+    var processMuteChanged: (@MainActor (UUID, CallMediaIssue, Bool) -> Void)?
     var commandCount: Int { commands.count }
 
+    func observeProcessMuteRelease(_ changed: @escaping @MainActor (UUID, CallMediaIssue, Bool) -> Void) {
+        processMuteChanged = changed
+    }
+    func soundWasReleased(_ ownership: CallMediaMutedOwnership, completion: @escaping @MainActor (Bool) -> Void) {
+        if let token = ownership.after.processMuteToken {
+            completion(!sessions.contains { $0.processMuteToken == token })
+        } else { completion(sessions.contains { $0.bundleID == ownership.before.bundleID && ($0.volume ?? 0) > 0 }) }
+    }
     func setLocalCallActive(_ active: Bool) { localCallActive = active }
     func scan(_ completion: @escaping @MainActor (CallMediaScan) -> Void) {
         scanCount += 1
@@ -95,6 +104,14 @@ final class CallMediaTestPlatform: CallMediaPlatform {
                     applied.append(.setVolume(value))
                     reply = .success(sessions[index])
                 }
+            case .muteProcess(let token):
+                sessions[index].processMuteToken = token
+                applied.append(command.action)
+                reply = .success(sessions[index])
+            case .releaseProcessMute(let token):
+                if current.processMuteToken == token { sessions[index].processMuteToken = nil }
+                applied.append(command.action)
+                reply = .success(sessions[index])
             }
         } else { reply = .failure(.sessionGone) }
         if let failure = postApplyFailure, applied.count > appliedBefore { reply = .failure(failure) }

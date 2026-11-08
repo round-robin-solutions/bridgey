@@ -27,6 +27,11 @@ final class CallMediaScreenshots: XCTestCase {
                 model.callMediaMode = mode
                 model.callMediaRestoration = mode == .pauseOnly ? .restoreSound : mode == .muteOnly ? .leaveAsIs : .restoreAndResume
                 model.callMediaStatuses = ["phone": "1 paused, 0 muted · Some apps cannot be controlled"]
+                model.callMediaCanRestoreSound = mode == .muteOnly
+                if mode == .muteOnly {
+                    model.callMediaRecovery = [CallMediaRecoveryItem(id: "owned-test-player", bundleID: MediaPlayer.musicBundleID,
+                        originalVolume: 50, temporaryMute: true)]
+                }
                 let view = BrandRoot(reduceMotion: true) {
                     SettingsWindowView(model: model, actions: SettingsActions(), pane: .constant(.calls))
                         .frame(width: 880, height: 700)

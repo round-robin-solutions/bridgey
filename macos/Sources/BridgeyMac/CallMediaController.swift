@@ -46,6 +46,10 @@ struct CallMediaSession: Equatable, Codable, Sendable {
     var canResume: Bool = true
     var canMute: Bool = false
     var protectedCallAudio: Bool = false
+    /// Process-tap state is local resource ownership, independent of the player's real volume.
+    var processMuteRouteID: String? = nil
+    var processMuteToken: UUID? = nil
+    var processMuteAvailable: Bool { processMuteRouteID != nil }
     /// A deliberate Stop is not an owned pause, even if the track and position still match.
     var stopped = false
 
@@ -71,6 +75,7 @@ struct CallMediaScan: Sendable {
 
 enum CallMediaAction: Equatable, Sendable {
     case pause, resume, setVolume(Int)
+    case muteProcess(UUID), releaseProcessMute(UUID)
 }
 
 /// Revocation is checked again on the serial platform queue immediately before a side effect.
@@ -95,11 +100,13 @@ protocol CallMediaPlatform: AnyObject {
     /// Verification only: a restarted player may retain volume zero. It must be fixed manually,
     /// not automatically changed using a lease from the previous process.
     func soundWasReleased(_ ownership: CallMediaMutedOwnership, completion: @escaping @MainActor (Bool) -> Void)
+    func observeProcessMuteRelease(_ changed: @escaping @MainActor (UUID, CallMediaIssue, Bool) -> Void)
 }
 
 extension CallMediaPlatform {
     var requiresDurableMuteOwnership: Bool { false }
     func setLocalCallActive(_ active: Bool) {}
+    func observeProcessMuteRelease(_ changed: @escaping @MainActor (UUID, CallMediaIssue, Bool) -> Void) {}
     func scan(permit: CallMediaPermit, _ completion: @escaping @MainActor (CallMediaScan) -> Void) {
         guard permit.isValid else { completion(CallMediaScan(sessions: [], issues: [.cancelled])); return }
         scan(completion)
@@ -140,6 +147,7 @@ struct CallMediaRecoveryItem: Identifiable, Equatable {
     let id: String
     let bundleID: String
     let originalVolume: Int
+    var temporaryMute = false
     var appName: String {
         bundleID == MediaPlayer.musicBundleID ? "Music" : bundleID == MediaPlayer.spotifyBundleID ? "Spotify" : bundleID
     }
@@ -181,6 +189,7 @@ final class CallMediaController {
     private var resetCompletion: ((Bool) -> Void)?
     private var cancelResetDeadline: (() -> Void)?
     private var ownershipLoadFailed = false
+    private var manualSoundRelease = false
 
     init(platform: CallMediaPlatform, scheduler: CallMediaScheduler? = nil,
          ownershipStore: CallMediaOwnershipStore? = nil,
@@ -199,6 +208,14 @@ final class CallMediaController {
             for lease in try self.ownershipStore?.load() ?? [] { muted[lease.before.id] = lease }
             recoveredOwnership = !muted.isEmpty
         } catch { ownershipHealthy = false; ownershipLoadFailed = true; issues.insert(.commandFailed) }
+        platform.observeProcessMuteRelease { [weak self] token, issue, released in
+            guard let self, let id = self.muted.first(where: { $0.value.after.processMuteToken == token })?.key else { return }
+            self.confirmedMuted.remove(id)
+            if released { self.clearSoundOwnership(id) }
+            else { self.unresolvedSound.insert(id) }
+            self.record(issue)
+            self.publish()
+        }
     }
 
     var result: CallMediaResult {
@@ -208,8 +225,21 @@ final class CallMediaController {
 
     var recoveryItems: [CallMediaRecoveryItem] {
         unresolvedSound.sorted().compactMap { id in
-            muted[id].map { CallMediaRecoveryItem(id: id, bundleID: $0.before.bundleID, originalVolume: $0.before.volume ?? 0) }
+            muted[id].map { CallMediaRecoveryItem(id: id, bundleID: $0.before.bundleID,
+                originalVolume: $0.before.volume ?? 0, temporaryMute: $0.before.processMuteAvailable) }
         }
+    }
+
+    var canRestoreSound: Bool { muted.values.contains { $0.before.processMuteAvailable } }
+
+    /// Explicit escape hatch, including during a call. Release only Bridgey's resources, never
+    /// start playback or write a player's volume. This interval must not quietly reapply them.
+    func restoreSoundNow() {
+        manualSoundRelease = true
+        quietPermit.invalidate()
+        attemptedRestore.removeAll()
+        restoreIfReleased()
+        publish()
     }
 
     func updateCalls(_ active: Set<String>, policy: CallMediaPolicy, localCallActive: Bool = false) {
@@ -294,6 +324,7 @@ final class CallMediaController {
 
     private func begin() {
         forceSoundRelease = false
+        manualSoundRelease = false
         generation += 1
         let epoch = generation
         quietPermit.invalidate()
@@ -412,22 +443,29 @@ final class CallMediaController {
 
     private func mute(_ original: CallMediaSession, epoch: Int) {
         guard generation == epoch, !calls.isEmpty else { return }
-        guard original.canMute, let volume = original.volume else { issues.insert(.selectiveMuteUnavailable); return }
-        guard ownershipHealthy else { issues.insert(.commandFailed); return }
+        guard !manualSoundRelease, original.canMute, let volume = original.volume else {
+            if !manualSoundRelease { issues.insert(.selectiveMuteUnavailable) }; return
+        }
+        guard original.processMuteAvailable || ownershipHealthy else { issues.insert(.commandFailed); return }
         // Something already silent is not Bridgey's property to unmute later.
         guard volume > 0 else { return }
         var expected = original
-        expected.volume = 0
+        let action: CallMediaAction
+        if original.processMuteAvailable {
+            let token = UUID()
+            expected.processMuteToken = token
+            action = .muteProcess(token)
+        } else { expected.volume = 0; action = .setVolume(0) }
         muted[original.id] = CallMediaMutedOwnership(before: original, after: expected)
         muteGenerations[original.id] = epoch
         guard persistOwnership() else { muted.removeValue(forKey: original.id); muteGenerations.removeValue(forKey: original.id); return }
         let ticket = UUID()
         pending.insert(ticket)
-        platform.command(.setVolume(0), session: original, permit: quietPermit) { [weak self] reply in
+        platform.command(action, session: original, permit: quietPermit) { [weak self] reply in
             guard let self else { return }
             self.pending.remove(ticket)
             if self.muteGenerations[original.id] != epoch { self.publish(); return }
-            if self.releasedGenerations[epoch] == .leaveAsIs {
+            if self.releasedGenerations[epoch] == .leaveAsIs && !original.processMuteAvailable {
                 self.muted.removeValue(forKey: original.id)
                 self.confirmedMuted.remove(original.id)
                 self.muteGenerations.removeValue(forKey: original.id)
@@ -436,7 +474,9 @@ final class CallMediaController {
                 return
             }
             switch reply {
-            case .success(let after) where after.volume == 0 && after.hasSameSoundRoute(as: original):
+            case .success(let after) where after.id == original.id &&
+                (original.processMuteAvailable ? after.processMuteToken == expected.processMuteToken :
+                    after.volume == 0 && after.hasSameSoundRoute(as: original)):
                 self.muted[original.id] = CallMediaMutedOwnership(before: original, after: after)
                 self.confirmedMuted.insert(original.id)
                 _ = self.persistOwnership()
@@ -477,17 +517,31 @@ final class CallMediaController {
     }
 
     private func restoreIfReleased() {
+        // User-selected manual restoration on Mac releases transient process mutes at call end,
+        // leaving playback paused. The backup button may release them earlier in the interval.
+        if manualSoundRelease {
+            for (id, lease) in muted where lease.before.processMuteAvailable &&
+                !restoring.contains(id) && !attemptedRestore.contains(id) {
+                if let token = lease.after.processMuteToken {
+                    restore(.releaseProcessMute(token), expected: lease.after, id: id, sound: true)
+                }
+            }
+        }
         guard calls.isEmpty else { return }
         // A legacy call cannot initiate all-player quieting, but it still keeps owned audio
         // quiet. Explicit feature disable/reset may release sound without resuming playback.
         guard !playbackRestorationBlocked || forceSoundRelease else { return }
         if ending == .leaveAsIs {
-            paused.removeAll(); muted.removeAll(); confirmedMuted.removeAll(); muteGenerations.removeAll(); unresolvedSound.removeAll()
+            paused.removeAll()
+            for id in Array(muted.keys) where muted[id]?.before.processMuteAvailable != true {
+                clearSoundOwnership(id)
+            }
             _ = persistOwnership()
-            return
         }
         for (id, lease) in muted where !restoring.contains(id) && !attemptedRestore.contains(id) {
-            restore(.setVolume(lease.before.volume ?? 0), expected: lease.after, id: id, sound: true)
+            if let token = lease.after.processMuteToken {
+                restore(.releaseProcessMute(token), expected: lease.after, id: id, sound: true)
+            } else { restore(.setVolume(lease.before.volume ?? 0), expected: lease.after, id: id, sound: true) }
         }
         for (id, session) in paused where !restoring.contains(id) {
             if ending == .restoreAndResume, session.canResume {
@@ -515,7 +569,8 @@ final class CallMediaController {
                 return
             }
             if sound {
-                if case .success(let after) = reply, (after.volume ?? 0) > 0 {
+                if case .success(let after) = reply,
+                   (expected.processMuteToken != nil ? after.processMuteToken == nil : (after.volume ?? 0) > 0) {
                     self.clearSoundOwnership(id)
                 } else if let lease = self.muted[id] {
                     self.restoring.insert(id)
@@ -553,7 +608,7 @@ final class CallMediaController {
 
     @discardableResult
     private func persistOwnership() -> Bool {
-        do { try ownershipStore?.save(Array(muted.values)); return true }
+        do { try ownershipStore?.save(muted.values.filter { !$0.before.processMuteAvailable }); return true }
         catch { ownershipHealthy = false; issues.insert(.commandFailed); return false }
     }
 

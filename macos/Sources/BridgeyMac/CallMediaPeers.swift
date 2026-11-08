@@ -36,6 +36,7 @@ final class CallMediaPeers {
     private(set) var localResult = CallMediaResult()
     private(set) var remoteResults: [String: CallMediaResultPacket] = [:]
     var recoveryItems: [CallMediaRecoveryItem] { engine.recoveryItems }
+    var canRestoreSound: Bool { engine.canRestoreSound }
 
     init(platform: CallMediaPlatform? = nil, scheduler: CallMediaScheduler? = nil,
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
@@ -154,6 +155,7 @@ final class CallMediaPeers {
         for id in legacySources { legacySourceLost(id) }
     }
     func checkSoundRecovery() { engine.checkSoundRecovery() }
+    func restoreSoundNow() { engine.restoreSoundNow() }
 
     func prepareForReset(_ completion: @escaping (Bool) -> Void) {
         guard !preparingReset else { completion(false); return }

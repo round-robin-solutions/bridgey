@@ -145,6 +145,7 @@ struct SettingsModel {
     var callMediaManual = false
     var callMediaStatuses: [String: String] = [:]
     var callMediaRecovery: [CallMediaRecoveryItem] = []
+    var callMediaCanRestoreSound = false
     var ringForCalls = true
     var otherAppCallPolicy: MacOtherAppCallPolicy = .ask
     var logging = LoggingPolicy()
@@ -304,6 +305,7 @@ struct SettingsActions {
     var setCallMediaRestoration: (CallMediaRestoration) -> Void = { _ in }
     var setManualCall: (Bool) -> Void = { _ in }
     var checkCallMediaRecovery: () -> Void = {}
+    var restoreCallMediaSound: () -> Void = {}
     var setRingForCalls: (Bool) -> Void = { _ in }
     var setOtherAppCallPolicy: (MacOtherAppCallPolicy) -> Void = { _ in }
     var setLogging: (LoggingPolicy) -> Void = { _ in }
@@ -2045,6 +2047,7 @@ struct LiveSettingsView: View {
         model.callMediaManual = pairing.callMedia.manualActive
         model.callMediaStatuses = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, pairing.callMedia.resultSummary($0.id)) })
         model.callMediaRecovery = pairing.callMedia.recoveryItems
+        model.callMediaCanRestoreSound = pairing.callMedia.canRestoreSound
         model.ringForCalls = settings.ringForIncomingCalls
         model.otherAppCallPolicy = settings.otherAppCallPolicy
         model.logging = settings.logging
@@ -2240,6 +2243,7 @@ struct LiveSettingsView: View {
         actions.setCallMediaRestoration = { settings.setCallMediaRestoration($0) }
         actions.setManualCall = { pairing.callMedia.setManualCall($0) }
         actions.checkCallMediaRecovery = { pairing.callMedia.checkSoundRecovery() }
+        actions.restoreCallMediaSound = { pairing.callMedia.restoreSoundNow() }
         actions.setRingForCalls = { enabled in
             settings.setRingForIncomingCalls(enabled)
             pairing.refreshCallRinging()

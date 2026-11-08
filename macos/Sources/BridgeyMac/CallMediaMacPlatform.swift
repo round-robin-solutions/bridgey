@@ -3,13 +3,28 @@ import CoreAudio
 import CryptoKit
 import Foundation
 
-/// Public per-player automation for Music/Spotify; the existing Now Playing compatibility
-/// backend for a bounded set of media-only apps. Never changes the Mac's output/master volume.
+/// Public playback automation and temporary Core Audio process mutes for Music/Spotify;
+/// the existing Now Playing compatibility backend for a bounded set of media-only apps.
 @MainActor
 final class CallMediaMacPlatform: CallMediaPlatform {
-    let requiresDurableMuteOwnership = true
-    private let queue = DispatchQueue(label: "\(Edition.identifier).call-media")
+    private let queue: DispatchQueue
+    private let processMute: CallMediaProcessMute
     private var localCallActive = false
+
+    init() {
+        let queue = DispatchQueue(label: "\(Edition.identifier).call-media")
+        self.queue = queue
+        processMute = CallMediaProcessMute(driver: CallMediaCoreAudioTap(queue: queue))
+    }
+
+    func observeProcessMuteRelease(_ changed: @escaping @MainActor (UUID, CallMediaIssue, Bool) -> Void) {
+        let backend = processMute
+        queue.async {
+            backend.onInvalidated = { token, issue, released in
+                DispatchQueue.main.async { changed(token, issue, released) }
+            }
+        }
+    }
 
     func setLocalCallActive(_ active: Bool) { localCallActive = active }
 
@@ -23,8 +38,10 @@ final class CallMediaMacPlatform: CallMediaPlatform {
 
     private func enqueueScan(permit: CallMediaPermit?, _ completion: @escaping @MainActor (CallMediaScan) -> Void) {
         let protectingLocalCall = localCallActive
+        let backend = processMute
         queue.async {
-            let result = Self.readAll(localCallActive: protectingLocalCall, permit: permit)
+            var result = Self.readAll(localCallActive: protectingLocalCall, permit: permit)
+            result.sessions = result.sessions.map { backend.decorate($0) }
             DispatchQueue.main.async { completion(result) }
         }
     }
@@ -32,19 +49,45 @@ final class CallMediaMacPlatform: CallMediaPlatform {
     func command(_ action: CallMediaAction, session: CallMediaSession, permit: CallMediaPermit,
                  completion: @escaping @MainActor (Result<CallMediaSession, CallMediaIssue>) -> Void) {
         let protectingLocalCall = localCallActive
+        let backend = processMute
         queue.async {
-            let result = Self.apply(action, expected: session, permit: permit, localCallActive: protectingLocalCall)
+            let result: Result<CallMediaSession, CallMediaIssue>
+            switch action {
+            case .releaseProcessMute(let token):
+                if !permit.isValid { result = .failure(.cancelled) }
+                else if backend.release(token, sessionID: session.id) {
+                    var released = session; released.processMuteToken = nil
+                    result = .success(released)
+                } else { result = .failure(.commandFailed) }
+            case .muteProcess(let token):
+                if !permit.isValid { result = .failure(.cancelled) }
+                else if Self.identity(session.bundleID) != session.id { result = .failure(.sessionGone) }
+                else {
+                    switch Self.readScripted(session.bundleID, identity: session.id) {
+                    case .failure(let issue): result = .failure(issue)
+                    case .success(let current):
+                        if !current.playing || current.contentID != session.contentID || current.volume != session.volume {
+                            result = .failure(.changedByUser)
+                        } else { result = backend.mute(session, token: token, permit: permit) }
+                    }
+                }
+            case .setVolume:
+                // Snapshot comparison cannot prove volume ownership after a later manual mute.
+                // This live platform never writes a player's persistent volume, even on failure.
+                result = .failure(.selectiveMuteUnavailable)
+            case .pause, .resume:
+                result = Self.apply(action, expected: session, permit: permit, localCallActive: protectingLocalCall)
+            }
             DispatchQueue.main.async { completion(result) }
         }
     }
 
     func soundWasReleased(_ ownership: CallMediaMutedOwnership, completion: @escaping @MainActor (Bool) -> Void) {
+        let backend = processMute
         queue.async {
             let released: Bool
-            if let process = Self.identity(ownership.before.bundleID),
-               case .success(let current) = Self.readScripted(ownership.before.bundleID, identity: process) {
-                released = (current.volume ?? 0) > 0
-            } else { released = false }
+            if let token = ownership.after.processMuteToken { released = !backend.contains(token) }
+            else { released = false }
             DispatchQueue.main.async { completion(released) }
         }
     }
@@ -97,12 +140,7 @@ final class CallMediaMacPlatform: CallMediaPlatform {
             guard current.playing, current.contentID == expected.contentID else { return .failure(.changedByUser) }
         case .resume:
             guard expected.canResume, current.isStillPaused(from: expected) else { return .failure(.changedByUser) }
-        case .setVolume(let value):
-            guard current.canMute, (0...100).contains(value), current.hasSameSoundRoute(as: expected),
-                  current.volume == expected.volume else { return .failure(.changedByUser) }
-            if value == 0, !current.playing || current.contentID != expected.contentID {
-                return .failure(.changedByUser)
-            }
+        case .setVolume, .muteProcess, .releaseProcessMute: return .failure(.selectiveMuteUnavailable)
         }
         guard permit.isValid, identity(expected.bundleID) == expected.id else { return .failure(.cancelled) }
         let script: String?
@@ -116,7 +154,7 @@ final class CallMediaMacPlatform: CallMediaPlatform {
                 script = NowPlaying.commandScript(command: 1, position: nil, expected: expected.bundleID)
             case .resume:
                 script = CallMediaMacScripts.nowPlayingResume(bundleID: expected.bundleID)
-            case .setVolume: return .failure(.selectiveMuteUnavailable)
+            case .setVolume, .muteProcess, .releaseProcessMute: return .failure(.selectiveMuteUnavailable)
             }
             javaScript = true
         }
@@ -225,9 +263,7 @@ enum CallMediaMacScripts {
         switch action {
         case .pause: command = "pause"
         case .resume: command = "play"
-        case .setVolume(let volume):
-            guard (0...100).contains(volume) else { return nil }
-            command = "set sound volume to \(volume)"
+        case .setVolume, .muteProcess, .releaseProcessMute: return nil
         }
         return wrap(command + "\nreturn \"ok\"", bundleID: bundleID)
     }
@@ -256,7 +292,7 @@ enum CallMediaMacScripts {
         return CallMediaSession(id: identity, bundleID: bundleID, contentID: contentID([parts[3]]),
                                 playing: parts[0] == "playing", position: position, volume: volume,
                                 routeID: routeID, canResume: !parts[3].isEmpty && parts[0] != "stopped",
-                                canMute: !routeID.isEmpty && routeID != "unavailable", stopped: parts[0] == "stopped")
+                                canMute: false, stopped: parts[0] == "stopped")
     }
 
     static func contentID(_ values: [String]) -> String {

@@ -10,6 +10,9 @@ feature is described as shipped. Platform research is recorded in PA
 - Default: pause media, then mute media that cannot pause. Also offer Pause only and Mute only.
 - After the last call ends, default to restoring sound and resuming only playback Bridgey paused.
   Also offer Restore sound, leave playback paused and Leave both for manual action.
+  On Mac, temporary process mutes always release at call end. The old manual-restoration key
+  now leaves playback paused while releasing sound, as requested. A separate Restore sound
+  button can release Bridgey's mute during a call or retry failed cleanup without playing media.
 - Quiet once when a no-call interval becomes an active-call interval. Later manual playback stays
   allowed. Overlapping calls hold the same interval; ending one does not restore under another.
 - Include a manual “I'm on a call” action on the Mac and “I'm off the call” to clear that mark.
@@ -97,7 +100,16 @@ fixed volume or uncertain route may make fallback unavailable; say so.
 
 Mac adapters address Music and Spotify independently and safe compatible media targets. Never
 use system/output mute, which could silence the call. Public process taps start at macOS 14.2
-and need real permission/runtime verification before being offered as a universal fallback.
+and mute only the exact eligible player process. Bridgey does not create a reader/aggregate,
+record audio, or change player volume. Inclusive private taps never attach a replacement player
+by bundle ID. Missing process identity, active audio input, unavailable routes, older macOS,
+permission denial, or failed observation make selective muting unavailable; pausing remains
+independent. Runtime/resource and forced-exit proof must pass before shipping this backend.
+Output/device changes (including A -> B -> A), input activity, playback notifications, player
+exit, sleep and audio-service restart release the owned tap. Later volume values are preserved
+because Bridgey never writes them; instant slider-based release is not promised. The explicit
+Restore sound action releases only Bridgey's temporary mute and prevents reapplying it within
+the same call interval. A failed destruction retains its token for that action/reset to retry.
 Browsers can mix a call and media in one process. Unknown/call-host processes stay protected;
 report limits instead of claiming every app can be silenced. Existing optional MediaRemote
 support is best effort and private, not a public Apple global-media guarantee.
