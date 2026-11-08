@@ -2,6 +2,8 @@ package dev.bridgey.android
 
 import android.app.Application
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.PackageManager
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.bridgey.android.setup.PermissionCatalog
@@ -28,6 +30,7 @@ import kotlinx.coroutines.cancel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -116,5 +119,20 @@ class BuildGatesTest {
         val changes = SetupFlow.startChanges(saved.answers)
         assertEquals(!play, changes.any { it.setting == SetupSetting.UPDATE_CHANNEL })
         assertEquals(!play, changes.any { it.setting == SetupSetting.AUTO_UPDATES })
+    }
+
+    @Test
+    fun startupOnlyProbesInstallPermissionWhenSelfUpdateIsBuilt() {
+        val settings = BridgeySettings(context, "Phone").state.value
+        val noInstallApi = object : ContextWrapper(context) {
+            override fun getPackageManager(): PackageManager =
+                throw SecurityException("REQUEST_INSTALL_PACKAGES is not declared")
+        }
+        if (play) {
+            val facts = permissionFacts(noInstallApi, settings)
+            assertFalse(PermissionKind.INSTALL_PACKAGES in facts.granted)
+        } else {
+            assertThrows(SecurityException::class.java) { permissionFacts(noInstallApi, settings) }
+        }
     }
 }
