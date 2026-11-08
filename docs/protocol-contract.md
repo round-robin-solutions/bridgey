@@ -190,7 +190,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-174 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+176 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 

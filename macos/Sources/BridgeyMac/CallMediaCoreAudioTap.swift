@@ -100,7 +100,7 @@ final class CallMediaCoreAudioTap: CallMediaProcessTapDriver {
         }
     }
 
-    func create(_ target: CallMediaProcessTarget) -> Result<UInt32, CallMediaIssue> {
+    func create(_ target: CallMediaProcessTarget) -> Result<CallMediaProcessTap, CallMediaIssue> {
         guard #available(macOS 14.2, *) else { return .failure(.selectiveMuteUnavailable) }
         let description = CATapDescription(stereoMixdownOfProcesses: [target.processObject])
         description.name = "Bridgey temporary media mute"
@@ -114,12 +114,21 @@ final class CallMediaCoreAudioTap: CallMediaProcessTapDriver {
         guard status == noErr, tap != kAudioObjectUnknown else {
             return .failure(status == kAudioHardwareNotPermittedError ? .permissionNeeded : .commandFailed)
         }
-        return .success(tap)
+        return .success(CallMediaProcessTap(objectID: tap, uid: description.uuid))
     }
 
-    func destroy(_ tap: UInt32) -> Bool {
+    func destroy(_ tap: CallMediaProcessTap) -> Bool {
         guard #available(macOS 14.2, *) else { return false }
-        let status = AudioHardwareDestroyProcessTap(tap)
+        // Core Audio object numbers can be reused after service/process restarts. A lease
+        // may release only its original UUID, never a newer resource with the same number.
+        var address = Self.address(kAudioTapPropertyDescription)
+        var description: Unmanaged<CATapDescription>?
+        var size = UInt32(MemoryLayout<Unmanaged<CATapDescription>?>.size)
+        let read = AudioObjectGetPropertyData(tap.objectID, &address, 0, nil, &size, &description)
+        if read == kAudioHardwareBadObjectError || read == kAudioHardwareUnknownPropertyError { return true }
+        guard read == noErr, let current = description?.takeRetainedValue() else { return false }
+        guard current.uuid == tap.uid else { return true }
+        let status = AudioHardwareDestroyProcessTap(tap.objectID)
         return status == noErr || status == kAudioHardwareBadObjectError
     }
 

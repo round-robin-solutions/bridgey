@@ -8,20 +8,25 @@ struct CallMediaProcessTarget: Equatable {
     let routeID: String
 }
 
+struct CallMediaProcessTap: Equatable {
+    let objectID: UInt32
+    let uid: UUID
+}
+
 protocol CallMediaProcessTapDriver: AnyObject {
     func target(for session: CallMediaSession) -> Result<CallMediaProcessTarget, CallMediaIssue>
     func observe(_ target: CallMediaProcessTarget, changed: @escaping (CallMediaIssue) -> Void)
         -> Result<() -> Void, CallMediaIssue>
-    func create(_ target: CallMediaProcessTarget) -> Result<UInt32, CallMediaIssue>
+    func create(_ target: CallMediaProcessTarget) -> Result<CallMediaProcessTap, CallMediaIssue>
     /// Success includes an object already removed by Core Audio. A failure retains ownership.
-    func destroy(_ tap: UInt32) -> Bool
+    func destroy(_ tap: CallMediaProcessTap) -> Bool
 }
 
 final class CallMediaProcessMute {
     private struct Lease {
         let session: CallMediaSession
         let target: CallMediaProcessTarget
-        let tap: UInt32
+        let tap: CallMediaProcessTap
         let cancelObservation: () -> Void
     }
     private let driver: CallMediaProcessTapDriver
@@ -72,7 +77,7 @@ final class CallMediaProcessMute {
         guard case .success(let current) = driver.target(for: session), current == target else {
             cancel(); return .failure(.changedByUser)
         }
-        let tap: UInt32
+        let tap: CallMediaProcessTap
         switch driver.create(target) {
         case .success(let value): tap = value
         case .failure(let issue): cancel(); return .failure(issue)

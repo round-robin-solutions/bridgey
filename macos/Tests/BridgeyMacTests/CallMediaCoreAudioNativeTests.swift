@@ -57,26 +57,28 @@ final class CallMediaCoreAudioNativeTests: XCTestCase {
         defer { AudioQueueDispose(queue, true) }
         let target = CallMediaProcessTarget(sessionID: "isolated-silent-fixture", processObject: try processObject(getpid()), routeID: "fixture")
         let driver = CallMediaCoreAudioTap(queue: DispatchQueue(label: "bridgey.native-tap-fixture"))
-        let tap: UInt32
+        let tap: CallMediaProcessTap
         switch driver.create(target) {
         case .success(let value): tap = value
         case .failure(.permissionNeeded): throw XCTSkip("System audio permission denied for native test fixture")
         case .failure(let issue): XCTFail("Native mute-only tap creation failed: \(issue)"); return
         }
         defer { _ = driver.destroy(tap) }
-        XCTAssertTrue(hasTap(tap))
+        XCTAssertTrue(hasTap(tap.objectID))
         var address = AudioObjectPropertyAddress(mSelector: kAudioTapPropertyDescription,
             mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
         var description: Unmanaged<CATapDescription>?
         var size = UInt32(MemoryLayout<Unmanaged<CATapDescription>?>.size)
-        XCTAssertEqual(AudioObjectGetPropertyData(tap, &address, 0, nil, &size, &description), noErr)
+        XCTAssertEqual(AudioObjectGetPropertyData(tap.objectID, &address, 0, nil, &size, &description), noErr)
         let observed = try XCTUnwrap(description?.takeRetainedValue())
         XCTAssertEqual(observed.muteBehavior, .muted)
         XCTAssertTrue(observed.isPrivate)
         XCTAssertFalse(observed.isExclusive)
         if #available(macOS 26.0, *) { XCTAssertFalse(observed.isProcessRestoreEnabled) }
+        XCTAssertTrue(driver.destroy(CallMediaProcessTap(objectID: tap.objectID, uid: UUID())))
+        XCTAssertTrue(hasTap(tap.objectID), "a recycled object number cannot grant ownership of another UUID")
         XCTAssertTrue(driver.destroy(tap))
-        XCTAssertFalse(hasTap(tap))
+        XCTAssertFalse(hasTap(tap.objectID))
         XCTAssertTrue(driver.destroy(tap), "already-destroyed resources count as released")
     }
 
@@ -127,9 +129,9 @@ final class CallMediaCoreAudioNativeTests: XCTestCase {
         let driver = CallMediaCoreAudioTap(queue: DispatchQueue(label: "bridgey.native-child-tap"))
         let result = driver.create(CallMediaProcessTarget(sessionID: "isolated-parent-fixture", processObject: object, routeID: "fixture"))
         var report = ["pid": Int(getpid())]
-        let tap: UInt32
+        let tap: CallMediaProcessTap
         switch result {
-        case .success(let value): tap = value; report["tap"] = Int(value)
+        case .success(let value): tap = value; report["tap"] = Int(value.objectID)
         case .failure(let issue):
             report["permissionDenied"] = issue == .permissionNeeded ? 1 : 0
             try JSONSerialization.data(withJSONObject: report).write(to: URL(fileURLWithPath: path), options: .atomic)

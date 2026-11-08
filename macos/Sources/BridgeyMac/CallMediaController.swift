@@ -237,6 +237,7 @@ final class CallMediaController {
     func restoreSoundNow() {
         manualSoundRelease = true
         quietPermit.invalidate()
+        restorePermits.values.forEach { $0.invalidate() }
         attemptedRestore.removeAll()
         restoreIfReleased()
         publish()
@@ -544,7 +545,7 @@ final class CallMediaController {
             } else { restore(.setVolume(lease.before.volume ?? 0), expected: lease.after, id: id, sound: true) }
         }
         for (id, session) in paused where !restoring.contains(id) {
-            if ending == .restoreAndResume, session.canResume {
+            if ending == .restoreAndResume, !manualSoundRelease, session.canResume {
                 if !playbackRestorationBlocked { restore(.resume, expected: session, id: id, sound: false) }
             } else { paused.removeValue(forKey: id) }
         }

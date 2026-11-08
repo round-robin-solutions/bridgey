@@ -22,16 +22,16 @@ private final class FakeProcessTapDriver: CallMediaProcessTapDriver {
         onObserve?()
         return .success { self.cancellations += 1 }
     }
-    func create(_ target: CallMediaProcessTarget) -> Result<UInt32, CallMediaIssue> {
+    func create(_ target: CallMediaProcessTarget) -> Result<CallMediaProcessTap, CallMediaIssue> {
         if let issue = createFailure { return .failure(issue) }
         let id = UInt32(created.count + 100)
         created.append(id); live.insert(id)
         onCreate?()
-        return .success(id)
+        return .success(CallMediaProcessTap(objectID: id, uid: UUID()))
     }
-    func destroy(_ tap: UInt32) -> Bool {
-        destroyed.append(tap)
-        if destroyWorks { live.remove(tap) }
+    func destroy(_ tap: CallMediaProcessTap) -> Bool {
+        destroyed.append(tap.objectID)
+        if destroyWorks { live.remove(tap.objectID) }
         return destroyWorks
     }
 }
@@ -280,5 +280,21 @@ final class CallMediaProcessMuteControllerTests: XCTestCase {
         let controller = CallMediaController(platform: platform)
         controller.updateCalls(["call"], policy: CallMediaPolicy(mode: .muteOnly))
         XCTAssertTrue(platform.requested.isEmpty)
+    }
+
+    func testBackupAlsoRevokesQueuedAutoplayAfterTheCallEnds() {
+        let platform = CallMediaTestPlatform()
+        var other = session(); other.id = "second-player"; other.canPause = false
+        platform.sessions = [session(), other]
+        let controller = CallMediaController(platform: platform)
+        let policy = CallMediaPolicy(mode: .pauseThenMute)
+        controller.updateCalls(["call"], policy: policy)
+        platform.completeAll()
+        controller.updateCalls([], policy: policy)
+        controller.restoreSoundNow()
+        platform.completeAll()
+        XCTAssertFalse(platform.applied.contains(.resume))
+        XCTAssertFalse(platform.sessions[0].playing)
+        XCTAssertNil(platform.sessions[1].processMuteToken)
     }
 }
