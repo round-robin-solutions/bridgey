@@ -1,5 +1,8 @@
 # macOS pairing storage and signing
 
+For the November 2026 distribution audit, see [Mac App Store eligibility](macos-app-store-audit.md)
+and [Developer ID readiness](macos-developer-id-readiness.md). The paths have separate requirements.
+
 Round Robin edition only. Findings from 2026-10-26, tested on macOS 27.0.1 with Sparkle 2.10.0.
 
 ## Where the Mac keeps its pairing state
