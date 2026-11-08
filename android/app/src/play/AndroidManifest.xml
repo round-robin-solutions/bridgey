@@ -5,9 +5,10 @@
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" tools:node="remove" />
-    <uses-permission android:name="android.permission.READ_SMS" tools:node="remove" />
-    <uses-permission android:name="android.permission.SEND_SMS" tools:node="remove" />
-    <uses-permission android:name="android.permission.RECEIVE_SMS" tools:node="remove" />
+    <!-- Lint reads these removal directives as requests; the merged manifest is checked in CI. -->
+    <uses-permission android:name="android.permission.READ_SMS" tools:node="remove" tools:ignore="PermissionImpliesUnsupportedChromeOsHardware" />
+    <uses-permission android:name="android.permission.SEND_SMS" tools:node="remove" tools:ignore="PermissionImpliesUnsupportedChromeOsHardware" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" tools:node="remove" tools:ignore="PermissionImpliesUnsupportedChromeOsHardware" />
     <!-- Contacts only name numbers for Text messages, which this build leaves out. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" tools:node="remove" />
     <application>

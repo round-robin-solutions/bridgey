@@ -4,8 +4,10 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import tempfile
+import tarfile
 import unittest
 import zipfile
 
@@ -13,6 +15,58 @@ import zipfile
 SOURCE = Path(__file__).resolve().parents[1]
 JARSIGNER = shutil.which("jarsigner")
 KEYTOOL = shutil.which("keytool")
+
+
+class StoreCheckTests(unittest.TestCase):
+    def run_check(self, check_exit):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        scripts = root / "scripts/rr"
+        scripts.mkdir(parents=True)
+        for name in ("common.sh", "rust-env.sh", "check-android-store.sh"):
+            shutil.copyfile(SOURCE / name, scripts / name)
+        android = root / "android"
+        android.mkdir()
+        gradle = android / "gradlew"
+        gradle.write_text('''#!/bin/sh
+case " $* " in
+  *:app:bundlePlay*)
+    touch package-started
+    test -s .rrci-reports/store-test-results.tar.gz || exit 18
+    kill -TERM "$PPID"
+    exit 143
+    ;;
+  *)
+    for variant in Play Qa; do
+      mkdir -p "app/build/test-results/test${variant}UnitTest"
+      printf '<testsuite tests="1"/>' > "app/build/test-results/test${variant}UnitTest/result.xml"
+    done
+    exit "$TEST_CHECK_EXIT"
+    ;;
+esac
+''')
+        gradle.chmod(0o755)
+        result = subprocess.run(["sh", str(scripts / "check-android-store.sh")],
+                                env={**os.environ, "TEST_CHECK_EXIT": str(check_exit)}, capture_output=True, timeout=10)
+        return result, android
+
+    def assert_reports_retained(self, android):
+        with tarfile.open(android / ".rrci-reports/store-test-results.tar.gz") as archive:
+            self.assertIn("app/build/test-results/testPlayUnitTest/result.xml", archive.getnames())
+            self.assertIn("app/build/test-results/testQaUnitTest/result.xml", archive.getnames())
+
+    def test_failed_checks_preserve_status_and_never_start_packaging(self):
+        result, android = self.run_check(7)
+        self.assertEqual(7, result.returncode, result.stdout + result.stderr)
+        self.assertFalse((android / "package-started").exists())
+        self.assert_reports_retained(android)
+
+    def test_termination_during_packaging_retains_completed_check_reports(self):
+        result, android = self.run_check(0)
+        self.assertEqual(-signal.SIGTERM, result.returncode, result.stdout + result.stderr)
+        self.assertTrue((android / "package-started").exists())
+        self.assert_reports_retained(android)
 
 
 class StoreSigningTests(unittest.TestCase):

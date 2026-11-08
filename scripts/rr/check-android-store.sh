@@ -11,31 +11,47 @@ unset ANDROID_STORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD BRIDGEY_ANDR
   BRIDGEY_TEST_KEYSTORE BRIDGEY_TEST_STORE_PASSWORD BRIDGEY_TEST_KEY_ALIAS BRIDGEY_TEST_KEY_PASSWORD GH_TOKEN GITHUB_TOKEN
 
 cd "$RR_ROOT/android"
-finish() {
-  rc=$?
-  trap - EXIT
-  set +e
+archive_results() {
   mkdir -p .rrci-reports
   set --
   for directory in app/build/test-results/testPlayUnitTest app/build/test-results/testQaUnitTest; do
     [ ! -d "$directory" ] || set -- "$@" "$directory"
   done
   if [ "$#" -gt 0 ]; then
-    (ulimit -f 65536 && tar -czf .rrci-reports/store-test-results.tar.gz "$@")
-    archive_rc=$?
-    if [ "$archive_rc" -ne 0 ]; then
+    if (ulimit -f 65536 && tar -czf .rrci-reports/store-test-results.tar.gz "$@"); then
+      return 0
+    else
+      archive_rc=$?
       rm -f .rrci-reports/store-test-results.tar.gz
-      [ "$rc" -ne 0 ] || rc=$archive_rc
+      return "$archive_rc"
     fi
+  fi
+  return 0
+}
+finish() {
+  rc=$?
+  trap - EXIT
+  set +e
+  if [ ! -f .rrci-reports/store-test-results.tar.gz ]; then
+    archive_results
+    archive_rc=$?
+    [ "$rc" -ne 0 ] || rc=$archive_rc
   fi
   exit "$rc"
 }
 trap finish EXIT
+mkdir -p .rrci-reports
+rm -f .rrci-reports/store-test-results.tar.gz
+# Finish checks before starting minification, so failed lint cannot leave R8 running.
 ./gradlew --console=plain --no-daemon -Dorg.gradle.workers.max="${RR_CI_CPU:-3}" \
   -Pkotlin.compiler.execution.strategy=in-process \
   :app:lintPlay :app:lintQa \
   :app:testPlayUnitTest --tests dev.bridgey.android.BuildGatesTest \
-  :app:testQaUnitTest --tests dev.bridgey.android.BuildGatesTest \
+  :app:testQaUnitTest --tests dev.bridgey.android.BuildGatesTest
+# Keep completed reports even if the packaging process later reaches its timeout.
+archive_results
+./gradlew --console=plain --no-daemon -Dorg.gradle.workers.max="${RR_CI_CPU:-3}" \
+  -Pkotlin.compiler.execution.strategy=in-process \
   :app:bundlePlay :app:assembleQa
 
 python3 - <<'PY'
