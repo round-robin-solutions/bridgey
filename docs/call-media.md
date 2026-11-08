@@ -127,6 +127,13 @@ manual Mac source are explicit; do not infer an actual call merely from micropho
 
 ## Acceptance
 
+Native Core Audio graph checks are quarantined after disrupting the Work Mac's shared audio
+server. Private taps do not isolate failures in that server. Do not run audio-backed tests or
+the native probe on either daily-use Mac. Owner: Bridgey native acceptance. Ordinary CI skips
+these checks; only a dedicated isolated audio host may set `BRIDGEY_CALL_AUDIO_ISOLATED=1`.
+The backend remains unshipped until the incident is understood and isolated native acceptance
+passes. A passing model suite or skipped hardware check is not native proof.
+
 Meaningful checks include all three modes/restoration options, mid-call joining, notifications
 Off, per-device permission Off, overlapping calls, stale/forged/replayed/oversized state,
 permission revoke, lease expiry, disconnect, manual resume/seek/volume/route changes, process

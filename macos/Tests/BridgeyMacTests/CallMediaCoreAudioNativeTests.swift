@@ -7,6 +7,7 @@ import XCTest
 /// Native resource checks use only this test process's silent output. No installed player,
 /// microphone, recording, default route, or master-volume setting is changed.
 final class CallMediaCoreAudioNativeTests: XCTestCase {
+    override func setUpWithError() throws { try requireIsolatedCallAudioHost() }
     private func processObject(_ pid: pid_t) throws -> AudioObjectID {
         var pid = pid, object = AudioObjectID(kAudioObjectUnknown)
         var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyTranslatePIDToProcessObject,

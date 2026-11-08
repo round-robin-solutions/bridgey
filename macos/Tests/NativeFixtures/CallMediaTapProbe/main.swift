@@ -35,6 +35,9 @@ func streams(_ device: AudioObjectID, scope: AudioObjectPropertyScope) -> Int? {
     return AudioObjectGetPropertyDataSize(device, &address, 0, nil, &size) == noErr ? Int(size) / MemoryLayout<AudioObjectID>.size : nil
 }
 func source(instance: UUID) -> Int32 {
+    guard ProcessInfo.processInfo.environment["BRIDGEY_CALL_AUDIO_ISOLATED"] == "1" else {
+        report(["phase": "isolated-audio-host-required"]); return 3
+    }
     var format = AudioStreamBasicDescription(mSampleRate: 48000, mFormatID: kAudioFormatLinearPCM,
         mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked, mBytesPerPacket: 8,
         mFramesPerPacket: 1, mBytesPerFrame: 8, mChannelsPerFrame: 2, mBitsPerChannel: 32, mReserved: 0)
@@ -96,7 +99,7 @@ struct FixtureSourceIdentity {
 
 func fixtureEnvironment() -> [String: String] {
     // A fixture needs no CI credentials or XCTest/DYLD injection from its launcher.
-    let keys: Set<String> = ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "__CF_USER_TEXT_ENCODING"]
+    let keys: Set<String> = ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "__CF_USER_TEXT_ENCODING", "BRIDGEY_CALL_AUDIO_ISOLATED"]
     return ProcessInfo.processInfo.environment.filter { keys.contains($0.key) }
 }
 
@@ -199,6 +202,9 @@ final class SilentFixtureSource {
 }
 
 func bindingCheck() -> Int32 {
+    guard ProcessInfo.processInfo.environment["BRIDGEY_CALL_AUDIO_ISOLATED"] == "1" else {
+        report(["phase": "isolated-audio-host-required"]); return 3
+    }
     let source = SilentFixtureSource(), other = SilentFixtureSource()
     defer { source.stop(); other.stop() }
     guard source.start(), other.start(), let identity = source.identity, let unrelated = other.identity else {
@@ -221,6 +227,9 @@ func bindingCheck() -> Int32 {
 }
 
 func owner() -> Int32 {
+    guard ProcessInfo.processInfo.environment["BRIDGEY_CALL_AUDIO_ISOLATED"] == "1" else {
+        report(["phase": "isolated-audio-host-required"]); return 3
+    }
     guard Bundle.main.object(forInfoDictionaryKey: "NSAudioCaptureUsageDescription") is String else {
         report(["phase": "usage-description", "error": "Package the probe as its isolated .app before starting audio capture"])
         return 2

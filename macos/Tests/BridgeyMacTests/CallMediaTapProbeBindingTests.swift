@@ -26,6 +26,7 @@ final class CallMediaTapProbeBindingTests: XCTestCase {
     }
 
     func testOwnedSourceBindingAndExitChecksWithoutAnyCapture() throws {
+        try requireIsolatedCallAudioHost()
         guard #available(macOS 14.2, *) else { throw XCTSkip("Native process objects require macOS 14.2") }
         let result = try runProbe(["--binding-check"])
         XCTAssertEqual(result.0, 0, "\(result.1)")
