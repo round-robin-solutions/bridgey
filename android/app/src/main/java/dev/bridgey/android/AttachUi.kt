@@ -237,6 +237,7 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
             preferences.tab = it
         },
         toggle = { key -> selection = AttachSelection.toggle(selection, key) },
+        updateSelection = { change -> selection = change(selection).distinct().take(AttachSelection.MAX) },
         requestMedia = { mediaPermission.launch(MediaAccessRules.request(Build.VERSION.SDK_INT)) },
         // Android 14 shows its photo picker again for the selected-photos permission.
         selectMorePhotos = { mediaPermission.launch(MediaAccessRules.request(Build.VERSION.SDK_INT)) },

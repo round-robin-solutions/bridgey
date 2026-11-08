@@ -586,7 +586,8 @@ private struct MediaCell: View {
                 if inside { model.prefetch.hoverBegan(entry) } else { model.prefetch.hoverEnded(entry) }
             },
             dragEntries: { model.targets(for: entry) },
-            menu: { PhoneItemMenus.menu(for: entry, model: model, quickLook: quickLook, showInFinder: showInFinder) }
+            menu: { PhoneItemMenus.menu(for: entry, model: model, quickLook: quickLook, showInFinder: showInFinder) },
+            isSelected: { model.selection.contains(entry.id) }
         ), promises: promises)
     }
 }
@@ -674,20 +675,27 @@ struct PhoneFileList: View {
         let entries = model.currentEntries
         VStack(spacing: 0) {
             ListHeader(model: model)
-            PhoneScroll {
-                LazyVStack(spacing: 0) {
-                    ForEach(entries) { entry in
-                        FileRow(entry: entry, model: model, promises: promises, quickLook: quickLook, showInFinder: showInFinder,
-                                showsLocation: model.section != .folders, now: now, isLast: entry.id == entries.last?.id)
+            ScrollViewReader { scroll in
+                PhoneScroll {
+                    LazyVStack(spacing: 0) {
+                        ForEach(entries) { entry in
+                            FileRow(entry: entry, model: model, promises: promises, quickLook: quickLook, showInFinder: showInFinder,
+                                    showsLocation: model.section != .folders, now: now, isLast: entry.id == entries.last?.id)
+                                .id(entry.id)
+                        }
+                        if model.currentListing.loading, model.currentListing.loaded {
+                            ProgressView().controlSize(.small).padding(10)
+                        }
                     }
-                    if model.currentListing.loading, model.currentListing.loaded {
-                        ProgressView().controlSize(.small).padding(10)
-                    }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 12)
                 }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 12)
+                .onChange(of: model.selectionFocus) { id in
+                    if model.keyboardSelection, let id { scroll.scrollTo(id) }
+                }
             }
         }
+        .background(PhoneFileListKeyboardScope())
         .modifier(UploadDrop(model: model))
     }
 }
@@ -778,6 +786,8 @@ private struct FileRow: View {
         .padding(.horizontal, 12)
         .frame(height: 48)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(selected ? c.tb : (hovering ? c.s2 : Color.clear)))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .strokeBorder(model.keyboardSelection && model.selectionFocus == entry.id ? c.pri : Color.clear, lineWidth: 2))
         .overlay { if !snapshot { interaction } }
         .onAppear {
             model.thumbnails.appeared(entry)
@@ -797,7 +807,8 @@ private struct FileRow: View {
                 if inside { model.prefetch.hoverBegan(entry) } else { model.prefetch.hoverEnded(entry) }
             },
             dragEntries: { model.targets(for: entry) },
-            menu: { PhoneItemMenus.menu(for: entry, model: model, quickLook: quickLook, showInFinder: showInFinder) }
+            menu: { PhoneItemMenus.menu(for: entry, model: model, quickLook: quickLook, showInFinder: showInFinder) },
+            isSelected: { model.selection.contains(entry.id) }
         ), promises: promises)
     }
 }

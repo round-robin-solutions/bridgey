@@ -35,6 +35,8 @@ final class UIFakePhoneFiles: PhoneFilesService {
     var uploadResult: Result<Void, PhoneFilesError> = .success(())
     /// Every thumbnail request ends with this (after the round trip) instead of answering.
     var thumbnailFailure: PhoneFilesError?
+    /// Fires after the scheduler has consumed the result, so reconnect tests need no sleep.
+    var onThumbnailFinished: ((Result<[PhoneFileEntry], PhoneFilesError>) -> Void)?
 
     private(set) var thumbnailRequests: [(lane: String, keys: [String])] = []
     /// The size asked for each entry, by entry ID (the latest request wins).
@@ -118,6 +120,7 @@ final class UIFakePhoneFiles: PhoneFilesService {
                 guard live() else { return }
                 self?.lanes[lane] = nil
                 finished(.failure(failure))
+                self?.onThumbnailFinished?(.failure(failure))
             }
             return PhoneFilesCancellable { [weak self] in
                 guard let self, self.lanes[lane] == token else { return }
@@ -143,6 +146,7 @@ final class UIFakePhoneFiles: PhoneFilesService {
             guard live() else { return }
             self?.lanes[lane] = nil
             finished(.success(missing))
+            self?.onThumbnailFinished?(.success(missing))
         }
         return PhoneFilesCancellable { [weak self] in
             guard let self, self.lanes[lane] == token else { return }

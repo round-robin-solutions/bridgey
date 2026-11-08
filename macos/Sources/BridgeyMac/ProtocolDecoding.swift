@@ -377,7 +377,7 @@ let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, places
                              agentFeatureKey, agentNotifyFeatureKey, agentAskFeatureKey, agentClipboardRequestFeatureKey,
                              agentCodesFeatureKey, agentsMirrorFeatureKey,
                              // Detect codes (docs/mesh-and-codes.md), after the agent keys.
-                             codesDetectFeatureKey]
+                             codesDetectFeatureKey, callMediaFeatureKey]
 
 func decodeFeatureState(_ plaintext: Data) -> FeatureStateDecoding {
     guard isStrictJSONObject(plaintext),

@@ -160,6 +160,18 @@ final class SendDesignScreenshots: XCTestCase {
         try write(SendSheetView(state: empty, actions: SendSheetActions()).frame(height: 440), scheme: .dark, name: "mac-send-to-phone-no-access-dark")
     }
 
+    @MainActor func testSendSheetSelectionRangeAndKeyboardFocus() throws {
+        var state = sheetState
+        state.clearSelection()
+        state.select(state.recent[1].url, shift: true)
+        state.select(state.recent[6].url, shift: true)
+        for scheme in [ColorScheme.light, .dark] {
+            let suffix = scheme == .dark ? "dark" : "light"
+            try write(SendSheetView(state: state, actions: SendSheetActions(), thumbnail: thumbnail)
+                .frame(height: 600), scheme: scheme, name: "mac-send-selection-range-\(suffix)")
+        }
+    }
+
     private var panelModel: PanelModel {
         var model = PanelModel()
         model.state = .connected(deviceID: phoneID, peerName: "OnePlus 11")

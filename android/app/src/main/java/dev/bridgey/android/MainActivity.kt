@@ -652,12 +652,13 @@ private fun UnsupportedProfile() = ScreenBackdrop(bandHeight = 0.dp) {
 /** Status texts from the coordinator that report progress or success: the stream already shows those. */
 private val QuietStatuses = setOf("Delivered", "Sending…", "Pinging Mac…", "Ping delivered", "Media command completed")
 
-private val PermissionOrder = listOf(
+internal val PermissionOrder = listOf(
     listOf(BridgeyFeature.CLIPBOARD),
     listOf(BridgeyFeature.FILES),
     listOf(BridgeyFeature.NOTIFICATIONS),
     listOf(BridgeyFeature.SMS),
     listOf(BridgeyFeature.CALLS),
+    listOf(BridgeyFeature.CALL_QUIET),
     listOf(BridgeyFeature.MEDIA),
     listOf(BridgeyFeature.REMOTE_INPUT),
     listOf(BridgeyFeature.MAC_ACTIONS),
@@ -978,8 +979,26 @@ private fun BridgeyApp(
         onSettingsTargetHandled()
     }
 
+    var quietPhoneAccess by remember { mutableStateOf(context.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) }
+    val quietPhonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        quietPhoneAccess = granted
+        dev.bridgey.android.media.CallQuietSources.permissionsChanged()
+    }
+    val quietLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(quietLifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                quietPhoneAccess = context.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+                dev.bridgey.android.media.CallQuietSources.permissionsChanged()
+            }
+        }
+        quietLifecycle.lifecycle.addObserver(observer)
+        onDispose { quietLifecycle.lifecycle.removeObserver(observer) }
+    }
+
     val onSetGlobalFeature: (BridgeyFeature, Boolean) -> Unit = { feature, enabled ->
         settings.setGlobal(feature, enabled)
+        if (feature == BridgeyFeature.CALL_QUIET && enabled && !quietPhoneAccess) quietPhonePermission.launch(Manifest.permission.READ_PHONE_STATE)
         if (feature == BridgeyFeature.FIND_DEVICE && !enabled) pairing.stopFinding()
         if (feature == BridgeyFeature.CALLS && !enabled) {
             settings.setDirectCallsEnabled(false)
@@ -1064,7 +1083,7 @@ private fun BridgeyApp(
                                     val deviceId = ring.deviceId!!
                                     PermissionRow(
                                         features = features,
-                                        checked = features.any { settingsState.globalFeatures[it] != false && settingsState.deviceFeatures[deviceId]?.get(it) != false },
+                                        checked = features.any { settings.isEnabled(it, deviceId) },
                                         globallyOff = features.all { settingsState.globalFeatures[it] == false },
                                         remotelyOff = isConnected && features.all { connection?.state?.remoteFeatures?.get(it) == false },
                                     )
@@ -1141,6 +1160,8 @@ private fun BridgeyApp(
                     val bridgeyApp = context.applicationContext as BridgeyApplication
                     val bgSourceStatus by bridgeyApp.backgroundClipboardSource.status.collectAsStateWithLifecycle()
                     val connectStatus by bridgeyApp.connect.status.collectAsStateWithLifecycle()
+                    val callMediaResult by pairing.callMediaResult.collectAsStateWithLifecycle()
+                    val callQuietPeerResults by pairing.callQuietPeerResults.collectAsStateWithLifecycle()
                     val backgroundStatus = when {
                         !settingsState.backgroundClipboardEnabled -> BackgroundClipboardStatus.OFF
                         !readLogsGranted -> BackgroundClipboardStatus.WAITING_FOR_SETUP
@@ -1178,6 +1199,8 @@ private fun BridgeyApp(
                             pairedCount = trustedDevices.size,
                             globalFeatures = settingsState.globalFeatures,
                             directCallsEnabled = settingsState.directCallsEnabled,
+                            callQuiet = dev.bridgey.android.ui.CallQuietSettingsState(settingsState.callMediaPolicy, callMediaResult,
+                                quietPhoneAccess, notificationAccessEnabled, callQuietPeerResults),
                             autoClipboardEnabled = settingsState.autoClipboardGlobal,
                             backgroundClipboardEnabled = settingsState.backgroundClipboardEnabled,
                             backgroundClipboardStatus = backgroundStatus,
@@ -1267,6 +1290,12 @@ private fun BridgeyApp(
                                 if (feature == BridgeyFeature.SMS && on && BuildGates.sms) messagesPermissions.askAll()
                             },
                             setDirectCalls = onSetDirectCalls,
+                            callQuiet = dev.bridgey.android.ui.CallQuietSettingsActions(
+                                setMode = settings::setCallMediaMode,
+                                setRestoration = settings::setCallMediaRestoration,
+                                requestPhoneState = { quietPhonePermission.launch(Manifest.permission.READ_PHONE_STATE) },
+                                openNotificationAccess = onOpenNotificationAccessSettings,
+                            ),
                             setAutoClipboard = settings::setAutoClipboardGlobal,
                             setBackgroundClipboard = settings::setBackgroundClipboardEnabled,
                             setClipboardFiles = settings::setClipboardFilesEnabled,

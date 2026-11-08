@@ -16,11 +16,15 @@ final class WindowLifecycleTests: XCTestCase {
     private var savedUnavailable = BridgeyWindows.screenUnavailable
     private var savedDeadline = BridgeyWindows.fadeDeadline
     private var clock = Date()
+    private var savedRepair: (String, String) -> Void = { _, _ in }
+    private var savedInterval: TimeInterval = 2
 
     override func setUp() {
         super.setUp()
         _ = NSApplication.shared
         let watchdog = WindowWatchdog.shared
+        savedRepair = watchdog.onRepair
+        savedInterval = watchdog.sweepInterval
         watchdog.sweepInterval = 1_000
         watchdog.start()
         repairs = []
@@ -47,6 +51,8 @@ final class WindowLifecycleTests: XCTestCase {
         BridgeyWindows.screenUnavailable = savedUnavailable
         BridgeyWindows.fadeDeadline = savedDeadline
         WindowWatchdog.shared.now = Date.init
+        WindowWatchdog.shared.onRepair = savedRepair
+        WindowWatchdog.shared.sweepInterval = savedInterval
         super.tearDown()
     }
 
@@ -72,12 +78,14 @@ final class WindowLifecycleTests: XCTestCase {
 
     private func showPopover(from button: NSButton) -> NSPopover {
         let popover = NSPopover()
-        popover.behavior = .transient
+        // Test Bridgey's explicit close/watchdog paths, without AppKit dismissing the
+        // fixture because another app on the shared runner gained focus during a fade.
+        popover.behavior = .applicationDefined
+        popover.animates = false
         let controller = NSViewController()
         controller.view = NSView(frame: NSRect(x: 0, y: 0, width: 326, height: 300))
         popover.contentViewController = controller
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
-        spin(0.3)
         XCTAssertTrue(popover.isShown, "the popover did not open")
         return popover
     }

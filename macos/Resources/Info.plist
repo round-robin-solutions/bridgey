@@ -22,6 +22,8 @@
     <string>Bridgey discovers and connects to your paired Android devices on your local network.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>When you enable media controls, Bridgey controls your selected Music or Spotify player and shares now-playing information with your paired phone. When you send the current browser tab, Bridgey reads the address of the front Safari or Chrome tab.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Bridgey temporarily processes supported music players' audio in memory to keep them quiet during calls. Nothing is recorded or sent.</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>Bridgey uses Bluetooth only while you link your phone, so Android can show Bridgey the codes in your text messages. Nothing connects over Bluetooth.</string>
     <key>NSBonjourServices</key>

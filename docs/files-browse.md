@@ -37,6 +37,8 @@ media and documents the way Telegram shows them, and media from the phone that f
 - **Send to phone** sheet (replaces the system panel for Send Files or Folders): recent files
   from Downloads, Desktop and Documents, recent screenshots, drop anywhere, **Browse…** as the
   fallback, target chips, the optimisation chip.
+  File selection uses Shift-click ranges, modifier-click toggles and scoped keyboard navigation
+  in both apps. [Selection shortcuts and limits](file-selection.md).
 - **Menu-bar drops** (Settings › Files › "When I drop on the menu-bar icon"): show devices and
   Tray (default; tiles after 0.5 s of hover, a quick drop sends to the last device with a 5 s
   Undo toast and Send to…), always collect in the Tray, or always send at once.
