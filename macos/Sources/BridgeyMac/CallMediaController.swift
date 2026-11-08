@@ -170,6 +170,7 @@ final class CallMediaController {
     private var quietPermit = CallMediaPermit()
     private var restorePermits: [UUID: CallMediaPermit] = [:]
     private var paused: [String: CallMediaSession] = [:]
+    private var pauseGenerations: [String: Int] = [:]
     private var muted: [String: CallMediaMutedOwnership] = [:]
     private var confirmedMuted = Set<String>()
     private var pending = Set<UUID>()
@@ -177,7 +178,7 @@ final class CallMediaController {
     private var queuedBeginGeneration: Int?
     private var confirming: [UUID: () -> Void] = [:]
     private var confirmationPermits: [UUID: CallMediaPermit] = [:]
-    private var restoring = Set<String>()
+    private var restoring: [String: UUID] = [:]
     private var attemptedRestore = Set<String>()
     private var unresolvedSound = Set<String>()
     private var issues = Set<CallMediaIssue>()
@@ -190,6 +191,9 @@ final class CallMediaController {
     private var cancelResetDeadline: (() -> Void)?
     private var ownershipLoadFailed = false
     private var manualSoundRelease = false
+    /// Backup release permanently gives up all playback ownership dispatched before it.
+    /// A later call may own new work, but cannot revive an older pause acknowledgement.
+    private var autoplayVetoThroughGeneration = -1
 
     init(platform: CallMediaPlatform, scheduler: CallMediaScheduler? = nil,
          ownershipStore: CallMediaOwnershipStore? = nil,
@@ -238,9 +242,22 @@ final class CallMediaController {
         manualSoundRelease = true
         quietPermit.invalidate()
         restorePermits.values.forEach { $0.invalidate() }
+        relinquishPlaybackOwnership()
         attemptedRestore.removeAll()
         restoreIfReleased()
         publish()
+    }
+
+    private func relinquishPlaybackOwnership() {
+        autoplayVetoThroughGeneration = max(autoplayVetoThroughGeneration, generation)
+        paused.removeAll(); pauseGenerations.removeAll()
+        for epoch in Array(releasedGenerations.keys) where releasedGenerations[epoch] == .restoreAndResume {
+            releasedGenerations[epoch] = .restoreSound
+        }
+        for (ticket, cancel) in confirming { cancel(); pending.remove(ticket) }
+        confirming.removeAll()
+        for (ticket, permit) in confirmationPermits { permit.invalidate(); pending.remove(ticket) }
+        confirmationPermits.removeAll()
     }
 
     func updateCalls(_ active: Set<String>, policy: CallMediaPolicy, localCallActive: Bool = false) {
@@ -298,11 +315,15 @@ final class CallMediaController {
     /// The user repaired sound in a player. Verify it before relinquishing recovery evidence;
     /// this check never plays a track or changes a player's current volume.
     func checkSoundRecovery() {
-        for (id, lease) in muted where !restoring.contains(id) {
-            restoring.insert(id)
+        for (id, lease) in muted where restoring[id] == nil {
+            let ticket = UUID()
+            let epoch = muteGenerations[id]
+            restoring[id] = ticket
             platform.soundWasReleased(lease) { [weak self] released in
                 guard let self else { return }
-                self.restoring.remove(id)
+                guard self.restoring[id] == ticket else { return }
+                self.restoring.removeValue(forKey: id)
+                guard self.muted[id] == lease, self.muteGenerations[id] == epoch else { self.publish(); return }
                 if released { self.clearSoundOwnership(id) }
                 else { self.unresolvedSound.insert(id) }
                 self.publish()
@@ -430,8 +451,9 @@ final class CallMediaController {
         confirmationPermits.removeValue(forKey: ticket)
         pending.remove(ticket)
         let released: CallMediaRestoration? = releasedGenerations[epoch] ?? (epoch == generation ? nil : .restoreSound)
-        if released != .restoreSound && released != .leaveAsIs && paused[after.id] == nil {
+        if epoch > autoplayVetoThroughGeneration && released != .restoreSound && released != .leaveAsIs && paused[after.id] == nil {
             paused[after.id] = after
+            pauseGenerations[after.id] = epoch
         }
         restoreIfReleased()
     }
@@ -499,10 +521,7 @@ final class CallMediaController {
     private func finish(_ behavior: CallMediaRestoration) {
         queuedBeginGeneration = nil
         if behavior != .restoreAndResume {
-            for (ticket, cancel) in confirming { cancel(); pending.remove(ticket) }
-            confirming.removeAll()
-            for (ticket, permit) in confirmationPermits { permit.invalidate(); pending.remove(ticket) }
-            confirmationPermits.removeAll()
+            relinquishPlaybackOwnership()
         }
         releasedGenerations[generation] = behavior
         if releasedGenerations.count > 64 {
@@ -522,7 +541,7 @@ final class CallMediaController {
         // leaving playback paused. The backup button may release them earlier in the interval.
         if manualSoundRelease {
             for (id, lease) in muted where lease.before.processMuteAvailable &&
-                !restoring.contains(id) && !attemptedRestore.contains(id) {
+                restoring[id] == nil && !attemptedRestore.contains(id) {
                 if let token = lease.after.processMuteToken {
                     restore(.releaseProcessMute(token), expected: lease.after, id: id, sound: true)
                 }
@@ -533,34 +552,42 @@ final class CallMediaController {
         // quiet. Explicit feature disable/reset may release sound without resuming playback.
         guard !playbackRestorationBlocked || forceSoundRelease else { return }
         if ending == .leaveAsIs {
-            paused.removeAll()
+            paused.removeAll(); pauseGenerations.removeAll()
             for id in Array(muted.keys) where muted[id]?.before.processMuteAvailable != true {
                 clearSoundOwnership(id)
             }
             _ = persistOwnership()
         }
-        for (id, lease) in muted where !restoring.contains(id) && !attemptedRestore.contains(id) {
+        for (id, lease) in muted where restoring[id] == nil && !attemptedRestore.contains(id) {
             if let token = lease.after.processMuteToken {
                 restore(.releaseProcessMute(token), expected: lease.after, id: id, sound: true)
             } else { restore(.setVolume(lease.before.volume ?? 0), expected: lease.after, id: id, sound: true) }
         }
-        for (id, session) in paused where !restoring.contains(id) {
+        for (id, session) in paused where restoring[id] == nil {
             if ending == .restoreAndResume, !manualSoundRelease, session.canResume {
                 if !playbackRestorationBlocked { restore(.resume, expected: session, id: id, sound: false) }
-            } else { paused.removeValue(forKey: id) }
+            } else { paused.removeValue(forKey: id); pauseGenerations.removeValue(forKey: id) }
         }
     }
 
     private func restore(_ action: CallMediaAction, expected: CallMediaSession, id: String, sound: Bool) {
         let ticket = UUID()
         let permit = CallMediaPermit()
+        let lease = muted[id]
+        let soundEpoch = muteGenerations[id]
+        let pauseEpoch = pauseGenerations[id]
         restorePermits[ticket] = permit
-        restoring.insert(id)
+        restoring[id] = ticket
         attemptedRestore.insert(id)
         platform.command(action, session: expected, permit: permit) { [weak self] reply in
             guard let self else { return }
             self.restorePermits.removeValue(forKey: ticket)
-            self.restoring.remove(id)
+            guard self.restoring[id] == ticket else { return }
+            self.restoring.removeValue(forKey: id)
+            guard (sound ? self.muted[id] == lease && self.muteGenerations[id] == soundEpoch :
+                self.paused[id] == expected && self.pauseGenerations[id] == pauseEpoch) else {
+                self.restoreIfReleased(); self.publish(); return
+            }
             if case .failure(.cancelled) = reply {
                 self.attemptedRestore.remove(id)
                 // A new call (or a changed release policy) owns the interval now. Keep the
@@ -573,11 +600,15 @@ final class CallMediaController {
                 if case .success(let after) = reply,
                    (expected.processMuteToken != nil ? after.processMuteToken == nil : (after.volume ?? 0) > 0) {
                     self.clearSoundOwnership(id)
-                } else if let lease = self.muted[id] {
-                    self.restoring.insert(id)
+                } else if let lease {
+                    self.restoring[id] = ticket
                     self.platform.soundWasReleased(lease) { [weak self] released in
                         guard let self else { return }
-                        self.restoring.remove(id)
+                        guard self.restoring[id] == ticket else { return }
+                        self.restoring.removeValue(forKey: id)
+                        guard self.muted[id] == lease, self.muteGenerations[id] == soundEpoch else {
+                            self.restoreIfReleased(); self.publish(); return
+                        }
                         if released { self.clearSoundOwnership(id) }
                         else { self.unresolvedSound.insert(id); self.confirmedMuted.remove(id) }
                         if case .failure(let issue) = reply { self.record(issue) }
@@ -588,7 +619,7 @@ final class CallMediaController {
                     return
                 }
             }
-            else { self.paused.removeValue(forKey: id) }
+            else { self.paused.removeValue(forKey: id); self.pauseGenerations.removeValue(forKey: id) }
             if case .failure(let issue) = reply { self.record(issue) }
             self.restoreIfReleased()
             self.publish()
@@ -600,6 +631,8 @@ final class CallMediaController {
     }
 
     private func clearSoundOwnership(_ id: String) {
+        if let ticket = restoring.removeValue(forKey: id) { restorePermits.removeValue(forKey: ticket)?.invalidate() }
+        attemptedRestore.remove(id)
         muted.removeValue(forKey: id)
         confirmedMuted.remove(id)
         muteGenerations.removeValue(forKey: id)
