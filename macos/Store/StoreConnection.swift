@@ -51,7 +51,7 @@ final class StoreConnection: NSObject, ObservableObject, NetServiceBrowserDelega
             }
             listener.start(queue: .main)
         } catch { status = "Bridgey could not listen on the local network." }
-        subscription = objectWillChange.sink { [weak self] in
+        subscription = Publishers.CombineLatest3($clipboardEnabled, $filesEnabled, $notificationsEnabled).dropFirst().sink { [weak self] _ in
             // A UI toggle must update the advertised map after its new value is stored.
             DispatchQueue.main.async { self?.sendFeatures() }
         }
@@ -130,7 +130,7 @@ final class StoreConnection: NSObject, ObservableObject, NetServiceBrowserDelega
     func send(_ message: PairingMessage, completion: (() -> Void)? = nil) {
         guard let current = session, let identity else { return }
         var message = message
-        if let key = current.key { message.tag = SessionSecurity.tag(envelopeKey: SessionSecurity.envelopeKey(sessionKey: key), senderDeviceID: identity.deviceID, message: message) }
+        if let key = current.key, !SessionSecurity.allowedBeforeAuthentication(message.kind) || message.kind == "pairing.cancel" { message.tag = SessionSecurity.tag(envelopeKey: SessionSecurity.envelopeKey(sessionKey: key), senderDeviceID: identity.deviceID, message: message) }
         guard var data = try? JSONEncoder().encode(message), data.count <= maximumProtocolFrameBytes else { return }
         data.append(10)
         current.connection.send(content: data, completion: .contentProcessed { [weak self] error in
