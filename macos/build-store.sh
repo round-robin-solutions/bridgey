@@ -20,7 +20,12 @@ trap 'exit 143' TERM
 export BRIDGEY_DISTRIBUTION=app-store
 SCRATCH="$PWD/.build/store"
 if [ "${1:-}" = --test ]; then
-  swift test --scratch-path "$SCRATCH/tests" --jobs "${RR_CI_CPU:-2}" -Xswiftc -warnings-as-errors
+  if xcrun --find xctest >/dev/null 2>&1; then
+    swift test --scratch-path "$SCRATCH/tests" --jobs "${RR_CI_CPU:-2}" -Xswiftc -warnings-as-errors
+  else
+    # Command Line Tools includes the SDK/compiler but not XCTest. Run the same three cases in the built app.
+    swift run --scratch-path "$SCRATCH/tests" --jobs "${RR_CI_CPU:-2}" -Xswiftc -warnings-as-errors BridgeyMacStore --self-check
+  fi
   exit
 fi
 swift build -c "$CONFIGURATION" --product BridgeyMacStore --scratch-path "$SCRATCH" --jobs "${RR_CI_CPU:-2}" -Xswiftc -warnings-as-errors

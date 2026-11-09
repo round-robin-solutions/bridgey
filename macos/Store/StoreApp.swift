@@ -5,6 +5,9 @@ import SwiftUI
 enum BridgeyStoreLauncher {
     @MainActor
     static func main() {
+        #if DEBUG
+        if CommandLine.arguments.contains("--self-check") { exit(StoreBoundaryChecks.run() ? 0 : 1) }
+        #endif
         if CommandLine.arguments.contains("--snapshot-dark") || CommandLine.arguments.contains("--snapshot-light") {
             renderSnapshot(dark: CommandLine.arguments.contains("--snapshot-dark"))
             return

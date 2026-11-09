@@ -51,3 +51,23 @@ struct StoreIdentity: Codable {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.file.path)
     }
 }
+
+#if DEBUG
+/// The same boundary cases as StoreBoundaryTests, for Apple's CLT-only fleet hosts without XCTest.
+enum StoreBoundaryChecks {
+    static func run() -> Bool {
+        let excluded = ["remote_input.event", "media.command", "handoff.takeover", "updates.start", "sms.send", "actions.run", "screen.start", "settings.update", "camera.request", "agent.ask"]
+        let capabilities = excluded.allSatisfy { !StorePolicy.permits($0) }
+            && Set(StorePolicy.features.filter(\.value).keys) == Set(["files", "clipboard", "notifications"])
+        let filenames = ["../escape", "/etc/passwd", "..", "folder/file", "a\\b", "a:b", "bad\0name"].allSatisfy { StorePolicy.fileName($0) == nil }
+            && StorePolicy.fileName("Report.pdf") == "Report.pdf"
+        let key = Data(repeating: 7, count: 32)
+        var message = PairingMessage(kind: "clipboard.update", sessionId: "session", messageId: "message")
+        message.tag = SessionSecurity.tag(envelopeKey: key, senderDeviceID: "phone", message: message)
+        let integrity = SessionSecurity.tagMatches(envelopeKey: key, senderDeviceID: "phone", message: message)
+            && !SessionSecurity.tagMatches(envelopeKey: key, senderDeviceID: "other", message: message)
+        print("Store boundary checks: capabilities=\(capabilities), filenames=\(filenames), envelope=\(integrity)")
+        return capabilities && filenames && integrity
+    }
+}
+#endif
