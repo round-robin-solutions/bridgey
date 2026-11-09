@@ -34,9 +34,10 @@ final class StoreConnection: NSObject, ObservableObject, @preconcurrency NetServ
     private var clipboardTask: Task<Void, Never>?
     private var clipboardChange = NSPasteboard.general.changeCount
 
-    override init() {
+    init(startNetworking: Bool = true) {
         super.init()
         files = StoreFiles(owner: self)
+        guard startNetworking else { return }
         do { identity = try StoreIdentity.load() } catch { status = "Pairing storage could not be opened. Restart Bridgey or contact support."; return }
         browser.delegate = self
         browser.searchForServices(ofType: "_bridgey._tcp.", inDomain: "local.")

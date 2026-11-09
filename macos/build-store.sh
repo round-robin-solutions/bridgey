@@ -3,6 +3,20 @@ set -eu
 cd "$(dirname "$0")"
 CONFIGURATION=${CONFIGURATION:-debug}
 case "$CONFIGURATION" in debug|release) ;; *) echo 'Use debug or release' >&2; exit 2;; esac
+# SwiftPM removes an unused direct-edition lockfile when resolving the dependency-free flavour.
+# Restore its exact bytes on every exit so building the store never changes direct-download resolution.
+LOCK_COPY=$(mktemp "${TMPDIR:-/tmp}/bridgey-store-resolution.XXXXXX")
+HAD_LOCK=0
+if [ -f Package.resolved ]; then cp Package.resolved "$LOCK_COPY"; HAD_LOCK=1; fi
+restore_lock() {
+  if [ -f "$LOCK_COPY" ]; then
+    if [ "$HAD_LOCK" = 1 ]; then cp "$LOCK_COPY" Package.resolved; else rm -f Package.resolved; fi
+    rm -f "$LOCK_COPY"
+  fi
+}
+trap restore_lock EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 export BRIDGEY_DISTRIBUTION=app-store
 SCRATCH="$PWD/.build/store"
 if [ "${1:-}" = --test ]; then
@@ -33,10 +47,13 @@ python3 ../scripts/rr/check-macos-store.py "$APP"
 mkdir -p .rrci-reports
 "$APP/Contents/MacOS/BridgeyMacStore" --sandbox-smoke > .rrci-reports/store-sandbox.json
 cat .rrci-reports/store-sandbox.json
+"$APP/Contents/MacOS/BridgeyMacStore" --snapshot-dark > .rrci-reports/store-dark.png
+"$APP/Contents/MacOS/BridgeyMacStore" --snapshot-light > .rrci-reports/store-light.png
 ditto -c -k --keepParent "$APP" .rrci-reports/BridgeyStore.zip
 python3 - <<'PYPROOF'
 import zipfile
 with zipfile.ZipFile('.rrci-reports/BridgeyStore.zip', 'a') as archive:
-    archive.write('.rrci-reports/store-sandbox.json', 'store-sandbox.json')
+    for name in ['store-sandbox.json', 'store-dark.png', 'store-light.png']:
+        archive.write('.rrci-reports/' + name, name)
 PYPROOF
 printf '%s\n' "$APP"

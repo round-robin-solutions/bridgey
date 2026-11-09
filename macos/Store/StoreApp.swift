@@ -3,7 +3,12 @@ import SwiftUI
 
 @main
 enum BridgeyStoreLauncher {
+    @MainActor
     static func main() {
+        if CommandLine.arguments.contains("--snapshot-dark") || CommandLine.arguments.contains("--snapshot-light") {
+            renderSnapshot(dark: CommandLine.arguments.contains("--snapshot-dark"))
+            return
+        }
         if CommandLine.arguments.contains("--sandbox-smoke") {
             let manager = FileManager.default
             let inside = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -17,6 +22,25 @@ enum BridgeyStoreLauncher {
             exit(container && insideAllowed && outsideDenied ? 0 : 1)
         }
         BridgeyStoreApp.main()
+    }
+    @MainActor
+    private static func renderSnapshot(dark: Bool) {
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        NSApplication.shared.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        let connection = StoreConnection(startNetworking: false)
+        let view = NSHostingView(rootView: StoreView(connection: connection))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            view.layoutSubtreeIfNeeded()
+            guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { exit(1) }
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            guard let png = bitmap.representation(using: .png, properties: [:]) else { exit(1) }
+            FileHandle.standardOutput.write(png)
+            exit(0)
+        }
+        RunLoop.main.run()
     }
 }
 

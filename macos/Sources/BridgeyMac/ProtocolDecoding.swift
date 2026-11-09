@@ -305,8 +305,8 @@ struct ProtocolFrameReader {
     var overLimit: Bool {
         let available = storage.count - head
         guard available > maximumProtocolFrameBytes else { return false }
-#if !BRIDGEY_APP_STORE
         let start = storage.startIndex + head
+#if !BRIDGEY_APP_STORE
         if binaryAllowed && storage[start] == FastFrame.marker { return false }
 #endif
         return storage[start...].firstIndex(of: 0x0A) == nil && available > maximumProtocolFrameBytes + (storage.last == 0x0D ? 1 : 0)
