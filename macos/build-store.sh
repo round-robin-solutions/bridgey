@@ -31,5 +31,12 @@ codesign --force --sign - --entitlements Resources/BridgeyStore.entitlements "$A
 codesign --verify --deep --strict "$APP"
 python3 ../scripts/rr/check-macos-store.py "$APP"
 mkdir -p .rrci-reports
+"$APP/Contents/MacOS/BridgeyMacStore" --sandbox-smoke > .rrci-reports/store-sandbox.json
+cat .rrci-reports/store-sandbox.json
 ditto -c -k --keepParent "$APP" .rrci-reports/BridgeyStore.zip
+python3 - <<'PYPROOF'
+import zipfile
+with zipfile.ZipFile('.rrci-reports/BridgeyStore.zip', 'a') as archive:
+    archive.write('.rrci-reports/store-sandbox.json', 'store-sandbox.json')
+PYPROOF
 printf '%s\n' "$APP"

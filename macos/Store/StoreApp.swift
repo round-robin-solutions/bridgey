@@ -2,6 +2,24 @@ import AppKit
 import SwiftUI
 
 @main
+enum BridgeyStoreLauncher {
+    static func main() {
+        if CommandLine.arguments.contains("--sandbox-smoke") {
+            let manager = FileManager.default
+            let inside = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            let outside = URL(fileURLWithPath: "/private/tmp/bridgey-store-deny-" + UUID().uuidString)
+            var insideAllowed = false
+            var outsideDenied = false
+            do { try Data("sandbox proof".utf8).write(to: inside); insideAllowed = true; try manager.removeItem(at: inside) } catch {}
+            do { try Data("sandbox proof".utf8).write(to: outside); try? manager.removeItem(at: outside) } catch { outsideDenied = true }
+            let container = NSHomeDirectory().contains("/Containers/" + StorePolicy.identifier + "/Data")
+            print("{\"container\":\(container),\"containerWrite\":\(insideAllowed),\"outsideWriteDenied\":\(outsideDenied)}")
+            exit(container && insideAllowed && outsideDenied ? 0 : 1)
+        }
+        BridgeyStoreApp.main()
+    }
+}
+
 struct BridgeyStoreApp: App {
     @StateObject private var connection = StoreConnection()
     var body: some Scene {
@@ -40,10 +58,10 @@ struct StoreView: View {
                                 if $0 { connection.enableNotifications() } else { connection.notificationsEnabled = false }
                             }))
                             HStack {
-                                Button("Send a file...") { connection.files.chooseFile() }.buttonStyle(.borderedProminent).disabled(!connection.filesEnabled)
-                                Button("Send clipboard") { connection.sendClipboard() }.disabled(!connection.clipboardEnabled)
+                                Button("Send a file...") { connection.files.chooseFile() }.buttonStyle(.borderedProminent).disabled(!connection.filesReady)
+                                Button("Send clipboard") { connection.sendClipboard() }.disabled(!connection.clipboardReady)
                             }
-                            Text("Clipboard text syncs while enabled. Phone notifications appear in Notification Centre.")
+                            Text("Enable the same features on your phone. Clipboard text syncs while enabled; phone notifications appear in Notification Centre.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }.padding(12)
                     }.transition(.opacity)

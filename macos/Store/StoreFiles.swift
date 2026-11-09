@@ -33,7 +33,7 @@ final class StoreFiles {
     init(owner: StoreConnection) { self.owner = owner }
 
     func chooseFile() {
-        guard owner.connected, owner.filesEnabled, outgoing == nil, incoming == nil, owner.pendingFile == nil else { return }
+        guard owner.filesReady, outgoing == nil, incoming == nil, owner.pendingFile == nil else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
         panel.prompt = "Send to phone"
@@ -63,7 +63,7 @@ final class StoreFiles {
                     }
                     return (bytes, Data(hash.finalize()).base64EncodedString())
                 }.value
-                guard self.generation == token, self.owner.connected, self.owner.filesEnabled else { return }
+                guard self.generation == token, self.owner.filesReady else { return }
                 let offer = StoreFileOffer(transferId: UUID().uuidString.lowercased(), name: url.lastPathComponent,
                                            mimeType: "application/octet-stream", size: result.0, sha256: result.1)
                 self.input = try FileHandle(forReadingFrom: url); self.outgoing = offer; self.sequence = 0; self.sent = 0
@@ -76,7 +76,7 @@ final class StoreFiles {
         }
     }
     func accept() {
-        guard let offer = owner.pendingFile, owner.connected, owner.filesEnabled else { return }
+        guard let offer = owner.pendingFile, owner.filesReady else { return }
         let panel = NSSavePanel(); panel.nameFieldStringValue = offer.name; panel.prompt = "Receive file"
         panel.begin { [weak self] response in
             Task { @MainActor in
@@ -107,7 +107,7 @@ final class StoreFiles {
         switch message.kind {
         case "files.offer":
             let offer = try JSONDecoder().decode(StoreFileOffer.self, from: data)
-            guard owner.filesEnabled, incoming == nil, outgoing == nil, owner.pendingFile == nil,
+            guard owner.filesReady, incoming == nil, outgoing == nil, owner.pendingFile == nil,
                   UUID(uuidString: offer.id) != nil, message.transferId == offer.id, StorePolicy.fileName(offer.name) != nil,
                   (0...(10 * 1024 * 1024 * 1024)).contains(offer.size), Data(base64Encoded: offer.sha256)?.count == 32 else {
                 owner.control("files.rejected", transfer: offer.id); return
@@ -115,7 +115,7 @@ final class StoreFiles {
             owner.pendingFile = offer
             let token = UUID(); generation = token; expire(token)
         case "files.chunk":
-            guard owner.filesEnabled, let offer = incoming, message.transferId == offer.id, message.sequence == sequence,
+            guard owner.filesReady, let offer = incoming, message.transferId == offer.id, message.sequence == sequence,
                   !data.isEmpty, data.count <= 24 * 1024, received + Int64(data.count) <= offer.size, let output else { throw PairingError.invalidMessage }
             try output.write(contentsOf: data); hasher.update(data: data); received += Int64(data.count)
             owner.control("files.chunk.ack", transfer: offer.id, sequence: sequence); sequence += 1
@@ -123,7 +123,7 @@ final class StoreFiles {
             let token = UUID(); generation = token; expire(token)
         case "files.complete":
             let complete = try JSONDecoder().decode(StoreFileComplete.self, from: data)
-            guard owner.filesEnabled, let offer = incoming, complete.transferId == offer.id, message.transferId == offer.id,
+            guard owner.filesReady, let offer = incoming, complete.transferId == offer.id, message.transferId == offer.id,
                   received == offer.size, complete.sha256 == offer.sha256, Data(hasher.finalize()).base64EncodedString() == offer.sha256,
                   let staging, let destination else { throw PairingError.invalidMessage }
             try output?.synchronize(); try output?.close(); output = nil
@@ -156,7 +156,7 @@ final class StoreFiles {
     }
     private var sending = false
     private func sendChunk() {
-        guard owner.connected, owner.filesEnabled, let outgoing, let input else { cancel(); return }
+        guard owner.filesReady, let outgoing, let input else { cancel(); return }
         do {
             let chunk = try input.read(upToCount: 24 * 1024) ?? Data()
             if chunk.isEmpty {

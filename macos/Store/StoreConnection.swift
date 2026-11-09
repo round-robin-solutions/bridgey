@@ -19,6 +19,9 @@ final class StoreConnection: NSObject, ObservableObject, NetServiceBrowserDelega
     @Published var receivedFiles: [URL] = []
     @Published var transferStatus = ""
     @Published var armedUntil: Date?
+    @Published private(set) var remoteFeatures: [String: Bool] = [:]
+    var filesReady: Bool { connected && filesEnabled && remoteFeatures["files"] == true }
+    var clipboardReady: Bool { connected && clipboardEnabled && remoteFeatures["clipboard"] == true }
     var files: StoreFiles!
     var identity: StoreIdentity?
     private var browser = NetServiceBrowser()
@@ -239,7 +242,7 @@ final class StoreConnection: NSObject, ObservableObject, NetServiceBrowserDelega
     func disconnect() {
         clipboardTask?.cancel(); clipboardTask = nil
         let old = session; session = nil; old?.connection.cancel()
-        files?.cancel(); pendingFile = nil; verification = nil; connected = false; status = "Phone disconnected."
+        files?.cancel(); remoteFeatures = [:]; pendingFile = nil; verification = nil; connected = false; status = "Phone disconnected."
     }
     func forget() {
         guard let remote = session?.remoteID, var value = identity else { return }
@@ -253,7 +256,7 @@ final class StoreConnection: NSObject, ObservableObject, NetServiceBrowserDelega
         if let data = try? JSONSerialization.data(withJSONObject: ["version": 1, "features": features]) { encrypted("features.update", data: data) }
     }
     func sendClipboard() {
-        guard clipboardEnabled, let text = NSPasteboard.general.string(forType: .string), clipboardTextFits(text) else { status = "Copy some text first (up to 32 KB)."; return }
+        guard clipboardReady, let text = NSPasteboard.general.string(forType: .string), clipboardTextFits(text) else { status = "Copy some text first (up to 32 KB)."; return }
         encrypted("clipboard.update", data: Data(text.utf8)); status = "Clipboard sent to your phone."
     }
     func copyReceived() {
@@ -272,7 +275,7 @@ final class StoreConnection: NSObject, ObservableObject, NetServiceBrowserDelega
                 let board = NSPasteboard.general
                 guard board.changeCount != self.clipboardChange else { continue }
                 self.clipboardChange = board.changeCount
-                guard !clipboardTypesAreSecret((board.types ?? []).map(\.rawValue)),
+                guard self.clipboardReady, !clipboardTypesAreSecret((board.types ?? []).map(\.rawValue)),
                       let text = board.string(forType: .string), clipboardTextFits(text) else { continue }
                 self.encrypted("clipboard.update", data: Data(text.utf8))
             }
@@ -285,15 +288,20 @@ final class StoreConnection: NSObject, ObservableObject, NetServiceBrowserDelega
     }
     private func payload(_ message: PairingMessage, _ data: Data) throws {
         switch message.kind {
+        case "features.update":
+            let state = try JSONDecoder().decode(StoreFeatureState.self, from: data)
+            guard state.version == 1 else { return }
+            guard ["clipboard", "files", "notifications", "battery", "find_device"].allSatisfy({ state.features[$0] != nil }) else { throw PairingError.invalidMessage }
+            remoteFeatures = state.features
         case "clipboard.update", "clipboard.rich":
-            guard clipboardEnabled else { control("clipboard.rejected", messageID: message.messageId); return }
+            guard clipboardReady else { control("clipboard.rejected", messageID: message.messageId); return }
             let text: String?
             if message.kind == "clipboard.rich" { text = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["text"] as? String }
             else { text = String(data: data, encoding: .utf8) }
             guard let text, text.utf8.count <= 32_768 else { throw PairingError.invalidMessage }
             receivedClipboard = text; copyReceived(); control("clipboard.ack", messageID: message.messageId)
         case "notifications.post":
-            guard notificationsEnabled else { return }
+            guard notificationsEnabled, remoteFeatures["notifications"] == true else { return }
             let item = try JSONDecoder().decode(StoreNotification.self, from: data)
             let content = UNMutableNotificationContent()
             content.title = String(item.applicationName.prefix(128)); content.subtitle = String(item.title.prefix(256)); content.body = String(item.text.prefix(2048))
@@ -307,6 +315,8 @@ final class StoreConnection: NSObject, ObservableObject, NetServiceBrowserDelega
         }
     }
 }
+
+private struct StoreFeatureState: Decodable { let version: Int; let features: [String: Bool] }
 
 private struct StoreNotification: Decodable {
     let notificationId: String
