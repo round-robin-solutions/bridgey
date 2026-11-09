@@ -23,6 +23,7 @@ p={'CFBundleIdentifier':'in.roundrobin.bridgey.store','CFBundleName':'Bridgey St
    'NSBonjourServices':['_bridgey._tcp.'],'NSHumanReadableCopyright':'Round Robin Solutions','CFBundleIconFile':'Bridgey'}
 with open(sys.argv[1],'wb') as f:plistlib.dump(p,f)
 PY
+cp Resources/BridgeyStorePrivacy.xcprivacy "$APP/Contents/Resources/PrivacyInfo.xcprivacy"
 python3 create-icns.py Resources/AppIcon.iconset "$APP/Contents/Resources/Bridgey.icns"
 # No Apple account or certificate is needed for local sandbox verification.
 # Store signing is a later, explicit operation using an Apple Distribution identity/profile.
