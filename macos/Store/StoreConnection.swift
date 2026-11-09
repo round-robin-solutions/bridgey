@@ -28,6 +28,8 @@ final class StoreConnection: NSObject, ObservableObject, NetServiceBrowserDelega
     private var subscription: AnyCancellable?
     private var resolved: [NetService] = []
     private var attempts: [Date] = []
+    private var clipboardTask: Task<Void, Never>?
+    private var clipboardChange = NSPasteboard.general.changeCount
 
     override init() {
         super.init()
@@ -53,7 +55,7 @@ final class StoreConnection: NSObject, ObservableObject, NetServiceBrowserDelega
         } catch { status = "Bridgey could not listen on the local network." }
         subscription = Publishers.CombineLatest3($clipboardEnabled, $filesEnabled, $notificationsEnabled).dropFirst().sink { [weak self] _ in
             // A UI toggle must update the advertised map after its new value is stored.
-            DispatchQueue.main.async { self?.sendFeatures() }
+            DispatchQueue.main.async { self?.sendFeatures(); self?.refreshClipboardSync() }
         }
     }
 
@@ -232,9 +234,10 @@ final class StoreConnection: NSObject, ObservableObject, NetServiceBrowserDelega
         value.trusted[current.remoteID] = remoteIdentity
         try value.save(); identity = value
         current.authenticated = true; verification = nil; armedUntil = nil; connected = true; status = "Phone connected."
-        sendFeatures()
+        sendFeatures(); refreshClipboardSync()
     }
     func disconnect() {
+        clipboardTask?.cancel(); clipboardTask = nil
         let old = session; session = nil; old?.connection.cancel()
         files?.cancel(); pendingFile = nil; verification = nil; connected = false; status = "Phone disconnected."
     }
@@ -250,12 +253,30 @@ final class StoreConnection: NSObject, ObservableObject, NetServiceBrowserDelega
         if let data = try? JSONSerialization.data(withJSONObject: ["version": 1, "features": features]) { encrypted("features.update", data: data) }
     }
     func sendClipboard() {
-        guard clipboardEnabled, let text = NSPasteboard.general.string(forType: .string), text.utf8.count <= 32_768 else { status = "Copy some text first (up to 32 KB)."; return }
+        guard clipboardEnabled, let text = NSPasteboard.general.string(forType: .string), clipboardTextFits(text) else { status = "Copy some text first (up to 32 KB)."; return }
         encrypted("clipboard.update", data: Data(text.utf8)); status = "Clipboard sent to your phone."
     }
     func copyReceived() {
         guard let text = receivedClipboard else { return }
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string); receivedClipboard = nil
+        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
+        clipboardChange = NSPasteboard.general.changeCount; receivedClipboard = nil
+    }
+    private func refreshClipboardSync() {
+        guard connected, clipboardEnabled else { clipboardTask?.cancel(); clipboardTask = nil; return }
+        guard clipboardTask == nil else { return }
+        clipboardChange = NSPasteboard.general.changeCount
+        clipboardTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(nanoseconds: 800_000_000) } catch { return }
+                guard let self, self.connected, self.clipboardEnabled else { return }
+                let board = NSPasteboard.general
+                guard board.changeCount != self.clipboardChange else { continue }
+                self.clipboardChange = board.changeCount
+                guard !clipboardTypesAreSecret((board.types ?? []).map(\.rawValue)),
+                      let text = board.string(forType: .string), clipboardTextFits(text) else { continue }
+                self.encrypted("clipboard.update", data: Data(text.utf8))
+            }
+        }
     }
     func enableNotifications() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { [weak self] granted, _ in
@@ -270,7 +291,7 @@ final class StoreConnection: NSObject, ObservableObject, NetServiceBrowserDelega
             if message.kind == "clipboard.rich" { text = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["text"] as? String }
             else { text = String(data: data, encoding: .utf8) }
             guard let text, text.utf8.count <= 32_768 else { throw PairingError.invalidMessage }
-            receivedClipboard = text; control("clipboard.ack", messageID: message.messageId)
+            receivedClipboard = text; copyReceived(); control("clipboard.ack", messageID: message.messageId)
         case "notifications.post":
             guard notificationsEnabled else { return }
             let item = try JSONDecoder().decode(StoreNotification.self, from: data)

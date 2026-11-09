@@ -13,7 +13,7 @@ let package = storeEdition ? Package(
             "Store/StoreApp.swift", "Store/StoreConnection.swift", "Store/StoreFiles.swift", "Store/StorePolicy.swift",
             "Sources/BridgeyMac/ProtocolCrypto.swift", "Sources/BridgeyMac/SessionCrypto.swift",
             "Sources/BridgeyMac/PairingMessage.swift", "Sources/BridgeyMac/JSONInteger.swift",
-            "Sources/BridgeyMac/ProtocolDecoding.swift",
+            "Sources/BridgeyMac/ProtocolDecoding.swift", "Sources/BridgeyMac/ClipboardPayload.swift",
         ], swiftSettings: [.define("BRIDGEY_APP_STORE")]),
         .testTarget(name: "BridgeyStoreTests", dependencies: ["BridgeyMacStore"], path: "StoreTests"),
     ], swiftLanguageVersions: [.v5]

@@ -35,7 +35,7 @@ struct StoreView: View {
                     GroupBox("This phone") {
                         VStack(alignment: .leading, spacing: 16) {
                             Toggle("Files", isOn: $connection.filesEnabled)
-                            Toggle("Clipboard", isOn: $connection.clipboardEnabled)
+                            Toggle("Clipboard sync", isOn: $connection.clipboardEnabled)
                             Toggle("Phone notifications", isOn: Binding(get: { connection.notificationsEnabled }, set: {
                                 if $0 { connection.enableNotifications() } else { connection.notificationsEnabled = false }
                             }))
@@ -43,7 +43,7 @@ struct StoreView: View {
                                 Button("Send a file...") { connection.files.chooseFile() }.buttonStyle(.borderedProminent).disabled(!connection.filesEnabled)
                                 Button("Send clipboard") { connection.sendClipboard() }.disabled(!connection.clipboardEnabled)
                             }
-                            Text("Clipboard text arrives here for you to copy. Phone notifications appear in Notification Centre.")
+                            Text("Clipboard text syncs while enabled. Phone notifications appear in Notification Centre.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }.padding(12)
                     }.transition(.opacity)
