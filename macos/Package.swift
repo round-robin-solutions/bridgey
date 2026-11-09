@@ -8,7 +8,7 @@ let storeEdition = ProcessInfo.processInfo.environment["BRIDGEY_DISTRIBUTION"] =
 let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 let storeShared = ["ProtocolCrypto.swift", "SessionCrypto.swift", "PairingMessage.swift", "JSONInteger.swift", "ProtocolDecoding.swift", "ClipboardPayload.swift"]
 let storeExclusions = ((try? FileManager.default.contentsOfDirectory(atPath: packageRoot.path)) ?? [])
-    .filter { !["Store", "Sources"].contains($0) }
+    .filter { !["Store", "Sources", "Package.swift", "Package.resolved"].contains($0) }
     + ((try? FileManager.default.contentsOfDirectory(atPath: packageRoot.appendingPathComponent("Sources").path)) ?? [])
         .filter { $0 != "BridgeyMac" }.map { "Sources/" + $0 }
     + ((try? FileManager.default.contentsOfDirectory(atPath: packageRoot.appendingPathComponent("Sources/BridgeyMac").path)) ?? [])

@@ -6,7 +6,7 @@ import Network
 import UserNotifications
 
 @MainActor
-final class StoreConnection: NSObject, ObservableObject, NetServiceBrowserDelegate, NetServiceDelegate {
+final class StoreConnection: NSObject, ObservableObject, @preconcurrency NetServiceBrowserDelegate, @preconcurrency NetServiceDelegate {
     @Published var peers: [NetService] = []
     @Published var status = "Pair your phone on the same Wi-Fi network."
     @Published var verification: String?
