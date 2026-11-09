@@ -297,9 +297,13 @@ final class StoreConnection: NSObject, ObservableObject, @preconcurrency NetServ
         case "clipboard.update", "clipboard.rich":
             guard clipboardReady else { control("clipboard.rejected", messageID: message.messageId); return }
             let text: String?
-            if message.kind == "clipboard.rich" { text = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["text"] as? String }
+            if message.kind == "clipboard.rich" {
+                guard isStrictJSONObject(data), let rich = try? JSONDecoder().decode(RichClipboardContent.self, from: data),
+                      let valid = rich.validated() else { throw PairingError.invalidMessage }
+                text = valid.text
+            }
             else { text = String(data: data, encoding: .utf8) }
-            guard let text, text.utf8.count <= 32_768 else { throw PairingError.invalidMessage }
+            guard let text, clipboardTextFits(text) else { throw PairingError.invalidMessage }
             receivedClipboard = text; copyReceived(); control("clipboard.ack", messageID: message.messageId)
         case "notifications.post":
             guard notificationsEnabled, remoteFeatures["notifications"] == true else { return }
