@@ -44,6 +44,9 @@ with open(sys.argv[1],'wb') as f:plistlib.dump(p,f)
 PY
 cp Resources/BridgeyStorePrivacy.xcprivacy "$APP/Contents/Resources/PrivacyInfo.xcprivacy"
 python3 create-icns.py Resources/AppIcon.iconset "$APP/Contents/Resources/Bridgey.icns"
+mkdir -p "$APP/Contents/Resources/Licences"
+cp ../LICENSE "$APP/Contents/Resources/Licences/LICENSE.txt"
+
 # No Apple account or certificate is needed for local sandbox verification.
 # Store signing is a later, explicit operation using an Apple Distribution identity/profile.
 codesign --force --sign - --entitlements Resources/BridgeyStore.entitlements "$APP"
