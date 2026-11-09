@@ -224,13 +224,6 @@ func isValidRemoteText(_ text: String) -> Bool {
 }
 
 /// An integer from JSON. Booleans (which bridge to NSNumber) and fractions are not integers.
-func jsonInteger(_ value: Any?) -> Int? {
-    guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
-    let double = number.doubleValue
-    guard double.isFinite, double.rounded() == double, abs(double) <= Double(RemoteInputLimits.maximumSequence) else { return nil }
-    return number.intValue
-}
-
 /// A per-session high-water mark: each accepted sequence must be higher than the last.
 struct RemoteInputSequence: Equatable {
     private(set) var last = 0

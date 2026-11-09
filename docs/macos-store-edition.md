@@ -1,0 +1,15 @@
+# Mac App Store edition
+
+The store edition supports files, text clipboard and phone notifications on the local network. The full direct-download app keeps its existing target and features.
+
+Build locally on a Mac with `sh macos/build-store.sh`; use `CONFIGURATION=release` for an optimised bundle. `sh macos/build-store.sh --test` runs the three store boundary checks. RR CI's existing macOS verification runs the direct target's checks, then the store checks, packaging and binary/entitlement audit. The resulting ad-hoc signed bundle is `.build/store/debug/Bridgey Store.app` under `macos`; `.rrci-reports/BridgeyStore.zip` is its portable copy. This is preparation, not an Apple-signed archive or submission.
+
+The `BRIDGEY_DISTRIBUTION=app-store` SwiftPM flavour has an explicit source allowlist and no package dependencies. The two executables share the protocol decoder, integer decoding, pairing message, AES-GCM and protocol 2 commitment/SAS/envelope cryptography. The store has a separate UI and transport dispatcher. Only the three advertised feature families reach it. Other commands from a paired peer are ignored.
+
+The store bundle has a separate identifier (`in.roundrobin.bridgey.store`) and sandbox container. It requires its own pairing; it never imports or overwrites the direct app's pairing state. Its TCP listener advertises an allocated port through Bonjour, allowing both editions to coexist. Pairing requires matching codes, protocol 2, pinned identity verification and a two-minute confirmation deadline. Incoming first pairings require the explicit Allow pairing window and are rate limited. There is one active phone connection.
+
+All three features start off. File sends use the system Open panel; each receive needs an explicit Save panel. Security-scoped access lasts only for the operation. Transfers stream in bounded chunks and verify SHA-256; an existing destination is never overwritten. Partial receives remain in the sandbox and are removed on cancellation. Files have a two-minute inactivity deadline. There is no background folder or arbitrary filesystem access and no persistent external bookmark.
+
+Clipboard sends and applying received text are explicit button actions. Notification support displays the phone's notification text with macOS permission; it exposes no reply/action buttons. These choices keep the store interface confined to the approved scope. Clipboard file providers, rich HTML writes, folder browsing, auto-sync, notification actions and remote replies remain in the full edition. No media control, Accessibility/input injection, Handoff preferences, screen/camera, SMS, agents, subprocesses or self-updater is compiled into the store target. Updates come through the Mac App Store.
+
+Before submission: Apple Distribution signing/provisioning, actual sandboxed device pairing and both-direction transfer/clipboard/notification acceptance, launch screenshots, final privacy manifest/labels and review-pack approval. No Apple credentials or account actions belong to this change. Native sandbox acceptance must be recorded separately from the binary audit.

@@ -1,7 +1,23 @@
 // swift-tools-version: 5.10
 import PackageDescription
+import Foundation
 
-let package = Package(
+let storeEdition = ProcessInfo.processInfo.environment["BRIDGEY_DISTRIBUTION"] == "app-store"
+
+let package = storeEdition ? Package(
+    name: "BridgeyStore",
+    platforms: [.macOS(.v13)],
+    products: [.executable(name: "BridgeyMacStore", targets: ["BridgeyMacStore"])],
+    targets: [
+        .executableTarget(name: "BridgeyMacStore", path: ".", exclude: ["Tests", "Resources", "ShareExtension", ".build"], sources: [
+            "Store/StoreApp.swift", "Store/StoreConnection.swift", "Store/StoreFiles.swift", "Store/StorePolicy.swift",
+            "Sources/BridgeyMac/ProtocolCrypto.swift", "Sources/BridgeyMac/SessionCrypto.swift",
+            "Sources/BridgeyMac/PairingMessage.swift", "Sources/BridgeyMac/JSONInteger.swift",
+            "Sources/BridgeyMac/ProtocolDecoding.swift",
+        ], swiftSettings: [.define("BRIDGEY_APP_STORE")]),
+        .testTarget(name: "BridgeyStoreTests", dependencies: ["BridgeyMacStore"], path: "StoreTests"),
+    ], swiftLanguageVersions: [.v5]
+) : Package(
     name: "BridgeyMac",
     platforms: [.macOS(.v13)],
     products: [.executable(name: "BridgeyMac", targets: ["BridgeyMac"])],

@@ -262,6 +262,7 @@ struct ProtocolFrameReader {
             return nil
         }
         let start = storage.startIndex + head
+#if !BRIDGEY_APP_STORE
         if binaryAllowed && storage[start] == FastFrame.marker {
             guard available >= FastFrame.headerBytes else {
                 compact()
@@ -279,6 +280,7 @@ struct ProtocolFrameReader {
             searched = 0
             return .binary(kind: kind, body: body)
         }
+#endif
         guard let newline = storage[(start + searched)...].firstIndex(of: 0x0A) else {
             searched = available
             guard !overLimit else { throw PairingError.invalidMessage }
@@ -303,8 +305,10 @@ struct ProtocolFrameReader {
     var overLimit: Bool {
         let available = storage.count - head
         guard available > maximumProtocolFrameBytes else { return false }
+#if !BRIDGEY_APP_STORE
         let start = storage.startIndex + head
         if binaryAllowed && storage[start] == FastFrame.marker { return false }
+#endif
         return storage[start...].firstIndex(of: 0x0A) == nil && available > maximumProtocolFrameBytes + (storage.last == 0x0D ? 1 : 0)
     }
 }
@@ -337,6 +341,7 @@ struct ReplayWindow {
     }
 }
 
+#if !BRIDGEY_APP_STORE
 // MARK: Payloads
 
 /// What a received features.update means for the session.
@@ -436,3 +441,5 @@ func jsonBool(_ value: Any?) -> Bool? {
     guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
     return number.boolValue
 }
+
+#endif
