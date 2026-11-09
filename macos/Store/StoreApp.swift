@@ -31,9 +31,11 @@ enum BridgeyStoreLauncher {
         NSApplication.shared.setActivationPolicy(.prohibited)
         NSApplication.shared.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         let connection = StoreConnection(startNetworking: false)
-        let view = NSHostingView(rootView: StoreView(connection: connection))
+        let view = NSHostingView(rootView: StoreView(connection: connection).environment(\.colorScheme, dark ? .dark : .light))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700),
                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window.appearance = NSApplication.shared.appearance
+        view.appearance = window.appearance
         window.contentView = view
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
             view.layoutSubtreeIfNeeded()
@@ -71,7 +73,7 @@ struct StoreView: View {
                         VStack(spacing: 16) {
                             Text(code).font(.system(size: 36, weight: .semibold, design: .monospaced)).textSelection(.enabled)
                             HStack {
-                                Button("Codes match") { connection.confirm() }.buttonStyle(.borderedProminent)
+                                Button("Codes match") { connection.confirm() }.buttonStyle(StorePrimaryButtonStyle())
                                 Button("Don't match", role: .cancel) { connection.disconnect() }
                             }
                         }.frame(maxWidth: .infinity).padding(16)
@@ -85,7 +87,7 @@ struct StoreView: View {
                                 if $0 { connection.enableNotifications() } else { connection.notificationsEnabled = false }
                             }))
                             HStack {
-                                Button("Send a file...") { connection.files.chooseFile() }.buttonStyle(.borderedProminent).disabled(!connection.filesReady)
+                                Button("Send a file...") { connection.files.chooseFile() }.buttonStyle(StorePrimaryButtonStyle()).disabled(!connection.filesReady)
                                 Button("Send clipboard") { connection.sendClipboard() }.disabled(!connection.clipboardReady)
                             }
                             Text("Enable the same features on your phone. Clipboard text syncs while enabled; phone notifications appear in Notification Centre.")
@@ -109,7 +111,7 @@ struct StoreView: View {
                                 Text(offer.name).lineLimit(3)
                                 Text(ByteCountFormatter.string(fromByteCount: offer.size, countStyle: .file)).foregroundStyle(.secondary)
                                 HStack {
-                                    Button("Receive...") { connection.files.accept() }.buttonStyle(.borderedProminent)
+                                    Button("Receive...") { connection.files.accept() }.buttonStyle(StorePrimaryButtonStyle())
                                     Button("Decline") { connection.files.reject() }
                                 }
                             }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -121,7 +123,7 @@ struct StoreView: View {
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 12) {
-                        Button("Allow pairing for 2 minutes") { connection.arm() }.buttonStyle(.borderedProminent)
+                        Button("Allow pairing for 2 minutes") { connection.arm() }.buttonStyle(StorePrimaryButtonStyle())
                         Text("Open Bridgey on your Android phone and allow pairing there, then choose it below. The store edition pairs separately from the direct download.")
                             .font(.callout).foregroundStyle(.secondary)
                         ForEach(connection.peers, id: \.name) { peer in
@@ -136,8 +138,23 @@ struct StoreView: View {
                 Text("Round Robin Solutions").font(.caption).foregroundStyle(.secondary)
             }.padding(28).frame(maxWidth: 640, alignment: .leading)
         }
+        .background(Color(nsColor: .windowBackgroundColor))
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: connection.connected)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: connection.verification)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: connection.pendingFile?.id)
+    }
+}
+
+private struct StorePrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.font(.body.weight(.semibold))
+            .foregroundStyle(Color(red: 5.0 / 255, green: 11.0 / 255, blue: 24.0 / 255))
+            .padding(.horizontal, 14).frame(minHeight: 44)
+            .background(Color(red: 84.0 / 255, green: 199.0 / 255, blue: 245.0 / 255), in: RoundedRectangle(cornerRadius: 8))
+            .opacity(enabled ? 1 : 0.45)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
