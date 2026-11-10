@@ -1706,3 +1706,23 @@
 "tailscale.action.install" = "Установить Tailscale";
 "tailscale.action.check" = "Проверить снова";
 "tailscale.action.help" = "Инструкция";
+
+/* Local-only agent code access */
+"localCodes.title" = "Коды для локальных агентов";
+"localCodes.footnote" = "Использует «Коды из сообщений». Коды остаются в памяти этого Mac и удаляются при отключении.";
+"localCodes.toggle" = "Разрешить локальным агентам читать коды";
+"localCodes.detail" = "По умолчанию выключено. Коды доступны всем процессам вашего пользователя.";
+"localCodes.lifetime" = "Хранить коды";
+"localCodes.lifetimeDetail" = "От 1 до 30 минут. По умолчанию: 10.";
+"localCodes.minutes" = "Минуты";
+"localCodes.minutesLabel" = "Срок хранения кодов в минутах";
+"localCodes.unit" = "мин";
+"localCodes.blocked" = "Заблокированные отправители";
+"localCodes.blockedDetail" = "Имя или приложение на каждой строке. Совпадение по части имени, без учёта регистра и знаков.";
+"localCodes.blockedLabel" = "Заблокированные отправители, по одному на строке";
+"localCodes.defaults" = "Вернуть исходный список";
+"localCodes.defaultsHelp" = "Банки и платёжные приложения";
+"localCodes.save" = "Сохранить";
+"localCodes.invalid" = "Введите целое число от 1 до 30.";
+"localCodes.unavailable" = "Не удалось включить доступ. Выключите и включите снова.";
+"localCodes.clear" = "Изменения удаляют сохранённые коды.";

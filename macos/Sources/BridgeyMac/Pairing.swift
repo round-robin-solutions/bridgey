@@ -462,6 +462,7 @@ final class PairingCoordinator: ObservableObject {
     /// Agent devices on each phone (agents_mirror_draft1): their last agents.state, switches waiting for the phone,
     /// and the codes.read log.
     let agentsMirror = AgentsMirror()
+    let localAgentCodes = LocalAgentCodes()
     /// Reads waiting for the engine, by notification request identifier.
     private var codeReads: [String: Task<Void, Never>] = [:]
     /// Codes that can still be copied, in memory only.
@@ -4584,6 +4585,11 @@ final class PairingCoordinator: ObservableObject {
         codeArrivals += 1
         let sender = codeSender(title: payload.title, applicationName: payload.applicationName)
         let posted = CodeCards.postedAt(phoneMillis: payload.timestamp, receivedAt: now)
+        // Separate local-only opt-in. No new wire messages, history fields or agent grants.
+        let localPosted = payload.timestamp > 0 ? Date(timeIntervalSince1970: Double(payload.timestamp) / 1000) : now
+        localAgentCodes.store.retain(code: code, sender: sender,
+                                    identities: [payload.title, payload.applicationName, payload.packageName],
+                                    posted: posted, age: max(0, now.timeIntervalSince(localPosted)))
         let source = CodeSource(channel: channel, app: payload.applicationName)
         switch CodeCards.arrival(code: code, serviceKey: codeServiceKey(sender), posted: posted, arrival: codeArrivals,
                                  live: Array(liveCodes.values), now: now) {

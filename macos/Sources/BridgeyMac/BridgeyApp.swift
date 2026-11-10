@@ -45,6 +45,7 @@ struct BridgeyApp: App {
         // Let Bridgey handle copy and paste: Handoff follows the choice (or comes back after a reset), and
         // `BridgeyMac --handoff` is served from here.
         HandoffTakeover.shared.start()
+        pairing.localAgentCodes.start()
         let settingsWindow = SettingsWindowController(discovery: discovery, pairing: pairing, settings: settings, updater: updater)
         self.settingsWindow = settingsWindow
         pairing.openSettingsPane = { [weak settingsWindow] pane in settingsWindow?.show(pane: pane) }

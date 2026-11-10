@@ -1706,3 +1706,23 @@
 "tailscale.action.install" = "Get Tailscale";
 "tailscale.action.check" = "Check again";
 "tailscale.action.help" = "Setup guide";
+
+/* Local-only agent code access */
+"localCodes.title" = "Local agent codes";
+"localCodes.footnote" = "Uses Codes from messages. Codes stay in memory on this Mac and clear when switched off.";
+"localCodes.toggle" = "Let local agents read codes";
+"localCodes.detail" = "Off by default. Any process running as you can read them.";
+"localCodes.lifetime" = "Keep codes for";
+"localCodes.lifetimeDetail" = "1 to 30 minutes. Default: 10.";
+"localCodes.minutes" = "Minutes";
+"localCodes.minutesLabel" = "Code lifetime in minutes";
+"localCodes.unit" = "min";
+"localCodes.blocked" = "Blocked senders";
+"localCodes.blockedDetail" = "One name or app per line. Matches part of the name, ignoring punctuation and case.";
+"localCodes.blockedLabel" = "Blocked senders, one per line";
+"localCodes.defaults" = "Use defaults";
+"localCodes.defaultsHelp" = "Banks and payment apps";
+"localCodes.save" = "Save";
+"localCodes.invalid" = "Enter a whole number from 1 to 30.";
+"localCodes.unavailable" = "Local access couldn't start. Switch off, then on to retry.";
+"localCodes.clear" = "Changes clear saved codes.";
