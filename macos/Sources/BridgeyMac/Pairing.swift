@@ -4589,7 +4589,7 @@ final class PairingCoordinator: ObservableObject {
         let localPosted = payload.timestamp > 0 ? Date(timeIntervalSince1970: Double(payload.timestamp) / 1000) : now
         localAgentCodes.store.retain(code: code, sender: sender,
                                     identities: [payload.title, payload.applicationName, payload.packageName],
-                                    posted: localPosted, age: max(0, now.timeIntervalSince(localPosted)))
+                                    posted: posted, age: max(0, now.timeIntervalSince(localPosted)))
         let source = CodeSource(channel: channel, app: payload.applicationName)
         switch CodeCards.arrival(code: code, serviceKey: codeServiceKey(sender), posted: posted, arrival: codeArrivals,
                                  live: Array(liveCodes.values), now: now) {

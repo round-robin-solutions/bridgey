@@ -103,6 +103,19 @@ final class LocalAgentCodesTests: XCTestCase {
         XCTAssertTrue(store.read().isEmpty)
     }
 
+    func testSamePhoneTimestampUsesNewestArrivalAndWakePrunesBeforeAnyRead() {
+        var time: TimeInterval = 0
+        let store = LocalAgentCodeStore(now: { time })
+        store.configure(enabled())
+        put(store)
+        time = 1
+        put(store, code: "654321")
+        XCTAssertTrue(store.read().first?.code == "654321")
+        time = 601 // The Mac was asleep; wake must erase before an agent asks.
+        store.expire()
+        XCTAssertEqual(store.retainedCount, 0)
+    }
+
     func testDefaultBankPaymentAndSmsSendersAreBlockedBeforeRetention() {
         let options = enabled()
         for sender in ["HDFC Bank", "AX-HDFCBK-S", "VM-ICICIB-S", "AD-SBIOTP-S", "JK-AXISBK-T", "AD-KOTAKB-S",
@@ -130,6 +143,8 @@ final class LocalAgentCodesTests: XCTestCase {
         let options = enabled()
         options.save(to: defaults)
         let before = defaults.dictionaryRepresentation()
+        let reset = LocalDataReset(defaults: defaults)
+        XCTAssertTrue(reset.keys(.settings).contains(LocalAgentCodeOptions.prefix + "enabled"))
         let store = LocalAgentCodeStore()
         store.configure(options)
         put(store)

@@ -20,7 +20,7 @@ struct LocalAgentCodeOptions: Equatable {
         "cashfree", "cshfre", "payu", "slice", "simpl", "lazypay", "visa", "mastercard", "amex",
         "americanexpress", "citi", "hsbc", "standardchartered", "scbank", "chase", "wellsfargo"
     ]
-    static let prefix = "localAgentCodes."
+    static let prefix = "settings.localAgentCodes."
 
     init() {}
     init(defaults: UserDefaults) {
@@ -126,7 +126,7 @@ final class LocalAgentCodeStore: @unchecked Sendable {
               age.isFinite, age >= 0, age < lifetime else { return }
         if let old = entries[key] {
             // A replay or duplicate never extends retention or replaces a newer phone message.
-            guard posted > old.posted, !old.bytes.matches(code) else { return }
+            guard posted >= old.posted, !old.bytes.matches(code) else { return }
         }
         guard let bytes = LocalCodeBytes(code) else { return }
         if entries.count >= 128, entries[key] == nil,
