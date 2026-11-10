@@ -55,14 +55,16 @@ struct LocalAgentCodeOptions: Equatable {
 private final class LocalCodeBytes {
     let pointer: UnsafeMutableRawPointer
     let count: Int
-    private let allocationSize = Int(getpagesize())
+    private let allocationSize: Int
     init?(_ code: String) {
+        let size = Int(getpagesize())
+        allocationSize = size
         count = code.utf8.count
         guard (1...32).contains(count) else { return nil }
-        guard let allocation = mmap(nil, allocationSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0),
+        guard let allocation = mmap(nil, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0),
               allocation != MAP_FAILED else { return nil }
+        guard mlock(allocation, size) == 0 else { munmap(allocation, size); return nil }
         pointer = allocation
-        guard mlock(pointer, allocationSize) == 0 else { munmap(pointer, allocationSize); return nil }
         for (index, byte) in code.utf8.enumerated() { pointer.storeBytes(of: byte, toByteOffset: index, as: UInt8.self) }
     }
     func matches(_ code: String) -> Bool {
@@ -70,7 +72,7 @@ private final class LocalCodeBytes {
     }
     var string: String { String(decoding: UnsafeRawBufferPointer(start: pointer, count: count), as: UTF8.self) }
     deinit {
-        explicit_bzero(pointer, allocationSize)
+        memset_s(pointer, allocationSize, 0, allocationSize)
         munlock(pointer, allocationSize)
         munmap(pointer, allocationSize)
     }
