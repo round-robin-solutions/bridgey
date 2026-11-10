@@ -1,6 +1,6 @@
 # Local agent codes on Mac
 
-In **Settings > Notifications > Local agent codes**, turn on **Let local agents read codes**. It starts off. **Codes from messages** must already be enabled and working; this setting never turns it on or changes its reader.
+In **Settings > Notifications > Local agent codes**, turn on **Let local agents read codes**. It starts off. It collects new codes after you enable it; it never imports history or existing copy cards. **Codes from messages** must already be enabled and working; this setting never turns it on or changes its reader.
 
 With Bridgey running, use its app executable:
 

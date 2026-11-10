@@ -128,7 +128,8 @@ private struct LocalAgentCodeSwitch: View {
                 RowText(title: LocalAgentCodesText.toggle, subtitle: LocalAgentCodesText.detail)
                 ZStack(alignment: .leading) {
                     Capsule().fill(isOn ? c.switchOn : c.switchOff)
-                    Circle().fill(c.switchThumb)
+                    Circle().fill(isOn ? c.switchThumb : c.on2)
+                        .animation(nil, value: isOn) // Color changes instantly; only offset animates.
                         .frame(width: 20, height: 20)
                         .offset(x: isOn ? 20 : 2)
                         .animation(reduce ? nil : BrandMotion.small, value: isOn)

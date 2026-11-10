@@ -171,7 +171,9 @@ final class LocalAgentCodeStore: @unchecked Sendable {
             self.scheduleLocked()
         }
         expiry = work
-        queue.asyncAfter(wallDeadline: .now() + max(0.001, deadline - now()), execute: work)
+        // Monotonic while awake: wall-clock changes cannot postpone erasure. The owner's
+        // wake observer calls expire() against continuous time before rescheduling after sleep.
+        queue.asyncAfter(deadline: .now() + max(0.001, deadline - now()), execute: work)
     }
     deinit { expiry?.cancel() }
 }
