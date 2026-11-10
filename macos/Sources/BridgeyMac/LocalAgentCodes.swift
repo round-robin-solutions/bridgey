@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -9,12 +10,15 @@ final class LocalAgentCodes: ObservableObject {
     @Published private(set) var unavailable = false
     let store = LocalAgentCodeStore()
     private let defaults: UserDefaults
+    private var wake: AnyCancellable?
     private var server: LocalAgentCodesServer?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         options = LocalAgentCodeOptions(defaults: defaults)
         store.configure(options)
+        wake = NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
+            .sink { [store] _ in store.expire() }
     }
 
     func start() {
@@ -30,6 +34,10 @@ final class LocalAgentCodes: ObservableObject {
         self.options = options
         options.save(to: defaults)
         if options.enabled { start() }
-        else { server?.stop(); server = nil; unavailable = false }
+        else {
+            // An already-open endpoint may answer [] until quit. Keep it bound so an off/on
+            // click never blocks the UI on a client or races the old socket's removal.
+            unavailable = false
+        }
     }
 }

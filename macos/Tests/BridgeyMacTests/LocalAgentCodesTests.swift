@@ -140,6 +140,10 @@ final class LocalAgentCodesTests: XCTestCase {
         XCTAssertTrue(restored.read().isEmpty)
         XCTAssertEqual(defaults.string(forKey: "pairing.test"), "pairing-sentinel")
         XCTAssertFalse(SyncKey.allCases.contains { $0.rawValue.contains("localAgentCodes") })
+        XCTAssertEqual(settingsSyncStoredValues(before), settingsSyncStoredValues(defaults.dictionaryRepresentation()))
+        XCTAssertTrue(settingsSyncStoredValues([LocalAgentCodeOptions.prefix + "enabled": true,
+                                               LocalAgentCodeOptions.prefix + "minutes": 3,
+                                               LocalAgentCodeOptions.prefix + "blockedSenders": ["Example"]]).isEmpty)
     }
 
     private func socketPath() -> String { "/tmp/bridgey-lc-\(UUID().uuidString.prefix(12))/codes.sock" }

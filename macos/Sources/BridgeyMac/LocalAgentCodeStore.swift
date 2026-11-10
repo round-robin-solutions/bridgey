@@ -65,6 +65,9 @@ private final class LocalCodeBytes {
         guard mlock(pointer, allocationSize) == 0 else { munmap(pointer, allocationSize); return nil }
         for (index, byte) in code.utf8.enumerated() { pointer.storeBytes(of: byte, toByteOffset: index, as: UInt8.self) }
     }
+    func matches(_ code: String) -> Bool {
+        code.utf8.elementsEqual(UnsafeRawBufferPointer(start: pointer, count: count))
+    }
     var string: String { String(decoding: UnsafeRawBufferPointer(start: pointer, count: count), as: UTF8.self) }
     deinit {
         explicit_bzero(pointer, allocationSize)
@@ -117,17 +120,23 @@ final class LocalAgentCodeStore: @unchecked Sendable {
         pruneLocked()
         let key = LocalAgentCodeOptions.normalized(sender)
         let lifetime = TimeInterval(max(1, min(30, options.minutes)) * 60)
-        guard options.enabled, !key.isEmpty, !options.blocks(identities + [sender]),
+        guard options.enabled, !key.isEmpty, sender.utf8.count <= 512, !options.blocks(identities + [sender]),
               age.isFinite, age >= 0, age < lifetime else { return }
         if let old = entries[key] {
             // A replay or duplicate never extends retention or replaces a newer phone message.
-            guard posted > old.posted, old.bytes.string != code else { return }
+            guard posted > old.posted, !old.bytes.matches(code) else { return }
         }
         guard let bytes = LocalCodeBytes(code) else { return }
         if entries.count >= 128, entries[key] == nil,
            let oldest = entries.min(by: { $0.value.received < $1.value.received })?.key { entries.removeValue(forKey: oldest) }
         let time = now()
         entries[key] = Entry(sender: sender, bytes: bytes, received: time, posted: posted, deadline: time + lifetime - age)
+        scheduleLocked()
+    }
+
+    func expire() {
+        lock.lock(); defer { lock.unlock() }
+        pruneLocked()
         scheduleLocked()
     }
 
@@ -160,7 +169,7 @@ final class LocalAgentCodeStore: @unchecked Sendable {
             self.scheduleLocked()
         }
         expiry = work
-        queue.asyncAfter(deadline: .now() + max(0.001, deadline - now()), execute: work)
+        queue.asyncAfter(wallDeadline: .now() + max(0.001, deadline - now()), execute: work)
     }
     deinit { expiry?.cancel() }
 }

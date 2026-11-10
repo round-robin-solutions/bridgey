@@ -31,6 +31,23 @@ enum LocalAgentCodesSocket {
         return result
     }
 
+    /// One absolute deadline for the whole request, so trickling bytes cannot stall shutdown.
+    static func readLine(_ fd: Int32, limit: Int, seconds: TimeInterval) -> Data? {
+        let deadline = LocalAgentCodeStore.continuousSeconds() + seconds
+        var data = Data()
+        var byte: UInt8 = 0
+        while data.count <= limit {
+            let left = deadline - LocalAgentCodeStore.continuousSeconds()
+            guard left > 0 else { return nil }
+            var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            guard poll(&descriptor, 1, Int32(max(1, (left * 1000).rounded(.up)))) > 0,
+                  Darwin.read(fd, &byte, 1) == 1 else { return nil }
+            if byte == 0x0A { return data }
+            data.append(byte)
+        }
+        return nil
+    }
+
     @discardableResult
     static func write(_ data: Data, to fd: Int32) -> Bool {
         data.withUnsafeBytes { buffer in
@@ -121,7 +138,7 @@ final class LocalAgentCodesServer: @unchecked Sendable {
         setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         let uid = peerUID(client)
         guard uid == getuid() else { audit(uid, "denied", 0); return }
-        guard let line = UpdateControlSocket.readLine(client, limit: 256),
+        guard let line = LocalAgentCodesSocket.readLine(client, limit: 256, seconds: 1),
               let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
               Set(object.keys) == ["version", "command"], jsonInteger(object["version"]) == 1,
               object["command"] as? String == "read" else { audit(uid, "bad_request", 0); return }
@@ -148,7 +165,7 @@ enum LocalAgentCodesCLI {
         }
         defer { close(fd) }
         guard LocalAgentCodesSocket.write(LocalAgentCodesSocket.request, to: fd),
-              let data = UpdateControlSocket.readLine(fd, limit: 128 * 4096),
+              let data = LocalAgentCodesSocket.readLine(fd, limit: 128 * 4096, seconds: 2),
               (try? JSONDecoder().decode([LocalAgentCode].self, from: data)) != nil else {
             output("Could not read local codes. Check Bridgey and try again.")
             return 1
