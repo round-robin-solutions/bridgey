@@ -1,7 +1,6 @@
 import Foundation
 import Network
 
-let maximumProtocolFrameBytes = 65_536
 let maximumTransferHistory = 20
 
 func heartbeatExpired(

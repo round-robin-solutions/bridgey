@@ -255,3 +255,8 @@ fi
 codesign --verify --deep --strict "$APP_PATH"
 
 echo "$APP_PATH"
+
+if [ "${CI:-}" = 1 ] || [ -n "${RR_CI_CPU:-}" ]; then
+  /bin/sh ./build-store.sh --test
+  /bin/sh ./build-store.sh
+fi
