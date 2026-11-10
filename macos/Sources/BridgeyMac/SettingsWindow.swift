@@ -127,6 +127,8 @@ struct SettingsModel {
     /// Also read codes in email (on until chosen).
     var codesEmail = true
     var codesFloat: CodeFloatSetting = .default
+    var localAgentCodeOptions = LocalAgentCodeOptions()
+    var localAgentCodesUnavailable = false
     /// The build has a relay address (rr-edition.properties OTP_PROXY_URL).
     var codesAvailable = true
     var codesEngine: CodeEngine = .local
@@ -276,6 +278,7 @@ struct SettingsActions {
     var setCodesAutoCopy: (Bool) -> Void = { _ in }
     var setCodesEmail: (Bool) -> Void = { _ in }
     var setCodesFloat: (CodeFloatSetting) -> Void = { _ in }
+    var setLocalAgentCodes: (LocalAgentCodeOptions) -> Void = { _ in }
     var setCodesEngine: (CodeEngine) -> Void = { _ in }
     /// Records the acceptance of the model's terms, then downloads the newest model.
     var acceptAndDownloadCodeModel: () -> Void = {}
@@ -951,6 +954,7 @@ private struct NotificationsPane: View {
             NotificationPermissionRow(model: model, actions: actions)
         }
         CodesCard(model: model, actions: actions)
+        LocalAgentCodesCard(options: model.localAgentCodeOptions, unavailable: model.localAgentCodesUnavailable, set: actions.setLocalAgentCodes)
         FocusSyncCard(model: model, actions: actions)
         NotificationHistoryCard(model: model, actions: actions)
     }
@@ -1900,6 +1904,7 @@ struct LiveSettingsView: View {
     @ObservedObject var phoneScreen: PhoneScreen
     @ObservedObject var connect: ConnectAnywhere
     @ObservedObject var agentsMirror: AgentsMirror
+    @ObservedObject var localAgentCodes: LocalAgentCodes
     @State private var pane: SettingsPane = .devices
     @State private var availableShortcuts: [String]?
     @State private var phoneLinkStatus: String?
@@ -1927,6 +1932,7 @@ struct LiveSettingsView: View {
         settingsSync = pairing.settingsSync
         connect = pairing.connect
         agentsMirror = pairing.agentsMirror
+        localAgentCodes = pairing.localAgentCodes
     }
 
     private var codeModelDisplay: CodeModelDisplay {
@@ -2017,6 +2023,8 @@ struct LiveSettingsView: View {
         model.codesAutoCopy = settings.codesAutoCopy
         model.codesEmail = settings.codesEmail
         model.codesFloat = settings.codesFloat
+        model.localAgentCodeOptions = localAgentCodes.options
+        model.localAgentCodesUnavailable = localAgentCodes.unavailable
         model.codesAvailable = CodeRelay.baseURL != nil
         model.codesEngine = settings.codesEngine
         model.codeModel = codeModelDisplay
@@ -2190,6 +2198,7 @@ struct LiveSettingsView: View {
         actions.setCodesAutoCopy = { settings.setCodesAutoCopy($0) }
         actions.setCodesEmail = { settings.setCodesEmail($0) }
         actions.setCodesFloat = { settings.setCodesFloat($0) }
+        actions.setLocalAgentCodes = { localAgentCodes.set($0) }
         actions.setCodesEngine = { settings.setCodesEngine($0) }
         actions.acceptAndDownloadCodeModel = {
             guard let manifest = codeModel.manifest else { return }

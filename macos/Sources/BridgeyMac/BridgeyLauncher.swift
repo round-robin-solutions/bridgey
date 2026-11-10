@@ -10,6 +10,9 @@ import Foundation
 enum BridgeyLauncher {
     static func main() {
         let args = CommandLine.arguments
+        if args.contains("--local-codes") {
+            exit(LocalAgentCodesCLI.run(arguments: args))
+        }
         if args.contains("--update-all") {
             exit(UpdateControlCLI.run(arguments: args))
         }
