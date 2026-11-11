@@ -25,14 +25,20 @@ class OpenOnMacTest {
         assertEquals("github.com", linkHost("https://www.github.com/x"))
     }
 
-    @Test fun shareTargetIsSeparateFromTheMainShareAndOnlyTakesText() {
+    @Test fun exactlyOneShareTargetAcceptsTextAndFiles() {
         val ns = "http://schemas.android.com/apk/res/android"
         val doc = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }.newDocumentBuilder().parse(File("src/main/AndroidManifest.xml"))
         val activities = doc.getElementsByTagName("activity")
-        val open = (0 until activities.length).map { activities.item(it) as Element }.first { it.getAttributeNS(ns, "name") == ".OpenOnMacActivity" }
-        assertEquals("@string/open_on_mac_label", open.getAttributeNS(ns, "label"))
+        val open = (0 until activities.length).map { activities.item(it) as Element }.first { it.getAttributeNS(ns, "name") == ".SendToMacActivity" }
+        assertEquals("@string/share_to_mac", open.getAttributeNS(ns, "label"))
         val types = open.getElementsByTagName("data").let { list -> (0 until list.length).map { (list.item(it) as Element).getAttributeNS(ns, "mimeType") } }
-        assertEquals(listOf("text/plain"), types)
+        assertEquals(listOf("*/*", "*/*"), types)
+        val handlers = (0 until activities.length).map { activities.item(it) as Element }.filter { activity ->
+            activity.getElementsByTagName("action").let { actions -> (0 until actions.length).any {
+                (actions.item(it) as Element).getAttributeNS(ns, "name") in setOf("android.intent.action.SEND", "android.intent.action.SEND_MULTIPLE")
+            } }
+        }
+        assertEquals(1, handlers.size)
         val services = doc.getElementsByTagName("service").let { list -> (0 until list.length).map { list.item(it) as Element } }
         assertEquals("android.permission.BIND_CONTROLS", services.first { it.getAttributeNS(ns, "name") == ".controls.MacControlsService" }.getAttributeNS(ns, "permission"))
         assertEquals("android.permission.BIND_QUICK_SETTINGS_TILE", services.first { it.getAttributeNS(ns, "name") == ".LockMacTileService" }.getAttributeNS(ns, "permission"))

@@ -32,7 +32,8 @@ final class QuickActions: ObservableObject {
     var availableFor: (BridgeyFeature, String) -> Bool = { _, _ in false }
     var send: (String, [String: Any]) -> Bool = { _, _ in false }
     /// Tells the activity stream that a link was delivered or received (never the address).
-    var onActivity: (ActivityKind) -> Void = { _ in }
+    var onActivity: (ActivityKind, String) -> Void = { _, _ in }
+    private var receivedLinkDeviceID: String?
     private var pending: String?
     private var timeout: Task<Void, Never>?
     private var sequence = 0
@@ -67,7 +68,7 @@ final class QuickActions: ObservableObject {
     }
 
     /// Settings > Media and actions > Open links from phones right away (links_open_draft1).
-    var openRightAway: () -> Bool = { false }
+    var openRightAway: () -> Bool = { true }
     /// Opens a link in the default browser; tests replace it.
     var openURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
     var clock: () -> Date = Date.init
@@ -80,44 +81,47 @@ final class QuickActions: ObservableObject {
             guard id == pending, payload["feature"] as? String == "links" else { return }
             pending = nil; timeout?.cancel()
             status = payload["accepted"] as? Bool == true
-                ? "Link delivered; it opens when tapped on the phone"
+                ? "Link delivered; it opens when tapped on the other device"
                 : "Link declined; check settings or dismiss the previous link"
-            if payload["accepted"] as? Bool == true { onActivity(.linkSent) }
+            if payload["accepted"] as? Bool == true { onActivity(.linkSent, deviceID) }
         } else if kind == "quick.request" {
             let link = (payload["value"] as? String).flatMap(validatedWebLink)
             let action = payload["action"] as? String
             let usable = availableFor(.links, deviceID) && payload["feature"] as? String == "links" && link != nil
             // "Open on Mac" from the phone: opened at once only when this Mac allows it, at most
             // one link per phone every 3 seconds; otherwise it waits like an offer.
-            if usable, action == "open", openRightAway(), let link, let url = URL(string: link) {
+            if usable, action == "open" {
                 let now = clock()
                 if let last = lastOpened[deviceID], now.timeIntervalSince(last) < 3 {
-                    _ = send("quick.result", ["version": 1, "requestId": id, "feature": "links", "accepted": false])
+                    _ = send("quick.result", ["version": 1, "requestId": id, "feature": "links", "accepted": false, "reason": "rate_limited"])
                     return
                 }
                 lastOpened[deviceID] = now
+            }
+            if usable, action == "open", openRightAway(), let link, let url = URL(string: link) {
                 let opened = openURL(url)
-                if opened { status = "Link opened"; onActivity(.linkReceived) }
-                _ = send("quick.result", ["version": 1, "requestId": id, "feature": "links", "accepted": opened, "opened": opened])
+                if opened { receivedLink = nil; status = "Link opened"; onActivity(.linkReceived, deviceID) }
+                _ = send("quick.result", ["version": 1, "requestId": id, "feature": "links", "accepted": opened, "opened": opened, "reason": opened ? "" : "browser_failed"])
                 return
             }
-            let accepted = usable && (action == "offer" || action == "open") && receivedLink == nil
+            let accepted = usable && (action == "offer" || action == "open")
             if accepted {
                 receivedLink = link
+                receivedLinkDeviceID = deviceID
                 status = "Link received"
                 NSSound(named: NSSound.Name("Glass"))?.play()
-                onActivity(.linkReceived)
+                onActivity(.linkReceived, deviceID)
             }
-            _ = send("quick.result", ["version": 1, "requestId": id, "feature": "links", "accepted": accepted, "opened": false])
+            _ = send("quick.result", ["version": 1, "requestId": id, "feature": "links", "accepted": accepted, "opened": false, "reason": accepted ? "" : "links_disabled"])
         }
     }
 
     func openLink() {
-        guard available(.links), let link = receivedLink.flatMap(validatedWebLink), let url = URL(string: link) else { return }
+        guard receivedLinkDeviceID.map({ availableFor(.links, $0) }) ?? available(.links), let link = receivedLink.flatMap(validatedWebLink), let url = URL(string: link) else { return }
         if NSWorkspace.shared.open(url) { receivedLink = nil } else { status = "Could not open your browser" }
     }
-    func dismissLink() { receivedLink = nil }
+    func dismissLink() { receivedLink = nil; receivedLinkDeviceID = nil }
     /// A line for the panel from another quick action (the browser tab).
     func showStatus(_ text: String) { status = text }
-    func reset() { timeout?.cancel(); pending = nil; receivedLink = nil; status = nil }
+    func reset() { timeout?.cancel(); pending = nil; receivedLink = nil; receivedLinkDeviceID = nil; status = nil }
 }

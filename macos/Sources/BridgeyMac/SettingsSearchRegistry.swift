@@ -167,6 +167,10 @@ enum SettingsSearchRegistry {
                 L10n.text("settings.clipboardEager.detail", fallback: "Smaller copies move as soon as you copy, so pasting is instant."), ["size", "limit", "mb", "размер"]),
             row("clipboard.shortcut", .clipboard, section: shortcutCard, ShortcutAction.clipboard.displayTitle, nil, shortcut + clipboard),
 
+            row("notifications.presence", .notifications, L10n.text("settings.presence.share", fallback: "Share when I'm using this device"),
+                L10n.text("settings.presence.detail", fallback: "Helps other devices send here. Only activity status and time since input are shared."),
+                ["share", "activity", "presence", "active device", "активность"]),
+
             // Notifications
             feature(.notifications, .notifications, notifications),
             row("notifications.mac", .notifications, L10n.text("settings.macNotifications", fallback: "Mac notifications"), nil,
@@ -238,7 +242,7 @@ enum SettingsSearchRegistry {
             row("files.conflict", .files, L10n.text("settings.folders.conflict", fallback: "When a folder already exists"), nil,
                 ["merge", "replace", "conflict", "заменить"], sync: .folderConflict),
             row("files.tag", .files, L10n.text("settings.files.tag", fallback: "Tag received files in Finder"),
-                L10n.text("settings.files.tag.detail", fallback: "Adds the Bridgey tag, so Finder can list everything that came from your phone."), ["finder", "tag", "метка"]),
+                L10n.text("settings.files.tag.detail", fallback: "Adds the Bridgey tag, so Finder can list everything received from other devices."), ["finder", "tag", "метка"]),
             row("files.camera", .files, L10n.text("camera.settings.clipboard", fallback: "Copy photos from the phone camera to the clipboard"),
                 L10n.text("camera.settings.clipboard.detail", fallback: "Ready to paste as soon as the photo arrives"), ["camera", "photo", "take photo", "камера", "фото"]),
             row("files.photos", .files, section: beforeSending, L10n.text("optimize.images", fallback: "Photos"), nil, ["resize", "compress", "optimise", "optimize", "сжать"]),
@@ -260,8 +264,8 @@ enum SettingsSearchRegistry {
             row("media.player", .media, L10n.text("settings.media.player", fallback: "Player"),
                 L10n.text("settings.media.player.detail", fallback: "Automatic follows whatever is playing on this Mac. Or pick one app."), media),
             feature(.links, .media, section: quickActions, featureWords(.links)),
-            row("media.openLinks", .media, section: quickActions, L10n.text("settings.links.openRightAway", fallback: "Open links from phones right away"),
-                L10n.text("settings.links.openRightAway.detail", fallback: "Open on Mac from the phone\u{2019}s share sheet opens the link in your browser. Off: it waits for you to open it here."),
+            row("media.openLinks", .media, section: quickActions, L10n.text("settings.links.openRightAway", fallback: "Open links from other devices right away"),
+                L10n.text("settings.links.openRightAway.detail", fallback: "Links shared from other devices open in the browser. Turn this off to keep them in Bridgey's menu bar."),
                 ["url", "browser", "ссылки"]),
             feature(.ping, .media, section: quickActions, ping),
             feature(.findDevice, .media, section: quickActions, find),

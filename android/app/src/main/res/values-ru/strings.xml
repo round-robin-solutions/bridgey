@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Bridgey by Round Robin</string>
     <!-- Launcher icons fit about 12 characters on one line; the full name truncates. -->
-    <string name="launcher_name">Bridgey RR</string>
+    <string name="launcher_name">Bridgey</string>
     <string name="notification_forwarding_label">Пересылка уведомлений Bridgey</string>
     <string name="notification_send_copied_text">Отправить скопированное</string>
     <string name="notification_turn_off">Выключить</string>
@@ -53,7 +53,7 @@
     <string name="stream_now">Сейчас</string>
     <string name="stream_empty_title">Пока ничего не передавалось</string>
     <string name="stream_empty_body">Отправьте буфер обмена ниже или поделитесь файлом через Bridgey. Всё, что передаётся между устройствами, хранится здесь 7 дней.</string>
-    <string name="stream_empty_unpaired">Откройте Bridgey на Mac и на этом телефоне в одной сети Wi-Fi, затем нажмите «Добавить».</string>
+    <string name="stream_empty_unpaired">Откройте Bridgey на обоих устройствах в одной сети Wi-Fi и нажмите «Добавить» для сопряжения.</string>
     <string name="stream_empty_filter_title">Здесь пока пусто</string>
     <string name="stream_empty_filter_body">Выберите «Все», чтобы увидеть всё за последние 7 дней.</string>
     <string name="stream_clipboard_sent_title">Отправлено на %1$s</string>
@@ -118,7 +118,7 @@
     <string name="live_ringing_title">%1$s ищет этот телефон</string>
     <string name="live_ringing_detail">Поиск устройства</string>
 
-    <string name="media_title">%1$s на Mac</string>
+    <string name="media_title">%1$s на другом устройстве</string>
     <string name="media_player_unknown">Медиа</string>
     <string name="media_in_player">В %1$s</string>
     <string name="media_artist_in_player">%1$s, в %2$s</string>
@@ -194,12 +194,12 @@
     <string name="settings_status_connecting">Подключение к %1$s</string>
     <string name="settings_status_not_connected">Не подключено</string>
     <string name="settings_forwarding_title">Пересылка уведомлений</string>
-    <string name="settings_notifications_detail">Показывать уведомления этого телефона на Mac</string>
-    <string name="settings_calls_detail">Разрешить связанному Mac начинать, принимать и завершать звонки</string>
-    <string name="settings_media_detail">Управлять музыкой на Mac отсюда</string>
-    <string name="settings_find_detail">Подавать сигнал на этом телефоне с Mac</string>
-    <string name="settings_ping_detail">Проверить связь, подав сигнал на Mac</string>
-    <string name="settings_battery_detail">Показывать заряд этого телефона на Mac</string>
+    <string name="settings_notifications_detail">Показывать уведомления этого телефона на других устройствах</string>
+    <string name="settings_calls_detail">Разрешить сопряжённому устройству начинать, принимать и завершать звонки</string>
+    <string name="settings_media_detail">Управляйте отсюда музыкой на других устройствах</string>
+    <string name="settings_find_detail">Вызвать звонок на этом телефоне с другого устройства</string>
+    <string name="settings_ping_detail">Вызвать звук на другом устройстве для проверки связи</string>
+    <string name="settings_battery_detail">Показывать заряд этого телефона на других устройствах</string>
     <string name="settings_turn_off_detail">Прекратить обмен и закрыть Bridgey на этом телефоне</string>
     <string name="settings_version">Версия</string>
     <string name="settings_licences">Лицензии открытого кода</string>
@@ -215,14 +215,14 @@
     <string name="settings_notification_apps">Приложения с уведомлениями</string>
     <string name="settings_notification_apps_count">%1$d из %2$d приложений</string>
     <string name="settings_forwarding">Пересылка уведомлений</string>
-    <string name="settings_forwarding_on">Уведомления Android появляются на Mac</string>
+    <string name="settings_forwarding_on">Уведомления Android появляются на других устройствах</string>
     <string name="settings_forwarding_off">Нужен доступ к уведомлениям</string>
     <string name="settings_app_notifications">Уведомления Bridgey</string>
     <string name="settings_app_notifications_on">Подключение, передачи и поиск устройства</string>
     <string name="settings_app_notifications_off">Рекомендуются для управления в фоне</string>
     <string name="auto_clipboard_title">Автоматический буфер обмена</string>
     <string name="auto_clipboard_detail">Скопируйте на одном устройстве, вставьте на другом.</string>
-    <string name="auto_clipboard_explain">С Mac: всегда. С этого телефона: когда Bridgey открыт, или нажмите «Отправить скопированное» в уведомлении.</string>
+    <string name="auto_clipboard_explain">С других устройств: всегда. С этого телефона: когда Bridgey открыт или по нажатию «Отправить скопированное» в уведомлении.</string>
     <string name="bg_clipboard_title">Буфер обмена в фоне (для продвинутых)</string>
     <string name="bg_clipboard_detail">Отправлять скопированное на этом телефоне, даже когда Bridgey закрыт. Нужна разовая настройка с компьютера.</string>
     <string name="bg_clipboard_step1">На телефонах OnePlus, Oppo, Realme и Xiaomi: в параметрах разработчика включите «Отключить мониторинг разрешений», затем перезагрузите телефон.</string>
@@ -319,15 +319,15 @@
     <string name="devices_paired">Связанные устройства</string>
     <string name="devices_none">Связанных устройств пока нет. Нажмите «Связать новое устройство».</string>
     <string name="devices_pair_new">Связать новое устройство</string>
-    <string name="devices_pair_new_detail">Найти Mac в этой сети Wi-Fi и сверить код</string>
+    <string name="devices_pair_new_detail">Найдите устройство в этой сети Wi-Fi и сравните код</string>
     <string name="devices_per_device_note">Откройте устройство, чтобы отключить функции только для него или забыть его. Чем делится каждая функция, задаётся в разделах настроек.</string>
     <string name="devices_direct_calls">Статус и управление звонками</string>
-    <string name="devices_direct_calls_detail">Mac сможет начинать, принимать, отклонять и завершать звонки</string>
-    <string name="notification_apps_intro">Выберите, какие приложения могут показывать уведомления на связанном Mac.</string>
+    <string name="devices_direct_calls_detail">Разрешает сопряжённому устройству начинать, принимать, отклонять и завершать звонки</string>
+    <string name="notification_apps_intro">Выберите приложения, уведомления которых можно показывать на сопряжённых устройствах.</string>
     <string name="notification_apps_empty">Приложения появятся здесь после первого уведомления.</string>
 
     <string name="pair_title">Связать устройство</string>
-    <string name="pair_body">Откройте Bridgey на Mac в той же сети Wi-Fi, что и телефон. Выберите его ниже и проверьте, что на обоих экранах один и тот же код.</string>
+    <string name="pair_body">Откройте Bridgey на другом устройстве в той же сети Wi-Fi, что и этот телефон. Выберите его ниже и убедитесь, что код на обоих экранах совпадает.</string>
     <string name="pair_searching">Поиск устройств в этой сети Wi-Fi…</string>
     <string name="pair_paired_suffix">Связано, нажмите для подключения</string>
     <string name="pair_new_suffix">Новое устройство, нажмите для связи</string>
@@ -462,14 +462,14 @@
         <item quantity="other">%1$d устройства</item>
     </plurals>
     <string name="settings_background_title">Оставаться на связи, пока телефон спит</string>
-    <string name="settings_background_on">Разрешено: Bridgey может держать связь с Mac всю ночь</string>
+    <string name="settings_background_on">Разрешено: Bridgey может поддерживать связь между устройствами ночью</string>
     <string name="settings_background_off">Оптимизация батареи может приостанавливать Bridgey, пока телефон не используется</string>
     <string name="settings_background_open">Открыть настройки батареи</string>
     <string name="settings_background_note">Некоторые телефоны добавляют свои ограничения. На OnePlus откройте «О приложении», затем «Использование батареи» и разрешите работу в фоне.</string>
     <string name="settings_wifi_awake_title">Не давать Wi-Fi засыпать</string>
     <string name="settings_wifi_awake_detail">Меньше обрывов связи ценой небольшого расхода батареи. Android 13 и более ранние версии.</string>
     <string name="battery_prompt_title">Оставаться на связи, пока телефон спит?</string>
-    <string name="battery_prompt_body">Когда телефон не используется, Android может приостановить Bridgey, и Mac теряет связь на всю ночь. Разрешите Bridgey работать в фоне, чтобы связь сохранялась. Когда ничего не происходит, Bridgey почти не расходует заряд.</string>
+    <string name="battery_prompt_body">Когда телефон не используется, Android может приостановить Bridgey, и другие устройства потеряют связь ночью. Разрешите Bridgey работать в фоне. Когда ничего не происходит, приложение не мешает.</string>
 
     <!-- Remote control (draft remote_input_draft1): touchpad, keyboard and slides. -->
     <string name="settings_remote_control">Удалённое управление</string>
@@ -486,8 +486,8 @@
     <string name="settings_summary_clipboard_images_on_paste">изображения при вставке</string>
     <string name="settings_summary_clipboard_text_only">только текст</string>
     <string name="settings_summary_notifications_access">Нужен доступ к уведомлениям</string>
-    <string name="settings_summary_calls_ring">Звонок на Mac</string>
-    <string name="settings_summary_calls_controls">Звонок и управление вызовами на Mac</string>
+    <string name="settings_summary_calls_ring">Звонок на других устройствах</string>
+    <string name="settings_summary_calls_controls">Звонок и управление вызовами на других устройствах</string>
     <string name="settings_summary_remote_volume_keys">Вкл., клавиши громкости листают слайды</string>
     <string name="settings_summary_previews_shown">Превью в активности показаны</string>
     <string name="settings_summary_previews_hidden">Превью в активности скрыты</string>
@@ -937,12 +937,12 @@
     <string name="health_reason_timeout">Время ожидания истекло</string>
     <string name="health_reason_replaced">Заменено новым подключением</string>
     <string name="health_reason_other">Другое (%1$s)</string>
-    <string name="open_on_mac_label">Открыть на Mac</string>
+    <string name="open_on_mac_label">Открыть на устройстве</string>
     <string name="open_on_mac_title">Открыть на %1$s?</string>
-    <string name="open_on_mac_pick">На каком Mac открыть?</string>
-    <string name="open_on_mac_body">Если Mac разрешает открывать ссылки сразу, он откроет её в браузере. Иначе ссылка подождёт нажатия на Mac.</string>
+    <string name="open_on_mac_pick">На каком устройстве открыть?</string>
+    <string name="open_on_mac_body">Если устройство разрешает сразу открывать ссылки, ссылка откроется в браузере. Иначе она будет ждать нажатия.</string>
     <string name="open_on_mac_no_link">В том, чем вы поделились, нет веб-ссылки</string>
-    <string name="open_on_mac_no_mac">Нет подключённого Mac с включёнными веб-ссылками</string>
+    <string name="open_on_mac_no_mac">Ни на одном подключённом устройстве не включены веб-ссылки</string>
     <string name="open_on_mac_sending">Отправка на %1$s</string>
     <string name="open_on_mac_opened">Открыто на %1$s</string>
     <string name="open_on_mac_queued">Отправлено. Откройте на %1$s.</string>
@@ -973,17 +973,17 @@
     <string name="focus_access_off">Нужен, чтобы следовать за Mac. Включите Bridgey by Round Robin в доступе к режиму «Не беспокоить».</string>
     <string name="focus_note">Каждое направление включается отдельно, а на Mac нужен такой же переключатель в настройках. Если вы включили «Не беспокоить» сами, окончание фокусирования на Mac его не выключит.</string>
     <!-- Phone camera to Mac (camera_draft1) -->
-    <string name="feature_camera">Снимки для Mac</string>
+    <string name="feature_camera">Сделать фото для другого устройства</string>
     <string name="feature_camera_detail">%1$s может попросить снимок, а вы снимаете здесь</string>
-    <string name="settings_camera_detail">Mac может попросить снимок, а вы снимаете на этом телефоне</string>
+    <string name="settings_camera_detail">Другое устройство может запросить фото, которое вы сделаете на этом телефоне</string>
     <string name="camera_title">Снимок для %1$s</string>
-    <string name="camera_hint">Снимок уйдёт на Mac сразу после съёмки</string>
+    <string name="camera_hint">Фото отправится на запросившее устройство сразу после съёмки</string>
     <string name="camera_shutter">Сделать снимок</string>
     <string name="camera_take_photo">Сделать снимок</string>
     <string name="camera_sending">Снимок отправляется на %1$s</string>
-    <string name="camera_ended">Запрос завершён. Попросите снимок с Mac ещё раз.</string>
+    <string name="camera_ended">Запрос завершён. Повторите его с другого устройства.</string>
     <string name="camera_failed">Не удалось отправить снимок.</string>
-    <string name="camera_unavailable">Камера сейчас недоступна. Закройте другие приложения камеры и попросите снимок с Mac ещё раз.</string>
+    <string name="camera_unavailable">Камера сейчас недоступна. Закройте другие приложения камеры и повторите запрос с другого устройства.</string>
     <string name="camera_capture_failed">Не удалось сохранить снимок. Попробуйте ещё раз.</string>
     <string name="camera_send_failed">Не удалось отправить снимок на %1$s. Проверьте подключение и что передача файлов включена.</string>
     <string name="camera_permission_title">Разрешите доступ к камере</string>
@@ -991,8 +991,8 @@
     <string name="camera_permission_denied">Камера для Bridgey выключена. Чтобы отправить снимок на %1$s, разрешите камеру в настройках приложения.</string>
     <string name="camera_allow">Разрешить камеру</string>
     <string name="camera_open_settings">Открыть настройки приложения</string>
-    <string name="camera_channel">Снимки для Mac</string>
-    <string name="camera_channel_detail">Когда Mac просит у телефона снимок</string>
+    <string name="camera_channel">Фото для других устройств</string>
+    <string name="camera_channel_detail">Когда другое устройство запрашивает фото с этого телефона</string>
     <string name="camera_unlock_title">Разблокируйте телефон, чтобы сделать снимок</string>
     <string name="camera_unlock_text">%1$s просит снимок</string>
     <string name="camera_ask_title">%1$s просит снимок</string>
@@ -1116,7 +1116,7 @@
     <string name="update_all_failure_interrupted">прервано</string>
     <string name="update_all_failure_other">что-то пошло не так</string>
     <string name="update_all_devices_title">Ваши устройства</string>
-    <string name="update_all_devices_empty">Свяжите Mac, чтобы обновлять его отсюда.</string>
+    <string name="update_all_devices_empty">Подключите устройство, чтобы обновлять его отсюда.</string>
     <string name="update_all_device_line">%1$s · %2$s</string>
     <string name="update_all_state_current">Последняя версия</string>
     <string name="update_all_state_checking">Проверка</string>

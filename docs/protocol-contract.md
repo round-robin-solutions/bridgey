@@ -163,6 +163,8 @@ the tables at the end of this page are generated from it with
 | `agents_mirror_draft1` | edition-draft | no | false |
 | `codes_detect_draft1` | edition-draft | no | false |
 | `agent_notifications_draft1` | edition-draft | no | false |
+| `device_presence_draft1` | edition-draft | no | false |
+| `share_receive_draft1` | edition-draft | no | false |
 
 ### Envelope fields
 
@@ -189,7 +191,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-174 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+176 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -258,6 +260,7 @@ Sent after pairing and whenever local policy changes. A feature is available onl
 | `clipboard.error` | edition-draft | either | clipboard_files_draft1 | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos |
 | `clipboard.request` | edition-draft | agent-to-phone | clipboard_request_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, cli |
 | `clipboard.response` | edition-draft | phone-to-agent | clipboard_request_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, cli |
+| `clipboard.share` | edition-draft | phone-to-mac | share_receive_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
 
 `clipboard.update`
 
@@ -327,6 +330,14 @@ The phone asks with Send and Deny; Send opens Bridgey for a moment, because Andr
 - `status`: sent | declined | expired
 - `text`: optional string, with sent
 - `html`: optional string, with sent; text and html together at most 32 KiB
+
+`clipboard.share`
+
+- `(raw)`: UTF-8 text, not JSON, 1 to 32,768 bytes
+
+Answered by `clipboard.ack`, `clipboard.rejected`.
+
+Explicit Android share only. Requires Clipboard grants at both ends. Copies without rich HTML or execution; small notification contains only the sender name. Existing clipboard acknowledgement semantics. Older peers receive clipboard.update instead.
 
 #### `files.*`
 
@@ -572,7 +583,7 @@ Never the code.
 
 Answered by `quick.result`.
 
-Edition extension (links_open_draft1): Open on Mac sends links action open. The Mac opens the link at once only when its own Open links from phones right away setting is on (off by default), at most one link per phone every 3 seconds; otherwise it queues the link like offer.
+Edition extension (links_open_draft1): Send to device sends links action open. The Mac opens the link at once only when its own Open links from other devices right away setting is on (on when unset, explicit off preserved), at most one explicit link per phone every 3 seconds; otherwise it replaces the parked link in the menu bar.
 
 `quick.result`
 
@@ -581,6 +592,7 @@ Edition extension (links_open_draft1): Open on Mac sends links action open. The 
 - `feature`: string, echoes the request
 - `accepted`: boolean
 - `opened`: edition extension (links_open_draft1): boolean, true when the Mac opened the link right away; older phones ignore it
+- `reason`: optional string: rate_limited | browser_failed | links_disabled; explains a declined link
 
 #### `media.*`
 
@@ -1969,5 +1981,20 @@ After features.update with the key on both sides and on every change, at most on
 Answered by `agents.state`.
 
 Applied as if switched on the phone, recorded as changed on that Mac.
+
+#### `presence.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `presence.state` | edition-draft | mac-to-phone | device_presence_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+
+`presence.state`
+
+- `version`: integer, 1
+- `sequence`: integer 1..9007199254740991, increasing within the authenticated session
+- `state`: active | idle | locked | unknown
+- `idleSeconds`: integer 0..86400, only for active (0..119) or idle (120..86400)
+
+Trusted protocol-2 peers only, both presence keys enabled. Receiver freshness uses its monotonic arrival clock and expires at 20 seconds. New session, disconnect, revocation and forgetting invalidate activity. No keys, app names or screen content. Aggregate idle sampled every two seconds only with subscribers; state/input changes or ten-second keepalive publish. Lock/sleep reports immediately. Sequence fences survive same-session opt-out. Shared vectors: protocol/test-vectors/device-presence-v1.json.
 
 <!-- END GENERATED -->

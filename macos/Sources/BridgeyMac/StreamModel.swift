@@ -216,7 +216,7 @@ func transferDetail(_ transfer: FileTransferRow) -> String {
 /// when `showPreviews` is on, so turning the switch off hides what was stored before.
 enum ActivityText {
     static func title(_ item: ActivityItem, showPreviews: Bool) -> String {
-        let device = item.deviceName.isEmpty ? L10n.text("stream.device.unknown", fallback: "your phone") : item.deviceName
+        let device = item.deviceName.isEmpty ? L10n.text("stream.device.unknown", fallback: "your device") : item.deviceName
         if showPreviews, item.kind == .notificationsShown, let app = item.appName {
             return item.count == 1
                 ? format("stream.alert.app", "1 %@ alert", app)
@@ -290,7 +290,7 @@ enum ActivityText {
     /// "Merged, 12 kept as copies · 3 links and 12 hidden items skipped · 3 files failed".
     static func folderDetail(_ item: ActivityItem) -> String? {
         let detail = FolderActivityDetail(item.content)
-        let device = item.deviceName.isEmpty ? L10n.text("stream.device.unknown", fallback: "your phone") : item.deviceName
+        let device = item.deviceName.isEmpty ? L10n.text("stream.device.unknown", fallback: "your device") : item.deviceName
         var parts: [String] = []
         switch detail.end {
         case nil: break
@@ -389,7 +389,7 @@ enum ActivityText {
     /// The second line, or nil for a one-line row: the quoted clipboard preview, "Hidden" for
     /// concealed clips, and "Automatic" for Automatic clipboard.
     static func detail(_ item: ActivityItem, showPreviews: Bool) -> String? {
-        let device = item.deviceName.isEmpty ? L10n.text("stream.device.unknown", fallback: "your phone") : item.deviceName
+        let device = item.deviceName.isEmpty ? L10n.text("stream.device.unknown", fallback: "your device") : item.deviceName
         switch item.kind {
         case .clipOfferSent:
             let ready = item.automatic

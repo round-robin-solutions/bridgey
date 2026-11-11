@@ -275,6 +275,7 @@ internal sealed interface FeatureStateDecoding {
  * change). The Mac has the same list in the same order.
  */
 internal val KNOWN_DRAFT_FEATURE_KEYS = listOf(
+    dev.bridgey.android.routing.DEVICE_PRESENCE_FEATURE_KEY, "share_receive_draft1",
     CLIPBOARD_FILES_FEATURE_KEY, FOLDERS_FEATURE_KEY, PLACES_FEATURE_KEY, SMS_CODES_FEATURE_KEY,
     FOLDERS_RECEIVE_FEATURE_KEY, FILES_BROWSE_FEATURE_KEY,
     BridgeyFeature.MAC_ACTIONS.key, LINKS_OPEN_FEATURE_KEY, FOCUS_SYNC_FEATURE_KEY, CAMERA_FEATURE_KEY,

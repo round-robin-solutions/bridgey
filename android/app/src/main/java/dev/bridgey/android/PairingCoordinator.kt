@@ -1,5 +1,7 @@
 package dev.bridgey.android
 
+import dev.bridgey.android.routing.*
+
 import android.content.Context
 import android.content.ClipData
 import android.content.ClipDescription
@@ -233,8 +235,38 @@ class PairingCoordinator(
     val quickActions = QuickActions(
         appContext, scope, { isFeatureAvailable(it) }, ::sendQuickPayload, ::linksOpenSupported,
         availableFor = { feature, deviceId -> isFeatureAvailable(feature, deviceId) },
+        sendTo = { id, kind, payload -> sendQuickPayloadTo(sessionFor(id), kind, payload) },
+        linksOpenFor = { id -> linksOpenSupported(id) },
+        sessionIdFor = { id -> shareSessionId(id) },
     )
     private val registry = SessionRegistry<Session>(localDeviceId)
+    private val devicePresence = DevicePresenceStore()
+    private val presenceExpiry = ConcurrentHashMap<String, Job>()
+    private val mutablePresenceRevision = MutableStateFlow(0L)
+    val presenceRevision = mutablePresenceRevision.asStateFlow()
+    private fun presenceChanged() { mutablePresenceRevision.update { it + 1 } }
+
+    fun sharePresence(deviceId: String): ObservedPresence? {
+        val current = registry.session(deviceId) ?: return null
+        if (registry.state(deviceId)?.remoteDevicePresence != true) return null
+        return devicePresence.get(deviceId, current.id)
+    }
+
+    fun shareSessionId(deviceId: String): String? = registry.session(deviceId)?.id
+
+    private fun receivePresence(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id || current.agent || current.envelopeKey == null ||
+            current.remoteDeviceId !in trust.trustedDeviceIds.value || registry.state(current.remoteDeviceId)?.remoteDevicePresence != true) return
+        val key = current.pairingKey ?: return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        val sample = decodeDevicePresence(data) ?: return
+        if (!registry.isActive(current) || !devicePresence.receive(current.remoteDeviceId, current.id, sample, SystemClock.elapsedRealtime())) return
+        presenceChanged()
+        presenceExpiry.remove(current.remoteDeviceId)?.cancel()
+        presenceExpiry[current.remoteDeviceId] = scope.launch { delay(PRESENCE_FRESH_MILLIS); presenceChanged() }
+    }
 
     /** Mac actions (draft `mac_actions_draft1`): each Mac's list, runs and results. */
     val macActions = dev.bridgey.android.actions.MacActionsClient(
@@ -1617,6 +1649,7 @@ class PairingCoordinator(
         sensitive: Boolean = false,
         automatic: Boolean = false,
         target: Session,
+        explicitShare: Boolean = false,
         onResult: (ClipboardSendResult) -> Unit = {},
         groupId: String = UUID.randomUUID().toString(),
         groupTargets: List<Pair<String, String>> = listOf(target.remoteDeviceId to target.peerName),
@@ -1658,6 +1691,10 @@ class PairingCoordinator(
                 finish(ClipboardSendResult.NOT_CONNECTED)
                 return@launch
             }
+            if (!isFeatureAvailable(BridgeyFeature.CLIPBOARD, current.remoteDeviceId)) {
+                finish(ClipboardSendResult.DISABLED)
+                return@launch
+            }
             val messageId = UUID.randomUUID().toString()
             pendingClipboardSends[messageId] = PendingClipSend(current.remoteDeviceId, finish)
             clipboardOutbox.supersede(SessionClipLink(current))
@@ -1666,7 +1703,7 @@ class PairingCoordinator(
             val plaintext = richContent?.encode() ?: text.toByteArray(Charsets.UTF_8)
             val encrypted = Crypto.encrypt(current.pairingKey!!, plaintext)
             val message = Message(
-                kind = if (richContent == null) "clipboard.update" else "clipboard.rich",
+                kind = if (explicitShare && registry.state(current.remoteDeviceId)?.remoteShareReceive == true) ShareReceiveKinds.TEXT else if (richContent == null) "clipboard.update" else "clipboard.rich",
                 sessionId = current.id,
                 messageId = messageId,
                 nonce = encrypted.nonce,
@@ -1681,7 +1718,7 @@ class PairingCoordinator(
             mutableClipboardStatus.value = "Sending…"
             BridgeyLogging.line(LogLines.clipboard(BridgeyLogging.policy, "sent", text.takeUnless { sensitive }))
             delay(3_000)
-            if (pendingClipboardSends.containsKey(messageId) && registry.isActive(current)) {
+            if (pendingClipboardSends.containsKey(messageId) && registry.isActive(current) && isFeatureAvailable(BridgeyFeature.CLIPBOARD, current.remoteDeviceId)) {
                 if (!current.send(message)) {
                     takePendingClip(messageId)?.invoke(ClipboardSendResult.CONNECTION_LOST)
                     mutableClipboardStatus.value = "Connection lost"
@@ -2376,7 +2413,13 @@ class PairingCoordinator(
     private fun sendQuickPayloadTo(current: Session?, kind: String, payload: JSONObject): Boolean {
         if (current == null || current.pairingKey == null) return false
         val data = payload.toString().toByteArray(Charsets.UTF_8)
-        scope.launch { sendEncrypted(current, kind, data) }
+        scope.launch {
+            if (kind == "quick.request") {
+                val feature = BridgeyFeature.entries.firstOrNull { it.key == payload.optString("feature") }
+                if (feature == null || !isFeatureAvailable(feature, current.remoteDeviceId)) return@launch
+            }
+            sendEncrypted(current, kind, data)
+        }
         return true
     }
 
@@ -2690,8 +2733,20 @@ class PairingCoordinator(
         queueFiles(uris, deviceId)
     }
 
+    /** Returns the whole batch before any transfer starts, so the sheet observes exactly its own files. */
+    fun sendSharedFiles(uris: List<Uri>, deviceId: String, sessionId: String, admitted: (List<String>) -> Unit): Boolean =
+        shareSessionId(deviceId) == sessionId && queueFiles(uris, deviceId, beforeBatch = admitted) != null
+
+    /** Explicit shared text uses the normal clipboard acknowledgement and per-device grants. */
+    fun sendSharedText(text: String, deviceId: String, sessionId: String, onResult: (ClipboardSendResult) -> Unit) {
+        val target = sessionFor(deviceId)
+        if (target == null) { onResult(ClipboardSendResult.NOT_CONNECTED); return }
+        if (target.id != sessionId) { onResult(ClipboardSendResult.CONNECTION_LOST); return }
+        sendClipboardContent(text, html = null, target = target, explicitShare = true, onResult = onResult)
+    }
+
     /** Queues [uris]; [beforeStart] sees the first transfer ID before it can start. Returns that ID, or null. */
-    private fun queueFiles(uris: List<Uri>, deviceId: String?, beforeStart: ((String) -> Unit)? = null): String? {
+    private fun queueFiles(uris: List<Uri>, deviceId: String?, beforeBatch: ((List<String>) -> Unit)? = null, beforeStart: ((String) -> Unit)? = null): String? {
         if (uris.isEmpty()) return null
         val connectedSession = sessionFor(deviceId)
         if (connectedSession == null) {
@@ -2723,6 +2778,7 @@ class PairingCoordinator(
         }
         mutableFileTransfers.update { transfers -> transfers + queued.associate { (transfer, _) -> transfer.id to transfer } }
         queued.firstOrNull()?.let { (transfer, _) -> beforeStart?.invoke(transfer.id) }
+        beforeBatch?.invoke(queued.map { it.first.id })
         val queue = fileSendQueues.getOrPut(target) { FileSendQueue() }
         queued.forEach { (transfer, uri) -> queue.enqueue(transfer.id, uri) }
         pruneTransferHistory()
@@ -3120,6 +3176,10 @@ class PairingCoordinator(
         }
         stopPhoneRinging()
         clearPingStatus()
+        devicePresence.clear()
+        presenceExpiry.values.forEach(Job::cancel)
+        presenceExpiry.clear()
+        presenceChanged()
         quickActions.reset()
         macActions.reset()
         clipboardSessionEnded(null)
@@ -3174,6 +3234,9 @@ class PairingCoordinator(
         if (pendingPing?.first == deviceId) clearPingStatus()
         if (isAgent(deviceId)) agents.sessionEnded(deviceId, agentSessionToken)
         macActions.sessionEnded(deviceId)
+        devicePresence.remove(deviceId)
+        presenceExpiry.remove(deviceId)?.cancel()
+        presenceChanged()
         focusSync.sessionEnded(deviceId)
         speedTest.disconnected(deviceId)
         settingsSync.sessionEnded(deviceId)
@@ -3759,6 +3822,7 @@ class PairingCoordinator(
             "notifications.dismiss" -> receiveNotificationDismiss(current, message)
             "codes.advertise_result", "codes.link_request" -> receiveCodesMessage(current, message)
             "actions.catalog", "actions.result" -> receiveActionsMessage(current, message)
+            "presence.state" -> receivePresence(current, message)
             "focus.state" -> receiveFocusMessage(current, message)
             "updates.status", "updates.start", "updates.result" -> receiveUpdatesMessage(current, message)
             dev.bridgey.android.connect.ConnectKinds.SETUP, dev.bridgey.android.connect.ConnectKinds.SETUP_ACK,
@@ -4693,6 +4757,9 @@ class PairingCoordinator(
                 cancelTransfers(current.remoteDeviceId)
             }
         }
+        devicePresence.remove(current.remoteDeviceId)
+        presenceExpiry.remove(current.remoteDeviceId)?.cancel()
+        presenceChanged()
         current.authenticated = true
         dialFinished(current)
         val source = if (current.initiatedLocally) AddressSource.OUTBOUND else AddressSource.INBOUND
@@ -4774,6 +4841,7 @@ class PairingCoordinator(
         )
         // Draft, edition only: Focus and Do Not Disturb sync, while either direction is on.
         featureValues.put(dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY, focusSync.advertised())
+        featureValues.put(DEVICE_PRESENCE_FEATURE_KEY, current.envelopeKey != null)
         // Draft, edition only: Update all. Always advertised; whether paired devices may start this phone's
         // update is the remoteStart field of updates.status.
         featureValues.put(dev.bridgey.android.updates.UPDATES_FEATURE_KEY, true)
@@ -4832,6 +4900,8 @@ class PairingCoordinator(
                 remoteEmailCodes = drafts[dev.bridgey.android.codes.EMAIL_CODES_FEATURE_KEY] == true,
                 remoteLinksOpen = drafts[dev.bridgey.android.actions.LINKS_OPEN_FEATURE_KEY] == true,
                 remoteFocusSync = drafts[dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY] == true,
+                remoteDevicePresence = !current.agent && current.envelopeKey != null && drafts[DEVICE_PRESENCE_FEATURE_KEY] == true,
+                remoteShareReceive = drafts["share_receive_draft1"] == true,
                 remoteUpdates = drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true,
                 remoteFastTransfers = drafts[FILES_FAST_FEATURE_KEY] == true,
                 updateStatus = state.updateStatus.takeIf { drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true },
@@ -4854,6 +4924,11 @@ class PairingCoordinator(
             if (connectAvailable(deviceId)) sendConnectAddresses(current)
             return
         }
+        if (drafts[DEVICE_PRESENCE_FEATURE_KEY] != true) {
+            devicePresence.invalidate(deviceId)
+            presenceExpiry.remove(deviceId)?.cancel()
+        }
+        presenceChanged()
         if (!clipboardOffersAvailable(deviceId)) clipboardOutbox.disconnected(deviceId)
         if (received[BridgeyFeature.FILES] == false) stopFileQueue(deviceId, "File transfer is turned off on ${current.peerName}")
         if (received[BridgeyFeature.FIND_DEVICE] == false && phoneRingingFrom == deviceId) stopPhoneRinging()
@@ -6270,3 +6345,7 @@ internal fun fileOfferPayload(transferId: String, name: String, mimeType: String
 
 /** A clip send waiting for [deviceId]'s answer. */
 private class PendingClipSend(val deviceId: String, val callback: (ClipboardSendResult) -> Unit)
+
+private object ShareReceiveKinds {
+    const val TEXT = "clipboard.share"
+}

@@ -119,6 +119,7 @@ struct SettingsModel {
     var receiveFolderPath = ""
     var notificationsAuthorized = true
     var notificationPermissionDetermined = true
+    var shareActivityStatus = true
     var historyEnabled = false
     var history: [NotificationHistoryItem] = []
     /// Notifications > Codes from messages.
@@ -180,7 +181,7 @@ struct SettingsModel {
     var availableShortcuts: [String]?
     var macActionsAudit: [MacActionAuditEntry] = []
     /// Media and actions > Open links from phones right away.
-    var openLinksRightAway = false
+    var openLinksRightAway = true
     /// Devices > [phone] > Connection health.
     var health: [String: ConnectionHealthSnapshot] = [:]
     /// Devices > [phone] > Battery alerts; a missing phone uses the defaults.
@@ -244,6 +245,7 @@ struct SettingsModel {
 }
 
 struct SettingsActions {
+    var setShareActivityStatus: (Bool) -> Void = { _ in }
     var setDeviceName: (String) -> Void = { _ in }
     var disconnect: () -> Void = {}
     var setLaunchAtLogin: (Bool) -> Void = { _ in }
@@ -953,6 +955,11 @@ private struct NotificationsPane: View {
             FeatureSwitch(feature: .notifications, model: model, actions: actions)
             NotificationPermissionRow(model: model, actions: actions)
         }
+        SettingsCard {
+            SettingsToggle(title: L10n.text("settings.presence.share", fallback: "Share when I'm using this device"),
+                           subtitle: L10n.text("settings.presence.detail", fallback: "Helps other devices send here. Only activity status and time since input are shared."),
+                           divider: false, isOn: model.shareActivityStatus, set: actions.setShareActivityStatus)
+        }
         CodesCard(model: model, actions: actions)
         LocalAgentCodesCard(options: model.localAgentCodeOptions, unavailable: model.localAgentCodesUnavailable, set: actions.setLocalAgentCodes)
         FocusSyncCard(model: model, actions: actions)
@@ -995,7 +1002,7 @@ private struct FilesPane: View {
                            synced: model.syncs(.folderIncludeSystem), isOn: model.folderIncludeSystem, set: actions.setFolderIncludeSystem)
             SyncStatusLine(key: .folderIncludeSystem, model: model, actions: actions)
         }
-        SettingsCard(footnote: L10n.text("settings.folders.receive.note", fallback: "Folders from your phone keep their structure. Received files get a Where from line in Finder.")) {
+        SettingsCard(footnote: L10n.text("settings.folders.receive.note", fallback: "Folders from other devices keep their structure. Received files get a Where from line in Finder.")) {
             SettingsRow(title: L10n.text("settings.folders.receive", fallback: "Folders sent to this Mac"),
                         subtitle: nil, divider: false, synced: model.syncs(.folderDestination)) {
                 ChoiceButton(value: folderReceiveModeTitle(model.folderReceiveMode)) {
@@ -1015,7 +1022,7 @@ private struct FilesPane: View {
             }
             SyncStatusLine(key: .folderConflict, model: model, actions: actions)
             SettingsToggle(title: L10n.text("settings.files.tag", fallback: "Tag received files in Finder"),
-                           subtitle: L10n.text("settings.files.tag.detail", fallback: "Adds the Bridgey tag, so Finder can list everything that came from your phone."),
+                           subtitle: L10n.text("settings.files.tag.detail", fallback: "Adds the Bridgey tag, so Finder can list everything received from other devices."),
                            isOn: model.tagReceivedFiles, set: actions.setTagReceivedFiles)
         }
         SettingsCard(footnote: L10n.text("camera.settings.note", fallback: "In the menu bar panel, File > Take Photo with your phone. The phone opens its camera once it is unlocked; the photo lands in Received files.")) {
@@ -1057,8 +1064,8 @@ private struct MediaActionsPane: View {
             ForEach(Array([BridgeyFeature.links, .ping, .findDevice, .battery].enumerated()), id: \.element) { index, feature in
                 FeatureSwitch(feature: feature, model: model, actions: actions, divider: index > 0)
                 if feature == .links {
-                    SettingsToggle(title: L10n.text("settings.links.openRightAway", fallback: "Open links from phones right away"),
-                                   subtitle: L10n.text("settings.links.openRightAway.detail", fallback: "Open on Mac from the phone\u{2019}s share sheet opens the link in your browser. Off: it waits for you to open it here."),
+                    SettingsToggle(title: L10n.text("settings.links.openRightAway", fallback: "Open links from other devices right away"),
+                                   subtitle: L10n.text("settings.links.openRightAway.detail", fallback: "Links shared from other devices open in the browser. Turn this off to keep them in Bridgey's menu bar."),
                                    isOn: model.openLinksRightAway, set: actions.setOpenLinksRightAway)
                         .disabled(model.globalFeatures[.links] == false)
                 }
@@ -2018,6 +2025,7 @@ struct LiveSettingsView: View {
         model.notificationsAuthorized = pairing.notificationsAuthorized
         model.notificationPermissionDetermined = pairing.notificationPermissionDetermined
         model.historyEnabled = settings.notificationHistoryEnabled
+        model.shareActivityStatus = settings.shareActivityStatus
         model.history = pairing.notificationHistory
         model.codesEnabled = settings.codesEnabled
         model.codesAutoCopy = settings.codesAutoCopy
@@ -2189,6 +2197,7 @@ struct LiveSettingsView: View {
         actions.openTailscaleSetup = { pairing.openTailscaleSetup() }
         actions.checkTailscale = { Task { await pairing.refreshTailnet() } }
         actions.enableNotifications = { pairing.enableNotifications() }
+        actions.setShareActivityStatus = { settings.setShareActivityStatus($0) }
         actions.setHistoryEnabled = { settings.setNotificationHistoryEnabled($0) }
         actions.setCodesEnabled = { on in
             // Off from the row that reads on while it waits: the wait ends and the off syncs as a normal edit.

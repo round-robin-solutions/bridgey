@@ -68,11 +68,11 @@ enum SetupSetting: String, CaseIterable {
     /// is on. Mac only.
     case handoffTakeover
 
-    /// The value on an install from before the off-until-chosen defaults (BridgeySettings' old defaults).
+    /// The default without a saved choice. Explicit setup answers override it.
     var defaultValue: String {
         switch self {
         case .featureClipboard, .autoClipboard, .clipboardFiles, .featureNotifications, .featureCalls, .ringForCalls,
-             .featureFiles, .featureLinks, .featurePing, .featureFindDevice, .featureBattery, .showPreviews,
+             .featureFiles, .featureLinks, .openLinksRightAway, .featurePing, .featureFindDevice, .featureBattery, .showPreviews,
              .loggingConnection, .updatesAutomatic, .smsKeepOnMac, .settingsSync, .connectAway:
             "true"
         case .codesEngine: "local"

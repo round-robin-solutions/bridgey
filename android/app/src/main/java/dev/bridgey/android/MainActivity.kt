@@ -140,10 +140,7 @@ private enum class PermissionPrompt {
     DirectCalls,
 }
 
-private data class SharedContent(
-    val text: String? = null,
-    val files: List<Uri> = emptyList(),
-)
+
 
 /** Codes from messages: what the activity hands the UI (the link, code access, the Code reader test). */
 /** Agent devices: a bridgey://pair link that opened the app, and an agent notification that was tapped. */
@@ -187,7 +184,6 @@ class MainActivity : ComponentActivity() {
     private var batteryExempt by mutableStateOf(true)
     /** Focus sync: Android lets Bridgey change Do Not Disturb. */
     private var dndAccess by mutableStateOf(false)
-    private var sharedContent by mutableStateOf<SharedContent?>(null)
     /** The launcher's Remote control quick action asked for this Mac. */
     private var remoteTarget by mutableStateOf<String?>(null)
     /** A notification asked for a Settings page (a [SettingsSection] name), e.g. Updates. */
@@ -242,6 +238,12 @@ class MainActivity : ComponentActivity() {
             setContent { BridgeyTheme { UnsupportedProfile() } }
             return
         }
+        // Old explicit share intents use the same sheet without turning Bridgey back on.
+        if (intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            startActivity(Intent(intent).setClass(this, SendToMacActivity::class.java))
+            finish()
+            return
+        }
         bridgey.enableBridgey()
         // Pre-v0.10 onboarding flag: people who finished it skip setup and get the What's new banner.
         val oldOnboardingCompleted = getSharedPreferences("bridgey_onboarding", MODE_PRIVATE)
@@ -251,7 +253,6 @@ class MainActivity : ComponentActivity() {
         pairing = bridgey.pairing
         discovery = bridgey.discovery
         bridgeySettings = bridgey.settings
-        sharedContent = intent.toSharedContent()
         remoteTarget = intent.toRemoteTarget()
         if (savedInstanceState == null) settingsTarget = intent.getStringExtra(SettingsDeepLink.EXTRA_SECTION)
         folderQuestion = intent.getStringExtra(FolderNotifier.EXTRA_FOLDER_QUESTION)
@@ -300,8 +301,6 @@ class MainActivity : ComponentActivity() {
                     onExportDiagnostics = ::exportDiagnostics,
                     onAddTile = ::requestAddClipboardTile,
                     screenshotAccess = screenshotAccess,
-                    sharedContent = sharedContent,
-                    onSharedContentHandled = ::clearSharedContent,
                     codes = CodesHooks(
                         linker = companionLinker,
                         access = bridgey.codeAccess,
@@ -364,7 +363,10 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        sharedContent = intent.toSharedContent()
+        if (intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            startActivity(Intent(intent).setClass(this, SendToMacActivity::class.java))
+            setIntent(Intent(this, MainActivity::class.java))
+        }
         remoteTarget = intent.toRemoteTarget()
         intent.getStringExtra(SettingsDeepLink.EXTRA_SECTION)?.let { settingsTarget = it }
         intent.getStringExtra(FolderNotifier.EXTRA_FOLDER_QUESTION)?.let { folderQuestion = it }
@@ -497,34 +499,6 @@ class MainActivity : ComponentActivity() {
         setIntent(Intent(this, MainActivity::class.java))
     }
 
-    private fun Intent.toSharedContent(): SharedContent? {
-        if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return null
-
-        // Only another app's content URIs: never file:// paths or Bridgey's own providers (its keys, its cache).
-        val streams = when (action) {
-            Intent.ACTION_SEND_MULTIPLE -> streamUris()
-            else -> listOfNotNull(streamUri())
-        }.distinct().filter { isShareableStream(it.scheme, it.authority, packageName) }
-        val sharedText = getCharSequenceExtra(Intent.EXTRA_TEXT)
-            ?.toString()
-            ?.takeIf { it.isNotBlank() && streams.isEmpty() }
-        return SharedContent(text = sharedText, files = streams)
-            .takeIf { it.text != null || it.files.isNotEmpty() }
-    }
-
-    @Suppress("DEPRECATION")
-    private fun Intent.streamUri(): Uri? =
-        if (Build.VERSION.SDK_INT >= 33) getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-        else getParcelableExtra(Intent.EXTRA_STREAM)
-
-    @Suppress("DEPRECATION")
-    private fun Intent.streamUris(): List<Uri> =
-        if (Build.VERSION.SDK_INT >= 33) {
-            getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
-        } else {
-            getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
-        }
-
     private fun refreshPermissionState() {
         smsGranted = checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
         appNotificationsEnabled = getSystemService(NotificationManager::class.java).areNotificationsEnabled()
@@ -545,11 +519,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun clearSharedContent() {
-        sharedContent = null
-        // Prevent a handled share intent from being replayed after configuration changes.
-        setIntent(Intent(this, MainActivity::class.java))
-    }
 
     private fun requestAppNotifications() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -702,8 +671,6 @@ private fun BridgeyApp(
     onExportDiagnostics: () -> Unit,
     onAddTile: () -> Unit,
     screenshotAccess: ScreenshotAccessController,
-    sharedContent: SharedContent?,
-    onSharedContentHandled: () -> Unit,
     codes: CodesHooks,
     setup: SetupHooks,
     agentHooks: AgentHooks,
@@ -1185,6 +1152,7 @@ private fun BridgeyApp(
                             clipboardFilesEnabled = settingsState.clipboardFilesEnabled,
                             clipboardEagerLimit = settingsState.clipboardEagerLimit,
                             screenshotSendEnabled = settingsState.screenshotSendEnabled,
+                            shareAlwaysAsk = settingsState.shareAlwaysAsk,
                             tileAddSupported = Build.VERSION.SDK_INT >= 33,
                             tileAdded = tileAdded,
                             notificationAppsEnabled = enabledApps,
@@ -1272,6 +1240,7 @@ private fun BridgeyApp(
                             setClipboardFiles = settings::setClipboardFilesEnabled,
                             setClipboardEagerLimit = settings::setClipboardEagerLimit,
                             setScreenshotSend = screenshotAccess::setEnabled,
+                            setShareAlwaysAsk = settings::setShareAlwaysAsk,
                             copyCommand = {
                                 context.getSystemService(ClipboardManager::class.java)
                                     .setPrimaryClip(ClipData.newPlainText("Bridgey", backgroundCommand))
@@ -1698,57 +1667,7 @@ private fun BridgeyApp(
         )
     }
 
-    sharedContent?.let { content ->
-        val isConnected = pairingState is PairingState.Connected
-        val requiredFeature = if (content.files.isNotEmpty()) BridgeyFeature.FILES else BridgeyFeature.CLIPBOARD
-        val featureAvailable = requiredFeature in availableWith((pairingState as? PairingState.Connected)?.deviceId)
-        val summary = when {
-            content.files.size == 1 -> "Send the selected file to your Mac?"
-            content.files.isNotEmpty() -> "Send ${content.files.size} selected files to your Mac?"
-            else -> "Send the shared text to your Mac?"
-        }
-        AlertDialog(
-            onDismissRequest = onSharedContentHandled,
-            title = { Text("Share with Bridgey") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(summary)
-                    when {
-                        !isConnected -> Text(
-                            "Waiting for a trusted Mac to reconnect.",
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                        !featureAvailable -> Text(
-                            "This feature is turned off on one of your devices.",
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    enabled = isConnected && featureAvailable,
-                    onClick = {
-                        content.text?.let { pairing.sendText(it) }
-                        if (content.files.isNotEmpty()) pairing.sendFiles(content.files)
-                        onSharedContentHandled()
-                    },
-                ) { Text("Send") }
-            },
-            dismissButton = {
-                Row {
-                    if (content.files.isEmpty() && content.text?.let(::validatedWebLink) != null &&
-                        pairing.isFeatureAvailable(BridgeyFeature.LINKS)) {
-                        TextButton(onClick = {
-                            pairing.quickActions.sendLink(content.text.orEmpty())
-                            onSharedContentHandled()
-                        }) { Text("Send as link") }
-                    }
-                    TextButton(onClick = onSharedContentHandled) { Text("Cancel") }
-                }
-            },
-        )
-    }
+
 }
 
 /** An agent's page: grants and activity from the coordinator's agents, export through the system's Save dialog. */

@@ -360,7 +360,7 @@ enum FeatureStateDecoding: Equatable {
 /// Update all (UpdateAllProtocol.swift) adds updates_draft1, then screen sharing screen_draft1, text messages sms_draft1
 /// settings sync settings_sync_draft1, fast transfers files_fast_draft1, codes from email email_codes_draft1 and
 /// the six agent device keys, then codes_detect_draft1 (last). Android has the same list in the same order.
-let knownDraftFeatureKeys = [clipboardFilesFeatureKey, foldersFeatureKey, placesFeatureKey, smsCodesFeatureKey,
+let knownDraftFeatureKeys = ["device_presence_draft1", "share_receive_draft1", clipboardFilesFeatureKey, foldersFeatureKey, placesFeatureKey, smsCodesFeatureKey,
                              foldersReceiveFeatureKey, filesBrowseFeatureKey,
                              // Automation (v0.9). Connection health has no key (no wire change).
                              macActionsFeatureKey, linksOpenFeatureKey, focusSyncFeatureKey, cameraFeatureKey,
