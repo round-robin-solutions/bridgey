@@ -1133,7 +1133,7 @@
 "quick.link.tab" = "Отправить текущую вкладку %@";
 "quick.link.tab.none" = "Отправить текущую вкладку браузера";
 "settings.links.openRightAway" = "Сразу открывать ссылки с телефонов";
-"settings.links.openRightAway.detail" = "«Открыть на Mac» в меню «Поделиться» на телефоне открывает ссылку в браузере. Если выключено, ссылка ждёт, пока вы откроете её здесь.";
+"settings.links.openRightAway.detail" = "Ссылки с телефона открываются в браузере. Выключите, чтобы оставлять их в Bridgey в строке меню.";
 "settings.macActions" = "Действия на Mac";
 
 /* Shortcuts and Siri (App Intents) */

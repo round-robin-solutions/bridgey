@@ -34,7 +34,7 @@ class SharedLinkResultTest {
         assertFalse(work.isCompleted)
         reply("work", "work", true)
         assertEquals(LinkSendResult.Outcome.OPENED, work.await().first)
-        assertNull(actions.linkResult.value, "directed shares do not consume the old selected-Mac result stream")
+        assertNull("directed shares do not consume the old selected-Mac result stream", actions.linkResult.value)
     }
     @Test fun disabledAndReplacedSessionsCannotSend() = runBlocking {
         var sends = 0

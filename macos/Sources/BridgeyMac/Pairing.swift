@@ -5422,11 +5422,6 @@ final class PairingCoordinator: ObservableObject {
         devicePresence.update(subscribers: Set(peers))
     }
 
-    private func recordConnectedActivity(_ kind: ActivityKind) {
-        guard case let .connected(deviceID, name) = state else { return }
-        recordActivity(kind, deviceID: deviceID, deviceName: name)
-    }
-
     func clearNotificationHistory() {
         notificationHistoryStore.clear()
         notificationHistory = []

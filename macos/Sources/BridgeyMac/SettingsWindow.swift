@@ -181,7 +181,7 @@ struct SettingsModel {
     var availableShortcuts: [String]?
     var macActionsAudit: [MacActionAuditEntry] = []
     /// Media and actions > Open links from phones right away.
-    var openLinksRightAway = false
+    var openLinksRightAway = true
     /// Devices > [phone] > Connection health.
     var health: [String: ConnectionHealthSnapshot] = [:]
     /// Devices > [phone] > Battery alerts; a missing phone uses the defaults.
@@ -1065,7 +1065,7 @@ private struct MediaActionsPane: View {
                 FeatureSwitch(feature: feature, model: model, actions: actions, divider: index > 0)
                 if feature == .links {
                     SettingsToggle(title: L10n.text("settings.links.openRightAway", fallback: "Open links from phones right away"),
-                                   subtitle: L10n.text("settings.links.openRightAway.detail", fallback: "Open on Mac from the phone\u{2019}s share sheet opens the link in your browser. Off: it waits for you to open it here."),
+                                   subtitle: L10n.text("settings.links.openRightAway.detail", fallback: "Links shared from your phone open in the browser. Turn this off to keep them in Bridgey's menu bar."),
                                    isOn: model.openLinksRightAway, set: actions.setOpenLinksRightAway)
                         .disabled(model.globalFeatures[.links] == false)
                 }

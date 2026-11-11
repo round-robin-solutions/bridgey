@@ -126,8 +126,12 @@ class SendToMacModel(application: Application) : AndroidViewModel(application) {
             return
         }
         refresh()
+        if (flow.value.phase == SharePhase.GRACE && app.settings.state.value.shareAlwaysAsk) {
+            mutableFlow.value = flow.value.change()
+            return
+        }
         val before = flow.value.let { state ->
-            if (state.phase == SharePhase.FAILED) state.copy(sessionId = macs.value.firstOrNull { it.id == state.target }?.sessionId) else state
+            if (state.phase == SharePhase.FAILED || state.phase == SharePhase.CHOOSING) state.copy(sessionId = macs.value.firstOrNull { it.id == state.target }?.sessionId) else state
         }
         val target = macs.value.firstOrNull { it.id == before.target }
         val unavailable = app.getString(when {
@@ -142,12 +146,13 @@ class SendToMacModel(application: Application) : AndroidViewModel(application) {
         val session = next.sessionId ?: return
         val name = target?.name ?: "Mac"
         viewModelScope.launch {
+            var parked = false
             val (success, message) = try { when {
                 shared.link != null -> {
                     val (outcome, reason) = pairing.quickActions.sendSharedLink(shared.link!!, id, session)
                     when (outcome) {
                         LinkSendResult.Outcome.OPENED -> true to app.getString(R.string.open_on_mac_opened, name)
-                        LinkSendResult.Outcome.QUEUED -> true to app.getString(R.string.share_parked, name)
+                        LinkSendResult.Outcome.QUEUED -> { parked = true; true to app.getString(R.string.share_parked, name) }
                         LinkSendResult.Outcome.NOT_CONFIRMED -> false to app.getString(R.string.share_unconfirmed, name)
                         else -> false to app.getString(when (reason) {
                             "rate_limited" -> R.string.share_rate_limited
@@ -176,7 +181,7 @@ class SendToMacModel(application: Application) : AndroidViewModel(application) {
                 false to app.getString(R.string.share_file_failed, name)
             }
             if (success) app.settings.setLastSharedMac(id)
-            mutableFlow.value = flow.value.finish(success, message)
+            mutableFlow.value = flow.value.finish(success, message, parked)
         }
     }
 

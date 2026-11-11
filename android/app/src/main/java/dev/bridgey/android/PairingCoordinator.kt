@@ -2413,7 +2413,13 @@ class PairingCoordinator(
     private fun sendQuickPayloadTo(current: Session?, kind: String, payload: JSONObject): Boolean {
         if (current == null || current.pairingKey == null) return false
         val data = payload.toString().toByteArray(Charsets.UTF_8)
-        scope.launch { sendEncrypted(current, kind, data) }
+        scope.launch {
+            if (kind == "quick.request") {
+                val feature = BridgeyFeature.entries.firstOrNull { it.key == payload.optString("feature") }
+                if (feature == null || !isFeatureAvailable(feature, current.remoteDeviceId)) return@launch
+            }
+            sendEncrypted(current, kind, data)
+        }
         return true
     }
 

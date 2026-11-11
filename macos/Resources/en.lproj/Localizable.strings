@@ -1133,7 +1133,7 @@
 "quick.link.tab" = "Send the Current %@ Tab";
 "quick.link.tab.none" = "Send the Current Browser Tab";
 "settings.links.openRightAway" = "Open links from phones right away";
-"settings.links.openRightAway.detail" = "Open on Mac from the phone’s share sheet opens the link in your browser. Off: it waits for you to open it here.";
+"settings.links.openRightAway.detail" = "Links shared from your phone open in the browser. Turn this off to keep them in Bridgey's menu bar.";
 "settings.macActions" = "Mac actions";
 
 /* Shortcuts and Siri (App Intents) */

@@ -20,7 +20,7 @@ fun shareDestination(macs: List<ShareMac>, lastShared: String?, now: Long): Stri
     return active?.first ?: eligible.firstOrNull { it.id == lastShared }?.id ?: eligible.singleOrNull()?.id
 }
 
-enum class SharePhase { CHOOSING, GRACE, SENDING, SUCCEEDED, FAILED, CANCELLED }
+enum class SharePhase { CHOOSING, GRACE, SENDING, SUCCEEDED, PARKED, FAILED, CANCELLED }
 data class ShareFlow(
     val phase: SharePhase,
     val target: String? = null,
@@ -46,6 +46,6 @@ data class ShareFlow(
         return if (mac == null) copy(phase = SharePhase.FAILED, message = unavailable)
             else copy(phase = SharePhase.SENDING, message = null)
     }
-    fun finish(success: Boolean, message: String): ShareFlow = if (phase == SharePhase.SENDING)
-        copy(phase = if (success) SharePhase.SUCCEEDED else SharePhase.FAILED, message = message) else this
+    fun finish(success: Boolean, message: String, parked: Boolean = false): ShareFlow = if (phase == SharePhase.SENDING)
+        copy(phase = if (!success) SharePhase.FAILED else if (parked) SharePhase.PARKED else SharePhase.SUCCEEDED, message = message) else this
 }

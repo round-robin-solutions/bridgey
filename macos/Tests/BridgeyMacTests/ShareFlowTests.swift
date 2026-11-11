@@ -6,6 +6,7 @@ final class ShareFlowTests: XCTestCase {
         let name = "BridgeyShareTest.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
         defer { defaults.removePersistentDomain(forName: name) }
+        XCTAssertEqual(SetupSetting.openLinksRightAway.defaultValue, "true")
         XCTAssertTrue(BridgeySettings(defaults: defaults).openLinksRightAway)
         defaults.set(false, forKey: "settings.links.openRightAway")
         XCTAssertFalse(BridgeySettings(defaults: defaults).openLinksRightAway)

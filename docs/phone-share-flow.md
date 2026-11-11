@@ -17,7 +17,7 @@ The phone chooses among connected, trusted Macs with the required feature enable
 
 Automatic sending has a visible 1.5-second grace period with **Change** and **Cancel**. Backgrounding pauses it; returning starts a full grace period. Change cancels automatic sending and opens the list. The destination and authenticated session are fixed before dispatch. A disconnect, replacement session or permission change fails that attempt instead of choosing another Mac. Retry is an explicit action and may use the named Mac's new session. Rotation preserves the operation; process death requires a fresh choice.
 
-Links request browser opening. Unset **Open links from phones right away** now means on; explicit off stays off. With it off, the newest link replaces the parked one and the phone explains how to find it in Bridgey's menu bar. Explicit shares keep the three-second per-phone rate limit. Browser failures, rate limits and delivery timeouts get visible results. Success closes the sheet after 1.6 seconds.
+Links request browser opening. Unset **Open links from phones right away** now means on; explicit off stays off. With it off, the newest link replaces the parked one and the phone explains how to find it in Bridgey's menu bar. Explicit shares keep the three-second per-phone rate limit. Browser failures, rate limits and delivery timeouts get visible results. Opened, copied and completed file sends close the sheet after 1.6 seconds. A parked link keeps its directions visible until Close.
 
 Plain text uses the named Mac's Clipboard grant and normal delivery acknowledgement. `share_receive_draft1` adds `clipboard.share`, which shows a small notification with only the phone name. Older Macs receive `clipboard.update`. Text over 32 KiB asks to be sent as a file. Files use the normal transfer queue; the sheet waits for its own batch and retries only failed files.
 
@@ -40,3 +40,19 @@ Any foreground app can explicitly launch Android's exported share activity. Andr
 Results and screenshots are recorded here after live checks. No installed Bridgey app, real phone setting or real Mac pairing may be changed for this acceptance run. Test builds use their own app/bundle IDs, support folders, ports and Handoff preference domain. Release signing identities are not used.
 
 The throwaway Mac's debug controls add `share-presence` (active/idle/locked/system), `share-links-now` (on/off) and `share-browser` (an absolute executable path). They run only with `BridgeyTestInstance`; the browser hook lets acceptance open an owned agent-browser tab without touching an everyday browser. Forced presence tests exercise the real publisher, encrypted session, phone store and routing. They do not prove transitions across three physical Macs.
+
+### Check results, 11 November 2026
+
+- Android: debug and unsigned minified release builds, lint, and 68 scoped unit/contract/vector/search/screenshot checks passed on the backup Mac. The personal Mac also built both variants with the Rust core.
+- Mac: 23 focused tests passed on the personal Mac against the first implementation snapshot (`af72ece`). Later setup-default, search/copy and parked-sender changes need the queued current-revision Mac test run. The normal app and isolated test bundles built on the backup Mac with SDK 26.5. Its default SDK 27.2 has a missing SwiftUI macro plugin; the CLT installation also lacks XCTest, so full Mac tests remain for RR CI.
+- Python: all 103 checks passed on contabo, including protocol coverage and generated tables.
+- Live: the test-signed minified APK launched and completed setup on `bridgey-api36`, under the separate `in.roundrobin.bridgey.shareqa` ID.
+- Blocked: the device tool twice returned `android-app-close-timeout` while stopping the emulator's existing Bridgey process, including its prescribed debug retry. Device driving stopped. Link opening on the active Mac, Always ask, lock/idle fallback, offline rows, actual light/dark share captures and performance acceptance remain open. No adb/SSH UI workaround was used. RR CI is queued.
+
+The PNGs below are **rendered Robolectric fixtures**, not live emulator evidence. They show the actual Compose sheet at 390 × 844 dp. Both palettes, active/preselected and offline rows, grace, failure, success and long names were inspected. No visible text or button clipping was found. Timing and performance are not certified from these images.
+
+| Light | Dark |
+| --- | --- |
+| ![Rendered light chooser](screenshots/share-flow/rendered-chooser-light.png) | ![Rendered dark chooser](screenshots/share-flow/rendered-chooser-dark.png) |
+
+[Grace](screenshots/share-flow/rendered-grace-light.png), [failure](screenshots/share-flow/rendered-failure-dark.png), [success](screenshots/share-flow/rendered-opened-light.png), [long name](screenshots/share-flow/rendered-long-name-dark.png).

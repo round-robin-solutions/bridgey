@@ -65,6 +65,7 @@ class ShareFlowTest {
         assertEquals(sending, sending.send(listOf(a), "duplicate"))
         assertEquals(sending, sending.change())
         assertEquals(SharePhase.SUCCEEDED, sending.finish(true, "Opened").phase)
+        assertEquals(SharePhase.PARKED, sending.finish(true, "Find it in the menu bar", parked = true).phase)
         val failed = sending.finish(false, "timeout")
         assertEquals(SharePhase.SENDING, failed.send(listOf(a), "offline").phase)
         assertEquals(SharePhase.CHOOSING, failed.change().phase)
