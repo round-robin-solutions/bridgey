@@ -33,6 +33,7 @@ final class QuickActions: ObservableObject {
     var send: (String, [String: Any]) -> Bool = { _, _ in false }
     /// Tells the activity stream that a link was delivered or received (never the address).
     var onActivity: (ActivityKind, String) -> Void = { _, _ in }
+    private var receivedLinkDeviceID: String?
     private var pending: String?
     private var timeout: Task<Void, Never>?
     private var sequence = 0
@@ -106,6 +107,7 @@ final class QuickActions: ObservableObject {
             let accepted = usable && (action == "offer" || action == "open")
             if accepted {
                 receivedLink = link
+                receivedLinkDeviceID = deviceID
                 status = "Link received"
                 NSSound(named: NSSound.Name("Glass"))?.play()
                 onActivity(.linkReceived, deviceID)
@@ -115,11 +117,11 @@ final class QuickActions: ObservableObject {
     }
 
     func openLink() {
-        guard available(.links), let link = receivedLink.flatMap(validatedWebLink), let url = URL(string: link) else { return }
+        guard receivedLinkDeviceID.map({ availableFor(.links, $0) }) ?? available(.links), let link = receivedLink.flatMap(validatedWebLink), let url = URL(string: link) else { return }
         if NSWorkspace.shared.open(url) { receivedLink = nil } else { status = "Could not open your browser" }
     }
-    func dismissLink() { receivedLink = nil }
+    func dismissLink() { receivedLink = nil; receivedLinkDeviceID = nil }
     /// A line for the panel from another quick action (the browser tab).
     func showStatus(_ text: String) { status = text }
-    func reset() { timeout?.cancel(); pending = nil; receivedLink = nil; status = nil }
+    func reset() { timeout?.cancel(); pending = nil; receivedLink = nil; receivedLinkDeviceID = nil; status = nil }
 }

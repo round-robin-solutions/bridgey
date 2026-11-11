@@ -1691,6 +1691,10 @@ class PairingCoordinator(
                 finish(ClipboardSendResult.NOT_CONNECTED)
                 return@launch
             }
+            if (!isFeatureAvailable(BridgeyFeature.CLIPBOARD, current.remoteDeviceId)) {
+                finish(ClipboardSendResult.DISABLED)
+                return@launch
+            }
             val messageId = UUID.randomUUID().toString()
             pendingClipboardSends[messageId] = PendingClipSend(current.remoteDeviceId, finish)
             clipboardOutbox.supersede(SessionClipLink(current))
@@ -1699,7 +1703,7 @@ class PairingCoordinator(
             val plaintext = richContent?.encode() ?: text.toByteArray(Charsets.UTF_8)
             val encrypted = Crypto.encrypt(current.pairingKey!!, plaintext)
             val message = Message(
-                kind = if (explicitShare && registry.state(current.remoteDeviceId)?.remoteShareReceive == true) "clipboard.share" else if (richContent == null) "clipboard.update" else "clipboard.rich",
+                kind = if (explicitShare && registry.state(current.remoteDeviceId)?.remoteShareReceive == true) ShareReceiveKinds.TEXT else if (richContent == null) "clipboard.update" else "clipboard.rich",
                 sessionId = current.id,
                 messageId = messageId,
                 nonce = encrypted.nonce,
@@ -1714,7 +1718,7 @@ class PairingCoordinator(
             mutableClipboardStatus.value = "Sending…"
             BridgeyLogging.line(LogLines.clipboard(BridgeyLogging.policy, "sent", text.takeUnless { sensitive }))
             delay(3_000)
-            if (pendingClipboardSends.containsKey(messageId) && registry.isActive(current)) {
+            if (pendingClipboardSends.containsKey(messageId) && registry.isActive(current) && isFeatureAvailable(BridgeyFeature.CLIPBOARD, current.remoteDeviceId)) {
                 if (!current.send(message)) {
                     takePendingClip(messageId)?.invoke(ClipboardSendResult.CONNECTION_LOST)
                     mutableClipboardStatus.value = "Connection lost"
@@ -6335,3 +6339,7 @@ internal fun fileOfferPayload(transferId: String, name: String, mimeType: String
 
 /** A clip send waiting for [deviceId]'s answer. */
 private class PendingClipSend(val deviceId: String, val callback: (ClipboardSendResult) -> Unit)
+
+private object ShareReceiveKinds {
+    const val TEXT = "clipboard.share"
+}

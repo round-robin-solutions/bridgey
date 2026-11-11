@@ -84,7 +84,7 @@ f("CRLF line ending", j({"kind":"ping.ack","sessionId":S}), {"kind":"ping.ack","
 f("frame of 65,536 bytes with CRLF", None, {"kind":"pairing.offer","sessionId":S,"deviceName":"@PAD@"}, padTo=65536, lineEnding="\r\n")
 
 features_all = {"clipboard":True,"files":True,"notifications":True,"battery":True,"find_device":True,"ping":True,"links":True,"media":True,"calls":True,"remote_input_draft1":False}
-drafts_none = {"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False,"folders_receive_draft1":False,"files_browse_draft1":False,
+drafts_none = {"device_presence_draft1":False,"share_receive_draft1":False,"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False,"folders_receive_draft1":False,"files_browse_draft1":False,
                "mac_actions_draft1":False,"links_open_draft1":False,"focus_sync_draft1":False,"camera_draft1":False,
                "updates_draft1":False,"screen_draft1":False,"sms_draft1":False,"settings_sync_draft1":False,
                "connect_draft1":False,"files_fast_draft1":False,"email_codes_draft1":False,

@@ -27,4 +27,7 @@
     <string name="share_when">При отправке</string>
     <string name="share_auto">На Mac, которым я пользуюсь</string>
     <string name="share_ask">Всегда спрашивать</string>
+    <string name="share_disconnected">%1$s не в сети. Повторите после подключения.</string>
+    <string name="share_not_allowed">Отправка выключена для %1$s.</string>
+    <string name="share_reconnected">%1$s подключился заново. Повторите попытку.</string>
 </resources>

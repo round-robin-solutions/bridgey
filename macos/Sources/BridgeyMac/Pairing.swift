@@ -6886,6 +6886,33 @@ extension PairingCoordinator {
         }
         if takeTestCommand("allow") != nil { armPairing() }
         if let target = takeTestCommand("pair-address") { pairTailnet(target) }
+        // Throwaway-only share acceptance controls. They never change OS activity or real-app settings.
+        if let presence = takeTestCommand("share-presence") {
+            switch presence {
+            case "active": devicePresence.sample = { .available(idleSeconds: 0) }
+            case "idle": devicePresence.sample = { .available(idleSeconds: 300) }
+            case "locked": devicePresence.sample = { .locked }
+            default: devicePresence.sample = DevicePresenceMonitor.systemSample
+            }
+            devicePresence.tick(force: true)
+        }
+        if let value = takeTestCommand("share-links-now") { settings.setOpenLinksRightAway(value == "on") }
+        if let path = takeTestCommand("share-browser"), path.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: path) {
+            // Let live tests open an owned agent-browser tab instead of the person's everyday browser.
+            quickActions.openURL = { [weak self] url in
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: path)
+                process.arguments = [url.absoluteString]
+                process.standardOutput = FileHandle.nullDevice
+                process.standardError = FileHandle.nullDevice
+                do { try process.run(); process.waitUntilExit() } catch { return false }
+                let opened = process.terminationStatus == 0
+                if opened, let self {
+                    try? url.absoluteString.write(to: self.testControlDirectory.appendingPathComponent("share-opened-url"), atomically: true, encoding: .utf8)
+                }
+                return opened
+            }
+        }
         if takeTestCommand("clipboard") != nil { sendClipboard() }
         if let engine = takeTestCommand("codes") {
             if let chosen = CodeEngine(rawValue: engine) {

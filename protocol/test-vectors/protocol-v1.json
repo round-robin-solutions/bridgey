@@ -474,6 +474,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": true,
      "folders_draft1": true,
      "places_draft1": false,
@@ -538,6 +540,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": true,
      "folders_draft1": true,
      "places_draft1": true,
@@ -604,6 +608,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": true,
      "folders_draft1": true,
      "places_draft1": false,
@@ -666,6 +672,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -730,6 +738,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -790,6 +800,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -849,6 +861,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -909,6 +923,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -968,6 +984,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1028,6 +1046,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1087,6 +1107,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1147,6 +1169,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1206,6 +1230,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1265,6 +1291,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1324,6 +1352,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1386,6 +1416,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1445,6 +1477,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1504,6 +1538,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1564,6 +1600,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1624,6 +1662,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1684,6 +1724,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1744,6 +1786,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1803,6 +1847,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1862,6 +1908,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -1922,6 +1970,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": true,
      "places_draft1": false,
@@ -1975,6 +2025,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -2032,6 +2084,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,
@@ -2086,6 +2140,8 @@
      "remote_input_draft1": false
     },
     "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
      "clipboard_files_draft1": false,
      "folders_draft1": false,
      "places_draft1": false,

@@ -583,7 +583,7 @@ Never the code.
 
 Answered by `quick.result`.
 
-Edition extension (links_open_draft1): Open on Mac sends links action open. The Mac opens the link at once only when its own Open links from phones right away setting is on (off by default), at most one link per phone every 3 seconds; otherwise it queues the link like offer.
+Edition extension (links_open_draft1): Open on Mac sends links action open. The Mac opens the link at once only when its own Open links from phones right away setting is on (on when unset, explicit off preserved), at most one explicit link per phone every 3 seconds; otherwise it replaces the parked link in the menu bar.
 
 `quick.result`
 

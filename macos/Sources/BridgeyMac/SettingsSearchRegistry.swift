@@ -167,6 +167,10 @@ enum SettingsSearchRegistry {
                 L10n.text("settings.clipboardEager.detail", fallback: "Smaller copies move as soon as you copy, so pasting is instant."), ["size", "limit", "mb", "размер"]),
             row("clipboard.shortcut", .clipboard, section: shortcutCard, ShortcutAction.clipboard.displayTitle, nil, shortcut + clipboard),
 
+            row("notifications.presence", .notifications, L10n.text("settings.presence.share", fallback: "Share when I'm using this Mac"),
+                L10n.text("settings.presence.detail", fallback: "Helps your phone send to this Mac. Only activity status and time since input are shared."),
+                ["share", "activity", "presence", "active Mac", "активность"]),
+
             // Notifications
             feature(.notifications, .notifications, notifications),
             row("notifications.mac", .notifications, L10n.text("settings.macNotifications", fallback: "Mac notifications"), nil,

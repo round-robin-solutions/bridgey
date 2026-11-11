@@ -549,7 +549,7 @@ private fun FilesPage(state: SettingsState, actions: SettingsActions, listState:
 private fun MediaPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
     SectionPage(SettingsSection.MEDIA, actions, listState) {
         item(key = "share.when") {
-            Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp).settingsSearchHighlight(stringResource(R.string.share_when), RoundedCornerShape(16.dp)), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.share_when), style = BridgeyType.cardTitle, color = BridgeyTheme.colors.onSurface)
                 listOf(false to R.string.share_auto, true to R.string.share_ask).forEach { (ask, label) ->
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(BridgeyTheme.colors.surface1)

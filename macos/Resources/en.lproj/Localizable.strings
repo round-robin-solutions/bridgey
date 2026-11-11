@@ -1727,7 +1727,7 @@
 "localCodes.unavailable" = "Local access couldn't start. Switch off, then on to retry.";
 "localCodes.clear" = "Changes clear saved codes.";
 
-"settings.presence.share" = "Share when I’m using this Mac";
+"settings.presence.share" = "Share when I'm using this Mac";
 "settings.presence.detail" = "Helps your phone send to this Mac. Only activity status and time since input are shared.";
 "share.text.copied" = "Text copied";
 "share.text.from" = "From %@";

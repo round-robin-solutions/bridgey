@@ -956,7 +956,7 @@ private struct NotificationsPane: View {
             NotificationPermissionRow(model: model, actions: actions)
         }
         SettingsCard {
-            SettingsToggle(title: L10n.text("settings.presence.share", fallback: "Share when I’m using this Mac"),
+            SettingsToggle(title: L10n.text("settings.presence.share", fallback: "Share when I'm using this Mac"),
                            subtitle: L10n.text("settings.presence.detail", fallback: "Helps your phone send to this Mac. Only activity status and time since input are shared."),
                            divider: false, isOn: model.shareActivityStatus, set: actions.setShareActivityStatus)
         }

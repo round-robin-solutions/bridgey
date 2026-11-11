@@ -3,6 +3,9 @@ package dev.bridgey.android.ui
 import android.os.SystemClock
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.snap
+import dev.bridgey.android.ui.motion.LocalMotion
+import dev.bridgey.android.ui.motion.springIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -50,7 +53,7 @@ fun SendToMacSheet(
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
         Column(
             Modifier.capWidth().fillMaxWidth().padding(12.dp).navigationBarsPadding()
-                .clip(RoundedCornerShape(28.dp)).background(colors.surface1)
+                .springIn(fromScale = 0.98f, rise = 12.dp).clip(RoundedCornerShape(28.dp)).background(colors.surface1)
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -101,7 +104,7 @@ fun SendToMacSheet(
                     // A determinate grace indicator; no hidden dispatch or looping decorative animation.
                     var started by remember(state.phase) { mutableStateOf(false) }
                     LaunchedEffect(state.phase) { started = true }
-                    val progress by animateFloatAsState(if (started) 1f else 0f, tween(1500), label = "shareGrace")
+                    val progress by animateFloatAsState(if (started) 1f else 0f, if (LocalMotion.current.moves) tween(1500) else snap(), label = "shareGrace")
                     LinearProgressIndicator(progress = { if (state.phase == SharePhase.SENDING) 1f else progress },
                         modifier = Modifier.fillMaxWidth(), color = colors.primary, trackColor = colors.surface2)
                 }
@@ -117,7 +120,9 @@ fun SendToMacSheet(
                         OutlinePillButton(stringResource(R.string.action_cancel), null, cancel)
                         GradientButton(stringResource(R.string.share_change), null, change, height = 48.dp, textStyle = BridgeyType.label)
                     }
-                    SharePhase.FAILED -> {
+                    SharePhase.FAILED -> if (state.target == null) {
+                        OutlinePillButton(stringResource(R.string.action_close), null, cancel)
+                    } else {
                         OutlinePillButton(stringResource(R.string.share_another), null, change, modifier = Modifier.weight(1f))
                         GradientButton(stringResource(R.string.share_retry), null, send, enabled = selected?.eligible == true,
                             height = 48.dp, textStyle = BridgeyType.label)

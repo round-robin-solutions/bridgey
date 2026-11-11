@@ -140,10 +140,7 @@ private enum class PermissionPrompt {
     DirectCalls,
 }
 
-private data class SharedContent(
-    val text: String? = null,
-    val files: List<Uri> = emptyList(),
-)
+
 
 /** Codes from messages: what the activity hands the UI (the link, code access, the Code reader test). */
 /** Agent devices: a bridgey://pair link that opened the app, and an agent notification that was tapped. */
@@ -187,7 +184,6 @@ class MainActivity : ComponentActivity() {
     private var batteryExempt by mutableStateOf(true)
     /** Focus sync: Android lets Bridgey change Do Not Disturb. */
     private var dndAccess by mutableStateOf(false)
-    private var sharedContent by mutableStateOf<SharedContent?>(null)
     /** The launcher's Remote control quick action asked for this Mac. */
     private var remoteTarget by mutableStateOf<String?>(null)
     /** A notification asked for a Settings page (a [SettingsSection] name), e.g. Updates. */
@@ -242,6 +238,12 @@ class MainActivity : ComponentActivity() {
             setContent { BridgeyTheme { UnsupportedProfile() } }
             return
         }
+        // Old explicit share intents use the same sheet without turning Bridgey back on.
+        if (intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            startActivity(Intent(intent).setClass(this, SendToMacActivity::class.java))
+            finish()
+            return
+        }
         bridgey.enableBridgey()
         // Pre-v0.10 onboarding flag: people who finished it skip setup and get the What's new banner.
         val oldOnboardingCompleted = getSharedPreferences("bridgey_onboarding", MODE_PRIVATE)
@@ -251,10 +253,6 @@ class MainActivity : ComponentActivity() {
         pairing = bridgey.pairing
         discovery = bridgey.discovery
         bridgeySettings = bridgey.settings
-        if (intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE) {
-            startActivity(Intent(intent).setClass(this, SendToMacActivity::class.java))
-            setIntent(Intent(this, MainActivity::class.java))
-        }
         remoteTarget = intent.toRemoteTarget()
         if (savedInstanceState == null) settingsTarget = intent.getStringExtra(SettingsDeepLink.EXTRA_SECTION)
         folderQuestion = intent.getStringExtra(FolderNotifier.EXTRA_FOLDER_QUESTION)
@@ -303,8 +301,6 @@ class MainActivity : ComponentActivity() {
                     onExportDiagnostics = ::exportDiagnostics,
                     onAddTile = ::requestAddClipboardTile,
                     screenshotAccess = screenshotAccess,
-                    sharedContent = sharedContent,
-                    onSharedContentHandled = ::clearSharedContent,
                     codes = CodesHooks(
                         linker = companionLinker,
                         access = bridgey.codeAccess,
@@ -523,11 +519,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun clearSharedContent() {
-        sharedContent = null
-        // Prevent a handled share intent from being replayed after configuration changes.
-        setIntent(Intent(this, MainActivity::class.java))
-    }
 
     private fun requestAppNotifications() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -680,8 +671,6 @@ private fun BridgeyApp(
     onExportDiagnostics: () -> Unit,
     onAddTile: () -> Unit,
     screenshotAccess: ScreenshotAccessController,
-    sharedContent: SharedContent?,
-    onSharedContentHandled: () -> Unit,
     codes: CodesHooks,
     setup: SetupHooks,
     agentHooks: AgentHooks,
@@ -1251,7 +1240,7 @@ private fun BridgeyApp(
                             setClipboardFiles = settings::setClipboardFilesEnabled,
                             setClipboardEagerLimit = settings::setClipboardEagerLimit,
                             setScreenshotSend = screenshotAccess::setEnabled,
-                            setShareAlwaysAsk = bridgeySettings::setShareAlwaysAsk,
+                            setShareAlwaysAsk = settings::setShareAlwaysAsk,
                             copyCommand = {
                                 context.getSystemService(ClipboardManager::class.java)
                                     .setPrimaryClip(ClipData.newPlainText("Bridgey", backgroundCommand))

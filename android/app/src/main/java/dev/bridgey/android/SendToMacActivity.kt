@@ -9,6 +9,11 @@ import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.OneShotPreDrawListener
+import androidx.compose.runtime.CompositionLocalProvider
+import dev.bridgey.android.ui.motion.LocalMotion
+import dev.bridgey.android.ui.motion.resolveMotion
+import dev.bridgey.android.ui.motion.rememberAnimatorScale
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.Lifecycle
@@ -23,6 +28,7 @@ import dev.bridgey.android.sharing.SharePhase
 import dev.bridgey.android.ui.SendToMacSheet
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import java.net.URI
+import kotlin.coroutines.resume
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -120,16 +126,23 @@ class SendToMacModel(application: Application) : AndroidViewModel(application) {
             return
         }
         refresh()
-        val before = flow.value
+        val before = flow.value.let { state ->
+            if (state.phase == SharePhase.FAILED) state.copy(sessionId = macs.value.firstOrNull { it.id == state.target }?.sessionId) else state
+        }
         val target = macs.value.firstOrNull { it.id == before.target }
-        val next = before.send(macs.value, app.getString(R.string.share_unavailable, target?.name ?: "Mac"))
+        val unavailable = app.getString(when {
+            target?.sessionId == null -> R.string.share_disconnected
+            target?.allowed != true -> R.string.share_not_allowed
+            else -> R.string.share_reconnected
+        }, target?.name ?: "Mac")
+        val next = before.send(macs.value, unavailable)
         mutableFlow.value = next
         if (next.phase != SharePhase.SENDING || before.phase == SharePhase.SENDING) return
         val id = next.target ?: return
         val session = next.sessionId ?: return
         val name = target?.name ?: "Mac"
         viewModelScope.launch {
-            val (success, message) = when {
+            val (success, message) = try { when {
                 shared.link != null -> {
                     val (outcome, reason) = pairing.quickActions.sendSharedLink(shared.link!!, id, session)
                     when (outcome) {
@@ -157,6 +170,11 @@ class SendToMacModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                false to app.getString(R.string.share_file_failed, name)
+            }
             if (success) app.settings.setLastSharedMac(id)
             mutableFlow.value = flow.value.finish(success, message)
         }
@@ -166,7 +184,15 @@ class SendToMacModel(application: Application) : AndroidViewModel(application) {
         var ids = emptyList<String>()
         val batch = remainingFiles
         if (!pairing.sendSharedFiles(batch, id, session) { ids = it }) return false to app.getString(R.string.share_unavailable, name)
-        val ended = pairing.fileTransfers.first { states -> ids.all { states[it]?.active == false } }
+        // Retain terminal results as they arrive, even when the normal transfer history is pruned.
+        val ended = mutableMapOf<String, FileTransferState?>()
+        pairing.fileTransfers.first { states ->
+            ids.filterNot(ended::containsKey).forEach { transfer ->
+                val row = states[transfer]
+                if (row == null || !row.active) ended[transfer] = row
+            }
+            ended.size == ids.size
+        }
         val failed = ids.indices.filter { ended[ids[it]]?.outcome != TransferEnd.SENT }
         remainingFiles = failed.map { batch[it] }
         return if (failed.isEmpty()) true to app.getString(R.string.share_files_sent, name)
@@ -179,21 +205,35 @@ class SendToMacActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         if (!(application as BridgeyApplication).isPrimaryUser) { finish(); return }
-        val model = ViewModelProvider(this)[SendToMacModel::class.java]
+        // A direct factory keeps the release path independent of reflective constructor retention.
+        val factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T = SendToMacModel(application) as T
+        }
+        val model = ViewModelProvider(this, factory)[SendToMacModel::class.java]
         model.initialize(intent, savedInstanceState != null)
         setContent {
             BridgeyTheme {
                 val flow by model.flow.collectAsStateWithLifecycle()
                 val macs by model.macs.collectAsStateWithLifecycle()
-                SendToMacSheet(flow, macs, model.host, model.isFileShare, model::choose, model::send, model::change) {
-                    model.cancel()
-                    finish()
+                val reduceMotion by (application as BridgeyApplication).uiPreferences.reduceMotion.collectAsStateWithLifecycle()
+                CompositionLocalProvider(LocalMotion provides resolveMotion(rememberAnimatorScale(), reduceMotion)) {
+                    SendToMacSheet(flow, macs, model.host, model.isFileShare, model::choose, model::send, model::change) {
+                        model.cancel()
+                        finish()
+                    }
                 }
             }
         }
         // Hidden or backgrounded activities cannot finish the automatic countdown.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                // Count only after the sheet can actually paint, including slow cold starts.
+                kotlinx.coroutines.suspendCancellableCoroutine<Unit> { ready ->
+                    val listener = OneShotPreDrawListener.add(window.decorView) { if (ready.isActive) ready.resume(Unit) }
+                    ready.invokeOnCancellation { listener.removeListener() }
+                    window.decorView.invalidate()
+                }
                 model.flow.map { it.phase }.distinctUntilChanged().collectLatest { phase ->
                     when (phase) {
                         SharePhase.GRACE -> { delay(1_500); model.send() }
