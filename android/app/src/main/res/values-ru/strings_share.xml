@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="share_to_mac">Отправить на Mac</string>
+    <string name="share_send">Отправить</string>
+    <string name="share_change">Изменить</string>
+    <string name="share_retry">Повторить</string>
+    <string name="share_another">Другой Mac</string>
+    <string name="share_active">Сейчас используется</string>
+    <string name="share_offline">Не в сети</string>
+    <string name="share_feature_off">Выключено для этого Mac</string>
+    <string name="share_no_mac">Подключите Mac для отправки.</string>
+    <string name="share_nothing">Нечего отправлять. Выберите текст, ссылку или файл.</string>
+    <string name="share_app_off">Включите Bridgey и повторите отправку.</string>
+    <string name="share_sending_soon">Скоро отправится</string>
+    <string name="share_sending">Отправка...</string>
+    <string name="share_unavailable">%1$s отключился или отправка выключена.</string>
+    <string name="share_parked">Ссылка на %1$s. Откройте Bridgey в строке меню.</string>
+    <string name="share_unconfirmed">%1$s не подтвердил получение. Возможно, данные уже пришли.</string>
+    <string name="share_rate_limited">Подождите 3 секунды перед отправкой следующей ссылки на %1$s.</string>
+    <string name="share_browser_failed">%1$s не смог открыть браузер. Повторите попытку.</string>
+    <string name="share_links_off">Ссылки выключены на %1$s.</string>
+    <string name="share_clipboard_off">Буфер обмена выключен на %1$s.</string>
+    <string name="share_text_large">Текст слишком большой для буфера обмена. Отправьте его файлом.</string>
+    <string name="share_copied">Скопировано на %1$s</string>
+    <string name="share_files_sent">Отправлено на %1$s</string>
+    <string name="share_file_failed">Не удалось отправить на %1$s. Повторите попытку.</string>
+    <string name="share_when">При отправке</string>
+    <string name="share_auto">На Mac, которым я пользуюсь</string>
+    <string name="share_ask">Всегда спрашивать</string>
+</resources>

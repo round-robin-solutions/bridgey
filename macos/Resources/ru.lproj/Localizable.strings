@@ -1726,3 +1726,8 @@
 "localCodes.invalid" = "Введите целое число от 1 до 30.";
 "localCodes.unavailable" = "Не удалось включить доступ. Выключите и включите снова.";
 "localCodes.clear" = "Изменения удаляют сохранённые коды.";
+
+"settings.presence.share" = "Сообщать, когда я пользуюсь этим Mac";
+"settings.presence.detail" = "Помогает телефону выбрать этот Mac. Передаются только статус и время с последнего ввода.";
+"share.text.copied" = "Текст скопирован";
+"share.text.from" = "От %@";

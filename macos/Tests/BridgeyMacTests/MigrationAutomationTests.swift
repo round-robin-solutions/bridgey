@@ -77,7 +77,7 @@ final class MigrationAutomationTests: XCTestCase {
             try install(fixture)
             let settings = BridgeySettings()
             XCTAssertEqual(settings.globalFeatures[.macActions], false, "\(fixture): Mac actions is off until turned on")
-            XCTAssertFalse(settings.openLinksRightAway, fixture)
+            XCTAssertTrue(settings.openLinksRightAway, fixture)
             XCTAssertEqual(MacActionsConfigStore(defaults: .standard).load(), MacActionsConfig(), fixture)
             XCTAssertEqual(BatteryAlertSettings(defaults: .standard).thresholds(for: F.phoneA), .default, fixture)
             XCTAssertEqual(FocusSync(defaults: .standard).settings, FocusSyncSettings(), fixture)

@@ -119,6 +119,7 @@ struct SettingsModel {
     var receiveFolderPath = ""
     var notificationsAuthorized = true
     var notificationPermissionDetermined = true
+    var shareActivityStatus = true
     var historyEnabled = false
     var history: [NotificationHistoryItem] = []
     /// Notifications > Codes from messages.
@@ -244,6 +245,7 @@ struct SettingsModel {
 }
 
 struct SettingsActions {
+    var setShareActivityStatus: (Bool) -> Void = { _ in }
     var setDeviceName: (String) -> Void = { _ in }
     var disconnect: () -> Void = {}
     var setLaunchAtLogin: (Bool) -> Void = { _ in }
@@ -952,6 +954,11 @@ private struct NotificationsPane: View {
         SettingsCard {
             FeatureSwitch(feature: .notifications, model: model, actions: actions)
             NotificationPermissionRow(model: model, actions: actions)
+        }
+        SettingsCard {
+            SettingsToggle(title: L10n.text("settings.presence.share", fallback: "Share when I’m using this Mac"),
+                           subtitle: L10n.text("settings.presence.detail", fallback: "Helps your phone send to this Mac. Only activity status and time since input are shared."),
+                           divider: false, isOn: model.shareActivityStatus, set: actions.setShareActivityStatus)
         }
         CodesCard(model: model, actions: actions)
         LocalAgentCodesCard(options: model.localAgentCodeOptions, unavailable: model.localAgentCodesUnavailable, set: actions.setLocalAgentCodes)
@@ -2018,6 +2025,7 @@ struct LiveSettingsView: View {
         model.notificationsAuthorized = pairing.notificationsAuthorized
         model.notificationPermissionDetermined = pairing.notificationPermissionDetermined
         model.historyEnabled = settings.notificationHistoryEnabled
+        model.shareActivityStatus = settings.shareActivityStatus
         model.history = pairing.notificationHistory
         model.codesEnabled = settings.codesEnabled
         model.codesAutoCopy = settings.codesAutoCopy
@@ -2189,6 +2197,7 @@ struct LiveSettingsView: View {
         actions.openTailscaleSetup = { pairing.openTailscaleSetup() }
         actions.checkTailscale = { Task { await pairing.refreshTailnet() } }
         actions.enableNotifications = { pairing.enableNotifications() }
+        actions.setShareActivityStatus = { settings.setShareActivityStatus($0) }
         actions.setHistoryEnabled = { settings.setNotificationHistoryEnabled($0) }
         actions.setCodesEnabled = { on in
             // Off from the row that reads on while it waits: the wait ends and the off syncs as a normal edit.

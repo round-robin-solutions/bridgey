@@ -405,6 +405,8 @@ final class PairingCoordinator: ObservableObject {
     }
     private var discoveryCancellable: AnyCancellable?
     private var settingsCancellable: AnyCancellable?
+    private var presenceSettingsCancellable: AnyCancellable?
+    private let devicePresence = DevicePresenceMonitor()
     private var lastPeers: [DiscoveredPeer] = []
     /// Reconnects. Both sides keep trying a dropped trusted phone at its known addresses, whoever
     /// dialled before; the session registry keeps one socket when both dial at once.
@@ -614,7 +616,12 @@ final class PairingCoordinator: ObservableObject {
         quickActions.available = { [weak self] in self?.isFeatureAvailable($0) == true }
         quickActions.availableFor = { [weak self] feature, id in self?.isFeatureAvailable(feature, for: id) == true }
         quickActions.send = { [weak self] in self?.sendQuickPayload(kind: $0, payload: $1) == true }
-        quickActions.onActivity = { [weak self] kind in self?.recordConnectedActivity(kind) }
+        quickActions.onActivity = { [weak self] kind, deviceID in
+            guard let self else { return }
+            let id = deviceID.isEmpty ? self.session?.remoteDeviceID : deviceID
+            guard let id else { return }
+            self.recordActivity(kind, deviceID: id, deviceName: self.registry.session(for: id)?.peerName ?? self.trustedName(id))
+        }
         quickActions.openRightAway = { [weak self] in self?.settings.openLinksRightAway == true }
         macActions.isAllowed = { [weak self] id in self?.isFeatureAvailable(.macActions, for: id) == true }
         macActions.send = { [weak self] id, kind, payload in
@@ -629,6 +636,15 @@ final class PairingCoordinator: ObservableObject {
             }
         }
         focusSync.onSettingsChange = { [weak self] in self?.sendFeatureState() }
+        devicePresence.send = { [weak self] peer, packet in
+            guard let self, let current = self.registry.session(for: peer.deviceID),
+                  current.id == peer.sessionID, self.devicePresencePermitted(current) else { return }
+            _ = self.sendQuickPayload(kind: "presence.state", payload: packet.payload, to: current)
+        }
+        presenceSettingsCancellable = settings.$shareActivityStatus.removeDuplicates().dropFirst()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.sendFeatureState() }
+            }
         wireSettingsSync()
         camera.send = { [weak self] id, payload in
             guard let self, let current = self.registry.session(for: id) else { return false }
@@ -1078,7 +1094,7 @@ final class PairingCoordinator: ObservableObject {
 
     /// Recomputes the per-phone list and the selected phone's mirrors (state, features, battery).
     private func publish() {
-        defer { phoneFilesController.phonesChanged() }
+        defer { phoneFilesController.phonesChanged(); refreshDevicePresence() }
         publishHealth()
         let phones = registry.connections
         if connectedPhones != phones { connectedPhones = phones }
@@ -2933,6 +2949,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteSmsCodes = draftKeys[smsCodesFeatureKey] == true
                     link.remoteEmailCodes = draftKeys[emailCodesFeatureKey] == true
                     link.remoteFocusSync = draftKeys[focusSyncFeatureKey] == true
+                    link.remoteDevicePresence = draftKeys[devicePresenceFeatureKey] == true
                     link.remoteCamera = draftKeys[cameraFeatureKey] == true
                     link.remoteUpdates = draftKeys[updatesFeatureKey] == true
                     if !link.remoteUpdates { link.updateStatus = nil }
@@ -3002,7 +3019,7 @@ final class PairingCoordinator: ObservableObject {
                 receiveClipboardFetch(message, in: current)
             case "clipboard.error":
                 receiveClipboardError(message, in: current)
-            case "clipboard.update", "clipboard.rich":
+            case "clipboard.update", "clipboard.rich", "clipboard.share":
                 guard featureEnabled(.clipboard, current: current) else {
                     current.send(PairingMessage(
                         kind: "clipboard.rejected",
@@ -3043,6 +3060,12 @@ final class PairingCoordinator: ObservableObject {
                     if let html { NSPasteboard.general.setData(Data(html.utf8), forType: .html) }
                     // Automatic clipboard must not send this clip back to the phone.
                     self?.autoClipboard.noteReceived(text: text, changeCount: NSPasteboard.general.changeCount)
+                }
+                if message.kind == "clipboard.share" {
+                    let content = UNMutableNotificationContent()
+                    content.title = L10n.text("share.text.copied", fallback: "Text copied")
+                    content.body = String(format: L10n.text("share.text.from", fallback: "From %@"), current.peerName)
+                    UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "bridgey.share.text", content: content, trigger: nil))
                 }
                 diagnostics.record(category: "clipboard", event: html == nil ? "text_received" : "rich_received")
                 recordClipArrival(hash: AutoClipboardFilter.hash(text), in: current) {
@@ -3613,6 +3636,7 @@ final class PairingCoordinator: ObservableObject {
     /// Feature state goes to every connected phone (each gets its own per-device settings).
     private func sendFeatureState() {
         for (_, current) in registry.broadcastTargets({ _, _ in true }) { sendFeatureState(to: current) }
+        refreshDevicePresence()
     }
 
     private func sendFeatureState(to current: Session) {
@@ -3648,6 +3672,8 @@ final class PairingCoordinator: ObservableObject {
         features[linksOpenFeatureKey] = settings.isEnabled(.links, for: current.remoteDeviceID)
         // Draft, edition only: focus.state, while either Focus direction is on.
         features[focusSyncFeatureKey] = focusSync.advertised
+        features[devicePresenceFeatureKey] = settings.shareActivityStatus && current.remoteProtocol >= 2 && current.envelopeKey != nil
+        features["share_receive_draft1"] = settings.isEnabled(.clipboard, for: current.remoteDeviceID)
         // Draft, edition only: this Mac can ask for photos; they arrive as files.
         features[cameraFeatureKey] = settings.isEnabled(.files, for: current.remoteDeviceID)
         // Draft, edition only: Update all. Always on; whether phones may start this Mac's update is in updates.status.
@@ -5379,6 +5405,21 @@ final class PairingCoordinator: ObservableObject {
             content: content,
             previews: settings.showActivityPreviews
         )
+    }
+
+    private func devicePresencePermitted(_ current: Session) -> Bool {
+        registry.isActive(current) && current.remoteProtocol >= 2 && current.envelopeKey != nil &&
+        settings.shareActivityStatus && trustedDeviceIDs.contains(current.remoteDeviceID) &&
+        !settings.isAgent(current.remoteDeviceID) && registry.state(for: current.remoteDeviceID)?.remoteDevicePresence == true &&
+        registry.state(for: current.remoteDeviceID)?.remoteHandoffTakeover == false
+    }
+
+    private func refreshDevicePresence() {
+        let peers = registry.connectedIDs.compactMap { id -> DevicePresencePeer? in
+            guard let current = registry.session(for: id), devicePresencePermitted(current) else { return nil }
+            return DevicePresencePeer(deviceID: id, sessionID: current.id)
+        }
+        devicePresence.update(subscribers: Set(peers))
     }
 
     private func recordConnectedActivity(_ kind: ActivityKind) {

@@ -79,6 +79,7 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var launchAtLogin = false
     @Published private(set) var loginItemMessage: String?
     @Published private(set) var hasCompletedOnboarding: Bool
+    @Published private(set) var shareActivityStatus: Bool
     @Published private(set) var notificationHistoryEnabled: Bool
     /// Settings > Privacy > Show previews in activity. On by default.
     @Published private(set) var showActivityPreviews: Bool
@@ -128,8 +129,7 @@ final class BridgeySettings: ObservableObject {
     nonisolated static let codesEmailDefault = true
     /// Notifications > Codes from messages > Keep the copy button on screen for. This Mac only, not synced.
     @Published private(set) var codesFloat: CodeFloatSetting
-    /// Media and actions > Open links from phones right away (links_open_draft1). Off by default:
-    /// a link waits for Open on this Mac.
+    /// Media and actions > Open links from phones right away. Unset is on; an explicit off stays off.
     @Published private(set) var openLinksRightAway: Bool
     /// Settings > Text messages (draft sms_draft1): the phone's conversations in the Messages window,
     /// and Reply on its text message notifications. Off by default.
@@ -145,12 +145,12 @@ final class BridgeySettings: ObservableObject {
     /// Connect away from home while nobody chose.
     nonisolated static let connectAwayDefault = true
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
 
     /// Servers (the bridgey command) paired with this Mac directly, over the tailnet. They get nothing here: every feature
     /// reads off for them, whatever the switches say (docs/mesh-and-codes.md, phase 2). Known from their own map
     /// (agent_draft1 with notify_draft1 and ask_draft1) and kept, so a later session is restricted from its first frame.
-    private(set) var agentDevices: Set<String> = Set(UserDefaults.standard.stringArray(forKey: BridgeySettings.agentDevicesKey) ?? [])
+    private(set) var agentDevices: Set<String>
     nonisolated static let agentDevicesKey = "agents.directDevices"
 
     func isAgent(_ deviceID: String?) -> Bool { deviceID.map(agentDevices.contains) ?? false }
@@ -166,12 +166,14 @@ final class BridgeySettings: ObservableObject {
         defaults.set(Array(agentDevices).sorted(), forKey: Self.agentDevicesKey)
     }
 
-    init() {
-        let storedDefaults = UserDefaults.standard
+    init(defaults storedDefaults: UserDefaults = .standard) {
+        defaults = storedDefaults
+        agentDevices = Set(storedDefaults.stringArray(forKey: Self.agentDevicesKey) ?? [])
         let systemName = Host.current().localizedName ?? "Mac"
         deviceName = storedDefaults.string(forKey: "settings.deviceName") ?? systemName
         hasCompletedOnboarding = storedDefaults.bool(forKey: "settings.onboarding.completed")
         notificationHistoryEnabled = storedDefaults.bool(forKey: "settings.notificationHistory.enabled")
+        shareActivityStatus = storedDefaults.object(forKey: "settings.presence.share") as? Bool ?? true
         showActivityPreviews = storedDefaults.object(forKey: "settings.activity.previews") as? Bool ?? true
         reduceMotion = storedDefaults.bool(forKey: "settings.reduceMotion")
         ringForIncomingCalls = storedDefaults.object(forKey: "settings.calls.ring") as? Bool ?? true
@@ -202,7 +204,7 @@ final class BridgeySettings: ObservableObject {
         codesEmailChoice = emailChoice
         codesEmail = emailChoice ?? Self.codesEmailDefault
         codesFloat = CodeFloatSetting.stored(storedDefaults.string(forKey: CodeFloatSetting.defaultsKey))
-        openLinksRightAway = storedDefaults.bool(forKey: "settings.links.openRightAway")
+        openLinksRightAway = storedDefaults.object(forKey: "settings.links.openRightAway") as? Bool ?? true
         smsEnabled = storedDefaults.bool(forKey: "settings.sms.enabled")
         smsKeepOnMac = storedDefaults.object(forKey: "settings.sms.keepOnMac") as? Bool ?? true
         let awayChoice = storedDefaults.object(forKey: "settings.connect.away") as? Bool
@@ -330,6 +332,11 @@ final class BridgeySettings: ObservableObject {
         let created = CodeRelay.newInstallID()
         defaults.set(created, forKey: "settings.codes.installId")
         return created
+    }
+
+    func setShareActivityStatus(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.presence.share")
+        shareActivityStatus = enabled
     }
 
     func setShowActivityPreviews(_ enabled: Bool) {
