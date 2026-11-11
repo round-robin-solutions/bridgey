@@ -118,7 +118,7 @@ fun SendToMacSheet(
                     }
                     SharePhase.GRACE -> {
                         OutlinePillButton(stringResource(R.string.action_cancel), null, cancel)
-                        GradientButton(stringResource(R.string.share_change), null, change, height = 48.dp, textStyle = BridgeyType.label)
+                        OutlinePillButton(stringResource(R.string.share_change), null, change)
                     }
                     SharePhase.FAILED -> if (state.target == null) {
                         OutlinePillButton(stringResource(R.string.action_close), null, cancel)
